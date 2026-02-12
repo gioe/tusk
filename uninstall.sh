@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 #
-# Uninstall claude-taskdb from a Claude Code project.
+# Uninstall claude-tusk from a Claude Code project.
 #
 # Usage:
 #   cd /path/to/your/project
-#   /path/to/claude-taskdb/uninstall.sh
+#   /path/to/claude-tusk/uninstall.sh
 #
 # What it removes:
-#   1. .claude/bin/taskdb + config.default.json
+#   1. .claude/bin/tusk + config.default.json
 #   2. .claude/skills/{check-dupes,groom-backlog,manage-dependencies,next-task,tasks}
 #   3. scripts/check_duplicates.py, scripts/manage_dependencies.py
-#   4. taskdb/ directory (database + config) — requires --delete-data flag
+#   4. tusk/ directory (database + config) — requires --delete-data flag
 #
 # Cleans up empty parent directories (.claude/bin, .claude/skills, scripts)
 # if nothing else remains in them.
@@ -24,7 +24,7 @@ for arg in "$@"; do
     -h|--help)
       echo "Usage: uninstall.sh [--delete-data]"
       echo ""
-      echo "  --delete-data  Also remove taskdb/ (database + config)"
+      echo "  --delete-data  Also remove tusk/ (database + config)"
       exit 0
       ;;
     *)
@@ -41,7 +41,7 @@ if ! git rev-parse --show-toplevel &>/dev/null; then
 fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-echo "Uninstalling claude-taskdb from $REPO_ROOT"
+echo "Uninstalling claude-tusk from $REPO_ROOT"
 
 removed=0
 
@@ -75,7 +75,7 @@ rmdir_if_empty() {
 }
 
 # ── 1. Remove bin files ──────────────────────────────────────────────
-remove_file ".claude/bin/taskdb"
+remove_file ".claude/bin/tusk"
 remove_file ".claude/bin/config.default.json"
 rmdir_if_empty ".claude/bin"
 
@@ -92,11 +92,11 @@ rmdir_if_empty "scripts"
 
 # ── 4. Remove data (opt-in) ─────────────────────────────────────────
 if [[ "$DELETE_DATA" = true ]]; then
-  remove_dir "taskdb"
+  remove_dir "tusk"
 else
-  if [[ -d "$REPO_ROOT/taskdb" ]]; then
+  if [[ -d "$REPO_ROOT/tusk" ]]; then
     echo ""
-    echo "  Note: taskdb/ directory preserved (contains your database)."
+    echo "  Note: tusk/ directory preserved (contains your database)."
     echo "  Re-run with --delete-data to remove it."
   fi
 fi
@@ -106,7 +106,7 @@ rmdir_if_empty ".claude"
 
 echo ""
 if [[ $removed -eq 0 ]]; then
-  echo "Nothing to uninstall — claude-taskdb does not appear to be installed."
+  echo "Nothing to uninstall — claude-tusk does not appear to be installed."
 else
   echo "Uninstall complete ($removed items removed)."
   echo ""
