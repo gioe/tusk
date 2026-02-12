@@ -1,0 +1,266 @@
+#!/usr/bin/env bash
+#
+# taskdb — single entry point for a project's task database.
+#
+# Usage:
+#   taskdb init [--force]        Create the DB with schema + triggers from config
+#   taskdb path                  Print the resolved DB path
+#   taskdb "SELECT ..."          Run a SQL statement
+#   taskdb -header -column "SQL" Pass sqlite3 flags + SQL
+#   taskdb shell                 Open an interactive sqlite3 shell
+#   taskdb config                Print full config JSON
+#   taskdb config <key>          Print config values (domains, task_types, agents, etc.)
+#
+# Configuration:
+#   Project config:  <repo_root>/taskdb/config.json
+#   Fallback:        <install_dir>/config.default.json
+#
+# The DB path is defined here. Everything else reads it from this script.
+
+set -euo pipefail
+
+# ── Resolve paths ────────────────────────────────────────────────────
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Install dir is parent of bin/
+INSTALL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+find_repo_root() {
+  local dir="$PWD"
+  while [[ "$dir" != "/" ]]; do
+    [[ -d "$dir/.git" ]] && echo "$dir" && return
+    dir="$(dirname "$dir")"
+  done
+  echo "$PWD"
+}
+
+REPO_ROOT="$(find_repo_root)"
+DB_DIR="$REPO_ROOT/taskdb"
+DB_PATH="$DB_DIR/tasks.db"
+PROJECT_CONFIG="$DB_DIR/config.json"
+# Default config: check sibling (installed) then parent dir (source repo)
+if [[ -f "$SCRIPT_DIR/config.default.json" ]]; then
+  DEFAULT_CONFIG="$SCRIPT_DIR/config.default.json"
+else
+  DEFAULT_CONFIG="$INSTALL_DIR/config.default.json"
+fi
+
+# ── Config helpers ───────────────────────────────────────────────────
+
+resolve_config() {
+  if [[ -f "$PROJECT_CONFIG" ]]; then
+    echo "$PROJECT_CONFIG"
+  elif [[ -f "$DEFAULT_CONFIG" ]]; then
+    echo "$DEFAULT_CONFIG"
+  else
+    echo >&2 "Error: No config found at $PROJECT_CONFIG or $DEFAULT_CONFIG"
+    exit 2
+  fi
+}
+
+read_config_key() {
+  local key="$1"
+  local config
+  config="$(resolve_config)"
+  python3 -c "
+import json, sys
+with open('$config') as f:
+    cfg = json.load(f)
+val = cfg.get('$key')
+if val is None:
+    sys.exit(1)
+if isinstance(val, list):
+    print('\n'.join(val))
+elif isinstance(val, dict):
+    print(json.dumps(val, indent=2))
+else:
+    print(val)
+"
+}
+
+read_config_json() {
+  local config
+  config="$(resolve_config)"
+  cat "$config"
+}
+
+# ── Generate trigger SQL from config ─────────────────────────────────
+
+generate_triggers() {
+  local config
+  config="$(resolve_config)"
+  python3 -c "
+import json
+
+with open('$config') as f:
+    cfg = json.load(f)
+
+def trigger_sql(column, values):
+    if not values:
+        return ''
+    quoted = ', '.join(f\"'{v}'\" for v in values)
+    label = ', '.join(values)
+    return f'''
+CREATE TRIGGER validate_{column}_insert
+BEFORE INSERT ON tasks FOR EACH ROW
+WHEN NEW.{column} IS NOT NULL AND NEW.{column} NOT IN ({quoted})
+BEGIN SELECT RAISE(ABORT, 'Invalid {column}. Must be one of: {label}'); END;
+
+CREATE TRIGGER validate_{column}_update
+BEFORE UPDATE OF {column} ON tasks FOR EACH ROW
+WHEN NEW.{column} IS NOT NULL AND NEW.{column} NOT IN ({quoted})
+BEGIN SELECT RAISE(ABORT, 'Invalid {column}. Must be one of: {label}'); END;
+'''
+
+# Always enforce these
+print(trigger_sql('status', cfg.get('statuses', ['To Do', 'In Progress', 'Done'])))
+print(trigger_sql('priority', cfg.get('priorities', ['Highest', 'High', 'Medium', 'Low', 'Lowest'])))
+print(trigger_sql('closed_reason', cfg.get('closed_reasons', ['completed', 'expired', 'wont_do', 'duplicate'])))
+
+# Only enforce if configured
+domains = cfg.get('domains', [])
+if domains:
+    print(trigger_sql('domain', domains))
+
+task_types = cfg.get('task_types', [])
+if task_types:
+    print(trigger_sql('task_type', task_types))
+"
+}
+
+# ── Commands ─────────────────────────────────────────────────────────
+
+cmd_path() {
+  echo "$DB_PATH"
+}
+
+cmd_config() {
+  local key="${1:-}"
+  if [[ -z "$key" ]]; then
+    read_config_json
+  else
+    read_config_key "$key"
+  fi
+}
+
+cmd_init() {
+  mkdir -p "$DB_DIR"
+
+  if [[ -f "$DB_PATH" ]]; then
+    echo "Database already exists at $DB_PATH"
+    echo "Use 'taskdb init --force' to recreate (existing data will be lost)."
+    [[ "${1:-}" == "--force" ]] || exit 0
+    echo "Recreating database..."
+    rm "$DB_PATH"
+  fi
+
+  # Copy default config if no project config exists
+  if [[ ! -f "$PROJECT_CONFIG" ]]; then
+    cp "$DEFAULT_CONFIG" "$PROJECT_CONFIG"
+    echo "Created config at $PROJECT_CONFIG — edit to set your project's domains and agents."
+  fi
+
+  # Base schema
+  sqlite3 "$DB_PATH" <<'SCHEMA'
+-- tasks
+CREATE TABLE tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    summary TEXT NOT NULL,
+    description TEXT,
+    status TEXT DEFAULT 'To Do',
+    priority TEXT DEFAULT 'Medium',
+    domain TEXT,
+    assignee TEXT,
+    task_type TEXT,
+    priority_score INTEGER DEFAULT 0,
+    github_pr TEXT,
+    expires_at TEXT,
+    closed_reason TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- task_dependencies
+CREATE TABLE task_dependencies (
+    task_id INTEGER NOT NULL,
+    depends_on_id INTEGER NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (task_id, depends_on_id),
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (depends_on_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    CHECK (task_id != depends_on_id)
+);
+CREATE INDEX idx_task_dependencies_task_id ON task_dependencies(task_id);
+CREATE INDEX idx_task_dependencies_depends_on_id ON task_dependencies(depends_on_id);
+
+-- task_sessions (metrics)
+CREATE TABLE task_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    duration_seconds INTEGER,
+    cost_dollars REAL,
+    tokens_in INTEGER,
+    tokens_out INTEGER,
+    lines_added INTEGER,
+    lines_removed INTEGER,
+    FOREIGN KEY (task_id) REFERENCES tasks(id)
+);
+
+-- task_metrics view
+CREATE VIEW task_metrics AS
+SELECT t.*,
+    COUNT(s.id) as session_count,
+    SUM(s.duration_seconds) as total_duration_seconds,
+    SUM(s.cost_dollars) as total_cost,
+    SUM(s.tokens_in) as total_tokens_in,
+    SUM(s.tokens_out) as total_tokens_out,
+    SUM(s.lines_added) as total_lines_added,
+    SUM(s.lines_removed) as total_lines_removed
+FROM tasks t
+LEFT JOIN task_sessions s ON t.id = s.task_id
+GROUP BY t.id;
+SCHEMA
+
+  # Apply validation triggers from config
+  local triggers
+  triggers="$(generate_triggers)"
+  if [[ -n "$triggers" ]]; then
+    sqlite3 "$DB_PATH" "$triggers"
+  fi
+
+  echo "Initialized task database at $DB_PATH"
+}
+
+cmd_shell() {
+  exec sqlite3 -header -column "$DB_PATH"
+}
+
+cmd_query() {
+  local flags=()
+  local sql=""
+  for arg in "$@"; do
+    if [[ -z "$sql" && "$arg" == -* ]]; then
+      flags+=("$arg")
+    else
+      sql="$arg"
+    fi
+  done
+  if [[ ${#flags[@]} -gt 0 ]]; then
+    exec sqlite3 "${flags[@]}" "$DB_PATH" "$sql"
+  else
+    exec sqlite3 "$DB_PATH" "$sql"
+  fi
+}
+
+# ── Dispatch ─────────────────────────────────────────────────────────
+
+case "${1:-}" in
+  init)   shift; cmd_init "$@" ;;
+  path)   cmd_path ;;
+  config) shift; cmd_config "$@" ;;
+  shell)  cmd_shell ;;
+  "")     echo "Usage: taskdb {init|path|config|shell|\"SQL ...\"}" >&2; exit 1 ;;
+  *)      cmd_query "$@" ;;
+esac

@@ -1,0 +1,8 @@
+{
+  "domains": [],
+  "task_types": ["bug", "feature", "refactor", "test", "docs", "infrastructure"],
+  "statuses": ["To Do", "In Progress", "Done"],
+  "priorities": ["Highest", "High", "Medium", "Low", "Lowest"],
+  "closed_reasons": ["completed", "expired", "wont_do", "duplicate"],
+  "agents": {}
+}
