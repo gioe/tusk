@@ -6,7 +6,7 @@ allowed-tools: Bash
 
 # Manage Dependencies Skill
 
-Manages task dependencies in the project task database (via `taskdb` CLI). Dependencies define which tasks must be completed before another task can be started.
+Manages task dependencies in the project task database (via `tusk` CLI). Dependencies define which tasks must be completed before another task can be started.
 
 ## Commands
 

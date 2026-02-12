@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 #
-# taskdb — single entry point for a project's task database.
+# tusk — single entry point for a project's task database.
 #
 # Usage:
-#   taskdb init [--force]        Create the DB with schema + triggers from config
-#   taskdb path                  Print the resolved DB path
-#   taskdb "SELECT ..."          Run a SQL statement
-#   taskdb -header -column "SQL" Pass sqlite3 flags + SQL
-#   taskdb shell                 Open an interactive sqlite3 shell
-#   taskdb config                Print full config JSON
-#   taskdb config <key>          Print config values (domains, task_types, agents, etc.)
+#   tusk init [--force]        Create the DB with schema + triggers from config
+#   tusk path                  Print the resolved DB path
+#   tusk "SELECT ..."          Run a SQL statement
+#   tusk -header -column "SQL" Pass sqlite3 flags + SQL
+#   tusk shell                 Open an interactive sqlite3 shell
+#   tusk config                Print full config JSON
+#   tusk config <key>          Print config values (domains, task_types, agents, etc.)
 #
 # Configuration:
-#   Project config:  <repo_root>/taskdb/config.json
+#   Project config:  <repo_root>/tusk/config.json
 #   Fallback:        <install_dir>/config.default.json
 #
 # The DB path is defined here. Everything else reads it from this script.
@@ -35,7 +35,7 @@ find_repo_root() {
 }
 
 REPO_ROOT="$(find_repo_root)"
-DB_DIR="$REPO_ROOT/taskdb"
+DB_DIR="$REPO_ROOT/tusk"
 DB_PATH="$DB_DIR/tasks.db"
 PROJECT_CONFIG="$DB_DIR/config.json"
 # Default config: check sibling (installed) then parent dir (source repo)
@@ -148,7 +148,7 @@ cmd_init() {
 
   if [[ -f "$DB_PATH" ]]; then
     echo "Database already exists at $DB_PATH"
-    echo "Use 'taskdb init --force' to recreate (existing data will be lost)."
+    echo "Use 'tusk init --force' to recreate (existing data will be lost)."
     [[ "${1:-}" == "--force" ]] || exit 0
     echo "Recreating database..."
     rm "$DB_PATH"
@@ -261,6 +261,6 @@ case "${1:-}" in
   path)   cmd_path ;;
   config) shift; cmd_config "$@" ;;
   shell)  cmd_shell ;;
-  "")     echo "Usage: taskdb {init|path|config|shell|\"SQL ...\"}" >&2; exit 1 ;;
+  "")     echo "Usage: tusk {init|path|config|shell|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac

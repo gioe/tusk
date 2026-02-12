@@ -1,10 +1,10 @@
-# claude-taskdb
+# claude-tusk
 
 A portable task management system for [Claude Code](https://claude.ai/claude-code) projects. Gives Claude a local SQLite database, CLI, and skills to track, prioritize, and work through tasks autonomously.
 
 ## What You Get
 
-- **`taskdb` CLI** — single entry point for all task database operations
+- **`tusk` CLI** — single entry point for all task database operations
 - **Skills** — Claude Code skills for task workflows (`/next-task`, `/groom-backlog`, `/check-dupes`, `/manage-dependencies`, `/tasks`)
 - **Scripts** — Python utilities for duplicate detection and dependency management
 - **Config-driven schema** — define your project's domains, task types, and agents in JSON; validation triggers are generated automatically
@@ -13,23 +13,23 @@ A portable task management system for [Claude Code](https://claude.ai/claude-cod
 
 ```bash
 # From your project root (must be a git repo)
-/path/to/claude-taskdb/install.sh
+/path/to/claude-tusk/install.sh
 ```
 
 This will:
-1. Install `.claude/bin/taskdb` and skills
-2. Create `taskdb/config.json` with defaults
-3. Initialize the database at `taskdb/tasks.db`
+1. Install `.claude/bin/tusk` and skills
+2. Create `tusk/config.json` with defaults
+3. Initialize the database at `tusk/tasks.db`
 
-Then edit `taskdb/config.json` to set your project's domains and agents, and re-init:
+Then edit `tusk/config.json` to set your project's domains and agents, and re-init:
 
 ```bash
-.claude/bin/taskdb init --force
+.claude/bin/tusk init --force
 ```
 
 ## Configuration
 
-Edit `taskdb/config.json` after install:
+Edit `tusk/config.json` after install:
 
 ```json
 {
@@ -53,15 +53,15 @@ Edit `taskdb/config.json` after install:
 ## CLI Reference
 
 ```bash
-.claude/bin/taskdb "SELECT ..."           # Run SQL
-.claude/bin/taskdb -header -column "SQL"   # With formatting flags
-.claude/bin/taskdb path                    # Print resolved DB path
-.claude/bin/taskdb config                  # Print full config JSON
-.claude/bin/taskdb config domains          # List valid domains
-.claude/bin/taskdb config agents           # List configured agents
-.claude/bin/taskdb init                    # Bootstrap DB (safe — skips if exists)
-.claude/bin/taskdb init --force            # Recreate DB from scratch
-.claude/bin/taskdb shell                   # Interactive sqlite3 shell
+.claude/bin/tusk "SELECT ..."           # Run SQL
+.claude/bin/tusk -header -column "SQL"   # With formatting flags
+.claude/bin/tusk path                    # Print resolved DB path
+.claude/bin/tusk config                  # Print full config JSON
+.claude/bin/tusk config domains          # List valid domains
+.claude/bin/tusk config agents           # List configured agents
+.claude/bin/tusk init                    # Bootstrap DB (safe — skips if exists)
+.claude/bin/tusk init --force            # Recreate DB from scratch
+.claude/bin/tusk shell                   # Interactive sqlite3 shell
 ```
 
 ## Skills
@@ -84,15 +84,15 @@ Add this to your project's `CLAUDE.md`:
 ```markdown
 ## Task Queue
 
-The project task database is managed via `.claude/bin/taskdb`. Use it for all task operations:
+The project task database is managed via `.claude/bin/tusk`. Use it for all task operations:
 
-    .claude/bin/taskdb "SELECT ..."          # Run SQL
-    .claude/bin/taskdb -header -column "SQL"  # With formatting flags
-    .claude/bin/taskdb path                   # Print resolved DB path
-    .claude/bin/taskdb config                 # Print project config
-    .claude/bin/taskdb init                   # Bootstrap DB
+    .claude/bin/tusk "SELECT ..."          # Run SQL
+    .claude/bin/tusk -header -column "SQL"  # With formatting flags
+    .claude/bin/tusk path                   # Print resolved DB path
+    .claude/bin/tusk config                 # Print project config
+    .claude/bin/tusk init                   # Bootstrap DB
 
-Never hardcode the DB path — always go through `taskdb`.
+Never hardcode the DB path — always go through `tusk`.
 ```
 
 ## Schema
@@ -125,13 +125,13 @@ Optional metrics tracking for time, cost, and token usage per task.
 
 ## How It Works
 
-The `taskdb` CLI is the single source of truth for the database path. Everything references it:
+The `tusk` CLI is the single source of truth for the database path. Everything references it:
 
-- **Skills** call `.claude/bin/taskdb "SQL"` (never raw `sqlite3`)
-- **Python scripts** resolve the path via `subprocess.check_output([".claude/bin/taskdb", "path"])`
-- **Config** lives at `taskdb/config.json`; triggers are generated from it at init time
+- **Skills** call `.claude/bin/tusk "SQL"` (never raw `sqlite3`)
+- **Python scripts** resolve the path via `subprocess.check_output([".claude/bin/tusk", "path"])`
+- **Config** lives at `tusk/config.json`; triggers are generated from it at init time
 
-If the DB path ever changes, update one line in `bin/taskdb`.
+If the DB path ever changes, update one line in `bin/tusk`.
 
 ## File Structure
 
@@ -141,8 +141,8 @@ After installation, your project will have:
 your-project/
 ├── .claude/
 │   ├── bin/
-│   │   ├── taskdb                  # CLI (single source of truth)
-│   │   └── config.default.json     # Fallback config
+│   │   ├── tusk                       # CLI (single source of truth)
+│   │   └── config.default.json        # Fallback config
 │   └── skills/
 │       ├── next-task/SKILL.md
 │       ├── groom-backlog/SKILL.md
@@ -152,7 +152,7 @@ your-project/
 ├── scripts/
 │   ├── check_duplicates.py
 │   └── manage_dependencies.py
-└── taskdb/
-    ├── config.json                 # Your project's config
-    └── tasks.db                    # The database
+└── tusk/
+    ├── config.json                    # Your project's config
+    └── tasks.db                       # The database
 ```

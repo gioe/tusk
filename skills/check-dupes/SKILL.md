@@ -6,7 +6,7 @@ allowed-tools: Bash
 
 # Check Duplicates Skill
 
-Canonical deduplication gate for `taskdb`. Run this **before** inserting any task to avoid creating redundant work.
+Canonical deduplication gate for `tusk`. Run this **before** inserting any task to avoid creating redundant work.
 
 ## Usage
 

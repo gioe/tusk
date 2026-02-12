@@ -4,40 +4,40 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-claude-taskdb is a portable task management system for Claude Code projects. It provides a local SQLite database, a bash CLI (`bin/taskdb`), Python utility scripts, and Claude Code skills to track, prioritize, and work through tasks autonomously.
+claude-tusk is a portable task management system for Claude Code projects. It provides a local SQLite database, a bash CLI (`bin/tusk`), Python utility scripts, and Claude Code skills to track, prioritize, and work through tasks autonomously.
 
 ## Commands
 
 ```bash
 # Initialize (or recreate) the database
-bin/taskdb init [--force]
+bin/tusk init [--force]
 
 # Run SQL against the task database
-bin/taskdb "SELECT * FROM tasks WHERE status = 'To Do'"
-bin/taskdb -header -column "SELECT id, summary, status FROM tasks"
+bin/tusk "SELECT * FROM tasks WHERE status = 'To Do'"
+bin/tusk -header -column "SELECT id, summary, status FROM tasks"
 
 # Print resolved DB path
-bin/taskdb path
+bin/tusk path
 
 # Print config (full or by key)
-bin/taskdb config
-bin/taskdb config domains
+bin/tusk config
+bin/tusk config domains
 
 # Interactive sqlite3 shell
-bin/taskdb shell
+bin/tusk shell
 ```
 
 There is no build step, test suite, or linter in this repository.
 
 ## Architecture
 
-### Single Source of Truth: `bin/taskdb`
+### Single Source of Truth: `bin/tusk`
 
-The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/taskdb/tasks.db`. Everything references `bin/taskdb` — skills call it for SQL, Python scripts call `subprocess.check_output([".claude/bin/taskdb", "path"])` to resolve the DB path. Never hardcode the database path.
+The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/tusk/tasks.db`. Everything references `bin/tusk` — skills call it for SQL, Python scripts call `subprocess.check_output([".claude/bin/tusk", "path"])` to resolve the DB path. Never hardcode the database path.
 
 ### Config-Driven Validation
 
-`config.default.json` defines domains, task_types, statuses, priorities, closed_reasons, and agents. On `taskdb init`, SQLite validation triggers are **auto-generated** from the config via an embedded Python snippet in `bin/taskdb`. Empty arrays (e.g., `"domains": []`) disable validation for that column.
+`config.default.json` defines domains, task_types, statuses, priorities, closed_reasons, and agents. On `tusk init`, SQLite validation triggers are **auto-generated** from the config via an embedded Python snippet in `bin/tusk`. Empty arrays (e.g., `"domains": []`) disable validation for that column.
 
 ### Skills (installed to `.claude/skills/` in target projects)
 
@@ -52,7 +52,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - `check_duplicates.py` — Duplicate detection against open tasks. Normalizes summaries by stripping `[Deferred]`, `[Enhancement]`, etc. prefixes.
 - `manage_dependencies.py` — Dependency graph management. Validates no self-deps and no cycles before inserting.
 
-Both scripts resolve the DB path at runtime via `bin/taskdb path`.
+Both scripts resolve the DB path at runtime via `bin/tusk path`.
 
 ### Database Schema
 
@@ -60,11 +60,11 @@ Three tables: `tasks` (13 columns — summary, status, priority, domain, assigne
 
 ### Installation Model
 
-`install.sh` copies `bin/taskdb` → `.claude/bin/taskdb`, skills → `.claude/skills/`, scripts → `scripts/`, and runs `taskdb init`. This repo is the source; target projects get the installed copy.
+`install.sh` copies `bin/tusk` → `.claude/bin/tusk`, skills → `.claude/skills/`, scripts → `scripts/`, and runs `tusk init`. This repo is the source; target projects get the installed copy.
 
 ## Key Conventions
 
-- All DB access goes through `bin/taskdb`, never raw `sqlite3`
+- All DB access goes through `bin/tusk`, never raw `sqlite3`
 - Task workflow: `To Do` → `In Progress` → `Done` (must set `closed_reason` when marking Done)
 - Priority scoring: `base_priority + source_bonus + unblocks_bonus`
 - Deferred tasks from PR reviews get `[Deferred]` prefix and 60-day `expires_at`

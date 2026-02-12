@@ -13,9 +13,9 @@ Grooms the local task database by identifying completed, redundant, incorrectly 
 Before grooming, discover valid values for this project:
 
 ```bash
-.claude/bin/taskdb config domains
-.claude/bin/taskdb config agents
-.claude/bin/taskdb config task_types
+.claude/bin/tusk config domains
+.claude/bin/tusk config agents
+.claude/bin/tusk config task_types
 ```
 
 Use these values (not hardcoded ones) throughout the grooming process.
@@ -26,7 +26,7 @@ Before analyzing the backlog, close any deferred tasks that have passed their 60
 
 ```bash
 # Check how many deferred tasks have expired
-.claude/bin/taskdb -header -column "
+.claude/bin/tusk -header -column "
 SELECT COUNT(*) as expired_count
 FROM tasks
 WHERE summary LIKE '%[Deferred]%'
@@ -36,7 +36,7 @@ WHERE summary LIKE '%[Deferred]%'
 "
 
 # Auto-close expired deferred tasks
-.claude/bin/taskdb "
+.claude/bin/tusk "
 UPDATE tasks
 SET status = 'Done',
     closed_reason = 'expired',
@@ -54,9 +54,9 @@ Report how many were auto-closed before proceeding.
 ## Step 1: Fetch All Backlog Tasks
 
 ```bash
-.claude/bin/taskdb -header -column "SELECT id, summary, status, priority, domain, assignee FROM tasks WHERE status != 'Done' ORDER BY priority DESC, id"
+.claude/bin/tusk -header -column "SELECT id, summary, status, priority, domain, assignee FROM tasks WHERE status != 'Done' ORDER BY priority DESC, id"
 
-.claude/bin/taskdb -header -column "SELECT * FROM tasks WHERE status != 'Done'"
+.claude/bin/tusk -header -column "SELECT * FROM tasks WHERE status != 'Done'"
 
 python3 scripts/manage_dependencies.py blocked
 python3 scripts/manage_dependencies.py all
@@ -82,7 +82,7 @@ Tasks where the work has already been completed in the codebase:
 2. **Evidence required**: Provide specific file paths and code as proof
 3. **Mark as Done**:
    ```bash
-   .claude/bin/taskdb "UPDATE tasks SET status = 'Done', closed_reason = 'completed', updated_at = datetime('now') WHERE id = <id>"
+   .claude/bin/tusk "UPDATE tasks SET status = 'Done', closed_reason = 'completed', updated_at = datetime('now') WHERE id = <id>"
    ```
 
 ### Category B: Candidates for Deletion
@@ -104,10 +104,10 @@ python3 scripts/manage_dependencies.py dependents <id>
 Tasks without an agent assignee:
 
 ```bash
-.claude/bin/taskdb -header -column "SELECT id, summary, domain FROM tasks WHERE status != 'Done' AND assignee IS NULL"
+.claude/bin/tusk -header -column "SELECT id, summary, domain FROM tasks WHERE status != 'Done' AND assignee IS NULL"
 ```
 
-Assign based on project agents (from `taskdb config agents`).
+Assign based on project agents (from `tusk config agents`).
 
 ### Category E: Healthy Tasks
 Correctly prioritized, assigned, and relevant. No action needed.
@@ -115,7 +115,7 @@ Correctly prioritized, assigned, and relevant. No action needed.
 ## Step 3: Review Context
 
 ```bash
-.claude/bin/taskdb -header -column "SELECT * FROM tasks WHERE id = <id>"
+.claude/bin/tusk -header -column "SELECT * FROM tasks WHERE id = <id>"
 ```
 
 Also review recent commits and project documentation to understand current priorities.
@@ -154,31 +154,31 @@ Only after user approval:
 
 ### For Done Transitions:
 ```bash
-.claude/bin/taskdb "UPDATE tasks SET status = 'Done', closed_reason = 'completed', updated_at = datetime('now') WHERE id = <id>"
+.claude/bin/tusk "UPDATE tasks SET status = 'Done', closed_reason = 'completed', updated_at = datetime('now') WHERE id = <id>"
 ```
 
 ### For Deletions:
 ```bash
 # Duplicates:
-.claude/bin/taskdb "UPDATE tasks SET status = 'Done', closed_reason = 'duplicate', updated_at = datetime('now') WHERE id = <id>"
+.claude/bin/tusk "UPDATE tasks SET status = 'Done', closed_reason = 'duplicate', updated_at = datetime('now') WHERE id = <id>"
 
 # Obsolete/won't-do:
-.claude/bin/taskdb "UPDATE tasks SET status = 'Done', closed_reason = 'wont_do', updated_at = datetime('now') WHERE id = <id>"
+.claude/bin/tusk "UPDATE tasks SET status = 'Done', closed_reason = 'wont_do', updated_at = datetime('now') WHERE id = <id>"
 ```
 
 ### For Priority Changes:
 ```bash
-.claude/bin/taskdb "UPDATE tasks SET priority = '<New Priority>' WHERE id = <id>"
+.claude/bin/tusk "UPDATE tasks SET priority = '<New Priority>' WHERE id = <id>"
 ```
 
 ### For Agent Assignments:
 ```bash
-.claude/bin/taskdb "UPDATE tasks SET assignee = '<agent-name>' WHERE id = <id>"
+.claude/bin/tusk "UPDATE tasks SET assignee = '<agent-name>' WHERE id = <id>"
 ```
 
 ### After Each Change:
 ```bash
-.claude/bin/taskdb -header -column "SELECT id, summary, status, priority FROM tasks WHERE id = <id>"
+.claude/bin/tusk -header -column "SELECT id, summary, status, priority FROM tasks WHERE id = <id>"
 ```
 
 ## Step 7: Compute Priority Scores
@@ -197,7 +197,7 @@ Where:
 - **unblocks_bonus**: +5 per dependent task, capped at +15
 
 ```bash
-.claude/bin/taskdb "
+.claude/bin/tusk "
 UPDATE tasks SET priority_score = (
   CASE priority
     WHEN 'Highest' THEN 100
@@ -218,7 +218,7 @@ WHERE status != 'Done';
 "
 
 # Verify
-.claude/bin/taskdb -header -column "
+.claude/bin/tusk -header -column "
 SELECT id, summary, priority, priority_score
 FROM tasks
 WHERE status = 'To Do'
@@ -242,7 +242,7 @@ LIMIT 15;
 
 Show final backlog state:
 ```bash
-.claude/bin/taskdb -header -column "SELECT id, summary, status, priority, domain, assignee FROM tasks WHERE status != 'Done' ORDER BY priority DESC, id"
+.claude/bin/tusk -header -column "SELECT id, summary, status, priority, domain, assignee FROM tasks WHERE status != 'Done' ORDER BY priority DESC, id"
 ```
 
 ## Important Guidelines
