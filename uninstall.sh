@@ -5,7 +5,6 @@
 # Usage:
 #   cd /path/to/your/project
 #   /path/to/tusker/uninstall.sh
-#
 # What it removes:
 #   1. .claude/bin/tusk + config.default.json
 #   2. .claude/skills/{check-dupes,groom-backlog,manage-dependencies,next-task,tasks}
