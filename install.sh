@@ -51,12 +51,8 @@ mkdir -p "$REPO_ROOT/scripts"
 for script in "$SCRIPT_DIR"/scripts/*.py; do
   [[ -f "$script" ]] || continue
   script_name="$(basename "$script")"
-  if [[ -f "$REPO_ROOT/scripts/$script_name" ]]; then
-    echo "  Skipped scripts/$script_name (already exists)"
-  else
-    cp "$script" "$REPO_ROOT/scripts/$script_name"
-    echo "  Installed scripts/$script_name"
-  fi
+  cp "$script" "$REPO_ROOT/scripts/$script_name"
+  echo "  Installed scripts/$script_name"
 done
 
 # ── 5. Init database ─────────────────────────────────────────────────
