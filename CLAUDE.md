@@ -47,12 +47,10 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - **`/manage-dependencies`** — Add/remove/query task dependencies with circular dependency prevention (DFS)
 - **`/tasks`** — Opens the database in DB Browser for SQLite
 
-### Python Scripts (`scripts/`)
+### Python Scripts
 
-- `check_duplicates.py` — Duplicate detection against open tasks. Normalizes summaries by stripping `[Deferred]`, `[Enhancement]`, etc. prefixes.
-- `manage_dependencies.py` — Dependency graph management. Validates no self-deps and no cycles before inserting.
-
-Both scripts resolve the DB path at runtime via `bin/tusk path`.
+- `bin/tusk-dupes.py` — Duplicate detection against open tasks (invoked via `tusk dupes`). Normalizes summaries by stripping configurable prefixes and uses `difflib.SequenceMatcher` for similarity scoring.
+- `scripts/manage_dependencies.py` — Dependency graph management. Validates no self-deps and no cycles before inserting. Resolves DB path at runtime via `tusk path`.
 
 ### Database Schema
 

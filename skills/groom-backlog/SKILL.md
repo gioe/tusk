@@ -67,7 +67,7 @@ python3 scripts/manage_dependencies.py all
 ### Step 2a: Scan for Duplicate Pairs
 
 ```bash
-python3 scripts/check_duplicates.py scan --status "To Do"
+tusk dupes scan --status "To Do"
 ```
 
 Any pairs found should be included in **Category B** with reason "duplicate".

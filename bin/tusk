@@ -10,6 +10,9 @@
 #   tusk shell                 Open an interactive sqlite3 shell
 #   tusk config                Print full config JSON
 #   tusk config <key>          Print config values (domains, task_types, agents, etc.)
+#   tusk dupes check "..."     Check a summary for duplicates
+#   tusk dupes scan            Find all duplicate pairs among open tasks
+#   tusk dupes similar <id>    Find tasks similar to a given ID
 #
 # Configuration:
 #   Project config:  <repo_root>/tusk/config.json
@@ -260,7 +263,8 @@ case "${1:-}" in
   init)   shift; cmd_init "$@" ;;
   path)   cmd_path ;;
   config) shift; cmd_config "$@" ;;
+  dupes)  shift; exec python3 "$SCRIPT_DIR/tusk-dupes.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   shell)  cmd_shell ;;
-  "")     echo "Usage: tusk {init|path|config|shell|\"SQL ...\"}" >&2; exit 1 ;;
+  "")     echo "Usage: tusk {init|path|config|dupes|shell|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac

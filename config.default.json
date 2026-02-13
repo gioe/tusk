@@ -4,5 +4,10 @@
   "statuses": ["To Do", "In Progress", "Done"],
   "priorities": ["Highest", "High", "Medium", "Low", "Lowest"],
   "closed_reasons": ["completed", "expired", "wont_do", "duplicate"],
-  "agents": {}
+  "agents": {},
+  "dupes": {
+    "strip_prefixes": ["Deferred", "Enhancement", "Optional"],
+    "check_threshold": 0.82,
+    "similar_threshold": 0.6
+  }
 }

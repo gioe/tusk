@@ -148,7 +148,7 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
     For each Category B comment:
     1. **Check for duplicates first** using `/check-dupes`:
        ```bash
-       python3 scripts/check_duplicates.py check "[Deferred] <brief description>" --domain <domain>
+       tusk dupes check "[Deferred] <brief description>" --domain <domain>
        ```
     2. Create a deferred task (with 60-day expiry):
        ```bash

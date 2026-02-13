@@ -146,6 +146,7 @@ your-project/
 ├── .claude/
 │   ├── bin/
 │   │   ├── tusk                       # CLI (single source of truth)
+│   │   ├── tusk-dupes.py              # Duplicate detection (via tusk dupes)
 │   │   └── config.default.json        # Fallback config
 │   └── skills/
 │       ├── next-task/SKILL.md
@@ -154,7 +155,6 @@ your-project/
 │       ├── manage-dependencies/SKILL.md
 │       └── tasks/SKILL.md
 ├── scripts/
-│   ├── check_duplicates.py
 │   └── manage_dependencies.py
 └── tusk/
     ├── config.json                    # Your project's config

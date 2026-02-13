@@ -8,7 +8,7 @@
 # What it removes:
 #   1. tusk + config.default.json
 #   2. .claude/skills/{check-dupes,groom-backlog,manage-dependencies,next-task,tasks}
-#   3. scripts/check_duplicates.py, scripts/manage_dependencies.py
+#   3. scripts/manage_dependencies.py
 #   4. tusk/ directory (database + config) — requires --delete-data flag
 #
 # Cleans up empty parent directories (.claude/bin, .claude/skills, scripts)
@@ -85,7 +85,6 @@ done
 rmdir_if_empty ".claude/skills"
 
 # ── 3. Remove scripts ───────────────────────────────────────────────
-remove_file "scripts/check_duplicates.py"
 remove_file "scripts/manage_dependencies.py"
 rmdir_if_empty "scripts"
 

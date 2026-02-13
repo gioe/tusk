@@ -1,43 +1,70 @@
 #!/usr/bin/env python3
-"""Check for duplicate tasks in the SQLite database."""
+"""Fuzzy duplicate detection for tusk task databases.
+
+Called by the tusk wrapper:
+    tusk dupes check|scan|similar ...
+
+Arguments received from tusk:
+    sys.argv[1] — DB path
+    sys.argv[2] — config path
+    sys.argv[3:] — subcommand + flags
+"""
 
 import argparse
 import json
 import re
 import sqlite3
-import subprocess
 import sys
 from difflib import SequenceMatcher
 
-DB_PATH = subprocess.check_output(
-    ["tusk", "path"], text=True
-).strip()
+# ── Config-driven globals (set in main()) ────────────────────────────
 
-DEFAULT_THRESHOLD = 0.82
-SIMILAR_THRESHOLD = 0.6
-
-# Prefixes stripped before comparison
-PREFIX_PATTERN = re.compile(
-    r"^\s*(\[(?:Deferred|Enhancement|Optional|ICG-\d+)\]\s*)+", re.IGNORECASE
-)
+DEFAULT_CHECK_THRESHOLD = 0.82
+DEFAULT_SIMILAR_THRESHOLD = 0.6
+PREFIX_PATTERN: re.Pattern = re.compile(r"$^")  # replaced at startup
+TERMINAL_STATUS = "Done"
 
 
-def get_connection() -> sqlite3.Connection:
-    """Get database connection."""
-    conn = sqlite3.connect(DB_PATH)
+def load_config(config_path: str) -> None:
+    """Load dupes settings from config and set module globals."""
+    global DEFAULT_CHECK_THRESHOLD, DEFAULT_SIMILAR_THRESHOLD
+    global PREFIX_PATTERN, TERMINAL_STATUS
+
+    with open(config_path) as f:
+        cfg = json.load(f)
+
+    dupes = cfg.get("dupes", {})
+    DEFAULT_CHECK_THRESHOLD = dupes.get("check_threshold", DEFAULT_CHECK_THRESHOLD)
+    DEFAULT_SIMILAR_THRESHOLD = dupes.get("similar_threshold", DEFAULT_SIMILAR_THRESHOLD)
+
+    # Build prefix pattern from config + generic JIRA pattern
+    prefixes = dupes.get("strip_prefixes", ["Deferred", "Enhancement", "Optional"])
+    parts = [re.escape(p) for p in prefixes] + [r"[A-Z]+-\d+"]
+    prefix_alt = "|".join(parts)
+    PREFIX_PATTERN = re.compile(
+        rf"^\s*(\[(?:{prefix_alt})\]\s*)+", re.IGNORECASE
+    )
+
+    # Terminal status is the last entry in the statuses list
+    statuses = cfg.get("statuses", ["To Do", "In Progress", "Done"])
+    TERMINAL_STATUS = statuses[-1] if statuses else "Done"
+
+
+# ── Helpers ──────────────────────────────────────────────────────────
+
+def get_connection(db_path: str) -> sqlite3.Connection:
+    conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def normalize_summary(summary: str) -> str:
-    """Strip tag prefixes, collapse whitespace, and lowercase."""
     text = PREFIX_PATTERN.sub("", summary)
     text = re.sub(r"\s+", " ", text).strip().lower()
     return text
 
 
 def similarity(a: str, b: str) -> float:
-    """Compute similarity ratio on normalized summaries."""
     return SequenceMatcher(None, normalize_summary(a), normalize_summary(b)).ratio()
 
 
@@ -46,9 +73,8 @@ def get_open_tasks(
     domain: str | None = None,
     status: str | None = None,
 ) -> list[sqlite3.Row]:
-    """Fetch open tasks, optionally filtered by domain or status."""
-    query = "SELECT id, summary, domain, status, priority FROM tasks WHERE status != 'Done'"
-    params: list[str] = []
+    query = f"SELECT id, summary, domain, status, priority FROM tasks WHERE status != ?"
+    params: list[str] = [TERMINAL_STATUS]
     if domain:
         query += " AND domain = ?"
         params.append(domain)
@@ -59,9 +85,10 @@ def get_open_tasks(
     return conn.execute(query, params).fetchall()
 
 
-def cmd_check(args: argparse.Namespace) -> int:
-    """Check a summary against existing open tasks for duplicates."""
-    conn = get_connection()
+# ── Subcommands ──────────────────────────────────────────────────────
+
+def cmd_check(args: argparse.Namespace, db_path: str) -> int:
+    conn = get_connection(db_path)
     tasks = get_open_tasks(conn, domain=args.domain)
     conn.close()
 
@@ -94,9 +121,8 @@ def cmd_check(args: argparse.Namespace) -> int:
     return 1 if matches else 0
 
 
-def cmd_scan(args: argparse.Namespace) -> int:
-    """Find all duplicate pairs among open tasks."""
-    conn = get_connection()
+def cmd_scan(args: argparse.Namespace, db_path: str) -> int:
+    conn = get_connection(db_path)
     tasks = get_open_tasks(conn, domain=args.domain, status=args.status)
     conn.close()
 
@@ -139,9 +165,8 @@ def cmd_scan(args: argparse.Namespace) -> int:
     return 1 if pairs else 0
 
 
-def cmd_similar(args: argparse.Namespace) -> int:
-    """Find tasks similar to a given task ID."""
-    conn = get_connection()
+def cmd_similar(args: argparse.Namespace, db_path: str) -> int:
+    conn = get_connection(db_path)
 
     target = conn.execute(
         "SELECT id, summary, domain FROM tasks WHERE id = ?", (args.id,)
@@ -190,76 +215,62 @@ def cmd_similar(args: argparse.Namespace) -> int:
     return 1 if matches else 0
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Check for duplicate tasks in the SQLite database",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  %(prog)s check "Add error handling for delete account" --domain iOS
-  %(prog)s scan --status "To Do"
-  %(prog)s similar 42
-  %(prog)s check "unique task" --json
-        """,
-    )
+# ── CLI ──────────────────────────────────────────────────────────────
 
+def main():
+    if len(sys.argv) < 3:
+        print("Usage: tusk dupes {check|scan|similar} ...", file=sys.stderr)
+        sys.exit(1)
+
+    db_path = sys.argv[1]
+    config_path = sys.argv[2]
+    load_config(config_path)
+
+    parser = argparse.ArgumentParser(
+        prog="tusk dupes",
+        description="Fuzzy duplicate detection for tusk tasks",
+    )
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
-    # check command
-    check_parser = subparsers.add_parser(
-        "check", help="Check a summary against open tasks for duplicates"
+    # check
+    check_p = subparsers.add_parser("check", help="Check a summary against open tasks")
+    check_p.add_argument("summary", help="Task summary to check")
+    check_p.add_argument("--domain", help="Filter to a specific domain")
+    check_p.add_argument(
+        "--threshold", type=float, default=DEFAULT_CHECK_THRESHOLD,
+        help=f"Similarity threshold (default: {DEFAULT_CHECK_THRESHOLD})",
     )
-    check_parser.add_argument("summary", help="Task summary to check")
-    check_parser.add_argument("--domain", help="Filter to a specific domain")
-    check_parser.add_argument(
-        "--threshold",
-        type=float,
-        default=DEFAULT_THRESHOLD,
-        help=f"Similarity threshold (default: {DEFAULT_THRESHOLD})",
-    )
-    check_parser.add_argument("--json", action="store_true", help="Output JSON")
+    check_p.add_argument("--json", action="store_true", help="Output JSON")
 
-    # scan command
-    scan_parser = subparsers.add_parser(
-        "scan", help="Find all duplicate pairs among open tasks"
+    # scan
+    scan_p = subparsers.add_parser("scan", help="Find all duplicate pairs among open tasks")
+    scan_p.add_argument("--domain", help="Filter to a specific domain")
+    scan_p.add_argument("--status", help="Filter to a specific status")
+    scan_p.add_argument(
+        "--threshold", type=float, default=DEFAULT_CHECK_THRESHOLD,
+        help=f"Similarity threshold (default: {DEFAULT_CHECK_THRESHOLD})",
     )
-    scan_parser.add_argument("--domain", help="Filter to a specific domain")
-    scan_parser.add_argument("--status", help="Filter to a specific status")
-    scan_parser.add_argument(
-        "--threshold",
-        type=float,
-        default=DEFAULT_THRESHOLD,
-        help=f"Similarity threshold (default: {DEFAULT_THRESHOLD})",
-    )
-    scan_parser.add_argument("--json", action="store_true", help="Output JSON")
+    scan_p.add_argument("--json", action="store_true", help="Output JSON")
 
-    # similar command
-    similar_parser = subparsers.add_parser(
-        "similar", help="Find tasks similar to a given task ID"
+    # similar
+    sim_p = subparsers.add_parser("similar", help="Find tasks similar to a given task ID")
+    sim_p.add_argument("id", type=int, help="Task ID")
+    sim_p.add_argument("--domain", help="Filter to a specific domain")
+    sim_p.add_argument(
+        "--threshold", type=float, default=DEFAULT_SIMILAR_THRESHOLD,
+        help=f"Similarity threshold (default: {DEFAULT_SIMILAR_THRESHOLD})",
     )
-    similar_parser.add_argument("id", type=int, help="Task ID to find similar tasks for")
-    similar_parser.add_argument("--domain", help="Filter to a specific domain")
-    similar_parser.add_argument(
-        "--threshold",
-        type=float,
-        default=SIMILAR_THRESHOLD,
-        help=f"Similarity threshold (default: {SIMILAR_THRESHOLD})",
-    )
-    similar_parser.add_argument("--json", action="store_true", help="Output JSON")
+    sim_p.add_argument("--json", action="store_true", help="Output JSON")
 
-    args = parser.parse_args()
+    args = parser.parse_args(sys.argv[3:])
 
     if not args.command:
         parser.print_help()
         sys.exit(1)
 
     try:
-        if args.command == "check":
-            sys.exit(cmd_check(args))
-        elif args.command == "scan":
-            sys.exit(cmd_scan(args))
-        elif args.command == "similar":
-            sys.exit(cmd_similar(args))
+        handlers = {"check": cmd_check, "scan": cmd_scan, "similar": cmd_similar}
+        sys.exit(handlers[args.command](args, db_path))
     except sqlite3.Error as e:
         print(f"Database error: {e}", file=sys.stderr)
         sys.exit(2)

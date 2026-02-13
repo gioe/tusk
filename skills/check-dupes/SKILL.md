@@ -23,7 +23,7 @@ Canonical deduplication gate for `tusk`. Run this **before** inserting any task 
 Pre-insert gate. Checks if a summary is a duplicate of any open task.
 
 ```bash
-python3 scripts/check_duplicates.py check "<summary>" --domain <domain>
+tusk dupes check "<summary>" --domain <domain>
 ```
 
 **When to use:** Before every `INSERT INTO tasks` — in `/next-task`, `/analysis-to-tasks`, or any manual task creation.
@@ -33,7 +33,7 @@ python3 scripts/check_duplicates.py check "<summary>" --domain <domain>
 Find all duplicate pairs among open tasks.
 
 ```bash
-python3 scripts/check_duplicates.py scan --status "To Do"
+tusk dupes scan --status "To Do"
 ```
 
 **When to use:** During `/groom-backlog` to surface duplicates for cleanup.
@@ -43,7 +43,7 @@ python3 scripts/check_duplicates.py scan --status "To Do"
 Find tasks related to a given task ID (uses a lower threshold of 0.6).
 
 ```bash
-python3 scripts/check_duplicates.py similar <id>
+tusk dupes similar <id>
 ```
 
 **When to use:** Exploratory — when investigating whether a task overlaps with other work.
