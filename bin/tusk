@@ -360,7 +360,6 @@ cmd_upgrade() {
 
   echo "Upgrading from version $TUSK_VERSION → $remote_version..."
 
-  local tmpdir
   tmpdir="$(mktemp -d)"
   trap 'rm -rf "$tmpdir"' EXIT
 
@@ -381,8 +380,11 @@ cmd_upgrade() {
   fi
 
   # Copy bin files alongside current binary
-  cp "$src/bin/tusk" "$SCRIPT_DIR/tusk"
-  chmod +x "$SCRIPT_DIR/tusk"
+  # Use mv (atomic rename) for the running script so bash's open fd keeps
+  # reading the old inode instead of seeing overwritten content mid-execution.
+  cp "$src/bin/tusk" "$SCRIPT_DIR/tusk.tmp"
+  chmod +x "$SCRIPT_DIR/tusk.tmp"
+  mv "$SCRIPT_DIR/tusk.tmp" "$SCRIPT_DIR/tusk"
   for pyfile in "$src"/bin/tusk-*.py; do
     [[ -f "$pyfile" ]] || continue
     cp "$pyfile" "$SCRIPT_DIR/"
