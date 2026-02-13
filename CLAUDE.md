@@ -33,7 +33,7 @@ There is no build step, test suite, or linter in this repository.
 
 ### Single Source of Truth: `bin/tusk`
 
-The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/tusk/tasks.db`. Everything references `bin/tusk` — skills call it for SQL, Python scripts call `subprocess.check_output([".claude/bin/tusk", "path"])` to resolve the DB path. Never hardcode the database path.
+The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/tusk/tasks.db`. Everything references `bin/tusk` — skills call it for SQL, Python scripts call `subprocess.check_output(["tusk", "path"])` to resolve the DB path. Never hardcode the database path.
 
 ### Config-Driven Validation
 
@@ -60,7 +60,7 @@ Three tables: `tasks` (13 columns — summary, status, priority, domain, assigne
 
 ### Installation Model
 
-`install.sh` copies `bin/tusk` → `.claude/bin/tusk`, skills → `.claude/skills/`, scripts → `scripts/`, and runs `tusk init`. This repo is the source; target projects get the installed copy.
+`install.sh` copies `bin/tusk` → `tusk` (on PATH), skills → `.claude/skills/`, scripts → `scripts/`, and runs `tusk init`. This repo is the source; target projects get the installed copy.
 
 ## Key Conventions
 

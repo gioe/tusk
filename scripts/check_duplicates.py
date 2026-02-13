@@ -10,7 +10,7 @@ import sys
 from difflib import SequenceMatcher
 
 DB_PATH = subprocess.check_output(
-    [".claude/bin/tusk", "path"], text=True
+    ["tusk", "path"], text=True
 ).strip()
 
 DEFAULT_THRESHOLD = 0.82

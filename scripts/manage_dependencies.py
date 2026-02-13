@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 DB_PATH = subprocess.check_output(
-    [".claude/bin/tusk", "path"], text=True
+    ["tusk", "path"], text=True
 ).strip()
 
 DEPENDENCIES_SCHEMA = """
