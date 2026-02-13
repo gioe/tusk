@@ -29,6 +29,9 @@ bin/tusk shell
 # Populate token/cost stats for a session from JSONL transcripts
 bin/tusk session-stats <session_id> [transcript_path]
 
+# Generate and open an HTML task dashboard
+bin/tusk dashboard
+
 # Version, migration, and upgrade
 bin/tusk version               # Print installed version
 bin/tusk migrate               # Apply pending schema migrations
@@ -60,6 +63,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 
 - `bin/tusk-dupes.py` — Duplicate detection against open tasks (invoked via `tusk dupes`). Normalizes summaries by stripping configurable prefixes and uses `difflib.SequenceMatcher` for similarity scoring.
 - `bin/tusk-session-stats.py` — Token/cost tracking for task sessions (invoked via `tusk session-stats`). Parses Claude Code JSONL transcripts, deduplicates by requestId, and computes costs using per-model pricing.
+- `bin/tusk-dashboard.py` — Static HTML dashboard generator (invoked via `tusk dashboard`). Queries the `task_metrics` view for per-task token counts and cost, writes a self-contained HTML file, and opens it in the browser.
 - `scripts/manage_dependencies.py` — Dependency graph management. Validates no self-deps and no cycles before inserting. Resolves DB path at runtime via `tusk path`.
 
 ### Database Schema

@@ -14,6 +14,7 @@
 #   tusk dupes scan            Find all duplicate pairs among open tasks
 #   tusk dupes similar <id>    Find tasks similar to a given ID
 #   tusk session-stats <id>    Populate token/cost stats for a session
+#   tusk dashboard             Generate and open an HTML dashboard
 #   tusk version               Print the installed tusk version
 #   tusk migrate               Apply pending schema migrations
 #   tusk upgrade               Upgrade tusk from GitHub
@@ -425,11 +426,12 @@ case "${1:-}" in
   path)   cmd_path ;;
   config) shift; cmd_config "$@" ;;
   dupes)  shift; exec python3 "$SCRIPT_DIR/tusk-dupes.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  dashboard) exec python3 "$SCRIPT_DIR/tusk-dashboard.py" "$DB_PATH" "$(resolve_config)" ;;
   session-stats) shift; exec python3 "$SCRIPT_DIR/tusk-session-stats.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   shell)  cmd_shell ;;
   version) cmd_version ;;
   migrate) cmd_migrate ;;
   upgrade) cmd_upgrade ;;
-  "")     echo "Usage: tusk {init|path|config|dupes|session-stats|shell|version|migrate|upgrade|\"SQL ...\"}" >&2; exit 1 ;;
+  "")     echo "Usage: tusk {init|path|config|dupes|dashboard|session-stats|shell|version|migrate|upgrade|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac
