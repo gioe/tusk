@@ -83,29 +83,14 @@ echo "════════════════════════�
 echo ""
 echo "Next steps:"
 echo ""
-echo "  1. Edit tusk/config.json to set your project's domains and agents"
+echo "  1. Start a NEW Claude Code session (skills are discovered at startup,"
+echo "     so /tusk-init won't be available in the session that ran install.sh)"
 echo ""
-echo "  2. Re-init to apply config changes:"
-echo "     tusk init --force"
+echo "  2. Run /tusk-init to configure your project interactively"
+echo "     (sets domains, agents, CLAUDE.md snippet, and seeds tasks from TODOs)"
 echo ""
-echo "  3. Add this to your CLAUDE.md:"
-echo ""
-cat <<'SNIPPET'
-## Task Queue
-
-The project task database is managed via `tusk` (at `.claude/bin/tusk`). Use it for all task operations:
-
-```bash
-.claude/bin/tusk "SELECT ..."          # Run SQL
-.claude/bin/tusk -header -column "SQL"  # With formatting flags
-.claude/bin/tusk path                   # Print resolved DB path
-.claude/bin/tusk config                 # Print project config
-.claude/bin/tusk init                   # Bootstrap DB (new projects)
-.claude/bin/tusk shell                  # Interactive sqlite3 shell
-.claude/bin/tusk version                # Print installed version
-.claude/bin/tusk upgrade                # Upgrade from GitHub
-```
-
-Never hardcode the DB path — always go through `tusk`.
-SNIPPET
+echo "  Or configure manually:"
+echo "     a. Edit tusk/config.json to set your project's domains and agents"
+echo "     b. Run: tusk init --force"
+echo "     c. Add the Task Queue snippet to your CLAUDE.md (see /tusk-init)"
 echo ""

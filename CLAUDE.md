@@ -53,6 +53,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - **`/groom-backlog`** — Auto-closes expired deferred tasks, scans for duplicates, categorizes and re-prioritizes the backlog
 - **`/check-dupes`** — Similarity-based duplicate detection (uses `difflib.SequenceMatcher`, thresholds 0.60–0.82)
 - **`/manage-dependencies`** — Add/remove/query task dependencies with circular dependency prevention (DFS)
+- **`/tusk-init`** — Interactive setup wizard: scans codebase, suggests domains/agents, writes config, appends CLAUDE.md snippet, seeds tasks from TODOs
 - **`/tasks`** — Opens the database in DB Browser for SQLite
 
 ### Python Scripts
@@ -85,3 +86,4 @@ Two independent version tracks:
 - Deferred tasks from PR reviews get `[Deferred]` prefix and 60-day `expires_at`
 - Always run `/check-dupes` before inserting new tasks
 - Dependencies use DFS cycle detection in Python; SQLite CHECK prevents self-loops
+- Skills are discovered at Claude Code session startup — after installing or adding a new skill, you must start a new session before invoking it with `/skill-name`
