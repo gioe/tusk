@@ -329,8 +329,16 @@ cmd_migrate() {
 cmd_upgrade() {
   echo "Checking for updates..."
 
+  # Get latest release tag from GitHub Releases API
+  local latest_tag
+  latest_tag="$(curl -fsSL "https://api.github.com/repos/$TUSK_GITHUB_REPO/releases/latest" 2>/dev/null \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])")" || {
+    echo "Error: Could not fetch latest release from GitHub." >&2
+    exit 1
+  }
+
   local remote_version
-  remote_version="$(curl -fsSL "https://raw.githubusercontent.com/$TUSK_GITHUB_REPO/main/VERSION" 2>/dev/null)" || {
+  remote_version="$(curl -fsSL "https://raw.githubusercontent.com/$TUSK_GITHUB_REPO/refs/tags/$latest_tag/VERSION" 2>/dev/null)" || {
     echo "Error: Could not fetch remote version from GitHub." >&2
     exit 1
   }
@@ -347,16 +355,18 @@ cmd_upgrade() {
   tmpdir="$(mktemp -d)"
   trap 'rm -rf "$tmpdir"' EXIT
 
-  # Download and extract tarball
-  curl -fsSL "https://github.com/$TUSK_GITHUB_REPO/archive/refs/heads/main.tar.gz" \
+  # Download and extract tagged release tarball
+  curl -fsSL "https://github.com/$TUSK_GITHUB_REPO/archive/refs/tags/$latest_tag.tar.gz" \
     -o "$tmpdir/tusk.tar.gz" || {
     echo "Error: Could not download release tarball." >&2
     exit 1
   }
   tar -xzf "$tmpdir/tusk.tar.gz" -C "$tmpdir"
 
-  local src="$tmpdir/tusk-main"
-  if [[ ! -d "$src" ]]; then
+  # Handle dynamic directory name (tusk-v2, tusk-v3, etc.)
+  local src
+  src="$(ls -d "$tmpdir"/tusk-*/ 2>/dev/null | head -1)"
+  if [[ -z "$src" || ! -d "$src" ]]; then
     echo "Error: Unexpected archive structure." >&2
     exit 1
   fi
