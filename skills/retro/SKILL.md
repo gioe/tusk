@@ -1,0 +1,207 @@
+---
+name: retro
+description: Review the current session, surface process improvements and tangential issues, and create follow-up tasks
+allowed-tools: Bash, Read
+---
+
+# Retrospective Skill
+
+Reviews the current conversation history to capture process learnings, instruction improvements, and tangential issues discovered during the session. Creates structured follow-up tasks so nothing falls through the cracks.
+
+## Step 1: Review Session History
+
+Analyze the full conversation context. Look for:
+
+- **Friction points** — Confusing instructions, missing context, repeated mistakes, unclear CLAUDE.md guidance
+- **Workarounds** — Manual steps that could be automated, patterns that should be codified into skills or scripts
+- **Tangential issues** — Test failures, architectural concerns, tech debt, or bugs discovered but not addressed because they were out of scope
+- **Incomplete work** — Deferred decisions, TODO comments added, partial implementations, features that need follow-up
+- **Failed approaches** — Strategies that didn't work and why, so they can be documented to prevent future reattempts
+
+Be thorough — review the entire session, not just the most recent messages.
+
+## Step 2: Read Project Config
+
+Fetch valid values so any proposed tasks conform to the project's configured constraints:
+
+```bash
+tusk config domains
+tusk config task_types
+tusk config agents
+tusk config priorities
+```
+
+Store these for use when assigning metadata. If a field returns an empty list (e.g., domains is `[]`), that field has no validation — use your best judgment or leave it NULL.
+
+## Step 3: Categorize Findings
+
+Organize findings into three categories:
+
+### Category A: Process Improvements
+
+Changes to skills, CLAUDE.md, project documentation, or tooling that would have made the session smoother. Examples:
+
+- A CLAUDE.md instruction that was misleading or missing
+- A skill that could be added or improved
+- A convention that should be documented
+- A config change that would prevent a class of errors
+
+### Category B: Tangential Issues
+
+Problems discovered during the session that were out of scope but need tracking. Examples:
+
+- A test that was failing for unrelated reasons
+- Tech debt noticed while reading code
+- An architectural concern that surfaced during implementation
+- A bug in a different part of the system
+
+### Category C: Follow-up Work
+
+Incomplete items, deferred decisions, or next steps from the session. Examples:
+
+- A feature that was partially implemented
+- A decision that was punted to a future session
+- An enhancement that was discussed but not started
+- Edge cases identified but not handled
+
+If a category has no findings, note that explicitly — an empty category is a positive signal.
+
+## Step 4: Present Retrospective Report
+
+Show all findings in a structured report. For each finding that warrants a task, include a proposed task row.
+
+```markdown
+## Session Retrospective
+
+### Summary
+Brief (2-3 sentence) overview of what the session accomplished and overall observations.
+
+### Category A: Process Improvements (N findings)
+
+1. **<finding title>**
+   <description of the friction point or improvement opportunity>
+   → Proposed task: <summary> | Priority: <priority> | Type: <task_type> | Domain: <domain>
+
+2. ...
+
+### Category B: Tangential Issues (N findings)
+
+1. **<finding title>**
+   <description of the issue discovered>
+   → Proposed task: <summary> | Priority: <priority> | Type: <task_type> | Domain: <domain>
+
+2. ...
+
+### Category C: Follow-up Work (N findings)
+
+1. **<finding title>**
+   <description of the incomplete or deferred work>
+   → Proposed task: <summary> | Priority: <priority> | Type: <task_type> | Domain: <domain>
+
+2. ...
+
+### Proposed Tasks
+
+| # | Summary | Priority | Domain | Type | Category |
+|---|---------|----------|--------|------|----------|
+| 1 | ... | ... | ... | ... | A/B/C |
+| 2 | ... | ... | ... | ... | A/B/C |
+```
+
+Then ask:
+
+> Does this look right? You can:
+> - **Confirm** to create all tasks
+> - **Remove** specific numbers (e.g., "remove 3")
+> - **Edit** a task (e.g., "change 2 priority to High")
+> - **Add** a finding I missed
+> - **Skip** to end the retro without creating tasks
+
+Wait for explicit user approval before proceeding. Do NOT insert anything until the user confirms.
+
+## Step 5: Deduplicate and Insert Tasks
+
+For each approved task, run a duplicate check **before** inserting:
+
+```bash
+tusk dupes check "<summary>"
+```
+
+If the domain is set and non-empty, include it:
+
+```bash
+tusk dupes check "<summary>" --domain <domain>
+```
+
+### Exit code 0 — No duplicate found → Insert the task
+
+**IMPORTANT**: Escape single quotes in all text fields by doubling them (`'` → `''`) to prevent SQL errors.
+
+```bash
+tusk "INSERT INTO tasks (summary, description, status, priority, domain, task_type, assignee, created_at, updated_at)
+  VALUES (
+    '<summary>',
+    '<description>',
+    'To Do',
+    '<priority>',
+    '<domain_or_NULL>',
+    '<task_type>',
+    '<assignee_or_NULL>',
+    datetime('now'),
+    datetime('now')
+  )"
+```
+
+For NULL fields, use the literal `NULL` (unquoted) instead of a quoted string:
+
+```bash
+tusk "INSERT INTO tasks (summary, description, status, priority, domain, task_type, assignee, created_at, updated_at)
+  VALUES ('Improve error handling docs', 'Details here', 'To Do', 'Medium', NULL, 'feature', NULL, datetime('now'), datetime('now'))"
+```
+
+### Exit code 1 — Duplicate found → Skip
+
+Report which existing task matched and skip the insert:
+
+> Skipped "Improve error handling docs" — duplicate of existing task #12 (similarity 0.87)
+
+### Exit code 2 — Error
+
+Report the error and skip.
+
+## Step 6: Report Results
+
+After processing all tasks, show a summary:
+
+```markdown
+## Retrospective Complete
+
+**Session**: <brief description of what was accomplished>
+**Findings**: A process improvements, B tangential issues, C follow-up items
+**Created**: N tasks (#14, #15, #16)
+**Skipped**: M duplicates
+
+| ID | Summary | Priority | Domain | Category |
+|----|---------|----------|--------|----------|
+| 14 | ... | ... | ... | A |
+| 15 | ... | ... | ... | B |
+| 16 | ... | ... | ... | C |
+```
+
+Then show the current backlog state:
+
+```bash
+tusk -header -column "SELECT id, summary, priority, domain, task_type, status FROM tasks WHERE status = 'To Do' ORDER BY priority_score DESC, id"
+```
+
+## Important Guidelines
+
+- **All DB access goes through `tusk`** — never use raw `sqlite3`
+- **Always confirm before inserting** — never insert tasks without explicit user approval
+- **Always run dupe checks** — check every task against existing open tasks before inserting
+- **Escape single quotes** — replace `'` with `''` in all SQL string values
+- **Leave `priority_score` at 0** — let `/groom-backlog` compute scores later
+- **Use configured values only** — read domains, task_types, agents, and priorities from `tusk config`, never hardcode
+- **Be honest about empty categories** — if the session went smoothly, say so; don't manufacture findings
+- **Focus on actionable items** — every finding should either become a task or explicitly explain why no task is needed
+- **Review the entire session** — don't just look at the last few messages; friction early in the session is just as valuable
