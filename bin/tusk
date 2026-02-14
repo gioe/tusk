@@ -10,9 +10,16 @@
 #   tusk shell                 Open an interactive sqlite3 shell
 #   tusk config                Print full config JSON
 #   tusk config <key>          Print config values (domains, task_types, agents, etc.)
+#   tusk sql-quote "text"      Escape and quote a string for safe SQL interpolation
 #   tusk dupes check "..."     Check a summary for duplicates
 #   tusk dupes scan            Find all duplicate pairs among open tasks
 #   tusk dupes similar <id>    Find tasks similar to a given ID
+#   tusk session-stats <id>    Populate token/cost stats for a session
+#   tusk dashboard             Generate and open an HTML dashboard
+#   tusk version               Print the installed tusk version
+#   tusk migrate               Apply pending schema migrations
+#   tusk regen-triggers        Drop and recreate validation triggers from config
+#   tusk upgrade               Upgrade tusk from GitHub
 #
 # Configuration:
 #   Project config:  <repo_root>/tusk/config.json
@@ -48,6 +55,18 @@ else
   DEFAULT_CONFIG="$INSTALL_DIR/config.default.json"
 fi
 
+# ── Version ──────────────────────────────────────────────────────────
+
+TUSK_GITHUB_REPO="gioe/tusk"
+
+if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
+  TUSK_VERSION="$(cat "$SCRIPT_DIR/VERSION")"
+elif [[ -f "$INSTALL_DIR/VERSION" ]]; then
+  TUSK_VERSION="$(cat "$INSTALL_DIR/VERSION")"
+else
+  TUSK_VERSION="0"
+fi
+
 # ── Config helpers ───────────────────────────────────────────────────
 
 resolve_config() {
@@ -67,18 +86,18 @@ read_config_key() {
   config="$(resolve_config)"
   python3 -c "
 import json, sys
-with open('$config') as f:
+with open(sys.argv[1]) as f:
     cfg = json.load(f)
-val = cfg.get('$key')
+val = cfg.get(sys.argv[2])
 if val is None:
     sys.exit(1)
 if isinstance(val, list):
-    print('\n'.join(val))
+    print('\n'.join(str(v) for v in val))
 elif isinstance(val, dict):
     print(json.dumps(val, indent=2))
 else:
     print(val)
-"
+" "$config" "$key"
 }
 
 read_config_json() {
@@ -87,15 +106,27 @@ read_config_json() {
   cat "$config"
 }
 
+# ── SQL quoting helper ────────────────────────────────────────────────
+
+sql_quote() {
+  # Escapes a string for safe use in SQLite SQL statements.
+  # Doubles internal single quotes and wraps the result in single quotes.
+  #   sql_quote "O'Reilly"  →  'O''Reilly'
+  #   sql_quote ""          →  ''
+  # For NULL values, use the literal NULL (unquoted) — don't pass through sql_quote.
+  local str="${1:-}"
+  printf "'%s'" "$(printf '%s' "$str" | sed "s/'/''/g")"
+}
+
 # ── Generate trigger SQL from config ─────────────────────────────────
 
 generate_triggers() {
   local config
   config="$(resolve_config)"
   python3 -c "
-import json
+import json, sys
 
-with open('$config') as f:
+with open(sys.argv[1]) as f:
     cfg = json.load(f)
 
 def trigger_sql(column, values):
@@ -128,7 +159,7 @@ if domains:
 task_types = cfg.get('task_types', [])
 if task_types:
     print(trigger_sql('task_type', task_types))
-"
+" "$config"
 }
 
 # ── Commands ─────────────────────────────────────────────────────────
@@ -179,6 +210,7 @@ CREATE TABLE tasks (
     github_pr TEXT,
     expires_at TEXT,
     closed_reason TEXT,
+    -- Timestamps are UTC (SQLite datetime('now') returns UTC)
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -196,6 +228,19 @@ CREATE TABLE task_dependencies (
 CREATE INDEX idx_task_dependencies_task_id ON task_dependencies(task_id);
 CREATE INDEX idx_task_dependencies_depends_on_id ON task_dependencies(depends_on_id);
 
+-- task_progress (checkpoint log for context recovery)
+CREATE TABLE task_progress (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    commit_hash TEXT,
+    commit_message TEXT,
+    files_changed TEXT,
+    next_steps TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_task_progress_task_id ON task_progress(task_id);
+
 -- task_sessions (metrics)
 CREATE TABLE task_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -208,6 +253,7 @@ CREATE TABLE task_sessions (
     tokens_out INTEGER,
     lines_added INTEGER,
     lines_removed INTEGER,
+    model TEXT,
     FOREIGN KEY (task_id) REFERENCES tasks(id)
 );
 
@@ -226,6 +272,9 @@ LEFT JOIN task_sessions s ON t.id = s.task_id
 GROUP BY t.id;
 SCHEMA
 
+  # Enable WAL for concurrent read/write support
+  sqlite3 "$DB_PATH" "PRAGMA journal_mode = WAL;"
+
   # Apply validation triggers from config
   local triggers
   triggers="$(generate_triggers)"
@@ -233,11 +282,41 @@ SCHEMA
     sqlite3 "$DB_PATH" "$triggers"
   fi
 
+  # Set schema version so fresh DBs never need migration
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 2;"
+
   echo "Initialized task database at $DB_PATH"
 }
 
+cmd_regen_triggers() {
+  if [[ ! -f "$DB_PATH" ]]; then
+    echo "No database found at $DB_PATH — run 'tusk init' first." >&2
+    exit 1
+  fi
+
+  # Drop all existing validation triggers
+  local existing
+  existing="$(sqlite3 "$DB_PATH" "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'validate_%';")"
+  if [[ -n "$existing" ]]; then
+    local drop_sql=""
+    while IFS= read -r trig; do
+      drop_sql+="DROP TRIGGER IF EXISTS $trig;"
+    done <<< "$existing"
+    sqlite3 "$DB_PATH" "$drop_sql"
+  fi
+
+  # Regenerate and apply from current config
+  local triggers
+  triggers="$(generate_triggers)"
+  if [[ -n "$triggers" ]]; then
+    sqlite3 "$DB_PATH" "$triggers"
+  fi
+
+  echo "Validation triggers regenerated from config."
+}
+
 cmd_shell() {
-  exec sqlite3 -header -column "$DB_PATH"
+  exec sqlite3 -header -column -cmd "PRAGMA foreign_keys = ON;" "$DB_PATH"
 }
 
 cmd_query() {
@@ -250,11 +329,160 @@ cmd_query() {
       sql="$arg"
     fi
   done
+  sql="PRAGMA foreign_keys = ON; $sql"
   if [[ ${#flags[@]} -gt 0 ]]; then
     exec sqlite3 "${flags[@]}" "$DB_PATH" "$sql"
   else
     exec sqlite3 "$DB_PATH" "$sql"
   fi
+}
+
+cmd_version() {
+  echo "tusk version $TUSK_VERSION"
+}
+
+cmd_migrate() {
+  if [[ ! -f "$DB_PATH" ]]; then
+    echo "No database found at $DB_PATH — run 'tusk init' first." >&2
+    exit 1
+  fi
+
+  local current
+  current="$(sqlite3 "$DB_PATH" "PRAGMA user_version;")"
+
+  # Migration 0→1: add model column to task_sessions if missing
+  if [[ "$current" -lt 1 ]]; then
+    local has_model
+    has_model="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM pragma_table_info('task_sessions') WHERE name = 'model';")"
+    if [[ "$has_model" -eq 0 ]]; then
+      sqlite3 "$DB_PATH" "
+        ALTER TABLE task_sessions ADD COLUMN model TEXT;
+        PRAGMA user_version = 1;
+      "
+      echo "  Migration 1: added 'model' column to task_sessions"
+    else
+      sqlite3 "$DB_PATH" "PRAGMA user_version = 1;"
+    fi
+  fi
+
+  # Migration 1→2: add task_progress table if missing
+  if [[ "$current" -lt 2 ]]; then
+    local has_progress
+    has_progress="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='task_progress';")"
+    if [[ "$has_progress" -eq 0 ]]; then
+      sqlite3 "$DB_PATH" "
+        CREATE TABLE task_progress (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL,
+            commit_hash TEXT,
+            commit_message TEXT,
+            files_changed TEXT,
+            next_steps TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+        );
+        CREATE INDEX idx_task_progress_task_id ON task_progress(task_id);
+        PRAGMA user_version = 2;
+      "
+      echo "  Migration 2: created 'task_progress' table"
+    else
+      sqlite3 "$DB_PATH" "PRAGMA user_version = 2;"
+    fi
+  fi
+
+  # Future migrations follow the same pattern:
+  # if [[ "$current" -lt 3 ]]; then ... ; sqlite3 "$DB_PATH" "PRAGMA user_version = 3;"; fi
+
+  local final
+  final="$(sqlite3 "$DB_PATH" "PRAGMA user_version;")"
+  if [[ "$final" -eq "$current" ]]; then
+    echo "Schema is up to date (version $final)."
+  else
+    echo "Migrated schema from version $current → $final."
+  fi
+}
+
+cmd_upgrade() {
+  echo "Checking for updates..."
+
+  # Get latest release tag from GitHub Releases API
+  local latest_tag
+  latest_tag="$(curl -fsSL "https://api.github.com/repos/$TUSK_GITHUB_REPO/releases/latest" 2>/dev/null \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])")" || {
+    echo "Error: Could not fetch latest release from GitHub." >&2
+    exit 1
+  }
+
+  local remote_version
+  remote_version="$(curl -fsSL "https://raw.githubusercontent.com/$TUSK_GITHUB_REPO/refs/tags/$latest_tag/VERSION" 2>/dev/null)" || {
+    echo "Error: Could not fetch remote version from GitHub." >&2
+    exit 1
+  }
+  remote_version="$(echo "$remote_version" | tr -d '[:space:]')"
+
+  if [[ "$TUSK_VERSION" -ge "$remote_version" ]]; then
+    echo "Already up to date (version $TUSK_VERSION)."
+    return
+  fi
+
+  echo "Upgrading from version $TUSK_VERSION → $remote_version..."
+
+  tmpdir="$(mktemp -d)"
+  trap 'rm -rf "$tmpdir"' EXIT
+
+  # Download and extract tagged release tarball
+  curl -fsSL "https://github.com/$TUSK_GITHUB_REPO/archive/refs/tags/$latest_tag.tar.gz" \
+    -o "$tmpdir/tusk.tar.gz" || {
+    echo "Error: Could not download release tarball." >&2
+    exit 1
+  }
+  tar -xzf "$tmpdir/tusk.tar.gz" -C "$tmpdir"
+
+  # Handle dynamic directory name (tusk-v2, tusk-v3, etc.)
+  local src
+  src="$(ls -d "$tmpdir"/tusk-*/ 2>/dev/null | head -1)"
+  if [[ -z "$src" || ! -d "$src" ]]; then
+    echo "Error: Unexpected archive structure." >&2
+    exit 1
+  fi
+
+  # Copy bin files alongside current binary
+  # Use mv (atomic rename) for the running script so bash's open fd keeps
+  # reading the old inode instead of seeing overwritten content mid-execution.
+  cp "$src/bin/tusk" "$SCRIPT_DIR/tusk.tmp"
+  chmod +x "$SCRIPT_DIR/tusk.tmp"
+  mv "$SCRIPT_DIR/tusk.tmp" "$SCRIPT_DIR/tusk"
+  for pyfile in "$src"/bin/tusk-*.py; do
+    [[ -f "$pyfile" ]] || continue
+    cp "$pyfile" "$SCRIPT_DIR/"
+  done
+  cp "$src/VERSION" "$SCRIPT_DIR/VERSION"
+  cp "$src/config.default.json" "$SCRIPT_DIR/config.default.json"
+  echo "  Updated CLI and support files"
+
+  # Copy skills
+  for skill_dir in "$src"/skills/*/; do
+    [[ -d "$skill_dir" ]] || continue
+    local skill_name
+    skill_name="$(basename "$skill_dir")"
+    mkdir -p "$REPO_ROOT/.claude/skills/$skill_name"
+    cp "$skill_dir"* "$REPO_ROOT/.claude/skills/$skill_name/" 2>/dev/null || true
+    echo "  Updated skill: $skill_name"
+  done
+
+  # Copy scripts
+  mkdir -p "$REPO_ROOT/scripts"
+  for script in "$src"/scripts/*.py; do
+    [[ -f "$script" ]] || continue
+    cp "$script" "$REPO_ROOT/scripts/"
+    echo "  Updated scripts/$(basename "$script")"
+  done
+
+  # Run migrations using the NEW binary
+  "$SCRIPT_DIR/tusk" migrate
+
+  echo ""
+  echo "Upgrade complete (version $remote_version)."
 }
 
 # ── Dispatch ─────────────────────────────────────────────────────────
@@ -263,8 +491,15 @@ case "${1:-}" in
   init)   shift; cmd_init "$@" ;;
   path)   cmd_path ;;
   config) shift; cmd_config "$@" ;;
+  sql-quote) shift; sql_quote "${1:-}" ;;
   dupes)  shift; exec python3 "$SCRIPT_DIR/tusk-dupes.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  dashboard) exec python3 "$SCRIPT_DIR/tusk-dashboard.py" "$DB_PATH" "$(resolve_config)" ;;
+  session-stats) shift; exec python3 "$SCRIPT_DIR/tusk-session-stats.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   shell)  cmd_shell ;;
-  "")     echo "Usage: tusk {init|path|config|dupes|shell|\"SQL ...\"}" >&2; exit 1 ;;
+  version) cmd_version ;;
+  migrate) cmd_migrate ;;
+  regen-triggers) cmd_regen_triggers ;;
+  upgrade) cmd_upgrade ;;
+  "")     echo "Usage: tusk {init|path|config|sql-quote|dupes|dashboard|session-stats|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac

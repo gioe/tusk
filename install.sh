@@ -7,12 +7,11 @@
 #   /path/to/tusker/install.sh
 #
 # What it does:
-#   1. Copies bin/tusk           → tusk
-#   2. Copies skills/*           → .claude/skills/*
-#   3. Copies scripts/*          → scripts/*  (creates if needed)
-#   4. Copies config.default.json alongside bin for fallback
-#   5. Runs tusk init (creates DB + config if missing)
-#   6. Prints CLAUDE.md snippet to paste into your project
+#   1. Copies bin/tusk + support files → .claude/bin/
+#   2. Copies skills/*                 → .claude/skills/*
+#   3. Copies scripts/*                → scripts/*  (creates if needed)
+#   4. Runs tusk init + migrate
+#   5. Prints CLAUDE.md snippet to paste into your project
 
 set -euo pipefail
 
@@ -34,16 +33,25 @@ fi
 
 echo "Installing tusker into $REPO_ROOT"
 
-# ── 1. Copy bin ──────────────────────────────────────────────────────
+# ── 1. Copy bin + support files ──────────────────────────────────────
 mkdir -p "$REPO_ROOT/.claude/bin"
-cp "$SCRIPT_DIR/bin/tusk" "$REPO_ROOT/tusk"
-chmod +x "$REPO_ROOT/tusk"
-echo "  Installed tusk"
+cp "$SCRIPT_DIR/bin/tusk" "$REPO_ROOT/.claude/bin/tusk"
+chmod +x "$REPO_ROOT/.claude/bin/tusk"
+echo "  Installed .claude/bin/tusk"
 
-# ── 2. Copy config default (fallback for bin) ────────────────────────
+# Copy Python scripts alongside binary (needed for $SCRIPT_DIR dispatch)
+for pyfile in "$SCRIPT_DIR"/bin/tusk-*.py; do
+  [[ -f "$pyfile" ]] || continue
+  cp "$pyfile" "$REPO_ROOT/.claude/bin/"
+  echo "  Installed .claude/bin/$(basename "$pyfile")"
+done
+
+# ── 2. Copy config, VERSION ─────────────────────────────────────────
 cp "$SCRIPT_DIR/config.default.json" "$REPO_ROOT/.claude/bin/config.default.json"
-# Also update INSTALL_DIR logic — the default config lives next to the binary
 echo "  Installed .claude/bin/config.default.json"
+
+cp "$SCRIPT_DIR/VERSION" "$REPO_ROOT/.claude/bin/VERSION"
+echo "  Installed .claude/bin/VERSION"
 
 # ── 3. Copy skills ───────────────────────────────────────────────────
 for skill_dir in "$SCRIPT_DIR"/skills/*/; do
@@ -62,8 +70,10 @@ for script in "$SCRIPT_DIR"/scripts/*.py; do
   echo "  Installed scripts/$script_name"
 done
 
-# ── 5. Init database ─────────────────────────────────────────────────
-"$REPO_ROOT/tusk" init
+# ── 5. Init database + migrate ───────────────────────────────────────
+TUSK="$REPO_ROOT/.claude/bin/tusk"
+"$TUSK" init
+"$TUSK" migrate
 
 # ── 6. Print CLAUDE.md snippet ───────────────────────────────────────
 echo ""
@@ -73,28 +83,14 @@ echo "════════════════════════�
 echo ""
 echo "Next steps:"
 echo ""
-echo "  1. Edit tusk/config.json to set your project's domains and agents"
+echo "  1. Start a NEW Claude Code session (skills are discovered at startup,"
+echo "     so /tusk-init won't be available in the session that ran install.sh)"
 echo ""
-echo "  2. Re-init to apply config changes:"
-echo "     tusk init --force"
+echo "  2. Run /tusk-init to configure your project interactively"
+echo "     (sets domains, agents, CLAUDE.md snippet, and seeds tasks from TODOs)"
 echo ""
-echo "  3. Add this to your CLAUDE.md:"
-echo ""
-cat <<'SNIPPET'
-## Task Queue
-
-The project task database is managed via `tusk`. Use it for all task operations:
-
-```bash
-tusk "SELECT ..."          # Run SQL
-tusk -header -column "SQL"  # With formatting flags
-tusk path                   # Print resolved DB path
-tusk config                 # Print project config
-tusk config domains         # List valid domains
-tusk init                   # Bootstrap DB (new projects)
-tusk shell                  # Interactive sqlite3 shell
-```
-
-Never hardcode the DB path — always go through `tusk`.
-SNIPPET
+echo "  Or configure manually:"
+echo "     a. Edit tusk/config.json to set your project's domains and agents"
+echo "     b. Run: tusk init --force"
+echo "     c. Add the Task Queue snippet to your CLAUDE.md (see /tusk-init)"
 echo ""

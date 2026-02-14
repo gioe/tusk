@@ -1,11 +1,11 @@
-# tusker
+# tusk
 
 A portable task management system for [Claude Code](https://claude.ai/claude-code) projects. Gives Claude a local SQLite database, CLI, and skills to track, prioritize, and work through tasks autonomously.
 
 ## What You Get
 
 - **`tusk` CLI** — single entry point for all task database operations
-- **Skills** — Claude Code skills for task workflows (`/next-task`, `/groom-backlog`, `/check-dupes`, `/manage-dependencies`, `/tasks`)
+- **Skills** — Claude Code skills for task workflows (`/tusk-init`, `/next-task`, `/groom-backlog`, `/check-dupes`, `/manage-dependencies`, `/tasks`)
 - **Scripts** — Python utilities for duplicate detection and dependency management
 - **Config-driven schema** — define your project's domains, task types, and agents in JSON; validation triggers are generated automatically
 
@@ -25,11 +25,19 @@ This will:
 2. Create `tusk/config.json` with defaults
 3. Initialize the database at `tusk/tasks.db`
 
-Then edit `tusk/config.json` to set your project's domains and agents, and re-init:
+Then start a new Claude Code session and run `/tusk-init` — it will scan your codebase, suggest domains and agents, write your config, and seed tasks from TODOs.
+
+You can also configure manually by editing `tusk/config.json` and running `tusk init --force`.
+
+### Upgrading
+
+To pull the latest version of tusk into an installed project:
 
 ```bash
-tusk init --force
+tusk upgrade
 ```
+
+This downloads the latest release from GitHub, updates all files (CLI, skills, scripts), and runs schema migrations. Your config (`tusk/config.json`) and database (`tusk/tasks.db`) are never touched.
 
 ## Configuration
 
@@ -43,8 +51,8 @@ Edit `tusk/config.json` after install:
   "priorities": ["Highest", "High", "Medium", "Low", "Lowest"],
   "closed_reasons": ["completed", "expired", "wont_do", "duplicate"],
   "agents": {
-    "frontend-engineer": { "domains": ["Frontend"], "keywords": ["React", "CSS", "component"] },
-    "backend-engineer": { "domains": ["Backend"], "keywords": ["API", "endpoint", "database"] }
+    "frontend-engineer": "React, CSS, and UI components",
+    "backend-engineer": "API endpoints, database, and server logic"
   }
 }
 ```
@@ -66,6 +74,9 @@ tusk config agents           # List configured agents
 tusk init                    # Bootstrap DB (safe — skips if exists)
 tusk init --force            # Recreate DB from scratch
 tusk shell                   # Interactive sqlite3 shell
+tusk version                 # Print installed version
+tusk migrate                 # Apply pending schema migrations
+tusk upgrade                 # Upgrade tusk from GitHub
 ```
 
 ## Skills
@@ -80,10 +91,11 @@ tusk shell                   # Interactive sqlite3 shell
 | `/check-dupes` | Check for duplicate tasks before creating new ones |
 | `/manage-dependencies` | Add, remove, or query task dependencies |
 | `/tasks` | Open DB Browser for SQLite |
+| `/tusk-init` | Interactive setup wizard — scans codebase, suggests config, seeds tasks |
 
 ## CLAUDE.md Setup
 
-Add this to your project's `CLAUDE.md`:
+The `/tusk-init` skill can generate this automatically. To add it manually:
 
 ```markdown
 ## Task Queue
@@ -147,13 +159,16 @@ your-project/
 │   ├── bin/
 │   │   ├── tusk                       # CLI (single source of truth)
 │   │   ├── tusk-dupes.py              # Duplicate detection (via tusk dupes)
-│   │   └── config.default.json        # Fallback config
+│   │   ├── tusk-session-stats.py      # Token/cost tracking (via tusk session-stats)
+│   │   ├── config.default.json        # Fallback config
+│   │   └── VERSION                    # Installed distribution version
 │   └── skills/
 │       ├── next-task/SKILL.md
 │       ├── groom-backlog/SKILL.md
 │       ├── check-dupes/SKILL.md
 │       ├── manage-dependencies/SKILL.md
-│       └── tasks/SKILL.md
+│       ├── tasks/SKILL.md
+│       └── tusk-init/SKILL.md
 ├── scripts/
 │   └── manage_dependencies.py
 └── tusk/

@@ -68,6 +68,16 @@ def similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, normalize_summary(a), normalize_summary(b)).ratio()
 
 
+def build_norm_cache(tasks) -> dict[int, str]:
+    """Pre-compute normalized summaries for a list of tasks."""
+    return {t["id"]: normalize_summary(t["summary"]) for t in tasks}
+
+
+def similarity_cached(norm_a: str, norm_b: str) -> float:
+    """Compute similarity between two pre-normalized strings."""
+    return SequenceMatcher(None, norm_a, norm_b).ratio()
+
+
 def get_open_tasks(
     conn: sqlite3.Connection,
     domain: str | None = None,
@@ -92,9 +102,12 @@ def cmd_check(args: argparse.Namespace, db_path: str) -> int:
     tasks = get_open_tasks(conn, domain=args.domain)
     conn.close()
 
+    norm_input = normalize_summary(args.summary)
+    cache = build_norm_cache(tasks)
+
     matches = []
     for task in tasks:
-        score = similarity(args.summary, task["summary"])
+        score = similarity_cached(norm_input, cache[task["id"]])
         if score >= args.threshold:
             matches.append(
                 {
@@ -126,11 +139,13 @@ def cmd_scan(args: argparse.Namespace, db_path: str) -> int:
     tasks = get_open_tasks(conn, domain=args.domain, status=args.status)
     conn.close()
 
+    cache = build_norm_cache(tasks)
+
     pairs = []
     seen = set()
     for i, t1 in enumerate(tasks):
         for t2 in tasks[i + 1 :]:
-            score = similarity(t1["summary"], t2["summary"])
+            score = similarity_cached(cache[t1["id"]], cache[t2["id"]])
             if score >= args.threshold:
                 key = (min(t1["id"], t2["id"]), max(t1["id"], t2["id"]))
                 if key not in seen:
@@ -179,11 +194,14 @@ def cmd_similar(args: argparse.Namespace, db_path: str) -> int:
     tasks = get_open_tasks(conn, domain=args.domain)
     conn.close()
 
+    norm_target = normalize_summary(target["summary"])
+    cache = build_norm_cache(tasks)
+
     matches = []
     for task in tasks:
         if task["id"] == target["id"]:
             continue
-        score = similarity(target["summary"], task["summary"])
+        score = similarity_cached(norm_target, cache[task["id"]])
         if score >= args.threshold:
             matches.append(
                 {

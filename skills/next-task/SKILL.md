@@ -55,19 +55,38 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
    tusk -header -column "SELECT * FROM tasks WHERE id = <id>"
    ```
 
-2. **Update the task status** to In Progress:
+2. **Check for prior progress** — if context was lost mid-task, resume from the last checkpoint:
+   ```bash
+   tusk -header -column "SELECT * FROM task_progress WHERE task_id = <id> ORDER BY created_at DESC"
+   ```
+   If rows exist, read them carefully. The most recent entry's `next_steps` tells you exactly where to pick up. Skip steps you've already completed (branch may already exist, some commits may already be made). Use `git log --oneline` on the existing branch to see what's already been done.
+
+   Also check for an open session to reuse:
+   ```bash
+   SESSION_ID=$(tusk "SELECT id FROM task_sessions WHERE task_id = <id> AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1")
+   ```
+   If `SESSION_ID` is non-empty, reuse it. If empty, a new session will be created in the next step.
+
+3. **Update the task status** to In Progress (if not already):
    ```bash
    tusk "UPDATE tasks SET status = 'In Progress', updated_at = datetime('now') WHERE id = <id>"
    ```
 
-3. **Extract task details** including:
+4. **Start a session** (skip if `SESSION_ID` was already set from step 2):
+   ```bash
+   tusk "INSERT INTO task_sessions (task_id, started_at) VALUES (<id>, datetime('now'))"
+   SESSION_ID=$(tusk "SELECT MAX(id) FROM task_sessions WHERE task_id = <id>")
+   ```
+   Hold onto `SESSION_ID` for the duration of the workflow — it will be used to close the session when the task is done.
+
+5. **Extract task details** including:
    - Summary
    - Description
    - Priority
    - Domain
    - Assignee
 
-4. **Create a new git branch IMMEDIATELY**:
+6. **Create a new git branch IMMEDIATELY** (skip if resuming and branch already exists):
    - Format: `feature/TASK-<id>-brief-description`
    - Commands:
      ```bash
@@ -75,38 +94,53 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
      git checkout -b feature/TASK-<id>-brief-description
      ```
 
-5. **Determine the best subagent(s)** based on:
+7. **Determine the best subagent(s)** based on:
    - Task domain
    - Task assignee field (often indicates the right agent type)
    - Task description and requirements
 
-6. **Explore the codebase before implementing** — use a sub-agent to research:
+8. **Explore the codebase before implementing** — use a sub-agent to research:
    - What files will need to change?
    - Are there existing patterns to follow?
    - What tests already exist for this area?
 
    Report findings before writing any code.
 
-7. **Delegate the work** to the chosen subagent(s).
+9. **Delegate the work** to the chosen subagent(s).
 
-8. **Create atomic commits** as you complete logical units of work.
-   - All commits should be on the feature branch, NOT main.
+10. **Create atomic commits** as you complete logical units of work.
+    - All commits should be on the feature branch, NOT main.
+    - **After every commit, log a progress checkpoint** (see below).
 
-9. **Review the code locally** before considering the work complete.
+11. **Log a progress checkpoint after every commit:**
+    ```bash
+    HASH=$(git rev-parse --short HEAD)
+    MSG=$(git log -1 --pretty=%s)
+    FILES=$(git diff-tree --no-commit-id --name-only -r HEAD | tr '\n' ', ' | sed 's/,$//')
+    tusk "INSERT INTO task_progress (task_id, commit_hash, commit_message, files_changed, next_steps)
+      VALUES (<id>, $(tusk sql-quote "$HASH"), $(tusk sql-quote "$MSG"), $(tusk sql-quote "$FILES"), $(tusk sql-quote "<what remains to be done>"))"
+    ```
+    The `next_steps` field is critical — write it as if briefing a new agent who has zero context. Include:
+    - What has been implemented so far
+    - What still needs to be done
+    - Any decisions made or open questions
+    - The current branch name
 
-10. **Push the branch and create a PR**:
+12. **Review the code locally** before considering the work complete.
+
+13. **Push the branch and create a PR**:
     ```bash
     git push -u origin feature/TASK-<id>-description
     gh pr create --title "[TASK-<id>] Brief task description" --body "..."
     ```
     Capture the PR URL from the output.
 
-11. **Update the task with the PR URL**:
+14. **Update the task with the PR URL**:
     ```bash
-    tusk "UPDATE tasks SET github_pr = '<pr_url>', updated_at = datetime('now') WHERE id = <id>"
+    tusk "UPDATE tasks SET github_pr = $(tusk sql-quote "<pr_url>"), updated_at = datetime('now') WHERE id = <id>"
     ```
 
-12. **Review loop — iterate until approved**:
+15. **Review loop — iterate until approved**:
 
     ```
     ┌─► Poll for review
@@ -139,6 +173,7 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
     1. Read the relevant file(s)
     2. Make the code fix
     3. Commit: `[TASK-<id>] Address PR review: <brief description>`
+    4. Log a progress checkpoint (step 11) after each review-fix commit
 
     **Category B — Defer to backlog (cosmetic only):**
     - Pure style preferences not affecting correctness
@@ -153,14 +188,14 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
     2. Create a deferred task (with 60-day expiry):
        ```bash
        tusk "INSERT INTO tasks (summary, description, status, priority, domain, created_at, updated_at, expires_at)
-         VALUES ('[Deferred] <brief description>', 'Deferred from PR #<pr_number> review for TASK-<id>.
+         VALUES ($(tusk sql-quote "[Deferred] <brief description>"), $(tusk sql-quote "Deferred from PR #<pr_number> review for TASK-<id>.
 
 Original comment: <comment text>
 
-Reason deferred: <why this can wait>', 'To Do', 'Low', '<domain>', datetime('now'), datetime('now'), datetime('now', '+60 days'))"
+Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('now'), datetime('now'), datetime('now', '+60 days'))"
        ```
 
-13. **PR approved — finalize and merge**:
+16. **PR approved — finalize and merge**:
 
     ```bash
     gh pr merge $PR_NUMBER --squash --delete-branch
@@ -171,7 +206,25 @@ Reason deferred: <why this can wait>', 'To Do', 'Low', '<domain>', datetime('now
     tusk "UPDATE tasks SET status = 'Done', closed_reason = 'completed', updated_at = datetime('now') WHERE id = <id>"
     ```
 
-14. **Check for newly unblocked tasks**:
+    Close the session with timing and diff stats:
+    ```bash
+    STATS=$(git diff --shortstat main...HEAD)
+    ADDED=$(echo "$STATS" | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+')
+    REMOVED=$(echo "$STATS" | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+')
+    tusk "UPDATE task_sessions
+      SET ended_at = datetime('now'),
+          duration_seconds = CAST((julianday(datetime('now')) - julianday(started_at)) * 86400 AS INTEGER),
+          lines_added = COALESCE(${ADDED:-0}, 0),
+          lines_removed = COALESCE(${REMOVED:-0}, 0)
+      WHERE id = $SESSION_ID"
+    ```
+
+    Then populate token/cost stats from the conversation transcript:
+    ```bash
+    tusk session-stats $SESSION_ID
+    ```
+
+17. **Check for newly unblocked tasks**:
     ```bash
     tusk -header -column "
     SELECT t.id, t.summary, t.priority

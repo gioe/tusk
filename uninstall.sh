@@ -6,7 +6,7 @@
 #   cd /path/to/your/project
 #   /path/to/tusker/uninstall.sh
 # What it removes:
-#   1. tusk + config.default.json
+#   1. .claude/bin/ (tusk binary + support files)
 #   2. .claude/skills/{check-dupes,groom-backlog,manage-dependencies,next-task,tasks}
 #   3. scripts/manage_dependencies.py
 #   4. tusk/ directory (database + config) — requires --delete-data flag
@@ -74,8 +74,11 @@ rmdir_if_empty() {
 }
 
 # ── 1. Remove bin files ──────────────────────────────────────────────
-remove_file "tusk"
+remove_file ".claude/bin/tusk"
 remove_file ".claude/bin/config.default.json"
+remove_file ".claude/bin/tusk-dupes.py"
+remove_file ".claude/bin/tusk-session-stats.py"
+remove_file ".claude/bin/VERSION"
 rmdir_if_empty ".claude/bin"
 
 # ── 2. Remove skills ────────────────────────────────────────────────
