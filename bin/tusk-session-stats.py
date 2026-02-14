@@ -21,50 +21,36 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Per-million-token pricing (USD). Claude Code uses 1-hour prompt caching,
-# so cache writes are priced at the 1h rate (2x base input).
-PRICING = {
-    "claude-opus-4-6": {
-        "input": 5.00,
-        "cache_write": 10.00,  # 1h: 2x base
-        "cache_read": 0.50,    # 0.1x base
-        "output": 25.00,
-    },
-    "claude-opus-4-5": {
-        "input": 5.00,
-        "cache_write": 10.00,
-        "cache_read": 0.50,
-        "output": 25.00,
-    },
-    "claude-sonnet-4-5": {
-        "input": 3.00,
-        "cache_write": 6.00,
-        "cache_read": 0.30,
-        "output": 15.00,
-    },
-    "claude-sonnet-4": {
-        "input": 3.00,
-        "cache_write": 6.00,
-        "cache_read": 0.30,
-        "output": 15.00,
-    },
-    "claude-haiku-4-5": {
-        "input": 1.00,
-        "cache_write": 2.00,
-        "cache_read": 0.10,
-        "output": 5.00,
-    },
-}
+# Per-million-token pricing (USD) and model aliases are loaded from
+# pricing.json at runtime. See load_pricing() below.
+PRICING: dict = {}
+MODEL_ALIASES: dict = {}
 
-# Model ID aliases — Claude Code transcripts use short IDs like
-# "claude-opus-4-6" but may also include dated suffixes.
-MODEL_ALIASES = {
-    "claude-opus-4-6-20250918": "claude-opus-4-6",
-    "claude-opus-4-5-20250929": "claude-opus-4-5",
-    "claude-sonnet-4-5-20250929": "claude-sonnet-4-5",
-    "claude-sonnet-4-20250514": "claude-sonnet-4",
-    "claude-haiku-4-5-20251001": "claude-haiku-4-5",
-}
+
+def load_pricing() -> None:
+    """Load model pricing and aliases from pricing.json.
+
+    Searches next to this script first (installed layout), then the
+    parent directory (source repo layout where pricing.json is at the root).
+    """
+    global PRICING, MODEL_ALIASES
+    script_dir = Path(__file__).resolve().parent
+    candidates = [
+        script_dir / "pricing.json",
+        script_dir.parent / "pricing.json",
+    ]
+    for path in candidates:
+        if path.is_file():
+            with open(path) as f:
+                data = json.load(f)
+            PRICING = data.get("models", {})
+            MODEL_ALIASES = data.get("aliases", {})
+            return
+    print(
+        f"Warning: pricing.json not found (searched {', '.join(str(p) for p in candidates)}). "
+        "Cost calculations will return $0.",
+        file=sys.stderr,
+    )
 
 
 def resolve_model(model_id: str) -> str:
@@ -220,6 +206,8 @@ def compute_cost(totals: dict) -> float:
 
 
 def main():
+    load_pricing()
+
     if len(sys.argv) < 4:
         print(
             "Usage: tusk session-stats <session_id> [transcript_path]",

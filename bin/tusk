@@ -458,6 +458,7 @@ cmd_upgrade() {
   done
   cp "$src/VERSION" "$SCRIPT_DIR/VERSION"
   cp "$src/config.default.json" "$SCRIPT_DIR/config.default.json"
+  cp "$src/pricing.json" "$SCRIPT_DIR/pricing.json"
   echo "  Updated CLI and support files"
 
   # Copy skills

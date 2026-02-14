@@ -53,6 +53,9 @@ echo "  Installed .claude/bin/config.default.json"
 cp "$SCRIPT_DIR/VERSION" "$REPO_ROOT/.claude/bin/VERSION"
 echo "  Installed .claude/bin/VERSION"
 
+cp "$SCRIPT_DIR/pricing.json" "$REPO_ROOT/.claude/bin/pricing.json"
+echo "  Installed .claude/bin/pricing.json"
+
 # ── 3. Copy skills ───────────────────────────────────────────────────
 for skill_dir in "$SCRIPT_DIR"/skills/*/; do
   skill_name="$(basename "$skill_dir")"

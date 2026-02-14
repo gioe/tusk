@@ -1,0 +1,41 @@
+{
+  "models": {
+    "claude-opus-4-6": {
+      "input": 5.00,
+      "cache_write": 10.00,
+      "cache_read": 0.50,
+      "output": 25.00
+    },
+    "claude-opus-4-5": {
+      "input": 5.00,
+      "cache_write": 10.00,
+      "cache_read": 0.50,
+      "output": 25.00
+    },
+    "claude-sonnet-4-5": {
+      "input": 3.00,
+      "cache_write": 6.00,
+      "cache_read": 0.30,
+      "output": 15.00
+    },
+    "claude-sonnet-4": {
+      "input": 3.00,
+      "cache_write": 6.00,
+      "cache_read": 0.30,
+      "output": 15.00
+    },
+    "claude-haiku-4-5": {
+      "input": 1.00,
+      "cache_write": 2.00,
+      "cache_read": 0.10,
+      "output": 5.00
+    }
+  },
+  "aliases": {
+    "claude-opus-4-6-20250918": "claude-opus-4-6",
+    "claude-opus-4-5-20250929": "claude-opus-4-5",
+    "claude-sonnet-4-5-20250929": "claude-sonnet-4-5",
+    "claude-sonnet-4-20250514": "claude-sonnet-4",
+    "claude-haiku-4-5-20251001": "claude-haiku-4-5"
+  }
+}
