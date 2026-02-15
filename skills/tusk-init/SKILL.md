@@ -185,17 +185,17 @@ If the user confirms, append this snippet to the end of `CLAUDE.md`:
 
 ## Task Queue
 
-The project task database is managed via `tusk` (at `.claude/bin/tusk`). Use it for all task operations:
+The project task database is managed via `tusk`. Use it for all task operations:
 
 \```bash
-.claude/bin/tusk "SELECT ..."          # Run SQL
-.claude/bin/tusk -header -column "SQL"  # With formatting flags
-.claude/bin/tusk path                   # Print resolved DB path
-.claude/bin/tusk config                 # Print project config
-.claude/bin/tusk init                   # Bootstrap DB (new projects)
-.claude/bin/tusk shell                  # Interactive sqlite3 shell
-.claude/bin/tusk version                # Print installed version
-.claude/bin/tusk upgrade                # Upgrade from GitHub
+tusk "SELECT ..."          # Run SQL
+tusk -header -column "SQL"  # With formatting flags
+tusk path                   # Print resolved DB path
+tusk config                 # Print project config
+tusk init                   # Bootstrap DB (new projects)
+tusk shell                  # Interactive sqlite3 shell
+tusk version                # Print installed version
+tusk upgrade                # Upgrade from GitHub
 \```
 
 Never hardcode the DB path — always go through `tusk`.
