@@ -92,6 +92,76 @@ Two independent version tracks:
 
 `tusk upgrade` downloads the latest tarball from GitHub, copies all files to their installed locations (never touching `tusk/config.json` or `tusk/tasks.db`), then runs `tusk migrate` to apply any schema changes.
 
+### SQLite Table-Recreation Migration Template
+
+SQLite does not support `ALTER COLUMN` or `DROP COLUMN` (on older versions). Any migration that changes column constraints, renames a column, or removes a column requires recreating the table. Use this template inside `cmd_migrate()` in `bin/tusk`:
+
+```bash
+# Migration N→N+1: <describe what changed and why>
+if [[ "$current" -lt <N+1> ]]; then
+  sqlite3 "$DB_PATH" "
+    -- 1. Drop validation triggers (they reference the table)
+    $(sqlite3 "$DB_PATH" "SELECT 'DROP TRIGGER IF EXISTS ' || name || ';' FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'validate_%';")
+
+    -- 2. Drop dependent views
+    DROP VIEW IF EXISTS task_metrics;
+
+    -- 3. Create the new table with the updated schema
+    CREATE TABLE tasks_new (
+        -- ... full column definitions with updated constraints ...
+    );
+
+    -- 4. Copy data from the old table
+    INSERT INTO tasks_new SELECT * FROM tasks;
+    --   If columns were added/removed/reordered, list them explicitly:
+    --   INSERT INTO tasks_new (col1, col2, ...) SELECT col1, col2, ... FROM tasks;
+
+    -- 5. Drop the old table
+    DROP TABLE tasks;
+
+    -- 6. Rename the new table
+    ALTER TABLE tasks_new RENAME TO tasks;
+
+    -- 7. Recreate any indexes that were on the original table
+    --   (indexes are dropped automatically when the old table is dropped)
+
+    -- 8. Recreate dependent views
+    CREATE VIEW task_metrics AS
+    SELECT t.*,
+        COUNT(s.id) as session_count,
+        SUM(s.duration_seconds) as total_duration_seconds,
+        SUM(s.cost_dollars) as total_cost,
+        SUM(s.tokens_in) as total_tokens_in,
+        SUM(s.tokens_out) as total_tokens_out,
+        SUM(s.lines_added) as total_lines_added,
+        SUM(s.lines_removed) as total_lines_removed
+    FROM tasks t
+    LEFT JOIN task_sessions s ON t.id = s.task_id
+    GROUP BY t.id;
+
+    -- 9. Bump schema version
+    PRAGMA user_version = <N+1>;
+  "
+
+  -- 10. Regenerate validation triggers from config
+  local triggers
+  triggers="\$(generate_triggers)"
+  if [[ -n "\$triggers" ]]; then
+    sqlite3 "\$DB_PATH" "\$triggers"
+  fi
+
+  echo "  Migration <N+1>: <describe change>"
+fi
+```
+
+**Key points:**
+
+- Run all DDL inside a single `sqlite3` call so it executes within an implicit transaction — if any step fails, nothing is committed.
+- Steps 1 (drop triggers) and 10 (regenerate triggers) are separated: triggers are dropped inside the SQL transaction, but regenerated afterward via the `generate_triggers` bash function.
+- Always update `PRAGMA user_version` inside the SQL block, and update the `tusk init` fresh-DB version to match.
+- If the table has foreign keys pointing to it (e.g., `task_dependencies.task_id → tasks.id`), SQLite will remap them automatically on `RENAME` as long as `PRAGMA foreign_keys` is OFF (the default for raw `sqlite3` calls).
+- Test the migration on a copy of the database before merging: `cp tusk/tasks.db /tmp/test.db && DB_PATH=/tmp/test.db tusk migrate`.
+
 ## Creating a New Skill
 
 ### Directory Structure
