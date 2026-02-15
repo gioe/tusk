@@ -23,6 +23,9 @@ bin/tusk path
 bin/tusk config
 bin/tusk config domains
 
+# Validate config.json against the expected schema
+bin/tusk validate
+
 # Escape and quote a string for safe SQL interpolation
 bin/tusk sql-quote "O'Reilly's book"   # → 'O''Reilly''s book'
 
