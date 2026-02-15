@@ -205,16 +205,7 @@ Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('no
 
 16. **PR approved — finalize and merge**:
 
-    ```bash
-    gh pr merge $PR_NUMBER --squash --delete-branch
-    ```
-
-    Update task status:
-    ```bash
-    tusk "UPDATE tasks SET status = 'Done', closed_reason = 'completed', updated_at = datetime('now') WHERE id = <id>"
-    ```
-
-    Close the session with timing and diff stats:
+    Capture diff stats **before** merging (the feature branch is deleted after merge):
     ```bash
     git remote set-head origin --auto 2>/dev/null
     DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
@@ -224,6 +215,20 @@ Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('no
     STATS=$(git diff --shortstat "$DEFAULT_BRANCH"...HEAD)
     ADDED=$(echo "$STATS" | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+')
     REMOVED=$(echo "$STATS" | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+')
+    ```
+
+    Merge and delete the feature branch:
+    ```bash
+    gh pr merge $PR_NUMBER --squash --delete-branch
+    ```
+
+    Update task status:
+    ```bash
+    tusk "UPDATE tasks SET status = 'Done', closed_reason = 'completed', updated_at = datetime('now') WHERE id = <id>"
+    ```
+
+    Close the session with the pre-captured stats:
+    ```bash
     tusk "UPDATE task_sessions
       SET ended_at = datetime('now'),
           duration_seconds = CAST((julianday(datetime('now')) - julianday(started_at)) * 86400 AS INTEGER),
