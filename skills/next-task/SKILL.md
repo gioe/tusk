@@ -88,9 +88,16 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
 
 6. **Create a new git branch IMMEDIATELY** (skip if resuming and branch already exists):
    - Format: `feature/TASK-<id>-brief-description`
-   - Commands:
+   - First, detect the repo's default branch:
      ```bash
-     git checkout main && git pull origin main
+     DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+     if [ -z "$DEFAULT_BRANCH" ]; then
+       DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo "main")
+     fi
+     ```
+   - Then create the branch:
+     ```bash
+     git checkout "$DEFAULT_BRANCH" && git pull origin "$DEFAULT_BRANCH"
      git checkout -b feature/TASK-<id>-brief-description
      ```
 
@@ -109,7 +116,7 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
 9. **Delegate the work** to the chosen subagent(s).
 
 10. **Create atomic commits** as you complete logical units of work.
-    - All commits should be on the feature branch, NOT main.
+    - All commits should be on the feature branch, NOT the default branch.
     - **After every commit, log a progress checkpoint** (see below).
 
 11. **Log a progress checkpoint after every commit:**
@@ -208,7 +215,11 @@ Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('no
 
     Close the session with timing and diff stats:
     ```bash
-    STATS=$(git diff --shortstat main...HEAD)
+    DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+    if [ -z "$DEFAULT_BRANCH" ]; then
+      DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo "main")
+    fi
+    STATS=$(git diff --shortstat "$DEFAULT_BRANCH"...HEAD)
     ADDED=$(echo "$STATS" | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+')
     REMOVED=$(echo "$STATS" | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+')
     tusk "UPDATE task_sessions
