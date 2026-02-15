@@ -90,6 +90,7 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
    - Format: `feature/TASK-<id>-brief-description`
    - First, detect the repo's default branch:
      ```bash
+     git remote set-head origin --auto 2>/dev/null
      DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
      if [ -z "$DEFAULT_BRANCH" ]; then
        DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo "main")
@@ -215,6 +216,7 @@ Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('no
 
     Close the session with timing and diff stats:
     ```bash
+    git remote set-head origin --auto 2>/dev/null
     DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
     if [ -z "$DEFAULT_BRANCH" ]; then
       DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo "main")
