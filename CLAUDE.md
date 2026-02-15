@@ -185,4 +185,5 @@ Commit the bump in the same branch as the feature — not as a separate PR. The 
 - Deferred tasks from PR reviews get `[Deferred]` prefix and 60-day `expires_at`
 - Always run `/check-dupes` before inserting new tasks
 - Dependencies use DFS cycle detection in Python; SQLite CHECK prevents self-loops
+- In SQL passed through bash, use `<>` instead of `!=` for not-equal comparisons — `!=` can cause parse errors due to shell history expansion (`!` is special in bash)
 - Skills are discovered at Claude Code session startup — after installing or adding a new skill, you must start a new session before invoking it with `/skill-name`
