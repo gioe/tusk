@@ -10,6 +10,7 @@
 #   tusk shell                 Open an interactive sqlite3 shell
 #   tusk config                Print full config JSON
 #   tusk config <key>          Print config values (domains, task_types, agents, etc.)
+#   tusk validate              Validate config.json against the expected schema
 #   tusk sql-quote "text"      Escape and quote a string for safe SQL interpolation
 #   tusk dupes check "..."     Check a summary for duplicates
 #   tusk dupes scan            Find all duplicate pairs among open tasks
@@ -106,6 +107,109 @@ read_config_json() {
   cat "$config"
 }
 
+validate_config() {
+  local config
+  config="$(resolve_config)"
+  python3 -c "
+import json, sys
+
+config_path = sys.argv[1]
+
+# ── Load JSON ──
+try:
+    with open(config_path) as f:
+        cfg = json.load(f)
+except json.JSONDecodeError as e:
+    print(f'Error: {config_path} is not valid JSON.', file=sys.stderr)
+    print(f'  {e}', file=sys.stderr)
+    sys.exit(1)
+
+if not isinstance(cfg, dict):
+    print(f'Error: {config_path} must be a JSON object (got {type(cfg).__name__}).', file=sys.stderr)
+    sys.exit(1)
+
+errors = []
+
+# ── Check for unknown top-level keys ──
+KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'agents', 'dupes'}
+known_list = ', '.join(sorted(KNOWN_KEYS))
+unknown = set(cfg.keys()) - KNOWN_KEYS
+if unknown:
+    for k in sorted(unknown):
+        errors.append(f'Unknown config key \"{k}\". Valid keys: {known_list}')
+
+# ── Validate list-of-strings fields ──
+LIST_FIELDS = {
+    'domains':        {'required': False},
+    'task_types':     {'required': False},
+    'statuses':       {'required': True},
+    'priorities':     {'required': True},
+    'closed_reasons': {'required': True},
+}
+for field, opts in LIST_FIELDS.items():
+    if field not in cfg:
+        if opts['required']:
+            errors.append(f'Missing required key \"{field}\".')
+        continue
+    val = cfg[field]
+    if not isinstance(val, list):
+        errors.append(f'\"{field}\" must be a list (got {type(val).__name__}).')
+        continue
+    if opts['required'] and len(val) == 0:
+        errors.append(f'\"{field}\" must not be empty.')
+    for i, item in enumerate(val):
+        if not isinstance(item, str):
+            errors.append(f'\"{field}[{i}]\" must be a string (got {type(item).__name__}: {item!r}).')
+
+# ── Validate agents (dict of string→string) ──
+if 'agents' in cfg:
+    agents = cfg['agents']
+    if not isinstance(agents, dict):
+        errors.append(f'\"agents\" must be an object (got {type(agents).__name__}).')
+    else:
+        for k, v in agents.items():
+            if not isinstance(v, str):
+                errors.append(f'\"agents.{k}\" value must be a string (got {type(v).__name__}: {v!r}).')
+
+# ── Validate dupes (object with specific sub-keys) ──
+if 'dupes' in cfg:
+    dupes = cfg['dupes']
+    if not isinstance(dupes, dict):
+        errors.append(f'\"dupes\" must be an object (got {type(dupes).__name__}).')
+    else:
+        KNOWN_DUPE_KEYS = {'strip_prefixes', 'check_threshold', 'similar_threshold'}
+        known_dupe_list = ', '.join(sorted(KNOWN_DUPE_KEYS))
+        unknown_dupe = set(dupes.keys()) - KNOWN_DUPE_KEYS
+        if unknown_dupe:
+            for k in sorted(unknown_dupe):
+                errors.append(f'Unknown key \"dupes.{k}\". Valid dupes keys: {known_dupe_list}')
+
+        if 'strip_prefixes' in dupes:
+            sp = dupes['strip_prefixes']
+            if not isinstance(sp, list):
+                errors.append(f'\"dupes.strip_prefixes\" must be a list (got {type(sp).__name__}).')
+            else:
+                for i, item in enumerate(sp):
+                    if not isinstance(item, str):
+                        errors.append(f'\"dupes.strip_prefixes[{i}]\" must be a string (got {type(item).__name__}: {item!r}).')
+
+        for thresh in ('check_threshold', 'similar_threshold'):
+            if thresh in dupes:
+                tv = dupes[thresh]
+                if not isinstance(tv, (int, float)):
+                    errors.append(f'\"dupes.{thresh}\" must be a number (got {type(tv).__name__}: {tv!r}).')
+                elif not (0 <= tv <= 1):
+                    errors.append(f'\"dupes.{thresh}\" must be between 0 and 1 (got {tv}).')
+
+# ── Report ──
+if errors:
+    print(f'Config validation failed ({config_path}):', file=sys.stderr)
+    for e in errors:
+        print(f'  - {e}', file=sys.stderr)
+    sys.exit(1)
+" "$config"
+}
+
 # ── SQL quoting helper ────────────────────────────────────────────────
 
 sql_quote() {
@@ -177,6 +281,11 @@ cmd_config() {
   fi
 }
 
+cmd_validate() {
+  validate_config
+  echo "Config is valid ($(resolve_config))."
+}
+
 cmd_init() {
   mkdir -p "$DB_DIR"
 
@@ -193,6 +302,9 @@ cmd_init() {
     cp "$DEFAULT_CONFIG" "$PROJECT_CONFIG"
     echo "Created config at $PROJECT_CONFIG — edit to set your project's domains and agents."
   fi
+
+  # Validate config before proceeding
+  validate_config
 
   # Base schema
   sqlite3 "$DB_PATH" <<'SCHEMA'
@@ -293,6 +405,9 @@ cmd_regen_triggers() {
     echo "No database found at $DB_PATH — run 'tusk init' first." >&2
     exit 1
   fi
+
+  # Validate config before regenerating triggers
+  validate_config
 
   # Drop all existing validation triggers
   local existing
@@ -491,6 +606,7 @@ case "${1:-}" in
   init)   shift; cmd_init "$@" ;;
   path)   cmd_path ;;
   config) shift; cmd_config "$@" ;;
+  validate) cmd_validate ;;
   sql-quote) shift; sql_quote "${1:-}" ;;
   dupes)  shift; exec python3 "$SCRIPT_DIR/tusk-dupes.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   dashboard) exec python3 "$SCRIPT_DIR/tusk-dashboard.py" "$DB_PATH" "$(resolve_config)" ;;
@@ -500,6 +616,6 @@ case "${1:-}" in
   migrate) cmd_migrate ;;
   regen-triggers) cmd_regen_triggers ;;
   upgrade) cmd_upgrade ;;
-  "")     echo "Usage: tusk {init|path|config|sql-quote|dupes|dashboard|session-stats|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
+  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|dupes|dashboard|session-stats|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac
