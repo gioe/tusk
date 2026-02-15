@@ -180,6 +180,7 @@ Commit the bump in the same branch as the feature — not as a separate PR. The 
 - All DB access goes through `bin/tusk`, never raw `sqlite3`
 - Use `$(tusk sql-quote "...")` to safely escape user-provided text in SQL statements — never manually escape single quotes
 - Task workflow: `To Do` → `In Progress` → `Done` (must set `closed_reason` when marking Done)
+- Valid `closed_reason` values: `completed`, `expired`, `wont_do`, `duplicate`
 - Priority scoring: `base_priority + source_bonus + unblocks_bonus`
 - Deferred tasks from PR reviews get `[Deferred]` prefix and 60-day `expires_at`
 - Always run `/check-dupes` before inserting new tasks
