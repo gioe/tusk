@@ -72,12 +72,18 @@ For each task returned, check whether the PR has been merged:
 gh pr view <pr_url> --json state,mergedAt --jq '{state: .state, mergedAt: .mergedAt}'
 ```
 
-If the PR state is `MERGED`, auto-close the task:
+If the PR state is `MERGED`, auto-close the task and any orphaned sessions:
 
 ```bash
 tusk "UPDATE tasks SET status = 'Done', closed_reason = 'completed', updated_at = datetime('now'),
   description = description || char(10) || char(10) || '---' || char(10) || 'Auto-closed: PR was already merged (' || datetime('now') || ').'
 WHERE id = <id>"
+
+# Close any open sessions for this task
+tusk "UPDATE task_sessions
+  SET ended_at = datetime('now'),
+      duration_seconds = CAST((julianday(datetime('now')) - julianday(started_at)) * 86400 AS INTEGER)
+  WHERE task_id = <id> AND ended_at IS NULL"
 ```
 
 If the PR state is `CLOSED` (not merged), flag it for user review in Step 4 with a note that the PR was closed without merging.
