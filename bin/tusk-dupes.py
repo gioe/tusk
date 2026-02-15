@@ -64,8 +64,52 @@ def normalize_summary(summary: str) -> str:
     return text
 
 
+def tokenize(text: str) -> set[str]:
+    """Split normalized text into a set of word tokens.
+
+    Preserves compound tokens (e.g. ``bin/tusk``, ``tusk-dupes.py``) by
+    splitting only on whitespace.  The input should already be
+    normalized (lowercased, prefix-stripped, whitespace-collapsed).
+    """
+    return set(text.split())
+
+
+def char_similarity(norm_a: str, norm_b: str) -> float:
+    """Character-level similarity using SequenceMatcher."""
+    return SequenceMatcher(None, norm_a, norm_b).ratio()
+
+
+def token_similarity(norm_a: str, norm_b: str) -> float:
+    """Token-level (Jaccard) similarity between two normalized strings.
+
+    Tokenizes each string into word sets and returns
+    ``|intersection| / |union|``.  Returns 0.0 when both inputs are empty.
+    """
+    set_a = tokenize(norm_a)
+    set_b = tokenize(norm_b)
+    if not set_a and not set_b:
+        return 0.0
+    return len(set_a & set_b) / len(set_a | set_b)
+
+
+# Weight applied to the token (Jaccard) score when blending.
+TOKEN_WEIGHT = 0.3
+CHAR_WEIGHT = 1.0 - TOKEN_WEIGHT
+
+
+def combined_similarity(norm_a: str, norm_b: str) -> float:
+    """Blended similarity: character-level + token-level (Jaccard).
+
+    Returns a weighted average of the two scores so that tasks sharing
+    key terms (but differing in phrasing) score higher than pure
+    character-level comparison alone.
+    """
+    return (CHAR_WEIGHT * char_similarity(norm_a, norm_b)
+            + TOKEN_WEIGHT * token_similarity(norm_a, norm_b))
+
+
 def similarity(a: str, b: str) -> float:
-    return SequenceMatcher(None, normalize_summary(a), normalize_summary(b)).ratio()
+    return combined_similarity(normalize_summary(a), normalize_summary(b))
 
 
 def build_norm_cache(tasks) -> dict[int, str]:
@@ -74,8 +118,8 @@ def build_norm_cache(tasks) -> dict[int, str]:
 
 
 def similarity_cached(norm_a: str, norm_b: str) -> float:
-    """Compute similarity between two pre-normalized strings."""
-    return SequenceMatcher(None, norm_a, norm_b).ratio()
+    """Compute combined similarity between two pre-normalized strings."""
+    return combined_similarity(norm_a, norm_b)
 
 
 def get_open_tasks(
