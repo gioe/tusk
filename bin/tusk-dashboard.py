@@ -13,11 +13,14 @@ Arguments received from tusk:
 
 import html
 import json
+import logging
 import os
 import sqlite3
 import sys
 import webbrowser
 from datetime import datetime
+
+log = logging.getLogger(__name__)
 
 
 def get_connection(db_path: str) -> sqlite3.Connection:
@@ -28,6 +31,7 @@ def get_connection(db_path: str) -> sqlite3.Connection:
 
 def fetch_task_metrics(conn: sqlite3.Connection) -> list[dict]:
     """Fetch per-task token and cost metrics from task_metrics view."""
+    log.debug("Querying task_metrics view")
     rows = conn.execute(
         """SELECT tm.id, tm.summary, tm.status,
                   tm.session_count,
@@ -44,7 +48,9 @@ def fetch_task_metrics(conn: sqlite3.Connection) -> list[dict]:
            )
            ORDER BY tm.total_cost DESC, tm.id ASC"""
     ).fetchall()
-    return [dict(r) for r in rows]
+    result = [dict(r) for r in rows]
+    log.debug("Fetched %d task metrics rows", len(result))
+    return result
 
 
 def esc(text) -> str:
@@ -337,13 +343,26 @@ tfoot td {{
 
 
 def main():
-    if len(sys.argv) < 3:
-        print("Usage: tusk dashboard", file=sys.stderr)
+    # Extract --debug before manual positional parsing
+    argv = sys.argv[1:]
+    debug = "--debug" in argv
+    if debug:
+        argv = [a for a in argv if a != "--debug"]
+
+    logging.basicConfig(
+        level=logging.DEBUG if debug else logging.WARNING,
+        format="[debug] %(message)s",
+        stream=sys.stderr,
+    )
+
+    if len(argv) < 2:
+        print("Usage: tusk dashboard [--debug]", file=sys.stderr)
         sys.exit(1)
 
-    db_path = sys.argv[1]
+    db_path = argv[0]
     # config_path accepted for dispatch consistency but unused currently
-    # config_path = sys.argv[2]
+    # config_path = argv[1]
+    log.debug("DB path: %s", db_path)
 
     if not os.path.isfile(db_path):
         print(f"Error: Database not found at {db_path}", file=sys.stderr)
@@ -357,12 +376,14 @@ def main():
 
     # Generate HTML
     html_content = generate_html(task_metrics)
+    log.debug("Generated %d bytes of HTML", len(html_content))
 
     # Write to tusk/dashboard.html (same dir as DB)
     db_dir = os.path.dirname(db_path)
     output_path = os.path.join(db_dir, "dashboard.html")
     with open(output_path, "w") as f:
         f.write(html_content)
+    log.debug("Wrote dashboard to %s", output_path)
 
     print(f"Dashboard written to {output_path}")
 

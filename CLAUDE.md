@@ -23,6 +23,9 @@ bin/tusk path
 bin/tusk config
 bin/tusk config domains
 
+# Validate config.json against the expected schema
+bin/tusk validate
+
 # Escape and quote a string for safe SQL interpolation
 bin/tusk sql-quote "O'Reilly's book"   # → 'O''Reilly''s book'
 
@@ -159,13 +162,98 @@ fi
 - If the table has foreign keys pointing to it (e.g., `task_dependencies.task_id → tasks.id`), SQLite will remap them automatically on `RENAME` as long as `PRAGMA foreign_keys` is OFF (the default for raw `sqlite3` calls).
 - Test the migration on a copy of the database before merging: `cp tusk/tasks.db /tmp/test.db && DB_PATH=/tmp/test.db tusk migrate`.
 
+## Creating a New Skill
+
+### Directory Structure
+
+Each skill lives in its own directory under `skills/` (source) and gets installed to `.claude/skills/` in target projects:
+
+```
+skills/
+  my-skill/
+    SKILL.md          # Required — the only file needed
+```
+
+### SKILL.md Format
+
+Every `SKILL.md` must start with YAML frontmatter:
+
+```yaml
+---
+name: my-skill
+description: One-line description shown in the skill picker
+allowed-tools: Bash, Read, Edit     # Comma-separated list of tools the skill needs
+---
+```
+
+- **`name`**: Must match the directory name, use lowercase kebab-case
+- **`description`**: Appears in the Claude Code skill list — keep it concise and action-oriented
+- **`allowed-tools`**: Only request tools the skill actually uses. Common sets:
+  - Read-only skills: `Bash`
+  - Skills that modify files: `Bash, Read, Write, Edit`
+  - Skills that search the codebase: `Bash, Read, Glob, Grep`
+
+### Naming Conventions
+
+- Directory and `name` field: lowercase kebab-case (e.g., `check-dupes`, `next-task`)
+- The skill is invoked as `/name` (e.g., `/check-dupes`)
+
+### Skill Body Guidelines
+
+- Start with a `# Title` heading after the frontmatter
+- Use `## Step N:` headings for multi-step workflows
+- Include `bash` code blocks showing exact `tusk` commands to run
+- Always use `tusk` CLI for DB access, never raw `sqlite3`
+- Use `$(tusk sql-quote "...")` in any SQL that interpolates variables
+- Reference other skills by name when integration points exist (e.g., "Run `/check-dupes` before inserting")
+
+### Checklist for Adding a Skill
+
+1. Create `skills/<name>/SKILL.md` with frontmatter + instructions
+2. Add a one-line entry to the **Skills** list in `CLAUDE.md`
+3. Bump the `VERSION` file (see below)
+4. Commit, push, and PR
+5. After merge, users must start a new Claude Code session to discover the skill
+
+## VERSION Bumps
+
+The `VERSION` file contains a single integer that tracks the distribution version.
+
+### When to Bump
+
+Bump `VERSION` for **any change that install/upgrade would deliver** to a target project:
+
+- New or modified skill (`skills/`)
+- New or modified CLI command (`bin/tusk`)
+- New or modified Python script (`bin/tusk-*.py`, `scripts/`)
+- New schema migration
+- Changes to `config.default.json` or `install.sh`
+
+**Do NOT bump** for changes that stay in this repo only (e.g., README edits, CLAUDE.md updates, task database changes).
+
+### How to Bump
+
+Increment the integer by 1:
+
+```bash
+# Read current version
+cat VERSION
+
+# Write new version (e.g., 13 → 14)
+echo 14 > VERSION
+```
+
+Commit the bump in the same branch as the feature — not as a separate PR. The commit message can be standalone (`Bump VERSION to 14`) or folded into the feature commit.
+
 ## Key Conventions
 
 - All DB access goes through `bin/tusk`, never raw `sqlite3`
 - Use `$(tusk sql-quote "...")` to safely escape user-provided text in SQL statements — never manually escape single quotes
 - Task workflow: `To Do` → `In Progress` → `Done` (must set `closed_reason` when marking Done)
+- Valid `closed_reason` values: `completed`, `expired`, `wont_do`, `duplicate`
 - Priority scoring: `base_priority + source_bonus + unblocks_bonus`
 - Deferred tasks from PR reviews get `[Deferred]` prefix and 60-day `expires_at`
 - Always run `/check-dupes` before inserting new tasks
 - Dependencies use DFS cycle detection in Python; SQLite CHECK prevents self-loops
+- In SQL passed through bash, use `<>` instead of `!=` for not-equal comparisons — `!=` can cause parse errors due to shell history expansion (`!` is special in bash)
 - Skills are discovered at Claude Code session startup — after installing or adding a new skill, you must start a new session before invoking it with `/skill-name`

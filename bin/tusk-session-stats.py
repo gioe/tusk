@@ -15,11 +15,14 @@ Arguments received from tusk:
 """
 
 import json
+import logging
 import os
 import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 # Per-million-token pricing (USD) and model aliases are loaded from
 # pricing.json at runtime. See load_pricing() below.
@@ -41,6 +44,7 @@ def load_pricing() -> None:
     ]
     for path in candidates:
         if path.is_file():
+            log.debug("Loading pricing from %s", path)
             with open(path) as f:
                 data = json.load(f)
             PRICING = data.get("models", {})
@@ -58,23 +62,32 @@ def resolve_model(model_id: str) -> str:
     if model_id in PRICING:
         return model_id
     if model_id in MODEL_ALIASES:
-        return MODEL_ALIASES[model_id]
+        resolved = MODEL_ALIASES[model_id]
+        log.debug("Model alias: %s -> %s", model_id, resolved)
+        return resolved
     # Try stripping date suffix (e.g. "claude-opus-4-6-20260101")
     for key in PRICING:
         if model_id.startswith(key):
+            log.debug("Model prefix match: %s -> %s", model_id, key)
             return key
+    log.debug("Unknown model (no pricing): %s", model_id)
     return model_id
 
 
 def find_transcript(project_dir: str) -> str | None:
     """Find the most recently modified JSONL in the Claude projects dir."""
     claude_dir = Path.home() / ".claude" / "projects" / project_dir
+    log.debug("Looking for transcripts in %s", claude_dir)
     if not claude_dir.is_dir():
+        log.debug("Directory does not exist")
         return None
     jsonl_files = list(claude_dir.glob("*.jsonl"))
+    log.debug("Found %d JSONL files", len(jsonl_files))
     if not jsonl_files:
         return None
-    return str(max(jsonl_files, key=lambda p: p.stat().st_mtime))
+    chosen = str(max(jsonl_files, key=lambda p: p.stat().st_mtime))
+    log.debug("Selected transcript: %s", chosen)
+    return chosen
 
 
 def derive_project_hash(cwd: str) -> str:
@@ -107,6 +120,9 @@ def aggregate_session(
     Returns dict with keys: input_tokens, output_tokens,
     cache_creation_input_tokens, cache_read_input_tokens, model, request_count.
     """
+    log.debug("Aggregating session from %s", transcript_path)
+    log.debug("Time window: %s .. %s", started_at.isoformat(),
+              ended_at.isoformat() if ended_at else "now")
     seen_requests: set[str] = set()
     totals = {
         "input_tokens": 0,
@@ -116,9 +132,11 @@ def aggregate_session(
     }
     model_counts: dict[str, int] = {}
     request_count = 0
+    lines_read = 0
 
     with open(transcript_path) as f:
         for line in f:
+            lines_read += 1
             line = line.strip()
             if not line:
                 continue
@@ -175,10 +193,17 @@ def aggregate_session(
                 model = resolve_model(model)
                 model_counts[model] = model_counts.get(model, 0) + 1
 
+    log.debug("Lines read: %d, unique requests: %d, duplicates skipped: %d",
+              lines_read, request_count, len(seen_requests) - request_count
+              if len(seen_requests) > request_count else 0)
+    log.debug("Token totals: %s", totals)
+    log.debug("Model counts: %s", model_counts)
+
     # Determine dominant model
     dominant_model = ""
     if model_counts:
         dominant_model = max(model_counts, key=model_counts.get)
+    log.debug("Dominant model: %s", dominant_model)
 
     return {
         **totals,
@@ -193,6 +218,7 @@ def compute_cost(totals: dict) -> float:
     model = totals.get("model", "")
     rates = PRICING.get(model)
     if not rates:
+        log.debug("No pricing for model %r — cost = $0", model)
         return 0.0
 
     mtok = 1_000_000
@@ -202,30 +228,52 @@ def compute_cost(totals: dict) -> float:
         + totals["cache_read_input_tokens"] / mtok * rates["cache_read"]
         + totals["output_tokens"] / mtok * rates["output"]
     )
+    log.debug("Cost breakdown (model=%s): input=%d*$%.2f + cache_write=%d*$%.2f "
+              "+ cache_read=%d*$%.2f + output=%d*$%.2f = $%.6f",
+              model,
+              totals["input_tokens"], rates["input"],
+              totals["cache_creation_input_tokens"], rates["cache_write"],
+              totals["cache_read_input_tokens"], rates["cache_read"],
+              totals["output_tokens"], rates["output"],
+              cost)
     return round(cost, 6)
 
 
 def main():
+    # Extract --debug before manual positional parsing
+    argv = sys.argv[1:]
+    debug = "--debug" in argv
+    if debug:
+        argv = [a for a in argv if a != "--debug"]
+
+    logging.basicConfig(
+        level=logging.DEBUG if debug else logging.WARNING,
+        format="[debug] %(message)s",
+        stream=sys.stderr,
+    )
+
     load_pricing()
 
-    if len(sys.argv) < 4:
+    if len(argv) < 3:
         print(
-            "Usage: tusk session-stats <session_id> [transcript_path]",
+            "Usage: tusk session-stats [--debug] <session_id> [transcript_path]",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    db_path = sys.argv[1]
-    # sys.argv[2] is config_path (unused here but kept for dispatch consistency)
-    session_id = sys.argv[3]
+    db_path = argv[0]
+    # argv[1] is config_path (unused here but kept for dispatch consistency)
+    session_id = argv[2]
 
     try:
         session_id = int(session_id)
     except ValueError:
-        print(f"Error: session_id must be an integer, got '{sys.argv[3]}'", file=sys.stderr)
+        print(f"Error: session_id must be an integer, got '{argv[2]}'", file=sys.stderr)
         sys.exit(1)
 
-    transcript_path = sys.argv[4] if len(sys.argv) > 4 else None
+    transcript_path = argv[3] if len(argv) > 3 else None
+    log.debug("DB path: %s, session_id: %d, transcript_path: %s",
+              db_path, session_id, transcript_path)
 
     # Read session timestamps from DB
     conn = sqlite3.connect(db_path)

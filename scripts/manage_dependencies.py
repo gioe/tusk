@@ -2,9 +2,12 @@
 """Manage task dependencies in the SQLite database."""
 
 import argparse
+import logging
 import sqlite3
 import subprocess
 import sys
+
+log = logging.getLogger(__name__)
 
 DB_PATH = subprocess.check_output(
     ["tusk", "path"], text=True
@@ -54,6 +57,7 @@ def get_task_summary(conn: sqlite3.Connection, task_id: int) -> str | None:
 
 def add_dependency(conn: sqlite3.Connection, task_id: int, depends_on_id: int):
     """Add a dependency: task_id depends on depends_on_id."""
+    log.debug("add_dependency: %d -> %d", task_id, depends_on_id)
     if task_id == depends_on_id:
         print(f"Error: A task cannot depend on itself", file=sys.stderr)
         sys.exit(1)
@@ -67,9 +71,11 @@ def add_dependency(conn: sqlite3.Connection, task_id: int, depends_on_id: int):
         sys.exit(1)
 
     # Check for circular dependency
+    log.debug("Checking for circular dependency...")
     if would_create_cycle(conn, task_id, depends_on_id):
         print(f"Error: Adding this dependency would create a circular dependency", file=sys.stderr)
         sys.exit(1)
+    log.debug("No cycle detected, inserting dependency")
 
     try:
         conn.execute(
@@ -232,7 +238,9 @@ def would_create_cycle(conn: sqlite3.Connection, task_id: int, depends_on_id: in
 
     while stack:
         current = stack.pop()
+        log.debug("Cycle check: visiting node %d (looking for %d)", current, task_id)
         if current == task_id:
+            log.debug("Cycle detected: %d reachable from %d", task_id, depends_on_id)
             return True
         if current in visited:
             continue
@@ -246,6 +254,7 @@ def would_create_cycle(conn: sqlite3.Connection, task_id: int, depends_on_id: in
         for dep in deps:
             stack.append(dep["depends_on_id"])
 
+    log.debug("Cycle check complete: visited %d nodes, no cycle", len(visited))
     return False
 
 
@@ -296,6 +305,7 @@ Examples:
   %(prog)s all              # Show all dependencies
         """
     )
+    parser.add_argument("--debug", action="store_true", help="Enable verbose debug output")
 
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
@@ -327,6 +337,13 @@ Examples:
     subparsers.add_parser("all", help="Show all dependencies")
 
     args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.debug else logging.WARNING,
+        format="[debug] %(message)s",
+        stream=sys.stderr,
+    )
+    log.debug("DB path: %s", DB_PATH)
 
     if not args.command:
         parser.print_help()

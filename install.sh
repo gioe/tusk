@@ -10,8 +10,9 @@
 #   1. Copies bin/tusk + support files → .claude/bin/
 #   2. Copies skills/*                 → .claude/skills/*
 #   3. Copies scripts/*                → scripts/*  (creates if needed)
-#   4. Runs tusk init + migrate
-#   5. Prints CLAUDE.md snippet to paste into your project
+#   4. Installs SessionStart hook to put .claude/bin on PATH
+#   5. Runs tusk init + migrate
+#   6. Prints next steps
 
 set -euo pipefail
 
@@ -73,12 +74,58 @@ for script in "$SCRIPT_DIR"/scripts/*.py; do
   echo "  Installed scripts/$script_name"
 done
 
-# ── 5. Init database + migrate ───────────────────────────────────────
+# ── 5. Install PATH hook ──────────────────────────────────────────────
+mkdir -p "$REPO_ROOT/.claude/hooks"
+cat > "$REPO_ROOT/.claude/hooks/tusk-path.sh" << 'HOOKEOF'
+#!/bin/bash
+# Added by tusk install — puts .claude/bin on PATH for Claude Code sessions
+if [ -n "$CLAUDE_ENV_FILE" ]; then
+  REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  echo "export PATH=\"$REPO_ROOT/.claude/bin:\$PATH\"" >> "$CLAUDE_ENV_FILE"
+fi
+exit 0
+HOOKEOF
+chmod +x "$REPO_ROOT/.claude/hooks/tusk-path.sh"
+echo "  Installed .claude/hooks/tusk-path.sh"
+
+# Merge SessionStart hook into .claude/settings.json
+python3 -c "
+import json, os
+
+settings_path = os.path.join('$REPO_ROOT', '.claude', 'settings.json')
+hook_entry = {'type': 'command', 'command': '.claude/hooks/tusk-path.sh'}
+
+if os.path.exists(settings_path):
+    with open(settings_path) as f:
+        settings = json.load(f)
+else:
+    settings = {}
+
+hooks = settings.setdefault('hooks', {})
+session_start = hooks.setdefault('SessionStart', [])
+
+already_installed = any(
+    h.get('command') == '.claude/hooks/tusk-path.sh'
+    for group in session_start
+    for h in group.get('hooks', [])
+)
+
+if not already_installed:
+    session_start.append({'hooks': [hook_entry]})
+    with open(settings_path, 'w') as f:
+        json.dump(settings, f, indent=2)
+        f.write('\n')
+    print('  Updated .claude/settings.json with PATH hook')
+else:
+    print('  .claude/settings.json already has PATH hook')
+"
+
+# ── 6. Init database + migrate ───────────────────────────────────────
 TUSK="$REPO_ROOT/.claude/bin/tusk"
 "$TUSK" init
 "$TUSK" migrate
 
-# ── 6. Print CLAUDE.md snippet ───────────────────────────────────────
+# ── 7. Print next steps ───────────────────────────────────────────────
 echo ""
 echo "════════════════════════════════════════════════════════════════"
 echo "  Installation complete!"

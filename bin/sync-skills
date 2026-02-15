@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+#
+# sync-skills — Copy skills/ (source) to .claude/skills/ (installed) during development.
+#
+# Usage:
+#   bin/sync-skills              Sync all skills
+#   bin/sync-skills <name>       Sync a single skill by name
+#
+# This prevents drift between the canonical source in skills/ and the
+# installed copy in .claude/skills/ that Claude Code discovers at startup.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+SOURCE_DIR="$REPO_ROOT/skills"
+TARGET_DIR="$REPO_ROOT/.claude/skills"
+
+if [[ ! -d "$SOURCE_DIR" ]]; then
+  echo "Error: $SOURCE_DIR not found." >&2
+  exit 1
+fi
+
+sync_skill() {
+  local name="$1"
+  local src="$SOURCE_DIR/$name"
+  local dst="$TARGET_DIR/$name"
+
+  if [[ ! -d "$src" ]]; then
+    echo "Error: skill '$name' not found in $SOURCE_DIR" >&2
+    return 1
+  fi
+
+  mkdir -p "$dst"
+  cp "$src"/* "$dst/" 2>/dev/null || true
+  echo "  Synced: $name"
+}
+
+if [[ $# -ge 1 ]]; then
+  # Sync a single skill
+  echo "Syncing skill '$1'..."
+  sync_skill "$1"
+else
+  # Sync all skills
+  echo "Syncing all skills from skills/ → .claude/skills/"
+  synced=0
+  for skill_dir in "$SOURCE_DIR"/*/; do
+    [[ -d "$skill_dir" ]] || continue
+    skill_name="$(basename "$skill_dir")"
+    sync_skill "$skill_name"
+    ((synced++))
+  done
+  echo "Done. $synced skill(s) synced."
+fi
