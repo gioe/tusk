@@ -255,6 +255,7 @@ Commit the bump in the same branch as the feature — not as a separate PR. The 
 - Priority scoring: `base_priority + source_bonus + unblocks_bonus`
 - Deferred tasks from PR reviews get `[Deferred]` prefix and 60-day `expires_at`
 - Always run `/check-dupes` before inserting new tasks
+- When a duplicate is discovered (during `/check-dupes`, `/groom-backlog`, `/retro`, or incidentally), close the lower-priority or newer task immediately with `closed_reason = 'duplicate'` — never defer duplicate closure to a follow-up task
 - Dependencies use DFS cycle detection in Python; SQLite CHECK prevents self-loops
 - In SQL passed through bash, use `<>` instead of `!=` for not-equal comparisons — `!=` can cause parse errors due to shell history expansion (`!` is special in bash)
 - In embedded Python (`python3 -c "..."`), avoid `', '.join(...)` or single-quoted strings directly inside f-string expressions — the quotes clash with shell delimiters and cause SyntaxError. Instead, precompute the join result into a variable and reference it in the f-string (e.g., `result = ', '.join(items)` then `f"...{result}..."`)
