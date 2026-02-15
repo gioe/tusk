@@ -256,4 +256,5 @@ Commit the bump in the same branch as the feature — not as a separate PR. The 
 - Always run `/check-dupes` before inserting new tasks
 - Dependencies use DFS cycle detection in Python; SQLite CHECK prevents self-loops
 - In SQL passed through bash, use `<>` instead of `!=` for not-equal comparisons — `!=` can cause parse errors due to shell history expansion (`!` is special in bash)
+- In embedded Python (`python3 -c "..."`), avoid `', '.join(...)` or single-quoted strings directly inside f-string expressions — the quotes clash with shell delimiters and cause SyntaxError. Instead, precompute the join result into a variable and reference it in the f-string (e.g., `result = ', '.join(items)` then `f"...{result}..."`)
 - Skills are discovered at Claude Code session startup — after installing or adding a new skill, you must start a new session before invoking it with `/skill-name`
