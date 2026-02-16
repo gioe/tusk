@@ -35,6 +35,9 @@ bin/tusk shell
 # Populate token/cost stats for a session from JSONL transcripts
 bin/tusk session-stats <session_id> [transcript_path]
 
+# Close a session (sets duration, captures diff stats, runs session-stats)
+bin/tusk session-close <session_id> [--lines-added N] [--lines-removed N] [--skip-stats]
+
 # Generate and open an HTML task dashboard
 bin/tusk dashboard
 

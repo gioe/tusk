@@ -205,16 +205,9 @@ Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('no
 
 16. **PR approved — finalize and merge**:
 
-    Capture diff stats **before** merging (the feature branch is deleted after merge):
+    Close the session **before** merging (captures diff stats from the feature branch, which is deleted after merge):
     ```bash
-    git remote set-head origin --auto 2>/dev/null
-    DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
-    if [ -z "$DEFAULT_BRANCH" ]; then
-      DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo "main")
-    fi
-    STATS=$(git diff --shortstat "$DEFAULT_BRANCH"...HEAD)
-    ADDED=$(echo "$STATS" | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+')
-    REMOVED=$(echo "$STATS" | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+')
+    tusk session-close $SESSION_ID
     ```
 
     Merge and delete the feature branch:
@@ -225,21 +218,6 @@ Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('no
     Update task status:
     ```bash
     tusk "UPDATE tasks SET status = 'Done', closed_reason = 'completed', updated_at = datetime('now') WHERE id = <id>"
-    ```
-
-    Close the session with the pre-captured stats:
-    ```bash
-    tusk "UPDATE task_sessions
-      SET ended_at = datetime('now'),
-          duration_seconds = CAST((julianday(datetime('now')) - julianday(started_at)) * 86400 AS INTEGER),
-          lines_added = COALESCE(${ADDED:-0}, 0),
-          lines_removed = COALESCE(${REMOVED:-0}, 0)
-      WHERE id = $SESSION_ID"
-    ```
-
-    Then populate token/cost stats from the conversation transcript:
-    ```bash
-    tusk session-stats $SESSION_ID
     ```
 
 17. **Check for newly unblocked tasks**:
