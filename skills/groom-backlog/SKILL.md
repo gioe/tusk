@@ -47,6 +47,20 @@ WHERE summary LIKE '%[Deferred]%'
   AND expires_at IS NOT NULL
   AND expires_at < datetime('now');
 "
+
+# Close any open sessions for the auto-closed expired tasks
+tusk "
+UPDATE task_sessions
+SET ended_at = datetime('now'),
+    duration_seconds = CAST((julianday(datetime('now')) - julianday(started_at)) * 86400 AS INTEGER)
+WHERE ended_at IS NULL
+  AND task_id IN (
+    SELECT id FROM tasks
+    WHERE summary LIKE '%[Deferred]%'
+      AND status = 'Done'
+      AND closed_reason = 'expired'
+  );
+"
 ```
 
 Report how many were auto-closed before proceeding.
