@@ -85,7 +85,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 
 ### Database Schema
 
-Four tables: `tasks` (13 columns — summary, status, priority, domain, assignee, task_type, priority_score, etc.), `task_dependencies` (composite PK with cascade deletes + no-self-dep CHECK), `task_progress` (append-only checkpoint log for context recovery — stores commit hash, files changed, and next_steps after each commit so a new session can resume mid-task), `task_sessions` (optional metrics — includes `model` column for tracking which Claude model was used). One view: `task_metrics` (aggregates sessions per task).
+Five tables: `tasks` (13 columns — summary, status, priority, domain, assignee, task_type, priority_score, etc.), `task_dependencies` (composite PK with cascade deletes + no-self-dep CHECK), `task_progress` (append-only checkpoint log for context recovery — stores commit hash, files changed, and next_steps after each commit so a new session can resume mid-task), `task_sessions` (optional metrics — includes `model` column for tracking which Claude model was used), `task_acceptance_criteria` (structured scope tracking — stores individual verifiable criteria per task with completion status and source provenance: `original`, `subsumption`, or `pr_review`). One view: `task_metrics` (aggregates sessions per task).
 
 ### Installation Model
 

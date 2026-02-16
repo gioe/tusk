@@ -85,6 +85,10 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
    - Priority
    - Domain
    - Assignee
+   - Acceptance criteria (if any):
+     ```bash
+     tusk -header -column "SELECT id, criterion, completed, source FROM task_acceptance_criteria WHERE task_id = <id> ORDER BY id"
+     ```
 
 6. **Create a new git branch IMMEDIATELY** (skip if resuming and branch already exists):
    - Format: `feature/TASK-<id>-brief-description`
@@ -139,19 +143,32 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
 
 13. **Review the code locally** before considering the work complete.
 
-14. **Push the branch and create a PR**:
+14. **Verify acceptance criteria** — if the task has acceptance criteria, check that all are met before proceeding:
+    ```bash
+    tusk -header -column "SELECT id, criterion, completed FROM task_acceptance_criteria WHERE task_id = <id> AND completed = 0"
+    ```
+    If any criteria are incomplete:
+    - Either address them now (implement the missing work, then mark each criterion complete)
+    - Or flag them in the PR description as known gaps
+
+    Mark completed criteria:
+    ```bash
+    tusk "UPDATE task_acceptance_criteria SET completed = 1, completed_at = datetime('now') WHERE id = <criterion_id>"
+    ```
+
+15. **Push the branch and create a PR**:
     ```bash
     git push -u origin feature/TASK-<id>-description
     gh pr create --base "$DEFAULT_BRANCH" --title "[TASK-<id>] Brief task description" --body "..."
     ```
     Capture the PR URL from the output.
 
-15. **Update the task with the PR URL**:
+16. **Update the task with the PR URL**:
     ```bash
     tusk "UPDATE tasks SET github_pr = $(tusk sql-quote "<pr_url>"), updated_at = datetime('now') WHERE id = <id>"
     ```
 
-16. **Review loop — iterate until approved**:
+17. **Review loop — iterate until approved**:
 
     ```
     ┌─► Poll for review
@@ -206,7 +223,7 @@ Original comment: <comment text>
 Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('now'), datetime('now'), datetime('now', '+60 days'))"
        ```
 
-17. **PR approved — finalize and merge**:
+18. **PR approved — finalize and merge**:
 
     Close the session **before** merging (captures diff stats from the feature branch, which is deleted after merge):
     ```bash
@@ -223,7 +240,7 @@ Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('no
     tusk "UPDATE tasks SET status = 'Done', closed_reason = 'completed', updated_at = datetime('now') WHERE id = <id>"
     ```
 
-18. **Check for newly unblocked tasks**:
+19. **Check for newly unblocked tasks**:
     ```bash
     tusk -header -column "
     SELECT t.id, t.summary, t.priority

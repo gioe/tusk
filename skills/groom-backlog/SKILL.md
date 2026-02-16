@@ -134,6 +134,22 @@ python3 scripts/manage_dependencies.py blocked
 python3 scripts/manage_dependencies.py all
 ```
 
+Also fetch acceptance criteria coverage for open tasks:
+
+```bash
+tusk -header -column "
+SELECT t.id, t.summary,
+  COUNT(ac.id) as total_criteria,
+  SUM(CASE WHEN ac.completed = 1 THEN 1 ELSE 0 END) as completed_criteria
+FROM tasks t
+LEFT JOIN task_acceptance_criteria ac ON t.id = ac.task_id
+WHERE t.status <> 'Done'
+GROUP BY t.id
+HAVING total_criteria > 0
+ORDER BY t.id
+"
+```
+
 ## Step 2: Scan for Duplicates and Categorize Tasks
 
 ### Step 2a: Scan for Duplicate Pairs

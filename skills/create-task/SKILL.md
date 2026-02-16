@@ -51,7 +51,8 @@ Break the input into discrete, actionable tasks. For each task, determine:
 | Field | How to Determine |
 |-------|-----------------|
 | **summary** | Clear, imperative sentence describing the deliverable (e.g., "Add login endpoint with JWT authentication"). Max ~100 chars. |
-| **description** | Expanded context from the input — acceptance criteria, technical notes, relevant quotes from the source text. |
+| **description** | Expanded context from the input — technical notes, relevant quotes from the source text. |
+| **acceptance_criteria** | A list of concrete, verifiable deliverables extracted from the input. Each criterion should be a single testable outcome. Optional — omit if the task is simple enough that the summary alone defines done. |
 | **priority** | Infer from language cues: "critical"/"urgent"/"blocking" → `Highest`/`High`; "nice to have"/"eventually" → `Low`/`Lowest`; default to `Medium`. Must be one of the configured priorities. |
 | **domain** | Match to a configured domain based on the task's subject area. Leave NULL if no domains are configured or none fit. |
 | **task_type** | Categorize as one of the configured task types (bug, feature, refactor, etc.). Default to `feature` for new work, `bug` for fixes. |
@@ -84,6 +85,11 @@ Show all proposed tasks in a numbered table before inserting anything:
 
 **1. Add login endpoint with JWT auth**
 > Implement POST /auth/login that validates credentials and returns a JWT token. Include refresh token support.
+
+Acceptance Criteria:
+- [ ] POST /auth/login validates credentials and returns JWT
+- [ ] Refresh token endpoint implemented
+- [ ] Token expiry and rotation handled
 
 **2. Add signup page with form validation**
 > Create signup form with email, password, and confirm password fields. Validate on blur and on submit.
@@ -142,6 +148,15 @@ For NULL fields, use the literal `NULL` (unquoted) — don't pass it through `sq
 tusk "INSERT INTO tasks (summary, description, status, priority, domain, task_type, assignee, created_at, updated_at)
   VALUES ($(tusk sql-quote "Add rate limiting"), $(tusk sql-quote "Details here"), 'To Do', 'Medium', NULL, 'feature', NULL, datetime('now'), datetime('now'))"
 ```
+
+After inserting the task, if acceptance criteria were defined, insert them:
+
+```bash
+TASK_ID=$(tusk "SELECT MAX(id) FROM tasks")
+tusk "INSERT INTO task_acceptance_criteria (task_id, criterion, source) VALUES ($TASK_ID, $(tusk sql-quote '<criterion text>'), 'original')"
+```
+
+Repeat for each criterion. Only insert criteria that are concrete and verifiable — skip vague items.
 
 ### Exit code 1 — Duplicate found → Skip
 

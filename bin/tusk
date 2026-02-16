@@ -363,6 +363,19 @@ CREATE TABLE task_progress (
 );
 CREATE INDEX idx_task_progress_task_id ON task_progress(task_id);
 
+-- task_acceptance_criteria (structured scope tracking)
+CREATE TABLE task_acceptance_criteria (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    criterion TEXT NOT NULL,
+    completed INTEGER DEFAULT 0,
+    source TEXT DEFAULT 'original',
+    created_at TEXT DEFAULT (datetime('now')),
+    completed_at TEXT,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_task_ac_task_id ON task_acceptance_criteria(task_id);
+
 -- task_sessions (metrics)
 CREATE TABLE task_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -405,7 +418,7 @@ SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 3;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 4;"
 
   echo "Initialized task database at $DB_PATH"
 }
@@ -529,6 +542,31 @@ cmd_migrate() {
       echo "  Migration 3: added 'relationship_type' column to task_dependencies"
     else
       sqlite3 "$DB_PATH" "PRAGMA user_version = 3;"
+    fi
+  fi
+
+  # Migration 3→4: add task_acceptance_criteria table
+  if [[ "$current" -lt 4 ]]; then
+    local has_ac
+    has_ac="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='task_acceptance_criteria';")"
+    if [[ "$has_ac" -eq 0 ]]; then
+      sqlite3 "$DB_PATH" "
+        CREATE TABLE task_acceptance_criteria (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL,
+            criterion TEXT NOT NULL,
+            completed INTEGER DEFAULT 0,
+            source TEXT DEFAULT 'original',
+            created_at TEXT DEFAULT (datetime('now')),
+            completed_at TEXT,
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+        );
+        CREATE INDEX idx_task_ac_task_id ON task_acceptance_criteria(task_id);
+        PRAGMA user_version = 4;
+      "
+      echo "  Migration 4: created 'task_acceptance_criteria' table"
+    else
+      sqlite3 "$DB_PATH" "PRAGMA user_version = 4;"
     fi
   fi
 

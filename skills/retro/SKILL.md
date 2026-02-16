@@ -189,9 +189,14 @@ Wait for explicit user approval before proceeding. Do NOT insert anything until 
 
 ### 5a: Apply Subsumptions
 
-For each approved subsumption, append the proposed amendment to the existing task's description:
+For each approved subsumption, add an acceptance criterion to the existing task and append a brief note to its description:
 
 ```bash
+# Add the finding as a new acceptance criterion with 'subsumption' source
+tusk "INSERT INTO task_acceptance_criteria (task_id, criterion, source)
+  VALUES (<existing_task_id>, $(tusk sql-quote '<concrete deliverable from the finding>'), 'subsumption')"
+
+# Append a brief note to the description for human readability
 EXISTING_DESC=$(tusk "SELECT description FROM tasks WHERE id = <existing_task_id>")
 AMENDED_DESC="${EXISTING_DESC}
 
@@ -203,7 +208,7 @@ tusk "UPDATE tasks SET description = $(tusk sql-quote "$AMENDED_DESC"), updated_
 
 Report each update:
 
-> Merged finding into task #<id>: appended scope amendment to description.
+> Merged finding into task #<id>: added acceptance criterion and appended scope amendment to description.
 
 ### 5b: Insert New Tasks
 
