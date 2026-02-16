@@ -90,6 +90,39 @@ If the PR state is `CLOSED` (not merged), flag it for user review in Step 4 with
 
 Report how many orphaned In Progress tasks were auto-closed before proceeding.
 
+## Step 0c: Cascade-Close Moot Contingent Tasks
+
+Find open tasks that have a `contingent` dependency on a task that closed as `wont_do` or `expired`. These tasks are moot — the upstream evaluation/investigation determined the work isn't needed.
+
+```bash
+# Find contingent dependents of tasks closed as wont_do/expired
+tusk -header -column "
+SELECT t.id, t.summary, t.status,
+       d.depends_on_id as closed_task_id,
+       upstream.summary as closed_task_summary,
+       upstream.closed_reason
+FROM tasks t
+JOIN task_dependencies d ON t.id = d.task_id
+JOIN tasks upstream ON d.depends_on_id = upstream.id
+WHERE t.status <> 'Done'
+  AND d.relationship_type = 'contingent'
+  AND upstream.status = 'Done'
+  AND upstream.closed_reason IN ('wont_do', 'expired')
+"
+```
+
+For each match, auto-close as `wont_do`:
+
+```bash
+tusk "UPDATE tasks SET status = 'Done', closed_reason = 'wont_do',
+  updated_at = datetime('now'),
+  description = description || char(10) || char(10) || '---' || char(10) ||
+    'Auto-closed: Contingent on TASK-<upstream_id> which closed as <reason> (' || datetime('now') || ').'
+WHERE id = <id>"
+```
+
+Report how many contingent tasks were auto-closed before proceeding.
+
 ## Step 1: Fetch All Backlog Tasks
 
 ```bash
