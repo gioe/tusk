@@ -254,6 +254,12 @@ Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('no
 
 When called with `done <id>`:
 
+First, check for incomplete acceptance criteria:
+```bash
+tusk -header -column "SELECT id, criterion FROM task_acceptance_criteria WHERE task_id = <id> AND completed = 0"
+```
+If any rows are returned, warn the user and ask for confirmation before proceeding. If the user confirms (or there are no criteria), mark the task done:
+
 ```bash
 tusk "UPDATE tasks SET status = 'Done', closed_reason = 'completed', updated_at = datetime('now') WHERE id = <id>"
 ```

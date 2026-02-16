@@ -369,7 +369,7 @@ CREATE TABLE task_acceptance_criteria (
     task_id INTEGER NOT NULL,
     criterion TEXT NOT NULL,
     completed INTEGER DEFAULT 0,
-    source TEXT DEFAULT 'original',
+    source TEXT DEFAULT 'original' CHECK (source IN ('original', 'subsumption', 'pr_review')),
     created_at TEXT DEFAULT (datetime('now')),
     completed_at TEXT,
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
@@ -556,7 +556,7 @@ cmd_migrate() {
             task_id INTEGER NOT NULL,
             criterion TEXT NOT NULL,
             completed INTEGER DEFAULT 0,
-            source TEXT DEFAULT 'original',
+            source TEXT DEFAULT 'original' CHECK (source IN ('original', 'subsumption', 'pr_review')),
             created_at TEXT DEFAULT (datetime('now')),
             completed_at TEXT,
             FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
