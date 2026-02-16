@@ -29,6 +29,7 @@
 #   Fallback:        <install_dir>/config.default.json
 #
 # The DB path is defined here. Everything else reads it from this script.
+# Override with TUSK_DB env var: TUSK_DB=/tmp/test.db tusk migrate
 
 set -euo pipefail
 
@@ -48,9 +49,14 @@ find_repo_root() {
 }
 
 REPO_ROOT="$(find_repo_root)"
-DB_DIR="$REPO_ROOT/tusk"
-DB_PATH="$DB_DIR/tasks.db"
-PROJECT_CONFIG="$DB_DIR/config.json"
+if [[ -n "${TUSK_DB:-}" ]]; then
+  DB_PATH="$TUSK_DB"
+  DB_DIR="$(dirname "$DB_PATH")"
+else
+  DB_DIR="$REPO_ROOT/tusk"
+  DB_PATH="$DB_DIR/tasks.db"
+fi
+PROJECT_CONFIG="$REPO_ROOT/tusk/config.json"
 # Default config: check sibling (installed) then parent dir (source repo)
 if [[ -f "$SCRIPT_DIR/config.default.json" ]]; then
   DEFAULT_CONFIG="$SCRIPT_DIR/config.default.json"

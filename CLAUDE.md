@@ -167,7 +167,7 @@ fi
 - Steps 1 (drop triggers) and 10 (regenerate triggers) are separated: triggers are dropped inside the SQL transaction, but regenerated afterward via the `generate_triggers` bash function.
 - Always update `PRAGMA user_version` inside the SQL block, and update the `tusk init` fresh-DB version to match.
 - If the table has foreign keys pointing to it (e.g., `task_dependencies.task_id → tasks.id`), SQLite will remap them automatically on `RENAME` as long as `PRAGMA foreign_keys` is OFF (the default for raw `sqlite3` calls).
-- Test the migration on a copy of the database before merging: `cp tusk/tasks.db /tmp/test.db && DB_PATH=/tmp/test.db tusk migrate`.
+- Test the migration on a copy of the database before merging: `cp tusk/tasks.db /tmp/test.db && TUSK_DB=/tmp/test.db tusk migrate`.
 
 ## Creating a New Skill
 
