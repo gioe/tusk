@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS task_dependencies (
     PRIMARY KEY (task_id, depends_on_id),
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
     FOREIGN KEY (depends_on_id) REFERENCES tasks(id) ON DELETE CASCADE,
-    CHECK (task_id != depends_on_id),
+    CHECK (task_id <> depends_on_id),
     CHECK (relationship_type IN ('blocks', 'contingent'))
 );
 
@@ -189,12 +189,12 @@ def show_blocked(conn: sqlite3.Connection):
         SELECT DISTINCT t.id, t.summary, t.status, t.priority,
             (SELECT COUNT(*) FROM task_dependencies d2
              JOIN tasks t2 ON d2.depends_on_id = t2.id
-             WHERE d2.task_id = t.id AND t2.status != 'Done') as blocking_count,
+             WHERE d2.task_id = t.id AND t2.status <> 'Done') as blocking_count,
             (SELECT COUNT(*) FROM task_dependencies d3 WHERE d3.task_id = t.id) as total_deps
         FROM tasks t
         JOIN task_dependencies d ON t.id = d.task_id
         JOIN tasks dep ON d.depends_on_id = dep.id
-        WHERE t.status != 'Done' AND dep.status != 'Done'
+        WHERE t.status <> 'Done' AND dep.status <> 'Done'
         ORDER BY t.priority DESC, t.id
     """).fetchall()
 
@@ -218,11 +218,11 @@ def show_ready(conn: sqlite3.Connection):
         SELECT t.id, t.summary, t.status, t.priority,
             (SELECT COUNT(*) FROM task_dependencies d WHERE d.task_id = t.id) as dep_count
         FROM tasks t
-        WHERE t.status != 'Done'
+        WHERE t.status <> 'Done'
         AND NOT EXISTS (
             SELECT 1 FROM task_dependencies d
             JOIN tasks dep ON d.depends_on_id = dep.id
-            WHERE d.task_id = t.id AND dep.status != 'Done'
+            WHERE d.task_id = t.id AND dep.status <> 'Done'
         )
         ORDER BY t.priority DESC, t.id
     """).fetchall()
