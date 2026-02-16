@@ -28,7 +28,7 @@ Pre-insert gate. Checks if a summary is a duplicate of any open task.
 tusk dupes check "<summary>" --domain <domain>
 ```
 
-**When to use:** Before every `INSERT INTO tasks` — in `/next-task`, `/analysis-to-tasks`, or any manual task creation.
+**When to use:** Before every `INSERT INTO tasks` — in `/next-task`, `/create-task`, or any manual task creation.
 
 ### `scan`
 
