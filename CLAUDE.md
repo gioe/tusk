@@ -214,6 +214,15 @@ allowed-tools: Bash, Read, Edit     # Comma-separated list of tools the skill ne
 - Use `$(tusk sql-quote "...")` in any SQL that interpolates variables
 - Reference other skills by name when integration points exist (e.g., "Run `/check-dupes` before inserting")
 
+### Source Repo Symlink
+
+In the tusk source repo, `.claude/skills/` is a symlink to `skills/`. This means:
+
+- **Edit only under `skills/`** — changes appear automatically in `.claude/skills/` via the symlink. Editing `.claude/skills/` directly can cause "file modified since read" errors.
+- **Stage only `skills/` paths** — `git add .claude/skills/...` won't work because Git follows the symlink back to `skills/`. Always use `git add skills/<name>/SKILL.md`.
+
+This symlink exists only in the source repo. Target projects that install tusk get real copies (not symlinks) via `install.sh`.
+
 ### Checklist for Adding a Skill
 
 1. Create `skills/<name>/SKILL.md` with frontmatter + instructions
