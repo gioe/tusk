@@ -17,6 +17,7 @@
 #   tusk dupes similar <id>    Find tasks similar to a given ID
 #   tusk session-stats <id>    Populate token/cost stats for a session
 #   tusk session-close <id>    Close a session (duration, diff stats, token stats)
+#   tusk lint                   Run convention checks non-interactively
 #   tusk dashboard             Generate and open an HTML dashboard
 #   tusk version               Print the installed tusk version
 #   tusk migrate               Apply pending schema migrations
@@ -709,6 +710,7 @@ case "${1:-}" in
   config) shift; cmd_config "$@" ;;
   validate) cmd_validate ;;
   sql-quote) shift; sql_quote "${1:-}" ;;
+  lint)   shift; exec python3 "$SCRIPT_DIR/tusk-lint.py" "$REPO_ROOT" "$@" ;;
   dupes)  shift; exec python3 "$SCRIPT_DIR/tusk-dupes.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   dashboard) shift; exec python3 "$SCRIPT_DIR/tusk-dashboard.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   session-stats) shift; exec python3 "$SCRIPT_DIR/tusk-session-stats.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
@@ -718,6 +720,6 @@ case "${1:-}" in
   migrate) cmd_migrate ;;
   regen-triggers) cmd_regen_triggers ;;
   upgrade) cmd_upgrade ;;
-  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|dupes|dashboard|session-stats|session-close|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
+  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|lint|dupes|dashboard|session-stats|session-close|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac

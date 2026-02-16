@@ -32,6 +32,9 @@ bin/tusk sql-quote "O'Reilly's book"   # → 'O''Reilly''s book'
 # Interactive sqlite3 shell
 bin/tusk shell
 
+# Run convention checks non-interactively (exits 1 on violations)
+bin/tusk lint
+
 # Populate token/cost stats for a session from JSONL transcripts
 bin/tusk session-stats <session_id> [transcript_path]
 
