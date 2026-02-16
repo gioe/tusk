@@ -17,11 +17,13 @@ DEPENDENCIES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS task_dependencies (
     task_id INTEGER NOT NULL,
     depends_on_id INTEGER NOT NULL,
+    relationship_type TEXT DEFAULT 'blocks',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (task_id, depends_on_id),
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
     FOREIGN KEY (depends_on_id) REFERENCES tasks(id) ON DELETE CASCADE,
-    CHECK (task_id != depends_on_id)
+    CHECK (task_id != depends_on_id),
+    CHECK (relationship_type IN ('blocks', 'contingent'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_task_dependencies_task_id ON task_dependencies(task_id);
@@ -55,9 +57,9 @@ def get_task_summary(conn: sqlite3.Connection, task_id: int) -> str | None:
     return result["summary"] if result else None
 
 
-def add_dependency(conn: sqlite3.Connection, task_id: int, depends_on_id: int):
+def add_dependency(conn: sqlite3.Connection, task_id: int, depends_on_id: int, relationship_type: str = "blocks"):
     """Add a dependency: task_id depends on depends_on_id."""
-    log.debug("add_dependency: %d -> %d", task_id, depends_on_id)
+    log.debug("add_dependency: %d -> %d (type=%s)", task_id, depends_on_id, relationship_type)
     if task_id == depends_on_id:
         print(f"Error: A task cannot depend on itself", file=sys.stderr)
         sys.exit(1)
@@ -70,6 +72,10 @@ def add_dependency(conn: sqlite3.Connection, task_id: int, depends_on_id: int):
         print(f"Error: Task {depends_on_id} does not exist", file=sys.stderr)
         sys.exit(1)
 
+    if relationship_type not in ("blocks", "contingent"):
+        print(f"Error: Invalid relationship type '{relationship_type}'. Must be 'blocks' or 'contingent'", file=sys.stderr)
+        sys.exit(1)
+
     # Check for circular dependency
     log.debug("Checking for circular dependency...")
     if would_create_cycle(conn, task_id, depends_on_id):
@@ -79,13 +85,14 @@ def add_dependency(conn: sqlite3.Connection, task_id: int, depends_on_id: int):
 
     try:
         conn.execute(
-            "INSERT INTO task_dependencies (task_id, depends_on_id) VALUES (?, ?)",
-            (task_id, depends_on_id)
+            "INSERT INTO task_dependencies (task_id, depends_on_id, relationship_type) VALUES (?, ?, ?)",
+            (task_id, depends_on_id, relationship_type)
         )
         conn.commit()
         task_summary = get_task_summary(conn, task_id)
         dep_summary = get_task_summary(conn, depends_on_id)
-        print(f"Added dependency: Task {task_id} ({task_summary}) now depends on Task {depends_on_id} ({dep_summary})")
+        type_label = f" [{relationship_type}]" if relationship_type != "blocks" else ""
+        print(f"Added dependency: Task {task_id} ({task_summary}) now depends on Task {depends_on_id} ({dep_summary}){type_label}")
     except sqlite3.IntegrityError:
         print(f"Dependency already exists: Task {task_id} -> Task {depends_on_id}")
 
@@ -115,7 +122,7 @@ def list_dependencies(conn: sqlite3.Connection, task_id: int):
     print("=" * 60)
 
     deps = conn.execute("""
-        SELECT t.id, t.summary, t.status, t.priority
+        SELECT t.id, t.summary, t.status, t.priority, d.relationship_type
         FROM task_dependencies d
         JOIN tasks t ON d.depends_on_id = t.id
         WHERE d.task_id = ?
@@ -126,11 +133,12 @@ def list_dependencies(conn: sqlite3.Connection, task_id: int):
         print("No dependencies")
         return
 
-    print(f"{'ID':<6} {'Status':<12} {'Priority':<10} {'Summary'}")
-    print("-" * 60)
+    print(f"{'ID':<6} {'Status':<12} {'Priority':<10} {'Type':<12} {'Summary'}")
+    print("-" * 70)
     for dep in deps:
         status_marker = "[x]" if dep["status"] == "Done" else "[ ]"
-        print(f"{dep['id']:<6} {status_marker} {dep['status']:<8} {dep['priority'] or 'N/A':<10} {dep['summary']}")
+        rel_type = dep["relationship_type"] or "blocks"
+        print(f"{dep['id']:<6} {status_marker} {dep['status']:<8} {dep['priority'] or 'N/A':<10} {rel_type:<12} {dep['summary']}")
 
     # Summary
     done_count = sum(1 for d in deps if d["status"] == "Done")
@@ -154,7 +162,7 @@ def list_dependents(conn: sqlite3.Connection, task_id: int):
     print("=" * 60)
 
     dependents = conn.execute("""
-        SELECT t.id, t.summary, t.status, t.priority
+        SELECT t.id, t.summary, t.status, t.priority, d.relationship_type
         FROM task_dependencies d
         JOIN tasks t ON d.task_id = t.id
         WHERE d.depends_on_id = ?
@@ -165,10 +173,11 @@ def list_dependents(conn: sqlite3.Connection, task_id: int):
         print("No tasks depend on this task")
         return
 
-    print(f"{'ID':<6} {'Status':<12} {'Priority':<10} {'Summary'}")
-    print("-" * 60)
+    print(f"{'ID':<6} {'Status':<12} {'Priority':<10} {'Type':<12} {'Summary'}")
+    print("-" * 70)
     for dep in dependents:
-        print(f"{dep['id']:<6} {dep['status']:<12} {dep['priority'] or 'N/A':<10} {dep['summary']}")
+        rel_type = dep["relationship_type"] or "blocks"
+        print(f"{dep['id']:<6} {dep['status']:<12} {dep['priority'] or 'N/A':<10} {rel_type:<12} {dep['summary']}")
 
 
 def show_blocked(conn: sqlite3.Connection):
@@ -270,7 +279,8 @@ def show_all(conn: sqlite3.Connection):
             t1.status as task_status,
             d.depends_on_id,
             t2.summary as dep_summary,
-            t2.status as dep_status
+            t2.status as dep_status,
+            d.relationship_type
         FROM task_dependencies d
         JOIN tasks t1 ON d.task_id = t1.id
         JOIN tasks t2 ON d.depends_on_id = t2.id
@@ -281,13 +291,14 @@ def show_all(conn: sqlite3.Connection):
         print("No dependencies defined")
         return
 
-    print(f"{'Task':<30} {'Depends On':<30} {'Status'}")
-    print("-" * 80)
+    print(f"{'Task':<30} {'Depends On':<30} {'Type':<12} {'Status'}")
+    print("-" * 90)
     for dep in all_deps:
         task_str = f"{dep['task_id']}: {dep['task_summary'][:25]}"
         dep_str = f"{dep['depends_on_id']}: {dep['dep_summary'][:25]}"
         status = "Done" if dep['dep_status'] == 'Done' else "Waiting"
-        print(f"{task_str:<30} {dep_str:<30} {status}")
+        rel_type = dep['relationship_type'] or 'blocks'
+        print(f"{task_str:<30} {dep_str:<30} {rel_type:<12} {status}")
 
 
 def main():
@@ -296,13 +307,14 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s add 5 3          # Task 5 depends on Task 3
-  %(prog)s remove 5 3       # Remove dependency
-  %(prog)s list 5           # Show what Task 5 depends on
-  %(prog)s dependents 3     # Show tasks that depend on Task 3
-  %(prog)s blocked          # Show all blocked tasks
-  %(prog)s ready            # Show tasks ready to start
-  %(prog)s all              # Show all dependencies
+  %(prog)s add 5 3                    # Task 5 depends on Task 3 (blocks)
+  %(prog)s add 10 5 --type contingent # Task 10 contingently depends on Task 5
+  %(prog)s remove 5 3                 # Remove dependency
+  %(prog)s list 5                     # Show what Task 5 depends on
+  %(prog)s dependents 3              # Show tasks that depend on Task 3
+  %(prog)s blocked                    # Show all blocked tasks
+  %(prog)s ready                      # Show tasks ready to start
+  %(prog)s all                        # Show all dependencies
         """
     )
     parser.add_argument("--debug", action="store_true", help="Enable verbose debug output")
@@ -313,6 +325,9 @@ Examples:
     add_parser = subparsers.add_parser("add", help="Add a dependency")
     add_parser.add_argument("task_id", type=int, help="Task that has the dependency")
     add_parser.add_argument("depends_on_id", type=int, help="Task that must be completed first")
+    add_parser.add_argument("--type", dest="relationship_type", default="blocks",
+                            choices=["blocks", "contingent"],
+                            help="Relationship type: 'blocks' (default) or 'contingent'")
 
     # remove command
     remove_parser = subparsers.add_parser("remove", help="Remove a dependency")
@@ -353,7 +368,7 @@ Examples:
     init_schema(conn)
 
     if args.command == "add":
-        add_dependency(conn, args.task_id, args.depends_on_id)
+        add_dependency(conn, args.task_id, args.depends_on_id, args.relationship_type)
     elif args.command == "remove":
         remove_dependency(conn, args.task_id, args.depends_on_id)
     elif args.command == "list":

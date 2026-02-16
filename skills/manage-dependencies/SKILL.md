@@ -15,12 +15,20 @@ Manages task dependencies in the project task database (via `tusk` CLI). Depende
 Make a task depend on another task (the dependency must be completed first):
 
 ```bash
-python3 scripts/manage_dependencies.py add <task_id> <depends_on_id>
+python3 scripts/manage_dependencies.py add <task_id> <depends_on_id> [--type blocks|contingent]
 ```
 
-Example: Task 5 cannot start until Task 3 is done:
+The `--type` flag sets the relationship type (default: `blocks`):
+- **`blocks`** — Standard blocking dependency. Downstream task becomes ready when upstream completes (any closed_reason).
+- **`contingent`** — Outcome-dependent dependency. Both types block the downstream task from starting, but if the upstream task closes as `wont_do` or `expired`, the downstream task should be auto-closed as `wont_do` (the work is moot). `/groom-backlog` handles this automatically.
+
+Examples:
 ```bash
+# Task 5 cannot start until Task 3 is done (standard blocking)
 python3 scripts/manage_dependencies.py add 5 3
+
+# Task 10 contingently depends on Task 5 (outcome-dependent)
+python3 scripts/manage_dependencies.py add 10 5 --type contingent
 ```
 
 ### Remove a dependency

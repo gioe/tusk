@@ -331,11 +331,13 @@ CREATE TABLE tasks (
 CREATE TABLE task_dependencies (
     task_id INTEGER NOT NULL,
     depends_on_id INTEGER NOT NULL,
+    relationship_type TEXT DEFAULT 'blocks',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (task_id, depends_on_id),
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
     FOREIGN KEY (depends_on_id) REFERENCES tasks(id) ON DELETE CASCADE,
-    CHECK (task_id != depends_on_id)
+    CHECK (task_id != depends_on_id),
+    CHECK (relationship_type IN ('blocks', 'contingent'))
 );
 CREATE INDEX idx_task_dependencies_task_id ON task_dependencies(task_id);
 CREATE INDEX idx_task_dependencies_depends_on_id ON task_dependencies(depends_on_id);
@@ -395,7 +397,7 @@ SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 2;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 3;"
 
   echo "Initialized task database at $DB_PATH"
 }
@@ -505,8 +507,16 @@ cmd_migrate() {
     fi
   fi
 
-  # Future migrations follow the same pattern:
-  # if [[ "$current" -lt 3 ]]; then ... ; sqlite3 "$DB_PATH" "PRAGMA user_version = 3;"; fi
+  # Migration 2→3: add relationship_type column to task_dependencies
+  if [[ "$current" -lt 3 ]]; then
+    sqlite3 "$DB_PATH" "
+      ALTER TABLE task_dependencies
+        ADD COLUMN relationship_type TEXT DEFAULT 'blocks'
+          CHECK (relationship_type IN ('blocks', 'contingent'));
+      PRAGMA user_version = 3;
+    "
+    echo "  Migration 3: added 'relationship_type' column to task_dependencies"
+  fi
 
   local final
   final="$(sqlite3 "$DB_PATH" "PRAGMA user_version;")"
