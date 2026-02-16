@@ -278,13 +278,14 @@ After all grooming changes are complete, compute `priority_score` for all open t
 ### Scoring Formula
 
 ```
-priority_score = base_priority + source_bonus + unblocks_bonus
+priority_score = base_priority + source_bonus + unblocks_bonus + contingent_penalty
 ```
 
 Where:
 - **base_priority**: Highest=100, High=80, Medium=60, Low=40, Lowest=20
 - **source_bonus**: +10 if NOT a `[Deferred]` task
 - **unblocks_bonus**: +5 per dependent task, capped at +15
+- **contingent_penalty**: -10 if ALL of the task's blockers are `contingent` (none are `blocks`), biasing `/next-task` toward tasks with guaranteed value
 
 ```bash
 tusk "
@@ -303,6 +304,13 @@ UPDATE tasks SET priority_score = (
     FROM task_dependencies d
     WHERE d.depends_on_id = tasks.id
   ), 0), 15)
+  + CASE WHEN EXISTS (
+    SELECT 1 FROM task_dependencies d
+    WHERE d.task_id = tasks.id AND d.relationship_type = 'contingent'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM task_dependencies d
+    WHERE d.task_id = tasks.id AND d.relationship_type = 'blocks'
+  ) THEN -10 ELSE 0 END
 )
 WHERE status <> 'Done';
 "
