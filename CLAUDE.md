@@ -41,6 +41,9 @@ bin/tusk session-stats <session_id> [transcript_path]
 # Close a session (sets duration, captures diff stats, runs session-stats)
 bin/tusk session-close <session_id> [--lines-added N] [--lines-removed N] [--skip-stats]
 
+# Bulk-close all open sessions for a task (skips git diff, defaults lines to 0)
+bin/tusk session-close --task-id <task_id> [--skip-stats]
+
 # Generate and open an HTML task dashboard
 bin/tusk dashboard
 

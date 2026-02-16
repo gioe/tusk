@@ -94,10 +94,7 @@ tusk "UPDATE tasks SET status = 'Done', closed_reason = 'completed', updated_at 
 WHERE id = <id>"
 
 # Close any open sessions for this task
-tusk "UPDATE task_sessions
-  SET ended_at = datetime('now'),
-      duration_seconds = CAST((julianday(datetime('now')) - julianday(started_at)) * 86400 AS INTEGER)
-  WHERE task_id = <id> AND ended_at IS NULL"
+tusk session-close --task-id <id> --skip-stats
 ```
 
 If the PR state is `CLOSED` (not merged), flag it for user review in Step 4 with a note that the PR was closed without merging.

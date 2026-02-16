@@ -17,6 +17,7 @@
 #   tusk dupes similar <id>    Find tasks similar to a given ID
 #   tusk session-stats <id>    Populate token/cost stats for a session
 #   tusk session-close <id>    Close a session (duration, diff stats, token stats)
+#   tusk session-close --task-id <id>  Bulk-close all open sessions for a task
 #   tusk lint                   Run convention checks non-interactively
 #   tusk dashboard             Generate and open an HTML dashboard
 #   tusk version               Print the installed tusk version
@@ -634,11 +635,12 @@ cmd_upgrade() {
 # ── Session Close ────────────────────────────────────────────────────
 
 cmd_session_close() {
-  local session_id="" lines_added="" lines_removed="" skip_stats=false
+  local session_id="" task_id="" lines_added="" lines_removed="" skip_stats=false
 
   # Parse arguments
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      --task-id)      task_id="$2"; shift 2 ;;
       --lines-added)  lines_added="$2"; shift 2 ;;
       --lines-removed) lines_removed="$2"; shift 2 ;;
       --skip-stats)   skip_stats=true; shift ;;
@@ -647,15 +649,45 @@ cmd_session_close() {
           session_id="$1"; shift
         else
           echo "Error: Unexpected argument '$1'" >&2
-          echo "Usage: tusk session-close <session_id> [--lines-added N] [--lines-removed N] [--skip-stats]" >&2
+          echo "Usage: tusk session-close {<session_id> | --task-id <task_id>} [--lines-added N] [--lines-removed N] [--skip-stats]" >&2
           exit 1
         fi
         ;;
     esac
   done
 
+  # --task-id mode: bulk-close all open sessions for a task
+  if [[ -n "$task_id" ]]; then
+    if [[ -n "$session_id" ]]; then
+      echo "Error: Cannot use both <session_id> and --task-id" >&2
+      exit 1
+    fi
+
+    local count
+    count="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM task_sessions WHERE task_id = $task_id AND ended_at IS NULL")"
+    if [[ "$count" -eq 0 ]]; then
+      echo "No open sessions for task $task_id"
+      return 0
+    fi
+
+    lines_added="${lines_added:-0}"
+    lines_removed="${lines_removed:-0}"
+
+    sqlite3 "$DB_PATH" "
+      UPDATE task_sessions
+      SET ended_at = datetime('now'),
+          duration_seconds = CAST((julianday(datetime('now')) - julianday(started_at)) * 86400 AS INTEGER),
+          lines_added = $lines_added,
+          lines_removed = $lines_removed
+      WHERE task_id = $task_id AND ended_at IS NULL
+    "
+
+    echo "Closed $count open session(s) for task $task_id (lines: +$lines_added/-$lines_removed)"
+    return 0
+  fi
+
   if [[ -z "$session_id" ]]; then
-    echo "Usage: tusk session-close <session_id> [--lines-added N] [--lines-removed N] [--skip-stats]" >&2
+    echo "Usage: tusk session-close {<session_id> | --task-id <task_id>} [--lines-added N] [--lines-removed N] [--skip-stats]" >&2
     exit 1
   fi
 
