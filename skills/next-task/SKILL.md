@@ -114,13 +114,16 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
 
    Report findings before writing any code.
 
-9. **Delegate the work** to the chosen subagent(s).
+9. **Scope check — only implement what the task describes.**
+   The task's `summary` and `description` fields define the full scope of work for this session. If the description references or links to external documents (evaluation docs, design specs, RFCs), treat them as **background context only** — do not implement items from those docs that go beyond what the task's own description asks for. Referenced docs often describe multi-task plans; implementing the entire plan collapses future tasks into one PR and defeats dependency ordering.
 
-10. **Create atomic commits** as you complete logical units of work.
+10. **Delegate the work** to the chosen subagent(s).
+
+11. **Create atomic commits** as you complete logical units of work.
     - All commits should be on the feature branch, NOT the default branch.
     - **After every commit, log a progress checkpoint** (see below).
 
-11. **Log a progress checkpoint after every commit:**
+12. **Log a progress checkpoint after every commit:**
     ```bash
     HASH=$(git rev-parse --short HEAD)
     MSG=$(git log -1 --pretty=%s)
@@ -134,21 +137,21 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
     - Any decisions made or open questions
     - The current branch name
 
-12. **Review the code locally** before considering the work complete.
+13. **Review the code locally** before considering the work complete.
 
-13. **Push the branch and create a PR**:
+14. **Push the branch and create a PR**:
     ```bash
     git push -u origin feature/TASK-<id>-description
     gh pr create --base "$DEFAULT_BRANCH" --title "[TASK-<id>] Brief task description" --body "..."
     ```
     Capture the PR URL from the output.
 
-14. **Update the task with the PR URL**:
+15. **Update the task with the PR URL**:
     ```bash
     tusk "UPDATE tasks SET github_pr = $(tusk sql-quote "<pr_url>"), updated_at = datetime('now') WHERE id = <id>"
     ```
 
-15. **Review loop — iterate until approved**:
+16. **Review loop — iterate until approved**:
 
     ```
     ┌─► Poll for review
@@ -181,7 +184,7 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
     1. Read the relevant file(s)
     2. Make the code fix
     3. Commit: `[TASK-<id>] Address PR review: <brief description>`
-    4. Log a progress checkpoint (step 11) after each review-fix commit
+    4. Log a progress checkpoint (step 12) after each review-fix commit
 
     **Category B — Defer to backlog (cosmetic only):**
     - Pure style preferences not affecting correctness
@@ -203,7 +206,7 @@ Original comment: <comment text>
 Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('now'), datetime('now'), datetime('now', '+60 days'))"
        ```
 
-16. **PR approved — finalize and merge**:
+17. **PR approved — finalize and merge**:
 
     Close the session **before** merging (captures diff stats from the feature branch, which is deleted after merge):
     ```bash
@@ -220,7 +223,7 @@ Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('no
     tusk "UPDATE tasks SET status = 'Done', closed_reason = 'completed', updated_at = datetime('now') WHERE id = <id>"
     ```
 
-17. **Check for newly unblocked tasks**:
+18. **Check for newly unblocked tasks**:
     ```bash
     tusk -header -column "
     SELECT t.id, t.summary, t.priority
