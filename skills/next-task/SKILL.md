@@ -139,19 +139,25 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
 
 13. **Review the code locally** before considering the work complete.
 
-14. **Push the branch and create a PR**:
+14. **Run convention lint (advisory)** — check for common convention violations before pushing:
+    ```bash
+    tusk lint
+    ```
+    Review the output. This check is **advisory only** — violations are warnings, not blockers. Fix any clear violations in files you've already touched. Do not refactor unrelated code just to satisfy lint.
+
+15. **Push the branch and create a PR**:
     ```bash
     git push -u origin feature/TASK-<id>-description
     gh pr create --base "$DEFAULT_BRANCH" --title "[TASK-<id>] Brief task description" --body "..."
     ```
     Capture the PR URL from the output.
 
-15. **Update the task with the PR URL**:
+16. **Update the task with the PR URL**:
     ```bash
     tusk "UPDATE tasks SET github_pr = $(tusk sql-quote "<pr_url>"), updated_at = datetime('now') WHERE id = <id>"
     ```
 
-16. **Review loop — iterate until approved**:
+17. **Review loop — iterate until approved**:
 
     ```
     ┌─► Poll for review
@@ -206,7 +212,7 @@ Original comment: <comment text>
 Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('now'), datetime('now'), datetime('now', '+60 days'))"
        ```
 
-17. **PR approved — finalize and merge**:
+18. **PR approved — finalize and merge**:
 
     Close the session **before** merging (captures diff stats from the feature branch, which is deleted after merge):
     ```bash
@@ -223,7 +229,7 @@ Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('no
     tusk "UPDATE tasks SET status = 'Done', closed_reason = 'completed', updated_at = datetime('now') WHERE id = <id>"
     ```
 
-18. **Check for newly unblocked tasks**:
+19. **Check for newly unblocked tasks**:
     ```bash
     tusk -header -column "
     SELECT t.id, t.summary, t.priority
