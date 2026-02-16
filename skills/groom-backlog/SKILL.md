@@ -126,9 +126,13 @@ Report how many contingent tasks were auto-closed before proceeding.
 ## Step 1: Fetch All Backlog Tasks
 
 ```bash
-tusk -header -column "SELECT id, summary, status, priority, domain, assignee FROM tasks WHERE status <> 'Done' ORDER BY priority DESC, id"
-
-tusk -header -column "SELECT * FROM tasks WHERE status <> 'Done'"
+tusk -header -column "
+SELECT id, summary, SUBSTR(description, 1, 300) AS description,
+       status, priority, domain, assignee, task_type, priority_score, closed_reason
+FROM tasks
+WHERE status <> 'Done'
+ORDER BY priority_score DESC, id
+"
 
 python3 scripts/manage_dependencies.py blocked
 python3 scripts/manage_dependencies.py all
