@@ -113,7 +113,7 @@ Any pairs found should be included in **Category B** with reason "duplicate".
 
 ### Step 2b: Categorize Tasks
 
-Analyze each task and categorize:
+Analyze each task and categorize. In addition to the heuristic scan results from Step 2a, look for **semantic duplicates** — tasks that cover the same intent but use different wording (e.g., "Implement password reset flow" vs. "Add forgot password endpoint"). The heuristic catches textual near-matches; you should catch conceptual overlap that differs in phrasing.
 
 ### Category A: Candidates for Done (Acceptance Criteria Already Met)
 Tasks where the work has already been completed in the codebase:

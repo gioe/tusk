@@ -34,6 +34,16 @@ tusk config priorities
 
 Store these for use when assigning metadata. If a field returns an empty list (e.g., domains is `[]`), that field has no validation — use your best judgment or leave it NULL.
 
+## Step 2b: Fetch Existing Backlog
+
+Fetch all open tasks so you can cross-reference proposed tasks against them for semantic overlap:
+
+```bash
+tusk -header -column "SELECT id, summary, domain, priority FROM tasks WHERE status <> 'Done' ORDER BY id"
+```
+
+Hold these in context for Step 3. The heuristic dupe checker (`tusk dupes check`) catches textually similar tasks, but you can catch **semantic** duplicates that differ in wording — e.g., "Implement password reset flow" vs. existing "Add forgot password endpoint" — which the heuristic would miss.
+
 ## Step 3: Analyze and Decompose
 
 Break the input into discrete, actionable tasks. For each task, determine:
@@ -54,6 +64,7 @@ Break the input into discrete, actionable tasks. For each task, determine:
 - **Preserve context** — include relevant details from the source text in the description
 - **Don't over-split** — trivial sub-steps that are naturally part of a larger task don't need their own row
 - **Group related fixes** — multiple closely related bugs can stay as one task if they share a root cause
+- **Check for semantic overlap** — compare each proposed task against the existing backlog (from Step 2b). If an existing task covers the same intent with different wording, flag it as a duplicate rather than proposing a new task
 
 ## Step 4: Present Task List for Review
 
@@ -92,7 +103,7 @@ Wait for explicit user approval before proceeding. Do NOT insert anything until 
 
 ## Step 5: Deduplicate and Insert
 
-For each approved task, run a duplicate check **before** inserting:
+Semantic duplicates should already have been filtered out during Step 3 (by comparing against the backlog from Step 2b). As a deterministic safety net, run a heuristic duplicate check **before** inserting each task:
 
 ```bash
 tusk dupes check "<summary>"

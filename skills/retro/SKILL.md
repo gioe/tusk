@@ -33,6 +33,16 @@ tusk config priorities
 
 Store these for use when assigning metadata. If a field returns an empty list (e.g., domains is `[]`), that field has no validation — use your best judgment or leave it NULL.
 
+## Step 2b: Fetch Existing Backlog
+
+Fetch all open tasks so you can cross-reference proposed findings against them for semantic overlap:
+
+```bash
+tusk -header -column "SELECT id, summary, domain, priority FROM tasks WHERE status <> 'Done' ORDER BY id"
+```
+
+Hold these in context for Step 3. When categorizing findings, compare each proposed task against this list. If an existing task already covers the same intent — even with different wording — note it as already tracked rather than proposing a new task. The heuristic dupe checker (Step 3b) catches textual near-matches, but you can catch **semantic** duplicates it would miss.
+
 ## Step 3: Categorize Findings
 
 Organize findings into three categories:
@@ -66,9 +76,9 @@ Incomplete items, deferred decisions, or next steps from the session. Examples:
 
 If a category has no findings, note that explicitly — an empty category is a positive signal.
 
-## Step 3b: Pre-filter Duplicates
+## Step 3b: Pre-filter Duplicates (Heuristic)
 
-Before presenting findings, run a duplicate check on every proposed task summary:
+Semantic duplicates should already have been filtered out during Step 3 (by comparing against the backlog from Step 2b). As a deterministic safety net for textual near-matches, run a heuristic duplicate check on every proposed task summary:
 
 ```bash
 tusk dupes check "<proposed summary>"
@@ -149,7 +159,7 @@ Wait for explicit user approval before proceeding. Do NOT insert anything until 
 
 ## Step 5: Insert Approved Tasks
 
-Most duplicates were already filtered out in Step 3b. As a safety net, run one final duplicate check before each insert:
+Most duplicates were already filtered out via LLM semantic review (Step 3) and heuristic pre-filter (Step 3b). As a final safety net, run one last heuristic check before each insert:
 
 ```bash
 tusk dupes check "<summary>"

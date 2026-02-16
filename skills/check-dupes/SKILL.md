@@ -6,7 +6,9 @@ allowed-tools: Bash
 
 # Check Duplicates Skill
 
-Canonical deduplication gate for `tusk`. Run this **before** inserting any task to avoid creating redundant work.
+Fast, deterministic pre-filter for textual near-matches. Uses character-level (SequenceMatcher) and token-level (Jaccard) similarity scoring. Run this **before** inserting any task as a safety net against creating textually similar duplicates.
+
+**Limitation:** This heuristic catches near-identical wording but misses semantic duplicates (e.g., "Implement password reset flow" vs. "Add forgot password endpoint"). Skills that insert tasks (`/create-task`, `/retro`) should also review the existing backlog for semantic overlap during their analysis phase — the heuristic is a supplement, not a replacement, for LLM-based semantic review.
 
 ## Usage
 
