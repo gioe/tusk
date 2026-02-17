@@ -692,6 +692,10 @@ cmd_session_close() {
       --lines-added)  lines_added="$2"; shift 2 ;;
       --lines-removed) lines_removed="$2"; shift 2 ;;
       --skip-stats)   skip_stats=true; shift ;;
+      --help|-h)
+        echo "Usage: tusk session-close {<session_id> | --task-id <task_id>} [--lines-added N] [--lines-removed N] [--skip-stats]"
+        exit 0
+        ;;
       *)
         if [[ -z "$session_id" ]]; then
           session_id="$1"; shift
