@@ -8,6 +8,7 @@ Checks the tusk codebase against Key Conventions from CLAUDE.md.
 Prints results grouped by rule and exits with status 1 if any violations found.
 """
 
+import json
 import os
 import re
 import subprocess
@@ -177,6 +178,57 @@ def rule6_done_incomplete_criteria(root):
     return violations
 
 
+def rule7_config_keys_match_known_keys(root):
+    """config.default.json top-level keys must match KNOWN_KEYS in cmd_validate."""
+    violations = []
+
+    # Parse config.default.json
+    config_path = os.path.join(root, "config.default.json")
+    if not os.path.isfile(config_path):
+        return []
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            cfg = json.load(f)
+        config_keys = set(cfg.keys())
+    except (OSError, json.JSONDecodeError):
+        return []
+
+    # Extract KNOWN_KEYS from bin/tusk
+    tusk_path = os.path.join(root, "bin", "tusk")
+    if not os.path.isfile(tusk_path):
+        return []
+    known_keys = set()
+    known_keys_re = re.compile(r"KNOWN_KEYS\s*=\s*\{([^}]+)\}")
+    try:
+        with open(tusk_path, encoding="utf-8") as f:
+            content = f.read()
+        m = known_keys_re.search(content)
+        if m:
+            # Parse the set literal: 'key1', 'key2', ...
+            for key_match in re.finditer(r"'([^']+)'", m.group(1)):
+                known_keys.add(key_match.group(1))
+    except OSError:
+        return []
+
+    if not known_keys:
+        return []
+
+    # Check both directions
+    in_config_not_known = config_keys - known_keys
+    in_known_not_config = known_keys - config_keys
+
+    for k in sorted(in_config_not_known):
+        violations.append(
+            f"  config.default.json has key \"{k}\" not in KNOWN_KEYS (bin/tusk cmd_validate)"
+        )
+    for k in sorted(in_known_not_config):
+        violations.append(
+            f"  KNOWN_KEYS (bin/tusk cmd_validate) has \"{k}\" not in config.default.json"
+        )
+
+    return violations
+
+
 # ── Main ─────────────────────────────────────────────────────────────
 
 RULES = [
@@ -186,6 +238,7 @@ RULES = [
     ("Rule 4: Manual quote escaping", rule4_manual_quote_escaping),
     ("Rule 5: Done without closed_reason", rule5_done_without_closed_reason),
     ("Rule 6: Done with incomplete acceptance criteria", rule6_done_incomplete_criteria),
+    ("Rule 7: config.default.json keys match KNOWN_KEYS", rule7_config_keys_match_known_keys),
 ]
 
 
