@@ -79,7 +79,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 
 ### Config-Driven Validation
 
-`config.default.json` defines domains, task_types, statuses, priorities, closed_reasons, and agents. On `tusk init`, SQLite validation triggers are **auto-generated** from the config via an embedded Python snippet in `bin/tusk`. Empty arrays (e.g., `"domains": []`) disable validation for that column. After editing config post-install, run `tusk regen-triggers` to update triggers without destroying the database (unlike `tusk init --force` which recreates the DB).
+`config.default.json` defines domains, task_types, statuses, priorities, closed_reasons, complexity, and agents. On `tusk init`, SQLite validation triggers are **auto-generated** from the config via an embedded Python snippet in `bin/tusk`. Empty arrays (e.g., `"domains": []`) disable validation for that column. After editing config post-install, run `tusk regen-triggers` to update triggers without destroying the database (unlike `tusk init --force` which recreates the DB).
 
 ### Skills (installed to `.claude/skills/` in target projects)
 
@@ -104,7 +104,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 
 ### Database Schema
 
-Five tables: `tasks` (13 columns — summary, status, priority, domain, assignee, task_type, priority_score, etc.), `task_dependencies` (composite PK with cascade deletes + no-self-dep CHECK), `task_progress` (append-only checkpoint log for context recovery — stores commit hash, files changed, and next_steps after each commit so a new session can resume mid-task), `task_sessions` (optional metrics — includes `model` column for tracking which Claude model was used), `acceptance_criteria` (per-task criteria with source tracking and completion status). One view: `task_metrics` (aggregates sessions per task).
+Five tables: `tasks` (15 columns — id, summary, description, status, priority, domain, assignee, task_type, priority_score, github_pr, expires_at, closed_reason, created_at, updated_at, complexity), `task_dependencies` (composite PK with cascade deletes + no-self-dep CHECK), `task_progress` (append-only checkpoint log for context recovery — stores commit hash, files changed, and next_steps after each commit so a new session can resume mid-task), `task_sessions` (optional metrics — includes `model` column for tracking which Claude model was used), `acceptance_criteria` (id, task_id, criterion, source, is_completed, created_at, updated_at — per-task criteria with source tracking and completion status). One view: `task_metrics` (aggregates sessions per task).
 
 ### Installation Model
 
@@ -287,6 +287,7 @@ Commit the bump in the same branch as the feature — not as a separate PR. The 
 - Task workflow: `To Do` → `In Progress` → `Done` (must set `closed_reason` when marking Done)
 - Valid `closed_reason` values: `completed`, `expired`, `wont_do`, `duplicate`
 - Priority scoring (WSJF): `ROUND((base_priority + source_bonus + unblocks_bonus) / complexity_weight)` where complexity_weight is XS=1, S=2, M=3, L=5, XL=8
+- Complexity uses t-shirt sizes: XS (~1 quick session), S (~1 full session), M (~1–2 sessions), L (~3–5 sessions), XL (~5+ sessions). L and XL tasks trigger a warning in `/next-task` before work begins
 - Deferred tasks from PR reviews get `[Deferred]` prefix and 60-day `expires_at`
 - Duplicate detection uses two layers: (1) **LLM semantic review** — skills that insert tasks (`/create-task`, `/retro`) fetch the existing backlog and compare proposed tasks for conceptual overlap during analysis; (2) **heuristic pre-filter** (`tusk dupes check`) — fast, deterministic safety net that catches textual near-matches before INSERT. Both layers are needed: the LLM catches semantic duplicates the heuristic misses, while the heuristic provides a reliable fallback that doesn't depend on LLM judgment
 - When a duplicate is discovered (during LLM review, `/check-dupes`, `/groom-backlog`, `/retro`, or incidentally), close the lower-priority or newer task immediately with `closed_reason = 'duplicate'` — never defer duplicate closure to a follow-up task
