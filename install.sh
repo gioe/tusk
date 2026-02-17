@@ -7,9 +7,9 @@
 #   /path/to/tusker/install.sh
 #
 # What it does:
-#   1. Copies bin/tusk + support files → .claude/bin/
-#   2. Copies skills/*                 → .claude/skills/*
-#   3. Copies scripts/*                → scripts/*  (creates if needed)
+#   1. Copies bin/tusk + Python scripts → .claude/bin/
+#   2. Copies config, VERSION, pricing  → .claude/bin/
+#   3. Copies skills/*                  → .claude/skills/*
 #   4. Installs SessionStart hook to put .claude/bin on PATH
 #   5. Runs tusk init + migrate
 #   6. Prints next steps
