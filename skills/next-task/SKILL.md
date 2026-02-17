@@ -226,6 +226,13 @@ Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('no
     gh pr merge $PR_NUMBER --squash --delete-branch
     ```
 
+    Mark all acceptance criteria as done before closing the task:
+    ```bash
+    for cid in $(tusk "SELECT id FROM acceptance_criteria WHERE task_id = <id> AND completed = 0"); do
+      tusk criteria done "$cid"
+    done
+    ```
+
     Update task status:
     ```bash
     tusk "UPDATE tasks SET status = 'Done', closed_reason = 'completed', updated_at = datetime('now') WHERE id = <id>"
