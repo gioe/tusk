@@ -259,6 +259,66 @@ Report which existing task matched and skip the insert:
 
 Report the error and skip.
 
+### 5c: Propose Dependencies
+
+After inserting tasks, check whether any dependencies exist — both among the newly created retro tasks **and** against existing open backlog tasks (fetched in Step 2b). Retro tasks tend to be independent, so this step is lightweight: only propose a dependency when there is a clear, concrete reason one task must complete before the other can begin.
+
+#### When to run this step
+
+- If **two or more tasks** were created: check for inter-task ordering among the new tasks AND for dependencies on existing backlog tasks.
+- If **one task** was created: check for dependencies on existing backlog tasks only.
+- Skip this step entirely if zero tasks were created (all were duplicates or subsumed).
+
+#### How to identify dependencies
+
+Look for these patterns:
+
+- **Process change before feature** — a CLAUDE.md or skill update (Category A) that must land before a feature task (Category C) can follow the updated process
+- **Bug fix before follow-up** — a tangential bug fix (Category B) that blocks related follow-up work (Category C)
+- **Schema/infra before code** — a migration or config change that must exist before dependent tasks can proceed
+- **New task depends on existing backlog task** — a retro finding that extends or builds on work already tracked in the backlog
+
+If no natural ordering exists, state that explicitly and skip to Step 6.
+
+#### Present proposed dependencies
+
+Show a numbered table of proposed dependencies for user approval:
+
+```markdown
+## Proposed Dependencies
+
+| # | Task | Depends On | Type | Reason |
+|---|------|------------|------|--------|
+| 1 | #16 Add signup validation (new) | #14 Fix auth middleware (new) | blocks | Validation requires working auth |
+| 2 | #15 Update API docs (new) | #8 Refactor endpoints (existing) | contingent | Docs are moot if refactor is cancelled |
+```
+
+Then ask:
+
+> Does this look right? You can:
+> - **Confirm** to add all dependencies
+> - **Remove** specific numbers (e.g., "remove 2")
+> - **Change type** (e.g., "change 1 to contingent")
+> - **Skip** to add no dependencies
+
+Wait for explicit user approval before inserting.
+
+#### Insert approved dependencies
+
+For each approved dependency, run:
+
+```bash
+tusk deps add <task_id> <depends_on_id>
+```
+
+Or with a specific type:
+
+```bash
+tusk deps add <task_id> <depends_on_id> --type contingent
+```
+
+Report any validation errors (cycle detected, task not found) and continue with the remaining dependencies.
+
 ## Step 6: Report Results
 
 After processing all tasks, show a summary:
@@ -270,6 +330,7 @@ After processing all tasks, show a summary:
 **Findings**: A process improvements, B tangential issues, C follow-up items
 **Created**: N tasks (#14, #15, #16)
 **Subsumed**: S findings merged into existing tasks (#8, #11)
+**Dependencies added**: D (#16 → #14 (blocks), #15 → #8 (contingent))
 **Skipped**: M duplicates
 
 | ID | Summary | Priority | Domain | Category |
@@ -284,6 +345,8 @@ If any findings were subsumed:
 |---------|-----------|-----------|
 | <finding summary> | #<id> | <brief description of what was added> |
 ```
+
+Include the **Dependencies added** line only when Step 5c was executed (i.e., at least one task was created). If Step 5c was skipped (all tasks were duplicates/subsumed) or the user chose to skip all dependencies, omit the line. If dependencies were proposed but the user removed some, only list the ones actually inserted.
 
 Then show the current backlog state:
 
