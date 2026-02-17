@@ -208,19 +208,7 @@ Report each update:
 
 ### 5b: Insert New Tasks
 
-Most duplicates were already filtered out via LLM semantic review (Step 3) and heuristic pre-filter (Step 3b). As a final safety net, run one last heuristic check before each insert:
-
-```bash
-tusk dupes check "<summary>"
-```
-
-If the domain is set and non-empty, include it:
-
-```bash
-tusk dupes check "<summary>" --domain <domain>
-```
-
-### Exit code 0 — No duplicate found → Insert the task
+Duplicates were already filtered out via LLM semantic review (Step 3) and heuristic pre-filter (Step 3b). Insert each approved task directly.
 
 Use `tusk sql-quote` to safely escape user-provided text fields. This prevents SQL injection and handles single quotes automatically.
 
@@ -248,16 +236,6 @@ For NULL fields, use the literal `NULL` (unquoted) — don't pass it through `sq
 tusk "INSERT INTO tasks (summary, description, status, priority, domain, task_type, assignee, complexity, created_at, updated_at)
   VALUES ($(tusk sql-quote "Improve error handling docs"), $(tusk sql-quote "Details here"), 'To Do', 'Medium', NULL, 'feature', NULL, NULL, datetime('now'), datetime('now'))"
 ```
-
-### Exit code 1 — Duplicate found → Skip
-
-Report which existing task matched and skip the insert:
-
-> Skipped "Improve error handling docs" — duplicate of existing task #12 (similarity 0.87)
-
-### Exit code 2 — Error
-
-Report the error and skip.
 
 ### 5c: Propose Dependencies
 
