@@ -18,6 +18,10 @@
 #   tusk session-stats <id>    Populate token/cost stats for a session
 #   tusk session-close <id>    Close a session (duration, diff stats, token stats)
 #   tusk session-close --task-id <id>  Bulk-close all open sessions for a task
+#   tusk criteria add <id> "text" [--source ...]  Add a criterion to a task
+#   tusk criteria list <id>      List criteria for a task
+#   tusk criteria done <cid>     Mark a criterion as completed
+#   tusk criteria reset <cid>    Reset a criterion to incomplete
 #   tusk lint                   Run convention checks non-interactively
 #   tusk dashboard             Generate and open an HTML dashboard
 #   tusk version               Print the installed tusk version
@@ -405,8 +409,25 @@ SCHEMA
     sqlite3 "$DB_PATH" "$triggers"
   fi
 
+  # Acceptance criteria
+  sqlite3 "$DB_PATH" <<'AC_SCHEMA'
+CREATE TABLE acceptance_criteria (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    criterion TEXT NOT NULL,
+    source TEXT DEFAULT 'original',
+    is_completed INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    CHECK (source IN ('original', 'subsumption', 'pr_review')),
+    CHECK (is_completed IN (0, 1))
+);
+CREATE INDEX idx_acceptance_criteria_task_id ON acceptance_criteria(task_id);
+AC_SCHEMA
+
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 3;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 4;"
 
   echo "Initialized task database at $DB_PATH"
 }
@@ -530,6 +551,33 @@ cmd_migrate() {
       echo "  Migration 3: added 'relationship_type' column to task_dependencies"
     else
       sqlite3 "$DB_PATH" "PRAGMA user_version = 3;"
+    fi
+  fi
+
+  # Migration 3→4: add acceptance_criteria table
+  if [[ "$current" -lt 4 ]]; then
+    local has_criteria
+    has_criteria="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='acceptance_criteria';")"
+    if [[ "$has_criteria" -eq 0 ]]; then
+      sqlite3 "$DB_PATH" "
+        CREATE TABLE acceptance_criteria (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL,
+            criterion TEXT NOT NULL,
+            source TEXT DEFAULT 'original',
+            is_completed INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+            CHECK (source IN ('original', 'subsumption', 'pr_review')),
+            CHECK (is_completed IN (0, 1))
+        );
+        CREATE INDEX idx_acceptance_criteria_task_id ON acceptance_criteria(task_id);
+        PRAGMA user_version = 4;
+      "
+      echo "  Migration 4: created 'acceptance_criteria' table"
+    else
+      sqlite3 "$DB_PATH" "PRAGMA user_version = 4;"
     fi
   fi
 
@@ -756,6 +804,7 @@ case "${1:-}" in
   sql-quote) shift; sql_quote "${1:-}" ;;
   lint)   shift; exec python3 "$SCRIPT_DIR/tusk-lint.py" "$REPO_ROOT" "$@" ;;
   dupes)  shift; exec python3 "$SCRIPT_DIR/tusk-dupes.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  criteria) shift; exec python3 "$SCRIPT_DIR/tusk-criteria.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   dashboard) shift; exec python3 "$SCRIPT_DIR/tusk-dashboard.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   session-stats) shift; exec python3 "$SCRIPT_DIR/tusk-session-stats.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   session-close) shift; cmd_session_close "$@" ;;
@@ -764,6 +813,6 @@ case "${1:-}" in
   migrate) cmd_migrate ;;
   regen-triggers) cmd_regen_triggers ;;
   upgrade) cmd_upgrade ;;
-  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|lint|dupes|dashboard|session-stats|session-close|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
+  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|lint|dupes|criteria|dashboard|session-stats|session-close|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac

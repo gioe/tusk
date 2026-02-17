@@ -32,6 +32,12 @@ bin/tusk sql-quote "O'Reilly's book"   # → 'O''Reilly''s book'
 # Interactive sqlite3 shell
 bin/tusk shell
 
+# Manage acceptance criteria for tasks
+bin/tusk criteria add <task_id> "criterion text" [--source original|subsumption|pr_review]
+bin/tusk criteria list <task_id>
+bin/tusk criteria done <criterion_id>
+bin/tusk criteria reset <criterion_id>
+
 # Run convention checks non-interactively (exits 1 on violations)
 bin/tusk lint
 
@@ -84,11 +90,12 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - `bin/tusk-dupes.py` — Duplicate detection against open tasks (invoked via `tusk dupes`). Normalizes summaries by stripping configurable prefixes and uses `difflib.SequenceMatcher` for similarity scoring.
 - `bin/tusk-session-stats.py` — Token/cost tracking for task sessions (invoked via `tusk session-stats`). Parses Claude Code JSONL transcripts, deduplicates by requestId, and computes costs using per-model pricing.
 - `bin/tusk-dashboard.py` — Static HTML dashboard generator (invoked via `tusk dashboard`). Queries the `task_metrics` view for per-task token counts and cost, writes a self-contained HTML file, and opens it in the browser.
+- `bin/tusk-criteria.py` — Acceptance criteria management (invoked via `tusk criteria`). Supports add, list, done, and reset subcommands for per-task acceptance criteria tracking.
 - `scripts/manage_dependencies.py` — Dependency graph management. Validates no self-deps and no cycles before inserting. Resolves DB path at runtime via `tusk path`.
 
 ### Database Schema
 
-Four tables: `tasks` (13 columns — summary, status, priority, domain, assignee, task_type, priority_score, etc.), `task_dependencies` (composite PK with cascade deletes + no-self-dep CHECK), `task_progress` (append-only checkpoint log for context recovery — stores commit hash, files changed, and next_steps after each commit so a new session can resume mid-task), `task_sessions` (optional metrics — includes `model` column for tracking which Claude model was used). One view: `task_metrics` (aggregates sessions per task).
+Five tables: `tasks` (13 columns — summary, status, priority, domain, assignee, task_type, priority_score, etc.), `task_dependencies` (composite PK with cascade deletes + no-self-dep CHECK), `task_progress` (append-only checkpoint log for context recovery — stores commit hash, files changed, and next_steps after each commit so a new session can resume mid-task), `task_sessions` (optional metrics — includes `model` column for tracking which Claude model was used), `acceptance_criteria` (per-task criteria with source tracking and completion status). One view: `task_metrics` (aggregates sessions per task).
 
 ### Installation Model
 
