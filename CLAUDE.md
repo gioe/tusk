@@ -38,6 +38,15 @@ bin/tusk criteria list <task_id>
 bin/tusk criteria done <criterion_id>
 bin/tusk criteria reset <criterion_id>
 
+# Manage task dependencies
+bin/tusk deps add <task_id> <depends_on_id> [--type blocks|contingent]
+bin/tusk deps remove <task_id> <depends_on_id>
+bin/tusk deps list <task_id>
+bin/tusk deps dependents <task_id>
+bin/tusk deps blocked
+bin/tusk deps ready
+bin/tusk deps all
+
 # Run convention checks non-interactively (exits 1 on violations)
 bin/tusk lint
 
@@ -91,7 +100,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - `bin/tusk-session-stats.py` — Token/cost tracking for task sessions (invoked via `tusk session-stats`). Parses Claude Code JSONL transcripts, deduplicates by requestId, and computes costs using per-model pricing.
 - `bin/tusk-dashboard.py` — Static HTML dashboard generator (invoked via `tusk dashboard`). Queries the `task_metrics` view for per-task token counts and cost, writes a self-contained HTML file, and opens it in the browser.
 - `bin/tusk-criteria.py` — Acceptance criteria management (invoked via `tusk criteria`). Supports add, list, done, and reset subcommands for per-task acceptance criteria tracking.
-- `scripts/manage_dependencies.py` — Dependency graph management. Validates no self-deps and no cycles before inserting. Resolves DB path at runtime via `tusk path`.
+- `bin/tusk-deps.py` — Dependency graph management (invoked via `tusk deps`). Validates no self-deps and no cycles before inserting.
 
 ### Database Schema
 
@@ -99,7 +108,7 @@ Five tables: `tasks` (13 columns — summary, status, priority, domain, assignee
 
 ### Installation Model
 
-`install.sh` copies `bin/tusk` + `bin/tusk-*.py` + `VERSION` + `config.default.json` → `.claude/bin/`, skills → `.claude/skills/`, scripts → `scripts/`, and runs `tusk init` + `tusk migrate`. This repo is the source; target projects get the installed copy.
+`install.sh` copies `bin/tusk` + `bin/tusk-*.py` + `VERSION` + `config.default.json` → `.claude/bin/`, skills → `.claude/skills/`, and runs `tusk init` + `tusk migrate`. This repo is the source; target projects get the installed copy.
 
 ### Versioning and Upgrades
 

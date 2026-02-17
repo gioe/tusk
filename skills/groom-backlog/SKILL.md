@@ -145,8 +145,8 @@ WHERE status <> 'Done'
 ORDER BY priority_score DESC, id
 "
 
-python3 scripts/manage_dependencies.py blocked
-python3 scripts/manage_dependencies.py all
+tusk deps blocked
+tusk deps all
 ```
 
 ## Step 2: Scan for Duplicates and Categorize Tasks
@@ -180,7 +180,7 @@ Tasks where the work has already been completed in the codebase:
 
 Before recommending deletion, check dependents:
 ```bash
-python3 scripts/manage_dependencies.py dependents <id>
+tusk deps dependents <id>
 ```
 
 ### Category C: Candidates for Reprioritization

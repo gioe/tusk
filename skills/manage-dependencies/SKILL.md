@@ -15,7 +15,7 @@ Manages task dependencies in the project task database (via `tusk` CLI). Depende
 Make a task depend on another task (the dependency must be completed first):
 
 ```bash
-python3 scripts/manage_dependencies.py add <task_id> <depends_on_id> [--type blocks|contingent]
+tusk deps add <task_id> <depends_on_id> [--type blocks|contingent]
 ```
 
 The `--type` flag sets the relationship type (default: `blocks`):
@@ -25,16 +25,16 @@ The `--type` flag sets the relationship type (default: `blocks`):
 Examples:
 ```bash
 # Task 5 cannot start until Task 3 is done (standard blocking)
-python3 scripts/manage_dependencies.py add 5 3
+tusk deps add 5 3
 
 # Task 10 contingently depends on Task 5 (outcome-dependent)
-python3 scripts/manage_dependencies.py add 10 5 --type contingent
+tusk deps add 10 5 --type contingent
 ```
 
 ### Remove a dependency
 
 ```bash
-python3 scripts/manage_dependencies.py remove <task_id> <depends_on_id>
+tusk deps remove <task_id> <depends_on_id>
 ```
 
 ### List dependencies for a task
@@ -42,7 +42,7 @@ python3 scripts/manage_dependencies.py remove <task_id> <depends_on_id>
 Show all tasks that must be completed before a specific task can start:
 
 ```bash
-python3 scripts/manage_dependencies.py list <task_id>
+tusk deps list <task_id>
 ```
 
 ### List dependents of a task
@@ -50,25 +50,25 @@ python3 scripts/manage_dependencies.py list <task_id>
 Show all tasks that are waiting on a specific task:
 
 ```bash
-python3 scripts/manage_dependencies.py dependents <task_id>
+tusk deps dependents <task_id>
 ```
 
 ### Show blocked tasks
 
 ```bash
-python3 scripts/manage_dependencies.py blocked
+tusk deps blocked
 ```
 
 ### Show ready tasks
 
 ```bash
-python3 scripts/manage_dependencies.py ready
+tusk deps ready
 ```
 
 ### Show all dependencies
 
 ```bash
-python3 scripts/manage_dependencies.py all
+tusk deps all
 ```
 
 ## Validation

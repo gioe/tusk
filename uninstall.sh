@@ -8,8 +8,7 @@
 # What it removes:
 #   1. .claude/bin/ (tusk binary + support files)
 #   2. .claude/skills/{check-dupes,groom-backlog,manage-dependencies,next-task,tasks}
-#   3. scripts/manage_dependencies.py
-#   4. tusk/ directory (database + config) — requires --delete-data flag
+#   3. tusk/ directory (database + config) — requires --delete-data flag
 #
 # Cleans up empty parent directories (.claude/bin, .claude/skills, scripts)
 # if nothing else remains in them.
@@ -78,6 +77,7 @@ remove_file ".claude/bin/tusk"
 remove_file ".claude/bin/config.default.json"
 remove_file ".claude/bin/tusk-dupes.py"
 remove_file ".claude/bin/tusk-session-stats.py"
+remove_file ".claude/bin/tusk-deps.py"
 remove_file ".claude/bin/VERSION"
 rmdir_if_empty ".claude/bin"
 
@@ -87,11 +87,7 @@ for skill in check-dupes groom-backlog manage-dependencies next-task tasks; do
 done
 rmdir_if_empty ".claude/skills"
 
-# ── 3. Remove scripts ───────────────────────────────────────────────
-remove_file "scripts/manage_dependencies.py"
-rmdir_if_empty "scripts"
-
-# ── 4. Remove data (opt-in) ─────────────────────────────────────────
+# ── 3. Remove data (opt-in) ─────────────────────────────────────────
 if [[ "$DELETE_DATA" = true ]]; then
   remove_dir "tusk"
 else

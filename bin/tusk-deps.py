@@ -1,48 +1,29 @@
 #!/usr/bin/env python3
-"""Manage task dependencies in the SQLite database."""
+"""Manage task dependencies in the SQLite database.
+
+Called by the tusk wrapper:
+    tusk deps add|remove|list|dependents|blocked|ready|all ...
+
+Arguments received from tusk:
+    sys.argv[1] — DB path
+    sys.argv[2] — config path
+    sys.argv[3:] — subcommand + flags
+"""
 
 import argparse
 import logging
 import sqlite3
-import subprocess
 import sys
 
 log = logging.getLogger(__name__)
 
-DB_PATH = subprocess.check_output(
-    ["tusk", "path"], text=True
-).strip()
 
-DEPENDENCIES_SCHEMA = """
-CREATE TABLE IF NOT EXISTS task_dependencies (
-    task_id INTEGER NOT NULL,
-    depends_on_id INTEGER NOT NULL,
-    relationship_type TEXT DEFAULT 'blocks',
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (task_id, depends_on_id),
-    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
-    FOREIGN KEY (depends_on_id) REFERENCES tasks(id) ON DELETE CASCADE,
-    CHECK (task_id <> depends_on_id),
-    CHECK (relationship_type IN ('blocks', 'contingent'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_task_dependencies_task_id ON task_dependencies(task_id);
-CREATE INDEX IF NOT EXISTS idx_task_dependencies_depends_on_id ON task_dependencies(depends_on_id);
-"""
-
-
-def get_connection() -> sqlite3.Connection:
+def get_connection(db_path: str) -> sqlite3.Connection:
     """Get database connection with foreign keys enabled."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(db_path)
     conn.execute("PRAGMA foreign_keys = ON")
     conn.row_factory = sqlite3.Row
     return conn
-
-
-def init_schema(conn: sqlite3.Connection):
-    """Initialize the dependencies table if it doesn't exist."""
-    conn.executescript(DEPENDENCIES_SCHEMA)
-    conn.commit()
 
 
 def task_exists(conn: sqlite3.Connection, task_id: int) -> bool:
@@ -302,19 +283,26 @@ def show_all(conn: sqlite3.Connection):
 
 
 def main():
+    if len(sys.argv) < 3:
+        print("Usage: tusk deps <subcommand> [args...]", file=sys.stderr)
+        sys.exit(1)
+
+    db_path = sys.argv[1]
+    # sys.argv[2] is config path (unused by this script, accepted for consistency)
+
     parser = argparse.ArgumentParser(
         description="Manage task dependencies in the SQLite database",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s add 5 3                    # Task 5 depends on Task 3 (blocks)
-  %(prog)s add 10 5 --type contingent # Task 10 contingently depends on Task 5
-  %(prog)s remove 5 3                 # Remove dependency
-  %(prog)s list 5                     # Show what Task 5 depends on
-  %(prog)s dependents 3              # Show tasks that depend on Task 3
-  %(prog)s blocked                    # Show all blocked tasks
-  %(prog)s ready                      # Show tasks ready to start
-  %(prog)s all                        # Show all dependencies
+  tusk deps add 5 3                    # Task 5 depends on Task 3 (blocks)
+  tusk deps add 10 5 --type contingent # Task 10 contingently depends on Task 5
+  tusk deps remove 5 3                 # Remove dependency
+  tusk deps list 5                     # Show what Task 5 depends on
+  tusk deps dependents 3              # Show tasks that depend on Task 3
+  tusk deps blocked                    # Show all blocked tasks
+  tusk deps ready                      # Show tasks ready to start
+  tusk deps all                        # Show all dependencies
         """
     )
     parser.add_argument("--debug", action="store_true", help="Enable verbose debug output")
@@ -351,21 +339,20 @@ Examples:
     # all command
     subparsers.add_parser("all", help="Show all dependencies")
 
-    args = parser.parse_args()
+    args = parser.parse_args(sys.argv[3:])
 
     logging.basicConfig(
         level=logging.DEBUG if args.debug else logging.WARNING,
         format="[debug] %(message)s",
         stream=sys.stderr,
     )
-    log.debug("DB path: %s", DB_PATH)
+    log.debug("DB path: %s", db_path)
 
     if not args.command:
         parser.print_help()
         sys.exit(1)
 
-    conn = get_connection()
-    init_schema(conn)
+    conn = get_connection(db_path)
 
     if args.command == "add":
         add_dependency(conn, args.task_id, args.depends_on_id, args.relationship_type)

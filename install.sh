@@ -65,16 +65,7 @@ for skill_dir in "$SCRIPT_DIR"/skills/*/; do
   echo "  Installed skill: $skill_name"
 done
 
-# ── 4. Copy scripts ──────────────────────────────────────────────────
-mkdir -p "$REPO_ROOT/scripts"
-for script in "$SCRIPT_DIR"/scripts/*.py; do
-  [[ -f "$script" ]] || continue
-  script_name="$(basename "$script")"
-  cp "$script" "$REPO_ROOT/scripts/$script_name"
-  echo "  Installed scripts/$script_name"
-done
-
-# ── 5. Install PATH hook ──────────────────────────────────────────────
+# ── 4. Install PATH hook ──────────────────────────────────────────────
 mkdir -p "$REPO_ROOT/.claude/hooks"
 cat > "$REPO_ROOT/.claude/hooks/tusk-path.sh" << 'HOOKEOF'
 #!/bin/bash
@@ -120,12 +111,12 @@ else:
     print('  .claude/settings.json already has PATH hook')
 "
 
-# ── 6. Init database + migrate ───────────────────────────────────────
+# ── 5. Init database + migrate ───────────────────────────────────────
 TUSK="$REPO_ROOT/.claude/bin/tusk"
 "$TUSK" init
 "$TUSK" migrate
 
-# ── 7. Print next steps ───────────────────────────────────────────────
+# ── 6. Print next steps ───────────────────────────────────────────────
 echo ""
 echo "════════════════════════════════════════════════════════════════"
 echo "  Installation complete!"
