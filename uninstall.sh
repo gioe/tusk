@@ -7,7 +7,7 @@
 #   /path/to/tusker/uninstall.sh
 # What it removes:
 #   1. .claude/bin/ (tusk binary + support files)
-#   2. .claude/skills/{check-dupes,groom-backlog,manage-dependencies,next-task,tasks}
+#   2. .claude/skills/* (all installed skills)
 #   3. tusk/ directory (database + config) — requires --delete-data flag
 #
 # Cleans up empty parent directories (.claude/bin, .claude/skills, scripts)
@@ -75,14 +75,18 @@ rmdir_if_empty() {
 # ── 1. Remove bin files ──────────────────────────────────────────────
 remove_file ".claude/bin/tusk"
 remove_file ".claude/bin/config.default.json"
-remove_file ".claude/bin/tusk-dupes.py"
-remove_file ".claude/bin/tusk-session-stats.py"
+remove_file ".claude/bin/tusk-criteria.py"
+remove_file ".claude/bin/tusk-dashboard.py"
 remove_file ".claude/bin/tusk-deps.py"
+remove_file ".claude/bin/tusk-dupes.py"
+remove_file ".claude/bin/tusk-lint.py"
+remove_file ".claude/bin/tusk-session-stats.py"
+remove_file ".claude/bin/pricing.json"
 remove_file ".claude/bin/VERSION"
 rmdir_if_empty ".claude/bin"
 
 # ── 2. Remove skills ────────────────────────────────────────────────
-for skill in check-dupes groom-backlog manage-dependencies next-task tasks; do
+for skill in check-dupes create-task groom-backlog lint-conventions manage-dependencies next-task reconfigure retro tasks tusk-init; do
   remove_dir ".claude/skills/$skill"
 done
 rmdir_if_empty ".claude/skills"
