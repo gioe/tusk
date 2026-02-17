@@ -93,6 +93,7 @@ def main(argv: list[str]) -> int:
 
     # 5. Build and return JSON result
     task_dict = {key: task[key] for key in task.keys()}
+    task_dict["status"] = "In Progress"
     progress_list = [{key: row[key] for key in row.keys()} for row in progress_rows]
 
     result = {
