@@ -59,6 +59,9 @@ bin/tusk session-close <session_id> [--lines-added N] [--lines-removed N] [--ski
 # Bulk-close all open sessions for a task (skips git diff, defaults lines to 0)
 bin/tusk session-close --task-id <task_id> [--skip-stats]
 
+# Start working on a task (sets status, creates session, returns JSON)
+bin/tusk task-start <task_id>
+
 # Generate and open an HTML task dashboard
 bin/tusk dashboard
 
@@ -101,6 +104,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - `bin/tusk-dashboard.py` — Static HTML dashboard generator (invoked via `tusk dashboard`). Queries the `task_metrics` view for per-task token counts and cost, writes a self-contained HTML file, and opens it in the browser.
 - `bin/tusk-criteria.py` — Acceptance criteria management (invoked via `tusk criteria`). Supports add, list, done, and reset subcommands for per-task acceptance criteria tracking.
 - `bin/tusk-deps.py` — Dependency graph management (invoked via `tusk deps`). Validates no self-deps and no cycles before inserting.
+- `bin/tusk-task-start.py` — Task start consolidation (invoked via `tusk task-start`). Fetches task, checks prior progress, reuses or creates a session, sets status to In Progress, and returns a JSON blob with all details.
 
 ### Database Schema
 

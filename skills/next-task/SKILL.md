@@ -86,43 +86,18 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
 
 **Follow these steps IN ORDER:**
 
-1. **Fetch the task** from the database:
+1. **Start the task** — fetch details, check progress, create/reuse session, and set status in one call:
    ```bash
-   tusk -header -column "SELECT * FROM tasks WHERE id = <id>"
+   tusk task-start <id>
    ```
+   This returns a JSON blob with three keys:
+   - `task` — full task row (summary, description, priority, domain, assignee, etc.)
+   - `progress` — array of prior progress checkpoints (most recent first). If non-empty, the first entry's `next_steps` tells you exactly where to pick up. Skip steps you've already completed (branch may already exist, some commits may already be made). Use `git log --oneline` on the existing branch to see what's already been done.
+   - `session_id` — the session ID to use for the duration of the workflow (reuses an open session if one exists, otherwise creates a new one)
 
-2. **Check for prior progress** — if context was lost mid-task, resume from the last checkpoint:
-   ```bash
-   tusk -header -column "SELECT * FROM task_progress WHERE task_id = <id> ORDER BY created_at DESC"
-   ```
-   If rows exist, read them carefully. The most recent entry's `next_steps` tells you exactly where to pick up. Skip steps you've already completed (branch may already exist, some commits may already be made). Use `git log --oneline` on the existing branch to see what's already been done.
+   Hold onto `session_id` from the JSON — it will be used to close the session when the task is done.
 
-   Also check for an open session to reuse:
-   ```bash
-   SESSION_ID=$(tusk "SELECT id FROM task_sessions WHERE task_id = <id> AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1")
-   ```
-   If `SESSION_ID` is non-empty, reuse it. If empty, a new session will be created in the next step.
-
-3. **Update the task status** to In Progress (if not already):
-   ```bash
-   tusk "UPDATE tasks SET status = 'In Progress', updated_at = datetime('now') WHERE id = <id>"
-   ```
-
-4. **Start a session** (skip if `SESSION_ID` was already set from step 2):
-   ```bash
-   tusk "INSERT INTO task_sessions (task_id, started_at) VALUES (<id>, datetime('now'))"
-   SESSION_ID=$(tusk "SELECT MAX(id) FROM task_sessions WHERE task_id = <id>")
-   ```
-   Hold onto `SESSION_ID` for the duration of the workflow — it will be used to close the session when the task is done.
-
-5. **Extract task details** including:
-   - Summary
-   - Description
-   - Priority
-   - Domain
-   - Assignee
-
-6. **Create a new git branch IMMEDIATELY** (skip if resuming and branch already exists):
+2. **Create a new git branch IMMEDIATELY** (skip if resuming and branch already exists):
    - Format: `feature/TASK-<id>-brief-description`
    - First, detect the repo's default branch:
      ```bash
@@ -138,28 +113,28 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
      git checkout -b feature/TASK-<id>-brief-description
      ```
 
-7. **Determine the best subagent(s)** based on:
+3. **Determine the best subagent(s)** based on:
    - Task domain
    - Task assignee field (often indicates the right agent type)
    - Task description and requirements
 
-8. **Explore the codebase before implementing** — use a sub-agent to research:
+4. **Explore the codebase before implementing** — use a sub-agent to research:
    - What files will need to change?
    - Are there existing patterns to follow?
    - What tests already exist for this area?
 
    Report findings before writing any code.
 
-9. **Scope check — only implement what the task describes.**
+5. **Scope check — only implement what the task describes.**
    The task's `summary` and `description` fields define the full scope of work for this session. If the description references or links to external documents (evaluation docs, design specs, RFCs), treat them as **background context only** — do not implement items from those docs that go beyond what the task's own description asks for. Referenced docs often describe multi-task plans; implementing the entire plan collapses future tasks into one PR and defeats dependency ordering.
 
-10. **Delegate the work** to the chosen subagent(s).
+6. **Delegate the work** to the chosen subagent(s).
 
-11. **Create atomic commits** as you complete logical units of work.
+7. **Create atomic commits** as you complete logical units of work.
     - All commits should be on the feature branch, NOT the default branch.
     - **After every commit, log a progress checkpoint** (see below).
 
-12. **Log a progress checkpoint after every commit:**
+8. **Log a progress checkpoint after every commit:**
     ```bash
     HASH=$(git rev-parse --short HEAD)
     MSG=$(git log -1 --pretty=%s)
@@ -175,27 +150,27 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
 
     **Schema migration reminder:** If the commit includes changes to `bin/tusk` that add or modify a migration (inside `cmd_migrate()`), run `tusk migrate` on the live database immediately after committing. Downstream operations in this session (retro, progress checkpoints, acceptance criteria inserts) that reference new tables or columns will fail if the live DB schema is not up to date.
 
-13. **Review the code locally** before considering the work complete.
+9. **Review the code locally** before considering the work complete.
 
-14. **Run convention lint (advisory)** — check for common convention violations before pushing:
+10. **Run convention lint (advisory)** — check for common convention violations before pushing:
     ```bash
     tusk lint
     ```
     Review the output. This check is **advisory only** — violations are warnings, not blockers. Fix any clear violations in files you've already touched. Do not refactor unrelated code just to satisfy lint.
 
-15. **Push the branch and create a PR**:
+11. **Push the branch and create a PR**:
     ```bash
     git push -u origin feature/TASK-<id>-description
     gh pr create --base "$DEFAULT_BRANCH" --title "[TASK-<id>] Brief task description" --body "..."
     ```
     Capture the PR URL from the output.
 
-16. **Update the task with the PR URL**:
+12. **Update the task with the PR URL**:
     ```bash
     tusk "UPDATE tasks SET github_pr = $(tusk sql-quote "<pr_url>"), updated_at = datetime('now') WHERE id = <id>"
     ```
 
-17. **Review loop — iterate until approved**:
+13. **Review loop — iterate until approved**:
 
     ```
     ┌─► Poll for review
@@ -228,7 +203,7 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
     1. Read the relevant file(s)
     2. Make the code fix
     3. Commit: `[TASK-<id>] Address PR review: <brief description>`
-    4. Log a progress checkpoint (step 12) after each review-fix commit
+    4. Log a progress checkpoint (step 8) after each review-fix commit
 
     **Category B — Defer to backlog (cosmetic only):**
     - Pure style preferences not affecting correctness
@@ -250,7 +225,7 @@ Original comment: <comment text>
 Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('now'), datetime('now'), datetime('now', '+60 days'))"
        ```
 
-18. **PR approved — finalize and merge**:
+14. **PR approved — finalize and merge**:
 
     Close the session **before** merging (captures diff stats from the feature branch, which is deleted after merge):
     ```bash
@@ -274,7 +249,7 @@ Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('no
     tusk "UPDATE tasks SET status = 'Done', closed_reason = 'completed', updated_at = datetime('now') WHERE id = <id>"
     ```
 
-19. **Check for newly unblocked tasks**:
+15. **Check for newly unblocked tasks**:
     ```bash
     tusk -header -column "
     SELECT t.id, t.summary, t.priority
@@ -284,7 +259,7 @@ Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('no
     "
     ```
 
-20. **Run retrospective** — this is mandatory after every completed task. Invoke `/retro` to review the session, surface process improvements, and create any follow-up tasks.
+16. **Run retrospective** — this is mandatory after every completed task. Invoke `/retro` to review the session, surface process improvements, and create any follow-up tasks.
 
 ### Mark Task as Done
 
