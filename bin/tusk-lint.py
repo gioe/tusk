@@ -10,6 +10,7 @@ Prints results grouped by rule and exits with status 1 if any violations found.
 
 import os
 import re
+import subprocess
 import sys
 
 
@@ -130,10 +131,11 @@ def rule4_manual_quote_escaping(root):
 def rule5_done_without_closed_reason(root):
     """Setting status='Done' without closed_reason."""
     violations = []
+    exempt = {"bin/tusk-lint.py"}
     done_re = re.compile(r"status\s*=\s*'Done'", re.IGNORECASE)
 
     for rel, full in find_files(root, ["skills", "scripts", "bin"], [".md", ".sh", ".py"]):
-        if is_self(rel):
+        if is_self(rel) or rel in exempt:
             continue
         lines = read_lines(full)
         for i, (lineno, line) in enumerate(lines):
@@ -149,6 +151,32 @@ def rule5_done_without_closed_reason(root):
     return violations
 
 
+def rule6_done_incomplete_criteria(root):
+    """Tasks marked Done with incomplete acceptance criteria."""
+    violations = []
+    tusk_bin = os.path.join(root, "bin", "tusk")
+    if not os.path.isfile(tusk_bin):
+        # Installed projects: tusk is on PATH via .claude/bin/
+        tusk_bin = "tusk"
+    try:
+        result = subprocess.run(
+            [tusk_bin, "-header", "-column",
+             "SELECT t.id, t.summary, COUNT(ac.id) AS incomplete "
+             "FROM tasks t "
+             "JOIN acceptance_criteria ac ON ac.task_id = t.id "
+             "WHERE t.status = 'Done' AND ac.is_completed = 0 "
+             "GROUP BY t.id"],
+            capture_output=True, text=True, timeout=5,
+        )
+        for line in result.stdout.strip().splitlines():
+            line = line.strip()
+            if line and not line.startswith("id") and not line.startswith("--"):
+                violations.append(f"  {line}")
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass  # Skip rule if tusk CLI is unavailable
+    return violations
+
+
 # ── Main ─────────────────────────────────────────────────────────────
 
 RULES = [
@@ -157,6 +185,7 @@ RULES = [
     ("Rule 3: Hardcoded database path", rule3_hardcoded_db_path),
     ("Rule 4: Manual quote escaping", rule4_manual_quote_escaping),
     ("Rule 5: Done without closed_reason", rule5_done_without_closed_reason),
+    ("Rule 6: Done with incomplete acceptance criteria", rule6_done_incomplete_criteria),
 ]
 
 
