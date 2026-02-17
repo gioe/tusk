@@ -27,7 +27,7 @@ Finds the highest-priority task that is ready to work on (no incomplete dependen
 
 ```bash
 tusk -header -column "
-SELECT t.id, t.summary, t.priority, t.priority_score, t.domain, t.assignee, t.description
+SELECT t.id, t.summary, t.priority, t.priority_score, t.domain, t.assignee, t.complexity, t.description
 FROM tasks t
 WHERE t.status = 'To Do'
   AND NOT EXISTS (
@@ -42,7 +42,31 @@ LIMIT 1;
 
 **Note**: The `priority_score` is pre-computed by `/groom-backlog` using WSJF (Weighted Shortest Job First) scoring — it factors in priority level, how many tasks this unblocks, and divides by complexity weight (XS=1, S=2, M=3, L=5, XL=8) so small high-value tasks rank higher.
 
-After finding the next ready task, **immediately proceed to the "Begin Work on a Task" workflow** using the retrieved task ID. Do not wait for user confirmation.
+**Complexity warning**: If the selected task has complexity **L** or **XL**, display a warning to the user before proceeding:
+
+> **Note: This is a large task (complexity: L/XL) — expect 3+ sessions to complete.**
+
+Then ask the user whether to proceed or request a smaller task. If the user chooses a smaller task, re-run the query excluding L and XL:
+
+```bash
+tusk -header -column "
+SELECT t.id, t.summary, t.priority, t.priority_score, t.domain, t.assignee, t.complexity, t.description
+FROM tasks t
+WHERE t.status = 'To Do'
+  AND t.complexity NOT IN ('L', 'XL')
+  AND NOT EXISTS (
+    SELECT 1 FROM task_dependencies d
+    JOIN tasks blocker ON d.depends_on_id = blocker.id
+    WHERE d.task_id = t.id AND blocker.status <> 'Done'
+  )
+ORDER BY t.priority_score DESC, t.id
+LIMIT 1;
+"
+```
+
+If no smaller task is available, inform the user and offer to proceed with the original L/XL task.
+
+After the user confirms (or if the task is not L/XL), **immediately proceed to the "Begin Work on a Task" workflow** using the retrieved task ID. Do not wait for additional user confirmation.
 
 ### Begin Work on a Task (with task ID argument)
 
@@ -272,7 +296,7 @@ When called with `list <n>` or just a number:
 
 ```bash
 tusk -header -column "
-SELECT t.id, t.summary, t.priority, t.domain, t.assignee
+SELECT t.id, t.summary, t.priority, t.complexity, t.domain, t.assignee
 FROM tasks t
 WHERE t.status = 'To Do'
   AND NOT EXISTS (
@@ -326,7 +350,7 @@ When called with `preview`: Show the next ready task but do NOT start working on
 
 ```bash
 tusk -header -column "
-SELECT t.id, t.summary, t.priority, t.domain, t.assignee, t.description
+SELECT t.id, t.summary, t.priority, t.complexity, t.domain, t.assignee, t.description
 FROM tasks t
 WHERE t.status = 'To Do'
   AND NOT EXISTS (
