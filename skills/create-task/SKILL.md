@@ -189,6 +189,62 @@ tusk criteria add 14 "Tokens expire after the configured TTL"
 
 If a task was skipped as a duplicate in Step 5, do not generate criteria for it.
 
+## Step 5c: Propose Dependencies (Multi-Task Only)
+
+If **two or more tasks** were successfully inserted, analyze them for natural ordering and propose dependencies. Skip this step if only one task was created.
+
+### How to identify dependencies
+
+Look for these patterns among the newly created tasks:
+
+- **Schema before code** — a migration or data model task should block feature tasks that depend on it
+- **Backend before frontend** — API endpoints often block UI tasks that consume them
+- **Core before extension** — foundational tasks (setup, config, base classes) block tasks that build on them
+- **Implementation before docs** — documentation tasks should depend on the feature they document
+- **Bug fix before feature** — if a new feature depends on a bug being fixed first
+- **Contingent relationships** — if task B only makes sense when task A is completed successfully (not just closed), use `contingent` type. Example: "Write integration tests for new API" is contingent on "Build new API endpoint" — if the endpoint is cancelled, the tests are moot
+
+If no natural ordering exists among the created tasks, state that and skip to Step 6.
+
+### Present proposed dependencies
+
+Show a numbered table of proposed dependencies for user approval:
+
+```markdown
+## Proposed Dependencies
+
+| # | Task | Depends On | Type | Reason |
+|---|------|------------|------|--------|
+| 1 | #16 Add signup page | #14 Add auth endpoint | blocks | Frontend consumes the auth API |
+| 2 | #17 Write API docs | #14 Add auth endpoint | contingent | Docs are moot if endpoint is cancelled |
+```
+
+Then ask:
+
+> Does this look right? You can:
+> - **Confirm** to add all dependencies
+> - **Remove** specific numbers (e.g., "remove 2")
+> - **Change type** (e.g., "change 1 to contingent")
+> - **Skip** to add no dependencies
+
+Wait for explicit user approval before inserting.
+
+### Insert approved dependencies
+
+For each approved dependency, run:
+
+```bash
+tusk deps add <task_id> <depends_on_id>
+```
+
+Or with a specific type:
+
+```bash
+tusk deps add <task_id> <depends_on_id> --type contingent
+```
+
+Report any validation errors (cycle detected, task not found) and continue with the remaining dependencies.
+
 ## Step 6: Report Results
 
 After processing all tasks, show a summary:
