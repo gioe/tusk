@@ -40,6 +40,18 @@ LIMIT 1;
 "
 ```
 
+**Empty backlog**: If the query returns no rows, the backlog has no ready tasks. Check why:
+
+```bash
+tusk -header -column "SELECT status, COUNT(*) as count FROM tasks GROUP BY status"
+```
+
+- If there are **no tasks at all** (or all are Done): inform the user the backlog is empty and suggest running `/create-task` to add new work.
+- If there are **To Do tasks but all are blocked**: inform the user and suggest running `/next-task blocked` to see what's holding them up.
+- If there are **In Progress tasks**: inform the user and suggest running `/next-task wip` to check on active work.
+
+Do **not** suggest `/groom-backlog` or `/retro` when there are no ready tasks — those skills require an active backlog or session history to be useful.
+
 **Note**: The `priority_score` is pre-computed by `/groom-backlog` using WSJF (Weighted Shortest Job First) scoring — it factors in priority level, how many tasks this unblocks, and divides by complexity weight (XS=1, S=2, M=3, L=5, XL=8) so small high-value tasks rank higher.
 
 **Complexity warning**: If the selected task has complexity **L** or **XL**, display a warning to the user before proceeding:
