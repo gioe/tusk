@@ -225,7 +225,7 @@ Original comment: <comment text>
 Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('now'), datetime('now'), datetime('now', '+60 days'))"
        ```
 
-14. **PR approved — finalize and merge**:
+14. **PR approved — finalize, merge, and retro** (execute steps 14–16 as a single uninterrupted sequence — do NOT pause for user confirmation between them):
 
     Close the session **before** merging (captures diff stats from the feature branch, which is deleted after merge):
     ```bash
@@ -259,7 +259,7 @@ Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('no
     "
     ```
 
-16. **Run retrospective** — this is mandatory after every completed task. Invoke `/retro` to review the session, surface process improvements, and create any follow-up tasks.
+16. **Run retrospective** — mandatory, run immediately without asking. Invoke `/retro` to review the session, surface process improvements, and create any follow-up tasks. Do NOT ask "shall I run retro?" — just run it.
 
 ### Mark Task as Done
 
