@@ -38,7 +38,9 @@ def fetch_task_metrics(conn: sqlite3.Connection) -> list[dict]:
                   COALESCE(tm.total_tokens_in, 0) as total_tokens_in,
                   COALESCE(tm.total_tokens_out, 0) as total_tokens_out,
                   COALESCE(tm.total_cost, 0) as total_cost,
-                  s.model
+                  s.model,
+                  COALESCE(ac.criteria_total, 0) as criteria_total,
+                  COALESCE(ac.criteria_done, 0) as criteria_done
            FROM task_metrics tm
            LEFT JOIN task_sessions s ON s.id = (
                SELECT s2.id FROM task_sessions s2
@@ -46,6 +48,13 @@ def fetch_task_metrics(conn: sqlite3.Connection) -> list[dict]:
                ORDER BY s2.cost_dollars DESC
                LIMIT 1
            )
+           LEFT JOIN (
+               SELECT task_id,
+                      COUNT(*) as criteria_total,
+                      SUM(is_completed) as criteria_done
+               FROM acceptance_criteria
+               GROUP BY task_id
+           ) ac ON ac.task_id = tm.id
            ORDER BY tm.total_cost DESC, tm.id ASC"""
     ).fetchall()
     result = [dict(r) for r in rows]
@@ -74,6 +83,20 @@ def format_cost(c) -> str:
     return f"${c:,.2f}"
 
 
+def format_criteria(done: int, total: int) -> str:
+    """Format acceptance criteria as 'done/total' with a visual indicator."""
+    if total == 0:
+        return '<span class="criteria-none">&mdash;</span>'
+    pct = done / total * 100
+    if pct == 100:
+        css = "criteria-complete"
+    elif pct > 0:
+        css = "criteria-partial"
+    else:
+        css = "criteria-none"
+    return f'<span class="{css}">{done}/{total}</span>'
+
+
 def generate_html(task_metrics: list[dict]) -> str:
     """Generate the full HTML dashboard."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -91,6 +114,7 @@ def generate_html(task_metrics: list[dict]) -> str:
   <td class="col-id">#{t['id']}</td>
   <td class="col-summary">{esc(t['summary'])}</td>
   <td class="col-status"><span class="status-badge status-{esc(t['status']).lower().replace(' ', '-')}">{esc(t['status'])}</span></td>
+  <td class="col-criteria">{format_criteria(t['criteria_done'], t['criteria_total'])}</td>
   <td class="col-model">{esc(t.get('model') or '')}</td>
   <td class="col-tokens-in">{format_number(t['total_tokens_in'])}</td>
   <td class="col-tokens-out">{format_number(t['total_tokens_out'])}</td>
@@ -99,7 +123,7 @@ def generate_html(task_metrics: list[dict]) -> str:
 
     # Empty state
     if not task_metrics:
-        task_rows = '<tr><td colspan="7" class="empty">No tasks found. Run <code>tusk init</code> and add some tasks.</td></tr>'
+        task_rows = '<tr><td colspan="8" class="empty">No tasks found. Run <code>tusk init</code> and add some tasks.</td></tr>'
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -240,6 +264,27 @@ tfoot td {{
   white-space: nowrap;
 }}
 
+.col-criteria {{
+  text-align: center;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+}}
+
+.criteria-complete {{
+  color: #16a34a;
+  font-weight: 600;
+}}
+
+.criteria-partial {{
+  color: #d97706;
+  font-weight: 600;
+}}
+
+.criteria-none {{
+  color: var(--text-muted);
+}}
+
 .col-tokens-in,
 .col-tokens-out,
 .col-cost {{
@@ -317,6 +362,7 @@ tfoot td {{
           <th>ID</th>
           <th>Task</th>
           <th>Status</th>
+          <th>Criteria</th>
           <th>Model</th>
           <th style="text-align:right">Tokens In</th>
           <th style="text-align:right">Tokens Out</th>
@@ -328,7 +374,7 @@ tfoot td {{
       </tbody>
       <tfoot>
         <tr>
-          <td colspan="4">Total</td>
+          <td colspan="5">Total</td>
           <td class="col-tokens-in">{format_number(total_tokens_in)}</td>
           <td class="col-tokens-out">{format_number(total_tokens_out)}</td>
           <td class="col-cost">{format_cost(total_cost)}</td>
