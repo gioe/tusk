@@ -25,15 +25,16 @@ Use these values (not hardcoded ones) throughout the grooming process.
 Before analyzing the backlog, close any deferred tasks that have passed their 60-day expiry. This is automatic and does not require user approval.
 
 ```bash
-# Check how many deferred tasks have expired
-tusk -header -column "
-SELECT COUNT(*) as expired_count
-FROM tasks
+# Collect IDs of expired deferred tasks before closing them
+EXPIRED_IDS=$(tusk "
+SELECT id FROM tasks
 WHERE summary LIKE '%[Deferred]%'
   AND status = 'To Do'
   AND expires_at IS NOT NULL
   AND expires_at < datetime('now')
-"
+")
+
+echo "Expired deferred tasks: $(echo "$EXPIRED_IDS" | grep -c . || echo 0)"
 
 # Auto-close expired deferred tasks
 tusk "
@@ -48,19 +49,10 @@ WHERE summary LIKE '%[Deferred]%'
   AND expires_at < datetime('now');
 "
 
-# Close any open sessions for the auto-closed expired tasks
-tusk "
-UPDATE task_sessions
-SET ended_at = datetime('now'),
-    duration_seconds = CAST((julianday(datetime('now')) - julianday(started_at)) * 86400 AS INTEGER)
-WHERE ended_at IS NULL
-  AND task_id IN (
-    SELECT id FROM tasks
-    WHERE summary LIKE '%[Deferred]%'
-      AND status = 'Done'
-      AND closed_reason = 'expired'
-  );
-"
+# Close any open sessions for each expired task via the CLI
+for TASK_ID in $EXPIRED_IDS; do
+  tusk session-close --task-id "$TASK_ID" --skip-stats
+done
 ```
 
 Report how many were auto-closed before proceeding.
