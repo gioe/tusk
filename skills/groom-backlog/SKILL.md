@@ -348,3 +348,4 @@ tusk -header -column "SELECT id, summary, status, priority, domain, assignee FRO
 4. **Preserve history**: Close with a reason rather than DELETE
 5. **Consider dependencies**: Check dependents before deleting
 6. **Batch operations carefully**: Execute changes one at a time
+7. **Keep the backlog lean (< 20 open tasks)**: The full backlog dump scales at ~700 tokens/task and is repeated across ~15+ agentic turns during grooming. A 30-task backlog can consume over 300k tokens in a single session. Aggressively close, merge, or defer tasks to stay under 20 open items
