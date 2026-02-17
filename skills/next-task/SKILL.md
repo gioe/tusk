@@ -228,7 +228,7 @@ Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('no
 
     Mark all acceptance criteria as done before closing the task:
     ```bash
-    for cid in $(tusk "SELECT id FROM acceptance_criteria WHERE task_id = <id> AND completed = 0"); do
+    for cid in $(tusk "SELECT id FROM acceptance_criteria WHERE task_id = <id> AND is_completed = 0"); do
       tusk criteria done "$cid"
     done
     ```
