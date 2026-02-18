@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [77] - 2026-02-17
+
+### Changed
+
+- Changed /next-task to fetch acceptance criteria upfront (step 2) and mark them done during implementation instead of bulk-marking at finalization
+
 ## [76] - 2026-02-17
 
 ### Changed

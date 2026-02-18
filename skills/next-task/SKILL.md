@@ -96,7 +96,13 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
 
    Hold onto `session_id` from the JSON — it will be used to close the session when the task is done.
 
-2. **Create a new git branch IMMEDIATELY** (skip if resuming and branch already exists):
+2. **Fetch acceptance criteria** — these are the implementation checklist:
+   ```bash
+   tusk criteria list <id>
+   ```
+   Display the criteria. Work through them in order during implementation. Mark each criterion done (`tusk criteria done <cid>`) as you complete it — do not defer this to the end. If the task has no criteria, proceed normally using the description as scope.
+
+3. **Create a new git branch IMMEDIATELY** (skip if resuming and branch already exists):
    - Format: `feature/TASK-<id>-brief-description`
    - First, detect the repo's default branch:
      ```bash
@@ -112,60 +118,62 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
      git checkout -b feature/TASK-<id>-brief-description
      ```
 
-3. **Determine the best subagent(s)** based on:
+4. **Determine the best subagent(s)** based on:
    - Task domain
    - Task assignee field (often indicates the right agent type)
    - Task description and requirements
 
-4. **Explore the codebase before implementing** — use a sub-agent to research:
+5. **Explore the codebase before implementing** — use a sub-agent to research:
    - What files will need to change?
    - Are there existing patterns to follow?
    - What tests already exist for this area?
 
    Report findings before writing any code.
 
-5. **Scope check — only implement what the task describes.**
+6. **Scope check — only implement what the task describes.**
    The task's `summary` and `description` fields define the full scope of work for this session. If the description references or links to external documents (evaluation docs, design specs, RFCs), treat them as **background context only** — do not implement items from those docs that go beyond what the task's own description asks for. Referenced docs often describe multi-task plans; implementing the entire plan collapses future tasks into one PR and defeats dependency ordering.
 
-6. **Delegate the work** to the chosen subagent(s).
+7. **Delegate the work** to the chosen subagent(s).
 
-7. **Create atomic commits** as you complete logical units of work.
+8. **Implement, commit, and mark criteria done.** Work through the acceptance criteria from step 2 as your checklist. After each commit:
+    - Mark any criteria completed by that commit: `tusk criteria done <cid>`
+    - Log a progress checkpoint:
+      ```bash
+      tusk progress <id> --next-steps "<what remains to be done>"
+      ```
     - All commits should be on the feature branch, NOT the default branch.
-    - **After every commit, log a progress checkpoint** (see below).
 
-8. **Log a progress checkpoint after every commit:**
-    ```bash
-    tusk progress <id> --next-steps "<what remains to be done>"
-    ```
-    The `next_steps` field is critical — write it as if briefing a new agent who has zero context. Include:
-    - What has been implemented so far
-    - What still needs to be done
-    - Any decisions made or open questions
-    - The current branch name
+    The `next_steps` field is critical — write it as if briefing a new agent who has zero context. Include what's been done, what remains, decisions made, and the branch name.
 
-    **Schema migration reminder:** If the commit includes changes to `bin/tusk` that add or modify a migration (inside `cmd_migrate()`), run `tusk migrate` on the live database immediately after committing. Downstream operations in this session (retro, progress checkpoints, acceptance criteria inserts) that reference new tables or columns will fail if the live DB schema is not up to date.
+    **Schema migration reminder:** If the commit includes changes to `bin/tusk` that add or modify a migration (inside `cmd_migrate()`), run `tusk migrate` on the live database immediately after committing.
 
 9. **Review the code locally** before considering the work complete.
 
-10. **Run convention lint (advisory)** — check for common convention violations before pushing:
+10. **Verify all acceptance criteria are done** before pushing:
+    ```bash
+    tusk criteria list <id>
+    ```
+    If any criteria are still incomplete, address them now. If a criterion was intentionally skipped, note why in the PR description.
+
+11. **Run convention lint (advisory)** — check for common convention violations before pushing:
     ```bash
     tusk lint
     ```
     Review the output. This check is **advisory only** — violations are warnings, not blockers. Fix any clear violations in files you've already touched. Do not refactor unrelated code just to satisfy lint.
 
-11. **Push the branch and create a PR**:
+12. **Push the branch and create a PR**:
     ```bash
     git push -u origin feature/TASK-<id>-description
     gh pr create --base "$DEFAULT_BRANCH" --title "[TASK-<id>] Brief task description" --body "..."
     ```
     Capture the PR URL from the output.
 
-12. **Update the task with the PR URL**:
+13. **Update the task with the PR URL**:
     ```bash
     tusk "UPDATE tasks SET github_pr = $(tusk sql-quote "<pr_url>"), updated_at = datetime('now') WHERE id = <id>"
     ```
 
-13. **Review loop — iterate until approved**:
+14. **Review loop — iterate until approved**:
 
     ```
     ┌─► Poll for review
@@ -220,7 +228,7 @@ Original comment: <comment text>
 Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('now'), datetime('now'), datetime('now', '+60 days'))"
        ```
 
-14. **PR approved — finalize, merge, and retro** (execute steps 14–16 as a single uninterrupted sequence — do NOT pause for user confirmation between them):
+15. **PR approved — finalize, merge, and retro** (execute steps 15–17 as a single uninterrupted sequence — do NOT pause for user confirmation between them):
 
     Close the session **before** merging (captures diff stats from the feature branch, which is deleted after merge):
     ```bash
@@ -232,19 +240,12 @@ Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('no
     gh pr merge $PR_NUMBER --squash --delete-branch
     ```
 
-    Mark all acceptance criteria as done before closing the task:
-    ```bash
-    for cid in $(tusk "SELECT id FROM acceptance_criteria WHERE task_id = <id> AND is_completed = 0"); do
-      tusk criteria done "$cid"
-    done
-    ```
-
     Update task status:
     ```bash
     tusk "UPDATE tasks SET status = 'Done', closed_reason = 'completed', updated_at = datetime('now') WHERE id = <id>"
     ```
 
-15. **Check for newly unblocked tasks**:
+16. **Check for newly unblocked tasks**:
     ```bash
     tusk -header -column "
     SELECT t.id, t.summary, t.priority
@@ -254,7 +255,7 @@ Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('no
     "
     ```
 
-16. **Run retrospective** — mandatory, run immediately without asking. Invoke `/retro` to review the session, surface process improvements, and create any follow-up tasks. Do NOT ask "shall I run retro?" — just run it.
+17. **Run retrospective** — mandatory, run immediately without asking. Invoke `/retro` to review the session, surface process improvements, and create any follow-up tasks. Do NOT ask "shall I run retro?" — just run it.
 
 ### Other Subcommands
 
