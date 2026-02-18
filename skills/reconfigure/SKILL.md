@@ -129,27 +129,6 @@ tusk "DELETE FROM tasks WHERE summary = '__config_test__'"
 
 Report success to the user.
 
-## Common Reconfiguration Scenarios
-
-### Adding a new domain
-1. Add to `domains` array in config
-2. Regen triggers
-3. Done — new tasks can now use it
-
-### Removing a domain
-1. Check for open tasks using it
-2. Migrate tasks if needed
-3. Remove from `domains` array
-4. Regen triggers
-
-### Adding/updating agents
-1. Add agent entry to `agents` object (no trigger regen needed)
-2. Optionally reassign tasks: `UPDATE tasks SET assignee = 'new_agent' WHERE domain = 'agent_domain'`
-
-### Tuning duplicate detection
-1. Update `dupes.check_threshold` or `dupes.similar_threshold`
-2. No trigger regen needed — takes effect on next `/check-dupes` run
-
 ## Important Guidelines
 
 - **Never call `tusk init --force`** — this destroys the database. Use `tusk regen-triggers` instead.
