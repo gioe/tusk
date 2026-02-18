@@ -59,21 +59,7 @@ Do **not** suggest `/groom-backlog` or `/retro` when there are no ready tasks â€
 
 Then ask the user whether to proceed or request a smaller task. If the user chooses a smaller task, re-run the query excluding L and XL:
 
-```bash
-tusk -header -column "
-SELECT t.id, t.summary, t.priority, t.priority_score, t.domain, t.assignee, t.complexity, t.description
-FROM tasks t
-WHERE t.status = 'To Do'
-  AND t.complexity NOT IN ('L', 'XL')
-  AND NOT EXISTS (
-    SELECT 1 FROM task_dependencies d
-    JOIN tasks blocker ON d.depends_on_id = blocker.id
-    WHERE d.task_id = t.id AND blocker.status <> 'Done'
-  )
-ORDER BY t.priority_score DESC, t.id
-LIMIT 1;
-"
-```
+Re-run the query above, adding `AND t.complexity NOT IN ('L', 'XL')` to the WHERE clause.
 
 If no smaller task is available, inform the user and offer to proceed with the original L/XL task.
 

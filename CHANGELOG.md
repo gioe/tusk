@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [89] - 2026-02-17
+
+### Changed
+
+- Deduplicated 'get next task' SQL in /next-task SKILL.md — replaced second copy (L/XL exclusion variant) with prose instruction referencing the first query (~345 chars saved)
+
 ## [88] - 2026-02-17
 
 ### Changed
