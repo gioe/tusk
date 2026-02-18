@@ -6,6 +6,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [96] - 2026-02-18
+
+### Changed
+
+- Promoted acceptance criteria generation from sub-step (5b) to top-level Step 6 in /create-task skill
+- Inlined CRITERIA.md logic directly into SKILL.md to reduce friction and prevent skipping
+- Added zero-criteria guardrail in Results section that flags tasks with no acceptance criteria
+
 ## [95] - 2026-02-18
 
 ### Added
