@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [90] - 2026-02-17
+
+### Changed
+
+- Extracted /groom-backlog auto-close Steps 0/0b/0c into companion AUTO-CLOSE.md loaded only when pre-check finds candidates (~3,400 chars saved from hot path)
+
 ## [89] - 2026-02-17
 
 ### Changed
