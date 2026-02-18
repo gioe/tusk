@@ -205,7 +205,8 @@ Each skill lives in its own directory under `skills/` (source) and gets installe
 ```
 skills/
   my-skill/
-    SKILL.md          # Required — the only file needed
+    SKILL.md          # Required — main entry point
+    REFERENCE.md      # Optional — companion file loaded on demand
 ```
 
 ### SKILL.md Format
@@ -240,6 +241,22 @@ allowed-tools: Bash, Read, Edit     # Comma-separated list of tools the skill ne
 - Always use `tusk` CLI for DB access, never raw `sqlite3`
 - Use `$(tusk sql-quote "...")` in any SQL that interpolates variables
 - Reference other skills by name when integration points exist (e.g., "Run `/check-dupes` before inserting")
+
+### Companion Files
+
+Skills can include additional files beyond `SKILL.md` for reference content that doesn't need to be in the hot path. `install.sh` copies all files in the skill directory, so companion files are automatically available in target projects.
+
+**When to use companion files:**
+- The skill has subcommands or detailed reference that would bloat `SKILL.md`
+- Content is only needed conditionally (e.g., a specific subcommand is invoked)
+
+**How to reference them:** Use `Read file:` with the `<base_directory>` variable shown at the top of every loaded skill:
+
+```
+Read file: <base_directory>/SUBCOMMANDS.md
+```
+
+**Example:** The `/next-task` skill uses `SKILL.md` for the default workflow and `SUBCOMMANDS.md` for auxiliary subcommands (`done`, `view`, `list`, etc.), loaded only when needed.
 
 ### Source Repo Symlink
 
