@@ -19,6 +19,16 @@
             "command": ".claude/hooks/block-raw-sqlite.sh"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/dupe-gate.sh",
+            "timeout": 15
+          }
+        ]
       }
     ],
     "PostToolUse": [
