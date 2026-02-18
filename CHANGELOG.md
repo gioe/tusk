@@ -6,6 +6,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [76] - 2026-02-17
+
+### Changed
+
+- Split /retro skill into SKILL.md + FULL-RETRO.md companion file, reducing always-loaded size from 17KB to 3KB
+- Condensed full retro content by deduplicating INSERT template, trimming Step 4/5c, and removing CLAUDE.md-redundant guidelines
+
 ## [75] - 2026-02-17
 
 ### Fixed
