@@ -18,6 +18,44 @@ tusk config
 
 This returns the full config as JSON (domains, agents, task_types, priorities, complexity, etc.). Use these values (not hardcoded ones) throughout the grooming process.
 
+## Pre-Check: Count Auto-Close Candidates
+
+Run a single combined query to determine which auto-close steps (0, 0b, 0c) have work to do. Steps with a zero count are skipped entirely.
+
+```bash
+tusk -header -column "
+SELECT
+  (SELECT COUNT(*) FROM tasks
+   WHERE summary LIKE '%[Deferred]%'
+     AND status = 'To Do'
+     AND expires_at IS NOT NULL
+     AND expires_at < datetime('now')
+  ) AS expired_deferred,
+
+  (SELECT COUNT(*) FROM tasks
+   WHERE status = 'In Progress'
+     AND github_pr IS NOT NULL
+     AND github_pr <> ''
+  ) AS in_progress_with_pr,
+
+  (SELECT COUNT(*) FROM tasks t
+   JOIN task_dependencies d ON t.id = d.task_id
+   JOIN tasks upstream ON d.depends_on_id = upstream.id
+   WHERE t.status <> 'Done'
+     AND d.relationship_type = 'contingent'
+     AND upstream.status = 'Done'
+     AND upstream.closed_reason IN ('wont_do', 'expired')
+  ) AS moot_contingent
+"
+```
+
+Interpret the results:
+- If **all three counts are zero**: report "No auto-close candidates found — skipping Steps 0/0b/0c" and jump directly to **Step 1**.
+- Otherwise, execute **only** the steps whose count is non-zero:
+  - `expired_deferred > 0` → run **Step 0**
+  - `in_progress_with_pr > 0` → run **Step 0b**
+  - `moot_contingent > 0` → run **Step 0c**
+
 ## Step 0: Auto-Close Expired Deferred Tasks
 
 Before analyzing the backlog, close any deferred tasks that have passed their 60-day expiry. This is automatic and does not require user approval.

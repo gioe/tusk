@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [85] - 2026-02-17
+
+### Added
+
+- Pre-check short-circuit in /groom-backlog: single combined query counts expired, orphaned-PR, and moot-contingent tasks; skips Steps 0/0b/0c when their counts are zero
+
 ## [84] - 2026-02-17
 
 ### Changed
