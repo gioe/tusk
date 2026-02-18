@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [93] - 2026-02-18
+
+### Added
+
+- Added interactive project-description seeding to /tusk-init (Step 9) with companion SEED-DESCRIPTION.md — guides users through description, clarifying questions, and hands off to /create-task pipeline
+
 ## [92] - 2026-02-18
 
 ### Removed

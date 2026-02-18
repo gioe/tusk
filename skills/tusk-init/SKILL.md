@@ -1,6 +1,6 @@
 ---
 name: tusk-init
-description: Interactive setup wizard to configure tusk for your project — scans codebase, suggests domains/agents, writes config, and optionally seeds tasks from TODOs
+description: Interactive setup wizard to configure tusk for your project — scans codebase, suggests domains/agents, writes config, and optionally seeds tasks from TODOs or project description
 allowed-tools: Bash, Read, Write, Glob, Grep
 ---
 
@@ -169,8 +169,24 @@ Read file: <base_directory>/REFERENCE.md
 
 Follow the Step 8 instructions from the reference.
 
+## Step 9: Seed Tasks from Project Description (Optional)
+
+Offer to create initial tasks from a high-level project description — particularly valuable for greenfield projects or when no TODOs were found in Step 8.
+
+> Would you like to describe what you're building so I can create some initial tasks? This works well for new projects or to complement the TODO-seeded tasks.
+
+If the user declines, finish the wizard with a summary.
+
+If the user accepts, read the companion file for the interactive seeding workflow:
+
+```
+Read file: <base_directory>/SEED-DESCRIPTION.md
+```
+
+Follow its instructions.
+
 ## Edge Cases
 
-- **Fresh project with no code**: Skip Step 2 scanning. Ask the user directly what areas/modules they plan.
+- **Fresh project with no code**: Skip Step 2 scanning. Ask the user directly what areas/modules they plan. Step 9 (project description seeding) is the primary task-creation path for these projects.
 - **Monorepo detected** (`packages/*/` or `apps/*/`): Suggest one domain per package. Let the user trim.
 - **Large TODO count** (>20 matches in Step 8): Summarize by file/category and let the user pick which to seed rather than proposing all.

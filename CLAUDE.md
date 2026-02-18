@@ -99,7 +99,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - **`/manage-dependencies`** — Add/remove/query task dependencies with circular dependency prevention (DFS)
 - **`/retro`** — Post-session retrospective: reviews conversation history, surfaces process improvements and tangential issues, creates follow-up tasks
 - **`/reconfigure`** — Update domains, agents, task types, and other config settings post-install without losing data
-- **`/tusk-init`** — Interactive setup wizard: scans codebase, suggests domains/agents, writes config, appends CLAUDE.md snippet, seeds tasks from TODOs
+- **`/tusk-init`** — Interactive setup wizard: scans codebase, suggests domains/agents, writes config, appends CLAUDE.md snippet, seeds tasks from TODOs or project description
 - **`/lint-conventions`** — Checks codebase against Key Conventions using grep-based rules
 - **`/tasks`** — Opens the database in DB Browser for SQLite
 
