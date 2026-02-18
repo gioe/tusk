@@ -6,6 +6,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [81] - 2026-02-17
+
+### Changed
+
+- Added single-task fast path in /create-task: compact inline confirmation replaces the full table+details format when only 1 task is proposed
+- Step 5c (dependency proposals) is now skipped entirely for single-task invocations, reducing ceremony for the most common use case
+
 ## [80] - 2026-02-17
 
 ### Changed

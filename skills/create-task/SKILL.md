@@ -66,7 +66,24 @@ Break the input into discrete, actionable tasks. For each task, determine:
 
 ## Step 4: Present Task List for Review
 
-Show all proposed tasks in a numbered table before inserting anything:
+### Single-task fast path
+
+If analysis produced **exactly 1 task**, use the compact inline format instead of the full table:
+
+```markdown
+## Proposed Task
+
+**Add login endpoint with JWT auth** (High · api · feature · M · backend)
+> Implement POST /auth/login that validates credentials and returns a JWT token. Include refresh token support.
+```
+
+Then ask:
+
+> Create this task? You can **confirm**, **edit** (e.g., "change priority to Medium"), or **remove** it.
+
+### Multi-task presentation
+
+If analysis produced **2 or more tasks**, show the full numbered table:
 
 ```markdown
 ## Proposed Tasks
@@ -96,6 +113,8 @@ Then ask:
 > - **Remove** specific numbers (e.g., "remove 3")
 > - **Edit** a task (e.g., "change 2 priority to High")
 > - **Add** a task you think is missing
+
+### For both paths
 
 Wait for explicit user approval before proceeding. Do NOT insert anything until the user confirms.
 
@@ -187,13 +206,17 @@ If a task was skipped as a duplicate in Step 5, do not generate criteria for it.
 
 ## Step 5c: Propose Dependencies
 
-If at least one task was created, analyze for dependencies. Load the dependency proposal guide:
+Skip this step if:
+- Zero tasks were created (all were duplicates), OR
+- Exactly **one** task was created (single-task fast path — no inter-task dependencies to propose, and checking against the backlog adds ceremony for the most common use case)
+
+If **two or more** tasks were created, analyze for dependencies. Load the dependency proposal guide:
 
 ```
 Read file: <base_directory>/DEPENDENCIES.md
 ```
 
-Then follow its instructions. If zero tasks were created (all were duplicates), skip this step.
+Then follow its instructions.
 
 ## Step 6: Report Results
 
@@ -213,7 +236,7 @@ After processing all tasks, show a summary:
 | 16 | Add rate limiting middleware | Medium | api |
 ```
 
-Include the **Dependencies added** line only when Step 5c was executed (i.e., at least one task was created). If Step 5c was skipped (all tasks were duplicates) or the user chose to skip all dependencies, omit the line. If dependencies were proposed but the user removed some, only list the ones actually inserted.
+Include the **Dependencies added** line only when Step 5c was executed (i.e., two or more tasks were created). If Step 5c was skipped (all duplicates, single-task fast path, or user skipped all dependencies), omit the line. If dependencies were proposed but the user removed some, only list the ones actually inserted.
 
 Then, **conditionally** show the updated backlog:
 

@@ -5,8 +5,7 @@ After inserting tasks, analyze them for dependencies — both among the newly cr
 ## When to run this step
 
 - If **two or more tasks** were created: check for inter-task ordering among the new tasks AND for dependencies on existing backlog tasks.
-- If **one task** was created: check for dependencies on existing backlog tasks only.
-- Skip this step entirely only if zero tasks were created (all were duplicates).
+- Skip this step entirely if **zero or one** task was created (all duplicates, or single-task fast path).
 
 ## How to identify dependencies among new tasks
 
