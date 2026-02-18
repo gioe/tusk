@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [82] - 2026-02-17
+
+### Changed
+
+- Trimmed /create-task example tables: proposed-tasks (Step 4) from 4→2 rows, dependency proposals (DEPENDENCIES.md) from 3→2 rows — saves ~400 tokens per invocation
+
 ## [81] - 2026-02-17
 
 ### Changed
