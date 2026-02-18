@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [83] - 2026-02-17
+
+### Changed
+
+- Extracted /groom-backlog Steps 7-8 (WSJF formula, complexity sizing table, scoring SQL) into companion REFERENCE.md loaded on demand — shrinks SKILL.md by 87 lines (~2k tokens)
+
 ## [82] - 2026-02-17
 
 ### Changed
