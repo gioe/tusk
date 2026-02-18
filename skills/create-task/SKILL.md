@@ -215,11 +215,19 @@ After processing all tasks, show a summary:
 
 Include the **Dependencies added** line only when Step 5c was executed (i.e., at least one task was created). If Step 5c was skipped (all tasks were duplicates) or the user chose to skip all dependencies, omit the line. If dependencies were proposed but the user removed some, only list the ones actually inserted.
 
-Then show the final state:
+Then, **conditionally** show the updated backlog:
 
-```bash
-tusk -header -column "SELECT id, summary, priority, domain, task_type, assignee FROM tasks WHERE status = 'To Do' ORDER BY priority_score DESC, id"
-```
+- If **more than 3 tasks were created**, show the full backlog so the user can see where the new tasks landed:
+
+  ```bash
+  tusk -header -column "SELECT id, summary, priority, domain, task_type, assignee FROM tasks WHERE status = 'To Do' ORDER BY priority_score DESC, id"
+  ```
+
+- If **3 or fewer tasks were created**, show only a count to save tokens:
+
+  ```bash
+  tusk "SELECT COUNT(*) || ' open tasks in backlog' FROM tasks WHERE status = 'To Do'"
+  ```
 
 ## Important Guidelines
 

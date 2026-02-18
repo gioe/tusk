@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [80] - 2026-02-17
+
+### Changed
+
+- Conditionalized Step 6 backlog dump in /create-task: full backlog only shown when >3 tasks created, otherwise displays a count to save tokens
+
 ## [79] - 2026-02-17
 
 ### Changed
