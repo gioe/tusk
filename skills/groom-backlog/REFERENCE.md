@@ -1,6 +1,6 @@
 # Groom Backlog Reference: Complexity Sizing & WSJF Scoring
 
-## Step 7b: Estimate Complexity
+## Step 6b: Estimate Complexity
 
 For each unsized task, estimate complexity using this scale:
 
@@ -14,7 +14,7 @@ For each unsized task, estimate complexity using this scale:
 
 Base the estimate on the task's summary, description, and domain. When unsure, default to `M`.
 
-## Step 7c: Present Estimates for Approval
+## Step 6c: Present Estimates for Approval
 
 Show all proposed estimates in a table:
 
@@ -27,7 +27,7 @@ Show all proposed estimates in a table:
 
 Ask the user to confirm or adjust before applying.
 
-## Step 7d: Apply Estimates
+## Step 6d: Apply Estimates
 
 After approval, update each task:
 
@@ -35,9 +35,9 @@ After approval, update each task:
 tusk "UPDATE tasks SET complexity = '<size>', updated_at = datetime('now') WHERE id = <id>"
 ```
 
-## Step 8: Compute Priority Scores (WSJF)
+## Step 7: Compute Priority Scores (WSJF)
 
-After all grooming changes are complete (including complexity estimates from Step 7), compute `priority_score` for all open tasks using WSJF (Weighted Shortest Job First) scoring.
+After all grooming changes are complete (including complexity estimates from Step 6), compute `priority_score` for all open tasks using WSJF (Weighted Shortest Job First) scoring.
 
 ### Scoring Formula
 
@@ -91,14 +91,5 @@ UPDATE tasks SET priority_score = ROUND(
     END
 )
 WHERE status <> 'Done';
-"
-
-# Verify — show complexity alongside scores so the WSJF effect is visible
-tusk -header -column "
-SELECT id, summary, priority, complexity, priority_score
-FROM tasks
-WHERE status = 'To Do'
-ORDER BY priority_score DESC
-LIMIT 15;
 "
 ```

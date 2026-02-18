@@ -6,6 +6,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [84] - 2026-02-17
+
+### Changed
+
+- Replaced /groom-backlog Step 1 backlog query with metadata-only (no description column), adding on-demand description fetch guidance for action candidates
+- Removed Step 3 (individual task re-fetch) — redundant with Step 1 data already in context
+- Replaced Step 6 per-change verification SELECTs with a single batch query after all changes
+- Merged Step 8 (WSJF verification) and Step 9 (final report) into one combined query
+
 ## [83] - 2026-02-17
 
 ### Changed

@@ -87,7 +87,7 @@ WHERE id = <id>"
 tusk session-close --task-id <id> --skip-stats
 ```
 
-If the PR state is `CLOSED` (not merged), flag it for user review in Step 4 with a note that the PR was closed without merging.
+If the PR state is `CLOSED` (not merged), flag it for user review in Step 3 with a note that the PR was closed without merging.
 
 Report how many orphaned In Progress tasks were auto-closed before proceeding.
 
@@ -128,8 +128,7 @@ Report how many contingent tasks were auto-closed before proceeding.
 
 ```bash
 tusk -header -column "
-SELECT id, summary, SUBSTR(description, 1, 300) AS description,
-       status, priority, domain, assignee, task_type, priority_score, closed_reason
+SELECT id, summary, status, priority, domain, assignee, complexity, task_type, priority_score
 FROM tasks
 WHERE status <> 'Done'
 ORDER BY priority_score DESC, id
@@ -137,6 +136,12 @@ ORDER BY priority_score DESC, id
 
 tusk deps blocked
 tusk deps all
+```
+
+**On-demand descriptions**: This query intentionally omits the `description` column to keep context lean. When you identify action candidates in Step 2 (tasks to close, delete, reprioritize, or assign), fetch full details for just those tasks:
+
+```bash
+tusk -header -column "SELECT id, summary, description FROM tasks WHERE id IN (<comma-separated ids>)"
 ```
 
 ## Step 2: Scan for Duplicates and Categorize Tasks
@@ -189,15 +194,7 @@ Assign based on project agents (from `tusk config`).
 ### Category E: Healthy Tasks
 Correctly prioritized, assigned, and relevant. No action needed.
 
-## Step 3: Review Context
-
-```bash
-tusk -header -column "SELECT * FROM tasks WHERE id = <id>"
-```
-
-Also review recent commits and project documentation to understand current priorities.
-
-## Step 4: Present Findings for Approval
+## Step 3: Present Findings for Approval
 
 Present analysis in this format:
 
@@ -221,11 +218,11 @@ Present analysis in this format:
 ### No Action Needed (V tasks)
 ```
 
-## Step 5: Get User Confirmation
+## Step 4: Get User Confirmation
 
 **IMPORTANT**: Before making any changes, explicitly ask the user to approve each category.
 
-## Step 6: Execute Changes
+## Step 5: Execute Changes
 
 Only after user approval:
 
@@ -253,12 +250,15 @@ tusk "UPDATE tasks SET priority = '<New Priority>' WHERE id = <id>"
 tusk "UPDATE tasks SET assignee = '<agent-name>' WHERE id = <id>"
 ```
 
-### After Each Change:
+### After All Changes:
+
+Verify all modifications in a single batch query:
+
 ```bash
-tusk -header -column "SELECT id, summary, status, priority FROM tasks WHERE id = <id>"
+tusk -header -column "SELECT id, summary, status, priority, assignee FROM tasks WHERE id IN (<comma-separated ids of all changed tasks>)"
 ```
 
-## Step 7: Bulk-Estimate Unsized Tasks
+## Step 6: Bulk-Estimate Unsized Tasks
 
 Before computing priority scores, check for tasks without complexity estimates:
 
@@ -272,7 +272,7 @@ ORDER BY id
 "
 ```
 
-If no rows are returned, skip to Step 8.
+If no rows are returned, skip to Step 7.
 
 If unsized tasks are found, read the reference file for the sizing workflow:
 
@@ -280,19 +280,17 @@ If unsized tasks are found, read the reference file for the sizing workflow:
 Read file: <base_directory>/REFERENCE.md
 ```
 
-Follow Steps 7b–7d from the reference, then continue to Step 8 below.
+Follow Steps 6b–6d from the reference, then continue to Step 7 below.
 
-## Step 8: Compute Priority Scores (WSJF)
+## Step 7: Compute Priority Scores and Final Report
 
-After all grooming changes and sizing are complete, read the reference for the WSJF scoring formula and SQL:
+After all grooming changes and sizing are complete, read the reference file for the WSJF scoring formula and UPDATE SQL:
 
 ```
 Read file: <base_directory>/REFERENCE.md
 ```
 
-Follow the Step 8 section to compute and verify priority scores.
-
-## Step 9: Generate Summary Report
+Run the WSJF update from the Step 7 section of the reference, then generate the summary report:
 
 ```markdown
 ## Backlog Grooming Complete
@@ -305,9 +303,15 @@ Follow the Step 8 section to compute and verify priority scores.
 - **Unchanged**: Z tasks
 ```
 
-Show final backlog state:
+Show the final backlog state (this also serves as WSJF score verification):
+
 ```bash
-tusk -header -column "SELECT id, summary, status, priority, domain, assignee FROM tasks WHERE status <> 'Done' ORDER BY priority DESC, id"
+tusk -header -column "
+SELECT id, summary, status, priority, complexity, priority_score, domain, assignee
+FROM tasks
+WHERE status <> 'Done'
+ORDER BY priority_score DESC, id
+"
 ```
 
 ## Important Guidelines
