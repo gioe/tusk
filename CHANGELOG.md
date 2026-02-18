@@ -6,6 +6,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [91] - 2026-02-18
+
+### Changed
+
+- Extracted /create-task Step 5b (acceptance criteria generation) into companion CRITERIA.md (~1,600 chars saved from hot path)
+- Consolidated two nearly identical INSERT INTO examples into a single annotated example with inline NULL handling comments
+
 ## [90] - 2026-02-17
 
 ### Changed
