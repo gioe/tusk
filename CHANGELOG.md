@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [97] - 2026-02-18
+
+### Added
+
+- Added SessionStart hook (`inject-task-context.sh`) that shows in-progress tasks and their latest progress checkpoint when a new Claude Code session starts
+
 ## [96] - 2026-02-18
 
 ### Changed

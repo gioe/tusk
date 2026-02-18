@@ -8,6 +8,14 @@
             "command": ".claude/hooks/setup-path.sh"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/inject-task-context.sh"
+          }
+        ]
       }
     ],
     "PreToolUse": [
