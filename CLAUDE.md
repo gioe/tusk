@@ -106,6 +106,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - **`/dag`** — Generates and opens an interactive Mermaid.js dependency DAG visualization
 - **`/criteria`** — Manages per-task acceptance criteria (add, list, done, reset)
 - **`/progress`** — Logs a progress checkpoint from the latest git commit for context recovery
+- **`/tusk-insights`** — Read-only DB health audit across 6 categories with interactive Q&A recommendations
 
 ### Python Scripts
 

@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [95] - 2026-02-18
+
+### Added
+
+- Added /tusk-insights skill for read-only DB health audits across 6 categories (config fitness, task hygiene, dependency health, session gaps, acceptance criteria, priority scoring) with interactive Q&A recommendations
+
 ## [94] - 2026-02-18
 
 ### Added
