@@ -20,6 +20,18 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/auto-lint.sh",
+            "timeout": 30
+          }
+        ]
+      }
     ]
   }
 }
