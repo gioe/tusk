@@ -724,6 +724,80 @@ cmd_upgrade() {
     echo "  Updated scripts/$(basename "$script")"
   done
 
+  # Copy hooks
+  mkdir -p "$REPO_ROOT/.claude/hooks"
+  for hookfile in "$src"/.claude/hooks/*; do
+    [[ -f "$hookfile" ]] || continue
+    local hookname
+    hookname="$(basename "$hookfile")"
+    cp "$hookfile" "$REPO_ROOT/.claude/hooks/$hookname"
+    chmod +x "$REPO_ROOT/.claude/hooks/$hookname"
+    echo "  Updated hook: $hookname"
+  done
+
+  # Override setup-path.sh for target projects — source version adds bin/ to PATH,
+  # but installed projects need .claude/bin/ on PATH instead.
+  cat > "$REPO_ROOT/.claude/hooks/setup-path.sh" << 'HOOKEOF'
+#!/bin/bash
+# Added by tusk install — puts .claude/bin on PATH for Claude Code sessions
+if [ -n "$CLAUDE_ENV_FILE" ]; then
+  REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+  echo "export PATH=\"$REPO_ROOT/.claude/bin:\$PATH\"" >> "$CLAUDE_ENV_FILE"
+fi
+exit 0
+HOOKEOF
+  chmod +x "$REPO_ROOT/.claude/hooks/setup-path.sh"
+
+  # Merge hook registrations into .claude/settings.json
+  python3 -c "
+import json, os
+
+source_settings_path = os.path.join('$src', '.claude', 'settings.json')
+target_settings_path = os.path.join('$REPO_ROOT', '.claude', 'settings.json')
+
+# Read source hook registrations
+with open(source_settings_path) as f:
+    source_hooks = json.load(f).get('hooks', {})
+
+# Read existing target settings (or start fresh)
+if os.path.exists(target_settings_path):
+    with open(target_settings_path) as f:
+        target_settings = json.load(f)
+else:
+    target_settings = {}
+
+target_hooks = target_settings.setdefault('hooks', {})
+
+# For each event type, merge hook groups from source into target
+for event_type, source_groups in source_hooks.items():
+    target_groups = target_hooks.setdefault(event_type, [])
+
+    # Collect commands already registered in target
+    existing_commands = set()
+    for group in target_groups:
+        for h in group.get('hooks', []):
+            cmd = h.get('command', '')
+            if cmd:
+                existing_commands.add(cmd)
+
+    # Add missing hook groups from source
+    for group in source_groups:
+        group_commands = [h.get('command', '') for h in group.get('hooks', [])]
+        if not any(cmd in existing_commands for cmd in group_commands if cmd):
+            target_groups.append(group)
+            for cmd in group_commands:
+                if cmd:
+                    print(f'  Registered hook: {cmd}')
+        else:
+            for cmd in group_commands:
+                if cmd:
+                    print(f'  Hook already registered: {cmd}')
+
+with open(target_settings_path, 'w') as f:
+    json.dump(target_settings, f, indent=2)
+    f.write('\n')
+"
+
   # Run migrations using the NEW binary
   "$SCRIPT_DIR/tusk" migrate
 

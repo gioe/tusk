@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [99] - 2026-02-18
+
+### Changed
+
+- Updated `cmd_upgrade()` in `bin/tusk` to deploy `.claude/hooks/` scripts and merge `settings.json` hook registrations, matching the logic added to `install.sh` in TASK-149
+
 ## [98] - 2026-02-18
 
 ### Changed
