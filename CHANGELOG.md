@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [86] - 2026-02-17
+
+### Changed
+
+- Extracted /tusk-init Steps 7-8 (CLAUDE.md snippet, TODO seeding) into companion REFERENCE.md loaded on demand — defers ~875 tokens from the hot path
+
 ## [85] - 2026-02-17
 
 ### Added

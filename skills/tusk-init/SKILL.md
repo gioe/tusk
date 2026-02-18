@@ -170,110 +170,42 @@ Print a summary:
 
 ## Step 7: CLAUDE.md Snippet
 
-Check if the project has a `CLAUDE.md` and whether it already references tusk:
+Check if the project has a `CLAUDE.md` at the repo root:
 
 1. Use Glob for `CLAUDE.md` at the repo root
 2. If it exists, Read it and search for `tusk` or `.claude/bin/tusk`
-3. If tusk is already mentioned, skip this step and tell the user: "Your CLAUDE.md already references tusk."
-4. If `CLAUDE.md` exists but doesn't mention tusk, offer to append:
+3. If tusk is already mentioned, skip this step: "Your CLAUDE.md already references tusk."
+4. If `CLAUDE.md` exists but doesn't mention tusk, read the reference file for the append workflow:
 
-> I can add a Task Queue section to your CLAUDE.md with tusk usage instructions. Would you like me to append it?
+   ```
+   Read file: <base_directory>/REFERENCE.md
+   ```
 
-If the user confirms, append this snippet to the end of `CLAUDE.md`:
-
-```markdown
-
-## Task Queue
-
-The project task database is managed via `tusk`. Use it for all task operations:
-
-\```bash
-tusk "SELECT ..."          # Run SQL
-tusk -header -column "SQL"  # With formatting flags
-tusk path                   # Print resolved DB path
-tusk config                 # Print project config
-tusk init                   # Bootstrap DB (new projects)
-tusk shell                  # Interactive sqlite3 shell
-tusk version                # Print installed version
-tusk upgrade                # Upgrade from GitHub
-\```
-
-Never hardcode the DB path — always go through `tusk`.
-```
+   Follow the Step 7 instructions from the reference.
 
 5. If no `CLAUDE.md` exists, skip and mention: "No CLAUDE.md found — consider creating one for your project."
 
 ## Step 8: Seed Tasks from TODOs (Optional)
 
-Scan the codebase for actionable comments:
-
-```bash
-# Use Grep to find TODO/FIXME/HACK/XXX comments
-# Exclude: node_modules, .git, vendor, dist, build, tusk, __pycache__
-```
-
-Use Grep with these patterns (run in parallel):
-- `TODO`
-- `FIXME`
-- `HACK`
-- `XXX`
+Scan the codebase for actionable comments using Grep with these patterns (run in parallel): `TODO`, `FIXME`, `HACK`, `XXX`
 
 Exclude directories by filtering results: ignore any matches in `node_modules/`, `.git/`, `vendor/`, `dist/`, `build/`, `tusk/`, `__pycache__/`, `.venv/`, `target/`.
 
-### If no TODOs found:
-Skip this step silently. Do not mention it.
+If no TODOs are found, skip this step silently.
 
-### If TODOs are found:
-Present them grouped by file:
+If TODOs are found, read the reference file for the task-seeding workflow:
 
-> I found **12 TODO/FIXME comments** across your codebase:
->
-> **src/api/auth.ts** (3 items):
-> - Line 42: `// TODO: Add rate limiting to login endpoint`
-> - Line 87: `// FIXME: Token refresh race condition`
-> - Line 103: `// TODO: Support OAuth providers`
->
-> **src/components/Dashboard.tsx** (2 items):
-> - Line 15: `// TODO: Add loading skeleton`
-> - Line 89: `// HACK: Workaround for stale cache`
->
-> Would you like me to create tasks from any of these? You can say "all", list specific ones, or "skip".
+```
+Read file: <base_directory>/REFERENCE.md
+```
 
-### For each TODO the user wants to keep:
-
-1. Determine task properties:
-   - **Summary**: Clean text from the comment (strip `TODO:`, `FIXME:`, etc. prefix)
-   - **Domain**: Infer from file path using the configured domains
-   - **Priority**: `"High"` for FIXME/HACK, `"Medium"` for TODO/XXX
-   - **Task type**: `"bug"` for FIXME/HACK, `"feature"` for TODO/XXX
-
-2. Check for duplicates before inserting:
-   ```bash
-   tusk dupes check "<summary>" --domain <domain>
-   ```
-
-3. If no duplicate (exit code 0), insert using `tusk sql-quote` to safely escape text:
-   ```bash
-   tusk "INSERT INTO tasks (summary, description, status, priority, domain, task_type, created_at, updated_at)
-     VALUES ($(tusk sql-quote "<summary>"), $(tusk sql-quote "Found in <file>:<line>
-
-   Original comment: <full comment text>"), 'To Do', '<priority>', '<domain>', '<task_type>', datetime('now'), datetime('now'))"
-   ```
-
-4. If duplicate found (exit code 1), skip and report: "Skipped — similar to existing task #N"
-
-After all inserts, show a summary:
-
-> **Seeded N tasks** from TODO comments (M skipped as duplicates).
+Follow the Step 8 instructions from the reference.
 
 ## Edge Cases
 
 - **Fresh project with no code**: Skip Step 2 scanning. Ask the user directly: "What are the main areas/modules of your project?" Use their answers to suggest domains.
 - **Monorepo detected** (`packages/*/` or `apps/*/`): Suggest one domain per package. Present the list and let the user trim.
 - **Reconfigure warning**: In Step 1, always warn about data loss from `tusk init --force` when config already has custom values. Offer to back up: `cp "$(tusk path)" "$(tusk path).bak"`
-- **No CLAUDE.md**: Skip Step 7 append. Mention the user should create one.
-- **SQL injection in TODO text**: Always use `$(tusk sql-quote "...")` when inserting TODO text into SQL statements.
-- **Very large number of TODOs**: If more than 30 are found, show only the first 30 and mention the total count. Let the user choose which to seed.
 
 ## Important Guidelines
 
