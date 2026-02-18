@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [92] - 2026-02-18
+
+### Removed
+
+- Removed redundant 'Common Reconfiguration Scenarios' section from reconfigure SKILL.md (~645 chars saved from hot path)
+
 ## [91] - 2026-02-18
 
 ### Changed
