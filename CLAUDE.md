@@ -305,6 +305,10 @@ echo 14 > VERSION
 
 Commit the bump in the same branch as the feature — not as a separate PR. The commit message can be standalone (`Bump VERSION to 14`) or folded into the feature commit.
 
+### Changelog
+
+When bumping `VERSION`, also update `CHANGELOG.md` in the same commit. Add an entry under a new `## [<version>] - <YYYY-MM-DD>` heading describing what changed. Use the [Keep a Changelog](https://keepachangelog.com/) categories (`Added`, `Changed`, `Fixed`, `Removed`) and keep descriptions to one line each.
+
 ## Key Conventions
 
 - All DB access goes through `bin/tusk`, never raw `sqlite3`
