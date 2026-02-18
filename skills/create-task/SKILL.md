@@ -130,7 +130,7 @@ tusk dupes check "<summary>" --domain <domain>
 
 ### Exit code 0 — No duplicate found → Insert the task
 
-Use `tusk sql-quote` to safely escape user-provided text fields. This prevents SQL injection and handles single quotes automatically.
+Use `tusk sql-quote` to safely escape user-provided text (summary, description). Static values from config don't need quoting. For NULL fields (domain, assignee), use the literal `NULL` unquoted — don't pass it through `sql-quote`.
 
 ```bash
 tusk "INSERT INTO tasks (summary, description, status, priority, domain, task_type, assignee, complexity, created_at, updated_at)
@@ -139,22 +139,13 @@ tusk "INSERT INTO tasks (summary, description, status, priority, domain, task_ty
     $(tusk sql-quote "<description>"),
     'To Do',
     '<priority>',
-    '<domain_or_NULL>',
+    '<domain>',          -- use NULL (unquoted) if no domain applies
     '<task_type>',
-    '<assignee_or_NULL>',
+    '<assignee>',        -- use NULL (unquoted) if no assignee
     '<complexity>',
     datetime('now'),
     datetime('now')
   )"
-```
-
-Use `$(tusk sql-quote "...")` for any field that may contain user-provided text (summary, description). Static values from config (priority, domain, task_type, assignee) don't need quoting since they come from validated config values.
-
-For NULL fields, use the literal `NULL` (unquoted) — don't pass it through `sql-quote`:
-
-```bash
-tusk "INSERT INTO tasks (summary, description, status, priority, domain, task_type, assignee, complexity, created_at, updated_at)
-  VALUES ($(tusk sql-quote "Add rate limiting"), $(tusk sql-quote "Details here"), 'To Do', 'Medium', NULL, 'feature', NULL, 'M', datetime('now'), datetime('now'))"
 ```
 
 ### Exit code 1 — Duplicate found → Skip
@@ -169,36 +160,13 @@ Report the error and skip.
 
 ## Step 5b: Generate Acceptance Criteria
 
-For each successfully inserted task, generate **3–7 acceptance criteria** using the task's summary, description, and the original source text that informed it. Criteria should be concrete, testable conditions that define "done" for the task.
+After all inserts are complete, read the companion file for criteria generation:
 
-### How to derive criteria
-
-- Start from the task's **description** — each distinct requirement or expected behavior maps to a criterion
-- Add any implicit quality expectations (e.g., error handling, edge cases, validation) if the task type warrants it
-- For **bug** tasks, include a criterion that the specific failure case is resolved
-- For **feature** tasks, include criteria for the happy path and at least one edge case
-- Keep each criterion to a single sentence — actionable and verifiable
-
-### Insert criteria
-
-For each criterion, run:
-
-```bash
-tusk criteria add <task_id> "<criterion text>"
+```
+Read file: <base_directory>/CRITERIA.md
 ```
 
-Use the task ID returned from the INSERT in Step 5. Example for a task with ID 14:
-
-```bash
-tusk criteria add 14 "POST /auth/login returns a JWT token for valid credentials"
-tusk criteria add 14 "Invalid credentials return 401 with error message"
-tusk criteria add 14 "Refresh token endpoint issues a new JWT"
-tusk criteria add 14 "Tokens expire after the configured TTL"
-```
-
-### Skip criteria for duplicates
-
-If a task was skipped as a duplicate in Step 5, do not generate criteria for it.
+Then follow its instructions for each successfully inserted task.
 
 ## Step 5c: Propose Dependencies
 
