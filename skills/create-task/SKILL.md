@@ -158,17 +158,40 @@ Report which existing task matched and skip the insert:
 
 Report the error and skip.
 
-## Step 5b: Generate Acceptance Criteria
+## Step 6: Generate Acceptance Criteria
 
-After all inserts are complete, read the companion file for criteria generation:
+**Do not skip this step.** Every inserted task must have at least one acceptance criterion. The Results section will flag any task missing criteria.
 
+For each successfully inserted task, generate **3–7 acceptance criteria** using the task's summary, description, and the original source text that informed it. Criteria should be concrete, testable conditions that define "done" for the task.
+
+### How to derive criteria
+
+- Start from the task's **description** — each distinct requirement or expected behavior maps to a criterion
+- Add any implicit quality expectations (e.g., error handling, edge cases, validation) if the task type warrants it
+- For **bug** tasks, include a criterion that the specific failure case is resolved
+- For **feature** tasks, include criteria for the happy path and at least one edge case
+- Keep each criterion to a single sentence — actionable and verifiable
+
+### Insert criteria
+
+For each criterion, run:
+
+```bash
+tusk criteria add <task_id> "<criterion text>"
 ```
-Read file: <base_directory>/CRITERIA.md
+
+Use the task ID returned from the INSERT in Step 5. Example for a task with ID 14:
+
+```bash
+tusk criteria add 14 "POST /auth/login returns a JWT token for valid credentials"
+tusk criteria add 14 "Invalid credentials return 401 with error message"
+tusk criteria add 14 "Refresh token endpoint issues a new JWT"
+tusk criteria add 14 "Tokens expire after the configured TTL"
 ```
 
-Then follow its instructions for each successfully inserted task.
+Skip criteria generation for tasks that were skipped as duplicates in Step 5.
 
-## Step 5c: Propose Dependencies
+## Step 7: Propose Dependencies
 
 Skip this step if:
 - Zero tasks were created (all were duplicates), OR
@@ -182,7 +205,7 @@ Read file: <base_directory>/DEPENDENCIES.md
 
 Then follow its instructions.
 
-## Step 6: Report Results
+## Step 8: Report Results
 
 After processing all tasks, show a summary:
 
@@ -200,7 +223,21 @@ After processing all tasks, show a summary:
 | 16 | Add rate limiting middleware | Medium | api |
 ```
 
-Include the **Dependencies added** line only when Step 5c was executed (i.e., two or more tasks were created). If Step 5c was skipped (all duplicates, single-task fast path, or user skipped all dependencies), omit the line. If dependencies were proposed but the user removed some, only list the ones actually inserted.
+Include the **Dependencies added** line only when Step 7 was executed (i.e., two or more tasks were created). If Step 7 was skipped (all duplicates, single-task fast path, or user skipped all dependencies), omit the line. If dependencies were proposed but the user removed some, only list the ones actually inserted.
+
+### Zero-criteria check
+
+After displaying the summary, verify that every created task has at least one acceptance criterion. For each created task ID, run:
+
+```bash
+tusk criteria list <task_id>
+```
+
+If any task has **zero criteria**, display a warning:
+
+> **Warning**: Tasks #14, #16 have no acceptance criteria. Go back to Step 6 and generate criteria for them before moving on.
+
+Do not proceed past this step until all created tasks have at least one criterion.
 
 Then, **conditionally** show the updated backlog:
 
