@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [88] - 2026-02-17
+
+### Changed
+
+- Extracted /next-task Steps 12-17 (push, PR, review loop, merge, retro) into companion FINALIZE.md loaded on demand — saves ~3,300 chars from the hot path; compressed ASCII art review loop diagram into concise list
+
 ## [87] - 2026-02-17
 
 ### Changed
