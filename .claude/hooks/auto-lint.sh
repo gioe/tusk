@@ -25,8 +25,19 @@ case "$rel_path" in
   *) exit 0 ;;
 esac
 
+# Resolve tusk binary — don't rely on PATH (SessionStart hook may not have run yet)
+if command -v tusk &>/dev/null; then
+  TUSK=tusk
+elif [ -x "$repo_root/.claude/bin/tusk" ]; then
+  TUSK="$repo_root/.claude/bin/tusk"
+elif [ -x "$repo_root/bin/tusk" ]; then
+  TUSK="$repo_root/bin/tusk"
+else
+  exit 0
+fi
+
 # Run tusk lint and capture output; use exit code to detect violations
-lint_output=$(tusk lint 2>&1)
+lint_output=$("$TUSK" lint 2>&1)
 lint_rc=$?
 
 # Exit code 0 = no violations, nothing to report

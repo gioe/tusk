@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [100] - 2026-02-18
+
+### Fixed
+
+- `auto-lint.sh` PostToolUse hook now resolves the `tusk` binary dynamically instead of relying on PATH, fixing `command not found` errors when the SessionStart hook hasn't run yet
+
 ## [99] - 2026-02-18
 
 ### Changed
