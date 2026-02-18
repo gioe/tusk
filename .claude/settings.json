@@ -42,6 +42,17 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/check-criteria-on-stop.sh",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }
