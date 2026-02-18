@@ -6,6 +6,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [98] - 2026-02-18
+
+### Changed
+
+- Updated install.sh to deploy all `.claude/hooks/` scripts to target projects (not just PATH and task-context hooks)
+- Hook registrations are now merged from source `settings.json` into target, preserving existing user hooks
+
 ## [97] - 2026-02-18
 
 ### Added
