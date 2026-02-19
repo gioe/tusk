@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [129] - 2026-02-19
+
+### Removed
+
+- Deleted orphaned `AUTO-CLOSE.md` from groom-backlog skill (replaced by `tusk autoclose` in v127)
+
 ## [128] - 2026-02-19
 
 ### Added
