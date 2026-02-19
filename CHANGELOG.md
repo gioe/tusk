@@ -6,6 +6,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [112] - 2026-02-19
+
+### Added
+
+- Category D (Conventions) in `/retro` skill for detecting and writing generalizable project heuristics to `tusk/conventions.md`
+- Convention deduplication: retro reads existing conventions before appending to avoid duplicates
+- Both lightweight (XS/S) and full (M/L/XL) retro paths now include convention detection and writing
+
 ## [111] - 2026-02-19
 
 ### Added
