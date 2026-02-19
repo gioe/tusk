@@ -6,6 +6,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [124] - 2026-02-19
+
+### Added
+
+- `tusk branch <task_id> <slug>` command — detects default branch, checks out and pulls latest, creates `feature/TASK-<id>-<slug>` branch in one step
+
+### Changed
+
+- `/next-task` skill Step 2 now calls `tusk branch` instead of 4 sequential git commands
+
 ## [123] - 2026-02-19
 
 ### Added
