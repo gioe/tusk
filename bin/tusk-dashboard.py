@@ -126,6 +126,166 @@ def format_blockers(open_blockers: int, total: int) -> str:
     return '<span class="blocker-clear-badge">0 open</span>'
 
 
+def fetch_cost_trend(conn: sqlite3.Connection) -> list[dict]:
+    """Fetch weekly cost aggregations from task_sessions."""
+    log.debug("Querying cost trend data")
+    rows = conn.execute(
+        """SELECT date(started_at, 'weekday 0', '-6 days') as week_start,
+                  SUM(COALESCE(cost_dollars, 0)) as weekly_cost
+           FROM task_sessions
+           WHERE cost_dollars > 0
+           GROUP BY week_start
+           ORDER BY week_start"""
+    ).fetchall()
+    result = [dict(r) for r in rows]
+    log.debug("Fetched %d weekly cost buckets", len(result))
+    return result
+
+
+def generate_cost_trend_svg(cost_trend: list[dict]) -> str:
+    """Generate an inline SVG bar chart with cumulative cost line.
+
+    Returns the full <svg> element as a string, or an empty-state message
+    if there is no data.
+    """
+    if not cost_trend:
+        return '<p class="empty">No session cost data available yet.</p>'
+
+    # Chart dimensions
+    chart_w = 800
+    chart_h = 260
+    pad_left = 70
+    pad_right = 20
+    pad_top = 20
+    pad_bottom = 60
+
+    plot_w = chart_w - pad_left - pad_right
+    plot_h = chart_h - pad_top - pad_bottom
+
+    weeks = [row["week_start"] for row in cost_trend]
+    costs = [row["weekly_cost"] for row in cost_trend]
+    n = len(weeks)
+
+    # Cumulative costs
+    cumulative = []
+    running = 0.0
+    for c in costs:
+        running += c
+        cumulative.append(running)
+
+    max_cost = max(costs) if costs else 1
+    max_cumulative = cumulative[-1] if cumulative else 1
+    # Avoid division by zero
+    if max_cost == 0:
+        max_cost = 1
+    if max_cumulative == 0:
+        max_cumulative = 1
+
+    bar_width = max(4, min(40, (plot_w / n) * 0.6))
+    bar_gap = plot_w / n
+
+    # Build bars
+    bars = []
+    for i, cost in enumerate(costs):
+        x = pad_left + i * bar_gap + (bar_gap - bar_width) / 2
+        bar_h = (cost / max_cost) * plot_h
+        y = pad_top + plot_h - bar_h
+        tooltip = f"Week of {weeks[i]}: ${cost:,.2f}"
+        bars.append(
+            f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_width:.1f}" '
+            f'height="{bar_h:.1f}" fill="var(--accent)" opacity="0.7" rx="2">'
+            f"<title>{esc(tooltip)}</title></rect>"
+        )
+
+    # Build cumulative line
+    line_points = []
+    for i, cum in enumerate(cumulative):
+        x = pad_left + i * bar_gap + bar_gap / 2
+        y = pad_top + plot_h - (cum / max_cumulative) * plot_h
+        line_points.append(f"{x:.1f},{y:.1f}")
+    polyline = (
+        f'<polyline points="{" ".join(line_points)}" '
+        f'fill="none" stroke="#f59e0b" stroke-width="2.5" '
+        f'stroke-linejoin="round" stroke-linecap="round"/>'
+    )
+    # Dots on the cumulative line
+    dots = []
+    for i, cum in enumerate(cumulative):
+        x = pad_left + i * bar_gap + bar_gap / 2
+        y = pad_top + plot_h - (cum / max_cumulative) * plot_h
+        tooltip = f"Cumulative: ${cum:,.2f}"
+        dots.append(
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.5" '
+            f'fill="#f59e0b" stroke="var(--bg-panel)" stroke-width="1.5">'
+            f"<title>{esc(tooltip)}</title></circle>"
+        )
+
+    # Y-axis labels for bar scale (left)
+    y_labels = []
+    for frac in [0, 0.25, 0.5, 0.75, 1.0]:
+        val = max_cost * frac
+        y = pad_top + plot_h - frac * plot_h
+        y_labels.append(
+            f'<text x="{pad_left - 8}" y="{y:.1f}" '
+            f'text-anchor="end" dominant-baseline="middle" '
+            f'fill="var(--text-muted)" font-size="11">${val:,.0f}</text>'
+        )
+        # Grid line
+        y_labels.append(
+            f'<line x1="{pad_left}" y1="{y:.1f}" '
+            f'x2="{chart_w - pad_right}" y2="{y:.1f}" '
+            f'stroke="var(--border)" stroke-dasharray="3,3"/>'
+        )
+
+    # Y-axis labels for cumulative scale (right)
+    cum_labels = []
+    for frac in [0, 0.5, 1.0]:
+        val = max_cumulative * frac
+        y = pad_top + plot_h - frac * plot_h
+        cum_labels.append(
+            f'<text x="{chart_w - pad_right + 8}" y="{y:.1f}" '
+            f'text-anchor="start" dominant-baseline="middle" '
+            f'fill="#f59e0b" font-size="11">${val:,.0f}</text>'
+        )
+
+    # X-axis labels (show a subset if too many weeks)
+    x_labels = []
+    step = max(1, n // 10)
+    for i in range(0, n, step):
+        x = pad_left + i * bar_gap + bar_gap / 2
+        # Format as Mon DD
+        try:
+            dt = datetime.strptime(weeks[i], "%Y-%m-%d")
+            label = dt.strftime("%b %d")
+        except ValueError:
+            label = weeks[i]
+        x_labels.append(
+            f'<text x="{x:.1f}" y="{pad_top + plot_h + 20}" '
+            f'text-anchor="middle" fill="var(--text-muted)" '
+            f'font-size="11">{esc(label)}</text>'
+        )
+
+    # Axis label for cumulative line
+    right_pad = pad_right + 50
+
+    svg = f"""<svg viewBox="0 0 {chart_w + 50} {chart_h}" xmlns="http://www.w3.org/2000/svg"
+     style="width:100%;max-width:{chart_w + 50}px;height:auto;font-family:inherit;">
+  {''.join(y_labels)}
+  {''.join(cum_labels)}
+  {''.join(bars)}
+  {polyline}
+  {''.join(dots)}
+  {''.join(x_labels)}
+  <!-- Legend -->
+  <rect x="{pad_left}" y="{chart_h - 12}" width="12" height="12" fill="var(--accent)" opacity="0.7" rx="2"/>
+  <text x="{pad_left + 16}" y="{chart_h - 1}" fill="var(--text-muted)" font-size="11">Weekly cost</text>
+  <line x1="{pad_left + 110}" y1="{chart_h - 6}" x2="{pad_left + 130}" y2="{chart_h - 6}" stroke="#f59e0b" stroke-width="2.5"/>
+  <circle cx="{pad_left + 120}" cy="{chart_h - 6}" r="3" fill="#f59e0b"/>
+  <text x="{pad_left + 135}" y="{chart_h - 1}" fill="#f59e0b" font-size="11">Cumulative</text>
+</svg>"""
+    return svg
+
+
 def fetch_complexity_metrics(conn: sqlite3.Connection) -> list[dict]:
     """Fetch average session count, duration, and cost grouped by complexity for completed tasks."""
     log.debug("Querying complexity metrics")
@@ -160,7 +320,7 @@ def fetch_complexity_metrics(conn: sqlite3.Connection) -> list[dict]:
     return result
 
 
-def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = None) -> str:
+def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = None, cost_trend: list[dict] = None) -> str:
     """Generate the full HTML dashboard."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -693,6 +853,12 @@ tfoot td {{
         <button class="page-btn" id="nextPage">Next \u2192</button>
       </div>
     </div>
+  </div>
+  <div class="panel" style="margin-top: 1.5rem;">
+    <div class="section-header">Cost Trend</div>
+    <div style="padding: 1rem;">
+      {generate_cost_trend_svg(cost_trend if cost_trend is not None else [])}
+    </div>
   </div>{complexity_section}
 </div>
 
@@ -905,10 +1071,11 @@ def main():
     conn = get_connection(db_path)
     task_metrics = fetch_task_metrics(conn)
     complexity_metrics = fetch_complexity_metrics(conn)
+    cost_trend = fetch_cost_trend(conn)
     conn.close()
 
     # Generate HTML
-    html_content = generate_html(task_metrics, complexity_metrics)
+    html_content = generate_html(task_metrics, complexity_metrics, cost_trend)
     log.debug("Generated %d bytes of HTML", len(html_content))
 
     # Write to tusk/dashboard.html (same dir as DB)

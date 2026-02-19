@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [117] - 2026-02-19
+
+### Added
+
+- Cost trend visualization to the HTML dashboard — weekly cost bar chart with cumulative cost line, dual Y-axes, hover tooltips, and empty state handling (pure inline SVG, no external dependencies)
+
 ## [116] - 2026-02-19
 
 ### Added
