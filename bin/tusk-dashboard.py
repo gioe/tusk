@@ -40,7 +40,9 @@ def fetch_task_metrics(conn: sqlite3.Connection) -> list[dict]:
                   COALESCE(tm.total_cost, 0) as total_cost,
                   s.model,
                   COALESCE(ac.criteria_total, 0) as criteria_total,
-                  COALESCE(ac.criteria_done, 0) as criteria_done
+                  COALESCE(ac.criteria_done, 0) as criteria_done,
+                  COALESCE(eb.blocker_count, 0) as blocker_count,
+                  COALESCE(eb.open_blockers, 0) as open_blockers
            FROM task_metrics tm
            LEFT JOIN task_sessions s ON s.id = (
                SELECT s2.id FROM task_sessions s2
@@ -55,6 +57,13 @@ def fetch_task_metrics(conn: sqlite3.Connection) -> list[dict]:
                FROM acceptance_criteria
                GROUP BY task_id
            ) ac ON ac.task_id = tm.id
+           LEFT JOIN (
+               SELECT task_id,
+                      COUNT(*) as blocker_count,
+                      SUM(CASE WHEN is_resolved = 0 THEN 1 ELSE 0 END) as open_blockers
+               FROM external_blockers
+               GROUP BY task_id
+           ) eb ON eb.task_id = tm.id
            ORDER BY tm.total_cost DESC, tm.id ASC"""
     ).fetchall()
     result = [dict(r) for r in rows]
@@ -106,6 +115,15 @@ def format_criteria(done: int, total: int) -> str:
     else:
         css = "criteria-none"
     return f'<span class="{css}">{done}/{total}</span>'
+
+
+def format_blockers(open_blockers: int, total: int) -> str:
+    """Format blocker count with a visual indicator."""
+    if total == 0:
+        return '<span class="criteria-none">&mdash;</span>'
+    if open_blockers > 0:
+        return f'<span class="blocker-open-badge">{open_blockers} open</span>'
+    return '<span class="blocker-clear-badge">0 open</span>'
 
 
 def fetch_complexity_metrics(conn: sqlite3.Connection) -> list[dict]:
@@ -160,6 +178,7 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
   <td class="col-summary">{esc(t['summary'])}</td>
   <td class="col-status"><span class="status-badge status-{esc(t['status']).lower().replace(' ', '-')}">{esc(t['status'])}</span></td>
   <td class="col-criteria">{format_criteria(t['criteria_done'], t['criteria_total'])}</td>
+  <td class="col-blockers">{format_blockers(t['open_blockers'], t['blocker_count'])}</td>
   <td class="col-model">{esc(t.get('model') or '')}</td>
   <td class="col-tokens-in">{format_number(t['total_tokens_in'])}</td>
   <td class="col-tokens-out">{format_number(t['total_tokens_out'])}</td>
@@ -168,7 +187,7 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
 
     # Empty state
     if not task_metrics:
-        task_rows = '<tr><td colspan="8" class="empty">No tasks found. Run <code>tusk init</code> and add some tasks.</td></tr>'
+        task_rows = '<tr><td colspan="9" class="empty">No tasks found. Run <code>tusk init</code> and add some tasks.</td></tr>'
 
     # Complexity metrics section
     complexity_section = ""
@@ -361,6 +380,41 @@ tfoot td {{
   color: var(--text-muted);
 }}
 
+.col-blockers {{
+  text-align: center;
+  white-space: nowrap;
+  font-size: 0.8rem;
+}}
+
+.blocker-open-badge {{
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  background: #fef2f2;
+  color: #dc2626;
+}}
+
+.blocker-clear-badge {{
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  background: #dcfce7;
+  color: #16a34a;
+}}
+
+@media (prefers-color-scheme: dark) {{
+  .blocker-open-badge {{
+    background: #7f1d1d;
+    color: #fca5a5;
+  }}
+  .blocker-clear-badge {{
+    background: #14532d;
+    color: #4ade80;
+  }}
+}}
+
 .col-tokens-in,
 .col-tokens-out,
 .col-cost {{
@@ -469,6 +523,7 @@ tfoot td {{
           <th>Task</th>
           <th>Status</th>
           <th>Criteria</th>
+          <th>Blockers</th>
           <th>Model</th>
           <th style="text-align:right">Tokens In</th>
           <th style="text-align:right">Tokens Out</th>
@@ -480,7 +535,7 @@ tfoot td {{
       </tbody>
       <tfoot>
         <tr>
-          <td colspan="5">Total</td>
+          <td colspan="6">Total</td>
           <td class="col-tokens-in">{format_number(total_tokens_in)}</td>
           <td class="col-tokens-out">{format_number(total_tokens_out)}</td>
           <td class="col-cost">{format_cost(total_cost)}</td>

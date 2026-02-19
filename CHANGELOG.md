@@ -6,6 +6,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [109] - 2026-02-19
+
+### Added
+
+- External blocker nodes in DAG visualization with distinct flag shape and red/gray coloring for open/resolved status
+- Blocker-to-task edges rendered as dash-dot-cross lines in DAG
+- Blocker details in DAG sidebar when clicking task or blocker nodes
+- Blockers column in dashboard table showing open blocker count per task
+
 ## [108] - 2026-02-19
 
 ### Added

@@ -72,12 +72,25 @@ def fetch_edges(conn: sqlite3.Connection) -> list[dict]:
     return result
 
 
-def filter_nodes(tasks: list[dict], edges: list[dict], show_all: bool):
-    """Filter tasks and edges to visible set.
+def fetch_blockers(conn: sqlite3.Connection) -> list[dict]:
+    """Fetch all external blockers."""
+    log.debug("Querying external_blockers")
+    rows = conn.execute(
+        """SELECT id, task_id, description, blocker_type, is_resolved
+           FROM external_blockers"""
+    ).fetchall()
+    result = [dict(r) for r in rows]
+    log.debug("Fetched %d blockers", len(result))
+    return result
+
+
+def filter_nodes(tasks: list[dict], edges: list[dict], blockers: list[dict], show_all: bool):
+    """Filter tasks, edges, and blockers to visible set.
 
     Default: all To Do + In Progress tasks, plus Done tasks with >= 1 edge.
     --all: additionally include isolated Done tasks.
     Edges are filtered to only those between visible nodes.
+    Blockers are filtered to only those attached to visible tasks.
     """
     # Collect task IDs that appear in any edge
     edge_task_ids = set()
@@ -136,11 +149,14 @@ def filter_nodes(tasks: list[dict], edges: list[dict], show_all: bool):
         if e["task_id"] in visible_ids and e["depends_on_id"] in visible_ids
     ]
 
-    log.debug("Visible: %d tasks, %d edges", len(visible_tasks), len(visible_edges))
-    return visible_tasks, visible_edges
+    # Filter blockers to only those attached to visible tasks
+    visible_blockers = [b for b in blockers if b["task_id"] in visible_ids]
+
+    log.debug("Visible: %d tasks, %d edges, %d blockers", len(visible_tasks), len(visible_edges), len(visible_blockers))
+    return visible_tasks, visible_edges, visible_blockers
 
 
-def build_mermaid(tasks: list[dict], edges: list[dict]) -> str:
+def build_mermaid(tasks: list[dict], edges: list[dict], blockers: list[dict]) -> str:
     """Build Mermaid graph definition."""
     lines = ["graph LR"]
 
@@ -148,6 +164,8 @@ def build_mermaid(tasks: list[dict], edges: list[dict]) -> str:
     lines.append('    classDef todo fill:#3b82f6,stroke:#2563eb,color:#fff')
     lines.append('    classDef inprogress fill:#f59e0b,stroke:#d97706,color:#fff')
     lines.append('    classDef done fill:#22c55e,stroke:#16a34a,color:#fff')
+    lines.append('    classDef blocker fill:#ef4444,stroke:#dc2626,color:#fff')
+    lines.append('    classDef blockerResolved fill:#9ca3af,stroke:#6b7280,color:#fff')
 
     # Node definitions
     for t in tasks:
@@ -180,6 +198,26 @@ def build_mermaid(tasks: list[dict], edges: list[dict]) -> str:
         elif status == "Done":
             lines.append("    class " + node_id + " done")
 
+    # Blocker node definitions — octagon shape via double brackets
+    for b in blockers:
+        node_id = "B" + str(b["id"])
+        desc = b["description"] or ""
+        if len(desc) > 35:
+            desc = desc[:32] + "..."
+        desc = desc.replace('"', "'")
+        btype = b["blocker_type"] or "external"
+        label = btype + ": " + desc
+        # Mermaid stadium shape (rounded ends) via ([...]) for blockers
+        # Using triple braces for a double-bracket "subroutine" shape is not
+        # widely supported, so use >...] flag shape for visual distinction
+        node_def = node_id + '>"' + label + '"]'
+        lines.append("    " + node_def)
+
+        if b["is_resolved"]:
+            lines.append("    class " + node_id + " blockerResolved")
+        else:
+            lines.append("    class " + node_id + " blocker")
+
     # Edge definitions: depends_on_id --> task_id (prerequisite → dependent)
     for e in edges:
         src = "T" + str(e["depends_on_id"])
@@ -189,10 +227,21 @@ def build_mermaid(tasks: list[dict], edges: list[dict]) -> str:
         else:
             lines.append("    " + src + " --> " + dst)
 
-    # Click callbacks
+    # Blocker edges: blocker -..->|blocks| task (red dashed)
+    for b in blockers:
+        src = "B" + str(b["id"])
+        dst = "T" + str(b["task_id"])
+        lines.append("    " + src + " -.-x " + dst)
+
+    # Click callbacks for tasks
     for t in tasks:
         node_id = "T" + str(t["id"])
         lines.append('    click ' + node_id + ' showSidebar')
+
+    # Click callbacks for blockers
+    for b in blockers:
+        node_id = "B" + str(b["id"])
+        lines.append('    click ' + node_id + ' showBlockerSidebar')
 
     return "\n".join(lines)
 
@@ -219,7 +268,7 @@ def format_number(n) -> str:
     return f"{int(n):,}"
 
 
-def generate_html(tasks: list[dict], edges: list[dict]) -> str:
+def generate_html(tasks: list[dict], edges: list[dict], blockers: list[dict]) -> str:
     """Generate the full HTML page with Mermaid DAG and sidebar."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -227,11 +276,22 @@ def generate_html(tasks: list[dict], edges: list[dict]) -> str:
     if not tasks:
         return _empty_page(now, "No tasks found. Run <code>tusk init</code> and add some tasks.")
 
-    mermaid_def = build_mermaid(tasks, edges)
+    mermaid_def = build_mermaid(tasks, edges, blockers)
 
     # Build task data JSON for sidebar lookups
     task_data = {}
+    # Group blockers by task_id for sidebar display
+    blockers_by_task = defaultdict(list)
+    for b in blockers:
+        blockers_by_task[b["task_id"]].append({
+            "id": b["id"],
+            "description": b["description"],
+            "blocker_type": b["blocker_type"],
+            "is_resolved": b["is_resolved"],
+        })
+
     for t in tasks:
+        task_blockers = blockers_by_task.get(t["id"], [])
         task_data[t["id"]] = {
             "id": t["id"],
             "summary": t["summary"],
@@ -248,13 +308,27 @@ def generate_html(tasks: list[dict], edges: list[dict]) -> str:
             "duration": format_duration(t["total_duration_seconds"]),
             "criteria_done": t["criteria_done"],
             "criteria_total": t["criteria_total"],
+            "blockers": task_blockers,
+        }
+
+    # Build blocker data JSON for blocker node click sidebar
+    blocker_data = {}
+    for b in blockers:
+        blocker_data[b["id"]] = {
+            "id": b["id"],
+            "task_id": b["task_id"],
+            "description": b["description"],
+            "blocker_type": b["blocker_type"],
+            "is_resolved": b["is_resolved"],
         }
 
     task_json = json.dumps(task_data)
+    blocker_json = json.dumps(blocker_data)
     # Prevent </script> injection
     task_json = task_json.replace("</", "<\\/")
+    blocker_json = blocker_json.replace("</", "<\\/")
 
-    has_edges = len(edges) > 0
+    has_edges = len(edges) > 0 or len(blockers) > 0
     hint = "" if has_edges else '<p class="hint">No dependencies yet. Use <code>tusk deps add</code> to connect tasks.</p>'
 
     return f"""<!DOCTYPE html>
@@ -481,6 +555,63 @@ body {{
     color: #4ade80;
   }}
 }}
+
+.blocker-badge {{
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  white-space: nowrap;
+}}
+
+.blocker-open {{
+  background: #fef2f2;
+  color: #dc2626;
+}}
+
+.blocker-resolved {{
+  background: #f3f4f6;
+  color: #6b7280;
+}}
+
+@media (prefers-color-scheme: dark) {{
+  .blocker-open {{
+    background: #7f1d1d;
+    color: #fca5a5;
+  }}
+  .blocker-resolved {{
+    background: #374151;
+    color: #9ca3af;
+  }}
+}}
+
+.blocker-item {{
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}}
+
+.blocker-item:last-child {{
+  border-bottom: none;
+}}
+
+.blocker-header {{
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.2rem;
+}}
+
+.blocker-type {{
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}}
+
+.blocker-desc {{
+  font-size: 0.8rem;
+  color: var(--text);
+  word-break: break-word;
+}}
 </style>
 </head>
 <body>
@@ -502,15 +633,19 @@ body {{
         <span class="legend-item"><span class="legend-swatch" style="background:#3b82f6"></span> To Do</span>
         <span class="legend-item"><span class="legend-swatch" style="background:#f59e0b"></span> In Progress</span>
         <span class="legend-item"><span class="legend-swatch" style="background:#22c55e"></span> Done</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#ef4444"></span> Blocker</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#9ca3af"></span> Resolved Blocker</span>
       </div>
       <div class="legend-row">
         <span class="legend-item">[rect] = XS/S</span>
         <span class="legend-item">(rounded) = M</span>
         <span class="legend-item">&#x2B21; hexagon = L/XL</span>
+        <span class="legend-item">&#x25B7; flag = blocker</span>
       </div>
       <div class="legend-row">
         <span class="legend-item">&mdash;&mdash;&gt; blocks</span>
         <span class="legend-item">- - -&gt; contingent</span>
+        <span class="legend-item">-&middot;-x blocker</span>
       </div>
     </div>
   </div>
@@ -528,6 +663,7 @@ body {{
 
 <script>
 var TASK_DATA = {task_json};
+var BLOCKER_DATA = {blocker_json};
 
 function showSidebar(nodeId) {{
   var id = parseInt(nodeId.replace('T', ''), 10);
@@ -555,6 +691,46 @@ function showSidebar(nodeId) {{
     + '<div class="metric"><span class="metric-label">Cost</span><span class="metric-value">' + t.cost + '</span></div>'
     + '<div class="metric"><span class="metric-label">Duration</span><span class="metric-value">' + t.duration + '</span></div>'
     + '<div class="metric"><span class="metric-label">Criteria</span><span class="metric-value">' + criteria + '</span></div>';
+
+  // Blocker details
+  if (t.blockers && t.blockers.length > 0) {{
+    metricsHtml += '<div style="margin-top:0.75rem;font-weight:700;font-size:0.85rem;">External Blockers</div>';
+    for (var i = 0; i < t.blockers.length; i++) {{
+      var b = t.blockers[i];
+      var resolvedBadge = b.is_resolved
+        ? '<span class="blocker-badge blocker-resolved">Resolved</span>'
+        : '<span class="blocker-badge blocker-open">Open</span>';
+      var typeLabel = b.blocker_type || 'external';
+      metricsHtml += '<div class="blocker-item">'
+        + '<div class="blocker-header">' + resolvedBadge + ' <span class="blocker-type">' + typeLabel + '</span></div>'
+        + '<div class="blocker-desc">' + b.description + '</div>'
+        + '</div>';
+    }}
+  }}
+
+  document.getElementById('sb-metrics').innerHTML = metricsHtml;
+}}
+
+function showBlockerSidebar(nodeId) {{
+  var id = parseInt(nodeId.replace('B', ''), 10);
+  var b = BLOCKER_DATA[id];
+  if (!b) return;
+
+  document.getElementById('placeholder').style.display = 'none';
+  var content = document.getElementById('sidebar-content');
+  content.classList.add('active');
+
+  var resolvedText = b.is_resolved ? 'Resolved' : 'Open';
+  document.getElementById('sb-title').textContent = 'Blocker #' + b.id;
+
+  var resolvedBadge = b.is_resolved
+    ? '<span class="blocker-badge blocker-resolved">Resolved</span>'
+    : '<span class="blocker-badge blocker-open">Open</span>';
+
+  var metricsHtml = '<div class="metric"><span class="metric-label">Status</span><span class="metric-value">' + resolvedBadge + '</span></div>'
+    + '<div class="metric"><span class="metric-label">Type</span><span class="metric-value">' + (b.blocker_type || 'external') + '</span></div>'
+    + '<div class="metric"><span class="metric-label">Blocks Task</span><span class="metric-value">#' + b.task_id + '</span></div>'
+    + '<div style="margin-top:0.75rem;font-size:0.85rem;">' + b.description + '</div>';
 
   document.getElementById('sb-metrics').innerHTML = metricsHtml;
 }}
@@ -639,11 +815,12 @@ def main():
     conn = get_connection(db_path)
     tasks = fetch_tasks(conn)
     edges = fetch_edges(conn)
+    blockers = fetch_blockers(conn)
     conn.close()
 
-    visible_tasks, visible_edges = filter_nodes(tasks, edges, show_all)
+    visible_tasks, visible_edges, visible_blockers = filter_nodes(tasks, edges, blockers, show_all)
 
-    html_content = generate_html(visible_tasks, visible_edges)
+    html_content = generate_html(visible_tasks, visible_edges, visible_blockers)
     log.debug("Generated %d bytes of HTML", len(html_content))
 
     db_dir = os.path.dirname(db_path)
