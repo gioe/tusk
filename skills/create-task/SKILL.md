@@ -41,6 +41,16 @@ tusk -header -column "SELECT id, summary, domain, priority FROM tasks WHERE stat
 
 Hold these in context for Step 3. The heuristic dupe checker (`tusk dupes check`) catches textually similar tasks, but you can catch **semantic** duplicates that differ in wording — e.g., "Implement password reset flow" vs. existing "Add forgot password endpoint" — which the heuristic would miss.
 
+## Step 2c: Read Project Conventions
+
+Fetch learned project heuristics so they inform decomposition decisions:
+
+```bash
+tusk conventions
+```
+
+If the file is missing or contains only the header comment (no convention entries), skip this step silently. Otherwise, hold the conventions in context as **preamble rules** for Step 3 — they take precedence over the generic decomposition guidelines below. For example, a convention like "bin/tusk-*.py always needs a dispatcher entry in bin/tusk" means a new Python script and its dispatcher line belong in the **same** task, not two separate tickets.
+
 ## Step 3: Analyze and Decompose
 
 Break the input into discrete, actionable tasks. For each task, determine:

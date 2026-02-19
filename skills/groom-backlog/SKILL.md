@@ -18,6 +18,16 @@ tusk config
 
 This returns the full config as JSON (domains, agents, task_types, priorities, complexity, etc.). Use these values (not hardcoded ones) throughout the grooming process.
 
+## Setup: Read Project Conventions
+
+Fetch learned project heuristics so they inform grooming decisions:
+
+```bash
+tusk conventions
+```
+
+If the file is missing or contains only the header comment (no convention entries), skip this step silently. Otherwise, hold the conventions in context as **preamble rules** for the analysis in Steps 1–2. Conventions influence how you evaluate tasks — for example, a convention about file coupling patterns may reveal that two apparently separate tasks are really one piece of work (candidates for merging), or that a task is missing implicit sub-work.
+
 ## Pre-Check: Count Auto-Close Candidates
 
 Run a single combined query to determine which auto-close steps (0, 0b, 0c) have work to do. Steps with a zero count are skipped entirely.

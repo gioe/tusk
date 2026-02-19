@@ -6,6 +6,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [111] - 2026-02-19
+
+### Added
+
+- `/create-task` reads `tusk/conventions.md` as preamble context before decomposition (Step 2c) so learned heuristics influence task splitting
+- `/groom-backlog` reads `tusk/conventions.md` as preamble context before analysis so conventions inform grooming decisions
+
 ## [110] - 2026-02-19
 
 ### Added
