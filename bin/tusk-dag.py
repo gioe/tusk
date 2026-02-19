@@ -20,6 +20,7 @@ import os
 import sqlite3
 import sys
 import webbrowser
+from collections import defaultdict, deque
 from datetime import datetime
 
 log = logging.getLogger(__name__)
@@ -93,6 +94,41 @@ def filter_nodes(tasks: list[dict], edges: list[dict], show_all: bool):
                 visible_tasks.append(t)
 
     visible_ids = {t["id"] for t in visible_tasks}
+
+    # Prune connected components where every task is Done
+    if not show_all:
+        # Build adjacency graph from edges between visible nodes
+        adj = defaultdict(set)
+        for e in edges:
+            a, b = e["task_id"], e["depends_on_id"]
+            if a in visible_ids and b in visible_ids:
+                adj[a].add(b)
+                adj[b].add(a)
+
+        # Find connected components via BFS; mark all-Done ones for removal
+        status_map = {t["id"]: t["status"] for t in visible_tasks}
+        visited = set()
+        remove_ids = set()
+        for tid in visible_ids:
+            if tid in visited:
+                continue
+            queue = deque([tid])
+            component = []
+            while queue:
+                node = queue.popleft()
+                if node in visited:
+                    continue
+                visited.add(node)
+                component.append(node)
+                for neighbor in adj[node]:
+                    if neighbor not in visited:
+                        queue.append(neighbor)
+            if all(status_map[n] == "Done" for n in component):
+                remove_ids.update(component)
+
+        if remove_ids:
+            visible_tasks = [t for t in visible_tasks if t["id"] not in remove_ids]
+            visible_ids -= remove_ids
 
     # Filter edges to only those between visible nodes
     visible_edges = [

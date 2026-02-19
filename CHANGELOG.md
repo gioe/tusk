@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [105] - 2026-02-19
+
+### Changed
+
+- DAG view now hides fully-complete connected components (all-Done dependency chains) to reduce clutter; `--all` flag bypasses the filter
+
 ## [104] - 2026-02-19
 
 ### Added
