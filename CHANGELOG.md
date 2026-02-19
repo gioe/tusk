@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [102] - 2026-02-18
+
+### Added
+
+- Added `external_blockers` table for tracking non-task blockers (data, approval, infra, external) with config-driven `blocker_type` validation triggers and schema migration 5→6
+
 ## [101] - 2026-02-18
 
 ### Added
