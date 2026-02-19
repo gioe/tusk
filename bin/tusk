@@ -26,6 +26,7 @@
 #   tusk lint                   Run convention checks non-interactively
 #   tusk dag [--all]           Generate and open an HTML dependency DAG
 #   tusk dashboard             Generate and open an HTML dashboard
+#   tusk conventions           Print contents of conventions.md (or path with --path)
 #   tusk version               Print the installed tusk version
 #   tusk migrate               Apply pending schema migrations
 #   tusk regen-triggers        Drop and recreate validation triggers from config
@@ -312,8 +313,34 @@ cmd_validate() {
   echo "Config is valid ($(resolve_config))."
 }
 
+cmd_conventions() {
+  local conventions_path="$REPO_ROOT/tusk/conventions.md"
+  if [[ "${1:-}" == "--path" ]]; then
+    echo "$conventions_path"
+    return
+  fi
+  if [[ ! -f "$conventions_path" ]]; then
+    echo "No conventions file found at $conventions_path" >&2
+    echo "Run 'tusk init' to create it." >&2
+    exit 1
+  fi
+  cat "$conventions_path"
+}
+
 cmd_init() {
   mkdir -p "$DB_DIR"
+
+  # Create conventions.md if it doesn't exist (before early exit so existing installs get it)
+  local conventions_path="$DB_DIR/conventions.md"
+  if [[ ! -f "$conventions_path" ]]; then
+    cat > "$conventions_path" << 'CONVENTIONS'
+# Project Conventions
+
+<!-- Append-only file for learned heuristics, coupling patterns, and decomposition rules.
+     Written by /retro after each session. Do not reorder or delete entries — newest last. -->
+CONVENTIONS
+    echo "Created conventions file at $conventions_path"
+  fi
 
   if [[ -f "$DB_PATH" ]]; then
     echo "Database already exists at $DB_PATH"
@@ -857,6 +884,18 @@ with open(target_settings_path, 'w') as f:
     f.write('\n')
 "
 
+  # Create conventions.md if it doesn't exist (for existing installs)
+  local conventions_path="$REPO_ROOT/tusk/conventions.md"
+  if [[ -d "$REPO_ROOT/tusk" && ! -f "$conventions_path" ]]; then
+    cat > "$conventions_path" << 'CONVENTIONS'
+# Project Conventions
+
+<!-- Append-only file for learned heuristics, coupling patterns, and decomposition rules.
+     Written by /retro after each session. Do not reorder or delete entries — newest last. -->
+CONVENTIONS
+    echo "  Created conventions file at $conventions_path"
+  fi
+
   # Run migrations using the NEW binary
   "$SCRIPT_DIR/tusk" migrate
 
@@ -1002,11 +1041,12 @@ case "${1:-}" in
   session-close) shift; cmd_session_close "$@" ;;
   task-start) shift; exec python3 "$SCRIPT_DIR/tusk-task-start.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   progress) shift; exec python3 "$SCRIPT_DIR/tusk-progress.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  conventions) shift; cmd_conventions "$@" ;;
   shell)  cmd_shell ;;
   version) cmd_version ;;
   migrate) cmd_migrate ;;
   regen-triggers) cmd_regen_triggers ;;
   upgrade) cmd_upgrade ;;
-  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|lint|dupes|deps|blockers|criteria|dag|dashboard|session-stats|session-close|task-start|progress|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
+  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|lint|dupes|deps|blockers|criteria|dag|dashboard|conventions|session-stats|session-close|task-start|progress|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac

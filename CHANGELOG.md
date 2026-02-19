@@ -6,6 +6,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [110] - 2026-02-19
+
+### Added
+
+- `tusk conventions` CLI command to print contents or path of the learned-heuristics store (`tusk/conventions.md`)
+- `tusk init` and `tusk upgrade` now create `tusk/conventions.md` with a header and usage comment if it does not exist
+
 ## [109] - 2026-02-19
 
 ### Added

@@ -84,6 +84,10 @@ bin/tusk dag [--all]
 # Generate and open an HTML task dashboard
 bin/tusk dashboard
 
+# Print learned-heuristics conventions file
+bin/tusk conventions              # Print file contents
+bin/tusk conventions --path       # Print file path
+
 # Version, migration, and upgrade
 bin/tusk version               # Print installed version
 bin/tusk migrate               # Apply pending schema migrations
