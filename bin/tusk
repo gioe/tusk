@@ -30,6 +30,7 @@
 #   tusk version               Print the installed tusk version
 #   tusk migrate               Apply pending schema migrations
 #   tusk regen-triggers        Drop and recreate validation triggers from config
+#   tusk sync-skills            Regenerate .claude/skills/ symlinks from skills/ + skills-internal/
 #   tusk upgrade               Upgrade tusk from GitHub
 #
 # Configuration:
@@ -1093,6 +1094,7 @@ case "${1:-}" in
   finalize) shift; exec python3 "$SCRIPT_DIR/tusk-finalize.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   progress) shift; exec python3 "$SCRIPT_DIR/tusk-progress.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   setup) shift; exec python3 "$SCRIPT_DIR/tusk-setup.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  sync-skills) shift; exec python3 "$SCRIPT_DIR/tusk-sync-skills.py" "$@" ;;
   wsjf) cmd_wsjf ;;
   conventions) shift; cmd_conventions "$@" ;;
   shell)  cmd_shell ;;
@@ -1100,6 +1102,6 @@ case "${1:-}" in
   migrate) cmd_migrate ;;
   regen-triggers) cmd_regen_triggers ;;
   upgrade) cmd_upgrade ;;
-  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|branch|commit|lint|dupes|deps|blockers|criteria|dag|dashboard|wsjf|conventions|setup|autoclose|session-stats|session-close|task-start|task-done|task-insert|task-update|progress|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
+  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|branch|commit|lint|dupes|deps|blockers|criteria|dag|dashboard|wsjf|conventions|setup|autoclose|sync-skills|session-stats|session-close|task-start|task-done|task-insert|task-update|progress|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac
