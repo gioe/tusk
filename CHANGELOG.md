@@ -6,6 +6,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [119] - 2026-02-19
+
+### Added
+
+- `tusk wsjf` command — encapsulates the WSJF priority scoring SQL in a single CLI call, replacing the fragile pattern of reading the formula from a companion file
+
+### Changed
+
+- `/groom-backlog` Step 7 now calls `tusk wsjf` instead of reading REFERENCE.md for the scoring SQL
+
 ## [118] - 2026-02-19
 
 ### Added

@@ -1021,6 +1021,50 @@ cmd_session_close() {
   fi
 }
 
+# ── WSJF Scoring ────────────────────────────────────────────────────
+
+cmd_wsjf() {
+  local updated
+  updated="$(sqlite3 "$DB_PATH" "
+    UPDATE tasks SET priority_score = ROUND(
+      (
+        CASE priority
+          WHEN 'Highest' THEN 100
+          WHEN 'High' THEN 80
+          WHEN 'Medium' THEN 60
+          WHEN 'Low' THEN 40
+          WHEN 'Lowest' THEN 20
+          ELSE 40
+        END
+        + CASE WHEN summary NOT LIKE '%[Deferred]%' THEN 10 ELSE 0 END
+        + MIN(COALESCE((
+          SELECT COUNT(*) * 5
+          FROM task_dependencies d
+          WHERE d.depends_on_id = tasks.id
+        ), 0), 15)
+        + CASE WHEN EXISTS (
+          SELECT 1 FROM task_dependencies d
+          WHERE d.task_id = tasks.id AND d.relationship_type = 'contingent'
+        ) AND NOT EXISTS (
+          SELECT 1 FROM task_dependencies d
+          WHERE d.task_id = tasks.id AND d.relationship_type = 'blocks'
+        ) THEN -10 ELSE 0 END
+      ) * 1.0
+      / CASE complexity
+          WHEN 'XS' THEN 1
+          WHEN 'S' THEN 2
+          WHEN 'M' THEN 3
+          WHEN 'L' THEN 5
+          WHEN 'XL' THEN 8
+          ELSE 3
+        END
+    )
+    WHERE status <> 'Done';
+    SELECT changes();
+  ")"
+  echo "WSJF scoring complete: $updated tasks updated"
+}
+
 # ── Dispatch ─────────────────────────────────────────────────────────
 
 case "${1:-}" in
@@ -1041,12 +1085,13 @@ case "${1:-}" in
   session-close) shift; cmd_session_close "$@" ;;
   task-start) shift; exec python3 "$SCRIPT_DIR/tusk-task-start.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   progress) shift; exec python3 "$SCRIPT_DIR/tusk-progress.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  wsjf) cmd_wsjf ;;
   conventions) shift; cmd_conventions "$@" ;;
   shell)  cmd_shell ;;
   version) cmd_version ;;
   migrate) cmd_migrate ;;
   regen-triggers) cmd_regen_triggers ;;
   upgrade) cmd_upgrade ;;
-  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|lint|dupes|deps|blockers|criteria|dag|dashboard|conventions|session-stats|session-close|task-start|progress|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
+  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|lint|dupes|deps|blockers|criteria|dag|dashboard|wsjf|conventions|session-stats|session-close|task-start|progress|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac

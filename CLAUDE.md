@@ -60,6 +60,9 @@ bin/tusk deps blocked
 bin/tusk deps ready
 bin/tusk deps all
 
+# Recompute WSJF priority scores for all open tasks
+bin/tusk wsjf
+
 # Run convention checks non-interactively (exits 1 on violations)
 bin/tusk lint
 

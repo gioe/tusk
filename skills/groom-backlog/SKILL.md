@@ -232,13 +232,13 @@ Follow Steps 6b–6d from the reference, then continue to Step 7 below.
 
 ## Step 7: Compute Priority Scores and Final Report
 
-After all grooming changes and sizing are complete, read the reference file for the WSJF scoring formula and UPDATE SQL:
+After all grooming changes and sizing are complete, run the WSJF scoring command:
 
-```
-Read file: <base_directory>/REFERENCE.md
+```bash
+tusk wsjf
 ```
 
-Run the WSJF update from the Step 7 section of the reference, then generate the summary report:
+Then generate the summary report:
 
 ```markdown
 ## Backlog Grooming Complete
