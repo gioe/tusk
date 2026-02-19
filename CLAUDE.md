@@ -43,6 +43,14 @@ bin/tusk chain scope <head_task_id>     # JSON: all downstream tasks with depths
 bin/tusk chain frontier <head_task_id>  # JSON: ready tasks within scope
 bin/tusk chain status <head_task_id>    # Human-readable progress summary
 
+# Manage external blockers
+bin/tusk blockers add <task_id> "<description>" [--type data|approval|infra|external]
+bin/tusk blockers list <task_id>
+bin/tusk blockers resolve <blocker_id>
+bin/tusk blockers remove <blocker_id>
+bin/tusk blockers blocked
+bin/tusk blockers all
+
 # Manage task dependencies
 bin/tusk deps add <task_id> <depends_on_id> [--type blocks|contingent]
 bin/tusk deps remove <task_id> <depends_on_id>
@@ -121,6 +129,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - `bin/tusk-session-stats.py` — Token/cost tracking for task sessions (invoked via `tusk session-stats`). Parses Claude Code JSONL transcripts, deduplicates by requestId, and computes costs using per-model pricing.
 - `bin/tusk-dag.py` — Interactive DAG visualization (invoked via `tusk dag`). Renders task dependencies as a Mermaid.js graph with status-colored nodes, complexity-based shapes, and a click-to-inspect sidebar showing per-task metrics.
 - `bin/tusk-dashboard.py` — Static HTML dashboard generator (invoked via `tusk dashboard`). Queries the `task_metrics` view for per-task token counts and cost, writes a self-contained HTML file, and opens it in the browser.
+- `bin/tusk-blockers.py` — External blocker management (invoked via `tusk blockers`). Supports add, list, resolve, remove, blocked (tasks with open blockers), and all subcommands. Validates blocker_type against config.
 - `bin/tusk-criteria.py` — Acceptance criteria management (invoked via `tusk criteria`). Supports add, list, done, and reset subcommands for per-task acceptance criteria tracking.
 - `bin/tusk-chain.py` — Downstream sub-DAG operations (invoked via `tusk chain`). Implements `scope` (BFS JSON dump with depths and completion counts), `frontier` (ready tasks within scope), and `status` (human-readable progress summary).
 - `bin/tusk-deps.py` — Dependency graph management (invoked via `tusk deps`). Validates no self-deps and no cycles before inserting.

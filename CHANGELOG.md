@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [107] - 2026-02-19
+
+### Added
+
+- `tusk blockers` CLI command with add, list, resolve, remove, blocked, and all subcommands for managing external blockers
+
 ## [106] - 2026-02-19
 
 ### Added
