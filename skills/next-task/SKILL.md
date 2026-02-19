@@ -88,20 +88,10 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
    Hold onto `session_id` from the JSON — it will be used to close the session when the task is done.
 
 2. **Create a new git branch IMMEDIATELY** (skip if resuming and branch already exists):
-   - Format: `feature/TASK-<id>-brief-description`
-   - First, detect the repo's default branch:
-     ```bash
-     git remote set-head origin --auto 2>/dev/null
-     DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
-     if [ -z "$DEFAULT_BRANCH" ]; then
-       DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo "main")
-     fi
-     ```
-   - Then create the branch:
-     ```bash
-     git checkout "$DEFAULT_BRANCH" && git pull origin "$DEFAULT_BRANCH"
-     git checkout -b feature/TASK-<id>-brief-description
-     ```
+   ```bash
+   tusk branch <id> <brief-description-slug>
+   ```
+   This detects the default branch (remote HEAD → gh fallback → "main"), checks it out, pulls latest, and creates `feature/TASK-<id>-<slug>`. It prints the created branch name on success.
 
 3. **Determine the best subagent(s)** based on:
    - Task domain
