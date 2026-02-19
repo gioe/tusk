@@ -191,7 +191,51 @@ For each stuck task, read the agent's output file to capture any final messages.
 - **Skip**: log a warning for each skipped task and proceed to **4a** for the next frontier. Note: downstream tasks that depend on skipped tasks will never become ready — if the chain gets stuck later, report this to the user.
 - **Abort**: stop entirely. Report that the chain was aborted and list which tasks completed vs. which did not.
 
-## Step 5: Final Report
+## Step 5: VERSION & CHANGELOG Consolidation
+
+After all waves are complete, do a single VERSION bump and CHANGELOG update covering the entire chain. This avoids merge conflicts that occur when parallel agents each try to bump independently.
+
+**Skip this step if:**
+- No tasks in the chain touched deliverable files (skills, CLI, scripts, schema, config, install) — i.e., all tasks were docs-only or database-only changes.
+- No tasks in the chain completed successfully.
+
+**Consolidation procedure:**
+
+1. Collect the list of completed tasks in the chain:
+   ```bash
+   tusk chain scope <head_task_id>
+   ```
+   Filter to tasks with status = Done that were completed during this chain run.
+
+2. Read the current VERSION and CHANGELOG:
+   ```bash
+   cat VERSION
+   cat CHANGELOG.md | head -20
+   ```
+
+3. Increment VERSION by 1 and add a CHANGELOG entry under a new version heading. The entry should list all completed chain tasks:
+   ```markdown
+   ## [<new_version>] - <YYYY-MM-DD>
+
+   ### Added/Changed/Fixed
+   - [TASK-<id>] <summary>
+   - [TASK-<id>] <summary>
+   ...
+   ```
+
+4. Commit, push, and merge:
+   ```bash
+   git checkout main && git pull origin main
+   git checkout -b chore/run-chain-<head_task_id>-version-bump
+   # Write VERSION and CHANGELOG.md
+   git add VERSION CHANGELOG.md
+   git commit -m "Bump VERSION to <new_version> for run-chain <head_task_id>"
+   git push -u origin chore/run-chain-<head_task_id>-version-bump
+   gh pr create --base main --title "Bump VERSION to <new_version> (run-chain <head_task_id>)" --body "Consolidates VERSION bump for all tasks completed in run-chain <head_task_id>."
+   gh pr merge --squash --delete-branch
+   ```
+
+## Step 6: Final Report
 
 Display the completed chain status:
 
@@ -282,6 +326,8 @@ Complexity: {complexity}
     ```
 
 IMPORTANT: Only work on Task {id}. Complete it fully — implement, commit, push, PR, merge, and mark Done. Do not expand scope beyond what the task description asks for.
+
+IMPORTANT: Do NOT bump the VERSION file or update CHANGELOG.md — version bumps are handled by a single consolidation step after the entire chain completes. Skipping this avoids merge conflicts when multiple agents run in parallel.
 ```
 
 ## Error Handling

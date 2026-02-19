@@ -6,6 +6,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [114] - 2026-02-19
+
+### Changed
+
+- `/run-chain` agent prompt now instructs agents to skip VERSION/CHANGELOG bumps to avoid merge conflicts in parallel waves
+- Added VERSION & CHANGELOG consolidation step (Step 5) to `/run-chain` that performs a single bump after the entire chain completes
+
 ## [113] - 2026-02-19
 
 ### Added
