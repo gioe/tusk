@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [115] - 2026-02-19
+
+### Added
+
+- Post-chain retro aggregation step (Step 6) in `/run-chain` that reads all agent transcript output files, extracts friction points/workarounds/tangential issues/failed approaches/conventions, identifies cross-agent patterns, and presents a consolidated retro report with proposed actions (tasks and conventions)
+
 ## [114] - 2026-02-19
 
 ### Changed

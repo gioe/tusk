@@ -77,7 +77,7 @@ Task tool call:
   prompt: <use the Agent Prompt Template below, filled with task details>
 ```
 
-After spawning, store the **agent task ID** returned by the Task tool (this is separate from the tusk task ID). Monitor until the head task reaches Done status or the agent finishes without completing:
+After spawning, store the **agent task ID** and **output file path** returned by the Task tool (this is separate from the tusk task ID). Keep a running list of all output file paths across the entire chain — these are needed for the post-chain retro in Step 6. Monitor until the head task reaches Done status or the agent finishes without completing:
 
 **Monitoring loop:**
 
@@ -155,7 +155,7 @@ Task tool call (for EACH frontier task):
 
 ### 4d. Monitor Wave Completion
 
-Build a map of **tusk task ID → agent task ID** for every agent spawned in this wave. Monitor until all wave tasks reach Done or all agents have finished:
+Build a map of **tusk task ID → agent task ID → output file path** for every agent spawned in this wave. Add each output file path to your running list for the post-chain retro (Step 6). Monitor until all wave tasks reach Done or all agents have finished:
 
 **Monitoring loop:**
 
@@ -235,7 +235,23 @@ After all waves are complete, do a single VERSION bump and CHANGELOG update cove
    gh pr merge --squash --delete-branch
    ```
 
-## Step 6: Final Report
+## Step 6: Post-Chain Retro Aggregation
+
+After the chain completes, run a retrospective across all agent transcripts to capture cross-agent learnings. This uses the output file paths you collected during Steps 3 and 4.
+
+Read the companion file for the full procedure:
+
+```
+Read file: <base_directory>/POST-CHAIN-RETRO.md
+```
+
+Where `<base_directory>` is the skill base directory shown at the top of this file.
+
+**Skip this step if:**
+- The chain was aborted before any tasks completed.
+- Only a single task was in the chain (use `/retro` instead for single-task sessions).
+
+## Step 7: Final Report
 
 Display the completed chain status:
 
