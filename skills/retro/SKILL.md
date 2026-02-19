@@ -61,10 +61,9 @@ If **all categories are empty**, report "Clean session — no findings" and stop
 
 5. Insert approved tasks:
    ```bash
-   tusk "INSERT INTO tasks (summary, description, status, priority, domain, task_type, assignee, complexity, created_at, updated_at)
-     VALUES ($(tusk sql-quote "<summary>"), $(tusk sql-quote "<description>"), 'To Do', '<priority>', '<domain_or_NULL>', '<task_type>', '<assignee_or_NULL>', '<complexity_or_NULL>', datetime('now'), datetime('now'))"
+   tusk task-insert "<summary>" "<description>" --priority "<priority>" --domain "<domain>" --task-type "<task_type>" --assignee "<assignee>" --complexity "<complexity>"
    ```
-   Use unquoted `NULL` for empty fields. Skip subsumption and dependency proposals.
+   Omit `--domain` or `--assignee` entirely if the value is NULL/empty. Exit code 1 means duplicate — skip. Skip subsumption and dependency proposals.
 
 ### LR-2b: Write Conventions (only if Category D has findings)
 
