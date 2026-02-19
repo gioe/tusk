@@ -43,6 +43,10 @@ WHERE t.status = 'To Do'
     JOIN tasks blocker ON d.depends_on_id = blocker.id
     WHERE d.task_id = t.id AND blocker.status <> 'Done'
   )
+  AND NOT EXISTS (
+    SELECT 1 FROM external_blockers eb
+    WHERE eb.task_id = t.id AND eb.is_resolved = 0
+  )
 ORDER BY t.priority_score DESC, t.id
 LIMIT <n>;
 "
@@ -63,13 +67,20 @@ When called with `blocked`:
 ```bash
 tusk -header -column "
 SELECT t.id, t.summary, t.priority,
-  (SELECT GROUP_CONCAT(d.depends_on_id) FROM task_dependencies d WHERE d.task_id = t.id) as blocked_by
+  (SELECT GROUP_CONCAT(d.depends_on_id) FROM task_dependencies d WHERE d.task_id = t.id) as blocked_by_tasks,
+  (SELECT GROUP_CONCAT(eb.description, '; ') FROM external_blockers eb WHERE eb.task_id = t.id AND eb.is_resolved = 0) as blocked_by_external
 FROM tasks t
 WHERE t.status = 'To Do'
-  AND EXISTS (
-    SELECT 1 FROM task_dependencies d
-    JOIN tasks blocker ON d.depends_on_id = blocker.id
-    WHERE d.task_id = t.id AND blocker.status <> 'Done'
+  AND (
+    EXISTS (
+      SELECT 1 FROM task_dependencies d
+      JOIN tasks blocker ON d.depends_on_id = blocker.id
+      WHERE d.task_id = t.id AND blocker.status <> 'Done'
+    )
+    OR EXISTS (
+      SELECT 1 FROM external_blockers eb
+      WHERE eb.task_id = t.id AND eb.is_resolved = 0
+    )
   )
 ORDER BY t.id
 "
@@ -96,6 +107,10 @@ WHERE t.status = 'To Do'
     SELECT 1 FROM task_dependencies d
     JOIN tasks blocker ON d.depends_on_id = blocker.id
     WHERE d.task_id = t.id AND blocker.status <> 'Done'
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM external_blockers eb
+    WHERE eb.task_id = t.id AND eb.is_resolved = 0
   )
 ORDER BY t.priority_score DESC, t.id
 LIMIT 1;
