@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [131] - 2026-02-19
+
+### Added
+
+- `tusk token-audit` command and `/token-audit` skill — analyzes skill token consumption across five categories (size census, companion file analysis, SQL anti-patterns, redundancy detection, narrative density) with `--summary` and `--json` output modes
+
 ## [130] - 2026-02-19
 
 ### Added

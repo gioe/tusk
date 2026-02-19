@@ -115,6 +115,11 @@ bin/tusk dashboard
 bin/tusk conventions              # Print file contents
 bin/tusk conventions --path       # Print file path
 
+# Analyze skill token consumption
+bin/tusk token-audit           # Full human-readable report
+bin/tusk token-audit --summary # Top-level stats + top 5 offenders
+bin/tusk token-audit --json    # Machine-readable JSON
+
 # Skill symlink management (source repo only)
 bin/tusk sync-skills           # Regenerate .claude/skills/ symlinks from skills/ + skills-internal/
 
@@ -154,6 +159,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - **`/criteria`** — Manages per-task acceptance criteria (add, list, done, reset)
 - **`/blockers`** — Manages external blockers for tasks (add, list, resolve, remove)
 - **`/progress`** — Logs a progress checkpoint from the latest git commit for context recovery
+- **`/token-audit`** — Analyzes skill token consumption across five categories (size census, companion loading, SQL anti-patterns, redundancy, narrative density)
 - **`/tusk-insights`** — Read-only DB health audit across 6 categories with interactive Q&A recommendations
 - **`/resume-task`** — Automates session recovery: detects task from branch name, gathers progress/criteria/commits, and resumes the implementation workflow
 - **`/run-chain`** — Orchestrates parallel execution of a dependency sub-DAG: validates head task, displays scope tree, executes head first, then spawns parallel background agents wave-by-wave for each frontier of ready tasks, and runs a post-chain retro aggregation across all agent transcripts to surface cross-agent patterns and learnings
@@ -177,6 +183,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - `bin/tusk-task-update.py` — Task field updates with validation (invoked via `tusk task-update`). Accepts a task ID and optional flags for any updatable field, validates enum values against config, and builds a dynamic UPDATE touching only specified columns. Replaces model-composed UPDATE SQL in skills.
 - `bin/tusk-autoclose.py` — Consolidated auto-close pre-checks (invoked via `tusk autoclose`). Runs three checks in one call: expired deferred tasks, In Progress tasks with merged PRs (via `gh pr view`), and moot contingent tasks. Closes each with appropriate reason and description annotation. Returns JSON summary with counts and task IDs per category.
 - `bin/tusk-finalize.py` — Post-merge finalization (invoked via `tusk finalize`). Accepts task ID, session ID, PR URL, and PR number. Sets `github_pr` on the task, closes the session (capturing diff stats), merges the PR via `gh pr merge --squash --delete-branch`, and marks the task Done via `tusk task-done`. Returns JSON with task details and newly unblocked tasks.
+- `bin/tusk-token-audit.py` — Skill token consumption analyzer (invoked via `tusk token-audit`). Scans skill directories and reports five categories: size census (lines + estimated tokens per skill), companion file analysis (conditional vs unconditional loading), SQL anti-patterns, redundancy detection (duplicate commands, setup + re-fetch), and narrative density (prose:code ratio). Supports `--summary` and `--json` output modes.
 - `bin/tusk-sync-skills.py` — Skill symlink regeneration (invoked via `tusk sync-skills`). Removes all existing symlinks in `.claude/skills/`, then creates one per skill directory found in `skills/` (public) and `skills-internal/` (private). Source-repo only — not used in target projects.
 
 ### Database Schema
