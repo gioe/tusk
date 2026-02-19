@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [106] - 2026-02-19
+
+### Added
+
+- `/run-chain` skill for parallel DAG execution — orchestrates background agents wave-by-wave through a dependency sub-DAG
+
 ## [105] - 2026-02-19
 
 ### Changed

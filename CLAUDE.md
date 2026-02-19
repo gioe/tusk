@@ -113,6 +113,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - **`/progress`** — Logs a progress checkpoint from the latest git commit for context recovery
 - **`/tusk-insights`** — Read-only DB health audit across 6 categories with interactive Q&A recommendations
 - **`/resume-task`** — Automates session recovery: detects task from branch name, gathers progress/criteria/commits, and resumes the implementation workflow
+- **`/run-chain`** — Orchestrates parallel execution of a dependency sub-DAG: validates head task, displays scope tree, executes head first, then spawns parallel background agents wave-by-wave for each frontier of ready tasks
 
 ### Python Scripts
 
