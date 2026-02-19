@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [101] - 2026-02-18
+
+### Added
+
+- Added /resume-task skill for session recovery — detects task from branch name, gathers progress checkpoints/acceptance criteria/git log, and resumes the /next-task implementation workflow from step 4
+
 ## [100] - 2026-02-18
 
 ### Fixed
