@@ -39,20 +39,12 @@ For each Category A comment:
 - Suggestions about pre-existing code NOT touched by this PR
 - Aspirational ideas about unrelated modules
 
-For each Category B comment:
-1. **Check for duplicates first** using `/check-dupes`:
+For each Category B comment, create a deferred task (includes built-in duplicate check and 60-day expiry):
    ```bash
-   tusk dupes check "[Deferred] <brief description>" --domain <domain>
+   tusk task-insert "<brief description>" "Deferred from PR #<pr_number> review for TASK-<id>. Original comment: <comment text>. Reason deferred: <why this can wait>" \
+     --priority "Low" --domain "<domain>" --deferred
    ```
-2. Create a deferred task (with 60-day expiry):
-   ```bash
-   tusk "INSERT INTO tasks (summary, description, status, priority, domain, created_at, updated_at, expires_at)
-     VALUES ($(tusk sql-quote "[Deferred] <brief description>"), $(tusk sql-quote "Deferred from PR #<pr_number> review for TASK-<id>.
-
-Original comment: <comment text>
-
-Reason deferred: <why this can wait>"), 'To Do', 'Low', '<domain>', datetime('now'), datetime('now'), datetime('now', '+60 days'))"
-   ```
+   Exit code 1 means a duplicate was found — skip silently.
 
 ## Step 14: PR approved — finalize, merge, and retro
 

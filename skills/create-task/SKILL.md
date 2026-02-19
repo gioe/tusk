@@ -107,82 +107,39 @@ Then ask:
 
 Wait for explicit user approval before proceeding. Do NOT insert anything until the user confirms.
 
-## Step 5: Deduplicate and Insert
+## Step 5: Deduplicate, Insert, and Generate Criteria
 
-Semantic duplicates should already have been filtered out during Step 3 (by comparing against the backlog from Step 2b). As a deterministic safety net, run a heuristic duplicate check **before** inserting each task:
+For each approved task, generate **3–7 acceptance criteria** — concrete, testable conditions that define "done." Derive them from the description: each distinct requirement or expected behavior maps to a criterion. For **bug** tasks, include a criterion that the failure case is resolved. For **feature** tasks, include the happy path and at least one edge case.
 
-```bash
-tusk dupes check "<summary>"
-```
-
-If the domain is set and non-empty, include it:
+Then insert the task with criteria in a single call using `tusk task-insert`. This validates enum values against config, runs a heuristic duplicate check internally, and inserts the task + criteria in one transaction:
 
 ```bash
-tusk dupes check "<summary>" --domain <domain>
+tusk task-insert "<summary>" "<description>" \
+  --priority "<priority>" \
+  --domain "<domain>" \
+  --task-type "<task_type>" \
+  --assignee "<assignee>" \
+  --complexity "<complexity>" \
+  --criteria "<criterion 1>" \
+  --criteria "<criterion 2>" \
+  --criteria "<criterion 3>"
 ```
 
-### Exit code 0 — No duplicate found → Insert the task
+Omit `--domain` or `--assignee` entirely if the value is NULL/empty — do not pass empty strings.
 
-Use `tusk sql-quote` to safely escape user-provided text (summary, description). Static values from config don't need quoting. For NULL fields (domain, assignee), use the literal `NULL` unquoted — don't pass it through `sql-quote`.
+### Exit code 0 — Success
 
-```bash
-tusk "INSERT INTO tasks (summary, description, status, priority, domain, task_type, assignee, complexity, created_at, updated_at)
-  VALUES (
-    $(tusk sql-quote "<summary>"),
-    $(tusk sql-quote "<description>"),
-    'To Do',
-    '<priority>',
-    '<domain>',          -- use NULL (unquoted) if no domain applies
-    '<task_type>',
-    '<assignee>',        -- use NULL (unquoted) if no assignee
-    '<complexity>',
-    datetime('now'),
-    datetime('now')
-  )"
-```
+The command prints JSON with `task_id` and `criteria_ids`. Use the `task_id` for dependency proposals in Step 7.
 
 ### Exit code 1 — Duplicate found → Skip
 
-Report which existing task matched and skip the insert:
+The command prints JSON with `matched_task_id` and `similarity`. Report which existing task matched:
 
 > Skipped "Add login endpoint with JWT auth" — duplicate of existing task #12 (similarity 0.87)
 
 ### Exit code 2 — Error
 
 Report the error and skip.
-
-## Step 6: Generate Acceptance Criteria
-
-**Do not skip this step.** Every inserted task must have at least one acceptance criterion. The Results section will flag any task missing criteria.
-
-For each successfully inserted task, generate **3–7 acceptance criteria** using the task's summary, description, and the original source text that informed it. Criteria should be concrete, testable conditions that define "done" for the task.
-
-### How to derive criteria
-
-- Start from the task's **description** — each distinct requirement or expected behavior maps to a criterion
-- Add any implicit quality expectations (e.g., error handling, edge cases, validation) if the task type warrants it
-- For **bug** tasks, include a criterion that the specific failure case is resolved
-- For **feature** tasks, include criteria for the happy path and at least one edge case
-- Keep each criterion to a single sentence — actionable and verifiable
-
-### Insert criteria
-
-For each criterion, run:
-
-```bash
-tusk criteria add <task_id> "<criterion text>"
-```
-
-Use the task ID returned from the INSERT in Step 5. Example for a task with ID 14:
-
-```bash
-tusk criteria add 14 "POST /auth/login returns a JWT token for valid credentials"
-tusk criteria add 14 "Invalid credentials return 401 with error message"
-tusk criteria add 14 "Refresh token endpoint issues a new JWT"
-tusk criteria add 14 "Tokens expire after the configured TTL"
-```
-
-Skip criteria generation for tasks that were skipped as duplicates in Step 5.
 
 ## Step 7: Propose Dependencies
 

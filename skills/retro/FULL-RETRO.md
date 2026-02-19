@@ -124,11 +124,10 @@ tusk "UPDATE tasks SET description = $(tusk sql-quote "$AMENDED_DESC"), updated_
 ### 5b: Insert New Tasks
 
 ```bash
-tusk "INSERT INTO tasks (summary, description, status, priority, domain, task_type, assignee, complexity, created_at, updated_at)
-  VALUES ($(tusk sql-quote "<summary>"), $(tusk sql-quote "<description>"), 'To Do', '<priority>', '<domain_or_NULL>', '<task_type>', '<assignee_or_NULL>', '<complexity_or_NULL>', datetime('now'), datetime('now'))"
+tusk task-insert "<summary>" "<description>" --priority "<priority>" --domain "<domain>" --task-type "<task_type>" --assignee "<assignee>" --complexity "<complexity>"
 ```
 
-Use `$(tusk sql-quote "...")` for freeform text fields. Use unquoted `NULL` for empty fields.
+Omit `--domain` or `--assignee` entirely if the value is NULL/empty. Exit code 1 means duplicate — skip.
 
 ### 5c: Propose Dependencies
 
