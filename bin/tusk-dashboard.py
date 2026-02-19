@@ -22,6 +22,15 @@ from datetime import datetime
 
 log = logging.getLogger(__name__)
 
+# Expected session ranges per complexity tier (from CLAUDE.md)
+EXPECTED_SESSIONS = {
+    'XS': (0.5, 1),
+    'S': (1, 1.5),
+    'M': (1, 2),
+    'L': (3, 5),
+    'XL': (5, 10),
+}
+
 
 def get_connection(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
@@ -38,6 +47,7 @@ def fetch_task_metrics(conn: sqlite3.Connection) -> list[dict]:
                   COALESCE(tm.total_tokens_in, 0) as total_tokens_in,
                   COALESCE(tm.total_tokens_out, 0) as total_tokens_out,
                   COALESCE(tm.total_cost, 0) as total_cost,
+                  tm.complexity,
                   s.model,
                   COALESCE(ac.criteria_total, 0) as criteria_total,
                   COALESCE(ac.criteria_done, 0) as criteria_done,
@@ -124,6 +134,33 @@ def format_blockers(open_blockers: int, total: int) -> str:
     if open_blockers > 0:
         return f'<span class="blocker-open-badge">{open_blockers} open</span>'
     return '<span class="blocker-clear-badge">0 open</span>'
+
+
+def format_deviation(task: dict, tier_avgs: dict) -> tuple[str, float]:
+    """Format per-task deviation from complexity tier average sessions.
+
+    Returns (html_string, raw_deviation_pct) where raw value is for data-sort.
+    """
+    if task['status'] != 'Done':
+        return '<span class="deviation-na">&mdash;</span>', 0
+    complexity = task.get('complexity')
+    if not complexity or complexity not in tier_avgs:
+        return '<span class="deviation-na">&mdash;</span>', 0
+    session_count = task.get('session_count', 0) or 0
+    if session_count == 0:
+        return '<span class="deviation-na">&mdash;</span>', 0
+    avg = tier_avgs[complexity]
+    if avg <= 0:
+        return '<span class="deviation-na">&mdash;</span>', 0
+    deviation_pct = ((session_count - avg) / avg) * 100
+    if deviation_pct > 100:
+        css = "deviation-outlier"
+    elif deviation_pct > 0:
+        css = "deviation-high"
+    else:
+        css = "deviation-ok"
+    sign = "+" if deviation_pct > 0 else ""
+    return f'<span class="{css}">{sign}{deviation_pct:.0f}%</span>', deviation_pct
 
 
 def fetch_cost_trend(conn: sqlite3.Connection) -> list[dict]:
@@ -328,12 +365,20 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
     total_tokens_in = sum(t["total_tokens_in"] for t in task_metrics)
     total_tokens_out = sum(t["total_tokens_out"] for t in task_metrics)
     total_cost = sum(t["total_cost"] for t in task_metrics)
+    # Build tier averages for per-task deviation calculation
+    tier_avgs = {}
+    if complexity_metrics:
+        for c in complexity_metrics:
+            if c['avg_sessions'] and c['avg_sessions'] > 0:
+                tier_avgs[c['complexity']] = c['avg_sessions']
+
     # Task rows — include data attributes for JS filtering/sorting
     task_rows = ""
     for t in task_metrics:
         has_data = t["session_count"] > 0
         muted = "" if has_data else ' class="muted"'
         status_val = esc(t['status'])
+        dev_html, dev_raw = format_deviation(t, tier_avgs)
         task_rows += f"""<tr{muted} data-status="{status_val}" data-summary="{esc(t['summary']).lower()}">
   <td class="col-id" data-sort="{t['id']}">#{t['id']}</td>
   <td class="col-summary">{esc(t['summary'])}</td>
@@ -344,21 +389,31 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
   <td class="col-tokens-in" data-sort="{t['total_tokens_in']}">{format_number(t['total_tokens_in'])}</td>
   <td class="col-tokens-out" data-sort="{t['total_tokens_out']}">{format_number(t['total_tokens_out'])}</td>
   <td class="col-cost" data-sort="{t['total_cost']}">{format_cost(t['total_cost'])}</td>
+  <td class="col-deviation" data-sort="{dev_raw:.1f}">{dev_html}</td>
 </tr>\n"""
 
     # Empty state
     if not task_metrics:
-        task_rows = '<tr><td colspan="9" class="empty">No tasks found. Run <code>tusk init</code> and add some tasks.</td></tr>'
+        task_rows = '<tr><td colspan="10" class="empty">No tasks found. Run <code>tusk init</code> and add some tasks.</td></tr>'
 
     # Complexity metrics section
     complexity_section = ""
     if complexity_metrics:
         complexity_rows = ""
         for c in complexity_metrics:
-            complexity_rows += f"""<tr>
-  <td class="col-complexity"><span class="complexity-badge">{esc(c['complexity'])}</span></td>
+            tier = c['complexity']
+            expected = EXPECTED_SESSIONS.get(tier, (0, 0))
+            lo, hi = expected
+            expected_str = f"{lo:.0f}&ndash;{hi:.0f}" if lo == int(lo) and hi == int(hi) else f"{lo}&ndash;{hi}"
+            avg_sessions = c['avg_sessions'] or 0
+            exceeds = avg_sessions > hi
+            row_css = ' class="tier-exceeds"' if exceeds else ''
+            flag = ' <span class="tier-flag">&#9888;</span>' if exceeds else ''
+            complexity_rows += f"""<tr{row_css}>
+  <td class="col-complexity"><span class="complexity-badge">{esc(tier)}</span></td>
   <td class="col-count">{c['task_count']}</td>
-  <td class="col-avg-sessions">{c['avg_sessions']}</td>
+  <td class="col-expected">{expected_str}</td>
+  <td class="col-avg-sessions">{c['avg_sessions']}{flag}</td>
   <td class="col-avg-duration">{format_duration(c['avg_duration_seconds'])}</td>
   <td class="col-avg-cost">{format_cost(c['avg_cost'])}</td>
 </tr>\n"""
@@ -370,6 +425,7 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
         <tr>
           <th>Complexity</th>
           <th style="text-align:right">Tasks</th>
+          <th style="text-align:right">Expected Sessions</th>
           <th style="text-align:right">Avg Sessions</th>
           <th style="text-align:right">Avg Duration</th>
           <th style="text-align:right">Avg Cost</th>
@@ -677,6 +733,69 @@ tfoot td {{
   white-space: nowrap;
 }}
 
+.col-expected {{
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}}
+
+.tier-exceeds {{
+  background: #fef2f2;
+}}
+
+.tier-exceeds .col-avg-sessions {{
+  color: #dc2626;
+  font-weight: 700;
+}}
+
+.tier-flag {{
+  font-size: 0.75rem;
+}}
+
+.col-deviation {{
+  text-align: center;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+}}
+
+.deviation-na {{
+  color: var(--text-muted);
+}}
+
+.deviation-ok {{
+  color: #16a34a;
+  font-weight: 600;
+}}
+
+.deviation-high {{
+  color: #d97706;
+  font-weight: 600;
+}}
+
+.deviation-outlier {{
+  color: #dc2626;
+  font-weight: 700;
+  background: #fef2f2;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+}}
+
+@media (prefers-color-scheme: dark) {{
+  .tier-exceeds {{
+    background: #7f1d1d;
+  }}
+  .tier-exceeds .col-avg-sessions {{
+    color: #fca5a5;
+  }}
+  .deviation-outlier {{
+    background: #7f1d1d;
+    color: #fca5a5;
+  }}
+}}
+
 /* Filter bar */
 .filter-bar {{
   display: flex;
@@ -825,6 +944,7 @@ tfoot td {{
           <th data-col="6" data-type="num" style="text-align:right">Tokens In <span class="sort-arrow">\u25B2</span></th>
           <th data-col="7" data-type="num" style="text-align:right">Tokens Out <span class="sort-arrow">\u25B2</span></th>
           <th data-col="8" data-type="num" style="text-align:right">Cost <span class="sort-arrow">\u25B2</span></th>
+          <th data-col="9" data-type="num" style="text-align:center">Deviation <span class="sort-arrow">\u25B2</span></th>
         </tr>
       </thead>
       <tbody id="metricsBody">
@@ -836,6 +956,7 @@ tfoot td {{
           <td class="col-tokens-in" id="footerTokensIn">{format_number(total_tokens_in)}</td>
           <td class="col-tokens-out" id="footerTokensOut">{format_number(total_tokens_out)}</td>
           <td class="col-cost" id="footerCost">{format_cost(total_cost)}</td>
+          <td></td>
         </tr>
       </tfoot>
     </table>
