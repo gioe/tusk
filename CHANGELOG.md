@@ -6,6 +6,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [127] - 2026-02-19
+
+### Added
+
+- `tusk autoclose` command — runs all three groom-backlog pre-checks (expired deferred, merged PRs, moot contingent) in a single call with JSON summary output
+
+### Changed
+
+- `/groom-backlog` pre-check step now calls `tusk autoclose` instead of a counting query + AUTO-CLOSE.md companion file read + multi-step loops
+
 ## [126] - 2026-02-19
 
 ### Added

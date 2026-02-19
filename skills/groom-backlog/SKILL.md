@@ -21,49 +21,21 @@ This returns a JSON object with three keys:
 - **`backlog`** — all open tasks as an array of objects. Use this as the primary backlog data for Step 1 (you still need the dependency queries below).
 - **`conventions`** — learned project heuristics (string, may be empty). If non-empty and contains convention entries (not just the header comment), hold in context as **preamble rules** for the analysis in Steps 1–2. Conventions influence how you evaluate tasks — for example, a convention about file coupling patterns may reveal that two apparently separate tasks are really one piece of work (candidates for merging), or that a task is missing implicit sub-work.
 
-## Pre-Check: Count Auto-Close Candidates
+## Pre-Check: Auto-Close Stale Tasks
 
-Run a single combined query to determine which auto-close steps (0, 0b, 0c) have work to do. Steps with a zero count are skipped entirely.
+Run all three auto-close checks (expired deferred, merged PRs, moot contingent) in a single command:
 
 ```bash
-tusk -header -column "
-SELECT
-  (SELECT COUNT(*) FROM tasks
-   WHERE summary LIKE '%[Deferred]%'
-     AND status = 'To Do'
-     AND expires_at IS NOT NULL
-     AND expires_at < datetime('now')
-  ) AS expired_deferred,
-
-  (SELECT COUNT(*) FROM tasks
-   WHERE status = 'In Progress'
-     AND github_pr IS NOT NULL
-     AND github_pr <> ''
-  ) AS in_progress_with_pr,
-
-  (SELECT COUNT(*) FROM tasks t
-   JOIN task_dependencies d ON t.id = d.task_id
-   JOIN tasks upstream ON d.depends_on_id = upstream.id
-   WHERE t.status <> 'Done'
-     AND d.relationship_type = 'contingent'
-     AND upstream.status = 'Done'
-     AND upstream.closed_reason IN ('wont_do', 'expired')
-  ) AS moot_contingent
-"
+tusk autoclose
 ```
 
-Interpret the results:
-- If **all three counts are zero**: report "No auto-close candidates found — skipping Steps 0/0b/0c" and jump directly to **Step 1**.
-- If any count is non-zero, read the companion file for auto-close steps:
+This returns a JSON summary with counts and task IDs per category:
+- `expired_deferred` — deferred tasks past their 60-day expiry (closed as `expired`)
+- `merged_prs` — In Progress tasks whose GitHub PR is already merged (closed as `completed`)
+- `moot_contingent` — tasks contingent on upstream work that closed as `wont_do`/`expired` (closed as `wont_do`)
+- `flagged_for_review` — (if present) In Progress tasks whose PR was closed without merging — flag these for user review in Step 3
 
-  ```
-  Read file: <base_directory>/AUTO-CLOSE.md
-  ```
-
-  Where `<base_directory>` is the skill base directory shown at the top of this file. Execute **only** the steps whose count is non-zero:
-  - `expired_deferred > 0` → run **Step 0**
-  - `in_progress_with_pr > 0` → run **Step 0b**
-  - `moot_contingent > 0` → run **Step 0c**
+If `total_closed` is 0, report "No auto-close candidates found" and proceed to Step 1. Otherwise, report the counts before continuing.
 
 ## Step 1: Fetch Dependency Data
 
