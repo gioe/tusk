@@ -38,6 +38,11 @@ bin/tusk criteria list <task_id>
 bin/tusk criteria done <criterion_id>
 bin/tusk criteria reset <criterion_id>
 
+# Downstream sub-DAG operations
+bin/tusk chain scope <head_task_id>     # JSON: all downstream tasks with depths
+bin/tusk chain frontier <head_task_id>  # JSON: ready tasks within scope
+bin/tusk chain status <head_task_id>    # Human-readable progress summary
+
 # Manage task dependencies
 bin/tusk deps add <task_id> <depends_on_id> [--type blocks|contingent]
 bin/tusk deps remove <task_id> <depends_on_id>
@@ -116,6 +121,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - `bin/tusk-dag.py` — Interactive DAG visualization (invoked via `tusk dag`). Renders task dependencies as a Mermaid.js graph with status-colored nodes, complexity-based shapes, and a click-to-inspect sidebar showing per-task metrics.
 - `bin/tusk-dashboard.py` — Static HTML dashboard generator (invoked via `tusk dashboard`). Queries the `task_metrics` view for per-task token counts and cost, writes a self-contained HTML file, and opens it in the browser.
 - `bin/tusk-criteria.py` — Acceptance criteria management (invoked via `tusk criteria`). Supports add, list, done, and reset subcommands for per-task acceptance criteria tracking.
+- `bin/tusk-chain.py` — Downstream sub-DAG operations (invoked via `tusk chain`). Implements `scope` (BFS JSON dump with depths and completion counts), `frontier` (ready tasks within scope), and `status` (human-readable progress summary).
 - `bin/tusk-deps.py` — Dependency graph management (invoked via `tusk deps`). Validates no self-deps and no cycles before inserting.
 - `bin/tusk-task-start.py` — Task start consolidation (invoked via `tusk task-start`). Fetches task, checks prior progress, reuses or creates a session, sets status to In Progress, and returns a JSON blob with all details.
 - `bin/tusk-progress.py` — Progress checkpoint logging (invoked via `tusk progress`). Gathers commit hash, message, and changed files from HEAD via git, then inserts a `task_progress` row. Replaces the 4-command manual checkpoint sequence.

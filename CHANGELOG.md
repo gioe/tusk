@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [104] - 2026-02-19
+
+### Added
+
+- `tusk chain` CLI command with `scope`, `frontier`, and `status` subcommands for downstream sub-DAG operations scoped to a head task
+
 ## [103] - 2026-02-19
 
 ### Changed
