@@ -36,6 +36,9 @@ Analyze the full conversation context. Look for:
 - **Category A**: Process improvements — friction in skills, CLAUDE.md, tooling
 - **Category B**: Tangential issues — bugs, tech debt, architectural concerns discovered out of scope
 - **Category C**: Follow-up work — incomplete items, deferred decisions, edge cases
+- **Category D**: Conventions — generalizable project heuristics worth codifying (file coupling patterns, decomposition rules, naming conventions, workflow patterns that recur across sessions)
+
+Category D examples: "bin/tusk-*.py always needs a dispatcher entry in bin/tusk", "schema migrations require bumping both user_version and tusk init", "skills that INSERT tasks must run dupe check first".
 
 If **all categories are empty**, report "Clean session — no findings" and stop. Do not fetch config or backlog.
 
@@ -63,14 +66,41 @@ If **all categories are empty**, report "Clean session — no findings" and stop
    ```
    Use unquoted `NULL` for empty fields. Skip subsumption and dependency proposals.
 
+### LR-2b: Write Conventions (only if Category D has findings)
+
+For each Category D finding, check whether it is already captured in `tusk/conventions.md`:
+
+```bash
+tusk conventions
+```
+
+Skip any convention whose meaning is already present (even if worded differently). For each new convention, append it:
+
+```bash
+tusk "SELECT id FROM task_sessions WHERE task_id = (SELECT id FROM tasks WHERE status = 'Done' ORDER BY updated_at DESC LIMIT 1) ORDER BY id DESC LIMIT 1"
+```
+
+Use the session ID and current date to stamp the entry. Append to `tusk/conventions.md` using this format (one block per convention):
+
+```markdown
+
+## <short title>
+_Source: session <session_id> — <YYYY-MM-DD>_
+
+<one-to-two sentence description of the convention and when it applies>
+```
+
+Do not reorder or delete existing entries — always append at the end of the file.
+
 ### LR-3: Report
 
 ```markdown
 ## Retrospective Complete (Lightweight)
 
 **Session**: <what was accomplished>
-**Findings**: X total (A process / B tangential / C follow-up)
+**Findings**: X total (A process / B tangential / C follow-up / D conventions)
 **Created**: N tasks (#id, #id)
+**Conventions written**: K new (L skipped as duplicates)
 **Skipped**: M duplicates
 ```
 

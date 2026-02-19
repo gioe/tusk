@@ -114,7 +114,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - **`/create-task`** — Decomposes freeform text (feature specs, meeting notes, bug reports) into structured, deduplicated tasks
 - **`/check-dupes`** — Similarity-based duplicate detection (uses `difflib.SequenceMatcher`, thresholds 0.60–0.82)
 - **`/manage-dependencies`** — Add/remove/query task dependencies with circular dependency prevention (DFS)
-- **`/retro`** — Post-session retrospective: reviews conversation history, surfaces process improvements and tangential issues, creates follow-up tasks
+- **`/retro`** — Post-session retrospective: reviews conversation history, surfaces process improvements and tangential issues, creates follow-up tasks, and writes generalizable conventions to `tusk/conventions.md`
 - **`/reconfigure`** — Update domains, agents, task types, and other config settings post-install without losing data
 - **`/tusk-init`** — Interactive setup wizard: scans codebase, suggests domains/agents, writes config, appends CLAUDE.md snippet, seeds tasks from TODOs or project description
 - **`/lint-conventions`** — Checks codebase against Key Conventions using grep-based rules

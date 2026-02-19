@@ -11,6 +11,7 @@ Analyze the full conversation context. Look for:
 - **Tangential issues** — test failures, tech debt, bugs discovered out of scope
 - **Incomplete work** — deferred decisions, TODOs, partial implementations
 - **Failed approaches** — strategies that didn't work and why
+- **Conventions** — generalizable heuristics: file coupling patterns, decomposition rules, naming conventions, workflow patterns that recur across sessions
 
 Review the entire session, not just the most recent messages.
 
@@ -25,7 +26,7 @@ Store config values for metadata assignment. Hold the backlog for semantic dupli
 
 ## Step 3: Categorize Findings
 
-Organize into three categories:
+Organize into four categories:
 
 ### Category A: Process Improvements
 Changes to skills, CLAUDE.md, or tooling that would have made the session smoother (misleading instructions, missing conventions, skill gaps).
@@ -35,6 +36,9 @@ Problems discovered during the session that were out of scope but need tracking 
 
 ### Category C: Follow-up Work
 Incomplete items, deferred decisions, or next steps (partial implementations, punted decisions, unhandled edge cases).
+
+### Category D: Conventions
+Generalizable project heuristics worth codifying — file coupling patterns (e.g., "X and Y always change together"), decomposition rules (e.g., "don't split mechanical consequences into separate tasks"), naming conventions, or workflow patterns that recur across sessions. These are written to `tusk/conventions.md`, not filed as tasks.
 
 If a category has no findings, note that explicitly — an empty category is a positive signal.
 
@@ -85,6 +89,9 @@ Brief (2-3 sentence) overview of what the session accomplished.
 ### Category C: Follow-up Work (N findings)
 1. **<title>** — <description>
    → Proposed: <summary> | <priority> | <task_type> | <domain>
+
+### Category D: Conventions (N findings) (omit if none)
+1. **<short title>** — <description of the heuristic>
 
 ### Duplicates Already Tracked (omit if none)
 | Finding | Matched Task | Similarity |
@@ -137,14 +144,41 @@ Present a numbered table for approval:
 
 Then insert approved dependencies with `tusk deps add <task_id> <depends_on_id> [--type contingent]`.
 
+### 5d: Write Conventions (only if Category D has findings)
+
+Read existing conventions to avoid duplicates:
+
+```bash
+tusk conventions
+```
+
+Skip any convention whose meaning is already captured (even if worded differently). For each new convention, look up the current session ID:
+
+```bash
+tusk "SELECT id FROM task_sessions WHERE task_id = (SELECT id FROM tasks WHERE status = 'Done' ORDER BY updated_at DESC LIMIT 1) ORDER BY id DESC LIMIT 1"
+```
+
+Append each new convention to `tusk/conventions.md` using this format:
+
+```markdown
+
+## <short title>
+_Source: session <session_id> — <YYYY-MM-DD>_
+
+<one-to-two sentence description of the convention and when it applies>
+```
+
+Do not reorder or delete existing entries — always append at the end of the file.
+
 ## Step 6: Report Results
 
 ```markdown
 ## Retrospective Complete
 
 **Session**: <what was accomplished>
-**Findings**: A process / B tangential / C follow-up
+**Findings**: A process / B tangential / C follow-up / D conventions
 **Created**: N tasks (#id, #id)
+**Conventions written**: K new (L skipped as duplicates)
 **Subsumed**: S findings into existing tasks (#id)
 **Dependencies added**: D (if any were created)
 **Skipped**: M duplicates
