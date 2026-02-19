@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [118] - 2026-02-19
+
+### Added
+
+- Estimation accuracy insights to dashboard — complexity tier rows now show expected session ranges alongside actuals with warning flags when tiers exceed expectations, and a per-task deviation column highlights how far each completed task's sessions differ from its tier average (outliers > +100% highlighted in red)
+
 ## [117] - 2026-02-19
 
 ### Added
