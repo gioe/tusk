@@ -34,6 +34,10 @@ WHERE t.status = 'To Do'
     JOIN tasks blocker ON d.depends_on_id = blocker.id
     WHERE d.task_id = t.id AND blocker.status <> 'Done'
   )
+  AND NOT EXISTS (
+    SELECT 1 FROM external_blockers eb
+    WHERE eb.task_id = t.id AND eb.is_resolved = 0
+  )
 ORDER BY t.priority_score DESC, t.id
 LIMIT 1;
 "
@@ -59,7 +63,7 @@ Do **not** suggest `/groom-backlog` or `/retro` when there are no ready tasks â€
 
 Then ask the user whether to proceed or request a smaller task. If the user chooses a smaller task, re-run the query excluding L and XL:
 
-Re-run the query above, adding `AND t.complexity NOT IN ('L', 'XL')` to the WHERE clause.
+Re-run the query above, adding `AND t.complexity NOT IN ('L', 'XL')` to the WHERE clause. (The external_blockers filter is already included in the base query.)
 
 If no smaller task is available, inform the user and offer to proceed with the original L/XL task.
 

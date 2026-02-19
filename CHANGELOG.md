@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [103] - 2026-02-19
+
+### Changed
+
+- `/next-task` skill now skips tasks with unresolved external blockers (joins `external_blockers` table) in all ready-task queries (default, list, preview) and shows external blockers in the `blocked` subcommand
+
 ## [102] - 2026-02-18
 
 ### Added
