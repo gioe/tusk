@@ -15,14 +15,13 @@ Analyze the full conversation context. Look for:
 
 Review the entire session, not just the most recent messages.
 
-## Step 2: Read Config & Backlog
+## Step 2: Fetch Config, Backlog, and Conventions
 
 ```bash
-tusk config
-tusk -header -column "SELECT id, summary, domain, priority FROM tasks WHERE status <> 'Done' ORDER BY id"
+tusk setup
 ```
 
-Store config values for metadata assignment. Hold the backlog for semantic duplicate comparison in Step 3.
+Parse the JSON: use `config` for metadata assignment, `backlog` for semantic duplicate comparison in Step 3, and `conventions` for Step 5d.
 
 ## Step 3: Categorize Findings
 
@@ -146,11 +145,7 @@ Then insert approved dependencies with `tusk deps add <task_id> <depends_on_id> 
 
 ### 5d: Write Conventions (only if Category D has findings)
 
-Read existing conventions to avoid duplicates:
-
-```bash
-tusk conventions
-```
+Check the `conventions` string from `tusk setup` (fetched in Step 2) to avoid duplicates.
 
 Skip any convention whose meaning is already captured (even if worded differently). For each new convention, look up the current session ID:
 

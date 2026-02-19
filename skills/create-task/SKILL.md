@@ -21,35 +21,18 @@ If the user didn't provide any text after the command, ask:
 
 > What would you like to turn into tasks? Paste any text — feature specs, meeting notes, bug reports, requirements, etc.
 
-## Step 2: Read Project Config
+## Step 2: Fetch Config, Backlog, and Conventions
 
-Fetch valid values so tasks conform to the project's configured constraints:
-
-```bash
-tusk config
-```
-
-This returns the full config as JSON (domains, task_types, agents, priorities, complexity, etc.). Store the parsed values for use when assigning metadata. If a field is an empty list (e.g., `"domains": []`), that field has no validation — use your best judgment or leave it NULL.
-
-## Step 2b: Fetch Existing Backlog
-
-Fetch all open tasks so you can cross-reference proposed tasks against them for semantic overlap:
+Fetch everything needed for analysis in a single call:
 
 ```bash
-tusk -header -column "SELECT id, summary, domain, priority FROM tasks WHERE status <> 'Done' ORDER BY id"
+tusk setup
 ```
 
-Hold these in context for Step 3. The heuristic dupe checker (`tusk dupes check`) catches textually similar tasks, but you can catch **semantic** duplicates that differ in wording — e.g., "Implement password reset flow" vs. existing "Add forgot password endpoint" — which the heuristic would miss.
-
-## Step 2c: Read Project Conventions
-
-Fetch learned project heuristics so they inform decomposition decisions:
-
-```bash
-tusk conventions
-```
-
-If the file is missing or contains only the header comment (no convention entries), skip this step silently. Otherwise, hold the conventions in context as **preamble rules** for Step 3 — they take precedence over the generic decomposition guidelines below. For example, a convention like "bin/tusk-*.py always needs a dispatcher entry in bin/tusk" means a new Python script and its dispatcher line belong in the **same** task, not two separate tickets.
+This returns a JSON object with three keys:
+- **`config`** — full project config (domains, task_types, agents, priorities, complexity, etc.). Store for use when assigning metadata. If a field is an empty list (e.g., `"domains": []`), that field has no validation — use your best judgment or leave it NULL.
+- **`backlog`** — all open tasks as an array of objects. Hold in context for Step 3. The heuristic dupe checker (`tusk dupes check`) catches textually similar tasks, but you can catch **semantic** duplicates that differ in wording — e.g., "Implement password reset flow" vs. existing "Add forgot password endpoint" — which the heuristic would miss.
+- **`conventions`** — learned project heuristics (string, may be empty). If non-empty and contains convention entries (not just the header comment), hold in context as **preamble rules** for Step 3 — they take precedence over the generic decomposition guidelines below. For example, a convention like "bin/tusk-*.py always needs a dispatcher entry in bin/tusk" means a new Python script and its dispatcher line belong in the **same** task, not two separate tickets.
 
 ## Step 3: Analyze and Decompose
 

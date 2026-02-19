@@ -44,11 +44,11 @@ If **all categories are empty**, report "Clean session — no findings" and stop
 
 ### LR-2: Create Tasks (only if findings exist)
 
-1. Fetch config and open backlog:
+1. Fetch config, backlog, and conventions in one call:
    ```bash
-   tusk config
-   tusk -header -column "SELECT id, summary, domain, priority FROM tasks WHERE status <> 'Done' ORDER BY id"
+   tusk setup
    ```
+   Parse the JSON: use `config` for metadata assignment, `backlog` for duplicate comparison, and `conventions` for LR-2b.
 
 2. Compare each finding against the backlog for semantic overlap. Drop any already covered.
 
@@ -68,11 +68,7 @@ If **all categories are empty**, report "Clean session — no findings" and stop
 
 ### LR-2b: Write Conventions (only if Category D has findings)
 
-For each Category D finding, check whether it is already captured in `tusk/conventions.md`:
-
-```bash
-tusk conventions
-```
+For each Category D finding, check whether it is already captured in the `conventions` string from `tusk setup` (fetched in LR-2 step 1).
 
 Skip any convention whose meaning is already present (even if worded differently). For each new convention, append it:
 

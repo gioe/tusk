@@ -8,25 +8,18 @@ allowed-tools: Bash, Glob, Grep, Read
 
 Grooms the local task database by identifying completed, redundant, incorrectly prioritized, or unassigned tasks.
 
-## Setup: Discover Project Config
+## Setup: Fetch Config, Backlog, and Conventions
 
-Before grooming, discover valid values for this project:
-
-```bash
-tusk config
-```
-
-This returns the full config as JSON (domains, agents, task_types, priorities, complexity, etc.). Use these values (not hardcoded ones) throughout the grooming process.
-
-## Setup: Read Project Conventions
-
-Fetch learned project heuristics so they inform grooming decisions:
+Before grooming, fetch everything needed in a single call:
 
 ```bash
-tusk conventions
+tusk setup
 ```
 
-If the file is missing or contains only the header comment (no convention entries), skip this step silently. Otherwise, hold the conventions in context as **preamble rules** for the analysis in Steps 1–2. Conventions influence how you evaluate tasks — for example, a convention about file coupling patterns may reveal that two apparently separate tasks are really one piece of work (candidates for merging), or that a task is missing implicit sub-work.
+This returns a JSON object with three keys:
+- **`config`** — full project config (domains, agents, task_types, priorities, complexity, etc.). Use these values (not hardcoded ones) throughout the grooming process.
+- **`backlog`** — all open tasks as an array of objects. Use this as the primary backlog data for Step 1 (you still need the dependency queries below).
+- **`conventions`** — learned project heuristics (string, may be empty). If non-empty and contains convention entries (not just the header comment), hold in context as **preamble rules** for the analysis in Steps 1–2. Conventions influence how you evaluate tasks — for example, a convention about file coupling patterns may reveal that two apparently separate tasks are really one piece of work (candidates for merging), or that a task is missing implicit sub-work.
 
 ## Pre-Check: Count Auto-Close Candidates
 
@@ -72,16 +65,11 @@ Interpret the results:
   - `in_progress_with_pr > 0` → run **Step 0b**
   - `moot_contingent > 0` → run **Step 0c**
 
-## Step 1: Fetch All Backlog Tasks
+## Step 1: Fetch Dependency Data
+
+The backlog tasks are already available from the `tusk setup` call above. Fetch dependency data to supplement:
 
 ```bash
-tusk -header -column "
-SELECT id, summary, status, priority, domain, assignee, complexity, task_type, priority_score
-FROM tasks
-WHERE status <> 'Done'
-ORDER BY priority_score DESC, id
-"
-
 tusk deps blocked
 tusk deps all
 ```
