@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [108] - 2026-02-19
+
+### Added
+
+- `/blockers` skill wrapping `tusk blockers` CLI subcommands for conversational external blocker management
+
 ## [107] - 2026-02-19
 
 ### Added
