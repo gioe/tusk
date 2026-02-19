@@ -87,6 +87,9 @@ bin/tusk task-done <task_id> --reason completed|expired|wont_do|duplicate
 # Insert a task with validation, dupe check, and optional criteria in one call
 bin/tusk task-insert "<summary>" "<description>" [--priority P] [--domain D] [--task-type T] [--assignee A] [--complexity C] [--criteria "..." ...] [--deferred] [--expires-in DAYS]
 
+# Update task fields with config validation
+bin/tusk task-update <task_id> [--priority P] [--domain D] [--task-type T] [--assignee A] [--complexity C] [--summary S] [--description D] [--github-pr URL]
+
 # Create a feature branch for a task
 bin/tusk branch <task_id> <slug>
 
@@ -162,6 +165,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - `bin/tusk-branch.py` — Feature branch creation (invoked via `tusk branch`). Detects default branch (remote HEAD → gh fallback → "main"), checks out and pulls latest, creates `feature/TASK-<id>-<slug>`.
 - `bin/tusk-progress.py` — Progress checkpoint logging (invoked via `tusk progress`). Gathers commit hash, message, and changed files from HEAD via git, then inserts a `task_progress` row. Replaces the 4-command manual checkpoint sequence.
 - `bin/tusk-task-insert.py` — Atomic task creation (invoked via `tusk task-insert`). Validates all enum fields against config, runs heuristic duplicate detection, and inserts the task row + acceptance criteria in one transaction. Replaces the multi-step INSERT + sql-quote + criteria-add pattern in skills.
+- `bin/tusk-task-update.py` — Task field updates with validation (invoked via `tusk task-update`). Accepts a task ID and optional flags for any updatable field, validates enum values against config, and builds a dynamic UPDATE touching only specified columns. Replaces model-composed UPDATE SQL in skills.
 
 ### Database Schema
 

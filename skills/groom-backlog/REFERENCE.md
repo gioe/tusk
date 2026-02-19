@@ -32,7 +32,7 @@ Ask the user to confirm or adjust before applying.
 After approval, update each task:
 
 ```bash
-tusk "UPDATE tasks SET complexity = '<size>', updated_at = datetime('now') WHERE id = <id>"
+tusk task-update <id> --complexity "<size>"
 ```
 
 ## Step 7: Compute Priority Scores (WSJF)

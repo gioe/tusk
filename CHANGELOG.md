@@ -6,6 +6,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [126] - 2026-02-19
+
+### Added
+
+- `tusk task-update` command — validates enum fields against config and updates only specified columns, replacing model-composed UPDATE SQL in skills
+
+### Changed
+
+- `/groom-backlog` Step 5 and Step 6d now use `tusk task-update` instead of raw UPDATE SQL for priority, assignee, and complexity changes
+
 ## [125] - 2026-02-19
 
 ### Added

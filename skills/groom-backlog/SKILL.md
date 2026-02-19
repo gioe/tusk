@@ -178,12 +178,12 @@ tusk task-done <id> --reason wont_do
 
 ### For Priority Changes:
 ```bash
-tusk "UPDATE tasks SET priority = '<New Priority>' WHERE id = <id>"
+tusk task-update <id> --priority "<New Priority>"
 ```
 
 ### For Agent Assignments:
 ```bash
-tusk "UPDATE tasks SET assignee = '<agent-name>' WHERE id = <id>"
+tusk task-update <id> --assignee "<agent-name>"
 ```
 
 ### After All Changes:
