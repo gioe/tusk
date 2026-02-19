@@ -69,7 +69,7 @@ def cmd_scope(conn: sqlite3.Connection, head_id: int):
     # Fetch task details for all tasks in scope
     placeholders = ",".join("?" * len(task_ids))
     rows = conn.execute(
-        f"SELECT id, summary, status, priority, complexity FROM tasks WHERE id IN ({placeholders})",
+        f"SELECT id, summary, status, priority, complexity, assignee, description FROM tasks WHERE id IN ({placeholders})",
         task_ids,
     ).fetchall()
 
@@ -82,9 +82,11 @@ def cmd_scope(conn: sqlite3.Connection, head_id: int):
         tasks.append({
             "id": tid,
             "summary": row["summary"],
+            "description": row["description"],
             "status": row["status"],
             "priority": row["priority"],
             "complexity": row["complexity"],
+            "assignee": row["assignee"],
             "depth": depth_map[tid],
         })
 
