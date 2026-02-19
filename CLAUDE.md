@@ -81,6 +81,9 @@ bin/tusk task-start <task_id>
 # Close a task (closes sessions, sets Done + closed_reason, reports unblocked tasks)
 bin/tusk task-done <task_id> --reason completed|expired|wont_do|duplicate
 
+# Lint, stage, and commit in one step
+bin/tusk commit <task_id> "<message>" <file1> [file2 ...]
+
 # Log a progress checkpoint from the latest git commit
 bin/tusk progress <task_id> [--next-steps "what remains to be done"]
 
@@ -146,6 +149,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - `bin/tusk-deps.py` — Dependency graph management (invoked via `tusk deps`). Validates no self-deps and no cycles before inserting.
 - `bin/tusk-task-start.py` — Task start consolidation (invoked via `tusk task-start`). Fetches task, checks prior progress, reuses or creates a session, sets status to In Progress, and returns a JSON blob with all details.
 - `bin/tusk-task-done.py` — Task closure consolidation (invoked via `tusk task-done`). Closes open sessions, sets status to Done with closed_reason, and returns JSON with newly unblocked tasks.
+- `bin/tusk-commit.py` — Atomic lint-stage-commit (invoked via `tusk commit`). Runs `tusk lint` (advisory), stages listed files, and commits with `[TASK-<id>] <message>` format and Co-Authored-By trailer.
 - `bin/tusk-progress.py` — Progress checkpoint logging (invoked via `tusk progress`). Gathers commit hash, message, and changed files from HEAD via git, then inserts a `task_progress` row. Replaces the 4-command manual checkpoint sequence.
 
 ### Database Schema

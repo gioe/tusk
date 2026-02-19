@@ -120,7 +120,13 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
 
 6. **Delegate the work** to the chosen subagent(s).
 
-7. **Implement, commit, and mark criteria done.** Work through the acceptance criteria from step 1 as your checklist. After each commit:
+7. **Implement, commit, and mark criteria done.** Work through the acceptance criteria from step 1 as your checklist. After each meaningful change, use `tusk commit` to lint, stage, and commit in one step:
+    ```bash
+    tusk commit <id> "<message>" <file1> [file2 ...]
+    ```
+    This runs `tusk lint` (advisory — never blocks), stages the listed files, and commits with the `[TASK-<id>] <message>` format and Co-Authored-By trailer automatically.
+
+    After each commit:
     - Mark any criteria completed by that commit: `tusk criteria done <cid>`
     - Log a progress checkpoint:
       ```bash
@@ -140,7 +146,7 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
     ```
     If any criteria are still incomplete, address them now. If a criterion was intentionally skipped, note why in the PR description.
 
-10. **Run convention lint (advisory)** — check for common convention violations before pushing:
+10. **Run convention lint (advisory)** — `tusk commit` already runs lint before each commit. If you need to check lint independently before pushing:
     ```bash
     tusk lint
     ```

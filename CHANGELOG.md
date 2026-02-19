@@ -6,6 +6,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [122] - 2026-02-19
+
+### Added
+
+- `tusk commit <task_id> "<message>" [files...]` command — runs lint (advisory), stages files, and commits with `[TASK-<id>]` format and Co-Authored-By trailer in one step
+
+### Changed
+
+- `/next-task` skill Step 7 now references `tusk commit` instead of separate lint/add/commit steps
+
 ## [121] - 2026-02-19
 
 ### Added
