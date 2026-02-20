@@ -6,6 +6,7 @@
   "closed_reasons": ["completed", "expired", "wont_do", "duplicate"],
   "complexity": ["XS", "S", "M", "L", "XL"],
   "blocker_types": ["data", "approval", "infra", "external"],
+  "criterion_types": ["manual", "code", "test", "file"],
   "agents": {},
   "dupes": {
     "strip_prefixes": ["Deferred", "Enhancement", "Optional"],
