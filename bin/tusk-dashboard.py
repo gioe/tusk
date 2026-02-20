@@ -98,12 +98,12 @@ def format_duration(seconds) -> str:
 
 
 def format_date(dt_str) -> str:
-    """Format an ISO datetime string as YYYY-MM-DD HH:MM."""
+    """Format an ISO datetime string as YYYY-MM-DD HH:MM:SS."""
     if dt_str is None:
         return '<span class="text-muted-dash">&mdash;</span>'
     try:
         dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
-        return dt.strftime("%Y-%m-%d %H:%M")
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
     except (ValueError, TypeError):
         return esc(dt_str)
 
