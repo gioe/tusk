@@ -174,8 +174,9 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 
 ### Python Scripts
 
+- `bin/tusk-pricing-lib.py` — Shared transcript/pricing utilities (not a CLI command). Provides `load_pricing()`, `resolve_model()`, `parse_timestamp()`, `parse_sqlite_timestamp()`, `derive_project_hash()`, `find_transcript()`, `aggregate_session()`, `compute_cost()`, and `compute_tokens_in()`. Imported by tusk-session-stats.py, tusk-criteria.py, and tusk-session-recalc.py.
 - `bin/tusk-dupes.py` — Duplicate detection against open tasks (invoked via `tusk dupes`). Normalizes summaries by stripping configurable prefixes and uses `difflib.SequenceMatcher` for similarity scoring.
-- `bin/tusk-session-stats.py` — Token/cost tracking for task sessions (invoked via `tusk session-stats`). Parses Claude Code JSONL transcripts, deduplicates by requestId, extracts per-tier cache write tokens (5m/1h), and computes costs using five-term per-model pricing.
+- `bin/tusk-session-stats.py` — Token/cost tracking for task sessions (invoked via `tusk session-stats`). Parses Claude Code JSONL transcripts and updates session rows using shared utilities from tusk-pricing-lib.py.
 - `bin/tusk-dag.py` — Interactive DAG visualization (invoked via `tusk dag`). Renders task dependencies as a Mermaid.js graph with status-colored nodes, complexity-based shapes, and a click-to-inspect sidebar showing per-task metrics.
 - `bin/tusk-dashboard.py` — Static HTML dashboard generator (invoked via `tusk dashboard`). Queries the `task_metrics` view for per-task token counts and cost, writes a self-contained HTML file, and opens it in the browser.
 - `bin/tusk-blockers.py` — External blocker management (invoked via `tusk blockers`). Supports add, list, resolve, remove, blocked (tasks with open blockers), and all subcommands. Validates blocker_type against config.

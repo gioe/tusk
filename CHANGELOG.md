@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [141] - 2026-02-20
+
+### Changed
+
+- Extract shared transcript/pricing utilities into `bin/tusk-pricing-lib.py` — `load_pricing()`, `resolve_model()`, `aggregate_session()`, `compute_cost()`, and related helpers are now defined once and imported by tusk-session-stats.py, tusk-criteria.py, and tusk-session-recalc.py
+
 ## [140] - 2026-02-20
 
 ### Added

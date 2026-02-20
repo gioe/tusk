@@ -15,13 +15,16 @@ import sys
 from pathlib import Path
 
 
-def load_session_stats_module():
-    """Import tusk-session-stats.py as a module (hyphenated filename)."""
-    script_path = Path(__file__).resolve().parent / "tusk-session-stats.py"
-    spec = importlib.util.spec_from_file_location("session_stats", script_path)
+def _load_lib():
+    """Import tusk-pricing-lib.py (hyphenated filename requires importlib)."""
+    lib_path = Path(__file__).resolve().parent / "tusk-pricing-lib.py"
+    spec = importlib.util.spec_from_file_location("tusk_pricing_lib", lib_path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+lib = _load_lib()
 
 
 def find_all_transcripts(project_hash: str) -> list[str]:
@@ -44,10 +47,9 @@ def main():
     db_path = sys.argv[1]
     # argv[2] is config_path (unused here)
 
-    ss = load_session_stats_module()
-    ss.load_pricing()
+    lib.load_pricing()
 
-    project_hash = ss.derive_project_hash(os.getcwd())
+    project_hash = lib.derive_project_hash(os.getcwd())
     transcripts = find_all_transcripts(project_hash)
 
     if not transcripts:
@@ -76,13 +78,13 @@ def main():
 
     for row in rows:
         session_id = row["id"]
-        started_at = ss.parse_sqlite_timestamp(row["started_at"])
-        ended_at = ss.parse_sqlite_timestamp(row["ended_at"]) if row["ended_at"] else None
+        started_at = lib.parse_sqlite_timestamp(row["started_at"])
+        ended_at = lib.parse_sqlite_timestamp(row["ended_at"]) if row["ended_at"] else None
 
         # Try each transcript to find one with matching data
         best_totals = None
         for transcript_path in transcripts:
-            totals = ss.aggregate_session(transcript_path, started_at, ended_at)
+            totals = lib.aggregate_session(transcript_path, started_at, ended_at)
             if totals["request_count"] > 0:
                 best_totals = totals
                 break
@@ -91,13 +93,9 @@ def main():
             skipped += 1
             continue
 
-        tokens_in = (
-            best_totals["input_tokens"]
-            + best_totals["cache_creation_input_tokens"]
-            + best_totals["cache_read_input_tokens"]
-        )
+        tokens_in = lib.compute_tokens_in(best_totals)
         tokens_out = best_totals["output_tokens"]
-        cost = ss.compute_cost(best_totals)
+        cost = lib.compute_cost(best_totals)
         model = best_totals["model"]
 
         conn.execute(

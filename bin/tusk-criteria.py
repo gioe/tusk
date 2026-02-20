@@ -11,169 +11,23 @@ Arguments received from tusk:
 """
 
 import argparse
-import json
+import importlib.util
 import os
 import sqlite3
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
-# ── Pricing / transcript helpers (subset of tusk-session-stats.py) ──
 
-PRICING: dict = {}
-MODEL_ALIASES: dict = {}
-
-
-def load_pricing() -> None:
-    """Load model pricing and aliases from pricing.json."""
-    global PRICING, MODEL_ALIASES
-    script_dir = Path(__file__).resolve().parent
-    candidates = [
-        script_dir / "pricing.json",
-        script_dir.parent / "pricing.json",
-    ]
-    for path in candidates:
-        if path.is_file():
-            with open(path) as f:
-                data = json.load(f)
-            PRICING = data.get("models", {})
-            MODEL_ALIASES = data.get("aliases", {})
-            return
+def _load_lib():
+    """Import tusk-pricing-lib.py (hyphenated filename requires importlib)."""
+    lib_path = Path(__file__).resolve().parent / "tusk-pricing-lib.py"
+    spec = importlib.util.spec_from_file_location("tusk_pricing_lib", lib_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
-def resolve_model(model_id: str) -> str:
-    """Normalize a model ID to a canonical pricing key."""
-    if model_id in PRICING:
-        return model_id
-    if model_id in MODEL_ALIASES:
-        return MODEL_ALIASES[model_id]
-    for key in PRICING:
-        if model_id.startswith(key):
-            return key
-    return model_id
-
-
-def parse_timestamp(ts: str) -> datetime:
-    """Parse an ISO 8601 timestamp, handling both Z and +00:00 suffixes."""
-    ts = ts.replace("Z", "+00:00")
-    return datetime.fromisoformat(ts)
-
-
-def parse_sqlite_timestamp(ts: str) -> datetime:
-    """Parse a SQLite datetime string (UTC, no timezone info)."""
-    return datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-
-
-def find_transcript() -> str | None:
-    """Find the most recently modified JSONL in the Claude projects dir."""
-    cwd = os.getcwd()
-    project_hash = cwd.replace("/", "-")
-    claude_dir = Path.home() / ".claude" / "projects" / project_hash
-    if not claude_dir.is_dir():
-        return None
-    jsonl_files = list(claude_dir.glob("*.jsonl"))
-    if not jsonl_files:
-        return None
-    return str(max(jsonl_files, key=lambda p: p.stat().st_mtime))
-
-
-def aggregate_window(transcript_path: str, started_at: datetime, ended_at: datetime | None) -> dict:
-    """Parse a JSONL transcript and aggregate tokens within the time window.
-
-    Returns dict with token counts, model, and request_count.
-    """
-    seen_requests: set[str] = set()
-    totals = {
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "cache_creation_input_tokens": 0,
-        "cache_creation_5m_tokens": 0,
-        "cache_creation_1h_tokens": 0,
-        "cache_read_input_tokens": 0,
-    }
-    model_counts: dict[str, int] = {}
-    request_count = 0
-
-    with open(transcript_path) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-
-            if entry.get("type") != "assistant":
-                continue
-
-            ts_str = entry.get("timestamp")
-            if not ts_str:
-                continue
-            try:
-                ts = parse_timestamp(ts_str)
-            except (ValueError, TypeError):
-                continue
-
-            if ts < started_at:
-                continue
-            if ended_at and ts > ended_at:
-                continue
-
-            request_id = entry.get("requestId")
-            if not request_id:
-                continue
-            if request_id in seen_requests:
-                continue
-            seen_requests.add(request_id)
-            request_count += 1
-
-            message = entry.get("message", {})
-            usage = message.get("usage", {})
-            if not usage:
-                continue
-
-            totals["input_tokens"] += usage.get("input_tokens", 0)
-            totals["output_tokens"] += usage.get("output_tokens", 0)
-            totals["cache_read_input_tokens"] += usage.get("cache_read_input_tokens", 0)
-
-            cache_creation = usage.get("cache_creation")
-            cache_total = usage.get("cache_creation_input_tokens", 0)
-            if isinstance(cache_creation, dict):
-                totals["cache_creation_5m_tokens"] += cache_creation.get("ephemeral_5m_input_tokens", 0)
-                totals["cache_creation_1h_tokens"] += cache_creation.get("ephemeral_1h_input_tokens", 0)
-            else:
-                totals["cache_creation_5m_tokens"] += cache_total
-            totals["cache_creation_input_tokens"] += cache_total
-
-            model = message.get("model", "")
-            if model:
-                model = resolve_model(model)
-                model_counts[model] = model_counts.get(model, 0) + 1
-
-    dominant_model = ""
-    if model_counts:
-        dominant_model = max(model_counts, key=model_counts.get)
-
-    return {**totals, "model": dominant_model, "request_count": request_count}
-
-
-def compute_cost(totals: dict) -> float:
-    """Compute cost in dollars from token totals and model."""
-    model = totals.get("model", "")
-    rates = PRICING.get(model)
-    if not rates:
-        return 0.0
-
-    mtok = 1_000_000
-    cost = (
-        totals["input_tokens"] / mtok * rates["input"]
-        + totals["cache_creation_5m_tokens"] / mtok * rates["cache_write_5m"]
-        + totals["cache_creation_1h_tokens"] / mtok * rates["cache_write_1h"]
-        + totals["cache_read_input_tokens"] / mtok * rates["cache_read"]
-        + totals["output_tokens"] / mtok * rates["output"]
-    )
-    return round(cost, 6)
+lib = _load_lib()
 
 
 def capture_criterion_cost(conn: sqlite3.Connection, criterion_id: int, task_id: int) -> None:
@@ -183,7 +37,7 @@ def capture_criterion_cost(conn: sqlite3.Connection, criterion_id: int, task_id:
     the active session's started_at, through to now.
     """
     try:
-        load_pricing()
+        lib.load_pricing()
 
         # Find window start: most recent completed_at for same task (excluding this criterion)
         prev = conn.execute(
@@ -194,7 +48,7 @@ def capture_criterion_cost(conn: sqlite3.Connection, criterion_id: int, task_id:
         ).fetchone()
 
         if prev and prev["completed_at"]:
-            window_start = parse_sqlite_timestamp(prev["completed_at"])
+            window_start = lib.parse_sqlite_timestamp(prev["completed_at"])
         else:
             # Fall back to most recent open session for this task
             session = conn.execute(
@@ -203,25 +57,21 @@ def capture_criterion_cost(conn: sqlite3.Connection, criterion_id: int, task_id:
                 (task_id,),
             ).fetchone()
             if session and session["started_at"]:
-                window_start = parse_sqlite_timestamp(session["started_at"])
+                window_start = lib.parse_sqlite_timestamp(session["started_at"])
             else:
                 return  # No window start — skip cost tracking
 
-        transcript_path = find_transcript()
+        transcript_path = lib.find_transcript()
         if not transcript_path or not os.path.isfile(transcript_path):
             return
 
-        totals = aggregate_window(transcript_path, window_start, None)
+        totals = lib.aggregate_session(transcript_path, window_start, None)
         if totals["request_count"] == 0:
             return
 
-        tokens_in = (
-            totals["input_tokens"]
-            + totals["cache_creation_input_tokens"]
-            + totals["cache_read_input_tokens"]
-        )
+        tokens_in = lib.compute_tokens_in(totals)
         tokens_out = totals["output_tokens"]
-        cost = compute_cost(totals)
+        cost = lib.compute_cost(totals)
 
         conn.execute(
             "UPDATE acceptance_criteria "
