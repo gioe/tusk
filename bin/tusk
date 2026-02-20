@@ -455,6 +455,10 @@ CREATE TABLE acceptance_criteria (
     criterion TEXT NOT NULL,
     source TEXT DEFAULT 'original',
     is_completed INTEGER DEFAULT 0,
+    completed_at TEXT,
+    cost_dollars REAL,
+    tokens_in INTEGER,
+    tokens_out INTEGER,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
@@ -488,7 +492,7 @@ EB_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 6;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 7;"
 
   echo "Initialized task database at $DB_PATH"
 }
@@ -719,6 +723,24 @@ cmd_migrate() {
       echo "  Migration 6: created 'external_blockers' table"
     else
       sqlite3 "$DB_PATH" "PRAGMA user_version = 6;"
+    fi
+  fi
+
+  # Migration 6→7: add cost tracking columns to acceptance_criteria
+  if [[ "$current" -lt 7 ]]; then
+    local has_completed_at
+    has_completed_at="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM pragma_table_info('acceptance_criteria') WHERE name = 'completed_at';")"
+    if [[ "$has_completed_at" -eq 0 ]]; then
+      sqlite3 "$DB_PATH" "
+        ALTER TABLE acceptance_criteria ADD COLUMN completed_at TEXT;
+        ALTER TABLE acceptance_criteria ADD COLUMN cost_dollars REAL;
+        ALTER TABLE acceptance_criteria ADD COLUMN tokens_in INTEGER;
+        ALTER TABLE acceptance_criteria ADD COLUMN tokens_out INTEGER;
+        PRAGMA user_version = 7;
+      "
+      echo "  Migration 7: added cost tracking columns to acceptance_criteria"
+    else
+      sqlite3 "$DB_PATH" "PRAGMA user_version = 7;"
     fi
   fi
 
