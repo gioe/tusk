@@ -112,7 +112,7 @@ def fetch_all_criteria(conn: sqlite3.Connection) -> dict[int, list[dict]]:
     """Fetch all acceptance criteria, grouped by task_id."""
     log.debug("Querying acceptance_criteria table")
     rows = conn.execute(
-        """SELECT id, task_id, criterion, is_completed, source, cost_dollars, completed_at
+        """SELECT id, task_id, criterion, is_completed, source, cost_dollars, completed_at, criterion_type
            FROM acceptance_criteria
            ORDER BY task_id, id"""
     ).fetchall()
@@ -363,13 +363,20 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
                 done = cr['is_completed']
                 check = '&#10003;' if done else '&#9711;'
                 css = 'criterion-done' if done else 'criterion-pending'
+                ctype = cr.get("criterion_type") or "manual"
                 source_badge = f' <span class="criterion-source">{esc(cr["source"])}</span>' if cr.get("source") else ''
                 cost_badge = f' <span class="criterion-cost">${cr["cost_dollars"]:.4f}</span>' if cr.get("cost_dollars") else ''
                 time_badge = f' <span class="criterion-time">{format_date(cr["completed_at"])}</span>' if cr.get("completed_at") else ''
-                badges = f'<span class="criterion-badges">{source_badge}{cost_badge}{time_badge}</span>' if source_badge or cost_badge or time_badge else ''
-                criteria_items += f'<div class="criterion-item {css}"><span class="criterion-id">#{cr["id"]}</span> {check} <span class="criterion-text">{esc(cr["criterion"])}</span>{badges}</div>\n'
+                type_badge = f' <span class="criterion-type criterion-type-{esc(ctype)}">{esc(ctype)}</span>'
+                badges = f'<span class="criterion-badges">{type_badge}{source_badge}{cost_badge}{time_badge}</span>'
+                sort_completed = esc(cr.get("completed_at") or "")
+                sort_cost = cr.get("cost_dollars") or 0
+                sort_type = esc(ctype)
+                criteria_items += f'<div class="criterion-item {css}" data-sort-completed="{sort_completed}" data-sort-cost="{sort_cost}" data-sort-type="{sort_type}"><span class="criterion-id">#{cr["id"]}</span> {check} <span class="criterion-text">{esc(cr["criterion"])}</span>{badges}</div>\n'
+
+            sort_bar = """<div class="criteria-sort-bar"><span class="criteria-sort-label">Sort:</span><button class="criteria-sort-btn" data-sort-key="completed">Completed <span class="sort-arrow">&#9650;</span></button><button class="criteria-sort-btn" data-sort-key="cost">Cost <span class="sort-arrow">&#9650;</span></button><button class="criteria-sort-btn" data-sort-key="type">Type <span class="sort-arrow">&#9650;</span></button></div>"""
             task_rows += f"""<tr class="criteria-row" data-parent="{tid}" style="display:none">
-  <td colspan="9"><div class="criteria-detail">{criteria_items}</div></td>
+  <td colspan="9"><div class="criteria-detail">{sort_bar}{criteria_items}</div></td>
 </tr>\n"""
 
     # Empty state
@@ -805,6 +812,102 @@ tr.expandable.expanded .expand-icon {{
   }}
 }}
 
+.criterion-type {{
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  background: #f3e8ff;
+  color: #7c3aed;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}}
+
+.criterion-type-code {{
+  background: #fef3c7;
+  color: #d97706;
+}}
+
+.criterion-type-test {{
+  background: #dcfce7;
+  color: #16a34a;
+}}
+
+.criterion-type-file {{
+  background: #dbeafe;
+  color: #1e40af;
+}}
+
+@media (prefers-color-scheme: dark) {{
+  .criterion-type {{
+    background: #4c1d95;
+    color: #c4b5fd;
+  }}
+  .criterion-type-code {{
+    background: #78350f;
+    color: #fbbf24;
+  }}
+  .criterion-type-test {{
+    background: #14532d;
+    color: #86efac;
+  }}
+  .criterion-type-file {{
+    background: #1e3a5f;
+    color: #93c5fd;
+  }}
+}}
+
+/* Criteria sort bar */
+.criteria-sort-bar {{
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0;
+  margin-bottom: 0.3rem;
+  border-bottom: 1px solid var(--border);
+}}
+
+.criteria-sort-label {{
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-right: 0.2rem;
+}}
+
+.criteria-sort-btn {{
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s;
+  white-space: nowrap;
+}}
+
+.criteria-sort-btn:hover {{
+  border-color: var(--accent);
+  color: var(--accent);
+}}
+
+.criteria-sort-btn .sort-arrow {{
+  display: inline-block;
+  margin-left: 0.2em;
+  font-size: 0.55rem;
+  opacity: 0.3;
+}}
+
+.criteria-sort-btn.sort-asc .sort-arrow,
+.criteria-sort-btn.sort-desc .sort-arrow {{
+  opacity: 1;
+  color: var(--accent);
+}}
+
 .criterion-empty {{
   font-size: 0.8rem;
   color: var(--text-muted);
@@ -1136,6 +1239,70 @@ tr.expandable.expanded .expand-icon {{
     if (!detail) return;
     var isExpanded = row.classList.toggle('expanded');
     detail.style.display = isExpanded ? '' : 'none';
+  }});
+
+  // Criteria sort buttons
+  document.addEventListener('click', function(e) {{
+    var btn = e.target.closest('.criteria-sort-btn');
+    if (!btn) return;
+    e.stopPropagation();
+    var sortKey = btn.getAttribute('data-sort-key');
+    var container = btn.closest('.criteria-detail');
+    if (!container) return;
+    var bar = btn.closest('.criteria-sort-bar');
+    var siblings = bar.querySelectorAll('.criteria-sort-btn');
+    var wasAsc = btn.classList.contains('sort-asc');
+    var wasDesc = btn.classList.contains('sort-desc');
+
+    // Reset all buttons in this bar
+    siblings.forEach(function(s) {{
+      s.classList.remove('sort-asc', 'sort-desc');
+      s.querySelector('.sort-arrow').textContent = '\u25B2';
+    }});
+
+    // Toggle: none -> asc -> desc -> none
+    var dir;
+    if (!wasAsc && !wasDesc) {{
+      dir = 'asc';
+    }} else if (wasAsc) {{
+      dir = 'desc';
+    }} else {{
+      dir = 'none';
+    }}
+
+    if (dir !== 'none') {{
+      btn.classList.add(dir === 'asc' ? 'sort-asc' : 'sort-desc');
+      btn.querySelector('.sort-arrow').textContent = dir === 'asc' ? '\u25B2' : '\u25BC';
+    }}
+
+    var items = Array.prototype.slice.call(container.querySelectorAll('.criterion-item'));
+    if (dir === 'none') {{
+      // Restore original order by criterion ID
+      items.sort(function(a, b) {{
+        var idA = parseInt(a.querySelector('.criterion-id').textContent.replace('#', ''));
+        var idB = parseInt(b.querySelector('.criterion-id').textContent.replace('#', ''));
+        return idA - idB;
+      }});
+    }} else {{
+      var attrName = 'data-sort-' + sortKey;
+      var isNumeric = (sortKey === 'cost');
+      items.sort(function(a, b) {{
+        var vA = a.getAttribute(attrName) || '';
+        var vB = b.getAttribute(attrName) || '';
+        var cmp;
+        if (isNumeric) {{
+          cmp = (parseFloat(vA) || 0) - (parseFloat(vB) || 0);
+        }} else {{
+          cmp = vA.localeCompare(vB);
+        }}
+        return dir === 'asc' ? cmp : -cmp;
+      }});
+    }}
+
+    // Re-insert items after the sort bar
+    items.forEach(function(item) {{
+      container.appendChild(item);
+    }});
   }});
 
   // Sort headers
