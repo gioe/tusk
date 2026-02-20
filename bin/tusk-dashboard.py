@@ -98,12 +98,12 @@ def format_duration(seconds) -> str:
 
 
 def format_date(dt_str) -> str:
-    """Format an ISO datetime string as YYYY-MM-DD."""
+    """Format an ISO datetime string as YYYY-MM-DD HH:MM."""
     if dt_str is None:
         return '<span class="text-muted-dash">&mdash;</span>'
     try:
         dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
-        return dt.strftime("%Y-%m-%d")
+        return dt.strftime("%Y-%m-%d %H:%M")
     except (ValueError, TypeError):
         return esc(dt_str)
 
@@ -112,7 +112,7 @@ def fetch_all_criteria(conn: sqlite3.Connection) -> dict[int, list[dict]]:
     """Fetch all acceptance criteria, grouped by task_id."""
     log.debug("Querying acceptance_criteria table")
     rows = conn.execute(
-        """SELECT id, task_id, criterion, is_completed, source, cost_dollars
+        """SELECT id, task_id, criterion, is_completed, source, cost_dollars, completed_at
            FROM acceptance_criteria
            ORDER BY task_id, id"""
     ).fetchall()
@@ -365,7 +365,8 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
                 css = 'criterion-done' if done else 'criterion-pending'
                 source_badge = f' <span class="criterion-source">{esc(cr["source"])}</span>' if cr.get("source") else ''
                 cost_badge = f' <span class="criterion-cost">${cr["cost_dollars"]:.4f}</span>' if cr.get("cost_dollars") else ''
-                badges = f'<span class="criterion-badges">{source_badge}{cost_badge}</span>' if source_badge or cost_badge else ''
+                time_badge = f' <span class="criterion-time">{format_date(cr["completed_at"])}</span>' if cr.get("completed_at") else ''
+                badges = f'<span class="criterion-badges">{source_badge}{cost_badge}{time_badge}</span>' if source_badge or cost_badge or time_badge else ''
                 criteria_items += f'<div class="criterion-item {css}"><span class="criterion-id">#{cr["id"]}</span> {check} <span class="criterion-text">{esc(cr["criterion"])}</span>{badges}</div>\n'
             task_rows += f"""<tr class="criteria-row" data-parent="{tid}" style="display:none">
   <td colspan="9"><div class="criteria-detail">{criteria_items}</div></td>
@@ -782,10 +783,25 @@ tr.expandable.expanded .expand-icon {{
   font-variant-numeric: tabular-nums;
 }}
 
+.criterion-time {{
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  background: #dbeafe;
+  color: #1e40af;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}}
+
 @media (prefers-color-scheme: dark) {{
   .criterion-cost {{
     background: #14532d;
     color: #86efac;
+  }}
+  .criterion-time {{
+    background: #1e3a5f;
+    color: #93c5fd;
   }}
 }}
 
