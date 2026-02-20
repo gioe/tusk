@@ -15,7 +15,9 @@ Flags:
     --task-type <t>       Task type (default: feature)
     --assignee <a>        Assignee (default: NULL)
     --complexity <c>      Complexity (default: M)
-    --criteria <text>     Acceptance criterion (repeatable)
+    --criteria <text>     Acceptance criterion (repeatable, type=manual)
+    --typed-criteria <json>  Typed criterion as JSON (repeatable)
+                             Format: {"text":"...","type":"...","spec":"..."}
     --deferred            Set expires_at to +60 days and prefix summary with [Deferred]
     --expires-in <days>   Set expires_at to +N days
 
@@ -98,6 +100,7 @@ def main(argv: list[str]) -> int:
     assignee = None
     complexity = "M"
     criteria: list[str] = []
+    typed_criteria: list[dict] = []
     deferred = False
     expires_in_days = None
 
@@ -139,6 +142,20 @@ def main(argv: list[str]) -> int:
                 print("Error: --criteria requires a value", file=sys.stderr)
                 return 2
             criteria.append(remaining[i + 1])
+            i += 2
+        elif arg == "--typed-criteria":
+            if i + 1 >= len(remaining):
+                print("Error: --typed-criteria requires a value", file=sys.stderr)
+                return 2
+            try:
+                tc = json.loads(remaining[i + 1])
+            except json.JSONDecodeError as e:
+                print(f"Error: --typed-criteria must be valid JSON: {e}", file=sys.stderr)
+                return 2
+            if not isinstance(tc, dict) or "text" not in tc:
+                print('Error: --typed-criteria must have at least a "text" key', file=sys.stderr)
+                return 2
+            typed_criteria.append(tc)
             i += 2
         elif arg == "--deferred":
             deferred = True
@@ -203,6 +220,17 @@ def main(argv: list[str]) -> int:
         if err:
             errors.append(err)
 
+    # Validate typed criteria
+    criterion_types = config.get("criterion_types", [])
+    spec_required_types = {"code", "test", "file"}
+    for i, tc in enumerate(typed_criteria):
+        ct = tc.get("type", "manual")
+        if criterion_types and ct not in criterion_types:
+            joined = ", ".join(criterion_types)
+            errors.append(f"--typed-criteria[{i}]: invalid type '{ct}'. Valid: {joined}")
+        if ct in spec_required_types and not tc.get("spec"):
+            errors.append(f"--typed-criteria[{i}]: --spec required for type '{ct}'")
+
     if errors:
         for e in errors:
             print(f"Error: {e}", file=sys.stderr)
@@ -254,6 +282,16 @@ def main(argv: list[str]) -> int:
                 "INSERT INTO acceptance_criteria (task_id, criterion, source) "
                 "VALUES (?, ?, 'original')",
                 (task_id, criterion),
+            )
+            cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            criteria_ids.append(cid)
+
+        for tc in typed_criteria:
+            conn.execute(
+                "INSERT INTO acceptance_criteria "
+                "(task_id, criterion, source, criterion_type, verification_spec) "
+                "VALUES (?, ?, 'original', ?, ?)",
+                (task_id, tc["text"], tc.get("type", "manual"), tc.get("spec")),
             )
             cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
             criteria_ids.append(cid)
