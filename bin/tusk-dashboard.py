@@ -48,6 +48,7 @@ def fetch_task_metrics(conn: sqlite3.Connection) -> list[dict]:
                   COALESCE(tm.total_tokens_out, 0) as total_tokens_out,
                   COALESCE(tm.total_cost, 0) as total_cost,
                   tm.complexity,
+                  tm.priority_score,
                   s.model,
                   tm.created_at,
                   tm.updated_at
@@ -348,10 +349,14 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
         if has_criteria:
             row_classes.append('expandable')
         cls_attr = f' class="{" ".join(row_classes)}"' if row_classes else ''
+        priority_score = t.get('priority_score') or 0
+        complexity_val = esc(t.get('complexity') or '')
         task_rows += f"""<tr{cls_attr} data-status="{status_val}" data-summary="{esc(t['summary']).lower()}" data-task-id="{tid}">
   <td class="col-id" data-sort="{tid}">{toggle_icon}#{tid}</td>
   <td class="col-summary">{esc(t['summary'])}</td>
   <td class="col-status"><span class="status-badge status-{status_val.lower().replace(' ', '-')}">{status_val}</span></td>
+  <td class="col-wsjf" data-sort="{priority_score}">{priority_score}</td>
+  <td class="col-complexity">{f'<span class="complexity-badge">{complexity_val}</span>' if complexity_val else ''}</td>
   <td class="col-date" data-sort="{esc(t.get('created_at') or '')}">{format_date(t.get('created_at'))}</td>
   <td class="col-date" data-sort="{esc(t.get('updated_at') or '')}">{format_date(t.get('updated_at'))}</td>
   <td class="col-model">{esc(t.get('model') or '')}</td>
@@ -380,12 +385,12 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
             sort_bar = """<div class="criteria-sort-bar"><span class="criteria-sort-label">Sort:</span><button class="criteria-sort-btn" data-sort-key="completed">Completed <span class="sort-arrow">&#9650;</span></button><button class="criteria-sort-btn" data-sort-key="cost">Cost <span class="sort-arrow">&#9650;</span></button><button class="criteria-sort-btn" data-sort-key="type">Type <span class="sort-arrow">&#9650;</span></button></div>"""
             criteria_header = """<div class="criteria-header"><span class="criterion-id">ID</span><span class="criteria-header-status">Status</span><span class="criterion-text">Criterion</span><span class="criterion-badges"><span class="criteria-header-label">Type</span><span class="criteria-header-label">Cost</span><span class="criteria-header-label">Completed At</span></span></div>"""
             task_rows += f"""<tr class="criteria-row" data-parent="{tid}" style="display:none">
-  <td colspan="9"><div class="criteria-detail">{sort_bar}{criteria_header}{criteria_items}</div></td>
+  <td colspan="11"><div class="criteria-detail">{sort_bar}{criteria_header}{criteria_items}</div></td>
 </tr>\n"""
 
     # Empty state
     if not task_metrics:
-        task_rows = '<tr><td colspan="9" class="empty">No tasks found. Run <code>tusk init</code> and add some tasks.</td></tr>'
+        task_rows = '<tr><td colspan="11" class="empty">No tasks found. Run <code>tusk init</code> and add some tasks.</td></tr>'
 
     # Complexity metrics section
     complexity_section = ""
@@ -588,6 +593,14 @@ tfoot td {{
   font-variant-numeric: tabular-nums;
   font-size: 0.8rem;
   color: var(--text-muted);
+}}
+
+.col-wsjf {{
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 0.8rem;
 }}
 
 .col-tokens-in,
@@ -1086,12 +1099,14 @@ tr.expandable.expanded .expand-icon {{
           <th data-col="0" data-type="num">ID <span class="sort-arrow">\u25B2</span></th>
           <th data-col="1" data-type="str">Task <span class="sort-arrow">\u25B2</span></th>
           <th data-col="2" data-type="str">Status <span class="sort-arrow">\u25B2</span></th>
-          <th data-col="3" data-type="str">Started <span class="sort-arrow">\u25B2</span></th>
-          <th data-col="4" data-type="str" class="sort-desc">Last Updated <span class="sort-arrow">\u25BC</span></th>
-          <th data-col="5" data-type="str">Model <span class="sort-arrow">\u25B2</span></th>
-          <th data-col="6" data-type="num" style="text-align:right">Tokens In <span class="sort-arrow">\u25B2</span></th>
-          <th data-col="7" data-type="num" style="text-align:right">Tokens Out <span class="sort-arrow">\u25B2</span></th>
-          <th data-col="8" data-type="num" style="text-align:right">Cost <span class="sort-arrow">\u25B2</span></th>
+          <th data-col="3" data-type="num" style="text-align:right">WSJF <span class="sort-arrow">\u25B2</span></th>
+          <th data-col="4" data-type="str">Size <span class="sort-arrow">\u25B2</span></th>
+          <th data-col="5" data-type="str">Started <span class="sort-arrow">\u25B2</span></th>
+          <th data-col="6" data-type="str" class="sort-desc">Last Updated <span class="sort-arrow">\u25BC</span></th>
+          <th data-col="7" data-type="str">Model <span class="sort-arrow">\u25B2</span></th>
+          <th data-col="8" data-type="num" style="text-align:right">Tokens In <span class="sort-arrow">\u25B2</span></th>
+          <th data-col="9" data-type="num" style="text-align:right">Tokens Out <span class="sort-arrow">\u25B2</span></th>
+          <th data-col="10" data-type="num" style="text-align:right">Cost <span class="sort-arrow">\u25B2</span></th>
         </tr>
       </thead>
       <tbody id="metricsBody">
@@ -1099,7 +1114,7 @@ tr.expandable.expanded .expand-icon {{
       </tbody>
       <tfoot>
         <tr>
-          <td colspan="6" id="footerLabel">Total</td>
+          <td colspan="8" id="footerLabel">Total</td>
           <td class="col-tokens-in" id="footerTokensIn">{format_number(total_tokens_in)}</td>
           <td class="col-tokens-out" id="footerTokensOut">{format_number(total_tokens_out)}</td>
           <td class="col-cost" id="footerCost">{format_cost(total_cost)}</td>
@@ -1141,7 +1156,7 @@ tr.expandable.expanded .expand-icon {{
   var filtered = allRows.slice();
   var currentPage = 1;
   var pageSize = 25;
-  var sortCol = 4;
+  var sortCol = 6;
   var sortAsc = false;
   var statusFilter = 'All';
   var searchTerm = '';
@@ -1200,9 +1215,9 @@ tr.expandable.expanded .expand-icon {{
   function updateFooter() {{
     var totalIn = 0, totalOut = 0, totalCost = 0, count = 0;
     filtered.forEach(function(row) {{
-      totalIn += parseFloat(row.children[6].getAttribute('data-sort')) || 0;
-      totalOut += parseFloat(row.children[7].getAttribute('data-sort')) || 0;
-      totalCost += parseFloat(row.children[8].getAttribute('data-sort')) || 0;
+      totalIn += parseFloat(row.children[8].getAttribute('data-sort')) || 0;
+      totalOut += parseFloat(row.children[9].getAttribute('data-sort')) || 0;
+      totalCost += parseFloat(row.children[10].getAttribute('data-sort')) || 0;
       count++;
     }});
     var label = statusFilter === 'All' && !searchTerm ? 'Total' : 'Filtered total (' + count + ' tasks)';
