@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [148] - 2026-02-20
+
+### Changed
+
+- Dashboard criteria panel rewritten to use client-side JSON rendering instead of server-side HTML string building
+
 ## [147] - 2026-02-20
 
 ### Added
