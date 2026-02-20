@@ -890,38 +890,10 @@ tr.expandable.expanded .expand-icon {
   gap: 0.4rem;
 }
 
-.criteria-header {
-  padding: 0.25rem 0;
-  font-size: 0.7rem;
-  font-weight: 700;
-  display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 0.25rem;
-}
-
-.criteria-header-status {
-  min-width: 3.5em;
-  flex-shrink: 0;
-  white-space: nowrap;
-  text-align: center;
-}
-
 .criterion-status {
   min-width: 3.5em;
   flex-shrink: 0;
   text-align: center;
-}
-
-.criteria-header-label {
-  font-size: 0.65rem;
-  font-weight: 700;
-  padding: 0.1rem 0.35rem;
-  color: var(--text-muted);
 }
 
 .criterion-done {
@@ -938,6 +910,12 @@ tr.expandable.expanded .expand-icon {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
   min-width: 2.5em;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.criterion-item:hover .criterion-id {
+  opacity: 1;
 }
 
 .criterion-text {
@@ -1120,12 +1098,16 @@ a.criterion-commit:hover {
   font-style: italic;
 }
 
-/* Criteria view toggle */
-.criteria-view-toggle {
+/* Criteria view mode buttons */
+.criteria-view-modes {
+  display: flex;
+  gap: 0;
+}
+
+.criteria-view-btn {
   font-size: 0.7rem;
   font-weight: 600;
   padding: 0.15rem 0.45rem;
-  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-muted);
@@ -1135,12 +1117,24 @@ a.criterion-commit:hover {
   white-space: nowrap;
 }
 
-.criteria-view-toggle:hover {
+.criteria-view-btn:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.criteria-view-btn:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.criteria-view-btn:not(:first-child) {
+  border-left: none;
+}
+
+.criteria-view-btn:hover {
   border-color: var(--accent);
   color: var(--accent);
 }
 
-.criteria-view-toggle.active {
+.criteria-view-btn.active {
   background: var(--accent);
   color: #fff;
   border-color: var(--accent);
@@ -1226,6 +1220,25 @@ a.criterion-commit:hover {
 
 .criteria-group-all-done .criteria-group-count {
   color: var(--success);
+}
+
+.criteria-group-progress {
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  margin: 0.15rem 0.2rem 0;
+  overflow: hidden;
+}
+
+.criteria-group-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.2s;
+}
+
+.criteria-group-all-done .criteria-group-progress-fill {
+  background: var(--success);
 }
 
 .criteria-group-cost {
@@ -1747,109 +1760,20 @@ def generate_task_row(t: dict, criteria_list: list[dict], task_deps: dict, summa
 </tr>\n"""
 
     if has_criteria:
-        row += generate_criteria_detail(tid, criteria_list, t.get("github_pr"))
+        row += generate_criteria_detail(tid)
 
     return row
 
 
-def generate_criteria_detail(tid: int, criteria_list: list[dict], github_pr: str | None) -> str:
-    """Generate the collapsible criteria detail row for a task."""
-    pr_url = github_pr or ""
-    repo_url = ""
-    if pr_url and "/pull/" in pr_url:
-        repo_url = pr_url.split("/pull/")[0]
-
-    # Build individual criterion item HTML strings
-    criterion_item_htmls = []
-    for cr in criteria_list:
-        done = cr['is_completed']
-        check = '&#10003;' if done else '&#9711;'
-        css = 'criterion-done' if done else 'criterion-pending'
-        ctype = cr.get("criterion_type") or "manual"
-        source_badge = f' <span class="criterion-source">{esc(cr["source"])}</span>' if cr.get("source") else ''
-        cost_badge = f' <span class="criterion-cost">${cr["cost_dollars"]:.4f}</span>' if cr.get("cost_dollars") else ''
-        time_badge = f' <span class="criterion-time">{format_date(cr["completed_at"])}</span>' if cr.get("completed_at") else ''
-        type_badge = f' <span class="criterion-type criterion-type-{esc(ctype)}">{esc(ctype)}</span>'
-        commit_badge = ''
-        if cr.get("commit_hash"):
-            if repo_url:
-                commit_url = f"{repo_url}/commit/{esc(cr['commit_hash'])}"
-                commit_badge = f' <a href="{commit_url}" class="criterion-commit" target="_blank">{esc(cr["commit_hash"])}</a>'
-            else:
-                commit_badge = f' <span class="criterion-commit">{esc(cr["commit_hash"])}</span>'
-        badges = f'<span class="criterion-badges">{type_badge}{source_badge}{cost_badge}{commit_badge}{time_badge}</span>'
-        sort_completed = esc(cr.get("completed_at") or "")
-        sort_cost = cr.get("cost_dollars") or 0
-        sort_commit = esc(cr.get("commit_hash") or "")
-        item_html = (
-            f'<div class="criterion-item {css}" data-sort-completed="{sort_completed}" '
-            f'data-sort-cost="{sort_cost}" data-sort-commit="{sort_commit}">'
-            f'<span class="criterion-id">#{cr["id"]}</span>'
-            f'<span class="criterion-status">{check}</span>'
-            f'<span class="criterion-text">{esc(cr["criterion"])}</span>'
-            f'{badges}</div>\n'
-        )
-        criterion_item_htmls.append((item_html, cr))
-
-    # Flat view: all items in original order
-    flat_items = ''.join(h for h, _ in criterion_item_htmls)
-
-    # Grouped view: group by commit_hash with collapsible headers
-    commit_groups_html: dict[str | None, list[str]] = {}
-    commit_counts: dict[str | None, dict[str, int]] = {}
-    commit_timestamps: dict[str | None, str] = {}
-    commit_costs: dict[str | None, float] = {}
-    commit_tokens: dict[str | None, int] = {}
-    for item_html, cr in criterion_item_htmls:
-        chash = cr.get("commit_hash") or None
-        commit_groups_html.setdefault(chash, []).append(item_html)
-        if chash not in commit_counts:
-            commit_counts[chash] = {"done": 0, "total": 0}
-            commit_costs[chash] = 0.0
-            commit_tokens[chash] = 0
-        commit_counts[chash]["total"] += 1
-        if cr["is_completed"]:
-            commit_counts[chash]["done"] += 1
-        commit_costs[chash] += cr.get("cost_dollars") or 0
-        commit_tokens[chash] += (cr.get("tokens_in") or 0) + (cr.get("tokens_out") or 0)
-        if chash and cr.get("committed_at") and chash not in commit_timestamps:
-            commit_timestamps[chash] = cr["committed_at"]
-
-    # Order: committed groups by committed_at descending, then Uncommitted last
-    committed_hashes = [h for h in commit_groups_html if h is not None]
-    committed_hashes.sort(key=lambda h: commit_timestamps.get(h, ""), reverse=True)
-    group_order: list[str | None] = committed_hashes
-    if None in commit_groups_html:
-        group_order.append(None)
-
-    grouped_items = ""
-    for chash in group_order:
-        counts = commit_counts[chash]
-        group_cost = commit_costs[chash]
-        group_tokens = commit_tokens[chash]
-        cost_badge = f' <span class="criteria-group-cost">${group_cost:.4f}</span>' if group_cost else ''
-        token_badge = f' <span class="criteria-group-tokens">{group_tokens:,} tok</span>' if group_tokens else ''
-        all_done_cls = " criteria-group-all-done" if counts["done"] == counts["total"] else ""
-        group_key = esc(chash) if chash else "uncommitted"
-        grouped_items += f'<div class="criteria-type-group{all_done_cls}" data-group-type="{group_key}">'
-        if chash:
-            short_hash = esc(chash[:8])
-            if repo_url:
-                commit_link = f'<a href="{repo_url}/commit/{esc(chash)}" class="criteria-group-commit-link" target="_blank">{short_hash}</a>'
-            else:
-                commit_link = f'<span class="criteria-group-commit-hash">{short_hash}</span>'
-            ts = format_date(commit_timestamps.get(chash, ""))
-            ts_span = f' <span class="criteria-group-time">{ts}</span>' if ts else ''
-            grouped_items += f'<div class="criteria-group-header"><span class="criteria-group-icon">&#9654;</span> {commit_link}{ts_span} &mdash; <span class="criteria-group-count">{counts["done"]}/{counts["total"]} done</span>{cost_badge}{token_badge}</div>'
-        else:
-            grouped_items += f'<div class="criteria-group-header"><span class="criteria-group-icon">&#9654;</span> <span class="criteria-group-name">Uncommitted</span> &mdash; <span class="criteria-group-count">{counts["done"]}/{counts["total"]} done</span>{cost_badge}{token_badge}</div>'
-        grouped_items += '<div class="criteria-group-items">'
-        grouped_items += ''.join(commit_groups_html[chash])
-        grouped_items += '</div></div>\n'
-
+def generate_criteria_detail(tid: int) -> str:
+    """Generate the collapsible criteria detail row shell (rendered client-side from JSON)."""
     sort_bar = (
         '<div class="criteria-sort-bar">'
-        '<button class="criteria-view-toggle active" data-view="grouped" title="Switch between grouped and flat views">Grouped</button>'
+        '<div class="criteria-view-modes">'
+        '<button class="criteria-view-btn active" data-view="commit">By Commit</button>'
+        '<button class="criteria-view-btn" data-view="status">By Status</button>'
+        '<button class="criteria-view-btn" data-view="flat">Flat</button>'
+        '</div>'
         '<span class="criteria-sort-sep"></span>'
         '<span class="criteria-sort-label">Sort:</span>'
         '<button class="criteria-sort-btn" data-sort-key="completed">Completed <span class="sort-arrow">&#9650;</span></button>'
@@ -1857,25 +1781,12 @@ def generate_criteria_detail(tid: int, criteria_list: list[dict], github_pr: str
         '<button class="criteria-sort-btn" data-sort-key="commit">Commit <span class="sort-arrow">&#9650;</span></button>'
         '</div>'
     )
-    criteria_header = (
-        '<div class="criteria-header">'
-        '<span class="criterion-id">ID</span>'
-        '<span class="criteria-header-status">Status</span>'
-        '<span class="criterion-text">Criterion</span>'
-        '<span class="criterion-badges">'
-        '<span class="criteria-header-label">Type</span>'
-        '<span class="criteria-header-label">Cost</span>'
-        '<span class="criteria-header-label">Commit</span>'
-        '<span class="criteria-header-label">Completed At</span>'
-        '</span></div>'
-    )
 
     return (
         f'<tr class="criteria-row" data-parent="{tid}" style="display:none">\n'
-        f'  <td colspan="13"><div class="criteria-detail">'
-        f'{sort_bar}{criteria_header}'
-        f'<div class="criteria-grouped-view">{grouped_items}</div>'
-        f'<div class="criteria-flat-view" style="display:none">{flat_items}</div>'
+        f'  <td colspan="13"><div class="criteria-detail" data-tid="{tid}">'
+        f'{sort_bar}'
+        f'<div class="criteria-render-target"></div>'
         f'</div></td>\n'
         f'</tr>\n'
     )
@@ -2284,7 +2195,184 @@ def generate_js() -> str:
     updateFooter();
   }
 
-  // Expand/collapse criteria rows
+  // --- Criteria client-side rendering engine ---
+  var CDATA = window.CRITERIA_DATA || {};
+  var criteriaRendered = {};
+
+  function escHtml(s) {
+    if (s == null) return '';
+    var d = document.createElement('div');
+    d.textContent = String(s);
+    return d.innerHTML;
+  }
+
+  function fmtDate(s) {
+    if (!s) return '';
+    return s.replace(/\.\d+$/, '');
+  }
+
+  function renderCriterionItem(cr, repoUrl) {
+    var done = cr.is_completed;
+    var css = done ? 'criterion-done' : 'criterion-pending';
+    var check = done ? '&#10003;' : '&#9711;';
+    var ctype = cr.criterion_type || 'manual';
+    var badges = '<span class="criterion-badges">';
+    badges += '<span class="criterion-type criterion-type-' + escHtml(ctype) + '">' + escHtml(ctype) + '</span>';
+    if (cr.source) badges += ' <span class="criterion-source">' + escHtml(cr.source) + '</span>';
+    if (cr.cost_dollars) badges += ' <span class="criterion-cost">$' + cr.cost_dollars.toFixed(4) + '</span>';
+    if (cr.commit_hash) {
+      if (repoUrl) {
+        badges += ' <a href="' + repoUrl + '/commit/' + escHtml(cr.commit_hash) + '" class="criterion-commit" target="_blank">' + escHtml(cr.commit_hash) + '</a>';
+      } else {
+        badges += ' <span class="criterion-commit">' + escHtml(cr.commit_hash) + '</span>';
+      }
+    }
+    if (cr.completed_at) badges += ' <span class="criterion-time">' + fmtDate(cr.completed_at) + '</span>';
+    badges += '</span>';
+
+    return '<div class="criterion-item ' + css + '" data-sort-completed="' + escHtml(cr.completed_at || '') + '" '
+      + 'data-sort-cost="' + (cr.cost_dollars || 0) + '" data-sort-commit="' + escHtml(cr.commit_hash || '') + '" data-cid="' + cr.id + '">'
+      + '<span class="criterion-id">#' + cr.id + '</span>'
+      + '<span class="criterion-status">' + check + '</span>'
+      + '<span class="criterion-text">' + escHtml(cr.criterion) + '</span>'
+      + badges + '</div>';
+  }
+
+  function renderGroupHeader(label, labelHtml, done, total, cost, tokens) {
+    var costBadge = cost ? ' <span class="criteria-group-cost">$' + cost.toFixed(4) + '</span>' : '';
+    var tokenBadge = tokens ? ' <span class="criteria-group-tokens">' + tokens.toLocaleString() + ' tok</span>' : '';
+    var pct = total > 0 ? Math.round(done / total * 100) : 0;
+    return '<div class="criteria-group-header"><span class="criteria-group-icon">&#9654;</span> '
+      + labelHtml + ' &mdash; <span class="criteria-group-count">' + done + '/' + total + ' done</span>'
+      + costBadge + tokenBadge + '</div>'
+      + '<div class="criteria-group-progress"><div class="criteria-group-progress-fill" style="width:' + pct + '%"></div></div>';
+  }
+
+  function buildGroup(groupKey, labelHtml, items, repoUrl) {
+    var done = 0, total = items.length, cost = 0, tokens = 0;
+    items.forEach(function(cr) {
+      if (cr.is_completed) done++;
+      cost += cr.cost_dollars || 0;
+      tokens += (cr.tokens_in || 0) + (cr.tokens_out || 0);
+    });
+    var allDone = done === total ? ' criteria-group-all-done' : '';
+    var html = '<div class="criteria-type-group' + allDone + '" data-group-type="' + escHtml(groupKey) + '">';
+    html += renderGroupHeader(groupKey, labelHtml, done, total, cost, tokens);
+    html += '<div class="criteria-group-items">';
+    items.forEach(function(cr) { html += renderCriterionItem(cr, repoUrl); });
+    html += '</div></div>';
+    return html;
+  }
+
+  function renderByCommit(taskData) {
+    var criteria = taskData.criteria;
+    var repoUrl = taskData.repo_url || '';
+    var groups = {};
+    var timestamps = {};
+    criteria.forEach(function(cr) {
+      var h = cr.commit_hash || null;
+      var key = h || '__uncommitted__';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(cr);
+      if (h && cr.committed_at && !timestamps[key]) timestamps[key] = cr.committed_at;
+    });
+    var committed = Object.keys(groups).filter(function(k) { return k !== '__uncommitted__'; });
+    committed.sort(function(a, b) { return (timestamps[b] || '').localeCompare(timestamps[a] || ''); });
+    var order = committed.slice();
+    if (groups['__uncommitted__']) order.push('__uncommitted__');
+
+    var html = '';
+    order.forEach(function(key) {
+      var labelHtml;
+      if (key === '__uncommitted__') {
+        labelHtml = '<span class="criteria-group-name">Uncommitted</span>';
+      } else {
+        var short = escHtml(key.substring(0, 8));
+        var ts = fmtDate(timestamps[key] || '');
+        if (repoUrl) {
+          labelHtml = '<a href="' + repoUrl + '/commit/' + escHtml(key) + '" class="criteria-group-commit-link" target="_blank">' + short + '</a>';
+        } else {
+          labelHtml = '<span class="criteria-group-commit-hash">' + short + '</span>';
+        }
+        if (ts) labelHtml += ' <span class="criteria-group-time">' + ts + '</span>';
+      }
+      html += buildGroup(key, labelHtml, groups[key], repoUrl);
+    });
+    return html;
+  }
+
+  function renderByStatus(taskData) {
+    var criteria = taskData.criteria;
+    var repoUrl = taskData.repo_url || '';
+    var done = [], pending = [];
+    criteria.forEach(function(cr) {
+      if (cr.is_completed) done.push(cr); else pending.push(cr);
+    });
+    var html = '';
+    if (pending.length) {
+      html += buildGroup('pending', '<span class="criteria-group-name">Pending</span>', pending, repoUrl);
+    }
+    if (done.length) {
+      html += buildGroup('done', '<span class="criteria-group-name">Completed</span>', done, repoUrl);
+    }
+    return html;
+  }
+
+  function renderFlat(taskData) {
+    var repoUrl = taskData.repo_url || '';
+    var html = '';
+    taskData.criteria.forEach(function(cr) { html += renderCriterionItem(cr, repoUrl); });
+    return html;
+  }
+
+  function renderCriteria(detail, viewMode) {
+    var tid = detail.getAttribute('data-tid');
+    var taskData = CDATA[tid];
+    if (!taskData) return;
+    var target = detail.querySelector('.criteria-render-target');
+    if (viewMode === 'commit') {
+      target.innerHTML = renderByCommit(taskData);
+    } else if (viewMode === 'status') {
+      target.innerHTML = renderByStatus(taskData);
+    } else {
+      target.innerHTML = renderFlat(taskData);
+    }
+    // Re-apply sort if active
+    var activeSort = detail.querySelector('.criteria-sort-btn.sort-asc, .criteria-sort-btn.sort-desc');
+    if (activeSort) {
+      applyCriteriaSort(detail, activeSort.getAttribute('data-sort-key'),
+        activeSort.classList.contains('sort-asc') ? 'asc' : 'desc');
+    }
+  }
+
+  function getActiveView(detail) {
+    var activeBtn = detail.querySelector('.criteria-view-btn.active');
+    return activeBtn ? activeBtn.getAttribute('data-view') : 'commit';
+  }
+
+  function applyCriteriaSort(detail, sortKey, dir) {
+    function sortItems(container) {
+      var items = Array.prototype.slice.call(container.querySelectorAll(':scope > .criterion-item'));
+      if (dir === 'none') {
+        items.sort(function(a, b) { return parseInt(a.getAttribute('data-cid')) - parseInt(b.getAttribute('data-cid')); });
+      } else {
+        var attrName = 'data-sort-' + sortKey;
+        var isNumeric = (sortKey === 'cost');
+        items.sort(function(a, b) {
+          var vA = a.getAttribute(attrName) || '';
+          var vB = b.getAttribute(attrName) || '';
+          var cmp = isNumeric ? ((parseFloat(vA) || 0) - (parseFloat(vB) || 0)) : vA.localeCompare(vB);
+          return dir === 'asc' ? cmp : -cmp;
+        });
+      }
+      items.forEach(function(item) { container.appendChild(item); });
+    }
+    detail.querySelectorAll('.criteria-group-items').forEach(function(gc) { sortItems(gc); });
+    var flat = detail.querySelector('.criteria-render-target');
+    if (flat && !detail.querySelector('.criteria-type-group')) { sortItems(flat); }
+  }
+
+  // Expand/collapse criteria rows — render on first expand
   body.addEventListener('click', function(e) {
     var row = e.target.closest('tr.expandable');
     if (!row) return;
@@ -2293,31 +2381,23 @@ def generate_js() -> str:
     if (!detail) return;
     var isExpanded = row.classList.toggle('expanded');
     detail.style.display = isExpanded ? '' : 'none';
+    if (isExpanded && !criteriaRendered[tid]) {
+      var cd = detail.querySelector('.criteria-detail');
+      if (cd) renderCriteria(cd, getActiveView(cd));
+      criteriaRendered[tid] = true;
+    }
   });
 
-  // Criteria view toggle (grouped <-> flat)
+  // Criteria view mode buttons
   document.addEventListener('click', function(e) {
-    var toggle = e.target.closest('.criteria-view-toggle');
-    if (!toggle) return;
+    var btn = e.target.closest('.criteria-view-btn');
+    if (!btn) return;
     e.stopPropagation();
-    var detail = toggle.closest('.criteria-detail');
+    var detail = btn.closest('.criteria-detail');
     if (!detail) return;
-    var groupedView = detail.querySelector('.criteria-grouped-view');
-    var flatView = detail.querySelector('.criteria-flat-view');
-    var isGrouped = toggle.getAttribute('data-view') === 'grouped';
-    if (isGrouped) {
-      toggle.setAttribute('data-view', 'flat');
-      toggle.textContent = 'Flat';
-      toggle.classList.remove('active');
-      groupedView.style.display = 'none';
-      flatView.style.display = '';
-    } else {
-      toggle.setAttribute('data-view', 'grouped');
-      toggle.textContent = 'Grouped';
-      toggle.classList.add('active');
-      groupedView.style.display = '';
-      flatView.style.display = 'none';
-    }
+    detail.querySelectorAll('.criteria-view-btn').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    renderCriteria(detail, btn.getAttribute('data-view'));
   });
 
   // Criteria group header collapse/expand
@@ -2335,7 +2415,6 @@ def generate_js() -> str:
     var btn = e.target.closest('.criteria-sort-btn');
     if (!btn) return;
     e.stopPropagation();
-    var sortKey = btn.getAttribute('data-sort-key');
     var detail = btn.closest('.criteria-detail');
     if (!detail) return;
     var bar = btn.closest('.criteria-sort-bar');
@@ -2349,50 +2428,15 @@ def generate_js() -> str:
     });
 
     var dir;
-    if (!wasAsc && !wasDesc) {
-      dir = 'asc';
-    } else if (wasAsc) {
-      dir = 'desc';
-    } else {
-      dir = 'none';
-    }
+    if (!wasAsc && !wasDesc) { dir = 'asc'; }
+    else if (wasAsc) { dir = 'desc'; }
+    else { dir = 'none'; }
 
     if (dir !== 'none') {
       btn.classList.add(dir === 'asc' ? 'sort-asc' : 'sort-desc');
       btn.querySelector('.sort-arrow').textContent = dir === 'asc' ? '\u25B2' : '\u25BC';
     }
-
-    function sortItems(container) {
-      var items = Array.prototype.slice.call(container.querySelectorAll(':scope > .criterion-item'));
-      if (dir === 'none') {
-        items.sort(function(a, b) {
-          var idA = parseInt(a.querySelector('.criterion-id').textContent.replace('#', ''));
-          var idB = parseInt(b.querySelector('.criterion-id').textContent.replace('#', ''));
-          return idA - idB;
-        });
-      } else {
-        var attrName = 'data-sort-' + sortKey;
-        var isNumeric = (sortKey === 'cost');
-        items.sort(function(a, b) {
-          var vA = a.getAttribute(attrName) || '';
-          var vB = b.getAttribute(attrName) || '';
-          var cmp;
-          if (isNumeric) {
-            cmp = (parseFloat(vA) || 0) - (parseFloat(vB) || 0);
-          } else {
-            cmp = vA.localeCompare(vB);
-          }
-          return dir === 'asc' ? cmp : -cmp;
-        });
-      }
-      items.forEach(function(item) { container.appendChild(item); });
-    }
-
-    var groupContainers = detail.querySelectorAll('.criteria-group-items');
-    groupContainers.forEach(function(gc) { sortItems(gc); });
-
-    var flatView = detail.querySelector('.criteria-flat-view');
-    if (flatView) { sortItems(flatView); }
+    applyCriteriaSort(detail, btn.getAttribute('data-sort-key'), dir);
   });
 
   // Sort headers
@@ -2704,6 +2748,22 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
     else:
         task_rows = '<tr><td colspan="13" class="empty">No tasks found. Run <code>tusk init</code> and add some tasks.</td></tr>'
 
+    # Build criteria JSON for client-side rendering
+    criteria_json: dict[int, dict] = {}
+    for t in task_metrics:
+        tid = t['id']
+        cl = all_criteria.get(tid, [])
+        if cl:
+            pr_url = t.get("github_pr") or ""
+            repo_url = ""
+            if pr_url and "/pull/" in pr_url:
+                repo_url = pr_url.split("/pull/")[0]
+            criteria_json[tid] = {
+                "repo_url": repo_url,
+                "criteria": cl,
+            }
+    criteria_script = f'<script>window.CRITERIA_DATA = {json.dumps(criteria_json)};</script>'
+
     # KPI cards
     kpi_html = generate_kpi_cards(kpi_data) if kpi_data else ""
 
@@ -2757,6 +2817,7 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
   </div>{complexity_html}
 </div>
 
+{criteria_script}
 {js}
 
 </body>
