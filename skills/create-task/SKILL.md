@@ -155,6 +155,16 @@ Read file: <base_directory>/DEPENDENCIES.md
 
 Then follow its instructions.
 
+## Step 7b: Recompute Priority Scores
+
+After all insertions and dependency proposals are complete, recompute WSJF scores so the new tasks are immediately ranked in the backlog:
+
+```bash
+tusk wsjf
+```
+
+This is a single bulk UPDATE that takes milliseconds. Run it once — not per-task.
+
 ## Step 8: Report Results
 
 After processing all tasks, show a summary:
@@ -209,6 +219,5 @@ Then, **conditionally** show the updated backlog:
 - **Always confirm before inserting** — never insert tasks without explicit user approval
 - **Always run dupe checks** — check every task against existing open tasks before inserting
 - **Use `tusk sql-quote`** — always wrap user-provided text with `$(tusk sql-quote "...")` in SQL statements
-- **Leave `priority_score` at 0** — let `/groom-backlog` compute scores later
 - **Use configured values only** — read domains, task_types, agents, and priorities from `tusk config`, never hardcode
 - **Adapt to any project** — this skill works with whatever config the target project has
