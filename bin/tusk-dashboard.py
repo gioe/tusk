@@ -52,7 +52,9 @@ def fetch_task_metrics(conn: sqlite3.Connection) -> list[dict]:
                   COALESCE(ac.criteria_total, 0) as criteria_total,
                   COALESCE(ac.criteria_done, 0) as criteria_done,
                   COALESCE(eb.blocker_count, 0) as blocker_count,
-                  COALESCE(eb.open_blockers, 0) as open_blockers
+                  COALESCE(eb.open_blockers, 0) as open_blockers,
+                  tm.created_at,
+                  tm.updated_at
            FROM task_metrics tm
            LEFT JOIN task_sessions s ON s.id = (
                SELECT s2.id FROM task_sessions s2
@@ -134,6 +136,17 @@ def format_blockers(open_blockers: int, total: int) -> str:
     if open_blockers > 0:
         return f'<span class="blocker-open-badge">{open_blockers} open</span>'
     return '<span class="blocker-clear-badge">0 open</span>'
+
+
+def format_date(dt_str) -> str:
+    """Format an ISO datetime string as YYYY-MM-DD."""
+    if dt_str is None:
+        return '<span class="criteria-none">&mdash;</span>'
+    try:
+        dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+        return dt.strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        return esc(dt_str)
 
 
 def format_deviation(task: dict, tier_avgs: dict) -> tuple[str, float]:
@@ -383,6 +396,8 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
   <td class="col-id" data-sort="{t['id']}">#{t['id']}</td>
   <td class="col-summary">{esc(t['summary'])}</td>
   <td class="col-status"><span class="status-badge status-{status_val.lower().replace(' ', '-')}">{status_val}</span></td>
+  <td class="col-date" data-sort="{esc(t.get('created_at') or '')}">{format_date(t.get('created_at'))}</td>
+  <td class="col-date" data-sort="{esc(t.get('updated_at') or '')}">{format_date(t.get('updated_at'))}</td>
   <td class="col-criteria" data-sort="{t['criteria_done']}">{format_criteria(t['criteria_done'], t['criteria_total'])}</td>
   <td class="col-blockers" data-sort="{t['open_blockers']}">{format_blockers(t['open_blockers'], t['blocker_count'])}</td>
   <td class="col-model">{esc(t.get('model') or '')}</td>
@@ -394,7 +409,7 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
 
     # Empty state
     if not task_metrics:
-        task_rows = '<tr><td colspan="10" class="empty">No tasks found. Run <code>tusk init</code> and add some tasks.</td></tr>'
+        task_rows = '<tr><td colspan="12" class="empty">No tasks found. Run <code>tusk init</code> and add some tasks.</td></tr>'
 
     # Complexity metrics section
     complexity_section = ""
@@ -590,6 +605,13 @@ tfoot td {{
   font-size: 0.8rem;
   color: var(--text-muted);
   white-space: nowrap;
+}}
+
+.col-date {{
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+  color: var(--text-muted);
 }}
 
 .col-criteria {{
@@ -938,13 +960,15 @@ tfoot td {{
           <th data-col="0" data-type="num">ID <span class="sort-arrow">\u25B2</span></th>
           <th data-col="1" data-type="str">Task <span class="sort-arrow">\u25B2</span></th>
           <th data-col="2" data-type="str">Status <span class="sort-arrow">\u25B2</span></th>
-          <th data-col="3" data-type="num">Criteria <span class="sort-arrow">\u25B2</span></th>
-          <th data-col="4" data-type="num">Blockers <span class="sort-arrow">\u25B2</span></th>
-          <th data-col="5" data-type="str">Model <span class="sort-arrow">\u25B2</span></th>
-          <th data-col="6" data-type="num" style="text-align:right">Tokens In <span class="sort-arrow">\u25B2</span></th>
-          <th data-col="7" data-type="num" style="text-align:right">Tokens Out <span class="sort-arrow">\u25B2</span></th>
-          <th data-col="8" data-type="num" style="text-align:right">Cost <span class="sort-arrow">\u25B2</span></th>
-          <th data-col="9" data-type="num" style="text-align:center">Deviation <span class="sort-arrow">\u25B2</span></th>
+          <th data-col="3" data-type="str">Started <span class="sort-arrow">\u25B2</span></th>
+          <th data-col="4" data-type="str" class="sort-desc">Last Updated <span class="sort-arrow">\u25BC</span></th>
+          <th data-col="5" data-type="num">Criteria <span class="sort-arrow">\u25B2</span></th>
+          <th data-col="6" data-type="num">Blockers <span class="sort-arrow">\u25B2</span></th>
+          <th data-col="7" data-type="str">Model <span class="sort-arrow">\u25B2</span></th>
+          <th data-col="8" data-type="num" style="text-align:right">Tokens In <span class="sort-arrow">\u25B2</span></th>
+          <th data-col="9" data-type="num" style="text-align:right">Tokens Out <span class="sort-arrow">\u25B2</span></th>
+          <th data-col="10" data-type="num" style="text-align:right">Cost <span class="sort-arrow">\u25B2</span></th>
+          <th data-col="11" data-type="num" style="text-align:center">Deviation <span class="sort-arrow">\u25B2</span></th>
         </tr>
       </thead>
       <tbody id="metricsBody">
@@ -952,7 +976,7 @@ tfoot td {{
       </tbody>
       <tfoot>
         <tr>
-          <td colspan="6" id="footerLabel">Total</td>
+          <td colspan="8" id="footerLabel">Total</td>
           <td class="col-tokens-in" id="footerTokensIn">{format_number(total_tokens_in)}</td>
           <td class="col-tokens-out" id="footerTokensOut">{format_number(total_tokens_out)}</td>
           <td class="col-cost" id="footerCost">{format_cost(total_cost)}</td>
@@ -991,8 +1015,8 @@ tfoot td {{
   var filtered = allRows.slice();
   var currentPage = 1;
   var pageSize = 25;
-  var sortCol = -1;
-  var sortAsc = true;
+  var sortCol = 4;
+  var sortAsc = false;
   var statusFilter = 'All';
   var searchTerm = '';
 
@@ -1050,9 +1074,9 @@ tfoot td {{
   function updateFooter() {{
     var totalIn = 0, totalOut = 0, totalCost = 0, count = 0;
     filtered.forEach(function(row) {{
-      totalIn += parseFloat(row.children[6].getAttribute('data-sort')) || 0;
-      totalOut += parseFloat(row.children[7].getAttribute('data-sort')) || 0;
-      totalCost += parseFloat(row.children[8].getAttribute('data-sort')) || 0;
+      totalIn += parseFloat(row.children[8].getAttribute('data-sort')) || 0;
+      totalOut += parseFloat(row.children[9].getAttribute('data-sort')) || 0;
+      totalCost += parseFloat(row.children[10].getAttribute('data-sort')) || 0;
       count++;
     }});
     var label = statusFilter === 'All' && !searchTerm ? 'Total' : 'Filtered total (' + count + ' tasks)';
@@ -1152,8 +1176,8 @@ tfoot td {{
     if (currentPage < maxP) {{ currentPage++; render(); }}
   }});
 
-  // Initial render
-  render();
+  // Initial render — sort by Last Updated descending
+  applySort();
 }})();
 </script>
 
