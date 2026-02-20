@@ -176,6 +176,23 @@ def format_deviation(task: dict, tier_avgs: dict) -> tuple[str, float]:
     return f'<span class="{css}">{sign}{deviation_pct:.0f}%</span>', deviation_pct
 
 
+def fetch_all_criteria(conn: sqlite3.Connection) -> dict[int, list[dict]]:
+    """Fetch all acceptance criteria, grouped by task_id."""
+    log.debug("Querying acceptance_criteria table")
+    rows = conn.execute(
+        """SELECT task_id, criterion, is_completed, source
+           FROM acceptance_criteria
+           ORDER BY task_id, id"""
+    ).fetchall()
+    result: dict[int, list[dict]] = {}
+    for r in rows:
+        d = dict(r)
+        tid = d["task_id"]
+        result.setdefault(tid, []).append(d)
+    log.debug("Fetched criteria for %d tasks", len(result))
+    return result
+
+
 def fetch_cost_trend(conn: sqlite3.Connection) -> list[dict]:
     """Fetch weekly cost aggregations from task_sessions."""
     log.debug("Querying cost trend data")
@@ -370,7 +387,7 @@ def fetch_complexity_metrics(conn: sqlite3.Connection) -> list[dict]:
     return result
 
 
-def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = None, cost_trend: list[dict] = None) -> str:
+def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = None, cost_trend: list[dict] = None, all_criteria: dict[int, list[dict]] = None) -> str:
     """Generate the full HTML dashboard."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -386,14 +403,25 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
                 tier_avgs[c['complexity']] = c['avg_sessions']
 
     # Task rows — include data attributes for JS filtering/sorting
+    if all_criteria is None:
+        all_criteria = {}
     task_rows = ""
     for t in task_metrics:
         has_data = t["session_count"] > 0
-        muted = "" if has_data else ' class="muted"'
         status_val = esc(t['status'])
         dev_html, dev_raw = format_deviation(t, tier_avgs)
-        task_rows += f"""<tr{muted} data-status="{status_val}" data-summary="{esc(t['summary']).lower()}">
-  <td class="col-id" data-sort="{t['id']}">#{t['id']}</td>
+        tid = t['id']
+        criteria_list = all_criteria.get(tid, [])
+        has_criteria = len(criteria_list) > 0
+        toggle_icon = '<span class="expand-icon">&#9654;</span> ' if has_criteria else ''
+        row_classes = []
+        if not has_data:
+            row_classes.append('muted')
+        if has_criteria:
+            row_classes.append('expandable')
+        cls_attr = f' class="{" ".join(row_classes)}"' if row_classes else ''
+        task_rows += f"""<tr{cls_attr} data-status="{status_val}" data-summary="{esc(t['summary']).lower()}" data-task-id="{tid}">
+  <td class="col-id" data-sort="{tid}">{toggle_icon}#{tid}</td>
   <td class="col-summary">{esc(t['summary'])}</td>
   <td class="col-status"><span class="status-badge status-{status_val.lower().replace(' ', '-')}">{status_val}</span></td>
   <td class="col-date" data-sort="{esc(t.get('created_at') or '')}">{format_date(t.get('created_at'))}</td>
@@ -405,6 +433,22 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
   <td class="col-tokens-out" data-sort="{t['total_tokens_out']}">{format_number(t['total_tokens_out'])}</td>
   <td class="col-cost" data-sort="{t['total_cost']}">{format_cost(t['total_cost'])}</td>
   <td class="col-deviation" data-sort="{dev_raw:.1f}">{dev_html}</td>
+</tr>\n"""
+        # Criteria detail row (hidden by default)
+        criteria_html = ""
+        if has_criteria:
+            criteria_items = ""
+            for cr in criteria_list:
+                done = cr['is_completed']
+                check = '&#10003;' if done else '&#9711;'
+                css = 'criterion-done' if done else 'criterion-pending'
+                source_badge = f' <span class="criterion-source">{esc(cr["source"])}</span>' if cr.get("source") else ''
+                criteria_items += f'<div class="criterion-item {css}">{check} {esc(cr["criterion"])}{source_badge}</div>\n'
+            criteria_html = criteria_items
+        else:
+            criteria_html = '<div class="criterion-empty">No acceptance criteria</div>'
+        task_rows += f"""<tr class="criteria-row" data-parent="{tid}" style="display:none">
+  <td colspan="12"><div class="criteria-detail">{criteria_html}</div></td>
 </tr>\n"""
 
     # Empty state
@@ -818,6 +862,68 @@ tfoot td {{
   }}
 }}
 
+/* Collapsible criteria rows */
+tr.expandable {{
+  cursor: pointer;
+}}
+
+tr.expandable:hover .expand-icon {{
+  color: var(--accent);
+}}
+
+.expand-icon {{
+  display: inline-block;
+  font-size: 0.6rem;
+  transition: transform 0.15s;
+  color: var(--text-muted);
+}}
+
+tr.expandable.expanded .expand-icon {{
+  transform: rotate(90deg);
+}}
+
+.criteria-row td {{
+  padding: 0 !important;
+  border-bottom: 1px solid var(--border);
+}}
+
+.criteria-detail {{
+  padding: 0.5rem 1rem 0.5rem 2.5rem;
+  background: var(--bg);
+}}
+
+.criterion-item {{
+  padding: 0.25rem 0;
+  font-size: 0.8rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}}
+
+.criterion-done {{
+  color: #16a34a;
+}}
+
+.criterion-pending {{
+  color: var(--text-muted);
+}}
+
+.criterion-source {{
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  background: var(--hover);
+  color: var(--text-muted);
+  margin-left: 0.3rem;
+}}
+
+.criterion-empty {{
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-style: italic;
+}}
+
 /* Filter bar */
 .filter-bar {{
   display: flex;
@@ -1011,7 +1117,11 @@ tfoot td {{
 (function() {{
   var body = document.getElementById('metricsBody');
   if (!body) return;
-  var allRows = Array.prototype.slice.call(body.querySelectorAll('tr'));
+  var allRows = Array.prototype.slice.call(body.querySelectorAll('tr:not(.criteria-row)'));
+  var criteriaRows = {{}};
+  body.querySelectorAll('tr.criteria-row').forEach(function(cr) {{
+    criteriaRows[cr.getAttribute('data-parent')] = cr;
+  }});
   var filtered = allRows.slice();
   var currentPage = 1;
   var pageSize = 25;
@@ -1087,8 +1197,9 @@ tfoot td {{
   }}
 
   function render() {{
-    // Hide all rows first
+    // Hide all rows first (task rows and criteria rows)
     allRows.forEach(function(r) {{ r.style.display = 'none'; }});
+    Object.keys(criteriaRows).forEach(function(k) {{ criteriaRows[k].style.display = 'none'; }});
 
     var start, end;
     if (pageSize === 0) {{
@@ -1101,12 +1212,21 @@ tfoot td {{
       end = Math.min(start + pageSize, filtered.length);
     }}
 
-    // Show visible rows in sorted order
+    // Show visible rows in sorted order, keeping criteria rows after parents
     for (var i = 0; i < filtered.length; i++) {{
-      body.appendChild(filtered[i]);  // reorder DOM
+      body.appendChild(filtered[i]);
+      var tid = filtered[i].getAttribute('data-task-id');
+      if (tid && criteriaRows[tid]) {{
+        body.appendChild(criteriaRows[tid]);
+      }}
     }}
     for (var j = start; j < end; j++) {{
       filtered[j].style.display = '';
+      // Show criteria row only if parent is expanded and visible
+      var jtid = filtered[j].getAttribute('data-task-id');
+      if (jtid && criteriaRows[jtid] && filtered[j].classList.contains('expanded')) {{
+        criteriaRows[jtid].style.display = '';
+      }}
     }}
 
     // Pagination info
@@ -1123,6 +1243,17 @@ tfoot td {{
 
     updateFooter();
   }}
+
+  // Expand/collapse criteria rows
+  body.addEventListener('click', function(e) {{
+    var row = e.target.closest('tr.expandable');
+    if (!row) return;
+    var tid = row.getAttribute('data-task-id');
+    var detail = body.querySelector('tr.criteria-row[data-parent="' + tid + '"]');
+    if (!detail) return;
+    var isExpanded = row.classList.toggle('expanded');
+    detail.style.display = isExpanded ? '' : 'none';
+  }});
 
   // Sort headers
   headers.forEach(function(th) {{
@@ -1217,10 +1348,11 @@ def main():
     task_metrics = fetch_task_metrics(conn)
     complexity_metrics = fetch_complexity_metrics(conn)
     cost_trend = fetch_cost_trend(conn)
+    all_criteria = fetch_all_criteria(conn)
     conn.close()
 
     # Generate HTML
-    html_content = generate_html(task_metrics, complexity_metrics, cost_trend)
+    html_content = generate_html(task_metrics, complexity_metrics, cost_trend, all_criteria)
     log.debug("Generated %d bytes of HTML", len(html_content))
 
     # Write to tusk/dashboard.html (same dir as DB)
