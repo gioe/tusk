@@ -135,7 +135,7 @@ def rule5_done_without_closed_reason(root):
     exempt = {"bin/tusk-lint.py"}
     done_re = re.compile(r"status\s*=\s*'Done'", re.IGNORECASE)
     # Matches UPDATE or INSERT that would actually *set* the status
-    write_re = re.compile(r"\b(UPDATE|INSERT)\b", re.IGNORECASE)
+    write_re = re.compile(r"(?<!-)\b(UPDATE|INSERT)\b", re.IGNORECASE)
     select_re = re.compile(r"\bSELECT\b", re.IGNORECASE)
 
     for rel, full in find_files(root, ["skills", "scripts", "bin"], [".md", ".sh", ".py"]):
@@ -145,6 +145,11 @@ def rule5_done_without_closed_reason(root):
         for i, (lineno, line) in enumerate(lines):
             if not done_re.search(line):
                 continue
+
+            # Fast path: if the line itself is a SELECT (no write keywords), skip
+            if select_re.search(line) and not write_re.search(line):
+                continue
+
             # Check surrounding context (same line + 15 lines before)
             # to determine the SQL statement type
             context_start = max(0, i - 15)
