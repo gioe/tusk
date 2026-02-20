@@ -16,6 +16,7 @@
 #   tusk dupes scan            Find all duplicate pairs among open tasks
 #   tusk dupes similar <id>    Find tasks similar to a given ID
 #   tusk session-stats <id>    Populate token/cost stats for a session
+#   tusk session-recalc        Re-run session-stats for all sessions (backfill corrected costs)
 #   tusk session-close <id>    Close a session (duration, diff stats, token stats)
 #   tusk session-close --task-id <id>  Bulk-close all open sessions for a task
 #   tusk criteria add <id> "text" [--source ...]  Add a criterion to a task
@@ -32,7 +33,7 @@
 #   tusk regen-triggers        Drop and recreate validation triggers from config
 #   tusk token-audit [--summary|--json]  Analyze skill token consumption
 #   tusk sync-skills            Regenerate .claude/skills/ symlinks from skills/ + skills-internal/
-#   tusk pricing-update [--dry-run] [--cache-tier 1h]  Fetch and update pricing.json from Anthropic docs
+#   tusk pricing-update [--dry-run]  Fetch and update pricing.json from Anthropic docs
 #   tusk upgrade               Upgrade tusk from GitHub
 #
 # Configuration:
@@ -1087,6 +1088,7 @@ case "${1:-}" in
   blockers) shift; exec python3 "$SCRIPT_DIR/tusk-blockers.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   deps) shift; exec python3 "$SCRIPT_DIR/tusk-deps.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   session-stats) shift; exec python3 "$SCRIPT_DIR/tusk-session-stats.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  session-recalc) shift; exec python3 "$SCRIPT_DIR/tusk-session-recalc.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   session-close) shift; cmd_session_close "$@" ;;
   task-start) shift; exec python3 "$SCRIPT_DIR/tusk-task-start.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   task-done) shift; exec python3 "$SCRIPT_DIR/tusk-task-done.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
@@ -1106,6 +1108,6 @@ case "${1:-}" in
   migrate) cmd_migrate ;;
   regen-triggers) cmd_regen_triggers ;;
   upgrade) cmd_upgrade ;;
-  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|branch|commit|lint|dupes|deps|blockers|criteria|dag|dashboard|wsjf|conventions|setup|autoclose|token-audit|sync-skills|pricing-update|session-stats|session-close|task-start|task-done|task-insert|task-update|progress|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
+  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|branch|commit|lint|dupes|deps|blockers|criteria|dag|dashboard|wsjf|conventions|setup|autoclose|token-audit|sync-skills|pricing-update|session-stats|session-recalc|session-close|task-start|task-done|task-insert|task-update|progress|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac
