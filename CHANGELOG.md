@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [133] - 2026-02-19
+
+### Added
+
+- Dashboard now includes "Started" (created_at) and "Last Updated" (updated_at) date columns with YYYY-MM-DD formatting and default sort by Last Updated descending
+
 ## [132] - 2026-02-19
 
 ### Fixed
