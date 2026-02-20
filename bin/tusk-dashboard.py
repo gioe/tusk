@@ -374,7 +374,8 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
 </tr>\n"""
         # Criteria detail row (hidden by default)
         if has_criteria:
-            criteria_items = ""
+            # Build individual criterion item HTML strings
+            criterion_item_htmls = []
             for cr in criteria_list:
                 done = cr['is_completed']
                 check = '&#10003;' if done else '&#9711;'
@@ -397,12 +398,41 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
                 sort_completed = esc(cr.get("completed_at") or "")
                 sort_cost = cr.get("cost_dollars") or 0
                 sort_type = esc(ctype)
-                criteria_items += f'<div class="criterion-item {css}" data-sort-completed="{sort_completed}" data-sort-cost="{sort_cost}" data-sort-type="{sort_type}"><span class="criterion-id">#{cr["id"]}</span> {check} <span class="criterion-text">{esc(cr["criterion"])}</span>{badges}</div>\n'
+                item_html = f'<div class="criterion-item {css}" data-sort-completed="{sort_completed}" data-sort-cost="{sort_cost}" data-sort-type="{sort_type}"><span class="criterion-id">#{cr["id"]}</span> {check} <span class="criterion-text">{esc(cr["criterion"])}</span>{badges}</div>\n'
+                criterion_item_htmls.append((item_html, cr))
 
-            sort_bar = """<div class="criteria-sort-bar"><span class="criteria-sort-label">Sort:</span><button class="criteria-sort-btn" data-sort-key="completed">Completed <span class="sort-arrow">&#9650;</span></button><button class="criteria-sort-btn" data-sort-key="cost">Cost <span class="sort-arrow">&#9650;</span></button><button class="criteria-sort-btn" data-sort-key="type">Type <span class="sort-arrow">&#9650;</span></button></div>"""
+            # Flat view: all items in original order
+            flat_items = ''.join(h for h, _ in criterion_item_htmls)
+
+            # Grouped view: group by criterion_type with collapsible headers
+            type_order = ["manual", "code", "test", "file"]
+            type_groups_html: dict[str, list[str]] = {}
+            type_counts: dict[str, dict[str, int]] = {}
+            for item_html, cr in criterion_item_htmls:
+                ctype = cr.get("criterion_type") or "manual"
+                type_groups_html.setdefault(ctype, []).append(item_html)
+                if ctype not in type_counts:
+                    type_counts[ctype] = {"done": 0, "total": 0}
+                type_counts[ctype]["total"] += 1
+                if cr["is_completed"]:
+                    type_counts[ctype]["done"] += 1
+
+            grouped_items = ""
+            for ctype in type_order:
+                if ctype not in type_groups_html:
+                    continue
+                counts = type_counts[ctype]
+                all_done_cls = " criteria-group-all-done" if counts["done"] == counts["total"] else ""
+                grouped_items += f'<div class="criteria-type-group{all_done_cls}" data-group-type="{esc(ctype)}">'
+                grouped_items += f'<div class="criteria-group-header"><span class="criteria-group-icon">&#9654;</span> <span class="criteria-group-name">{esc(ctype)}</span> &mdash; <span class="criteria-group-count">{counts["done"]}/{counts["total"]} done</span></div>'
+                grouped_items += '<div class="criteria-group-items">'
+                grouped_items += ''.join(type_groups_html[ctype])
+                grouped_items += '</div></div>\n'
+
+            sort_bar = """<div class="criteria-sort-bar"><button class="criteria-view-toggle active" data-view="grouped" title="Switch between grouped and flat views">Grouped</button><span class="criteria-sort-sep"></span><span class="criteria-sort-label">Sort:</span><button class="criteria-sort-btn" data-sort-key="completed">Completed <span class="sort-arrow">&#9650;</span></button><button class="criteria-sort-btn" data-sort-key="cost">Cost <span class="sort-arrow">&#9650;</span></button><button class="criteria-sort-btn" data-sort-key="type">Type <span class="sort-arrow">&#9650;</span></button></div>"""
             criteria_header = """<div class="criteria-header"><span class="criterion-id">ID</span><span class="criteria-header-status">Status</span><span class="criterion-text">Criterion</span><span class="criterion-badges"><span class="criteria-header-label">Type</span><span class="criteria-header-label">Cost</span><span class="criteria-header-label">Commit</span><span class="criteria-header-label">Completed At</span></span></div>"""
             task_rows += f"""<tr class="criteria-row" data-parent="{tid}" style="display:none">
-  <td colspan="11"><div class="criteria-detail">{sort_bar}{criteria_header}{criteria_items}</div></td>
+  <td colspan="11"><div class="criteria-detail">{sort_bar}{criteria_header}<div class="criteria-grouped-view">{grouped_items}</div><div class="criteria-flat-view" style="display:none">{flat_items}</div></div></td>
 </tr>\n"""
 
     # Empty state
@@ -1002,6 +1032,106 @@ a.criterion-commit:hover {{
   font-style: italic;
 }}
 
+/* Criteria view toggle */
+.criteria-view-toggle {{
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s;
+  white-space: nowrap;
+}}
+
+.criteria-view-toggle:hover {{
+  border-color: var(--accent);
+  color: var(--accent);
+}}
+
+.criteria-view-toggle.active {{
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}}
+
+.criteria-sort-sep {{
+  width: 1px;
+  height: 1em;
+  background: var(--border);
+  margin: 0 0.2rem;
+}}
+
+/* Criteria type groups */
+.criteria-type-group {{
+  margin-bottom: 0.25rem;
+}}
+
+.criteria-type-group:last-child {{
+  margin-bottom: 0;
+}}
+
+.criteria-group-header {{
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.2rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+  border-radius: 4px;
+  transition: background 0.1s;
+}}
+
+.criteria-group-header:hover {{
+  background: var(--hover);
+}}
+
+.criteria-group-icon {{
+  display: inline-block;
+  font-size: 0.55rem;
+  transition: transform 0.15s;
+  color: var(--text-muted);
+  transform: rotate(90deg);
+}}
+
+.criteria-type-group.collapsed .criteria-group-icon {{
+  transform: rotate(0deg);
+}}
+
+.criteria-group-name {{
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}}
+
+.criteria-group-count {{
+  font-weight: 400;
+  color: var(--text-muted);
+}}
+
+.criteria-group-all-done .criteria-group-count {{
+  color: #16a34a;
+}}
+
+@media (prefers-color-scheme: dark) {{
+  .criteria-group-all-done .criteria-group-count {{
+    color: #4ade80;
+  }}
+}}
+
+.criteria-group-items {{
+  padding-left: 0.5rem;
+}}
+
+.criteria-type-group.collapsed .criteria-group-items {{
+  display: none;
+}}
+
 /* Filter bar */
 .filter-bar {{
   display: flex;
@@ -1331,14 +1461,51 @@ a.criterion-commit:hover {{
     detail.style.display = isExpanded ? '' : 'none';
   }});
 
-  // Criteria sort buttons
+  // Criteria view toggle (grouped <-> flat)
+  document.addEventListener('click', function(e) {{
+    var toggle = e.target.closest('.criteria-view-toggle');
+    if (!toggle) return;
+    e.stopPropagation();
+    var detail = toggle.closest('.criteria-detail');
+    if (!detail) return;
+    var groupedView = detail.querySelector('.criteria-grouped-view');
+    var flatView = detail.querySelector('.criteria-flat-view');
+    var isGrouped = toggle.getAttribute('data-view') === 'grouped';
+    if (isGrouped) {{
+      // Switch to flat
+      toggle.setAttribute('data-view', 'flat');
+      toggle.textContent = 'Flat';
+      toggle.classList.remove('active');
+      groupedView.style.display = 'none';
+      flatView.style.display = '';
+    }} else {{
+      // Switch to grouped
+      toggle.setAttribute('data-view', 'grouped');
+      toggle.textContent = 'Grouped';
+      toggle.classList.add('active');
+      groupedView.style.display = '';
+      flatView.style.display = 'none';
+    }}
+  }});
+
+  // Criteria group header collapse/expand
+  document.addEventListener('click', function(e) {{
+    var header = e.target.closest('.criteria-group-header');
+    if (!header) return;
+    e.stopPropagation();
+    var group = header.closest('.criteria-type-group');
+    if (!group) return;
+    group.classList.toggle('collapsed');
+  }});
+
+  // Criteria sort buttons (works in both grouped and flat views)
   document.addEventListener('click', function(e) {{
     var btn = e.target.closest('.criteria-sort-btn');
     if (!btn) return;
     e.stopPropagation();
     var sortKey = btn.getAttribute('data-sort-key');
-    var container = btn.closest('.criteria-detail');
-    if (!container) return;
+    var detail = btn.closest('.criteria-detail');
+    if (!detail) return;
     var bar = btn.closest('.criteria-sort-bar');
     var siblings = bar.querySelectorAll('.criteria-sort-btn');
     var wasAsc = btn.classList.contains('sort-asc');
@@ -1365,34 +1532,39 @@ a.criterion-commit:hover {{
       btn.querySelector('.sort-arrow').textContent = dir === 'asc' ? '\u25B2' : '\u25BC';
     }}
 
-    var items = Array.prototype.slice.call(container.querySelectorAll('.criterion-item'));
-    if (dir === 'none') {{
-      // Restore original order by criterion ID
-      items.sort(function(a, b) {{
-        var idA = parseInt(a.querySelector('.criterion-id').textContent.replace('#', ''));
-        var idB = parseInt(b.querySelector('.criterion-id').textContent.replace('#', ''));
-        return idA - idB;
-      }});
-    }} else {{
-      var attrName = 'data-sort-' + sortKey;
-      var isNumeric = (sortKey === 'cost');
-      items.sort(function(a, b) {{
-        var vA = a.getAttribute(attrName) || '';
-        var vB = b.getAttribute(attrName) || '';
-        var cmp;
-        if (isNumeric) {{
-          cmp = (parseFloat(vA) || 0) - (parseFloat(vB) || 0);
-        }} else {{
-          cmp = vA.localeCompare(vB);
-        }}
-        return dir === 'asc' ? cmp : -cmp;
-      }});
+    function sortItems(container) {{
+      var items = Array.prototype.slice.call(container.querySelectorAll(':scope > .criterion-item'));
+      if (dir === 'none') {{
+        items.sort(function(a, b) {{
+          var idA = parseInt(a.querySelector('.criterion-id').textContent.replace('#', ''));
+          var idB = parseInt(b.querySelector('.criterion-id').textContent.replace('#', ''));
+          return idA - idB;
+        }});
+      }} else {{
+        var attrName = 'data-sort-' + sortKey;
+        var isNumeric = (sortKey === 'cost');
+        items.sort(function(a, b) {{
+          var vA = a.getAttribute(attrName) || '';
+          var vB = b.getAttribute(attrName) || '';
+          var cmp;
+          if (isNumeric) {{
+            cmp = (parseFloat(vA) || 0) - (parseFloat(vB) || 0);
+          }} else {{
+            cmp = vA.localeCompare(vB);
+          }}
+          return dir === 'asc' ? cmp : -cmp;
+        }});
+      }}
+      items.forEach(function(item) {{ container.appendChild(item); }});
     }}
 
-    // Re-insert items after the sort bar
-    items.forEach(function(item) {{
-      container.appendChild(item);
-    }});
+    // Sort within each group in grouped view
+    var groupContainers = detail.querySelectorAll('.criteria-group-items');
+    groupContainers.forEach(function(gc) {{ sortItems(gc); }});
+
+    // Sort the flat view
+    var flatView = detail.querySelector('.criteria-flat-view');
+    if (flatView) {{ sortItems(flatView); }}
   }});
 
   // Sort headers
