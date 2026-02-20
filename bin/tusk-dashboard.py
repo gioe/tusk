@@ -146,8 +146,47 @@ def fetch_cost_trend(conn: sqlite3.Connection) -> list[dict]:
     return result
 
 
-def generate_cost_trend_svg(cost_trend: list[dict]) -> str:
+def fetch_cost_trend_daily(conn: sqlite3.Connection) -> list[dict]:
+    """Fetch daily cost aggregations from task_sessions."""
+    log.debug("Querying daily cost trend data")
+    rows = conn.execute(
+        """SELECT date(started_at) as day,
+                  SUM(COALESCE(cost_dollars, 0)) as daily_cost
+           FROM task_sessions
+           WHERE cost_dollars > 0
+           GROUP BY day
+           ORDER BY day"""
+    ).fetchall()
+    result = [dict(r) for r in rows]
+    log.debug("Fetched %d daily cost buckets", len(result))
+    return result
+
+
+def fetch_cost_trend_monthly(conn: sqlite3.Connection) -> list[dict]:
+    """Fetch monthly cost aggregations from task_sessions."""
+    log.debug("Querying monthly cost trend data")
+    rows = conn.execute(
+        """SELECT strftime('%Y-%m', started_at) as month,
+                  SUM(COALESCE(cost_dollars, 0)) as monthly_cost
+           FROM task_sessions
+           WHERE cost_dollars > 0
+           GROUP BY month
+           ORDER BY month"""
+    ).fetchall()
+    result = [dict(r) for r in rows]
+    log.debug("Fetched %d monthly cost buckets", len(result))
+    return result
+
+
+def generate_cost_trend_svg(cost_trend: list[dict], period_key: str = "week_start", cost_key: str = "weekly_cost", period_label: str = "Weekly", svg_id: str = "") -> str:
     """Generate an inline SVG bar chart with cumulative cost line.
+
+    Args:
+        cost_trend: List of dicts with period and cost keys.
+        period_key: Dict key for the period label (e.g. "week_start", "day", "month").
+        cost_key: Dict key for the cost value (e.g. "weekly_cost", "daily_cost", "monthly_cost").
+        period_label: Human label for the legend (e.g. "Weekly", "Daily", "Monthly").
+        svg_id: Optional HTML id attribute for the SVG element.
 
     Returns the full <svg> element as a string, or an empty-state message
     if there is no data.
@@ -166,8 +205,8 @@ def generate_cost_trend_svg(cost_trend: list[dict]) -> str:
     plot_w = chart_w - pad_left - pad_right
     plot_h = chart_h - pad_top - pad_bottom
 
-    weeks = [row["week_start"] for row in cost_trend]
-    costs = [row["weekly_cost"] for row in cost_trend]
+    weeks = [row[period_key] for row in cost_trend]
+    costs = [row[cost_key] for row in cost_trend]
     n = len(weeks)
 
     # Cumulative costs
@@ -188,13 +227,30 @@ def generate_cost_trend_svg(cost_trend: list[dict]) -> str:
     bar_width = max(4, min(40, (plot_w / n) * 0.6))
     bar_gap = plot_w / n
 
+    # Build tooltip prefix based on granularity
+    def format_tooltip_period(period_str: str) -> str:
+        if period_label == "Daily":
+            try:
+                dt = datetime.strptime(period_str, "%Y-%m-%d")
+                return dt.strftime("%b %d, %Y")
+            except ValueError:
+                return period_str
+        elif period_label == "Monthly":
+            try:
+                dt = datetime.strptime(period_str + "-01", "%Y-%m-%d")
+                return dt.strftime("%b %Y")
+            except ValueError:
+                return period_str
+        else:
+            return f"Week of {period_str}"
+
     # Build bars
     bars = []
     for i, cost in enumerate(costs):
         x = pad_left + i * bar_gap + (bar_gap - bar_width) / 2
         bar_h = (cost / max_cost) * plot_h
         y = pad_top + plot_h - bar_h
-        tooltip = f"Week of {weeks[i]}: ${cost:,.2f}"
+        tooltip = f"{format_tooltip_period(weeks[i])}: ${cost:,.2f}"
         bars.append(
             f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_width:.1f}" '
             f'height="{bar_h:.1f}" fill="var(--accent)" opacity="0.7" rx="2">'
@@ -252,15 +308,19 @@ def generate_cost_trend_svg(cost_trend: list[dict]) -> str:
             f'fill="#f59e0b" font-size="11">${val:,.0f}</text>'
         )
 
-    # X-axis labels (show a subset if too many weeks)
+    # X-axis labels (show a subset if too many periods)
     x_labels = []
     step = max(1, n // 10)
     for i in range(0, n, step):
         x = pad_left + i * bar_gap + bar_gap / 2
-        # Format as Mon DD
+        # Format label based on granularity
         try:
-            dt = datetime.strptime(weeks[i], "%Y-%m-%d")
-            label = dt.strftime("%b %d")
+            if period_label == "Monthly":
+                dt = datetime.strptime(weeks[i] + "-01", "%Y-%m-%d")
+                label = dt.strftime("%b %Y")
+            else:
+                dt = datetime.strptime(weeks[i], "%Y-%m-%d")
+                label = dt.strftime("%b %d")
         except ValueError:
             label = weeks[i]
         x_labels.append(
@@ -272,7 +332,8 @@ def generate_cost_trend_svg(cost_trend: list[dict]) -> str:
     # Axis label for cumulative line
     right_pad = pad_right + 50
 
-    svg = f"""<svg viewBox="0 0 {chart_w + 50} {chart_h}" xmlns="http://www.w3.org/2000/svg"
+    id_attr = f' id="{svg_id}"' if svg_id else ''
+    svg = f"""<svg{id_attr} viewBox="0 0 {chart_w + 50} {chart_h}" xmlns="http://www.w3.org/2000/svg"
      style="width:100%;max-width:{chart_w + 50}px;height:auto;font-family:inherit;">
   {''.join(y_labels)}
   {''.join(cum_labels)}
@@ -282,7 +343,7 @@ def generate_cost_trend_svg(cost_trend: list[dict]) -> str:
   {''.join(x_labels)}
   <!-- Legend -->
   <rect x="{pad_left}" y="{chart_h - 12}" width="12" height="12" fill="var(--accent)" opacity="0.7" rx="2"/>
-  <text x="{pad_left + 16}" y="{chart_h - 1}" fill="var(--text-muted)" font-size="11">Weekly cost</text>
+  <text x="{pad_left + 16}" y="{chart_h - 1}" fill="var(--text-muted)" font-size="11">{esc(period_label)} cost</text>
   <line x1="{pad_left + 110}" y1="{chart_h - 6}" x2="{pad_left + 130}" y2="{chart_h - 6}" stroke="#f59e0b" stroke-width="2.5"/>
   <circle cx="{pad_left + 120}" cy="{chart_h - 6}" r="3" fill="#f59e0b"/>
   <text x="{pad_left + 135}" y="{chart_h - 1}" fill="#f59e0b" font-size="11">Cumulative</text>
@@ -324,7 +385,7 @@ def fetch_complexity_metrics(conn: sqlite3.Connection) -> list[dict]:
     return result
 
 
-def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = None, cost_trend: list[dict] = None, all_criteria: dict[int, list[dict]] = None) -> str:
+def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = None, cost_trend: list[dict] = None, all_criteria: dict[int, list[dict]] = None, cost_trend_daily: list[dict] = None, cost_trend_monthly: list[dict] = None) -> str:
     """Generate the full HTML dashboard."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -758,6 +819,35 @@ tfoot td {{
 
 .text-muted-dash {{
   color: var(--text-muted);
+}}
+
+/* Cost trend tabs */
+.cost-trend-tabs {{
+  display: flex;
+  gap: 0.25rem;
+}}
+
+.cost-tab {{
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}}
+
+.cost-tab:hover {{
+  border-color: var(--accent);
+  color: var(--accent);
+}}
+
+.cost-tab.active {{
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
 }}
 
 @media (prefers-color-scheme: dark) {{
@@ -1312,9 +1402,24 @@ a.criterion-commit:hover {{
     </div>
   </div>
   <div class="panel" style="margin-top: 1.5rem;">
-    <div class="section-header">Cost Trend</div>
+    <div class="section-header" style="display:flex;align-items:center;justify-content:space-between;">
+      <span>Cost Trend</span>
+      <div class="cost-trend-tabs" id="costTrendTabs">
+        <button class="cost-tab" data-tab="daily">Daily</button>
+        <button class="cost-tab active" data-tab="weekly">Weekly</button>
+        <button class="cost-tab" data-tab="monthly">Monthly</button>
+      </div>
+    </div>
     <div style="padding: 1rem;">
-      {generate_cost_trend_svg(cost_trend if cost_trend is not None else [])}
+      <div class="cost-trend-view" data-view="daily" style="display:none">
+        {generate_cost_trend_svg(cost_trend_daily if cost_trend_daily is not None else [], period_key="day", cost_key="daily_cost", period_label="Daily")}
+      </div>
+      <div class="cost-trend-view" data-view="weekly">
+        {generate_cost_trend_svg(cost_trend if cost_trend is not None else [])}
+      </div>
+      <div class="cost-trend-view" data-view="monthly" style="display:none">
+        {generate_cost_trend_svg(cost_trend_monthly if cost_trend_monthly is not None else [], period_key="month", cost_key="monthly_cost", period_label="Monthly")}
+      </div>
     </div>
   </div>{complexity_section}
 </div>
@@ -1621,6 +1726,20 @@ a.criterion-commit:hover {{
 
   // Initial render — sort by Last Updated descending
   applySort();
+
+  // Cost trend tab switching
+  var costTabs = document.querySelectorAll('#costTrendTabs .cost-tab');
+  var costViews = document.querySelectorAll('.cost-trend-view');
+  costTabs.forEach(function(tab) {{
+    tab.addEventListener('click', function() {{
+      var target = tab.getAttribute('data-tab');
+      costTabs.forEach(function(t) {{ t.classList.remove('active'); }});
+      tab.classList.add('active');
+      costViews.forEach(function(v) {{
+        v.style.display = v.getAttribute('data-view') === target ? '' : 'none';
+      }});
+    }});
+  }});
 }})();
 </script>
 
@@ -1660,11 +1779,13 @@ def main():
     task_metrics = fetch_task_metrics(conn)
     complexity_metrics = fetch_complexity_metrics(conn)
     cost_trend = fetch_cost_trend(conn)
+    cost_trend_daily = fetch_cost_trend_daily(conn)
+    cost_trend_monthly = fetch_cost_trend_monthly(conn)
     all_criteria = fetch_all_criteria(conn)
     conn.close()
 
     # Generate HTML
-    html_content = generate_html(task_metrics, complexity_metrics, cost_trend, all_criteria)
+    html_content = generate_html(task_metrics, complexity_metrics, cost_trend, all_criteria, cost_trend_daily, cost_trend_monthly)
     log.debug("Generated %d bytes of HTML", len(html_content))
 
     # Write to tusk/dashboard.html (same dir as DB)
