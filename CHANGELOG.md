@@ -6,6 +6,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [140] - 2026-02-20
+
+### Added
+
+- Per-criterion cost tracking on acceptance criteria: `tusk criteria done` parses the Claude transcript for the time window since the previous criterion (or session start) and stores cost_dollars, tokens_in, tokens_out, and completed_at
+- Schema migration 6→7 adds four nullable columns to `acceptance_criteria` (completed_at, cost_dollars, tokens_in, tokens_out)
+- `tusk criteria list` shows Cost column and total cost across completed criteria
+- `tusk criteria reset` clears cost columns along with completion status
+- Dashboard renders green cost badges on completed criteria with cost data
+
 ## [139] - 2026-02-19
 
 ### Changed
