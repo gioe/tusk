@@ -11,7 +11,7 @@ Arguments received from tusk:
 
 Runs all three pre-checks in one call:
   1. Expired deferred tasks → closed_reason = 'expired'
-  2. In Progress tasks with merged PRs → closed_reason = 'completed'
+  2. To Do / In Progress tasks with merged PRs → closed_reason = 'completed'
   3. Moot contingent tasks → closed_reason = 'wont_do'
 
 For each closure, appends an annotation to the description and closes open sessions.
@@ -96,10 +96,10 @@ def check_pr_merged(pr_url: str) -> str | None:
 
 
 def autoclose_merged_prs(conn: sqlite3.Connection) -> dict:
-    """Close In Progress tasks whose PRs are merged. Returns dict with closed IDs and flagged IDs."""
+    """Close To Do / In Progress tasks whose PRs are merged. Returns dict with closed IDs and flagged IDs."""
     rows = conn.execute(
         "SELECT id, summary, github_pr FROM tasks "
-        "WHERE status = 'In Progress' "
+        "WHERE status IN ('To Do', 'In Progress') "
         "  AND github_pr IS NOT NULL "
         "  AND github_pr <> ''"
     ).fetchall()
