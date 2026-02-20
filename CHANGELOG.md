@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [136] - 2026-02-19
+
+### Added
+
+- Acceptance criteria IDs (e.g., `#42`) displayed in dashboard collapsible criteria rows for easy CLI reference
+
 ## [135] - 2026-02-19
 
 ### Added
