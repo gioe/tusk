@@ -166,16 +166,6 @@ Read file: <base_directory>/DEPENDENCIES.md
 
 Then follow its instructions.
 
-## Step 7b: Recompute Priority Scores
-
-After all insertions and dependency proposals are complete, recompute WSJF scores so the new tasks are immediately ranked in the backlog:
-
-```bash
-tusk wsjf
-```
-
-This is a single bulk UPDATE that takes milliseconds. Run it once — not per-task.
-
 ## Step 8: Report Results
 
 After processing all tasks, show a summary:
