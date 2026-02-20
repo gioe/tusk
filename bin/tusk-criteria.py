@@ -271,7 +271,8 @@ def cmd_done(args: argparse.Namespace, db_path: str, config: dict) -> int:
             return 1
 
     conn.execute(
-        "UPDATE acceptance_criteria SET is_completed = 1, completed_at = datetime('now'), "
+        "UPDATE acceptance_criteria SET is_completed = 1, "
+        "completed_at = strftime('%Y-%m-%d %H:%M:%f', 'now'), "
         "verification_result = ?, updated_at = datetime('now') WHERE id = ?",
         (verification_result, args.criterion_id),
     )

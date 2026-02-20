@@ -73,8 +73,13 @@ def parse_timestamp(ts: str) -> datetime:
 
 
 def parse_sqlite_timestamp(ts: str) -> datetime:
-    """Parse a SQLite datetime string (UTC, no timezone info)."""
-    return datetime.strptime(ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+    """Parse a SQLite datetime string (UTC, no timezone info).
+
+    Handles both second-level (datetime('now')) and millisecond-level
+    (strftime('%Y-%m-%d %H:%M:%f', 'now')) timestamps.
+    """
+    fmt = "%Y-%m-%d %H:%M:%S.%f" if "." in ts else "%Y-%m-%d %H:%M:%S"
+    return datetime.strptime(ts, fmt).replace(tzinfo=timezone.utc)
 
 
 def derive_project_hash(cwd: str) -> str:

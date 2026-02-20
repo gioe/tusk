@@ -6,6 +6,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [143] - 2026-02-20
+
+### Fixed
+
+- Acceptance criteria `completed_at` now uses millisecond precision (`strftime('%Y-%m-%d %H:%M:%f')`) instead of second-level `datetime('now')`, fixing zero-width cost windows and indistinguishable completion order
+- `parse_sqlite_timestamp` in pricing lib handles both second-level and millisecond-level timestamps
+
 ## [142] - 2026-02-20
 
 ### Added
