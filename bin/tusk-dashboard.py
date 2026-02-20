@@ -413,29 +413,27 @@ def generate_css() -> str:
   --hover: var(--bg-subtle);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f172a;
-    --bg-panel: #1e293b;
-    --bg-subtle: #334155;
-    --text: #f1f5f9;
-    --text-secondary: #cbd5e1;
-    --text-muted: #64748b;
-    --border: #334155;
-    --accent: #60a5fa;
-    --accent-light: #1e3a5f;
-    --success: #4ade80;
-    --success-light: #14532d;
-    --warning: #fbbf24;
-    --warning-light: #78350f;
-    --danger: #f87171;
-    --danger-light: #7f1d1d;
-    --info: #38bdf8;
-    --info-light: #1e3a5f;
-    --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
-    --shadow: 0 1px 3px rgba(0,0,0,0.3);
-    --shadow-md: 0 4px 6px rgba(0,0,0,0.4);
-  }
+html[data-theme="dark"] {
+  --bg: #0f172a;
+  --bg-panel: #1e293b;
+  --bg-subtle: #334155;
+  --text: #f1f5f9;
+  --text-secondary: #cbd5e1;
+  --text-muted: #64748b;
+  --border: #334155;
+  --accent: #60a5fa;
+  --accent-light: #1e3a5f;
+  --success: #4ade80;
+  --success-light: #14532d;
+  --warning: #fbbf24;
+  --warning-light: #78350f;
+  --danger: #f87171;
+  --danger-light: #7f1d1d;
+  --info: #38bdf8;
+  --info-light: #1e3a5f;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
+  --shadow: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.4);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -639,13 +637,11 @@ tfoot td {
 .cost-heat-4 { background: rgba(239, 68, 68, 0.20); }
 .cost-heat-5 { background: rgba(239, 68, 68, 0.28); }
 
-@media (prefers-color-scheme: dark) {
-  .cost-heat-1 { background: rgba(248, 113, 113, 0.06); }
-  .cost-heat-2 { background: rgba(248, 113, 113, 0.12); }
-  .cost-heat-3 { background: rgba(248, 113, 113, 0.18); }
-  .cost-heat-4 { background: rgba(248, 113, 113, 0.24); }
-  .cost-heat-5 { background: rgba(248, 113, 113, 0.32); }
-}
+html[data-theme="dark"] .cost-heat-1 { background: rgba(248, 113, 113, 0.06); }
+html[data-theme="dark"] .cost-heat-2 { background: rgba(248, 113, 113, 0.12); }
+html[data-theme="dark"] .cost-heat-3 { background: rgba(248, 113, 113, 0.18); }
+html[data-theme="dark"] .cost-heat-4 { background: rgba(248, 113, 113, 0.24); }
+html[data-theme="dark"] .cost-heat-5 { background: rgba(248, 113, 113, 0.32); }
 
 /* Dependency badges */
 .dep-badges {
@@ -744,15 +740,13 @@ tr.dep-highlight {
   color: var(--success);
 }
 
-@media (prefers-color-scheme: dark) {
-  .dep-type-blocks {
-    background: #7f1d1d;
-    color: #fca5a5;
-  }
-  .dep-type-contingent {
-    background: #312e81;
-    color: #a5b4fc;
-  }
+html[data-theme="dark"] .dep-type-blocks {
+  background: #7f1d1d;
+  color: #fca5a5;
+}
+html[data-theme="dark"] .dep-type-contingent {
+  background: #312e81;
+  color: #a5b4fc;
 }
 
 .empty {
@@ -978,22 +972,20 @@ a.criterion-commit:hover {
   text-decoration: underline;
 }
 
-@media (prefers-color-scheme: dark) {
-  .criterion-commit {
-    background: var(--warning-light);
-    color: var(--warning);
-  }
-  a.criterion-commit:hover {
-    background: #92400e;
-  }
-  .criterion-cost {
-    background: var(--success-light);
-    color: #86efac;
-  }
-  .criterion-time {
-    background: var(--accent-light);
-    color: #93c5fd;
-  }
+html[data-theme="dark"] .criterion-commit {
+  background: var(--warning-light);
+  color: var(--warning);
+}
+html[data-theme="dark"] a.criterion-commit:hover {
+  background: #92400e;
+}
+html[data-theme="dark"] .criterion-cost {
+  background: var(--success-light);
+  color: #86efac;
+}
+html[data-theme="dark"] .criterion-time {
+  background: var(--accent-light);
+  color: #93c5fd;
 }
 
 .criterion-type {
@@ -1022,23 +1014,21 @@ a.criterion-commit:hover {
   color: #1e40af;
 }
 
-@media (prefers-color-scheme: dark) {
-  .criterion-type {
-    background: #4c1d95;
-    color: #c4b5fd;
-  }
-  .criterion-type-code {
-    background: var(--warning-light);
-    color: var(--warning);
-  }
-  .criterion-type-test {
-    background: var(--success-light);
-    color: var(--success);
-  }
-  .criterion-type-file {
-    background: var(--accent-light);
-    color: #93c5fd;
-  }
+html[data-theme="dark"] .criterion-type {
+  background: #4c1d95;
+  color: #c4b5fd;
+}
+html[data-theme="dark"] .criterion-type-code {
+  background: var(--warning-light);
+  color: var(--warning);
+}
+html[data-theme="dark"] .criterion-type-test {
+  background: var(--success-light);
+  color: var(--success);
+}
+html[data-theme="dark"] .criterion-type-file {
+  background: var(--accent-light);
+  color: #93c5fd;
 }
 
 /* Criteria sort bar */
@@ -1263,15 +1253,13 @@ a.criterion-commit:hover {
   margin-left: 0.3rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  .criteria-group-cost {
-    background: var(--success-light);
-    color: #86efac;
-  }
-  .criteria-group-tokens {
-    background: var(--accent-light);
-    color: #93c5fd;
-  }
+html[data-theme="dark"] .criteria-group-cost {
+  background: var(--success-light);
+  color: #86efac;
+}
+html[data-theme="dark"] .criteria-group-tokens {
+  background: var(--accent-light);
+  color: #93c5fd;
 }
 
 .criteria-group-items {
@@ -1454,19 +1442,142 @@ a.criterion-commit:hover {
   cursor: default;
 }
 
-@media (max-width: 700px) {
+/* Theme toggle */
+.theme-toggle {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.35rem 0.5rem;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.theme-toggle:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--bg-subtle);
+}
+.theme-toggle .icon-sun,
+.theme-toggle .icon-moon { display: none; }
+html[data-theme="dark"] .theme-toggle .icon-sun { display: inline; }
+html[data-theme="light"] .theme-toggle .icon-moon { display: inline; }
+html:not([data-theme]) .theme-toggle .icon-moon { display: inline; }
+
+/* Footer */
+.footer {
+  text-align: center;
+  padding: var(--sp-4) var(--sp-6);
+  margin-top: var(--sp-6);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+}
+.footer span + span::before {
+  content: " \\00b7 ";
+  margin: 0 0.3em;
+}
+
+/* Transitions */
+.kpi-card {
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.kpi-card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--accent);
+}
+.filter-chip, .cost-tab, .page-btn, .criteria-sort-btn {
+  transition: all 0.15s;
+}
+tbody tr {
+  transition: background 0.1s;
+}
+
+/* Responsive: tablet */
+@media (max-width: 900px) {
+  .kpi-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .col-updated, .col-wsjf {
+    display: none;
+  }
+  .header {
+    padding: var(--sp-3) var(--sp-4);
+  }
+  .header h1 {
+    font-size: var(--text-lg);
+  }
+  .container {
+    padding: var(--sp-4);
+  }
+}
+
+/* Responsive: mobile */
+@media (max-width: 600px) {
+  .kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .col-updated, .col-wsjf, .col-domain, .col-tokens-in, .col-tokens-out {
+    display: none;
+  }
   .col-summary {
     max-width: 180px;
+  }
+  .header {
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+  }
+  .header h1 {
+    font-size: var(--text-base);
+  }
+  .filter-bar {
+    gap: var(--sp-2);
+  }
+  .search-input {
+    min-width: 120px;
+    max-width: none;
+    flex: 1 1 100%;
+    order: 10;
+  }
+  .pagination-bar {
+    flex-wrap: wrap;
+    gap: var(--sp-2);
+    justify-content: center;
+  }
+  .kpi-value {
+    font-size: var(--text-xl);
+  }
+  .container {
+    padding: var(--sp-3);
   }
 }"""
 
 
 def generate_header(now: str) -> str:
-    """Generate the page header bar."""
+    """Generate the page header bar with theme toggle."""
     return f"""\
 <div class="header">
   <h1>Tusk &mdash; Task Metrics</h1>
-  <span class="timestamp">Generated {esc(now)}</span>
+  <div style="display:flex;align-items:center;gap:var(--sp-3);">
+    <span class="timestamp">Generated {esc(now)}</span>
+    <button class="theme-toggle" id="themeToggle" title="Toggle dark mode" aria-label="Toggle dark mode">
+      <span class="icon-sun">\u2600\uFE0F</span>
+      <span class="icon-moon">\U0001F319</span>
+    </button>
+  </div>
+</div>"""
+
+
+def generate_footer(now: str, version: str) -> str:
+    """Generate the page footer with timestamp and version."""
+    return f"""\
+<div class="footer">
+  <span>Generated {esc(now)}</span>
+  <span>tusk v{esc(version)}</span>
 </div>"""
 
 
@@ -2521,126 +2632,122 @@ def generate_js() -> str:
   applySort();
 
   // Chart.js initialization (graceful fallback if CDN unavailable)
-  if (typeof Chart !== 'undefined' && window.__tuskCostTrend) {
+  var costTrendChart = null;
+  var domainChart = null;
+  var currentPeriod = 'weekly';
+
+  function initCharts() {
+    if (typeof Chart === 'undefined') return;
+
     var style = getComputedStyle(document.documentElement);
     function cssVar(name) { return style.getPropertyValue(name).trim(); }
 
-    var trendData = window.__tuskCostTrend;
-    var costTrendCanvas = document.getElementById('costTrendChart');
-    var costTrendChart = null;
+    // Trend chart
+    if (window.__tuskCostTrend) {
+      var trendData = window.__tuskCostTrend;
+      var costTrendCanvas = document.getElementById('costTrendChart');
+      var periodLabels = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' };
 
-    var periodLabels = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' };
+      if (costTrendChart) { costTrendChart.destroy(); costTrendChart = null; }
 
-    function buildTrendChart(periodKey) {
-      var d = trendData[periodKey];
-      if (!d || !d.costs.length) return;
-      if (costTrendChart) { costTrendChart.destroy(); }
-      var accent = cssVar('--accent') || '#3b82f6';
-      var warning = cssVar('--warning') || '#f59e0b';
-      var textMuted = cssVar('--text-muted') || '#94a3b8';
-      var border = cssVar('--border') || '#e2e8f0';
-      costTrendChart = new Chart(costTrendCanvas, {
-        type: 'bar',
-        data: {
-          labels: d.labels,
-          datasets: [
-            {
-              label: periodLabels[periodKey] + ' Cost',
-              data: d.costs,
-              backgroundColor: accent + 'B3',
-              borderColor: accent,
-              borderWidth: 1,
-              borderRadius: 2,
-              yAxisID: 'y',
-              order: 2
-            },
-            {
-              label: 'Cumulative',
-              data: d.cumulative,
-              type: 'line',
-              borderColor: warning,
-              backgroundColor: warning + '33',
-              pointBackgroundColor: warning,
-              pointBorderColor: cssVar('--bg-panel') || '#ffffff',
-              pointBorderWidth: 1.5,
-              pointRadius: 3.5,
-              borderWidth: 2.5,
-              fill: false,
-              tension: 0.1,
-              yAxisID: 'y1',
-              order: 1
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          interaction: { mode: 'index', intersect: false },
-          plugins: {
-            tooltip: {
-              callbacks: {
-                label: function(ctx) {
-                  return ctx.dataset.label + ': $' + ctx.parsed.y.toFixed(2).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ',');
+      var d = trendData[currentPeriod];
+      if (d && d.costs.length && costTrendCanvas) {
+        var accent = cssVar('--accent') || '#3b82f6';
+        var warning = cssVar('--warning') || '#f59e0b';
+        var textMuted = cssVar('--text-muted') || '#94a3b8';
+        var border = cssVar('--border') || '#e2e8f0';
+        costTrendChart = new Chart(costTrendCanvas, {
+          type: 'bar',
+          data: {
+            labels: d.labels,
+            datasets: [
+              {
+                label: periodLabels[currentPeriod] + ' Cost',
+                data: d.costs,
+                backgroundColor: accent + 'B3',
+                borderColor: accent,
+                borderWidth: 1,
+                borderRadius: 2,
+                yAxisID: 'y',
+                order: 2
+              },
+              {
+                label: 'Cumulative',
+                data: d.cumulative,
+                type: 'line',
+                borderColor: warning,
+                backgroundColor: warning + '33',
+                pointBackgroundColor: warning,
+                pointBorderColor: cssVar('--bg-panel') || '#ffffff',
+                pointBorderWidth: 1.5,
+                pointRadius: 3.5,
+                borderWidth: 2.5,
+                fill: false,
+                tension: 0.1,
+                yAxisID: 'y1',
+                order: 1
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              tooltip: {
+                callbacks: {
+                  label: function(ctx) {
+                    return ctx.dataset.label + ': $' + ctx.parsed.y.toFixed(2).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ',');
+                  }
                 }
+              },
+              legend: {
+                labels: { color: textMuted, usePointStyle: true, padding: 16 }
               }
             },
-            legend: {
-              labels: { color: textMuted, usePointStyle: true, padding: 16 }
-            }
-          },
-          scales: {
-            x: {
-              ticks: { color: textMuted, maxRotation: 45, autoSkip: true, maxTicksLimit: 12, font: { size: 11 } },
-              grid: { display: false }
-            },
-            y: {
-              position: 'left',
-              ticks: {
-                color: textMuted,
-                font: { size: 11 },
-                callback: function(v) { return '$' + v.toFixed(0).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ','); }
+            scales: {
+              x: {
+                ticks: { color: textMuted, maxRotation: 45, autoSkip: true, maxTicksLimit: 12, font: { size: 11 } },
+                grid: { display: false }
               },
-              grid: { color: border, borderDash: [3, 3] }
-            },
-            y1: {
-              position: 'right',
-              ticks: {
-                color: warning,
-                font: { size: 11 },
-                callback: function(v) { return '$' + v.toFixed(0).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ','); }
+              y: {
+                position: 'left',
+                ticks: {
+                  color: textMuted,
+                  font: { size: 11 },
+                  callback: function(v) { return '$' + v.toFixed(0).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ','); }
+                },
+                grid: { color: border, borderDash: [3, 3] }
               },
-              grid: { drawOnChartArea: false }
+              y1: {
+                position: 'right',
+                ticks: {
+                  color: warning,
+                  font: { size: 11 },
+                  callback: function(v) { return '$' + v.toFixed(0).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ','); }
+                },
+                grid: { drawOnChartArea: false }
+              }
             }
           }
-        }
-      });
+        });
+      }
     }
 
-    buildTrendChart('weekly');
-
-    var costTabs = document.querySelectorAll('#costTrendTabs .cost-tab');
-    costTabs.forEach(function(tab) {
-      tab.addEventListener('click', function() {
-        var target = tab.getAttribute('data-tab');
-        costTabs.forEach(function(t) { t.classList.remove('active'); });
-        tab.classList.add('active');
-        buildTrendChart(target);
-      });
-    });
-
-    // Cost by domain horizontal bar chart
+    // Cost by domain chart
     var domainData = window.__tuskCostByDomain;
     var domainCanvas = document.getElementById('costByDomainChart');
     if (domainCanvas && domainData && domainData.length > 0) {
+      if (domainChart) { domainChart.destroy(); domainChart = null; }
       var domainLabels = domainData.map(function(d) { return d.domain || 'unset'; });
       var domainCosts = domainData.map(function(d) { return d.domain_cost; });
       var domainCounts = domainData.map(function(d) { return d.task_count; });
-      var domainAccent = cssVar('--accent') || '#3b82f6';
       var domainColors = domainData.map(function(_, i) {
         var hue = (i * 137.5) % 360;
         return 'hsl(' + hue + ', 65%, 55%)';
       });
-      new Chart(domainCanvas, {
+      var style2 = getComputedStyle(document.documentElement);
+      domainChart = new Chart(domainCanvas, {
         type: 'bar',
         data: {
           labels: domainLabels,
@@ -2672,20 +2779,47 @@ def generate_js() -> str:
           scales: {
             x: {
               ticks: {
-                color: cssVar('--text-muted') || '#94a3b8',
+                color: style2.getPropertyValue('--text-muted').trim() || '#94a3b8',
                 font: { size: 11 },
                 callback: function(v) { return '$' + v.toFixed(0).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ','); }
               },
-              grid: { color: cssVar('--border') || '#e2e8f0', borderDash: [3, 3] }
+              grid: { color: style2.getPropertyValue('--border').trim() || '#e2e8f0', borderDash: [3, 3] }
             },
             y: {
-              ticks: { color: cssVar('--text-muted') || '#94a3b8', font: { size: 12 } },
+              ticks: { color: style2.getPropertyValue('--text-muted').trim() || '#94a3b8', font: { size: 12 } },
               grid: { display: false }
             }
           }
         }
       });
     }
+  }
+
+  initCharts();
+
+  var costTabs = document.querySelectorAll('#costTrendTabs .cost-tab');
+  costTabs.forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      var target = tab.getAttribute('data-tab');
+      costTabs.forEach(function(t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      currentPeriod = target;
+      initCharts();
+    });
+  });
+
+  // Theme toggle
+  var themeToggle = document.getElementById('themeToggle');
+  if (themeToggle) {
+    themeToggle.addEventListener('click', function() {
+      var html = document.documentElement;
+      var current = html.getAttribute('data-theme');
+      var next = current === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', next);
+      localStorage.setItem('tusk-theme', next);
+      // Re-render charts with new theme colors
+      setTimeout(function() { initCharts(); }, 50);
+    });
   }
 
   // Dependency badge click-to-scroll
@@ -2716,7 +2850,7 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
                   cost_trend: list[dict] = None, all_criteria: dict[int, list[dict]] = None,
                   cost_trend_daily: list[dict] = None, cost_trend_monthly: list[dict] = None,
                   task_deps: dict[int, dict] = None, kpi_data: dict = None,
-                  cost_by_domain: list[dict] = None) -> str:
+                  cost_by_domain: list[dict] = None, version: str = "") -> str:
     """Generate the full HTML dashboard by composing sub-functions."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -2778,12 +2912,28 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
 
     css = generate_css()
     header = generate_header(now)
+    footer = generate_footer(now, version)
     filter_bar = generate_filter_bar()
     table_header = generate_table_header()
     table_footer = generate_table_footer(total_sessions, total_duration, total_lines_added,
                                          total_lines_removed, total_tokens_in, total_tokens_out, total_cost)
     pagination = generate_pagination()
     js = generate_js()
+
+    # Inline script to set theme before first paint (prevents flash)
+    theme_init = """\
+<script>
+(function() {
+  var saved = localStorage.getItem('tusk-theme');
+  if (saved === 'dark' || saved === 'light') {
+    document.documentElement.setAttribute('data-theme', saved);
+  } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  } else {
+    document.documentElement.setAttribute('data-theme', 'light');
+  }
+})();
+</script>"""
 
     return f"""\
 <!DOCTYPE html>
@@ -2792,6 +2942,7 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Tusk &mdash; Task Metrics</title>
+{theme_init}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
 {css}
@@ -2816,6 +2967,8 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
     {pagination}
   </div>{complexity_html}
 </div>
+
+{footer}
 
 {criteria_script}
 {js}
@@ -2864,11 +3017,24 @@ def main():
 
     log.debug("Cost by domain: %s", cost_by_domain)
 
+    # Read VERSION — check script dir first, then repo root (parent of DB dir)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    version = ""
+    for candidate in [
+        os.path.join(script_dir, "VERSION"),
+        os.path.join(os.path.dirname(db_path), "..", "VERSION"),
+    ]:
+        if os.path.isfile(candidate):
+            with open(candidate) as vf:
+                version = vf.read().strip()
+            break
+    log.debug("Version: %s", version)
+
     # Generate HTML
     html_content = generate_html(
         task_metrics, complexity_metrics, cost_trend, all_criteria,
         cost_trend_daily, cost_trend_monthly, task_deps, kpi_data,
-        cost_by_domain
+        cost_by_domain, version
     )
     log.debug("Generated %d bytes of HTML", len(html_content))
 

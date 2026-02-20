@@ -6,6 +6,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [149] - 2026-02-20
+
+### Added
+
+- Manual dark mode toggle button (sun/moon icon) in dashboard header with localStorage persistence
+- Dashboard footer showing generation timestamp and tusk version
+- Responsive breakpoints for tablet (900px) and mobile (600px) — KPI cards stack, low-priority columns hide
+
+### Changed
+
+- Dark mode CSS converted from `prefers-color-scheme` media queries to `[data-theme]` attribute for manual toggle support
+- Chart.js charts re-render with correct theme colors on toggle
+- Added hover states and transitions on KPI cards, filter chips, and table rows
+
 ## [148] - 2026-02-20
 
 ### Changed
