@@ -300,8 +300,12 @@ def main(argv: list[str]) -> int:
     except sqlite3.Error as e:
         conn.rollback()
         print(f"Database error: {e}", file=sys.stderr)
-        conn.close()
         return 2
+    finally:
+        conn.close()
+
+    # Run WSJF scoring so the new task gets a priority_score immediately
+    subprocess.run(["tusk", "wsjf"], capture_output=True)
 
     result = {
         "task_id": task_id,
@@ -309,7 +313,6 @@ def main(argv: list[str]) -> int:
         "criteria_ids": criteria_ids,
     }
     print(json.dumps(result, indent=2))
-    conn.close()
     return 0
 
 
