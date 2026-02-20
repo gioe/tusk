@@ -49,10 +49,6 @@ def fetch_task_metrics(conn: sqlite3.Connection) -> list[dict]:
                   COALESCE(tm.total_cost, 0) as total_cost,
                   tm.complexity,
                   s.model,
-                  COALESCE(ac.criteria_total, 0) as criteria_total,
-                  COALESCE(ac.criteria_done, 0) as criteria_done,
-                  COALESCE(eb.blocker_count, 0) as blocker_count,
-                  COALESCE(eb.open_blockers, 0) as open_blockers,
                   tm.created_at,
                   tm.updated_at
            FROM task_metrics tm
@@ -62,20 +58,6 @@ def fetch_task_metrics(conn: sqlite3.Connection) -> list[dict]:
                ORDER BY s2.cost_dollars DESC
                LIMIT 1
            )
-           LEFT JOIN (
-               SELECT task_id,
-                      COUNT(*) as criteria_total,
-                      SUM(is_completed) as criteria_done
-               FROM acceptance_criteria
-               GROUP BY task_id
-           ) ac ON ac.task_id = tm.id
-           LEFT JOIN (
-               SELECT task_id,
-                      COUNT(*) as blocker_count,
-                      SUM(CASE WHEN is_resolved = 0 THEN 1 ELSE 0 END) as open_blockers
-               FROM external_blockers
-               GROUP BY task_id
-           ) eb ON eb.task_id = tm.id
            ORDER BY tm.total_cost DESC, tm.id ASC"""
     ).fetchall()
     result = [dict(r) for r in rows]
@@ -115,33 +97,10 @@ def format_duration(seconds) -> str:
     return f"{minutes}m"
 
 
-def format_criteria(done: int, total: int) -> str:
-    """Format acceptance criteria as 'done/total' with a visual indicator."""
-    if total == 0:
-        return '<span class="criteria-none">&mdash;</span>'
-    pct = done / total * 100
-    if pct == 100:
-        css = "criteria-complete"
-    elif pct > 0:
-        css = "criteria-partial"
-    else:
-        css = "criteria-none"
-    return f'<span class="{css}">{done}/{total}</span>'
-
-
-def format_blockers(open_blockers: int, total: int) -> str:
-    """Format blocker count with a visual indicator."""
-    if total == 0:
-        return '<span class="criteria-none">&mdash;</span>'
-    if open_blockers > 0:
-        return f'<span class="blocker-open-badge">{open_blockers} open</span>'
-    return '<span class="blocker-clear-badge">0 open</span>'
-
-
 def format_date(dt_str) -> str:
     """Format an ISO datetime string as YYYY-MM-DD."""
     if dt_str is None:
-        return '<span class="criteria-none">&mdash;</span>'
+        return '<span class="text-muted-dash">&mdash;</span>'
     try:
         dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
         return dt.strftime("%Y-%m-%d")
@@ -149,38 +108,11 @@ def format_date(dt_str) -> str:
         return esc(dt_str)
 
 
-def format_deviation(task: dict, tier_avgs: dict) -> tuple[str, float]:
-    """Format per-task deviation from complexity tier average sessions.
-
-    Returns (html_string, raw_deviation_pct) where raw value is for data-sort.
-    """
-    if task['status'] != 'Done':
-        return '<span class="deviation-na">&mdash;</span>', 0
-    complexity = task.get('complexity')
-    if not complexity or complexity not in tier_avgs:
-        return '<span class="deviation-na">&mdash;</span>', 0
-    session_count = task.get('session_count', 0) or 0
-    if session_count == 0:
-        return '<span class="deviation-na">&mdash;</span>', 0
-    avg = tier_avgs[complexity]
-    if avg <= 0:
-        return '<span class="deviation-na">&mdash;</span>', 0
-    deviation_pct = ((session_count - avg) / avg) * 100
-    if deviation_pct > 100:
-        css = "deviation-outlier"
-    elif deviation_pct > 0:
-        css = "deviation-high"
-    else:
-        css = "deviation-ok"
-    sign = "+" if deviation_pct > 0 else ""
-    return f'<span class="{css}">{sign}{deviation_pct:.0f}%</span>', deviation_pct
-
-
 def fetch_all_criteria(conn: sqlite3.Connection) -> dict[int, list[dict]]:
     """Fetch all acceptance criteria, grouped by task_id."""
     log.debug("Querying acceptance_criteria table")
     rows = conn.execute(
-        """SELECT id, task_id, criterion, is_completed, source
+        """SELECT id, task_id, criterion, is_completed, source, cost_dollars
            FROM acceptance_criteria
            ORDER BY task_id, id"""
     ).fetchall()
@@ -395,12 +327,6 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
     total_tokens_in = sum(t["total_tokens_in"] for t in task_metrics)
     total_tokens_out = sum(t["total_tokens_out"] for t in task_metrics)
     total_cost = sum(t["total_cost"] for t in task_metrics)
-    # Build tier averages for per-task deviation calculation
-    tier_avgs = {}
-    if complexity_metrics:
-        for c in complexity_metrics:
-            if c['avg_sessions'] and c['avg_sessions'] > 0:
-                tier_avgs[c['complexity']] = c['avg_sessions']
 
     # Task rows — include data attributes for JS filtering/sorting
     if all_criteria is None:
@@ -409,7 +335,6 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
     for t in task_metrics:
         has_data = t["session_count"] > 0
         status_val = esc(t['status'])
-        dev_html, dev_raw = format_deviation(t, tier_avgs)
         tid = t['id']
         criteria_list = all_criteria.get(tid, [])
         has_criteria = len(criteria_list) > 0
@@ -426,16 +351,12 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
   <td class="col-status"><span class="status-badge status-{status_val.lower().replace(' ', '-')}">{status_val}</span></td>
   <td class="col-date" data-sort="{esc(t.get('created_at') or '')}">{format_date(t.get('created_at'))}</td>
   <td class="col-date" data-sort="{esc(t.get('updated_at') or '')}">{format_date(t.get('updated_at'))}</td>
-  <td class="col-criteria" data-sort="{t['criteria_done']}">{format_criteria(t['criteria_done'], t['criteria_total'])}</td>
-  <td class="col-blockers" data-sort="{t['open_blockers']}">{format_blockers(t['open_blockers'], t['blocker_count'])}</td>
   <td class="col-model">{esc(t.get('model') or '')}</td>
   <td class="col-tokens-in" data-sort="{t['total_tokens_in']}">{format_number(t['total_tokens_in'])}</td>
   <td class="col-tokens-out" data-sort="{t['total_tokens_out']}">{format_number(t['total_tokens_out'])}</td>
   <td class="col-cost" data-sort="{t['total_cost']}">{format_cost(t['total_cost'])}</td>
-  <td class="col-deviation" data-sort="{dev_raw:.1f}">{dev_html}</td>
 </tr>\n"""
         # Criteria detail row (hidden by default)
-        criteria_html = ""
         if has_criteria:
             criteria_items = ""
             for cr in criteria_list:
@@ -443,17 +364,15 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
                 check = '&#10003;' if done else '&#9711;'
                 css = 'criterion-done' if done else 'criterion-pending'
                 source_badge = f' <span class="criterion-source">{esc(cr["source"])}</span>' if cr.get("source") else ''
-                criteria_items += f'<div class="criterion-item {css}"><span class="criterion-id">#{cr["id"]}</span> {check} {esc(cr["criterion"])}{source_badge}</div>\n'
-            criteria_html = criteria_items
-        else:
-            criteria_html = '<div class="criterion-empty">No acceptance criteria</div>'
-        task_rows += f"""<tr class="criteria-row" data-parent="{tid}" style="display:none">
-  <td colspan="12"><div class="criteria-detail">{criteria_html}</div></td>
+                cost_badge = f' <span class="criterion-cost">${cr["cost_dollars"]:.4f}</span>' if cr.get("cost_dollars") else ''
+                criteria_items += f'<div class="criterion-item {css}"><span class="criterion-id">#{cr["id"]}</span> {check} {esc(cr["criterion"])}{source_badge}{cost_badge}</div>\n'
+            task_rows += f"""<tr class="criteria-row" data-parent="{tid}" style="display:none">
+  <td colspan="9"><div class="criteria-detail">{criteria_items}</div></td>
 </tr>\n"""
 
     # Empty state
     if not task_metrics:
-        task_rows = '<tr><td colspan="12" class="empty">No tasks found. Run <code>tusk init</code> and add some tasks.</td></tr>'
+        task_rows = '<tr><td colspan="9" class="empty">No tasks found. Run <code>tusk init</code> and add some tasks.</td></tr>'
 
     # Complexity metrics section
     complexity_section = ""
@@ -658,62 +577,6 @@ tfoot td {{
   color: var(--text-muted);
 }}
 
-.col-criteria {{
-  text-align: center;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-  font-size: 0.8rem;
-}}
-
-.criteria-complete {{
-  color: #16a34a;
-  font-weight: 600;
-}}
-
-.criteria-partial {{
-  color: #d97706;
-  font-weight: 600;
-}}
-
-.criteria-none {{
-  color: var(--text-muted);
-}}
-
-.col-blockers {{
-  text-align: center;
-  white-space: nowrap;
-  font-size: 0.8rem;
-}}
-
-.blocker-open-badge {{
-  font-size: 0.7rem;
-  font-weight: 600;
-  padding: 0.15rem 0.5rem;
-  border-radius: 4px;
-  background: #fef2f2;
-  color: #dc2626;
-}}
-
-.blocker-clear-badge {{
-  font-size: 0.7rem;
-  font-weight: 600;
-  padding: 0.15rem 0.5rem;
-  border-radius: 4px;
-  background: #dcfce7;
-  color: #16a34a;
-}}
-
-@media (prefers-color-scheme: dark) {{
-  .blocker-open-badge {{
-    background: #7f1d1d;
-    color: #fca5a5;
-  }}
-  .blocker-clear-badge {{
-    background: #14532d;
-    color: #4ade80;
-  }}
-}}
-
 .col-tokens-in,
 .col-tokens-out,
 .col-cost {{
@@ -820,33 +683,8 @@ tfoot td {{
   font-size: 0.75rem;
 }}
 
-.col-deviation {{
-  text-align: center;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-  font-size: 0.8rem;
-}}
-
-.deviation-na {{
+.text-muted-dash {{
   color: var(--text-muted);
-}}
-
-.deviation-ok {{
-  color: #16a34a;
-  font-weight: 600;
-}}
-
-.deviation-high {{
-  color: #d97706;
-  font-weight: 600;
-}}
-
-.deviation-outlier {{
-  color: #dc2626;
-  font-weight: 700;
-  background: #fef2f2;
-  padding: 0.1rem 0.4rem;
-  border-radius: 4px;
 }}
 
 @media (prefers-color-scheme: dark) {{
@@ -854,10 +692,6 @@ tfoot td {{
     background: #7f1d1d;
   }}
   .tier-exceeds .col-avg-sessions {{
-    color: #fca5a5;
-  }}
-  .deviation-outlier {{
-    background: #7f1d1d;
     color: #fca5a5;
   }}
 }}
@@ -924,6 +758,24 @@ tr.expandable.expanded .expand-icon {{
   background: var(--hover);
   color: var(--text-muted);
   margin-left: 0.3rem;
+}}
+
+.criterion-cost {{
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  background: #dcfce7;
+  color: #166534;
+  margin-left: 0.3rem;
+  font-variant-numeric: tabular-nums;
+}}
+
+@media (prefers-color-scheme: dark) {{
+  .criterion-cost {{
+    background: #14532d;
+    color: #86efac;
+  }}
 }}
 
 .criterion-empty {{
@@ -1076,13 +928,10 @@ tr.expandable.expanded .expand-icon {{
           <th data-col="2" data-type="str">Status <span class="sort-arrow">\u25B2</span></th>
           <th data-col="3" data-type="str">Started <span class="sort-arrow">\u25B2</span></th>
           <th data-col="4" data-type="str" class="sort-desc">Last Updated <span class="sort-arrow">\u25BC</span></th>
-          <th data-col="5" data-type="num">Criteria <span class="sort-arrow">\u25B2</span></th>
-          <th data-col="6" data-type="num">Blockers <span class="sort-arrow">\u25B2</span></th>
-          <th data-col="7" data-type="str">Model <span class="sort-arrow">\u25B2</span></th>
-          <th data-col="8" data-type="num" style="text-align:right">Tokens In <span class="sort-arrow">\u25B2</span></th>
-          <th data-col="9" data-type="num" style="text-align:right">Tokens Out <span class="sort-arrow">\u25B2</span></th>
-          <th data-col="10" data-type="num" style="text-align:right">Cost <span class="sort-arrow">\u25B2</span></th>
-          <th data-col="11" data-type="num" style="text-align:center">Deviation <span class="sort-arrow">\u25B2</span></th>
+          <th data-col="5" data-type="str">Model <span class="sort-arrow">\u25B2</span></th>
+          <th data-col="6" data-type="num" style="text-align:right">Tokens In <span class="sort-arrow">\u25B2</span></th>
+          <th data-col="7" data-type="num" style="text-align:right">Tokens Out <span class="sort-arrow">\u25B2</span></th>
+          <th data-col="8" data-type="num" style="text-align:right">Cost <span class="sort-arrow">\u25B2</span></th>
         </tr>
       </thead>
       <tbody id="metricsBody">
@@ -1090,11 +939,10 @@ tr.expandable.expanded .expand-icon {{
       </tbody>
       <tfoot>
         <tr>
-          <td colspan="8" id="footerLabel">Total</td>
+          <td colspan="6" id="footerLabel">Total</td>
           <td class="col-tokens-in" id="footerTokensIn">{format_number(total_tokens_in)}</td>
           <td class="col-tokens-out" id="footerTokensOut">{format_number(total_tokens_out)}</td>
           <td class="col-cost" id="footerCost">{format_cost(total_cost)}</td>
-          <td></td>
         </tr>
       </tfoot>
     </table>
@@ -1192,9 +1040,9 @@ tr.expandable.expanded .expand-icon {{
   function updateFooter() {{
     var totalIn = 0, totalOut = 0, totalCost = 0, count = 0;
     filtered.forEach(function(row) {{
-      totalIn += parseFloat(row.children[8].getAttribute('data-sort')) || 0;
-      totalOut += parseFloat(row.children[9].getAttribute('data-sort')) || 0;
-      totalCost += parseFloat(row.children[10].getAttribute('data-sort')) || 0;
+      totalIn += parseFloat(row.children[6].getAttribute('data-sort')) || 0;
+      totalOut += parseFloat(row.children[7].getAttribute('data-sort')) || 0;
+      totalCost += parseFloat(row.children[8].getAttribute('data-sort')) || 0;
       count++;
     }});
     var label = statusFilter === 'All' && !searchTerm ? 'Total' : 'Filtered total (' + count + ' tasks)';
