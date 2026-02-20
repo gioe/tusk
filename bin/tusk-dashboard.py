@@ -180,7 +180,7 @@ def fetch_all_criteria(conn: sqlite3.Connection) -> dict[int, list[dict]]:
     """Fetch all acceptance criteria, grouped by task_id."""
     log.debug("Querying acceptance_criteria table")
     rows = conn.execute(
-        """SELECT task_id, criterion, is_completed, source
+        """SELECT id, task_id, criterion, is_completed, source
            FROM acceptance_criteria
            ORDER BY task_id, id"""
     ).fetchall()
@@ -443,7 +443,7 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
                 check = '&#10003;' if done else '&#9711;'
                 css = 'criterion-done' if done else 'criterion-pending'
                 source_badge = f' <span class="criterion-source">{esc(cr["source"])}</span>' if cr.get("source") else ''
-                criteria_items += f'<div class="criterion-item {css}">{check} {esc(cr["criterion"])}{source_badge}</div>\n'
+                criteria_items += f'<div class="criterion-item {css}"><span class="criterion-id">#{cr["id"]}</span> {check} {esc(cr["criterion"])}{source_badge}</div>\n'
             criteria_html = criteria_items
         else:
             criteria_html = '<div class="criterion-empty">No acceptance criteria</div>'
@@ -906,6 +906,14 @@ tr.expandable.expanded .expand-icon {{
 
 .criterion-pending {{
   color: var(--text-muted);
+}}
+
+.criterion-id {{
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 2.5em;
 }}
 
 .criterion-source {{
