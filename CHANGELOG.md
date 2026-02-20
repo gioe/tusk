@@ -6,6 +6,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [144] - 2026-02-20
+
+### Added
+
+- `commit_hash` column on `acceptance_criteria` — automatically captures `git rev-parse --short HEAD` when a criterion is marked done via `tusk criteria done`
+- `tusk criteria list` displays commit hash column
+- `tusk criteria reset` clears commit_hash to NULL
+- Dashboard renders commit hash as a clickable GitHub link (when task has a PR URL) or plain monospace badge
+- Schema migration 8→9 adds `commit_hash TEXT` column to `acceptance_criteria`
+
 ## [143] - 2026-02-20
 
 ### Fixed

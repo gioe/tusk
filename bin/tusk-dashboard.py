@@ -49,6 +49,7 @@ def fetch_task_metrics(conn: sqlite3.Connection) -> list[dict]:
                   COALESCE(tm.total_cost, 0) as total_cost,
                   tm.complexity,
                   tm.priority_score,
+                  tm.github_pr,
                   s.model,
                   tm.created_at,
                   tm.updated_at
@@ -116,7 +117,7 @@ def fetch_all_criteria(conn: sqlite3.Connection) -> dict[int, list[dict]]:
     """Fetch all acceptance criteria, grouped by task_id."""
     log.debug("Querying acceptance_criteria table")
     rows = conn.execute(
-        """SELECT id, task_id, criterion, is_completed, source, cost_dollars, completed_at, criterion_type
+        """SELECT id, task_id, criterion, is_completed, source, cost_dollars, completed_at, criterion_type, commit_hash
            FROM acceptance_criteria
            ORDER BY task_id, id"""
     ).fetchall()
@@ -335,6 +336,13 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
     # Task rows — include data attributes for JS filtering/sorting
     if all_criteria is None:
         all_criteria = {}
+
+    # Build task_id → github_pr map for commit hash links in criteria
+    task_pr_map: dict[int, str] = {}
+    for t in task_metrics:
+        if t.get("github_pr"):
+            task_pr_map[t["id"]] = t["github_pr"]
+
     task_rows = ""
     for t in task_metrics:
         has_data = t["session_count"] > 0
@@ -376,14 +384,23 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
                 cost_badge = f' <span class="criterion-cost">${cr["cost_dollars"]:.4f}</span>' if cr.get("cost_dollars") else ''
                 time_badge = f' <span class="criterion-time">{format_date(cr["completed_at"])}</span>' if cr.get("completed_at") else ''
                 type_badge = f' <span class="criterion-type criterion-type-{esc(ctype)}">{esc(ctype)}</span>'
-                badges = f'<span class="criterion-badges">{type_badge}{source_badge}{cost_badge}{time_badge}</span>'
+                commit_badge = ''
+                if cr.get("commit_hash"):
+                    pr_url = task_pr_map.get(tid, "")
+                    if pr_url and "/pull/" in pr_url:
+                        repo_url = pr_url.split("/pull/")[0]
+                        commit_url = f"{repo_url}/commit/{esc(cr['commit_hash'])}"
+                        commit_badge = f' <a href="{commit_url}" class="criterion-commit" target="_blank">{esc(cr["commit_hash"])}</a>'
+                    else:
+                        commit_badge = f' <span class="criterion-commit">{esc(cr["commit_hash"])}</span>'
+                badges = f'<span class="criterion-badges">{type_badge}{source_badge}{cost_badge}{commit_badge}{time_badge}</span>'
                 sort_completed = esc(cr.get("completed_at") or "")
                 sort_cost = cr.get("cost_dollars") or 0
                 sort_type = esc(ctype)
                 criteria_items += f'<div class="criterion-item {css}" data-sort-completed="{sort_completed}" data-sort-cost="{sort_cost}" data-sort-type="{sort_type}"><span class="criterion-id">#{cr["id"]}</span> {check} <span class="criterion-text">{esc(cr["criterion"])}</span>{badges}</div>\n'
 
             sort_bar = """<div class="criteria-sort-bar"><span class="criteria-sort-label">Sort:</span><button class="criteria-sort-btn" data-sort-key="completed">Completed <span class="sort-arrow">&#9650;</span></button><button class="criteria-sort-btn" data-sort-key="cost">Cost <span class="sort-arrow">&#9650;</span></button><button class="criteria-sort-btn" data-sort-key="type">Type <span class="sort-arrow">&#9650;</span></button></div>"""
-            criteria_header = """<div class="criteria-header"><span class="criterion-id">ID</span><span class="criteria-header-status">Status</span><span class="criterion-text">Criterion</span><span class="criterion-badges"><span class="criteria-header-label">Type</span><span class="criteria-header-label">Cost</span><span class="criteria-header-label">Completed At</span></span></div>"""
+            criteria_header = """<div class="criteria-header"><span class="criterion-id">ID</span><span class="criteria-header-status">Status</span><span class="criterion-text">Criterion</span><span class="criterion-badges"><span class="criteria-header-label">Type</span><span class="criteria-header-label">Cost</span><span class="criteria-header-label">Commit</span><span class="criteria-header-label">Completed At</span></span></div>"""
             task_rows += f"""<tr class="criteria-row" data-parent="{tid}" style="display:none">
   <td colspan="11"><div class="criteria-detail">{sort_bar}{criteria_header}{criteria_items}</div></td>
 </tr>\n"""
@@ -842,6 +859,34 @@ tr.expandable.expanded .expand-icon {{
   color: #1e40af;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}}
+
+.criterion-commit {{
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  background: #fef3c7;
+  color: #92400e;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+  white-space: nowrap;
+}}
+
+a.criterion-commit:hover {{
+  background: #fde68a;
+  text-decoration: underline;
+}}
+
+@media (prefers-color-scheme: dark) {{
+  .criterion-commit {{
+    background: #78350f;
+    color: #fbbf24;
+  }}
+  a.criterion-commit:hover {{
+    background: #92400e;
+  }}
 }}
 
 @media (prefers-color-scheme: dark) {{

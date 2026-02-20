@@ -196,7 +196,7 @@ def cmd_list(args: argparse.Namespace, db_path: str, config: dict) -> int:
 
     rows = conn.execute(
         "SELECT id, criterion, source, is_completed, cost_dollars, tokens_in, tokens_out, "
-        "criterion_type, verification_spec, created_at "
+        "criterion_type, verification_spec, commit_hash, created_at "
         "FROM acceptance_criteria WHERE task_id = ? ORDER BY id",
         (args.task_id,),
     ).fetchall()
@@ -207,8 +207,8 @@ def cmd_list(args: argparse.Namespace, db_path: str, config: dict) -> int:
         return 0
 
     print(f"Acceptance criteria for task #{args.task_id}: {task['summary']}")
-    print(f"{'ID':<6} {'Done':<6} {'Type':<8} {'Source':<14} {'Cost':<10} {'Criterion'}")
-    print("-" * 90)
+    print(f"{'ID':<6} {'Done':<6} {'Type':<8} {'Source':<14} {'Cost':<10} {'Commit':<10} {'Criterion'}")
+    print("-" * 100)
     total_cost = 0.0
     for r in rows:
         marker = "[x]" if r["is_completed"] else "[ ]"
@@ -216,7 +216,8 @@ def cmd_list(args: argparse.Namespace, db_path: str, config: dict) -> int:
         if r["cost_dollars"]:
             total_cost += r["cost_dollars"]
         ctype = r["criterion_type"] or "manual"
-        print(f"{r['id']:<6} {marker:<6} {ctype:<8} {r['source']:<14} {cost_str:<10} {r['criterion']}")
+        commit_str = r["commit_hash"] or ""
+        print(f"{r['id']:<6} {marker:<6} {ctype:<8} {r['source']:<14} {cost_str:<10} {commit_str:<10} {r['criterion']}")
 
     done = sum(1 for r in rows if r["is_completed"])
     summary = f"\nProgress: {done}/{len(rows)}"
@@ -270,11 +271,22 @@ def cmd_done(args: argparse.Namespace, db_path: str, config: dict) -> int:
             print("Use --skip-verify to bypass verification.", file=sys.stderr)
             return 1
 
+    # Best-effort: capture current git HEAD short hash
+    commit_hash = None
+    try:
+        commit_hash = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL,
+        ).decode().strip() or None
+    except Exception:
+        pass  # Non-git environment — leave as NULL
+
     conn.execute(
         "UPDATE acceptance_criteria SET is_completed = 1, "
         "completed_at = strftime('%Y-%m-%d %H:%M:%f', 'now'), "
+        "commit_hash = ?, "
         "verification_result = ?, updated_at = datetime('now') WHERE id = ?",
-        (verification_result, args.criterion_id),
+        (commit_hash, verification_result, args.criterion_id),
     )
     conn.commit()
 
@@ -312,7 +324,7 @@ def cmd_reset(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn.execute(
         "UPDATE acceptance_criteria SET is_completed = 0, completed_at = NULL, "
         "cost_dollars = NULL, tokens_in = NULL, tokens_out = NULL, "
-        "verification_result = NULL, "
+        "verification_result = NULL, commit_hash = NULL, "
         "updated_at = datetime('now') WHERE id = ?",
         (args.criterion_id,),
     )
