@@ -117,7 +117,7 @@ def fetch_all_criteria(conn: sqlite3.Connection) -> dict[int, list[dict]]:
     """Fetch all acceptance criteria, grouped by task_id."""
     log.debug("Querying acceptance_criteria table")
     rows = conn.execute(
-        """SELECT id, task_id, criterion, is_completed, source, cost_dollars, completed_at, criterion_type, commit_hash
+        """SELECT id, task_id, criterion, is_completed, source, cost_dollars, completed_at, criterion_type, commit_hash, committed_at
            FROM acceptance_criteria
            ORDER BY task_id, id"""
     ).fetchall()
@@ -458,39 +458,62 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
                 badges = f'<span class="criterion-badges">{type_badge}{source_badge}{cost_badge}{commit_badge}{time_badge}</span>'
                 sort_completed = esc(cr.get("completed_at") or "")
                 sort_cost = cr.get("cost_dollars") or 0
-                sort_type = esc(ctype)
-                item_html = f'<div class="criterion-item {css}" data-sort-completed="{sort_completed}" data-sort-cost="{sort_cost}" data-sort-type="{sort_type}"><span class="criterion-id">#{cr["id"]}</span><span class="criterion-status">{check}</span><span class="criterion-text">{esc(cr["criterion"])}</span>{badges}</div>\n'
+                sort_commit = esc(cr.get("commit_hash") or "")
+                item_html = f'<div class="criterion-item {css}" data-sort-completed="{sort_completed}" data-sort-cost="{sort_cost}" data-sort-commit="{sort_commit}"><span class="criterion-id">#{cr["id"]}</span><span class="criterion-status">{check}</span><span class="criterion-text">{esc(cr["criterion"])}</span>{badges}</div>\n'
                 criterion_item_htmls.append((item_html, cr))
 
             # Flat view: all items in original order
             flat_items = ''.join(h for h, _ in criterion_item_htmls)
 
-            # Grouped view: group by criterion_type with collapsible headers
-            type_order = ["manual", "code", "test", "file"]
-            type_groups_html: dict[str, list[str]] = {}
-            type_counts: dict[str, dict[str, int]] = {}
+            # Grouped view: group by commit_hash with collapsible headers
+            commit_groups_html: dict[str | None, list[str]] = {}
+            commit_counts: dict[str | None, dict[str, int]] = {}
+            commit_timestamps: dict[str | None, str] = {}
             for item_html, cr in criterion_item_htmls:
-                ctype = cr.get("criterion_type") or "manual"
-                type_groups_html.setdefault(ctype, []).append(item_html)
-                if ctype not in type_counts:
-                    type_counts[ctype] = {"done": 0, "total": 0}
-                type_counts[ctype]["total"] += 1
+                chash = cr.get("commit_hash") or None
+                commit_groups_html.setdefault(chash, []).append(item_html)
+                if chash not in commit_counts:
+                    commit_counts[chash] = {"done": 0, "total": 0}
+                commit_counts[chash]["total"] += 1
                 if cr["is_completed"]:
-                    type_counts[ctype]["done"] += 1
+                    commit_counts[chash]["done"] += 1
+                if chash and cr.get("committed_at") and chash not in commit_timestamps:
+                    commit_timestamps[chash] = cr["committed_at"]
+
+            # Order: committed groups by committed_at descending, then Uncommitted last
+            committed_hashes = [h for h in commit_groups_html if h is not None]
+            committed_hashes.sort(key=lambda h: commit_timestamps.get(h, ""), reverse=True)
+            group_order: list[str | None] = committed_hashes
+            if None in commit_groups_html:
+                group_order.append(None)
+
+            pr_url = task_pr_map.get(tid, "")
+            repo_url = ""
+            if pr_url and "/pull/" in pr_url:
+                repo_url = pr_url.split("/pull/")[0]
 
             grouped_items = ""
-            for ctype in type_order:
-                if ctype not in type_groups_html:
-                    continue
-                counts = type_counts[ctype]
+            for chash in group_order:
+                counts = commit_counts[chash]
                 all_done_cls = " criteria-group-all-done" if counts["done"] == counts["total"] else ""
-                grouped_items += f'<div class="criteria-type-group{all_done_cls}" data-group-type="{esc(ctype)}">'
-                grouped_items += f'<div class="criteria-group-header"><span class="criteria-group-icon">&#9654;</span> <span class="criteria-group-name">{esc(ctype)}</span> &mdash; <span class="criteria-group-count">{counts["done"]}/{counts["total"]} done</span></div>'
+                group_key = esc(chash) if chash else "uncommitted"
+                grouped_items += f'<div class="criteria-type-group{all_done_cls}" data-group-type="{group_key}">'
+                if chash:
+                    short_hash = esc(chash[:8])
+                    if repo_url:
+                        commit_link = f'<a href="{repo_url}/commit/{esc(chash)}" class="criteria-group-commit-link" target="_blank">{short_hash}</a>'
+                    else:
+                        commit_link = f'<span class="criteria-group-commit-hash">{short_hash}</span>'
+                    ts = format_date(commit_timestamps.get(chash, ""))
+                    ts_span = f' <span class="criteria-group-time">{ts}</span>' if ts else ''
+                    grouped_items += f'<div class="criteria-group-header"><span class="criteria-group-icon">&#9654;</span> {commit_link}{ts_span} &mdash; <span class="criteria-group-count">{counts["done"]}/{counts["total"]} done</span></div>'
+                else:
+                    grouped_items += f'<div class="criteria-group-header"><span class="criteria-group-icon">&#9654;</span> <span class="criteria-group-name">Uncommitted</span> &mdash; <span class="criteria-group-count">{counts["done"]}/{counts["total"]} done</span></div>'
                 grouped_items += '<div class="criteria-group-items">'
-                grouped_items += ''.join(type_groups_html[ctype])
+                grouped_items += ''.join(commit_groups_html[chash])
                 grouped_items += '</div></div>\n'
 
-            sort_bar = """<div class="criteria-sort-bar"><button class="criteria-view-toggle active" data-view="grouped" title="Switch between grouped and flat views">Grouped</button><span class="criteria-sort-sep"></span><span class="criteria-sort-label">Sort:</span><button class="criteria-sort-btn" data-sort-key="completed">Completed <span class="sort-arrow">&#9650;</span></button><button class="criteria-sort-btn" data-sort-key="cost">Cost <span class="sort-arrow">&#9650;</span></button><button class="criteria-sort-btn" data-sort-key="type">Type <span class="sort-arrow">&#9650;</span></button></div>"""
+            sort_bar = """<div class="criteria-sort-bar"><button class="criteria-view-toggle active" data-view="grouped" title="Switch between grouped and flat views">Grouped</button><span class="criteria-sort-sep"></span><span class="criteria-sort-label">Sort:</span><button class="criteria-sort-btn" data-sort-key="completed">Completed <span class="sort-arrow">&#9650;</span></button><button class="criteria-sort-btn" data-sort-key="cost">Cost <span class="sort-arrow">&#9650;</span></button><button class="criteria-sort-btn" data-sort-key="commit">Commit <span class="sort-arrow">&#9650;</span></button></div>"""
             criteria_header = """<div class="criteria-header"><span class="criterion-id">ID</span><span class="criteria-header-status">Status</span><span class="criterion-text">Criterion</span><span class="criterion-badges"><span class="criteria-header-label">Type</span><span class="criteria-header-label">Cost</span><span class="criteria-header-label">Commit</span><span class="criteria-header-label">Completed At</span></span></div>"""
             task_rows += f"""<tr class="criteria-row" data-parent="{tid}" style="display:none">
   <td colspan="11"><div class="criteria-detail">{sort_bar}{criteria_header}<div class="criteria-grouped-view">{grouped_items}</div><div class="criteria-flat-view" style="display:none">{flat_items}</div></div></td>
@@ -1205,6 +1228,28 @@ a.criterion-commit:hover {{
 .criteria-group-name {{
   text-transform: uppercase;
   letter-spacing: 0.03em;
+}}
+
+.criteria-group-commit-link {{
+  font-family: 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+  color: var(--accent);
+  text-decoration: none;
+}}
+
+.criteria-group-commit-link:hover {{
+  text-decoration: underline;
+}}
+
+.criteria-group-commit-hash {{
+  font-family: 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+}}
+
+.criteria-group-time {{
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 0.7rem;
 }}
 
 .criteria-group-count {{
