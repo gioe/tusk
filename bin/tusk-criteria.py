@@ -11,9 +11,12 @@ Arguments received from tusk:
 """
 
 import argparse
+import glob as globmod
 import importlib.util
+import json
 import os
 import sqlite3
+import subprocess
 import sys
 from pathlib import Path
 
@@ -28,6 +31,11 @@ def _load_lib():
 
 
 lib = _load_lib()
+
+
+def load_config(config_path: str) -> dict:
+    with open(config_path) as f:
+        return json.load(f)
 
 
 def capture_criterion_cost(conn: sqlite3.Connection, criterion_id: int, task_id: int) -> None:
@@ -83,6 +91,50 @@ def capture_criterion_cost(conn: sqlite3.Connection, criterion_id: int, task_id:
         pass  # Best-effort — never block completion
 
 
+# ── Verification ──────────────────────────────────────────────────────
+
+def run_verification(criterion_type: str, spec: str) -> dict:
+    """Run automated verification based on criterion type.
+
+    Returns {"passed": bool, "output": str}.
+    """
+    if criterion_type == "manual" or not spec:
+        return {"passed": True, "output": ""}
+
+    if criterion_type in ("code", "test"):
+        # Run spec as a shell command; pass means exit code 0
+        try:
+            result = subprocess.run(
+                spec, shell=True, capture_output=True, text=True, timeout=120,
+            )
+            output = result.stdout.strip()
+            if result.stderr.strip():
+                output += ("\n" if output else "") + result.stderr.strip()
+            # Truncate long output
+            if len(output) > 2000:
+                output = output[:2000] + "\n... (truncated)"
+            return {"passed": result.returncode == 0, "output": output}
+        except subprocess.TimeoutExpired:
+            return {"passed": False, "output": "Verification timed out (120s)"}
+        except Exception as e:
+            return {"passed": False, "output": f"Error running verification: {e}"}
+
+    if criterion_type == "file":
+        # Check if file(s) matching the spec exist
+        matches = globmod.glob(spec, recursive=True)
+        if matches:
+            file_list = ", ".join(matches[:10])
+            if len(matches) > 10:
+                file_list += f" ... ({len(matches)} total)"
+            return {"passed": True, "output": f"Found: {file_list}"}
+        return {"passed": False, "output": f"No files matching: {spec}"}
+
+    return {"passed": False, "output": f"Unknown criterion type: {criterion_type}"}
+
+
+SPEC_REQUIRED_TYPES = {"code", "test", "file"}
+
+
 # ── Subcommands ──────────────────────────────────────────────────────
 
 def get_connection(db_path: str) -> sqlite3.Connection:
@@ -92,7 +144,7 @@ def get_connection(db_path: str) -> sqlite3.Connection:
     return conn
 
 
-def cmd_add(args: argparse.Namespace, db_path: str) -> int:
+def cmd_add(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn = get_connection(db_path)
 
     # Verify task exists
@@ -102,19 +154,35 @@ def cmd_add(args: argparse.Namespace, db_path: str) -> int:
         conn.close()
         return 2
 
+    # Validate criterion_type against config
+    criterion_types = config.get("criterion_types", [])
+    if criterion_types and args.type not in criterion_types:
+        joined = ", ".join(criterion_types)
+        print(f"Error: Invalid criterion type '{args.type}'. Valid: {joined}", file=sys.stderr)
+        conn.close()
+        return 2
+
+    # Validate spec: required for non-manual types
+    if args.type in SPEC_REQUIRED_TYPES and not args.spec:
+        print(f"Error: --spec is required for criterion type '{args.type}'", file=sys.stderr)
+        conn.close()
+        return 2
+
     conn.execute(
-        "INSERT INTO acceptance_criteria (task_id, criterion, source) VALUES (?, ?, ?)",
-        (args.task_id, args.text, args.source),
+        "INSERT INTO acceptance_criteria (task_id, criterion, source, criterion_type, verification_spec) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (args.task_id, args.text, args.source, args.type, args.spec),
     )
     conn.commit()
 
     cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     conn.close()
-    print(f"Added criterion #{cid} to task #{args.task_id}")
+    type_suffix = f" (type: {args.type})" if args.type != "manual" else ""
+    print(f"Added criterion #{cid} to task #{args.task_id}{type_suffix}")
     return 0
 
 
-def cmd_list(args: argparse.Namespace, db_path: str) -> int:
+def cmd_list(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn = get_connection(db_path)
 
     # Verify task exists
@@ -127,7 +195,8 @@ def cmd_list(args: argparse.Namespace, db_path: str) -> int:
         return 2
 
     rows = conn.execute(
-        "SELECT id, criterion, source, is_completed, cost_dollars, tokens_in, tokens_out, created_at "
+        "SELECT id, criterion, source, is_completed, cost_dollars, tokens_in, tokens_out, "
+        "criterion_type, verification_spec, created_at "
         "FROM acceptance_criteria WHERE task_id = ? ORDER BY id",
         (args.task_id,),
     ).fetchall()
@@ -138,15 +207,16 @@ def cmd_list(args: argparse.Namespace, db_path: str) -> int:
         return 0
 
     print(f"Acceptance criteria for task #{args.task_id}: {task['summary']}")
-    print(f"{'ID':<6} {'Done':<6} {'Source':<14} {'Cost':<10} {'Criterion'}")
-    print("-" * 80)
+    print(f"{'ID':<6} {'Done':<6} {'Type':<8} {'Source':<14} {'Cost':<10} {'Criterion'}")
+    print("-" * 90)
     total_cost = 0.0
     for r in rows:
         marker = "[x]" if r["is_completed"] else "[ ]"
         cost_str = f"${r['cost_dollars']:.4f}" if r["cost_dollars"] else ""
         if r["cost_dollars"]:
             total_cost += r["cost_dollars"]
-        print(f"{r['id']:<6} {marker:<6} {r['source']:<14} {cost_str:<10} {r['criterion']}")
+        ctype = r["criterion_type"] or "manual"
+        print(f"{r['id']:<6} {marker:<6} {ctype:<8} {r['source']:<14} {cost_str:<10} {r['criterion']}")
 
     done = sum(1 for r in rows if r["is_completed"])
     summary = f"\nProgress: {done}/{len(rows)}"
@@ -156,11 +226,12 @@ def cmd_list(args: argparse.Namespace, db_path: str) -> int:
     return 0
 
 
-def cmd_done(args: argparse.Namespace, db_path: str) -> int:
+def cmd_done(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn = get_connection(db_path)
 
     row = conn.execute(
-        "SELECT id, task_id, criterion, is_completed FROM acceptance_criteria WHERE id = ?",
+        "SELECT id, task_id, criterion, is_completed, criterion_type, verification_spec "
+        "FROM acceptance_criteria WHERE id = ?",
         (args.criterion_id,),
     ).fetchone()
     if not row:
@@ -173,10 +244,36 @@ def cmd_done(args: argparse.Namespace, db_path: str) -> int:
         conn.close()
         return 0
 
+    criterion_type = row["criterion_type"] or "manual"
+    spec = row["verification_spec"]
+
+    # Run verification for non-manual types (unless --skip-verify)
+    verification_result = None
+    if criterion_type != "manual" and spec and not args.skip_verify:
+        result = run_verification(criterion_type, spec)
+        verification_result = json.dumps(result)
+
+        if not result["passed"]:
+            # Store the failed result
+            conn.execute(
+                "UPDATE acceptance_criteria SET verification_result = ?, "
+                "updated_at = datetime('now') WHERE id = ?",
+                (verification_result, args.criterion_id),
+            )
+            conn.commit()
+            conn.close()
+
+            print(f"Verification FAILED for criterion #{args.criterion_id} ({criterion_type}):",
+                  file=sys.stderr)
+            if result["output"]:
+                print(result["output"], file=sys.stderr)
+            print("Use --skip-verify to bypass verification.", file=sys.stderr)
+            return 1
+
     conn.execute(
         "UPDATE acceptance_criteria SET is_completed = 1, completed_at = datetime('now'), "
-        "updated_at = datetime('now') WHERE id = ?",
-        (args.criterion_id,),
+        "verification_result = ?, updated_at = datetime('now') WHERE id = ?",
+        (verification_result, args.criterion_id),
     )
     conn.commit()
 
@@ -185,11 +282,16 @@ def cmd_done(args: argparse.Namespace, db_path: str) -> int:
     conn.commit()
 
     conn.close()
-    print(f"Criterion #{args.criterion_id} marked done: {row['criterion']}")
+    verified_msg = ""
+    if criterion_type != "manual" and not args.skip_verify:
+        verified_msg = " (verification passed)"
+    elif criterion_type != "manual" and args.skip_verify:
+        verified_msg = " (verification skipped)"
+    print(f"Criterion #{args.criterion_id} marked done{verified_msg}: {row['criterion']}")
     return 0
 
 
-def cmd_reset(args: argparse.Namespace, db_path: str) -> int:
+def cmd_reset(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn = get_connection(db_path)
 
     row = conn.execute(
@@ -209,6 +311,7 @@ def cmd_reset(args: argparse.Namespace, db_path: str) -> int:
     conn.execute(
         "UPDATE acceptance_criteria SET is_completed = 0, completed_at = NULL, "
         "cost_dollars = NULL, tokens_in = NULL, tokens_out = NULL, "
+        "verification_result = NULL, "
         "updated_at = datetime('now') WHERE id = ?",
         (args.criterion_id,),
     )
@@ -226,6 +329,8 @@ def main():
         sys.exit(1)
 
     db_path = sys.argv[1]
+    config_path = sys.argv[2]
+    config = load_config(config_path)
 
     parser = argparse.ArgumentParser(
         prog="tusk criteria",
@@ -242,6 +347,14 @@ def main():
         choices=["original", "subsumption", "pr_review"],
         help="Source of the criterion (default: original)",
     )
+    add_p.add_argument(
+        "--type", default="manual",
+        help="Criterion type (default: manual)",
+    )
+    add_p.add_argument(
+        "--spec",
+        help="Verification spec (required for non-manual types)",
+    )
 
     # list
     list_p = subparsers.add_parser("list", help="List criteria for a task")
@@ -250,6 +363,10 @@ def main():
     # done
     done_p = subparsers.add_parser("done", help="Mark a criterion as completed")
     done_p.add_argument("criterion_id", type=int, help="Criterion ID")
+    done_p.add_argument(
+        "--skip-verify", action="store_true",
+        help="Skip automated verification for non-manual criteria",
+    )
 
     # reset
     reset_p = subparsers.add_parser("reset", help="Reset a criterion to incomplete")
@@ -263,7 +380,7 @@ def main():
 
     try:
         handlers = {"add": cmd_add, "list": cmd_list, "done": cmd_done, "reset": cmd_reset}
-        sys.exit(handlers[args.command](args, db_path))
+        sys.exit(handlers[args.command](args, db_path, config))
     except sqlite3.Error as e:
         print(f"Database error: {e}", file=sys.stderr)
         sys.exit(2)
