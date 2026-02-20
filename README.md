@@ -147,11 +147,11 @@ Optional metrics tracking for time, cost, and token usage per task.
 
 ```json
 {
-  "cache_write_tier": "5m",
   "models": {
     "claude-sonnet-4-6": {
       "input": 3.0,
-      "cache_write": 3.75,
+      "cache_write_5m": 3.75,
+      "cache_write_1h": 6.0,
       "cache_read": 0.3,
       "output": 15.0
     }
@@ -162,9 +162,8 @@ Optional metrics tracking for time, cost, and token usage per task.
 }
 ```
 
-- **`models`**: Canonical model IDs mapped to USD per million tokens (e.g., `"input": 3.0` = $3.00/MTok) for four token categories
+- **`models`**: Canonical model IDs mapped to USD per million tokens (e.g., `"input": 3.0` = $3.00/MTok) for five token categories
 - **`aliases`**: Date-stamped model IDs mapped to their canonical key (e.g., `claude-sonnet-4-6-20250918` → `claude-sonnet-4-6`)
-- **`cache_write_tier`**: Which Anthropic prompt caching tier the `cache_write` rates reflect (`5m` or `1h`)
 
 ### How costs are calculated
 
@@ -172,28 +171,35 @@ Optional metrics tracking for time, cost, and token usage per task.
 
 ```
 cost = (usage.input_tokens / 1M × input)
-     + (usage.cache_creation_input_tokens / 1M × cache_write)
+     + (cache_creation.ephemeral_5m_input_tokens / 1M × cache_write_5m)
+     + (cache_creation.ephemeral_1h_input_tokens / 1M × cache_write_1h)
      + (usage.cache_read_input_tokens / 1M × cache_read)
      + (usage.output_tokens / 1M × output)
 ```
 
-The left side of each term comes from the transcript; the right side comes from the model's entry in `pricing.json`. Claude Code automatically writes JSONL transcripts to `~/.claude/projects/<project_hash>/` during each session — tusk reads these but never writes them. A typical usage object in the transcript looks like:
+The left side of each term comes from the transcript; the right side comes from the model's entry in `pricing.json`. When the nested `cache_creation` object is absent (older transcripts), all `cache_creation_input_tokens` are assigned to the 5m tier as a fallback. Claude Code automatically writes JSONL transcripts to `~/.claude/projects/<project_hash>/` during each session — tusk reads these but never writes them. A typical usage object in the transcript looks like:
 
 ```json
 {
   "input_tokens": 2750,
   "output_tokens": 483,
   "cache_creation_input_tokens": 12500,
-  "cache_read_input_tokens": 8200
+  "cache_read_input_tokens": 8200,
+  "cache_creation": {
+    "ephemeral_5m_input_tokens": 10000,
+    "ephemeral_1h_input_tokens": 2500
+  }
 }
-``` If `pricing.json` is missing or a model isn't found, cost defaults to `$0` with a warning.
+```
+
+If `pricing.json` is missing or a model isn't found, cost defaults to `$0` with a warning.
 
 ### Updating prices
 
 ```bash
-tusk pricing-update              # Fetch latest from Anthropic and update (5m cache tier)
+tusk pricing-update              # Fetch latest from Anthropic and update (both cache tiers)
 tusk pricing-update --dry-run    # Show diff without writing
-tusk pricing-update --cache-tier 1h  # Use 1-hour cache write rates instead
+tusk session-recalc              # Re-run cost calculations for all existing sessions
 ```
 
 ## How It Works

@@ -6,6 +6,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [139] - 2026-02-19
+
+### Changed
+
+- `pricing.json` now carries both `cache_write_5m` and `cache_write_1h` rates per model; `cache_write_tier` top-level field removed
+- `tusk-session-stats.py` extracts per-tier cache write tokens from nested `cache_creation` object (falls back to 5m tier for older transcripts) and uses a five-term cost formula
+- `tusk pricing-update` emits both cache write rates per model; `--cache-tier` flag removed
+
+### Added
+
+- `tusk session-recalc` command to re-run cost calculations for all existing sessions after pricing changes
+
 ## [138] - 2026-02-19
 
 ### Added

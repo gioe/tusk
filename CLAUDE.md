@@ -125,9 +125,11 @@ bin/tusk token-audit --json    # Machine-readable JSON
 bin/tusk sync-skills           # Regenerate .claude/skills/ symlinks from skills/ + skills-internal/
 
 # Fetch and update pricing.json from Anthropic docs
-bin/tusk pricing-update            # Fetch latest prices and update pricing.json (5m cache tier)
+bin/tusk pricing-update            # Fetch latest prices and update pricing.json (both cache tiers)
 bin/tusk pricing-update --dry-run  # Show diff without writing
-bin/tusk pricing-update --cache-tier 1h  # Use 1h cache write rates instead of 5m
+
+# Re-run cost calculations for all existing sessions (after pricing changes)
+bin/tusk session-recalc
 
 # Version, migration, and upgrade
 bin/tusk version               # Print installed version
@@ -173,7 +175,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 ### Python Scripts
 
 - `bin/tusk-dupes.py` — Duplicate detection against open tasks (invoked via `tusk dupes`). Normalizes summaries by stripping configurable prefixes and uses `difflib.SequenceMatcher` for similarity scoring.
-- `bin/tusk-session-stats.py` — Token/cost tracking for task sessions (invoked via `tusk session-stats`). Parses Claude Code JSONL transcripts, deduplicates by requestId, and computes costs using per-model pricing.
+- `bin/tusk-session-stats.py` — Token/cost tracking for task sessions (invoked via `tusk session-stats`). Parses Claude Code JSONL transcripts, deduplicates by requestId, extracts per-tier cache write tokens (5m/1h), and computes costs using five-term per-model pricing.
 - `bin/tusk-dag.py` — Interactive DAG visualization (invoked via `tusk dag`). Renders task dependencies as a Mermaid.js graph with status-colored nodes, complexity-based shapes, and a click-to-inspect sidebar showing per-task metrics.
 - `bin/tusk-dashboard.py` — Static HTML dashboard generator (invoked via `tusk dashboard`). Queries the `task_metrics` view for per-task token counts and cost, writes a self-contained HTML file, and opens it in the browser.
 - `bin/tusk-blockers.py` — External blocker management (invoked via `tusk blockers`). Supports add, list, resolve, remove, blocked (tasks with open blockers), and all subcommands. Validates blocker_type against config.
@@ -191,7 +193,8 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - `bin/tusk-finalize.py` — Post-merge finalization (invoked via `tusk finalize`). Accepts task ID, session ID, PR URL, and PR number. Sets `github_pr` on the task, closes the session (capturing diff stats), merges the PR via `gh pr merge --squash --delete-branch`, and marks the task Done via `tusk task-done`. Returns JSON with task details and newly unblocked tasks.
 - `bin/tusk-token-audit.py` — Skill token consumption analyzer (invoked via `tusk token-audit`). Scans skill directories and reports five categories: size census (lines + estimated tokens per skill), companion file analysis (conditional vs unconditional loading), SQL anti-patterns, redundancy detection (duplicate commands, setup + re-fetch), and narrative density (prose:code ratio). Supports `--summary` and `--json` output modes.
 - `bin/tusk-sync-skills.py` — Skill symlink regeneration (invoked via `tusk sync-skills`). Removes all existing symlinks in `.claude/skills/`, then creates one per skill directory found in `skills/` (public) and `skills-internal/` (private). Source-repo only — not used in target projects.
-- `bin/tusk-pricing-update.py` — Pricing updater (invoked via `tusk pricing-update`). Fetches the Anthropic pricing page, parses the model pricing HTML table, builds a new models dict using 5m cache write rates by default (`--cache-tier 1h` available), prunes stale aliases, shows a human-readable diff, and writes updated `pricing.json` (or skips with `--dry-run`).
+- `bin/tusk-pricing-update.py` — Pricing updater (invoked via `tusk pricing-update`). Fetches the Anthropic pricing page, parses the model pricing HTML table, builds a new models dict with both `cache_write_5m` and `cache_write_1h` rates per model, prunes stale aliases, shows a human-readable diff, and writes updated `pricing.json` (or skips with `--dry-run`).
+- `bin/tusk-session-recalc.py` — Bulk session recalculation (invoked via `tusk session-recalc`). Iterates all task_sessions, finds matching transcripts, and recomputes tokens/cost with the current pricing formula. Useful after pricing.json changes.
 
 ### Database Schema
 
