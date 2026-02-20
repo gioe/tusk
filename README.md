@@ -139,6 +139,63 @@ Tracks which tasks block other tasks. Enforces no self-dependencies and no circu
 ### task_sessions
 Optional metrics tracking for time, cost, and token usage per task.
 
+## Pricing
+
+`pricing.json` contains per-model token rates (USD per million tokens) used by `tusk session-stats` to compute the `cost_dollars` column in `task_sessions`. It ships with tusk and is updated via `tusk pricing-update`.
+
+### Structure
+
+```json
+{
+  "cache_write_tier": "5m",
+  "models": {
+    "claude-sonnet-4-6": {
+      "input": 3.0,
+      "cache_write": 3.75,
+      "cache_read": 0.3,
+      "output": 15.0
+    }
+  },
+  "aliases": {
+    "claude-sonnet-4-6-20250918": "claude-sonnet-4-6"
+  }
+}
+```
+
+- **`models`**: Canonical model IDs mapped to USD per million tokens (e.g., `"input": 3.0` = $3.00/MTok) for four token categories
+- **`aliases`**: Date-stamped model IDs mapped to their canonical key (e.g., `claude-sonnet-4-6-20250918` → `claude-sonnet-4-6`)
+- **`cache_write_tier`**: Which Anthropic prompt caching tier the `cache_write` rates reflect (`5m` or `1h`)
+
+### How costs are calculated
+
+`tusk-session-stats.py` parses Claude Code JSONL transcripts, aggregates the `usage` object from each API response, resolves the model ID (exact match → alias lookup → prefix match), and computes cost as:
+
+```
+cost = (usage.input_tokens / 1M × input)
+     + (usage.cache_creation_input_tokens / 1M × cache_write)
+     + (usage.cache_read_input_tokens / 1M × cache_read)
+     + (usage.output_tokens / 1M × output)
+```
+
+The left side of each term comes from the transcript; the right side comes from the model's entry in `pricing.json`. Claude Code automatically writes JSONL transcripts to `~/.claude/projects/<project_hash>/` during each session — tusk reads these but never writes them. A typical usage object in the transcript looks like:
+
+```json
+{
+  "input_tokens": 2750,
+  "output_tokens": 483,
+  "cache_creation_input_tokens": 12500,
+  "cache_read_input_tokens": 8200
+}
+``` If `pricing.json` is missing or a model isn't found, cost defaults to `$0` with a warning.
+
+### Updating prices
+
+```bash
+tusk pricing-update              # Fetch latest from Anthropic and update (5m cache tier)
+tusk pricing-update --dry-run    # Show diff without writing
+tusk pricing-update --cache-tier 1h  # Use 1-hour cache write rates instead
+```
+
 ## How It Works
 
 The `tusk` CLI is the single source of truth for the database path. Everything references it:
@@ -161,6 +218,7 @@ your-project/
 │   │   ├── tusk-dupes.py              # Duplicate detection (via tusk dupes)
 │   │   ├── tusk-session-stats.py      # Token/cost tracking (via tusk session-stats)
 │   │   ├── config.default.json        # Fallback config
+│   │   ├── pricing.json               # Per-model token rates (USD/MTok)
 │   │   └── VERSION                    # Installed distribution version
 │   └── skills/
 │       ├── next-task/SKILL.md
