@@ -6,6 +6,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [137] - 2026-02-19
+
+### Added
+
+- `tusk task-done` checks for uncompleted acceptance criteria before closing; warns and exits non-zero unless `--force` is passed
+- `tusk finalize` passes `--force` to `tusk task-done` to preserve existing behavior
+
 ## [136] - 2026-02-19
 
 ### Added

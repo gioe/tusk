@@ -82,7 +82,8 @@ bin/tusk session-close --task-id <task_id> [--skip-stats]
 bin/tusk task-start <task_id>
 
 # Close a task (closes sessions, sets Done + closed_reason, reports unblocked tasks)
-bin/tusk task-done <task_id> --reason completed|expired|wont_do|duplicate
+# Warns and exits non-zero if uncompleted acceptance criteria exist; use --force to override
+bin/tusk task-done <task_id> --reason completed|expired|wont_do|duplicate [--force]
 
 # Insert a task with validation, dupe check, and optional criteria in one call
 bin/tusk task-insert "<summary>" "<description>" [--priority P] [--domain D] [--task-type T] [--assignee A] [--complexity C] [--criteria "..." ...] [--deferred] [--expires-in DAYS]
@@ -175,7 +176,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - `bin/tusk-chain.py` — Downstream sub-DAG operations (invoked via `tusk chain`). Implements `scope` (BFS JSON dump with depths and completion counts), `frontier` (ready tasks within scope), and `status` (human-readable progress summary).
 - `bin/tusk-deps.py` — Dependency graph management (invoked via `tusk deps`). Validates no self-deps and no cycles before inserting.
 - `bin/tusk-task-start.py` — Task start consolidation (invoked via `tusk task-start`). Fetches task, checks prior progress, reuses or creates a session, sets status to In Progress, and returns a JSON blob with all details.
-- `bin/tusk-task-done.py` — Task closure consolidation (invoked via `tusk task-done`). Closes open sessions, sets status to Done with closed_reason, and returns JSON with newly unblocked tasks.
+- `bin/tusk-task-done.py` — Task closure consolidation (invoked via `tusk task-done`). Checks for uncompleted acceptance criteria (warns and exits non-zero unless `--force`), closes open sessions, sets status to Done with closed_reason, and returns JSON with newly unblocked tasks.
 - `bin/tusk-commit.py` — Atomic lint-stage-commit (invoked via `tusk commit`). Runs `tusk lint` (advisory), stages listed files, and commits with `[TASK-<id>] <message>` format and Co-Authored-By trailer.
 - `bin/tusk-branch.py` — Feature branch creation (invoked via `tusk branch`). Detects default branch (remote HEAD → gh fallback → "main"), checks out and pulls latest, creates `feature/TASK-<id>-<slug>`.
 - `bin/tusk-progress.py` — Progress checkpoint logging (invoked via `tusk progress`). Gathers commit hash, message, and changed files from HEAD via git, then inserts a `task_progress` row. Replaces the 4-command manual checkpoint sequence.

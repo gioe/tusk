@@ -104,7 +104,7 @@ def main(argv: list[str]) -> int:
 
     # ── Step 4: Mark task Done ────────────────────────────────────────
     result = run(
-        ["tusk", "task-done", str(task_id), "--reason", "completed"],
+        ["tusk", "task-done", str(task_id), "--reason", "completed", "--force"],
         check=False,
     )
     if result.returncode != 0:

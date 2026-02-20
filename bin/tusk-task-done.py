@@ -2,19 +2,20 @@
 """Consolidate task closure into a single CLI command.
 
 Called by the tusk wrapper:
-    tusk task-done <task_id> --reason <closed_reason>
+    tusk task-done <task_id> --reason <closed_reason> [--force]
 
 Arguments received from tusk:
     sys.argv[1] — DB path
     sys.argv[2] — config path
-    sys.argv[3:] — task_id --reason <reason>
+    sys.argv[3:] — task_id --reason <reason> [--force]
 
 Performs all closure steps for a task:
   1. Validate the task exists and is not already Done
-  2. Close all open sessions for the task
-  3. Update task status to Done with closed_reason
-  4. Find and report newly unblocked tasks
-  5. Return a JSON blob with task details, sessions closed, and unblocked tasks
+  2. Check for uncompleted acceptance criteria (exits non-zero unless --force)
+  3. Close all open sessions for the task
+  4. Update task status to Done with closed_reason
+  5. Find and report newly unblocked tasks
+  6. Return a JSON blob with task details, sessions closed, and unblocked tasks
 """
 
 import json
@@ -41,7 +42,7 @@ def load_closed_reasons(config_path: str) -> list[str]:
 
 def main(argv: list[str]) -> int:
     if len(argv) < 3:
-        print("Usage: tusk task-done <task_id> --reason <closed_reason>", file=sys.stderr)
+        print("Usage: tusk task-done <task_id> --reason <closed_reason> [--force]", file=sys.stderr)
         return 1
 
     db_path = argv[0]
@@ -52,14 +53,18 @@ def main(argv: list[str]) -> int:
         print(f"Error: Invalid task ID: {argv[2]}", file=sys.stderr)
         return 1
 
-    # Parse --reason flag from remaining args
+    # Parse --reason and --force flags from remaining args
     remaining = argv[3:]
     reason = None
+    force = False
     i = 0
     while i < len(remaining):
         if remaining[i] == "--reason" and i + 1 < len(remaining):
             reason = remaining[i + 1]
             i += 2
+        elif remaining[i] == "--force":
+            force = True
+            i += 1
         else:
             print(f"Error: Unknown argument: {remaining[i]}", file=sys.stderr)
             return 1
@@ -88,7 +93,22 @@ def main(argv: list[str]) -> int:
         conn.close()
         return 2
 
-    # 2. Close all open sessions for this task
+    # 2. Check for uncompleted acceptance criteria
+    open_criteria = conn.execute(
+        "SELECT id, criterion FROM acceptance_criteria "
+        "WHERE task_id = ? AND is_completed = 0",
+        (task_id,),
+    ).fetchall()
+
+    if open_criteria and not force:
+        print(f"Error: Task {task_id} has {len(open_criteria)} uncompleted acceptance criteria:", file=sys.stderr)
+        for row in open_criteria:
+            print(f"  [{row['id']}] {row['criterion']}", file=sys.stderr)
+        print("\nUse --force to close anyway.", file=sys.stderr)
+        conn.close()
+        return 3
+
+    # 3. Close all open sessions
     cursor = conn.execute(
         "UPDATE task_sessions "
         "SET ended_at = datetime('now'), "
@@ -100,7 +120,7 @@ def main(argv: list[str]) -> int:
     )
     sessions_closed = cursor.rowcount
 
-    # 3. Update task status to Done
+    # 4. Update task status to Done
     conn.execute(
         "UPDATE tasks SET status = 'Done', closed_reason = ?, updated_at = datetime('now') WHERE id = ?",
         (reason, task_id),
@@ -108,7 +128,7 @@ def main(argv: list[str]) -> int:
 
     conn.commit()
 
-    # 4. Find newly unblocked tasks
+    # 5. Find newly unblocked tasks
     unblocked_rows = conn.execute(
         "SELECT t.id, t.summary, t.priority, t.priority_score "
         "FROM tasks t "
@@ -127,7 +147,7 @@ def main(argv: list[str]) -> int:
         (task_id,),
     ).fetchall()
 
-    # 5. Build and return JSON result
+    # 6. Build and return JSON result
     # Re-fetch task to get updated values
     updated_task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     task_dict = {key: updated_task[key] for key in updated_task.keys()}
