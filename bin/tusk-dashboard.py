@@ -130,6 +130,28 @@ def fetch_all_criteria(conn: sqlite3.Connection) -> dict[int, list[dict]]:
     return result
 
 
+def fetch_task_dependencies(conn: sqlite3.Connection) -> dict[int, dict]:
+    """Fetch task dependencies, indexed by task_id with blocked_by and blocks lists."""
+    log.debug("Querying task_dependencies table")
+    rows = conn.execute(
+        """SELECT task_id, depends_on_id, relationship_type
+           FROM task_dependencies"""
+    ).fetchall()
+    result: dict[int, dict] = {}
+    for r in rows:
+        tid = r["task_id"]
+        dep_id = r["depends_on_id"]
+        rel = r["relationship_type"]
+        # tid is blocked by dep_id
+        result.setdefault(tid, {"blocked_by": [], "blocks": []})
+        result[tid]["blocked_by"].append({"id": dep_id, "type": rel})
+        # dep_id blocks tid
+        result.setdefault(dep_id, {"blocked_by": [], "blocks": []})
+        result[dep_id]["blocks"].append({"id": tid, "type": rel})
+    log.debug("Fetched dependencies for %d tasks", len(result))
+    return result
+
+
 def fetch_cost_trend(conn: sqlite3.Connection) -> list[dict]:
     """Fetch weekly cost aggregations from task_sessions."""
     log.debug("Querying cost trend data")
@@ -385,7 +407,7 @@ def fetch_complexity_metrics(conn: sqlite3.Connection) -> list[dict]:
     return result
 
 
-def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = None, cost_trend: list[dict] = None, all_criteria: dict[int, list[dict]] = None, cost_trend_daily: list[dict] = None, cost_trend_monthly: list[dict] = None) -> str:
+def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = None, cost_trend: list[dict] = None, all_criteria: dict[int, list[dict]] = None, cost_trend_daily: list[dict] = None, cost_trend_monthly: list[dict] = None, task_deps: dict[int, dict] = None) -> str:
     """Generate the full HTML dashboard."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -404,6 +426,45 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
         if t.get("github_pr"):
             task_pr_map[t["id"]] = t["github_pr"]
 
+    # Build task_id -> summary map for dependency tooltips
+    summary_map: dict[int, str] = {t["id"]: t["summary"] for t in task_metrics}
+    if task_deps is None:
+        task_deps = {}
+
+    def build_dep_badges(tid: int) -> str:
+        """Build HTML for dependency badges, or empty string if none."""
+        deps = task_deps.get(tid)
+        if not deps:
+            return ""
+        blocked_by = deps.get("blocked_by", [])
+        blocks = deps.get("blocks", [])
+        if not blocked_by and not blocks:
+            return ""
+        parts = []
+        if blocked_by:
+            badges = []
+            for d in blocked_by:
+                tooltip = esc(summary_map.get(d["id"], f"Task #{d['id']}"))
+                css = f'dep-link dep-type-{esc(d["type"])}'
+                badges.append(
+                    f'<a class="{css}" data-target="{d["id"]}" title="{tooltip}">#{d["id"]}</a>'
+                )
+            parts.append(
+                f'<span class="dep-group"><span class="dep-label">Blocked by</span> {"".join(badges)}</span>'
+            )
+        if blocks:
+            badges = []
+            for d in blocks:
+                tooltip = esc(summary_map.get(d["id"], f"Task #{d['id']}"))
+                css = f'dep-link dep-type-{esc(d["type"])}'
+                badges.append(
+                    f'<a class="{css}" data-target="{d["id"]}" title="{tooltip}">#{d["id"]}</a>'
+                )
+            parts.append(
+                f'<span class="dep-group"><span class="dep-label">Blocks</span> {"".join(badges)}</span>'
+            )
+        return f'<div class="dep-badges">{"".join(parts)}</div>'
+
     task_rows = ""
     for t in task_metrics:
         has_data = t["session_count"] > 0
@@ -420,9 +481,14 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
         cls_attr = f' class="{" ".join(row_classes)}"' if row_classes else ''
         priority_score = t.get('priority_score') or 0
         complexity_val = esc(t.get('complexity') or '')
+        dep_badges = build_dep_badges(tid)
+        if dep_badges:
+            summary_cell = f'<div class="summary-text">{esc(t["summary"])}</div>{dep_badges}'
+        else:
+            summary_cell = esc(t['summary'])
         task_rows += f"""<tr{cls_attr} data-status="{status_val}" data-summary="{esc(t['summary']).lower()}" data-task-id="{tid}">
   <td class="col-id" data-sort="{tid}">{toggle_icon}#{tid}</td>
-  <td class="col-summary">{esc(t['summary'])}</td>
+  <td class="col-summary">{summary_cell}</td>
   <td class="col-status"><span class="status-badge status-{status_val.lower().replace(' ', '-')}">{status_val}</span></td>
   <td class="col-wsjf" data-sort="{priority_score}">{priority_score}</td>
   <td class="col-complexity">{f'<span class="complexity-badge">{complexity_val}</span>' if complexity_val else ''}</td>
@@ -718,6 +784,9 @@ tfoot td {{
 
 .col-summary {{
   max-width: 400px;
+}}
+
+.col-summary .summary-text {{
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -734,6 +803,64 @@ tfoot td {{
   font-variant-numeric: tabular-nums;
   font-size: 0.8rem;
   color: var(--text-muted);
+}}
+
+/* Dependency badges */
+.dep-badges {{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.2rem;
+}}
+
+.dep-group {{
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+}}
+
+.dep-label {{
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-right: 0.1rem;
+}}
+
+.dep-link {{
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  text-decoration: none;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}}
+
+.dep-type-blocks {{
+  background: #fee2e2;
+  color: #991b1b;
+}}
+
+.dep-type-contingent {{
+  background: #e0e7ff;
+  color: #3730a3;
+}}
+
+.dep-link:hover {{
+  text-decoration: underline;
+  filter: brightness(0.9);
+}}
+
+tr.dep-highlight {{
+  animation: dep-flash 2s ease-out;
+}}
+
+@keyframes dep-flash {{
+  0% {{ background: var(--accent-light); }}
+  100% {{ background: transparent; }}
 }}
 
 .col-wsjf {{
@@ -783,6 +910,14 @@ tfoot td {{
   .status-done {{
     background: #14532d;
     color: #4ade80;
+  }}
+  .dep-type-blocks {{
+    background: #7f1d1d;
+    color: #fca5a5;
+  }}
+  .dep-type-contingent {{
+    background: #312e81;
+    color: #a5b4fc;
   }}
 }}
 
@@ -1833,6 +1968,30 @@ a.criterion-commit:hover {{
       }});
     }});
   }});
+
+  // Dependency badge click-to-scroll
+  document.addEventListener('click', function(e) {{
+    var link = e.target.closest('.dep-link');
+    if (!link) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var targetId = link.getAttribute('data-target');
+    var targetRow = document.querySelector('tr[data-task-id="' + targetId + '"]');
+    if (!targetRow) return;
+    // Make sure the target row is visible (switch filter if needed)
+    if (targetRow.style.display === 'none') {{
+      // Reset to All filter to show all rows
+      chips.forEach(function(c) {{ c.classList.remove('active'); }});
+      document.querySelector('.filter-chip[data-filter="All"]').classList.add('active');
+      statusFilter = 'All';
+      searchInput.value = '';
+      searchTerm = '';
+      applyFilter();
+    }}
+    targetRow.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+    targetRow.classList.add('dep-highlight');
+    setTimeout(function() {{ targetRow.classList.remove('dep-highlight'); }}, 2000);
+  }});
 }})();
 </script>
 
@@ -1875,10 +2034,11 @@ def main():
     cost_trend_daily = fetch_cost_trend_daily(conn)
     cost_trend_monthly = fetch_cost_trend_monthly(conn)
     all_criteria = fetch_all_criteria(conn)
+    task_deps = fetch_task_dependencies(conn)
     conn.close()
 
     # Generate HTML
-    html_content = generate_html(task_metrics, complexity_metrics, cost_trend, all_criteria, cost_trend_daily, cost_trend_monthly)
+    html_content = generate_html(task_metrics, complexity_metrics, cost_trend, all_criteria, cost_trend_daily, cost_trend_monthly, task_deps)
     log.debug("Generated %d bytes of HTML", len(html_content))
 
     # Write to tusk/dashboard.html (same dir as DB)
