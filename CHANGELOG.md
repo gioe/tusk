@@ -6,6 +6,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [146] - 2026-02-20
+
+### Changed
+
+- Dashboard charts replaced inline SVG with Chart.js (loaded from CDN) for cost trend and completion trend visualizations
+- Added cost-by-domain doughnut chart to dashboard
+
 ## [145] - 2026-02-20
 
 ### Added
