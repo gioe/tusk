@@ -468,6 +468,7 @@ CREATE TABLE acceptance_criteria (
     verification_spec TEXT,
     verification_result TEXT,
     commit_hash TEXT,
+    committed_at TEXT,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
@@ -501,7 +502,7 @@ EB_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 9;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 10;"
 
   echo "Initialized task database at $DB_PATH"
 }
@@ -793,6 +794,21 @@ cmd_migrate() {
       echo "  Migration 9: added commit_hash column to acceptance_criteria"
     else
       sqlite3 "$DB_PATH" "PRAGMA user_version = 9;"
+    fi
+  fi
+
+  # Migration 9→10: add committed_at column to acceptance_criteria
+  if [[ "$current" -lt 10 ]]; then
+    local has_committed_at
+    has_committed_at="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM pragma_table_info('acceptance_criteria') WHERE name = 'committed_at';")"
+    if [[ "$has_committed_at" -eq 0 ]]; then
+      sqlite3 "$DB_PATH" "
+        ALTER TABLE acceptance_criteria ADD COLUMN committed_at TEXT;
+        PRAGMA user_version = 10;
+      "
+      echo "  Migration 10: added committed_at column to acceptance_criteria"
+    else
+      sqlite3 "$DB_PATH" "PRAGMA user_version = 10;"
     fi
   fi
 

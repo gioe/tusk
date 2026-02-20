@@ -47,16 +47,17 @@ def capture_criterion_cost(conn: sqlite3.Connection, criterion_id: int, task_id:
     try:
         lib.load_pricing()
 
-        # Find window start: most recent completed_at for same task (excluding this criterion)
+        # Find window start: most recent committed_at (or completed_at) for same task
         prev = conn.execute(
-            "SELECT completed_at FROM acceptance_criteria "
+            "SELECT COALESCE(committed_at, completed_at) AS window_ts "
+            "FROM acceptance_criteria "
             "WHERE task_id = ? AND id <> ? AND completed_at IS NOT NULL "
             "ORDER BY completed_at DESC LIMIT 1",
             (task_id, criterion_id),
         ).fetchone()
 
-        if prev and prev["completed_at"]:
-            window_start = lib.parse_sqlite_timestamp(prev["completed_at"])
+        if prev and prev["window_ts"]:
+            window_start = lib.parse_sqlite_timestamp(prev["window_ts"])
         else:
             # Fall back to most recent open session for this task
             session = conn.execute(
@@ -196,7 +197,7 @@ def cmd_list(args: argparse.Namespace, db_path: str, config: dict) -> int:
 
     rows = conn.execute(
         "SELECT id, criterion, source, is_completed, cost_dollars, tokens_in, tokens_out, "
-        "criterion_type, verification_spec, commit_hash, created_at "
+        "criterion_type, verification_spec, commit_hash, committed_at, created_at "
         "FROM acceptance_criteria WHERE task_id = ? ORDER BY id",
         (args.task_id,),
     ).fetchall()
@@ -207,8 +208,8 @@ def cmd_list(args: argparse.Namespace, db_path: str, config: dict) -> int:
         return 0
 
     print(f"Acceptance criteria for task #{args.task_id}: {task['summary']}")
-    print(f"{'ID':<6} {'Done':<6} {'Type':<8} {'Source':<14} {'Cost':<10} {'Commit':<10} {'Criterion'}")
-    print("-" * 100)
+    print(f"{'ID':<6} {'Done':<6} {'Type':<8} {'Source':<14} {'Cost':<10} {'Commit':<10} {'Committed At':<22} {'Criterion'}")
+    print("-" * 122)
     total_cost = 0.0
     for r in rows:
         marker = "[x]" if r["is_completed"] else "[ ]"
@@ -217,7 +218,10 @@ def cmd_list(args: argparse.Namespace, db_path: str, config: dict) -> int:
             total_cost += r["cost_dollars"]
         ctype = r["criterion_type"] or "manual"
         commit_str = r["commit_hash"] or ""
-        print(f"{r['id']:<6} {marker:<6} {ctype:<8} {r['source']:<14} {cost_str:<10} {commit_str:<10} {r['criterion']}")
+        committed_str = r["committed_at"] or ""
+        if len(committed_str) > 19:
+            committed_str = committed_str[:19]
+        print(f"{r['id']:<6} {marker:<6} {ctype:<8} {r['source']:<14} {cost_str:<10} {commit_str:<10} {committed_str:<22} {r['criterion']}")
 
     done = sum(1 for r in rows if r["is_completed"])
     summary = f"\nProgress: {done}/{len(rows)}"
@@ -271,13 +275,19 @@ def cmd_done(args: argparse.Namespace, db_path: str, config: dict) -> int:
             print("Use --skip-verify to bypass verification.", file=sys.stderr)
             return 1
 
-    # Best-effort: capture current git HEAD short hash
+    # Best-effort: capture current git HEAD short hash and commit timestamp
     commit_hash = None
+    committed_at = None
     try:
         commit_hash = subprocess.check_output(
             ["git", "rev-parse", "--short", "HEAD"],
             stderr=subprocess.DEVNULL,
         ).decode().strip() or None
+        if commit_hash:
+            committed_at = subprocess.check_output(
+                ["git", "log", "-1", "--format=%cI", "HEAD"],
+                stderr=subprocess.DEVNULL,
+            ).decode().strip() or None
     except Exception:
         pass  # Non-git environment — leave as NULL
 
@@ -300,9 +310,9 @@ def cmd_done(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn.execute(
         "UPDATE acceptance_criteria SET is_completed = 1, "
         "completed_at = strftime('%Y-%m-%d %H:%M:%f', 'now'), "
-        "commit_hash = ?, "
+        "commit_hash = ?, committed_at = ?, "
         "verification_result = ?, updated_at = datetime('now') WHERE id = ?",
-        (commit_hash, verification_result, args.criterion_id),
+        (commit_hash, committed_at, verification_result, args.criterion_id),
     )
     conn.commit()
 
@@ -340,7 +350,7 @@ def cmd_reset(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn.execute(
         "UPDATE acceptance_criteria SET is_completed = 0, completed_at = NULL, "
         "cost_dollars = NULL, tokens_in = NULL, tokens_out = NULL, "
-        "verification_result = NULL, commit_hash = NULL, "
+        "verification_result = NULL, commit_hash = NULL, committed_at = NULL, "
         "updated_at = datetime('now') WHERE id = ?",
         (args.criterion_id,),
     )
