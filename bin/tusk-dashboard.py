@@ -59,19 +59,12 @@ def fetch_task_metrics(conn: sqlite3.Connection) -> list[dict]:
                   tm.priority_score,
                   tm.github_pr,
                   tm.domain,
+                  tm.task_type,
                   COALESCE(tm.total_duration_seconds, 0) as total_duration_seconds,
                   COALESCE(tm.total_lines_added, 0) as total_lines_added,
                   COALESCE(tm.total_lines_removed, 0) as total_lines_removed,
-                  s.model,
-                  tm.created_at,
                   tm.updated_at
            FROM task_metrics tm
-           LEFT JOIN task_sessions s ON s.id = (
-               SELECT s2.id FROM task_sessions s2
-               WHERE s2.task_id = tm.id
-               ORDER BY s2.cost_dollars DESC
-               LIMIT 1
-           )
            ORDER BY tm.total_cost DESC, tm.id ASC"""
     ).fetchall()
     result = [dict(r) for r in rows]
@@ -601,17 +594,57 @@ tfoot td {
   white-space: nowrap;
 }
 
-.col-model {
+.col-domain {
+  white-space: nowrap;
   font-size: 0.8rem;
-  color: var(--text-muted);
+}
+
+.col-sessions {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.col-date {
-  white-space: nowrap;
+.col-duration {
+  text-align: right;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+.col-lines {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+.lines-added {
+  color: var(--success);
+}
+
+.lines-removed {
+  color: var(--danger);
+}
+
+.col-updated {
+  white-space: nowrap;
   font-size: 0.8rem;
   color: var(--text-muted);
+}
+
+.cost-heat-1 { background: rgba(239, 68, 68, 0.05); }
+.cost-heat-2 { background: rgba(239, 68, 68, 0.10); }
+.cost-heat-3 { background: rgba(239, 68, 68, 0.15); }
+.cost-heat-4 { background: rgba(239, 68, 68, 0.20); }
+.cost-heat-5 { background: rgba(239, 68, 68, 0.28); }
+
+@media (prefers-color-scheme: dark) {
+  .cost-heat-1 { background: rgba(248, 113, 113, 0.06); }
+  .cost-heat-2 { background: rgba(248, 113, 113, 0.12); }
+  .cost-heat-3 { background: rgba(248, 113, 113, 0.18); }
+  .cost-heat-4 { background: rgba(248, 113, 113, 0.24); }
+  .cost-heat-5 { background: rgba(248, 113, 113, 0.32); }
 }
 
 /* Dependency badges */
@@ -1613,14 +1646,16 @@ def generate_table_header() -> str:
     <th data-col="0" data-type="num">ID <span class="sort-arrow">\u25B2</span></th>
     <th data-col="1" data-type="str">Task <span class="sort-arrow">\u25B2</span></th>
     <th data-col="2" data-type="str">Status <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="3" data-type="num" style="text-align:right">WSJF <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="4" data-type="str">Size <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="5" data-type="str">Started <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="6" data-type="str" class="sort-desc">Last Updated <span class="sort-arrow">\u25BC</span></th>
-    <th data-col="7" data-type="str">Model <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="8" data-type="num" style="text-align:right">Tokens In <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="9" data-type="num" style="text-align:right">Tokens Out <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="10" data-type="num" style="text-align:right">Cost <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="3" data-type="str">Domain <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="4" data-type="num">Size <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="5" data-type="num" style="text-align:right">WSJF <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="6" data-type="num" style="text-align:right">Sessions <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="7" data-type="num" style="text-align:right">Duration <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="8" data-type="num" style="text-align:right">Lines <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="9" data-type="num" style="text-align:right">Tokens In <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="10" data-type="num" style="text-align:right">Tokens Out <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="11" data-type="num" style="text-align:right">Cost <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="12" data-type="str" class="sort-desc">Updated <span class="sort-arrow">\u25BC</span></th>
   </tr>
 </thead>"""
 
@@ -1660,7 +1695,42 @@ def build_dep_badges(tid: int, task_deps: dict, summary_map: dict) -> str:
     return f'<div class="dep-badges">{"".join(parts)}</div>'
 
 
-def generate_task_row(t: dict, criteria_list: list[dict], task_deps: dict, summary_map: dict) -> str:
+COMPLEXITY_SORT_ORDER = {'XS': 1, 'S': 2, 'M': 3, 'L': 4, 'XL': 5}
+
+
+def cost_heat_class(cost: float, max_cost: float) -> str:
+    """Return a CSS class for cost heatmap tinting."""
+    if max_cost <= 0 or cost <= 0:
+        return ""
+    ratio = cost / max_cost
+    if ratio < 0.10:
+        return ""
+    if ratio < 0.25:
+        return "cost-heat-1"
+    if ratio < 0.45:
+        return "cost-heat-2"
+    if ratio < 0.65:
+        return "cost-heat-3"
+    if ratio < 0.85:
+        return "cost-heat-4"
+    return "cost-heat-5"
+
+
+def format_lines_html(added, removed) -> str:
+    """Format lines changed as colored +N / -M HTML."""
+    added = added or 0
+    removed = removed or 0
+    if added == 0 and removed == 0:
+        return '<span class="text-muted-dash">&mdash;</span>'
+    parts = []
+    if added > 0:
+        parts.append(f'<span class="lines-added">+{int(added)}</span>')
+    if removed > 0:
+        parts.append(f'<span class="lines-removed">\u2212{int(removed)}</span>')
+    return " / ".join(parts)
+
+
+def generate_task_row(t: dict, criteria_list: list[dict], task_deps: dict, summary_map: dict, max_cost: float = 0) -> str:
     """Generate a single task table row (and optional criteria detail row)."""
     has_data = t["session_count"] > 0
     status_val = esc(t['status'])
@@ -1677,21 +1747,35 @@ def generate_task_row(t: dict, criteria_list: list[dict], task_deps: dict, summa
 
     priority_score = t.get('priority_score') or 0
     complexity_val = esc(t.get('complexity') or '')
+    complexity_sort = COMPLEXITY_SORT_ORDER.get(t.get('complexity') or '', 0)
+    domain_val = esc(t.get('domain') or '')
+    task_type_val = esc(t.get('task_type') or '')
+    session_count = t.get('session_count') or 0
+    duration_seconds = t.get('total_duration_seconds') or 0
+    lines_added = t.get('total_lines_added') or 0
+    lines_removed = t.get('total_lines_removed') or 0
+    total_lines = int(lines_added) + int(lines_removed)
     dep_badges = build_dep_badges(tid, task_deps, summary_map)
     summary_cell = f'<div class="summary-text">{esc(t["summary"])}</div>{dep_badges}'
 
-    row = f"""<tr{cls_attr} data-status="{status_val}" data-summary="{esc(t['summary']).lower()}" data-task-id="{tid}">
+    # Cost heatmap class for the cost cell
+    heat_cls = cost_heat_class(t['total_cost'], max_cost)
+    cost_cls = f'col-cost {heat_cls}'.strip()
+
+    row = f"""<tr{cls_attr} data-status="{status_val}" data-summary="{esc(t['summary']).lower()}" data-task-id="{tid}" data-domain="{domain_val}" data-complexity="{complexity_val}" data-type="{task_type_val}">
   <td class="col-id" data-sort="{tid}">{toggle_icon}#{tid}</td>
   <td class="col-summary">{summary_cell}</td>
   <td class="col-status"><span class="status-badge status-{status_val.lower().replace(' ', '-')}">{status_val}</span></td>
+  <td class="col-domain">{domain_val}</td>
+  <td class="col-complexity" data-sort="{complexity_sort}">{f'<span class="complexity-badge">{complexity_val}</span>' if complexity_val else ''}</td>
   <td class="col-wsjf" data-sort="{priority_score}">{priority_score}</td>
-  <td class="col-complexity">{f'<span class="complexity-badge">{complexity_val}</span>' if complexity_val else ''}</td>
-  <td class="col-date" data-sort="{esc(t.get('created_at') or '')}">{format_date(t.get('created_at'))}</td>
-  <td class="col-date" data-sort="{esc(t.get('updated_at') or '')}">{format_date(t.get('updated_at'))}</td>
-  <td class="col-model">{esc(t.get('model') or '')}</td>
-  <td class="col-tokens-in" data-sort="{t['total_tokens_in']}">{format_number(t['total_tokens_in'])}</td>
-  <td class="col-tokens-out" data-sort="{t['total_tokens_out']}">{format_number(t['total_tokens_out'])}</td>
-  <td class="col-cost" data-sort="{t['total_cost']}">{format_cost(t['total_cost'])}</td>
+  <td class="col-sessions" data-sort="{session_count}">{session_count if session_count else '<span class="text-muted-dash">&mdash;</span>'}</td>
+  <td class="col-duration" data-sort="{duration_seconds}">{format_duration(duration_seconds) if duration_seconds else '<span class="text-muted-dash">&mdash;</span>'}</td>
+  <td class="col-lines" data-sort="{total_lines}">{format_lines_html(lines_added, lines_removed)}</td>
+  <td class="col-tokens-in" data-sort="{t['total_tokens_in']}">{format_tokens_compact(t['total_tokens_in'])}</td>
+  <td class="col-tokens-out" data-sort="{t['total_tokens_out']}">{format_tokens_compact(t['total_tokens_out'])}</td>
+  <td class="{cost_cls}" data-sort="{t['total_cost']}">{format_cost(t['total_cost'])}</td>
+  <td class="col-updated" data-sort="{esc(t.get('updated_at') or '')}">{format_relative_time(t.get('updated_at'))}</td>
 </tr>\n"""
 
     if has_criteria:
@@ -1820,7 +1904,7 @@ def generate_criteria_detail(tid: int, criteria_list: list[dict], github_pr: str
 
     return (
         f'<tr class="criteria-row" data-parent="{tid}" style="display:none">\n'
-        f'  <td colspan="11"><div class="criteria-detail">'
+        f'  <td colspan="13"><div class="criteria-detail">'
         f'{sort_bar}{criteria_header}'
         f'<div class="criteria-grouped-view">{grouped_items}</div>'
         f'<div class="criteria-flat-view" style="display:none">{flat_items}</div>'
@@ -1829,15 +1913,22 @@ def generate_criteria_detail(tid: int, criteria_list: list[dict], github_pr: str
     )
 
 
-def generate_table_footer(total_tokens_in: int, total_tokens_out: int, total_cost: float) -> str:
+def generate_table_footer(total_sessions: int, total_duration: int, total_lines_added: int,
+                          total_lines_removed: int, total_tokens_in: int, total_tokens_out: int,
+                          total_cost: float) -> str:
     """Generate the table footer with totals."""
+    total_lines = int(total_lines_added) + int(total_lines_removed)
     return f"""\
 <tfoot>
   <tr>
-    <td colspan="8" id="footerLabel">Total</td>
-    <td class="col-tokens-in" id="footerTokensIn">{format_number(total_tokens_in)}</td>
-    <td class="col-tokens-out" id="footerTokensOut">{format_number(total_tokens_out)}</td>
+    <td colspan="6" id="footerLabel">Total</td>
+    <td class="col-sessions" id="footerSessions">{total_sessions}</td>
+    <td class="col-duration" id="footerDuration">{format_duration(total_duration)}</td>
+    <td class="col-lines" id="footerLines">{format_lines_html(total_lines_added, total_lines_removed)}</td>
+    <td class="col-tokens-in" id="footerTokensIn">{format_tokens_compact(total_tokens_in)}</td>
+    <td class="col-tokens-out" id="footerTokensOut">{format_tokens_compact(total_tokens_out)}</td>
     <td class="col-cost" id="footerCost">{format_cost(total_cost)}</td>
+    <td></td>
   </tr>
 </tfoot>"""
 
@@ -1921,7 +2012,7 @@ def generate_js() -> str:
   var filtered = allRows.slice();
   var currentPage = 1;
   var pageSize = 25;
-  var sortCol = 6;
+  var sortCol = 12;
   var sortAsc = false;
   var statusFilter = 'All';
   var searchTerm = '';
@@ -1934,16 +2025,34 @@ def generate_js() -> str:
   var nextBtn = document.getElementById('nextPage');
   var pageInfo = document.getElementById('pageInfo');
   var footerLabel = document.getElementById('footerLabel');
+  var footerSessions = document.getElementById('footerSessions');
+  var footerDuration = document.getElementById('footerDuration');
+  var footerLines = document.getElementById('footerLines');
   var footerIn = document.getElementById('footerTokensIn');
   var footerOut = document.getElementById('footerTokensOut');
   var footerCost = document.getElementById('footerCost');
 
-  function formatNum(n) {
-    return n.toString().replace(/\\B(?=(\\d{3})+(?!\\d))/g, ',');
-  }
-
   function formatCost(n) {
     return '$' + n.toFixed(2).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ',');
+  }
+
+  function formatTokensCompact(n) {
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+    return Math.round(n).toString();
+  }
+
+  function formatDuration(seconds) {
+    if (!seconds || seconds <= 0) return '0m';
+    var h = Math.floor(seconds / 3600);
+    var m = Math.floor((seconds % 3600) / 60);
+    if (h > 0) return h + 'h ' + m + 'm';
+    return m + 'm';
+  }
+
+  function formatLinesHtml(totalLines) {
+    // We only have the total for filtering; full HTML comes from server
+    return totalLines > 0 ? totalLines.toString() : '\\u2014';
   }
 
   function applyFilter() {
@@ -1967,8 +2076,8 @@ def generate_js() -> str:
         vA = parseFloat(cellA.getAttribute('data-sort')) || 0;
         vB = parseFloat(cellB.getAttribute('data-sort')) || 0;
       } else {
-        vA = (cellA.textContent || '').toLowerCase();
-        vB = (cellB.textContent || '').toLowerCase();
+        vA = (cellA.getAttribute('data-sort') || cellA.textContent || '').toLowerCase();
+        vB = (cellB.getAttribute('data-sort') || cellB.textContent || '').toLowerCase();
       }
       if (vA < vB) return sortAsc ? -1 : 1;
       if (vA > vB) return sortAsc ? 1 : -1;
@@ -1978,17 +2087,24 @@ def generate_js() -> str:
   }
 
   function updateFooter() {
+    var totalSessions = 0, totalDuration = 0, totalLines = 0;
     var totalIn = 0, totalOut = 0, totalCost = 0, count = 0;
     filtered.forEach(function(row) {
-      totalIn += parseFloat(row.children[8].getAttribute('data-sort')) || 0;
-      totalOut += parseFloat(row.children[9].getAttribute('data-sort')) || 0;
-      totalCost += parseFloat(row.children[10].getAttribute('data-sort')) || 0;
+      totalSessions += parseFloat(row.children[6].getAttribute('data-sort')) || 0;
+      totalDuration += parseFloat(row.children[7].getAttribute('data-sort')) || 0;
+      totalLines += parseFloat(row.children[8].getAttribute('data-sort')) || 0;
+      totalIn += parseFloat(row.children[9].getAttribute('data-sort')) || 0;
+      totalOut += parseFloat(row.children[10].getAttribute('data-sort')) || 0;
+      totalCost += parseFloat(row.children[11].getAttribute('data-sort')) || 0;
       count++;
     });
     var label = statusFilter === 'All' && !searchTerm ? 'Total' : 'Filtered total (' + count + ' tasks)';
     footerLabel.textContent = label;
-    footerIn.textContent = formatNum(totalIn);
-    footerOut.textContent = formatNum(totalOut);
+    footerSessions.textContent = totalSessions;
+    footerDuration.textContent = formatDuration(totalDuration);
+    footerLines.textContent = totalLines > 0 ? totalLines : '\\u2014';
+    footerIn.textContent = formatTokensCompact(totalIn);
+    footerOut.textContent = formatTokensCompact(totalOut);
     footerCost.textContent = formatCost(totalCost);
   }
 
@@ -2261,9 +2377,14 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
     summary_map: dict[int, str] = {t["id"]: t["summary"] for t in task_metrics}
 
     # Totals for table footer
+    total_sessions = sum(t.get("session_count") or 0 for t in task_metrics)
+    total_duration = sum(t.get("total_duration_seconds") or 0 for t in task_metrics)
+    total_lines_added = sum(t.get("total_lines_added") or 0 for t in task_metrics)
+    total_lines_removed = sum(t.get("total_lines_removed") or 0 for t in task_metrics)
     total_tokens_in = sum(t["total_tokens_in"] for t in task_metrics)
     total_tokens_out = sum(t["total_tokens_out"] for t in task_metrics)
     total_cost = sum(t["total_cost"] for t in task_metrics)
+    max_cost = max((t["total_cost"] for t in task_metrics), default=0)
 
     # Task rows
     if task_metrics:
@@ -2271,9 +2392,9 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
         for t in task_metrics:
             tid = t['id']
             criteria_list = all_criteria.get(tid, [])
-            task_rows += generate_task_row(t, criteria_list, task_deps, summary_map)
+            task_rows += generate_task_row(t, criteria_list, task_deps, summary_map, max_cost)
     else:
-        task_rows = '<tr><td colspan="11" class="empty">No tasks found. Run <code>tusk init</code> and add some tasks.</td></tr>'
+        task_rows = '<tr><td colspan="13" class="empty">No tasks found. Run <code>tusk init</code> and add some tasks.</td></tr>'
 
     # KPI cards
     kpi_html = generate_kpi_cards(kpi_data) if kpi_data else ""
@@ -2290,7 +2411,8 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
     header = generate_header(now)
     filter_bar = generate_filter_bar()
     table_header = generate_table_header()
-    table_footer = generate_table_footer(total_tokens_in, total_tokens_out, total_cost)
+    table_footer = generate_table_footer(total_sessions, total_duration, total_lines_added,
+                                         total_lines_removed, total_tokens_in, total_tokens_out, total_cost)
     pagination = generate_pagination()
     js = generate_js()
 
