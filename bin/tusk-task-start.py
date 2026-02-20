@@ -94,7 +94,8 @@ def main(argv: list[str]) -> int:
 
     # 5. Fetch acceptance criteria
     criteria_rows = conn.execute(
-        "SELECT id, task_id, criterion, source, is_completed, created_at, updated_at "
+        "SELECT id, task_id, criterion, source, is_completed, "
+        "criterion_type, verification_spec, created_at, updated_at "
         "FROM acceptance_criteria WHERE task_id = ? ORDER BY id",
         (task_id,),
     ).fetchall()

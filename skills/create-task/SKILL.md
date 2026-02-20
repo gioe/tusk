@@ -125,6 +125,17 @@ tusk task-insert "<summary>" "<description>" \
   --criteria "<criterion 3>"
 ```
 
+For typed criteria with automated verification, use `--typed-criteria` with a JSON object:
+
+```bash
+tusk task-insert "<summary>" "<description>" \
+  --criteria "Manual criterion" \
+  --typed-criteria '{"text":"Tests pass","type":"test","spec":"pytest tests/"}' \
+  --typed-criteria '{"text":"Config exists","type":"file","spec":"config/*.json"}'
+```
+
+Valid types: `manual` (default), `code`, `test`, `file`. Non-manual types require a `spec` field.
+
 Omit `--domain` or `--assignee` entirely if the value is NULL/empty — do not pass empty strings.
 
 ### Exit code 0 — Success

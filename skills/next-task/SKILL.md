@@ -82,7 +82,7 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
    This returns a JSON blob with four keys:
    - `task` — full task row (summary, description, priority, domain, assignee, etc.)
    - `progress` — array of prior progress checkpoints (most recent first). If non-empty, the first entry's `next_steps` tells you exactly where to pick up. Skip steps you've already completed (branch may already exist, some commits may already be made). Use `git log --oneline` on the existing branch to see what's already been done.
-   - `criteria` — array of acceptance criteria objects (id, criterion, source, is_completed). These are the implementation checklist. Work through them in order during implementation. Mark each criterion done (`tusk criteria done <cid>`) as you complete it — do not defer this to the end. If the array is empty, proceed normally using the description as scope.
+   - `criteria` — array of acceptance criteria objects (id, criterion, source, is_completed, criterion_type, verification_spec). These are the implementation checklist. Work through them in order during implementation. Mark each criterion done (`tusk criteria done <cid>`) as you complete it — do not defer this to the end. Non-manual criteria (type: code, test, file) run automated verification on `done`; use `--skip-verify` if needed. If the array is empty, proceed normally using the description as scope.
    - `session_id` — the session ID to use for the duration of the workflow (reuses an open session if one exists, otherwise creates a new one)
 
    Hold onto `session_id` from the JSON — it will be used to close the session when the task is done.
@@ -110,15 +110,15 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
 
 6. **Delegate the work** to the chosen subagent(s).
 
-7. **Implement, commit, and mark criteria done.** Work through the acceptance criteria from step 1 as your checklist. After each meaningful change, use `tusk commit` to lint, stage, and commit in one step:
-    ```bash
-    tusk commit <id> "<message>" <file1> [file2 ...]
-    ```
-    This runs `tusk lint` (advisory — never blocks), stages the listed files, and commits with the `[TASK-<id>] <message>` format and Co-Authored-By trailer automatically.
-
-    After each commit:
-    - Mark any criteria completed by that commit: `tusk criteria done <cid>`
-    - Log a progress checkpoint:
+7. **Implement, commit, and mark criteria done.** Work through the acceptance criteria from step 1 as your checklist — **one commit per criterion**. For each criterion in order:
+    1. Implement the changes that satisfy it
+    2. Commit using `tusk commit`:
+       ```bash
+       tusk commit <id> "<message>" <file1> [file2 ...]
+       ```
+       This runs `tusk lint` (advisory — never blocks), stages the listed files, and commits with the `[TASK-<id>] <message>` format and Co-Authored-By trailer automatically.
+    3. Mark that criterion done: `tusk criteria done <cid>`
+    4. Log a progress checkpoint:
       ```bash
       tusk progress <id> --next-steps "<what remains to be done>"
       ```

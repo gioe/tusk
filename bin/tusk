@@ -19,9 +19,9 @@
 #   tusk session-recalc        Re-run session-stats for all sessions (backfill corrected costs)
 #   tusk session-close <id>    Close a session (duration, diff stats, token stats)
 #   tusk session-close --task-id <id>  Bulk-close all open sessions for a task
-#   tusk criteria add <id> "text" [--source ...]  Add a criterion to a task
+#   tusk criteria add <id> "text" [--source ...] [--type ...] [--spec ...]  Add a criterion
 #   tusk criteria list <id>      List criteria for a task
-#   tusk criteria done <cid>     Mark a criterion as completed
+#   tusk criteria done <cid> [--skip-verify]  Mark a criterion as completed
 #   tusk criteria reset <cid>    Reset a criterion to incomplete
 #   tusk progress <id> [--next-steps "..."]  Log a progress checkpoint from HEAD
 #   tusk lint                   Run convention checks non-interactively
@@ -151,7 +151,7 @@ if not isinstance(cfg, dict):
 errors = []
 
 # ── Check for unknown top-level keys ──
-KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'complexity', 'blocker_types', 'agents', 'dupes'}
+KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'complexity', 'blocker_types', 'criterion_types', 'agents', 'dupes'}
 known_list = ', '.join(sorted(KNOWN_KEYS))
 unknown = set(cfg.keys()) - KNOWN_KEYS
 if unknown:
@@ -167,6 +167,7 @@ LIST_FIELDS = {
     'closed_reasons': {'required': True},
     'complexity':     {'required': False},
     'blocker_types':  {'required': False},
+    'criterion_types': {'required': False},
 }
 for field, opts in LIST_FIELDS.items():
     if field not in cfg:
@@ -294,6 +295,10 @@ if complexity:
 blocker_types = cfg.get('blocker_types', [])
 if blocker_types:
     print(trigger_sql('blocker_type', blocker_types, 'external_blockers'))
+
+criterion_types = cfg.get('criterion_types', [])
+if criterion_types:
+    print(trigger_sql('criterion_type', criterion_types, 'acceptance_criteria'))
 " "$config"
 }
 
@@ -459,6 +464,9 @@ CREATE TABLE acceptance_criteria (
     cost_dollars REAL,
     tokens_in INTEGER,
     tokens_out INTEGER,
+    criterion_type TEXT DEFAULT 'manual',
+    verification_spec TEXT,
+    verification_result TEXT,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
@@ -492,7 +500,7 @@ EB_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 7;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 8;"
 
   echo "Initialized task database at $DB_PATH"
 }
@@ -741,6 +749,34 @@ cmd_migrate() {
       echo "  Migration 7: added cost tracking columns to acceptance_criteria"
     else
       sqlite3 "$DB_PATH" "PRAGMA user_version = 7;"
+    fi
+  fi
+
+  # Migration 7→8: add typed criteria columns to acceptance_criteria
+  if [[ "$current" -lt 8 ]]; then
+    local has_criterion_type
+    has_criterion_type="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM pragma_table_info('acceptance_criteria') WHERE name = 'criterion_type';")"
+    if [[ "$has_criterion_type" -eq 0 ]]; then
+      sqlite3 "$DB_PATH" "
+        ALTER TABLE acceptance_criteria ADD COLUMN criterion_type TEXT DEFAULT 'manual';
+        ALTER TABLE acceptance_criteria ADD COLUMN verification_spec TEXT;
+        ALTER TABLE acceptance_criteria ADD COLUMN verification_result TEXT;
+        PRAGMA user_version = 8;
+      "
+
+      # Regenerate triggers to include criterion_type validation
+      local triggers
+      triggers="$(generate_triggers)"
+      if [[ -n "$triggers" ]]; then
+        sqlite3 "$DB_PATH" "
+          $(sqlite3 "$DB_PATH" "SELECT 'DROP TRIGGER IF EXISTS ' || name || ';' FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'validate_%';")
+          $triggers
+        "
+      fi
+
+      echo "  Migration 8: added typed criteria columns to acceptance_criteria"
+    else
+      sqlite3 "$DB_PATH" "PRAGMA user_version = 8;"
     fi
   fi
 

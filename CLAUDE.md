@@ -36,9 +36,9 @@ bin/tusk sql-quote "O'Reilly's book"   # → 'O''Reilly''s book'
 bin/tusk shell
 
 # Manage acceptance criteria for tasks
-bin/tusk criteria add <task_id> "criterion text" [--source original|subsumption|pr_review]
+bin/tusk criteria add <task_id> "criterion text" [--source original|subsumption|pr_review] [--type manual|code|test|file] [--spec "verification spec"]
 bin/tusk criteria list <task_id>
-bin/tusk criteria done <criterion_id>
+bin/tusk criteria done <criterion_id> [--skip-verify]
 bin/tusk criteria reset <criterion_id>
 
 # Downstream sub-DAG operations
@@ -86,7 +86,7 @@ bin/tusk task-start <task_id>
 bin/tusk task-done <task_id> --reason completed|expired|wont_do|duplicate [--force]
 
 # Insert a task with validation, dupe check, and optional criteria in one call
-bin/tusk task-insert "<summary>" "<description>" [--priority P] [--domain D] [--task-type T] [--assignee A] [--complexity C] [--criteria "..." ...] [--deferred] [--expires-in DAYS]
+bin/tusk task-insert "<summary>" "<description>" [--priority P] [--domain D] [--task-type T] [--assignee A] [--complexity C] [--criteria "..." ...] [--typed-criteria '{"text":"...","type":"...","spec":"..."}' ...] [--deferred] [--expires-in DAYS]
 
 # Update task fields with config validation
 bin/tusk task-update <task_id> [--priority P] [--domain D] [--task-type T] [--assignee A] [--complexity C] [--summary S] [--description D] [--github-pr URL]
@@ -148,7 +148,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 
 ### Config-Driven Validation
 
-`config.default.json` defines domains, task_types, statuses, priorities, closed_reasons, complexity, and agents. On `tusk init`, SQLite validation triggers are **auto-generated** from the config via an embedded Python snippet in `bin/tusk`. Empty arrays (e.g., `"domains": []`) disable validation for that column. After editing config post-install, run `tusk regen-triggers` to update triggers without destroying the database (unlike `tusk init --force` which recreates the DB).
+`config.default.json` defines domains, task_types, statuses, priorities, closed_reasons, complexity, criterion_types, and agents. On `tusk init`, SQLite validation triggers are **auto-generated** from the config via an embedded Python snippet in `bin/tusk`. Empty arrays (e.g., `"domains": []`) disable validation for that column. After editing config post-install, run `tusk regen-triggers` to update triggers without destroying the database (unlike `tusk init --force` which recreates the DB).
 
 ### Skills (installed to `.claude/skills/` in target projects)
 
@@ -180,7 +180,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - `bin/tusk-dag.py` — Interactive DAG visualization (invoked via `tusk dag`). Renders task dependencies as a Mermaid.js graph with status-colored nodes, complexity-based shapes, and a click-to-inspect sidebar showing per-task metrics.
 - `bin/tusk-dashboard.py` — Static HTML dashboard generator (invoked via `tusk dashboard`). Queries the `task_metrics` view for per-task token counts and cost, writes a self-contained HTML file, and opens it in the browser.
 - `bin/tusk-blockers.py` — External blocker management (invoked via `tusk blockers`). Supports add, list, resolve, remove, blocked (tasks with open blockers), and all subcommands. Validates blocker_type against config.
-- `bin/tusk-criteria.py` — Acceptance criteria management (invoked via `tusk criteria`). Supports add, list, done, and reset subcommands for per-task acceptance criteria tracking. On `done`, parses the Claude transcript for the time window since the previous criterion (or session start) and stores cost_dollars, tokens_in, tokens_out, and completed_at on the criterion row. Cost tracking is best-effort — transcript unavailability doesn't block completion.
+- `bin/tusk-criteria.py` — Acceptance criteria management (invoked via `tusk criteria`). Supports add, list, done, and reset subcommands for per-task acceptance criteria tracking. Criteria have a `criterion_type` (manual, code, test, file) — non-manual types run automated verification on `done` (shell command for code/test, glob check for file) and block completion on failure unless `--skip-verify` is passed. On `done`, also parses the Claude transcript for the time window since the previous criterion (or session start) and stores cost_dollars, tokens_in, tokens_out, and completed_at on the criterion row. Cost tracking is best-effort — transcript unavailability doesn't block completion.
 - `bin/tusk-chain.py` — Downstream sub-DAG operations (invoked via `tusk chain`). Implements `scope` (BFS JSON dump with depths and completion counts), `frontier` (ready tasks within scope), and `status` (human-readable progress summary).
 - `bin/tusk-deps.py` — Dependency graph management (invoked via `tusk deps`). Validates no self-deps and no cycles before inserting.
 - `bin/tusk-task-start.py` — Task start consolidation (invoked via `tusk task-start`). Fetches task, checks prior progress, reuses or creates a session, sets status to In Progress, and returns a JSON blob with all details.
@@ -188,7 +188,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - `bin/tusk-commit.py` — Atomic lint-stage-commit (invoked via `tusk commit`). Runs `tusk lint` (advisory), stages listed files, and commits with `[TASK-<id>] <message>` format and Co-Authored-By trailer.
 - `bin/tusk-branch.py` — Feature branch creation (invoked via `tusk branch`). Detects default branch (remote HEAD → gh fallback → "main"), checks out and pulls latest, creates `feature/TASK-<id>-<slug>`.
 - `bin/tusk-progress.py` — Progress checkpoint logging (invoked via `tusk progress`). Gathers commit hash, message, and changed files from HEAD via git, then inserts a `task_progress` row. Replaces the 4-command manual checkpoint sequence.
-- `bin/tusk-task-insert.py` — Atomic task creation (invoked via `tusk task-insert`). Validates all enum fields against config, runs heuristic duplicate detection, and inserts the task row + acceptance criteria in one transaction. Replaces the multi-step INSERT + sql-quote + criteria-add pattern in skills.
+- `bin/tusk-task-insert.py` — Atomic task creation (invoked via `tusk task-insert`). Validates all enum fields against config, runs heuristic duplicate detection, and inserts the task row + acceptance criteria in one transaction. Supports `--typed-criteria` for non-manual criterion types with verification specs. Replaces the multi-step INSERT + sql-quote + criteria-add pattern in skills.
 - `bin/tusk-task-update.py` — Task field updates with validation (invoked via `tusk task-update`). Accepts a task ID and optional flags for any updatable field, validates enum values against config, and builds a dynamic UPDATE touching only specified columns. Replaces model-composed UPDATE SQL in skills.
 - `bin/tusk-autoclose.py` — Consolidated auto-close pre-checks (invoked via `tusk autoclose`). Runs three checks in one call: expired deferred tasks, In Progress tasks with merged PRs (via `gh pr view`), and moot contingent tasks. Closes each with appropriate reason and description annotation. Returns JSON summary with counts and task IDs per category.
 - `bin/tusk-finalize.py` — Post-merge finalization (invoked via `tusk finalize`). Accepts task ID, session ID, PR URL, and PR number. Sets `github_pr` on the task, closes the session (capturing diff stats), merges the PR via `gh pr merge --squash --delete-branch`, and marks the task Done via `tusk task-done`. Returns JSON with task details and newly unblocked tasks.
@@ -199,7 +199,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 
 ### Database Schema
 
-Five tables: `tasks` (15 columns — id, summary, description, status, priority, domain, assignee, task_type, priority_score, github_pr, expires_at, closed_reason, created_at, updated_at, complexity), `task_dependencies` (composite PK with cascade deletes + no-self-dep CHECK), `task_progress` (append-only checkpoint log for context recovery — stores commit hash, files changed, and next_steps after each commit so a new session can resume mid-task), `task_sessions` (optional metrics — includes `model` column for tracking which Claude model was used), `acceptance_criteria` (id, task_id, criterion, source, is_completed, completed_at, cost_dollars, tokens_in, tokens_out, created_at, updated_at — per-task criteria with source tracking, completion status, and per-criterion cost tracking). One view: `task_metrics` (aggregates sessions per task).
+Five tables: `tasks` (15 columns — id, summary, description, status, priority, domain, assignee, task_type, priority_score, github_pr, expires_at, closed_reason, created_at, updated_at, complexity), `task_dependencies` (composite PK with cascade deletes + no-self-dep CHECK), `task_progress` (append-only checkpoint log for context recovery — stores commit hash, files changed, and next_steps after each commit so a new session can resume mid-task), `task_sessions` (optional metrics — includes `model` column for tracking which Claude model was used), `acceptance_criteria` (id, task_id, criterion, source, is_completed, completed_at, cost_dollars, tokens_in, tokens_out, criterion_type, verification_spec, verification_result, created_at, updated_at — per-task criteria with source tracking, completion status, per-criterion cost tracking, and typed automated verification). One view: `task_metrics` (aggregates sessions per task).
 
 ### Installation Model
 

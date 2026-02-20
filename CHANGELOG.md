@@ -6,6 +6,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [142] - 2026-02-20
+
+### Added
+
+- Typed acceptance criteria with automated verification: `criterion_type` field (manual, code, test, file) on acceptance criteria with `verification_spec` and `verification_result` columns
+- `tusk criteria add` accepts `--type` and `--spec` flags for creating typed criteria
+- `tusk criteria done` runs automated verification for non-manual types (shell command for code/test, glob check for file) and blocks on failure; `--skip-verify` bypasses verification
+- `tusk criteria list` shows Type column
+- `tusk criteria reset` clears `verification_result`
+- `tusk task-insert --typed-criteria` flag for creating typed criteria atomically via JSON objects
+- `tusk task-start` includes `criterion_type` and `verification_spec` in criteria output
+- Schema migration 7→8 adds three columns to `acceptance_criteria` (criterion_type, verification_spec, verification_result)
+- `criterion_types` config key with config-driven trigger validation
+
 ## [141] - 2026-02-20
 
 ### Changed
