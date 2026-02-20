@@ -459,7 +459,7 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
                 sort_completed = esc(cr.get("completed_at") or "")
                 sort_cost = cr.get("cost_dollars") or 0
                 sort_type = esc(ctype)
-                item_html = f'<div class="criterion-item {css}" data-sort-completed="{sort_completed}" data-sort-cost="{sort_cost}" data-sort-type="{sort_type}"><span class="criterion-id">#{cr["id"]}</span> {check} <span class="criterion-text">{esc(cr["criterion"])}</span>{badges}</div>\n'
+                item_html = f'<div class="criterion-item {css}" data-sort-completed="{sort_completed}" data-sort-cost="{sort_cost}" data-sort-type="{sort_type}"><span class="criterion-id">#{cr["id"]}</span><span class="criterion-status">{check}</span><span class="criterion-text">{esc(cr["criterion"])}</span>{badges}</div>\n'
                 criterion_item_htmls.append((item_html, cr))
 
             # Flat view: all items in original order
@@ -912,7 +912,15 @@ tr.expandable.expanded .expand-icon {{
 }}
 
 .criteria-header-status {{
-  width: 1em;
+  min-width: 3.5em;
+  flex-shrink: 0;
+  white-space: nowrap;
+  text-align: center;
+}}
+
+.criterion-status {{
+  min-width: 3.5em;
+  flex-shrink: 0;
   text-align: center;
 }}
 
