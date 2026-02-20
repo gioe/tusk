@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [135] - 2026-02-19
+
+### Added
+
+- Collapsible rows in the HTML dashboard that expand to show acceptance criteria (text, completion status, source) per task
+
 ## [134] - 2026-02-19
 
 ### Added
