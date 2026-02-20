@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [138] - 2026-02-19
+
+### Added
+
+- `tusk pricing-update` command to fetch and update pricing.json from Anthropic docs with HTML table parsing, human-readable diff output, `--dry-run` mode, and `--cache-tier` option (5m default, 1h available)
+
 ## [137] - 2026-02-19
 
 ### Added

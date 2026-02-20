@@ -32,6 +32,7 @@
 #   tusk regen-triggers        Drop and recreate validation triggers from config
 #   tusk token-audit [--summary|--json]  Analyze skill token consumption
 #   tusk sync-skills            Regenerate .claude/skills/ symlinks from skills/ + skills-internal/
+#   tusk pricing-update [--dry-run] [--cache-tier 1h]  Fetch and update pricing.json from Anthropic docs
 #   tusk upgrade               Upgrade tusk from GitHub
 #
 # Configuration:
@@ -1097,6 +1098,7 @@ case "${1:-}" in
   setup) shift; exec python3 "$SCRIPT_DIR/tusk-setup.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   token-audit) shift; exec python3 "$SCRIPT_DIR/tusk-token-audit.py" "$REPO_ROOT" "$@" ;;
   sync-skills) shift; exec python3 "$SCRIPT_DIR/tusk-sync-skills.py" "$@" ;;
+  pricing-update) shift; exec python3 "$SCRIPT_DIR/tusk-pricing-update.py" "$@" ;;
   wsjf) cmd_wsjf ;;
   conventions) shift; cmd_conventions "$@" ;;
   shell)  cmd_shell ;;
@@ -1104,6 +1106,6 @@ case "${1:-}" in
   migrate) cmd_migrate ;;
   regen-triggers) cmd_regen_triggers ;;
   upgrade) cmd_upgrade ;;
-  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|branch|commit|lint|dupes|deps|blockers|criteria|dag|dashboard|wsjf|conventions|setup|autoclose|token-audit|sync-skills|session-stats|session-close|task-start|task-done|task-insert|task-update|progress|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
+  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|branch|commit|lint|dupes|deps|blockers|criteria|dag|dashboard|wsjf|conventions|setup|autoclose|token-audit|sync-skills|pricing-update|session-stats|session-close|task-start|task-done|task-insert|task-update|progress|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac

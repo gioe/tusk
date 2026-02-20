@@ -124,6 +124,11 @@ bin/tusk token-audit --json    # Machine-readable JSON
 # Skill symlink management (source repo only)
 bin/tusk sync-skills           # Regenerate .claude/skills/ symlinks from skills/ + skills-internal/
 
+# Fetch and update pricing.json from Anthropic docs
+bin/tusk pricing-update            # Fetch latest prices and update pricing.json (5m cache tier)
+bin/tusk pricing-update --dry-run  # Show diff without writing
+bin/tusk pricing-update --cache-tier 1h  # Use 1h cache write rates instead of 5m
+
 # Version, migration, and upgrade
 bin/tusk version               # Print installed version
 bin/tusk migrate               # Apply pending schema migrations
@@ -186,6 +191,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - `bin/tusk-finalize.py` — Post-merge finalization (invoked via `tusk finalize`). Accepts task ID, session ID, PR URL, and PR number. Sets `github_pr` on the task, closes the session (capturing diff stats), merges the PR via `gh pr merge --squash --delete-branch`, and marks the task Done via `tusk task-done`. Returns JSON with task details and newly unblocked tasks.
 - `bin/tusk-token-audit.py` — Skill token consumption analyzer (invoked via `tusk token-audit`). Scans skill directories and reports five categories: size census (lines + estimated tokens per skill), companion file analysis (conditional vs unconditional loading), SQL anti-patterns, redundancy detection (duplicate commands, setup + re-fetch), and narrative density (prose:code ratio). Supports `--summary` and `--json` output modes.
 - `bin/tusk-sync-skills.py` — Skill symlink regeneration (invoked via `tusk sync-skills`). Removes all existing symlinks in `.claude/skills/`, then creates one per skill directory found in `skills/` (public) and `skills-internal/` (private). Source-repo only — not used in target projects.
+- `bin/tusk-pricing-update.py` — Pricing updater (invoked via `tusk pricing-update`). Fetches the Anthropic pricing page, parses the model pricing HTML table, builds a new models dict using 5m cache write rates by default (`--cache-tier 1h` available), prunes stale aliases, shows a human-readable diff, and writes updated `pricing.json` (or skips with `--dry-run`).
 
 ### Database Schema
 
