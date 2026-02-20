@@ -365,7 +365,8 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
                 css = 'criterion-done' if done else 'criterion-pending'
                 source_badge = f' <span class="criterion-source">{esc(cr["source"])}</span>' if cr.get("source") else ''
                 cost_badge = f' <span class="criterion-cost">${cr["cost_dollars"]:.4f}</span>' if cr.get("cost_dollars") else ''
-                criteria_items += f'<div class="criterion-item {css}"><span class="criterion-id">#{cr["id"]}</span> {check} {esc(cr["criterion"])}{source_badge}{cost_badge}</div>\n'
+                badges = f'<span class="criterion-badges">{source_badge}{cost_badge}</span>' if source_badge or cost_badge else ''
+                criteria_items += f'<div class="criterion-item {css}"><span class="criterion-id">#{cr["id"]}</span> {check} <span class="criterion-text">{esc(cr["criterion"])}</span>{badges}</div>\n'
             task_rows += f"""<tr class="criteria-row" data-parent="{tid}" style="display:none">
   <td colspan="9"><div class="criteria-detail">{criteria_items}</div></td>
 </tr>\n"""
@@ -750,6 +751,18 @@ tr.expandable.expanded .expand-icon {{
   min-width: 2.5em;
 }}
 
+.criterion-text {{
+  flex: 1;
+  min-width: 0;
+}}
+
+.criterion-badges {{
+  display: flex;
+  gap: 0.3rem;
+  margin-left: auto;
+  flex-shrink: 0;
+}}
+
 .criterion-source {{
   font-size: 0.65rem;
   font-weight: 600;
@@ -757,7 +770,6 @@ tr.expandable.expanded .expand-icon {{
   border-radius: 3px;
   background: var(--hover);
   color: var(--text-muted);
-  margin-left: 0.3rem;
 }}
 
 .criterion-cost {{
@@ -767,7 +779,6 @@ tr.expandable.expanded .expand-icon {{
   border-radius: 3px;
   background: #dcfce7;
   color: #166534;
-  margin-left: 0.3rem;
   font-variant-numeric: tabular-nums;
 }}
 
