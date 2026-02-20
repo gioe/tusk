@@ -482,10 +482,7 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
         priority_score = t.get('priority_score') or 0
         complexity_val = esc(t.get('complexity') or '')
         dep_badges = build_dep_badges(tid)
-        if dep_badges:
-            summary_cell = f'<div class="summary-text">{esc(t["summary"])}</div>{dep_badges}'
-        else:
-            summary_cell = esc(t['summary'])
+        summary_cell = f'<div class="summary-text">{esc(t["summary"])}</div>{dep_badges}'
         task_rows += f"""<tr{cls_attr} data-status="{status_val}" data-summary="{esc(t['summary']).lower()}" data-task-id="{tid}">
   <td class="col-id" data-sort="{tid}">{toggle_icon}#{tid}</td>
   <td class="col-summary">{summary_cell}</td>
