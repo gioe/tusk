@@ -378,8 +378,9 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
                 criteria_items += f'<div class="criterion-item {css}" data-sort-completed="{sort_completed}" data-sort-cost="{sort_cost}" data-sort-type="{sort_type}"><span class="criterion-id">#{cr["id"]}</span> {check} <span class="criterion-text">{esc(cr["criterion"])}</span>{badges}</div>\n'
 
             sort_bar = """<div class="criteria-sort-bar"><span class="criteria-sort-label">Sort:</span><button class="criteria-sort-btn" data-sort-key="completed">Completed <span class="sort-arrow">&#9650;</span></button><button class="criteria-sort-btn" data-sort-key="cost">Cost <span class="sort-arrow">&#9650;</span></button><button class="criteria-sort-btn" data-sort-key="type">Type <span class="sort-arrow">&#9650;</span></button></div>"""
+            criteria_header = """<div class="criteria-header"><span class="criterion-id">ID</span><span class="criteria-header-status">Status</span><span class="criterion-text">Criterion</span><span class="criterion-badges"><span class="criteria-header-label">Type</span><span class="criteria-header-label">Cost</span><span class="criteria-header-label">Completed At</span></span></div>"""
             task_rows += f"""<tr class="criteria-row" data-parent="{tid}" style="display:none">
-  <td colspan="9"><div class="criteria-detail">{sort_bar}{criteria_items}</div></td>
+  <td colspan="9"><div class="criteria-detail">{sort_bar}{criteria_header}{criteria_items}</div></td>
 </tr>\n"""
 
     # Empty state
@@ -744,6 +745,32 @@ tr.expandable.expanded .expand-icon {{
   display: flex;
   align-items: baseline;
   gap: 0.4rem;
+}}
+
+.criteria-header {{
+  padding: 0.25rem 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.25rem;
+}}
+
+.criteria-header-status {{
+  width: 1em;
+  text-align: center;
+}}
+
+.criteria-header-label {{
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.1rem 0.35rem;
+  color: var(--text-muted);
 }}
 
 .criterion-done {{
