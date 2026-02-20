@@ -6,6 +6,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [147] - 2026-02-20
+
+### Added
+
+- Dashboard filter bar expanded with domain, complexity, and task type dropdowns populated from task data
+- Active filter count badge with Clear all button
+- Multi-dimensional AND filtering across status, domain, complexity, type, and search
+- URL hash state persistence for filter, sort, page number, and page size — restored on page load
+
 ## [146] - 2026-02-20
 
 ### Changed

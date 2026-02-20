@@ -1329,6 +1329,67 @@ a.criterion-commit:hover {
   color: var(--text-muted);
 }
 
+/* Filter dropdowns */
+.filter-select {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.8rem;
+  outline: none;
+  cursor: pointer;
+  min-width: 100px;
+}
+
+.filter-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-light);
+}
+
+/* Active filter badge + clear */
+.filter-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+.filter-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  color: #fff;
+  min-width: 1.3em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.filter-badge.hidden {
+  display: none;
+}
+
+.clear-filters {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.15rem 0.3rem;
+  border-radius: var(--radius-sm);
+}
+
+.clear-filters:hover {
+  background: var(--accent-light);
+}
+
+.clear-filters.hidden {
+  display: none;
+}
+
 /* Pagination */
 .pagination-bar {
   display: flex;
@@ -1525,7 +1586,7 @@ window.__tuskCostByDomain = {domain_data};
 
 
 def generate_filter_bar() -> str:
-    """Generate the filter chips and search input."""
+    """Generate the filter chips, dropdowns, search input, and filter badge."""
     return """\
 <div class="filter-bar">
   <div class="filter-chips" id="statusFilters">
@@ -1534,7 +1595,14 @@ def generate_filter_bar() -> str:
     <button class="filter-chip" data-filter="In Progress">In Progress</button>
     <button class="filter-chip" data-filter="Done">Done</button>
   </div>
+  <select class="filter-select" id="domainFilter"><option value="">Domain</option></select>
+  <select class="filter-select" id="complexityFilter"><option value="">Size</option></select>
+  <select class="filter-select" id="typeFilter"><option value="">Type</option></select>
   <input type="text" class="search-input" id="searchInput" placeholder="Search tasks\u2026">
+  <div class="filter-meta">
+    <span class="filter-badge hidden" id="filterBadge">0</span>
+    <button class="clear-filters hidden" id="clearFilters">Clear all</button>
+  </div>
 </div>"""
 
 
@@ -1916,10 +1984,18 @@ def generate_js() -> str:
   var sortAsc = false;
   var statusFilter = 'All';
   var searchTerm = '';
+  var domainFilter = '';
+  var complexityFilter = '';
+  var typeFilter = '';
 
   var headers = document.querySelectorAll('#metricsTable thead th');
   var chips = document.querySelectorAll('#statusFilters .filter-chip');
   var searchInput = document.getElementById('searchInput');
+  var domainSelect = document.getElementById('domainFilter');
+  var complexitySelect = document.getElementById('complexityFilter');
+  var typeSelect = document.getElementById('typeFilter');
+  var filterBadge = document.getElementById('filterBadge');
+  var clearBtn = document.getElementById('clearFilters');
   var pageSizeEl = document.getElementById('pageSize');
   var prevBtn = document.getElementById('prevPage');
   var nextBtn = document.getElementById('nextPage');
@@ -1931,6 +2007,147 @@ def generate_js() -> str:
   var footerIn = document.getElementById('footerTokensIn');
   var footerOut = document.getElementById('footerTokensOut');
   var footerCost = document.getElementById('footerCost');
+
+  // Populate dropdown options from row data
+  function populateSelect(select, attr, placeholder) {
+    var values = {};
+    allRows.forEach(function(row) {
+      var v = row.getAttribute(attr) || '';
+      if (v) values[v] = true;
+    });
+    var sorted = Object.keys(values).sort();
+    select.innerHTML = '<option value="">' + placeholder + '</option>';
+    sorted.forEach(function(v) {
+      var opt = document.createElement('option');
+      opt.value = v;
+      opt.textContent = v;
+      select.appendChild(opt);
+    });
+  }
+
+  var complexityOrder = ['XS', 'S', 'M', 'L', 'XL'];
+  function populateComplexitySelect() {
+    var values = {};
+    allRows.forEach(function(row) {
+      var v = row.getAttribute('data-complexity') || '';
+      if (v) values[v] = true;
+    });
+    complexitySelect.innerHTML = '<option value="">Size</option>';
+    complexityOrder.forEach(function(v) {
+      if (values[v]) {
+        var opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        complexitySelect.appendChild(opt);
+      }
+    });
+  }
+
+  populateSelect(domainSelect, 'data-domain', 'Domain');
+  populateComplexitySelect();
+  populateSelect(typeSelect, 'data-type', 'Type');
+
+  // --- URL hash state ---
+  var hashUpdateTimer = null;
+
+  function encodeHashState() {
+    var params = [];
+    if (statusFilter !== 'All') params.push('s=' + encodeURIComponent(statusFilter));
+    if (domainFilter) params.push('d=' + encodeURIComponent(domainFilter));
+    if (complexityFilter) params.push('c=' + encodeURIComponent(complexityFilter));
+    if (typeFilter) params.push('t=' + encodeURIComponent(typeFilter));
+    if (searchTerm) params.push('q=' + encodeURIComponent(searchTerm));
+    if (sortCol !== 12) params.push('sc=' + sortCol);
+    if (sortAsc) params.push('sa=1');
+    if (currentPage !== 1) params.push('p=' + currentPage);
+    if (pageSize !== 25) params.push('ps=' + pageSize);
+    return params.length > 0 ? params.join('&') : '';
+  }
+
+  function pushHashState() {
+    if (hashUpdateTimer) clearTimeout(hashUpdateTimer);
+    hashUpdateTimer = setTimeout(function() {
+      var hash = encodeHashState();
+      var newUrl = window.location.pathname + (hash ? '#' + hash : '');
+      history.replaceState(null, '', newUrl);
+    }, 100);
+  }
+
+  function restoreHashState() {
+    var hash = window.location.hash.replace(/^#/, '');
+    if (!hash) return false;
+    var pairs = hash.split('&');
+    var restored = false;
+    pairs.forEach(function(pair) {
+      var kv = pair.split('=');
+      var k = kv[0];
+      var v = decodeURIComponent(kv.slice(1).join('='));
+      switch (k) {
+        case 's': statusFilter = v; restored = true; break;
+        case 'd': domainFilter = v; restored = true; break;
+        case 'c': complexityFilter = v; restored = true; break;
+        case 't': typeFilter = v; restored = true; break;
+        case 'q': searchTerm = v; restored = true; break;
+        case 'sc': sortCol = parseInt(v) || 12; restored = true; break;
+        case 'sa': sortAsc = v === '1'; restored = true; break;
+        case 'p': currentPage = parseInt(v) || 1; restored = true; break;
+        case 'ps': pageSize = parseInt(v) || 25; restored = true; break;
+      }
+    });
+    return restored;
+  }
+
+  function syncUIFromState() {
+    // Status chips
+    chips.forEach(function(c) {
+      c.classList.toggle('active', c.getAttribute('data-filter') === statusFilter);
+    });
+    // Dropdowns
+    domainSelect.value = domainFilter;
+    complexitySelect.value = complexityFilter;
+    typeSelect.value = typeFilter;
+    // Search
+    searchInput.value = searchTerm;
+    // Page size
+    pageSizeEl.value = pageSize.toString();
+    // Sort header highlight
+    headers.forEach(function(h) {
+      h.classList.remove('sort-asc', 'sort-desc');
+      h.querySelector('.sort-arrow').textContent = '\\u25B2';
+    });
+    if (sortCol >= 0 && sortCol < headers.length) {
+      headers[sortCol].classList.add(sortAsc ? 'sort-asc' : 'sort-desc');
+      headers[sortCol].querySelector('.sort-arrow').textContent = sortAsc ? '\\u25B2' : '\\u25BC';
+    }
+  }
+
+  // --- Active filter badge ---
+  function updateFilterBadge() {
+    var count = 0;
+    if (statusFilter !== 'All') count++;
+    if (domainFilter) count++;
+    if (complexityFilter) count++;
+    if (typeFilter) count++;
+    if (searchTerm) count++;
+    if (count > 0) {
+      filterBadge.textContent = count;
+      filterBadge.classList.remove('hidden');
+      clearBtn.classList.remove('hidden');
+    } else {
+      filterBadge.classList.add('hidden');
+      clearBtn.classList.add('hidden');
+    }
+  }
+
+  function clearAllFilters() {
+    statusFilter = 'All';
+    domainFilter = '';
+    complexityFilter = '';
+    typeFilter = '';
+    searchTerm = '';
+    syncUIFromState();
+    applyFilter();
+  }
 
   function formatCost(n) {
     return '$' + n.toFixed(2).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ',');
@@ -1958,10 +2175,15 @@ def generate_js() -> str:
   function applyFilter() {
     filtered = allRows.filter(function(row) {
       if (statusFilter !== 'All' && row.getAttribute('data-status') !== statusFilter) return false;
+      if (domainFilter && row.getAttribute('data-domain') !== domainFilter) return false;
+      if (complexityFilter && row.getAttribute('data-complexity') !== complexityFilter) return false;
+      if (typeFilter && row.getAttribute('data-type') !== typeFilter) return false;
       if (searchTerm && row.getAttribute('data-summary').indexOf(searchTerm) === -1) return false;
       return true;
     });
     currentPage = 1;
+    updateFilterBadge();
+    pushHashState();
     render();
   }
 
@@ -1983,7 +2205,12 @@ def generate_js() -> str:
       if (vA > vB) return sortAsc ? 1 : -1;
       return 0;
     });
+    pushHashState();
     render();
+  }
+
+  function isFiltered() {
+    return statusFilter !== 'All' || domainFilter || complexityFilter || typeFilter || searchTerm;
   }
 
   function updateFooter() {
@@ -2000,7 +2227,7 @@ def generate_js() -> str:
       totalCost += parseFloat(row.children[11].getAttribute('data-sort')) || 0;
       count++;
     });
-    var label = statusFilter === 'All' && !searchTerm ? 'Total' : 'Filtered total (' + count + ' tasks)';
+    var label = isFiltered() ? 'Filtered total (' + count + ' tasks)' : 'Total';
     footerLabel.textContent = label;
     footerSessions.textContent = totalSessions;
     footerDuration.textContent = formatDuration(totalDuration);
@@ -2198,29 +2425,55 @@ def generate_js() -> str:
     });
   });
 
+  // Dropdown filters
+  domainSelect.addEventListener('change', function() {
+    domainFilter = domainSelect.value;
+    applyFilter();
+  });
+  complexitySelect.addEventListener('change', function() {
+    complexityFilter = complexitySelect.value;
+    applyFilter();
+  });
+  typeSelect.addEventListener('change', function() {
+    typeFilter = typeSelect.value;
+    applyFilter();
+  });
+
   // Search input
   searchInput.addEventListener('input', function() {
     searchTerm = searchInput.value.toLowerCase();
     applyFilter();
   });
 
+  // Clear all filters
+  clearBtn.addEventListener('click', function() {
+    clearAllFilters();
+  });
+
   // Page size
   pageSizeEl.addEventListener('change', function() {
     pageSize = parseInt(pageSizeEl.value);
     currentPage = 1;
+    pushHashState();
     render();
   });
 
   // Prev/Next
   prevBtn.addEventListener('click', function() {
-    if (currentPage > 1) { currentPage--; render(); }
+    if (currentPage > 1) { currentPage--; pushHashState(); render(); }
   });
   nextBtn.addEventListener('click', function() {
     var maxP = Math.ceil(filtered.length / pageSize);
-    if (currentPage < maxP) { currentPage++; render(); }
+    if (currentPage < maxP) { currentPage++; pushHashState(); render(); }
   });
 
-  // Initial render
+  // Restore state from URL hash, then initial render
+  var restored = restoreHashState();
+  if (restored) {
+    syncUIFromState();
+    updateFilterBadge();
+  }
+  applyFilter();
   applySort();
 
   // Chart.js initialization (graceful fallback if CDN unavailable)
@@ -2401,12 +2654,7 @@ def generate_js() -> str:
     var targetRow = document.querySelector('tr[data-task-id="' + targetId + '"]');
     if (!targetRow) return;
     if (targetRow.style.display === 'none') {
-      chips.forEach(function(c) { c.classList.remove('active'); });
-      document.querySelector('.filter-chip[data-filter="All"]').classList.add('active');
-      statusFilter = 'All';
-      searchInput.value = '';
-      searchTerm = '';
-      applyFilter();
+      clearAllFilters();
     }
     targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
     targetRow.classList.add('dep-highlight');
