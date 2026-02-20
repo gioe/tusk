@@ -6,11 +6,9 @@ allowed-tools: Bash, Task, Read, Edit, Write, Grep, Glob
 
 # Resume Task Skill
 
-Automates recovery after a Claude Code session crash or timeout. Detects the current task from the branch name, gathers all context (task details, progress checkpoints, acceptance criteria, recent commits), displays a recovery summary, and continues the implementation workflow.
+Recovers context after a session crash/timeout and continues the implementation workflow.
 
 ## Step 1: Detect the Task ID
-
-Extract the task ID from the current git branch name:
 
 ```bash
 BRANCH=$(git branch --show-current)
@@ -19,29 +17,28 @@ echo "Branch: $BRANCH"
 echo "Task ID: $TASK_ID"
 ```
 
-- If `TASK_ID` is non-empty, proceed to Step 2.
-- If the branch does not match `feature/TASK-<id>-...`, check whether the user provided a task ID as an argument (e.g., `/resume-task 42`). If so, use that.
-- If neither the branch nor an argument provides a task ID, ask the user: "Could not detect a task ID from the current branch. Which task ID should I resume?"
+- Non-empty `TASK_ID` → proceed to Step 2
+- Branch doesn't match → check for user-provided argument (e.g., `/resume-task 42`)
+- Neither → ask: "Could not detect a task ID. Which task ID should I resume?"
 
 ## Step 2: Start the Task (Idempotent)
-
-Fetch task details, reuse the existing session, and gather progress history:
 
 ```bash
 tusk task-start <TASK_ID>
 ```
 
-This returns JSON with four keys:
-- `task` — full task row (summary, description, priority, domain, assignee, complexity, etc.)
-- `progress` — array of prior progress checkpoints (most recent first). The first entry's `next_steps` tells you exactly where to pick up.
-- `criteria` — array of acceptance criteria objects (id, criterion, source, is_completed). These define what remains to be done.
-- `session_id` — reuses an open session if one exists
+Returns JSON with four keys:
+
+```
+task        — full task row (summary, description, priority, domain, assignee, complexity)
+progress    — checkpoints (most recent first); first entry's next_steps = resume point
+criteria    — acceptance criteria (id, criterion, source, is_completed)
+session_id  — reuses open session if one exists
+```
 
 Hold onto `session_id` for later use.
 
 ## Step 3: Gather Context
-
-Collect recent commits on this branch:
 
 ```bash
 git log --oneline $(git merge-base HEAD main)..HEAD
@@ -49,38 +46,35 @@ git log --oneline $(git merge-base HEAD main)..HEAD
 
 ## Step 4: Display Recovery Summary
 
-Present all gathered context in a clear recovery summary:
+```
+Task:        [TASK-<id>] <summary> (priority, complexity, domain)
+Description: <description>
 
-**Task:** `[TASK-<id>] <summary>` (priority: `<priority>`, complexity: `<complexity>`, domain: `<domain>`)
+Progress Checkpoints: (most recent first)
+  - <next_steps> | <commit_hash> | <files_changed>
+  (or "No prior checkpoints found.")
 
-**Description:** `<description>`
+Acceptance Criteria:
+  - [x] completed criterion
+  - [ ] pending criterion  ← defines remaining work
 
-**Progress Checkpoints:** (most recent first)
-- Show each checkpoint's `next_steps`, `commit_hash`, and `files_changed`
-- If no checkpoints exist, note "No prior progress checkpoints found."
+Recent Commits: (git log output from Step 3)
 
-**Acceptance Criteria:**
-- Show each criterion with its completion status (done/pending)
-- Highlight incomplete criteria — these define what remains
-
-**Recent Commits on This Branch:**
-- Show the git log output from Step 3
-
-**Next Steps:** Quote the most recent checkpoint's `next_steps` field prominently — this is the primary guide for what to do next. If no checkpoints exist, use the incomplete acceptance criteria as the guide.
+Next Steps: <most recent checkpoint's next_steps, or incomplete criteria if none>
+```
 
 ## Step 5: Resume the /next-task Workflow
 
-Continue the `/next-task` implementation workflow from **step 4 onward** (determining subagents, exploring the codebase, implementing, committing, and marking criteria done). Skip steps 1-3 since the task is already started and the branch already exists.
+Continue from `/next-task` **step 4 onward** (subagents → explore → implement → commit → criteria → finalize). Steps 1-3 are already done.
 
-Key reminders for the resumed workflow:
-- Mark each acceptance criterion done (`tusk criteria done <cid>`) as you complete it
-- Log progress checkpoints after each commit:
+- Mark criteria done as you go: `tusk criteria done <cid>`
+- Log progress after each commit:
   ```bash
-  tusk progress <TASK_ID> --next-steps "<what remains to be done>"
+  tusk progress <TASK_ID> --next-steps "<what remains>"
   ```
 - Run `tusk lint` before pushing (advisory only)
-- For push, PR, review, merge, and retro steps, read the companion file:
+- For finalize steps, read:
   ```
   Read file: <next_task_base>/FINALIZE.md
   ```
-  Where `<next_task_base>` is the base directory of the `next-task` skill (sibling to this skill's directory).
+  Where `<next_task_base>` is the `next-task` skill's base directory (sibling to this skill).
