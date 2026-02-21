@@ -1350,6 +1350,7 @@ case "${1:-}" in
   task-insert) shift; exec python3 "$SCRIPT_DIR/tusk-task-insert.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   task-update) shift; exec python3 "$SCRIPT_DIR/tusk-task-update.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   autoclose) shift; exec python3 "$SCRIPT_DIR/tusk-autoclose.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  loop) shift; exec python3 "$SCRIPT_DIR/tusk-loop.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   finalize) shift; exec python3 "$SCRIPT_DIR/tusk-finalize.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   progress) shift; exec python3 "$SCRIPT_DIR/tusk-progress.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   setup) shift; exec python3 "$SCRIPT_DIR/tusk-setup.py" "$DB_PATH" "$(resolve_config)" "$@" ;;

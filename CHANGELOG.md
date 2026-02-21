@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [161] - 2026-02-21
+
+### Added
+
+- [TASK-261] `tusk loop` CLI command and `/loop` skill — autonomous backlog loop that dispatches `/chain` for chain-head tasks and `/next-task` for standalone tasks, supports `--max-tasks N` and `--dry-run`
+
 ## [160] - 2026-02-21
 
 ### Changed

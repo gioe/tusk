@@ -105,6 +105,11 @@ bin/tusk task-update <task_id> [--priority P] [--domain D] [--task-type T] [--as
 # Auto-close expired deferred, merged-PR, and moot contingent tasks
 bin/tusk autoclose
 
+# Autonomous backlog loop: dispatch /chain or /next-task for each ready task
+bin/tusk loop                    # Run until backlog is empty
+bin/tusk loop --max-tasks N      # Stop after N tasks
+bin/tusk loop --dry-run          # Preview without executing
+
 # Finalize a task: set PR URL, close session, merge PR, mark Done
 bin/tusk finalize <task_id> --session <session_id> --pr-url <url> --pr-number <number>
 
@@ -180,6 +185,7 @@ The config also includes a `review` block with three keys: `mode` (`"disabled"` 
 - **`/tusk-insights`** — Read-only DB health audit across 6 categories with interactive Q&A recommendations
 - **`/resume-task`** — Automates session recovery: detects task from branch name, gathers progress/criteria/commits, and resumes the implementation workflow
 - **`/chain`** — Orchestrates parallel execution of a dependency sub-DAG: validates head task, displays scope tree, executes head first, then spawns parallel background agents wave-by-wave for each frontier of ready tasks, and runs a post-chain retro aggregation across all agent transcripts to surface cross-agent patterns and learnings
+- **`/loop`** — Autonomous backlog loop: repeatedly picks the highest-priority ready task and dispatches it to `/chain` (if it has dependents) or `/next-task` (standalone) until the backlog is empty; supports `--max-tasks N` and `--dry-run`
 - **`/review-pr`** — Runs parallel AI code reviewers against a PR diff, fixes must_fix issues, handles suggest findings interactively, and creates deferred tasks for defer findings; respects `review.mode`, `review.max_passes`, and `review.reviewers` config settings
 
 ### Python Scripts
@@ -202,6 +208,7 @@ The config also includes a `review` block with three keys: `mode` (`"disabled"` 
 - `bin/tusk-autoclose.py` — Consolidated auto-close pre-checks (invoked via `tusk autoclose`). Runs three checks in one call: expired deferred tasks, To Do / In Progress tasks with merged PRs (via `gh pr view`), and moot contingent tasks. Closes each with appropriate reason and description annotation. Returns JSON summary with counts and task IDs per category.
 - `bin/tusk-finalize.py` — Post-merge finalization (invoked via `tusk finalize`). Accepts task ID, session ID, PR URL, and PR number. Sets `github_pr` on the task, closes the session (capturing diff stats), merges the PR via `gh pr merge --squash --delete-branch`, and marks the task Done via `tusk task-done`. Returns JSON with task details and newly unblocked tasks.
 - `bin/tusk-token-audit.py` — Skill token consumption analyzer (invoked via `tusk token-audit`). Scans skill directories and reports five categories: size census (lines + estimated tokens per skill), companion file analysis (conditional vs unconditional loading), SQL anti-patterns, redundancy detection (duplicate commands, setup + re-fetch), and narrative density (prose:code ratio). Supports `--summary` and `--json` output modes.
+- `bin/tusk-loop.py` — Autonomous backlog loop (invoked via `tusk loop`). Queries the highest-priority ready task, checks if it is a chain head (via `tusk chain scope`), dispatches to `claude -p /chain <id>` or `claude -p /next-task <id>`, and repeats until the backlog is empty or a stop condition is met. Supports `--max-tasks N` and `--dry-run`.
 - `bin/tusk-sync-skills.py` — Skill symlink regeneration (invoked via `tusk sync-skills`). Removes all existing symlinks in `.claude/skills/`, then creates one per skill directory found in `skills/` (public) and `skills-internal/` (private). Source-repo only — not used in target projects.
 - `bin/tusk-pricing-update.py` — Pricing updater (invoked via `tusk pricing-update`). Fetches the Anthropic pricing page, parses the model pricing HTML table, builds a new models dict with both `cache_write_5m` and `cache_write_1h` rates per model, prunes stale aliases, shows a human-readable diff, and writes updated `pricing.json` (or skips with `--dry-run`).
 - `bin/tusk-session-recalc.py` — Bulk session recalculation (invoked via `tusk session-recalc`). Iterates all task_sessions, finds matching transcripts, and recomputes tokens/cost with the current pricing formula. Useful after pricing.json changes.
