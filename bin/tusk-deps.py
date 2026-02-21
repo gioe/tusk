@@ -196,20 +196,10 @@ def show_ready(conn: sqlite3.Connection):
     print("=" * 70)
 
     ready = conn.execute("""
-        SELECT t.id, t.summary, t.status, t.priority,
-            (SELECT COUNT(*) FROM task_dependencies d WHERE d.task_id = t.id) as dep_count
-        FROM tasks t
-        WHERE t.status <> 'Done'
-        AND NOT EXISTS (
-            SELECT 1 FROM task_dependencies d
-            JOIN tasks dep ON d.depends_on_id = dep.id
-            WHERE d.task_id = t.id AND dep.status <> 'Done'
-        )
-        AND NOT EXISTS (
-            SELECT 1 FROM external_blockers eb
-            WHERE eb.task_id = t.id AND eb.is_resolved = 0
-        )
-        ORDER BY t.priority DESC, t.id
+        SELECT id, summary, status, priority,
+            (SELECT COUNT(*) FROM task_dependencies d WHERE d.task_id = v.id) as dep_count
+        FROM v_ready_tasks v
+        ORDER BY priority DESC, id
     """).fetchall()
 
     if not ready:

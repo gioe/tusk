@@ -31,20 +31,10 @@ import sys
 
 
 _READY_TASK_SQL = """
-SELECT t.id, t.summary, t.priority, t.priority_score, t.domain, t.assignee, t.complexity
-FROM tasks t
-WHERE t.status = 'To Do'
-  AND NOT EXISTS (
-    SELECT 1 FROM task_dependencies d
-    JOIN tasks blocker ON d.depends_on_id = blocker.id
-    WHERE d.task_id = t.id AND blocker.status <> 'Done'
-  )
-  AND NOT EXISTS (
-    SELECT 1 FROM external_blockers eb
-    WHERE eb.task_id = t.id AND eb.is_resolved = 0
-  )
+SELECT id, summary, priority, priority_score, domain, assignee, complexity
+FROM v_ready_tasks
 {exclude_clause}
-ORDER BY t.priority_score DESC, t.id
+ORDER BY priority_score DESC, id
 LIMIT 1
 """
 

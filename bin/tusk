@@ -509,6 +509,21 @@ SELECT t.*,
 FROM tasks t
 LEFT JOIN task_sessions s ON t.id = s.task_id
 GROUP BY t.id;
+
+-- v_ready_tasks view: canonical ready-to-work definition
+CREATE VIEW v_ready_tasks AS
+SELECT t.*
+FROM tasks t
+WHERE t.status = 'To Do'
+  AND NOT EXISTS (
+    SELECT 1 FROM task_dependencies d
+    JOIN tasks blocker ON d.depends_on_id = blocker.id
+    WHERE d.task_id = t.id AND blocker.status <> 'Done'
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM external_blockers eb
+    WHERE eb.task_id = t.id AND eb.is_resolved = 0
+  );
 SCHEMA
 
   # Enable WAL for concurrent read/write support
@@ -606,7 +621,7 @@ CR_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 13;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 14;"
 
   echo "Initialized task database at $DB_PATH"
 }
@@ -1007,6 +1022,27 @@ cmd_migrate() {
       sqlite3 "$DB_PATH" "PRAGMA user_version = 13;"
     fi
     echo "  Migration 13: added status transition validation trigger"
+  fi
+
+  # Migration 13→14: create v_ready_tasks view
+  if [[ "$current" -lt 14 ]]; then
+    sqlite3 "$DB_PATH" "
+      CREATE VIEW IF NOT EXISTS v_ready_tasks AS
+      SELECT t.*
+      FROM tasks t
+      WHERE t.status = 'To Do'
+        AND NOT EXISTS (
+          SELECT 1 FROM task_dependencies d
+          JOIN tasks blocker ON d.depends_on_id = blocker.id
+          WHERE d.task_id = t.id AND blocker.status <> 'Done'
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM external_blockers eb
+          WHERE eb.task_id = t.id AND eb.is_resolved = 0
+        );
+      PRAGMA user_version = 14;
+    "
+    echo "  Migration 14: created v_ready_tasks view"
   fi
 
   local final
