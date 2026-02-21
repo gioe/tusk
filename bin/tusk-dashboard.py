@@ -19,6 +19,7 @@ import os
 import sqlite3
 import sys
 import webbrowser
+from collections import defaultdict, deque
 from datetime import datetime, timedelta
 
 log = logging.getLogger(__name__)
@@ -157,6 +158,204 @@ def fetch_task_dependencies(conn: sqlite3.Connection) -> dict[int, dict]:
         result[dep_id]["blocks"].append({"id": tid, "type": rel})
     log.debug("Fetched dependencies for %d tasks", len(result))
     return result
+
+
+# ---------------------------------------------------------------------------
+# DAG-specific data fetching (ported from tusk-dag.py)
+# ---------------------------------------------------------------------------
+
+def fetch_dag_tasks(conn: sqlite3.Connection) -> list[dict]:
+    """Fetch all tasks with metrics and criteria counts for DAG rendering."""
+    log.debug("Querying task_metrics view with criteria counts for DAG")
+    rows = conn.execute(
+        """SELECT tm.id, tm.summary, tm.status, tm.priority, tm.domain,
+                  tm.task_type, tm.complexity, tm.priority_score,
+                  COALESCE(tm.session_count, 0) as session_count,
+                  COALESCE(tm.total_tokens_in, 0) as total_tokens_in,
+                  COALESCE(tm.total_tokens_out, 0) as total_tokens_out,
+                  COALESCE(tm.total_cost, 0) as total_cost,
+                  COALESCE(tm.total_duration_seconds, 0) as total_duration_seconds,
+                  COALESCE(ac.criteria_total, 0) as criteria_total,
+                  COALESCE(ac.criteria_done, 0) as criteria_done
+           FROM task_metrics tm
+           LEFT JOIN (
+               SELECT task_id,
+                      COUNT(*) as criteria_total,
+                      SUM(is_completed) as criteria_done
+               FROM acceptance_criteria
+               GROUP BY task_id
+           ) ac ON ac.task_id = tm.id
+           ORDER BY tm.id ASC"""
+    ).fetchall()
+    result = [dict(r) for r in rows]
+    log.debug("Fetched %d DAG tasks", len(result))
+    return result
+
+
+def fetch_edges(conn: sqlite3.Connection) -> list[dict]:
+    """Fetch all dependency edges for DAG."""
+    log.debug("Querying task_dependencies for DAG")
+    rows = conn.execute(
+        """SELECT task_id, depends_on_id, relationship_type
+           FROM task_dependencies"""
+    ).fetchall()
+    result = [dict(r) for r in rows]
+    log.debug("Fetched %d edges", len(result))
+    return result
+
+
+def fetch_blockers(conn: sqlite3.Connection) -> list[dict]:
+    """Fetch all external blockers for DAG."""
+    log.debug("Querying external_blockers for DAG")
+    rows = conn.execute(
+        """SELECT id, task_id, description, blocker_type, is_resolved
+           FROM external_blockers"""
+    ).fetchall()
+    result = [dict(r) for r in rows]
+    log.debug("Fetched %d blockers", len(result))
+    return result
+
+
+def filter_dag_nodes(tasks: list[dict], edges: list[dict], blockers: list[dict],
+                     show_all: bool) -> tuple[list[dict], list[dict], list[dict]]:
+    """Filter tasks, edges, and blockers for DAG visibility.
+
+    Default: all To Do + In Progress tasks, plus Done tasks with >= 1 edge.
+    show_all: additionally include isolated Done tasks.
+    Prunes connected components where every task is Done (unless show_all).
+    """
+    edge_task_ids = set()
+    for e in edges:
+        edge_task_ids.add(e["task_id"])
+        edge_task_ids.add(e["depends_on_id"])
+
+    visible_tasks = []
+    for t in tasks:
+        if t["status"] in ("To Do", "In Progress"):
+            visible_tasks.append(t)
+        elif t["status"] == "Done":
+            if show_all or t["id"] in edge_task_ids:
+                visible_tasks.append(t)
+
+    visible_ids = {t["id"] for t in visible_tasks}
+
+    if not show_all:
+        adj: dict[int, set] = defaultdict(set)
+        for e in edges:
+            a, b = e["task_id"], e["depends_on_id"]
+            if a in visible_ids and b in visible_ids:
+                adj[a].add(b)
+                adj[b].add(a)
+
+        status_map = {t["id"]: t["status"] for t in visible_tasks}
+        visited: set[int] = set()
+        remove_ids: set[int] = set()
+        for tid in visible_ids:
+            if tid in visited:
+                continue
+            queue = deque([tid])
+            component: list[int] = []
+            while queue:
+                node = queue.popleft()
+                if node in visited:
+                    continue
+                visited.add(node)
+                component.append(node)
+                for neighbor in adj[node]:
+                    if neighbor not in visited:
+                        queue.append(neighbor)
+            if all(status_map[n] == "Done" for n in component):
+                remove_ids.update(component)
+
+        if remove_ids:
+            visible_tasks = [t for t in visible_tasks if t["id"] not in remove_ids]
+            visible_ids -= remove_ids
+
+    visible_edges = [
+        e for e in edges
+        if e["task_id"] in visible_ids and e["depends_on_id"] in visible_ids
+    ]
+    visible_blockers = [b for b in blockers if b["task_id"] in visible_ids]
+
+    log.debug("DAG visible: %d tasks, %d edges, %d blockers",
+              len(visible_tasks), len(visible_edges), len(visible_blockers))
+    return visible_tasks, visible_edges, visible_blockers
+
+
+def build_mermaid(tasks: list[dict], edges: list[dict], blockers: list[dict]) -> str:
+    """Build Mermaid graph definition from tasks, edges, and blockers."""
+    lines = ["graph LR"]
+
+    lines.append('    classDef todo fill:#3b82f6,stroke:#2563eb,color:#fff')
+    lines.append('    classDef inprogress fill:#f59e0b,stroke:#d97706,color:#fff')
+    lines.append('    classDef done fill:#22c55e,stroke:#16a34a,color:#fff')
+    lines.append('    classDef blocker fill:#ef4444,stroke:#dc2626,color:#fff')
+    lines.append('    classDef blockerResolved fill:#9ca3af,stroke:#6b7280,color:#fff')
+
+    for t in tasks:
+        node_id = "T" + str(t["id"])
+        summary = t["summary"] or ""
+        if len(summary) > 40:
+            summary = summary[:37] + "..."
+        summary = summary.replace('"', "'")
+        label = "#" + str(t["id"]) + ": " + summary
+        complexity = t["complexity"] or "S"
+
+        if complexity in ("XS", "S"):
+            node_def = node_id + '["' + label + '"]'
+        elif complexity == "M":
+            node_def = node_id + '("' + label + '")'
+        else:
+            node_def = node_id + '{{"' + label + '"}}'
+
+        lines.append("    " + node_def)
+
+        status = t["status"]
+        if status == "To Do":
+            lines.append("    class " + node_id + " todo")
+        elif status == "In Progress":
+            lines.append("    class " + node_id + " inprogress")
+        elif status == "Done":
+            lines.append("    class " + node_id + " done")
+
+    for b in blockers:
+        node_id = "B" + str(b["id"])
+        desc = b["description"] or ""
+        if len(desc) > 35:
+            desc = desc[:32] + "..."
+        desc = desc.replace('"', "'")
+        btype = b["blocker_type"] or "external"
+        label = btype + ": " + desc
+        node_def = node_id + '>"' + label + '"]'
+        lines.append("    " + node_def)
+
+        if b["is_resolved"]:
+            lines.append("    class " + node_id + " blockerResolved")
+        else:
+            lines.append("    class " + node_id + " blocker")
+
+    for e in edges:
+        src = "T" + str(e["depends_on_id"])
+        dst = "T" + str(e["task_id"])
+        if e["relationship_type"] == "contingent":
+            lines.append("    " + src + " -.-> " + dst)
+        else:
+            lines.append("    " + src + " --> " + dst)
+
+    for b in blockers:
+        src = "B" + str(b["id"])
+        dst = "T" + str(b["task_id"])
+        lines.append("    " + src + " -.-x " + dst)
+
+    for t in tasks:
+        node_id = "T" + str(t["id"])
+        lines.append('    click ' + node_id + ' dagShowSidebar')
+
+    for b in blockers:
+        node_id = "B" + str(b["id"])
+        lines.append('    click ' + node_id + ' dagShowBlockerSidebar')
+
+    return "\n".join(lines)
 
 
 def fetch_cost_trend(conn: sqlite3.Connection) -> list[dict]:
@@ -1533,11 +1732,269 @@ tbody tr {
   .container {
     padding: var(--sp-3);
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Tab navigation
+   --------------------------------------------------------------------------- */
+
+.tab-bar {
+  display: flex;
+  gap: 0;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  padding: 0 var(--sp-6);
+}
+
+.tab-btn {
+  padding: var(--sp-3) var(--sp-5);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.tab-btn:hover {
+  color: var(--text);
+}
+
+.tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab-panel {
+  display: none;
+}
+
+.tab-panel.active {
+  display: block;
+}
+
+/* DAG tab uses flex layout to fill remaining viewport height */
+.tab-panel.dag-tab-panel.active {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 110px);
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------------------
+   DAG panel styles
+   --------------------------------------------------------------------------- */
+
+.dag-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-6);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.dag-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.dag-toggle-label input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.dag-main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.dag-graph-panel {
+  flex: 1;
+  overflow: auto;
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+}
+
+.dag-graph-panel .mermaid {
+  flex: 1;
+}
+
+.dag-sidebar {
+  width: 320px;
+  background: var(--bg-panel);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  overflow-y: auto;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dag-sidebar-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  padding: var(--sp-6);
+  text-align: center;
+}
+
+.dag-sidebar-content {
+  display: none;
+  padding: var(--sp-4);
+}
+
+.dag-sidebar-content.active {
+  display: block;
+}
+
+.dag-sidebar-content h2 {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  margin-bottom: var(--sp-4);
+  word-break: break-word;
+}
+
+.dag-metric {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--sp-1) 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+}
+
+.dag-metric:last-child {
+  border-bottom: none;
+}
+
+.dag-metric-label {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.dag-metric-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.dag-legend {
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--border);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.dag-legend-title {
+  font-weight: 600;
+  margin-bottom: var(--sp-1);
+}
+
+.dag-legend-row {
+  display: flex;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-bottom: 2px;
+}
+
+.dag-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dag-legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.dag-hint {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  padding: var(--sp-2);
+}
+
+.dag-hint code {
+  background: var(--bg-subtle);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.85em;
+}
+
+.dag-blocker-badge {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+.dag-blocker-open {
+  background: var(--danger-light);
+  color: var(--danger);
+}
+
+.dag-blocker-resolved {
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+}
+
+.dag-blocker-item {
+  padding: var(--sp-1) 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+}
+
+.dag-blocker-item:last-child {
+  border-bottom: none;
+}
+
+.dag-blocker-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin-bottom: 2px;
+}
+
+.dag-blocker-type {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.dag-blocker-desc {
+  font-size: var(--text-xs);
+  color: var(--text);
+  word-break: break-word;
+}
+
+@media (max-width: 768px) {
+  .dag-sidebar {
+    display: none;
+  }
+  .tab-bar {
+    padding: 0 var(--sp-3);
+  }
 }"""
 
 
 def generate_header(now: str) -> str:
-    """Generate the page header bar with theme toggle."""
+    """Generate the page header bar with theme toggle and tab navigation."""
     return f"""\
 <div class="header">
   <h1>Tusk &mdash; Task Metrics</h1>
@@ -1548,6 +2005,10 @@ def generate_header(now: str) -> str:
       <span class="icon-moon">\U0001F319</span>
     </button>
   </div>
+</div>
+<div class="tab-bar" id="tabBar">
+  <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+  <button class="tab-btn" data-tab="dag">DAG</button>
 </div>"""
 
 
@@ -1949,6 +2410,120 @@ def generate_complexity_section(complexity_metrics: list[dict] | None) -> str:
       {complexity_rows}
     </tbody>
   </table>
+</div>"""
+
+
+def generate_dag_section(dag_tasks: list[dict], edges: list[dict],
+                         dag_blockers: list[dict]) -> str:
+    """Generate the DAG tab panel HTML with Mermaid graph, sidebar, and legend."""
+    # Build two versions: default (filtered) and all (with Done tasks)
+    filtered_tasks, filtered_edges, filtered_blockers = filter_dag_nodes(
+        dag_tasks, edges, dag_blockers, show_all=False
+    )
+    all_tasks, all_edges, all_blockers = filter_dag_nodes(
+        dag_tasks, edges, dag_blockers, show_all=True
+    )
+
+    mermaid_default = build_mermaid(filtered_tasks, filtered_edges, filtered_blockers)
+    mermaid_all = build_mermaid(all_tasks, all_edges, all_blockers)
+
+    # Build task data JSON for sidebar
+    task_data: dict[int, dict] = {}
+    blockers_by_task: dict[int, list] = defaultdict(list)
+    for b in dag_blockers:
+        blockers_by_task[b["task_id"]].append({
+            "id": b["id"],
+            "description": b["description"],
+            "blocker_type": b["blocker_type"],
+            "is_resolved": b["is_resolved"],
+        })
+
+    for t in dag_tasks:
+        tb = blockers_by_task.get(t["id"], [])
+        task_data[t["id"]] = {
+            "id": t["id"],
+            "summary": t["summary"],
+            "status": t["status"],
+            "priority": t["priority"],
+            "complexity": t["complexity"],
+            "domain": t["domain"],
+            "task_type": t["task_type"],
+            "priority_score": t["priority_score"],
+            "sessions": t["session_count"],
+            "tokens_in": format_number(t["total_tokens_in"]),
+            "tokens_out": format_number(t["total_tokens_out"]),
+            "cost": format_cost(t["total_cost"]),
+            "duration": format_duration(t["total_duration_seconds"]),
+            "criteria_done": t["criteria_done"],
+            "criteria_total": t["criteria_total"],
+            "blockers": tb,
+        }
+
+    blocker_data: dict[int, dict] = {}
+    for b in dag_blockers:
+        blocker_data[b["id"]] = {
+            "id": b["id"],
+            "task_id": b["task_id"],
+            "description": b["description"],
+            "blocker_type": b["blocker_type"],
+            "is_resolved": b["is_resolved"],
+        }
+
+    task_json = json.dumps(task_data).replace("</", "<\\/")
+    blocker_json = json.dumps(blocker_data).replace("</", "<\\/")
+    mermaid_default_json = json.dumps(mermaid_default).replace("</", "<\\/")
+    mermaid_all_json = json.dumps(mermaid_all).replace("</", "<\\/")
+
+    has_edges = len(edges) > 0 or len(dag_blockers) > 0
+    hint = "" if has_edges else '<p class="dag-hint">No dependencies yet. Use <code>tusk deps add</code> to connect tasks.</p>'
+
+    return f"""\
+<script>
+var DAG_TASK_DATA = {task_json};
+var DAG_BLOCKER_DATA = {blocker_json};
+var DAG_MERMAID_DEFAULT = {mermaid_default_json};
+var DAG_MERMAID_ALL = {mermaid_all_json};
+</script>
+<div class="dag-toolbar">
+  <label class="dag-toggle-label">
+    <input type="checkbox" id="dagShowDone"> Show Done tasks
+  </label>
+</div>
+<div class="dag-main">
+  <div class="dag-graph-panel">
+    <div id="dagMermaidContainer"></div>
+    {hint}
+    <div class="dag-legend">
+      <div class="dag-legend-title">Legend</div>
+      <div class="dag-legend-row">
+        <span class="dag-legend-item"><span class="dag-legend-swatch" style="background:#3b82f6"></span> To Do</span>
+        <span class="dag-legend-item"><span class="dag-legend-swatch" style="background:#f59e0b"></span> In Progress</span>
+        <span class="dag-legend-item"><span class="dag-legend-swatch" style="background:#22c55e"></span> Done</span>
+        <span class="dag-legend-item"><span class="dag-legend-swatch" style="background:#ef4444"></span> Blocker</span>
+        <span class="dag-legend-item"><span class="dag-legend-swatch" style="background:#9ca3af"></span> Resolved</span>
+      </div>
+      <div class="dag-legend-row">
+        <span class="dag-legend-item">[rect] = XS/S</span>
+        <span class="dag-legend-item">(rounded) = M</span>
+        <span class="dag-legend-item">&#x2B21; hexagon = L/XL</span>
+        <span class="dag-legend-item">&#x25B7; flag = blocker</span>
+      </div>
+      <div class="dag-legend-row">
+        <span class="dag-legend-item">&mdash;&mdash;&gt; blocks</span>
+        <span class="dag-legend-item">- - -&gt; contingent</span>
+        <span class="dag-legend-item">-&middot;-x blocker</span>
+      </div>
+    </div>
+  </div>
+  <div class="dag-sidebar">
+    <div class="dag-sidebar-placeholder" id="dagPlaceholder">
+      Click a node to inspect task details
+    </div>
+    <div class="dag-sidebar-content" id="dagSidebarContent">
+      <h2 id="dagSbTitle"></h2>
+      <div id="dagSbMetrics"></div>
+    </div>
+  </div>
 </div>"""
 
 
@@ -2803,6 +3378,144 @@ def generate_js() -> str:
     targetRow.classList.add('dep-highlight');
     setTimeout(function() { targetRow.classList.remove('dep-highlight'); }, 2000);
   });
+
+  // --- Tab navigation ---
+  var tabBtns = document.querySelectorAll('#tabBar .tab-btn');
+  var tabPanels = document.querySelectorAll('.tab-panel');
+
+  function switchTab(tabId) {
+    tabBtns.forEach(function(b) {
+      b.classList.toggle('active', b.getAttribute('data-tab') === tabId);
+    });
+    tabPanels.forEach(function(p) {
+      p.classList.toggle('active', p.id === 'tab-' + tabId);
+    });
+    // Render DAG on first switch to dag tab
+    if (tabId === 'dag' && !window.__dagRendered) {
+      window.__dagRendered = true;
+      renderDag();
+    }
+  }
+
+  tabBtns.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var tab = btn.getAttribute('data-tab');
+      switchTab(tab);
+      // Update URL hash with tab parameter
+      var hash = window.location.hash.replace(/^#/, '');
+      var pairs = hash ? hash.split('&').filter(function(p) { return p.indexOf('tab=') !== 0; }) : [];
+      if (tab !== 'dashboard') pairs.unshift('tab=' + tab);
+      var newHash = pairs.join('&');
+      history.replaceState(null, '', window.location.pathname + (newHash ? '#' + newHash : ''));
+    });
+  });
+
+  // Restore tab from URL hash
+  (function() {
+    var hash = window.location.hash.replace(/^#/, '');
+    if (!hash) return;
+    var pairs = hash.split('&');
+    for (var i = 0; i < pairs.length; i++) {
+      var kv = pairs[i].split('=');
+      if (kv[0] === 'tab' && kv[1]) {
+        switchTab(kv[1]);
+        return;
+      }
+    }
+  })();
+
+  // --- DAG rendering ---
+  var dagRenderCount = 0;
+
+  function renderDag() {
+    if (typeof mermaid === 'undefined') return;
+    var showDone = document.getElementById('dagShowDone');
+    var def = (showDone && showDone.checked) ? window.DAG_MERMAID_ALL : window.DAG_MERMAID_DEFAULT;
+    if (!def) return;
+    var container = document.getElementById('dagMermaidContainer');
+    if (!container) return;
+    dagRenderCount++;
+    var graphId = 'dagGraph' + dagRenderCount;
+    mermaid.render(graphId, def).then(function(result) {
+      container.innerHTML = result.svg;
+    }).catch(function(err) {
+      console.error('Mermaid render error:', err);
+      container.innerHTML = '<p style="color:var(--danger);padding:1rem;">Failed to render DAG. Check console for details.</p>';
+    });
+  }
+
+  // Show Done toggle
+  var dagShowDone = document.getElementById('dagShowDone');
+  if (dagShowDone) {
+    dagShowDone.addEventListener('change', function() {
+      renderDag();
+    });
+  }
+
+  // --- DAG sidebar functions (global for Mermaid click callbacks) ---
+  window.dagShowSidebar = function(nodeId) {
+    var id = parseInt(nodeId.replace('T', ''), 10);
+    var t = (window.DAG_TASK_DATA || {})[id];
+    if (!t) return;
+
+    document.getElementById('dagPlaceholder').style.display = 'none';
+    var content = document.getElementById('dagSidebarContent');
+    content.classList.add('active');
+    document.getElementById('dagSbTitle').textContent = '#' + t.id + ': ' + t.summary;
+
+    var statusMap = {'To Do': 'todo', 'In Progress': 'in-progress', 'Done': 'done'};
+    var statusClass = 'status-' + (statusMap[t.status] || 'todo');
+    var criteria = t.criteria_total > 0 ? t.criteria_done + '/' + t.criteria_total : '\\u2014';
+
+    var m = '';
+    m += '<div class="dag-metric"><span class="dag-metric-label">Status</span><span class="dag-metric-value"><span class="status-badge ' + statusClass + '">' + t.status + '</span></span></div>';
+    m += '<div class="dag-metric"><span class="dag-metric-label">Priority</span><span class="dag-metric-value">' + (t.priority || '\\u2014') + '</span></div>';
+    m += '<div class="dag-metric"><span class="dag-metric-label">Complexity</span><span class="dag-metric-value">' + (t.complexity || '\\u2014') + '</span></div>';
+    m += '<div class="dag-metric"><span class="dag-metric-label">Domain</span><span class="dag-metric-value">' + (t.domain || '\\u2014') + '</span></div>';
+    m += '<div class="dag-metric"><span class="dag-metric-label">Type</span><span class="dag-metric-value">' + (t.task_type || '\\u2014') + '</span></div>';
+    m += '<div class="dag-metric"><span class="dag-metric-label">Priority Score</span><span class="dag-metric-value">' + (t.priority_score != null ? t.priority_score : '\\u2014') + '</span></div>';
+    m += '<div class="dag-metric"><span class="dag-metric-label">Sessions</span><span class="dag-metric-value">' + t.sessions + '</span></div>';
+    m += '<div class="dag-metric"><span class="dag-metric-label">Tokens In</span><span class="dag-metric-value">' + t.tokens_in + '</span></div>';
+    m += '<div class="dag-metric"><span class="dag-metric-label">Tokens Out</span><span class="dag-metric-value">' + t.tokens_out + '</span></div>';
+    m += '<div class="dag-metric"><span class="dag-metric-label">Cost</span><span class="dag-metric-value">' + t.cost + '</span></div>';
+    m += '<div class="dag-metric"><span class="dag-metric-label">Duration</span><span class="dag-metric-value">' + t.duration + '</span></div>';
+    m += '<div class="dag-metric"><span class="dag-metric-label">Criteria</span><span class="dag-metric-value">' + criteria + '</span></div>';
+
+    if (t.blockers && t.blockers.length > 0) {
+      m += '<div style="margin-top:0.75rem;font-weight:700;font-size:0.85rem;">External Blockers</div>';
+      for (var i = 0; i < t.blockers.length; i++) {
+        var b = t.blockers[i];
+        var badge = b.is_resolved
+          ? '<span class="dag-blocker-badge dag-blocker-resolved">Resolved</span>'
+          : '<span class="dag-blocker-badge dag-blocker-open">Open</span>';
+        m += '<div class="dag-blocker-item"><div class="dag-blocker-header">' + badge + ' <span class="dag-blocker-type">' + (b.blocker_type || 'external') + '</span></div><div class="dag-blocker-desc">' + b.description + '</div></div>';
+      }
+    }
+
+    document.getElementById('dagSbMetrics').innerHTML = m;
+  };
+
+  window.dagShowBlockerSidebar = function(nodeId) {
+    var id = parseInt(nodeId.replace('B', ''), 10);
+    var b = (window.DAG_BLOCKER_DATA || {})[id];
+    if (!b) return;
+
+    document.getElementById('dagPlaceholder').style.display = 'none';
+    var content = document.getElementById('dagSidebarContent');
+    content.classList.add('active');
+    document.getElementById('dagSbTitle').textContent = 'Blocker #' + b.id;
+
+    var badge = b.is_resolved
+      ? '<span class="dag-blocker-badge dag-blocker-resolved">Resolved</span>'
+      : '<span class="dag-blocker-badge dag-blocker-open">Open</span>';
+
+    var m = '<div class="dag-metric"><span class="dag-metric-label">Status</span><span class="dag-metric-value">' + badge + '</span></div>';
+    m += '<div class="dag-metric"><span class="dag-metric-label">Type</span><span class="dag-metric-value">' + (b.blocker_type || 'external') + '</span></div>';
+    m += '<div class="dag-metric"><span class="dag-metric-label">Blocks Task</span><span class="dag-metric-value">#' + b.task_id + '</span></div>';
+    m += '<div style="margin-top:0.75rem;font-size:0.85rem;">' + b.description + '</div>';
+
+    document.getElementById('dagSbMetrics').innerHTML = m;
+  };
 })();
 </script>"""
 
@@ -2815,7 +3528,9 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
                   cost_trend: list[dict] = None, all_criteria: dict[int, list[dict]] = None,
                   cost_trend_daily: list[dict] = None, cost_trend_monthly: list[dict] = None,
                   task_deps: dict[int, dict] = None, kpi_data: dict = None,
-                  cost_by_domain: list[dict] = None, version: str = "") -> str:
+                  cost_by_domain: list[dict] = None, version: str = "",
+                  dag_tasks: list[dict] = None, dag_edges: list[dict] = None,
+                  dag_blockers: list[dict] = None) -> str:
     """Generate the full HTML dashboard by composing sub-functions."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -2875,6 +3590,11 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
     # Complexity
     complexity_html = generate_complexity_section(complexity_metrics)
 
+    # DAG section
+    dag_html = generate_dag_section(
+        dag_tasks or [], dag_edges or [], dag_blockers or []
+    )
+
     css = generate_css()
     header = generate_header(now)
     footer = generate_footer(now, version)
@@ -2909,6 +3629,17 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
 <title>Tusk &mdash; Task Metrics</title>
 {theme_init}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+<script>
+(function() {{
+  var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  mermaid.initialize({{
+    startOnLoad: false,
+    securityLevel: 'loose',
+    theme: isDark ? 'dark' : 'default'
+  }});
+}})();
+</script>
 <style>
 {css}
 </style>
@@ -2917,20 +3648,26 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
 
 {header}
 
-<div class="container">
-  {kpi_html}
-  {charts_html}
-  <div class="panel">
-    {filter_bar}
-    <table id="metricsTable">
-      {table_header}
-      <tbody id="metricsBody">
-        {task_rows}
-      </tbody>
-      {table_footer}
-    </table>
-    {pagination}
-  </div>{complexity_html}
+<div id="tab-dashboard" class="tab-panel active">
+  <div class="container">
+    {kpi_html}
+    {charts_html}
+    <div class="panel">
+      {filter_bar}
+      <table id="metricsTable">
+        {table_header}
+        <tbody id="metricsBody">
+          {task_rows}
+        </tbody>
+        {table_footer}
+      </table>
+      {pagination}
+    </div>{complexity_html}
+  </div>
+</div>
+
+<div id="tab-dag" class="tab-panel dag-tab-panel">
+  {dag_html}
 </div>
 
 {footer}
@@ -2978,6 +3715,10 @@ def main():
     cost_trend_monthly = fetch_cost_trend_monthly(conn)
     all_criteria = fetch_all_criteria(conn)
     task_deps = fetch_task_dependencies(conn)
+    # DAG data
+    dag_tasks = fetch_dag_tasks(conn)
+    dag_edges = fetch_edges(conn)
+    dag_blockers = fetch_blockers(conn)
     conn.close()
 
     log.debug("Cost by domain: %s", cost_by_domain)
@@ -2999,7 +3740,8 @@ def main():
     html_content = generate_html(
         task_metrics, complexity_metrics, cost_trend, all_criteria,
         cost_trend_daily, cost_trend_monthly, task_deps, kpi_data,
-        cost_by_domain, version
+        cost_by_domain, version,
+        dag_tasks, dag_edges, dag_blockers
     )
     log.debug("Generated %d bytes of HTML", len(html_content))
 
