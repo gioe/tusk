@@ -2,3 +2,4 @@ tusk/
 .DS_Store
 __pycache__/
 .claude/skills/
+config.default.json.bak
