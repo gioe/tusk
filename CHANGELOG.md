@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [162] - 2026-02-21
+
+### Added
+
+- [TASK-268] `tusk task-start` now guards against tasks with open external blockers — exits non-zero listing each blocker and a resolve hint
+
 ## [161] - 2026-02-21
 
 ### Added
