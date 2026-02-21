@@ -124,7 +124,7 @@ Skip any convention already captured. For new conventions, append to `tusk/conve
 ```markdown
 
 ## <short title>
-_Source: run-chain <head_task_id> — <YYYY-MM-DD>_
+_Source: chain <head_task_id> — <YYYY-MM-DD>_
 
 <one-to-two sentence description of the convention and when it applies>
 ```
