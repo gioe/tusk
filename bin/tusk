@@ -1172,7 +1172,6 @@ case "${1:-}" in
   lint)   shift; exec python3 "$SCRIPT_DIR/tusk-lint.py" "$REPO_ROOT" "$@" ;;
   dupes)  shift; exec python3 "$SCRIPT_DIR/tusk-dupes.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   criteria) shift; exec python3 "$SCRIPT_DIR/tusk-criteria.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
-  dag) shift; exec python3 "$SCRIPT_DIR/tusk-dag.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   dashboard) shift; exec python3 "$SCRIPT_DIR/tusk-dashboard.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   chain) shift; exec python3 "$SCRIPT_DIR/tusk-chain.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   blockers) shift; exec python3 "$SCRIPT_DIR/tusk-blockers.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
