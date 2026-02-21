@@ -261,7 +261,7 @@ Config-driven triggers are regenerated from `config.json` by `tusk regen-trigger
 
 ## Relationship Semantics: `blocks` vs `contingent`
 
-Both types are expressed as rows in `task_dependencies` with different `relationship_type` values. Both prevent the dependent task from appearing in `v_ready_tasks` until the prerequisite is Done.
+Both types are expressed as rows in `task_dependencies` with different `relationship_type` values. Only `blocks`-type dependencies prevent the dependent task from appearing in `v_ready_tasks`. Contingent dependencies do not affect readiness — they are coordination signals, not hard prerequisites.
 
 ### `blocks` — Hard Dependency
 
@@ -283,7 +283,7 @@ Task A **contingently blocks** Task B means: B can theoretically proceed, but it
 
 | | `blocks` | `contingent` |
 |--|----------|--------------|
-| Blocks readiness | Yes | Yes |
+| Blocks readiness | Yes | No |
 | WSJF bonus to prerequisite | +5 per downstream (max +15) | +5 per downstream (max +15) |
 | WSJF penalty on dependent | None | −10 if only-contingent deps |
 | Auto-close by `tusk autoclose` | No | Yes, if moot |
@@ -296,7 +296,7 @@ Task A **contingently blocks** Task B means: B can theoretically proceed, but it
 | View | Purpose | Used By |
 |------|---------|---------|
 | `task_metrics` | Aggregates session cost/tokens/lines per task | `tusk-dashboard.py`, reporting |
-| `v_ready_tasks` | Canonical "ready to work" definition: To Do, all blocking deps Done, no open external blockers | `/next-task`, `tusk-loop.py`, `tusk deps ready` |
+| `v_ready_tasks` | Canonical "ready to work" definition: To Do, all `blocks`-type deps Done, no open external blockers (contingent deps do not prevent readiness) | `/next-task`, `tusk-loop.py`, `tusk deps ready` |
 | `v_chain_heads` | Non-Done tasks with unfinished downstream dependents and no unmet upstream deps | `/chain` |
 | `v_blocked_tasks` | Non-Done tasks blocked by dependency or external blocker, with `block_reason` and `blocking_summary` | `/next-task blocked`, `tusk deps blocked` |
 | `v_criteria_coverage` | Per-task counts of total, completed, and remaining criteria (deferred excluded) | Reporting, `/tusk-insights` |

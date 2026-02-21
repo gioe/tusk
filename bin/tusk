@@ -518,7 +518,7 @@ WHERE t.status = 'To Do'
   AND NOT EXISTS (
     SELECT 1 FROM task_dependencies d
     JOIN tasks blocker ON d.depends_on_id = blocker.id
-    WHERE d.task_id = t.id AND blocker.status <> 'Done'
+    WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
   )
   AND NOT EXISTS (
     SELECT 1 FROM external_blockers eb
@@ -538,7 +538,7 @@ WHERE t.status <> 'Done'
   AND NOT EXISTS (
     SELECT 1 FROM task_dependencies d
     JOIN tasks blocker ON d.depends_on_id = blocker.id
-    WHERE d.task_id = t.id AND blocker.status <> 'Done'
+    WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
   )
   AND NOT EXISTS (
     SELECT 1 FROM external_blockers eb
@@ -554,7 +554,7 @@ SELECT t.id, t.summary, t.status, t.priority, t.domain, t.assignee,
 FROM tasks t
 JOIN task_dependencies d ON d.task_id = t.id
 JOIN tasks blocker ON d.depends_on_id = blocker.id
-WHERE t.status <> 'Done' AND blocker.status <> 'Done'
+WHERE t.status <> 'Done' AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
 UNION ALL
 SELECT t.id, t.summary, t.status, t.priority, t.domain, t.assignee,
        'external_blocker' AS block_reason,
@@ -671,7 +671,7 @@ CR_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 15;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 17;"
 
   echo "Initialized task database at $DB_PATH"
 }
@@ -1148,6 +1148,78 @@ cmd_migrate() {
       PRAGMA user_version = 15;
     "
     echo "  Migration 15: added v_chain_heads, v_blocked_tasks, v_criteria_coverage views"
+  fi
+
+  # Migration 15→16: fix v_ready_tasks to exclude contingent deps from readiness check
+  if [[ "$current" -lt 16 ]]; then
+    sqlite3 "$DB_PATH" "
+      DROP VIEW IF EXISTS v_ready_tasks;
+
+      CREATE VIEW v_ready_tasks AS
+      SELECT t.*
+      FROM tasks t
+      WHERE t.status = 'To Do'
+        AND NOT EXISTS (
+          SELECT 1 FROM task_dependencies d
+          JOIN tasks blocker ON d.depends_on_id = blocker.id
+          WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM external_blockers eb
+          WHERE eb.task_id = t.id AND eb.is_resolved = 0
+        );
+
+      PRAGMA user_version = 16;
+    "
+    echo "  Migration 16: fixed v_ready_tasks to only filter 'blocks'-type deps (not contingent)"
+  fi
+
+  # Migration 16→17: fix v_chain_heads and v_blocked_tasks to exclude contingent deps
+  if [[ "$current" -lt 17 ]]; then
+    sqlite3 "$DB_PATH" "
+      DROP VIEW IF EXISTS v_chain_heads;
+      DROP VIEW IF EXISTS v_blocked_tasks;
+
+      CREATE VIEW v_chain_heads AS
+      SELECT t.*
+      FROM tasks t
+      WHERE t.status <> 'Done'
+        AND EXISTS (
+          SELECT 1 FROM task_dependencies d
+          JOIN tasks downstream ON d.task_id = downstream.id
+          WHERE d.depends_on_id = t.id AND downstream.status <> 'Done'
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM task_dependencies d
+          JOIN tasks blocker ON d.depends_on_id = blocker.id
+          WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM external_blockers eb
+          WHERE eb.task_id = t.id AND eb.is_resolved = 0
+        );
+
+      CREATE VIEW v_blocked_tasks AS
+      SELECT t.id, t.summary, t.status, t.priority, t.domain, t.assignee,
+             'dependency' AS block_reason,
+             blocker.id AS blocking_id,
+             blocker.summary AS blocking_summary
+      FROM tasks t
+      JOIN task_dependencies d ON d.task_id = t.id
+      JOIN tasks blocker ON d.depends_on_id = blocker.id
+      WHERE t.status <> 'Done' AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+      UNION ALL
+      SELECT t.id, t.summary, t.status, t.priority, t.domain, t.assignee,
+             'external_blocker' AS block_reason,
+             eb.id AS blocking_id,
+             eb.description AS blocking_summary
+      FROM tasks t
+      JOIN external_blockers eb ON eb.task_id = t.id
+      WHERE t.status <> 'Done' AND eb.is_resolved = 0;
+
+      PRAGMA user_version = 17;
+    "
+    echo "  Migration 17: fixed v_chain_heads and v_blocked_tasks to only filter 'blocks'-type deps (not contingent)"
   fi
 
   local final

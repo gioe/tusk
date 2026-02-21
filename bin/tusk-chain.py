@@ -123,7 +123,7 @@ def cmd_frontier(conn: sqlite3.Connection, head_id: int):
           AND NOT EXISTS (
             SELECT 1 FROM task_dependencies d
             JOIN tasks blocker ON d.depends_on_id = blocker.id
-            WHERE d.task_id = t.id AND blocker.status <> 'Done'
+            WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
           )
           AND NOT EXISTS (
             SELECT 1 FROM external_blockers eb

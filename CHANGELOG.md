@@ -6,6 +6,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [169] - 2026-02-21
+
+### Fixed
+
+- [TASK-280] `v_ready_tasks` now excludes only `blocks`-type dependencies from readiness check; `contingent` deps no longer prevent a task from appearing ready (schema migration 15→16)
+- [TASK-280] `v_chain_heads` and `v_blocked_tasks` updated to exclude contingent deps for consistency (schema migration 16→17)
+- [TASK-280] `tusk chain frontier` inline query updated to match `v_ready_tasks` semantics
+- [TASK-280] `/next-task` blocked/list/preview subcommand queries updated to use correct relationship_type filter and `v_ready_tasks` for consistency
+- [TASK-280] CLAUDE.md and DOMAIN.md updated to document that only `blocks`-type deps affect readiness
+
 ## [167] - 2026-02-21
 
 ### Added
