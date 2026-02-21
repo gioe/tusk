@@ -106,9 +106,6 @@ bin/tusk commit <task_id> "<message>" <file1> [file2 ...]
 # Log a progress checkpoint from the latest git commit
 bin/tusk progress <task_id> [--next-steps "what remains to be done"]
 
-# Generate and open an HTML dependency DAG
-bin/tusk dag [--all]
-
 # Generate and open an HTML task dashboard
 bin/tusk dashboard
 
@@ -163,7 +160,6 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - **`/lint-conventions`** — Checks codebase against Key Conventions using grep-based rules
 - **`/tasks`** — Opens the database in DB Browser for SQLite
 - **`/dashboard`** — Generates and opens an HTML task dashboard with per-task metrics
-- **`/dag`** — Generates and opens an interactive Mermaid.js dependency DAG visualization
 - **`/criteria`** — Manages per-task acceptance criteria (add, list, done, reset)
 - **`/blockers`** — Manages external blockers for tasks (add, list, resolve, remove)
 - **`/progress`** — Logs a progress checkpoint from the latest git commit for context recovery
@@ -177,7 +173,6 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - `bin/tusk-pricing-lib.py` — Shared transcript/pricing utilities (not a CLI command). Provides `load_pricing()`, `resolve_model()`, `parse_timestamp()`, `parse_sqlite_timestamp()`, `derive_project_hash()`, `find_transcript()`, `aggregate_session()`, `compute_cost()`, and `compute_tokens_in()`. Imported by tusk-session-stats.py, tusk-criteria.py, and tusk-session-recalc.py.
 - `bin/tusk-dupes.py` — Duplicate detection against open tasks (invoked via `tusk dupes`). Normalizes summaries by stripping configurable prefixes and uses `difflib.SequenceMatcher` for similarity scoring.
 - `bin/tusk-session-stats.py` — Token/cost tracking for task sessions (invoked via `tusk session-stats`). Parses Claude Code JSONL transcripts and updates session rows using shared utilities from tusk-pricing-lib.py.
-- `bin/tusk-dag.py` — Interactive DAG visualization (invoked via `tusk dag`). Renders task dependencies as a Mermaid.js graph with status-colored nodes, complexity-based shapes, and a click-to-inspect sidebar showing per-task metrics.
 - `bin/tusk-dashboard.py` — Static HTML dashboard generator (invoked via `tusk dashboard`). Queries the `task_metrics` view for per-task token counts and cost, writes a self-contained HTML file, and opens it in the browser.
 - `bin/tusk-blockers.py` — External blocker management (invoked via `tusk blockers`). Supports add, list, resolve, remove, blocked (tasks with open blockers), and all subcommands. Validates blocker_type against config.
 - `bin/tusk-criteria.py` — Acceptance criteria management (invoked via `tusk criteria`). Supports add, list, done, and reset subcommands for per-task acceptance criteria tracking. Criteria have a `criterion_type` (manual, code, test, file) — non-manual types run automated verification on `done` (shell command for code/test, glob check for file) and block completion on failure unless `--skip-verify` is passed. On `done`, also parses the Claude transcript for the time window since the previous criterion (or session start) and stores cost_dollars, tokens_in, tokens_out, and completed_at on the criterion row. Cost tracking is best-effort — transcript unavailability doesn't block completion.

@@ -6,6 +6,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [150] - 2026-02-21
+
+### Removed
+
+- Standalone `tusk dag` CLI command and `bin/tusk-dag.py` (DAG visualization is now part of the dashboard)
+- `/dag` skill (consolidated into `/dashboard`)
+
 ## [149] - 2026-02-20
 
 ### Added
