@@ -205,6 +205,10 @@ def show_ready(conn: sqlite3.Connection):
             JOIN tasks dep ON d.depends_on_id = dep.id
             WHERE d.task_id = t.id AND dep.status <> 'Done'
         )
+        AND NOT EXISTS (
+            SELECT 1 FROM external_blockers eb
+            WHERE eb.task_id = t.id AND eb.is_resolved = 0
+        )
         ORDER BY t.priority DESC, t.id
     """).fetchall()
 
