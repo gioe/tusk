@@ -65,9 +65,12 @@ def fetch_task_metrics(conn: sqlite3.Connection) -> list[dict]:
                   COALESCE(tm.total_lines_added, 0) as total_lines_added,
                   COALESCE(tm.total_lines_removed, 0) as total_lines_removed,
                   tm.updated_at,
-                  (SELECT GROUP_CONCAT(DISTINCT s2.model)
-                   FROM task_sessions s2
-                   WHERE s2.task_id = tm.id AND s2.model IS NOT NULL) as models
+                  (SELECT GROUP_CONCAT(model)
+                   FROM (SELECT model, MAX(started_at) as last_used
+                         FROM task_sessions s2
+                         WHERE s2.task_id = tm.id AND s2.model IS NOT NULL
+                         GROUP BY model
+                         ORDER BY last_used DESC)) as models
            FROM task_metrics tm
            ORDER BY tm.total_cost DESC, tm.id ASC"""
     ).fetchall()
