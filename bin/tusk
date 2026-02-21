@@ -358,7 +358,7 @@ WHEN NOT (
   OR (OLD.status = 'In Progress' AND NEW.status = 'Done')
 )
 BEGIN
-  SELECT RAISE(ABORT, 'Invalid status transition. Allowed: To Do->In Progress, To Do->Done, In Progress->Done');
+  SELECT RAISE(ABORT, 'Invalid status transition. Done is terminal. Allowed: To Do->In Progress, To Do->Done, In Progress->Done');
 END;
 ''')
 " "$config"
@@ -995,14 +995,16 @@ cmd_migrate() {
 
   # Migration 12→13: add status transition validation trigger
   if [[ "$current" -lt 13 ]]; then
-    sqlite3 "$DB_PATH" "PRAGMA user_version = 13;"
     local triggers
     triggers="$(generate_triggers)"
     if [[ -n "$triggers" ]]; then
       sqlite3 "$DB_PATH" "
         $(sqlite3 "$DB_PATH" "SELECT 'DROP TRIGGER IF EXISTS ' || name || ';' FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'validate_%';")
         $triggers
+        PRAGMA user_version = 13;
       "
+    else
+      sqlite3 "$DB_PATH" "PRAGMA user_version = 13;"
     fi
     echo "  Migration 13: added status transition validation trigger"
   fi
