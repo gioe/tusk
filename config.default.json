@@ -12,5 +12,12 @@
     "strip_prefixes": ["Deferred", "Enhancement", "Optional"],
     "check_threshold": 0.82,
     "similar_threshold": 0.6
-  }
+  },
+  "review": {
+    "mode": "disabled",
+    "max_passes": 2,
+    "reviewers": []
+  },
+  "review_categories": ["must_fix", "suggest", "defer"],
+  "review_severities": ["critical", "major", "minor"]
 }

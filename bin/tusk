@@ -151,7 +151,7 @@ if not isinstance(cfg, dict):
 errors = []
 
 # ── Check for unknown top-level keys ──
-KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'complexity', 'blocker_types', 'criterion_types', 'agents', 'dupes'}
+KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'complexity', 'blocker_types', 'criterion_types', 'agents', 'dupes', 'review', 'review_categories', 'review_severities'}
 known_list = ', '.join(sorted(KNOWN_KEYS))
 unknown = set(cfg.keys()) - KNOWN_KEYS
 if unknown:
@@ -166,8 +166,10 @@ LIST_FIELDS = {
     'priorities':     {'required': True},
     'closed_reasons': {'required': True},
     'complexity':     {'required': False},
-    'blocker_types':  {'required': False},
-    'criterion_types': {'required': False},
+    'blocker_types':    {'required': False},
+    'criterion_types':  {'required': False},
+    'review_categories': {'required': False},
+    'review_severities': {'required': False},
 }
 for field, opts in LIST_FIELDS.items():
     if field not in cfg:
@@ -223,6 +225,41 @@ if 'dupes' in cfg:
                     errors.append(f'\"dupes.{thresh}\" must be a number (got {type(tv).__name__}: {tv!r}).')
                 elif not (0 <= tv <= 1):
                     errors.append(f'\"dupes.{thresh}\" must be between 0 and 1 (got {tv}).')
+
+# ── Validate review (optional object) ──
+if 'review' in cfg:
+    review = cfg['review']
+    if not isinstance(review, dict):
+        errors.append(f'\"review\" must be an object (got {type(review).__name__}).')
+    else:
+        KNOWN_REVIEW_KEYS = {'mode', 'max_passes', 'reviewers'}
+        known_review_list = ', '.join(sorted(KNOWN_REVIEW_KEYS))
+        unknown_review = set(review.keys()) - KNOWN_REVIEW_KEYS
+        if unknown_review:
+            for k in sorted(unknown_review):
+                errors.append(f'Unknown key \"review.{k}\". Valid review keys: {known_review_list}')
+
+        if 'mode' in review:
+            VALID_MODES = {'ai_only', 'ai_then_human', 'disabled'}
+            if review['mode'] not in VALID_MODES:
+                modes_list = ', '.join(sorted(VALID_MODES))
+                errors.append(f'\"review.mode\" must be one of: {modes_list} (got {review[\"mode\"]!r}).')
+
+        if 'max_passes' in review:
+            mp = review['max_passes']
+            if not isinstance(mp, int) or isinstance(mp, bool):
+                errors.append(f'\"review.max_passes\" must be an integer (got {type(mp).__name__}: {mp!r}).')
+            elif mp < 1:
+                errors.append(f'\"review.max_passes\" must be at least 1 (got {mp}).')
+
+        if 'reviewers' in review:
+            rv = review['reviewers']
+            if not isinstance(rv, list):
+                errors.append(f'\"review.reviewers\" must be a list (got {type(rv).__name__}).')
+            else:
+                for i, item in enumerate(rv):
+                    if not isinstance(item, str):
+                        errors.append(f'\"review.reviewers[{i}]\" must be a string (got {type(item).__name__}: {item!r}).')
 
 # ── Report ──
 if errors:
