@@ -518,7 +518,7 @@ WHERE t.status = 'To Do'
   AND NOT EXISTS (
     SELECT 1 FROM task_dependencies d
     JOIN tasks blocker ON d.depends_on_id = blocker.id
-    WHERE d.task_id = t.id AND blocker.status <> 'Done'
+    WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
   )
   AND NOT EXISTS (
     SELECT 1 FROM external_blockers eb
@@ -1148,6 +1148,30 @@ cmd_migrate() {
       PRAGMA user_version = 15;
     "
     echo "  Migration 15: added v_chain_heads, v_blocked_tasks, v_criteria_coverage views"
+  fi
+
+  # Migration 15→16: fix v_ready_tasks to exclude contingent deps from readiness check
+  if [[ "$current" -lt 16 ]]; then
+    sqlite3 "$DB_PATH" "
+      DROP VIEW IF EXISTS v_ready_tasks;
+
+      CREATE VIEW v_ready_tasks AS
+      SELECT t.*
+      FROM tasks t
+      WHERE t.status = 'To Do'
+        AND NOT EXISTS (
+          SELECT 1 FROM task_dependencies d
+          JOIN tasks blocker ON d.depends_on_id = blocker.id
+          WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM external_blockers eb
+          WHERE eb.task_id = t.id AND eb.is_resolved = 0
+        );
+
+      PRAGMA user_version = 16;
+    "
+    echo "  Migration 16: fixed v_ready_tasks to only filter 'blocks'-type deps (not contingent)"
   fi
 
   local final

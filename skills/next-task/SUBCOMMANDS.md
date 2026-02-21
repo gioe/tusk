@@ -26,19 +26,9 @@ When called with `list <n>` or just a number:
 
 ```bash
 tusk -header -column "
-SELECT t.id, t.summary, t.priority, t.complexity, t.domain, t.assignee
-FROM tasks t
-WHERE t.status = 'To Do'
-  AND NOT EXISTS (
-    SELECT 1 FROM task_dependencies d
-    JOIN tasks blocker ON d.depends_on_id = blocker.id
-    WHERE d.task_id = t.id AND blocker.status <> 'Done'
-  )
-  AND NOT EXISTS (
-    SELECT 1 FROM external_blockers eb
-    WHERE eb.task_id = t.id AND eb.is_resolved = 0
-  )
-ORDER BY t.priority_score DESC, t.id
+SELECT id, summary, priority, complexity, domain, assignee
+FROM v_ready_tasks
+ORDER BY priority_score DESC, id
 LIMIT <n>;
 "
 ```
@@ -91,19 +81,9 @@ When called with `preview`: Show the next ready task but do NOT start working on
 
 ```bash
 tusk -header -column "
-SELECT t.id, t.summary, t.priority, t.complexity, t.domain, t.assignee, t.description
-FROM tasks t
-WHERE t.status = 'To Do'
-  AND NOT EXISTS (
-    SELECT 1 FROM task_dependencies d
-    JOIN tasks blocker ON d.depends_on_id = blocker.id
-    WHERE d.task_id = t.id AND blocker.status <> 'Done'
-  )
-  AND NOT EXISTS (
-    SELECT 1 FROM external_blockers eb
-    WHERE eb.task_id = t.id AND eb.is_resolved = 0
-  )
-ORDER BY t.priority_score DESC, t.id
+SELECT id, summary, priority, complexity, domain, assignee, description
+FROM v_ready_tasks
+ORDER BY priority_score DESC, id
 LIMIT 1;
 "
 ```
