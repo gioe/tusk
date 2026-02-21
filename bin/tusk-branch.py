@@ -99,10 +99,29 @@ def main(argv: list[str]) -> int:
     if dirty:
         pop = run(["git", "stash", "pop"], check=False)
         if pop.returncode != 0:
-            print(
-                f"Warning: git stash pop had conflicts. Resolve them manually.\n{pop.stderr.strip()}",
-                file=sys.stderr,
+            conflict_result = run(
+                ["git", "diff", "--name-only", "--diff-filter=U"], check=False
             )
+            conflict_files = (
+                conflict_result.stdout.strip() if conflict_result.returncode == 0 else ""
+            )
+            msg = (
+                "Error: git stash pop produced merge conflicts — the stashed changes "
+                "could not be cleanly applied to the updated branch.\n"
+            )
+            if conflict_files:
+                msg += "Conflicting files:\n"
+                for f in conflict_files.splitlines():
+                    msg += f"  {f}\n"
+            msg += (
+                "\nTo fix:\n"
+                "  1. Resolve the conflict markers in each file above\n"
+                "  2. Stage the resolved files:  git add <file>\n"
+                "  3. Drop the stash entry:      git stash drop\n"
+                f"\nNote: branch '{branch_name}' was created and is checked out."
+            )
+            print(msg, file=sys.stderr)
+            return 3
 
     print(branch_name)
     return 0
