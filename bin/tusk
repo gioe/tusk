@@ -525,7 +525,7 @@ WHERE t.status = 'To Do'
     WHERE eb.task_id = t.id AND eb.is_resolved = 0
   );
 
--- v_chain_heads view: tasks with dependents but no unmet upstream dependencies (chain entry points)
+-- v_chain_heads view: tasks with dependents but no unmet upstream dependencies or open external blockers (chain entry points)
 CREATE VIEW v_chain_heads AS
 SELECT t.*
 FROM tasks t
@@ -539,6 +539,10 @@ WHERE t.status <> 'Done'
     SELECT 1 FROM task_dependencies d
     JOIN tasks blocker ON d.depends_on_id = blocker.id
     WHERE d.task_id = t.id AND blocker.status <> 'Done'
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM external_blockers eb
+    WHERE eb.task_id = t.id AND eb.is_resolved = 0
   );
 
 -- v_blocked_tasks view: tasks blocked by dependency or external blocker with reason
@@ -565,8 +569,8 @@ CREATE VIEW v_criteria_coverage AS
 SELECT t.id AS task_id,
        t.summary,
        COUNT(ac.id) AS total_criteria,
-       SUM(CASE WHEN ac.is_completed = 1 THEN 1 ELSE 0 END) AS completed_criteria,
-       COUNT(ac.id) - SUM(CASE WHEN ac.is_completed = 1 THEN 1 ELSE 0 END) AS remaining_criteria
+       COALESCE(SUM(CASE WHEN ac.is_completed = 1 THEN 1 ELSE 0 END), 0) AS completed_criteria,
+       COUNT(ac.id) - COALESCE(SUM(CASE WHEN ac.is_completed = 1 THEN 1 ELSE 0 END), 0) AS remaining_criteria
 FROM tasks t
 LEFT JOIN acceptance_criteria ac ON ac.task_id = t.id
 GROUP BY t.id, t.summary;
@@ -1107,6 +1111,10 @@ cmd_migrate() {
           SELECT 1 FROM task_dependencies d
           JOIN tasks blocker ON d.depends_on_id = blocker.id
           WHERE d.task_id = t.id AND blocker.status <> 'Done'
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM external_blockers eb
+          WHERE eb.task_id = t.id AND eb.is_resolved = 0
         );
 
       CREATE VIEW IF NOT EXISTS v_blocked_tasks AS
@@ -1131,8 +1139,8 @@ cmd_migrate() {
       SELECT t.id AS task_id,
              t.summary,
              COUNT(ac.id) AS total_criteria,
-             SUM(CASE WHEN ac.is_completed = 1 THEN 1 ELSE 0 END) AS completed_criteria,
-             COUNT(ac.id) - SUM(CASE WHEN ac.is_completed = 1 THEN 1 ELSE 0 END) AS remaining_criteria
+             COALESCE(SUM(CASE WHEN ac.is_completed = 1 THEN 1 ELSE 0 END), 0) AS completed_criteria,
+             COUNT(ac.id) - COALESCE(SUM(CASE WHEN ac.is_completed = 1 THEN 1 ELSE 0 END), 0) AS remaining_criteria
       FROM tasks t
       LEFT JOIN acceptance_criteria ac ON ac.task_id = t.id
       GROUP BY t.id, t.summary;
