@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [165] - 2026-02-21
+
+### Added
+
+- [TASK-264] `v_ready_tasks` view — canonical ready-to-work definition (status='To Do', no blocking deps, no open external blockers); schema migration 13→14; consumers updated in `tusk-loop.py`, `tusk-deps.py` ready subcommand, and `/next-task` skill
+
 ## [164] - 2026-02-21
 
 ### Added
