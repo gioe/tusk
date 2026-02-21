@@ -123,6 +123,7 @@ JOIN tasks b ON d.depends_on_id = b.id
 WHERE t.status <> 'Done'
   AND b.status = 'Done'
   AND b.closed_reason IN ('wont_do', 'duplicate')
+  AND d.relationship_type = 'blocks'
 ORDER BY d.task_id;
 ```
 
@@ -136,12 +137,14 @@ WITH RECURSIVE dep_chain(root_task, current_task, depth) AS (
   FROM task_dependencies d
   JOIN tasks blocker ON d.depends_on_id = blocker.id
   WHERE blocker.status <> 'Done'
+    AND d.relationship_type = 'blocks'
   UNION ALL
   SELECT dc.root_task, d.depends_on_id, dc.depth + 1
   FROM dep_chain dc
   JOIN task_dependencies d ON d.task_id = dc.current_task
   JOIN tasks blocker ON d.depends_on_id = blocker.id
   WHERE blocker.status <> 'Done'
+    AND d.relationship_type = 'blocks'
     AND dc.depth < 10
 )
 SELECT dc.root_task as task_id, t.summary, MAX(dc.depth) as chain_depth

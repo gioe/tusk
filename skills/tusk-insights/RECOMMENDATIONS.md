@@ -203,6 +203,7 @@ SELECT
       SELECT 1 FROM task_dependencies d
       JOIN tasks blocker ON d.depends_on_id = blocker.id
       WHERE d.task_id = t.id AND blocker.status <> 'Done'
+        AND d.relationship_type = 'blocks'
     )
   ) as blocked,
   (SELECT COUNT(*) FROM tasks t
@@ -211,6 +212,11 @@ SELECT
       SELECT 1 FROM task_dependencies d
       JOIN tasks blocker ON d.depends_on_id = blocker.id
       WHERE d.task_id = t.id AND blocker.status <> 'Done'
+        AND d.relationship_type = 'blocks'
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM external_blockers eb
+      WHERE eb.task_id = t.id AND eb.is_resolved = 0
     )
   ) as ready;
 ```
