@@ -75,7 +75,8 @@ def main(argv: list[str]) -> int:
                 return 2
             print(
                 f"Warning: Task {task_id} has no acceptance criteria. "
-                f"Proceeding anyway due to --force.",
+                f"Proceeding anyway due to --force.\n"
+                f"  To add criteria: tusk criteria add {task_id} \"<criterion text>\"",
                 file=sys.stderr,
             )
 
