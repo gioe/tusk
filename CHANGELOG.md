@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [158] - 2026-02-21
+
+### Added
+
+- [TASK-253] Rule 11 in `tusk-lint.py`: validates `skills/*/SKILL.md` frontmatter — checks for `---` delimiters, required fields (`name`, `description`, `allowed-tools`), and that `name` matches the directory name
+
 ## [157] - 2026-02-21
 
 ### Added

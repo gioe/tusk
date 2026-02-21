@@ -331,6 +331,68 @@ def rule7_config_keys_match_known_keys(root):
     return violations
 
 
+def rule11_skill_frontmatter(root):
+    """skills/*/SKILL.md must have valid YAML frontmatter with name, description, and allowed-tools."""
+    violations = []
+    skills_dir = os.path.join(root, "skills")
+    if not os.path.isdir(skills_dir):
+        return []
+
+    for skill_name in sorted(os.listdir(skills_dir)):
+        skill_dir = os.path.join(skills_dir, skill_name)
+        if not os.path.isdir(skill_dir):
+            continue
+        skill_md = os.path.join(skill_dir, "SKILL.md")
+        if not os.path.isfile(skill_md):
+            continue
+
+        rel = os.path.relpath(skill_md, root)
+        lines = read_lines(skill_md)
+
+        if not lines:
+            violations.append(f"  {rel}: file is empty or unreadable")
+            continue
+
+        # Check for opening ---
+        first_line = lines[0][1].strip()
+        if first_line != "---":
+            violations.append(f"  {rel}: missing YAML frontmatter (file must start with ---)")
+            continue
+
+        # Find closing ---
+        frontmatter_lines = []
+        closing_found = False
+        for _lineno, line in lines[1:]:
+            if line.strip() == "---":
+                closing_found = True
+                break
+            frontmatter_lines.append(line)
+
+        if not closing_found:
+            violations.append(f"  {rel}: YAML frontmatter not closed (missing second ---)")
+            continue
+
+        # Parse frontmatter key-value pairs
+        frontmatter = {}
+        for line in frontmatter_lines:
+            m = re.match(r"^([^:]+):\s*(.*)$", line.strip())
+            if m:
+                frontmatter[m.group(1).strip()] = m.group(2).strip()
+
+        # Check required fields
+        for field in ["name", "description", "allowed-tools"]:
+            if field not in frontmatter:
+                violations.append(f"  {rel}: missing required frontmatter field '{field}'")
+
+        # Check name matches directory name
+        if "name" in frontmatter and frontmatter["name"] != skill_name:
+            violations.append(
+                f"  {rel}: frontmatter 'name' ({frontmatter['name']!r}) does not match directory name ({skill_name!r})"
+            )
+
+    return violations
+
+
 # ── Main ─────────────────────────────────────────────────────────────
 
 RULES = [
@@ -344,6 +406,7 @@ RULES = [
     ("Rule 8: Orphaned tusk-*.py scripts (in bin/ but not in dispatcher)", rule8_orphaned_python_scripts),
     ("Rule 9: Deferred tasks missing expires_at", rule9_deferred_missing_expiry),
     ("Rule 10: acceptance_criteria with verification_spec but criterion_type='manual'", rule10_criteria_type_mismatch),
+    ("Rule 11: SKILL.md frontmatter validation", rule11_skill_frontmatter),
 ]
 
 
