@@ -564,13 +564,13 @@ FROM tasks t
 JOIN external_blockers eb ON eb.task_id = t.id
 WHERE t.status <> 'Done' AND eb.is_resolved = 0;
 
--- v_criteria_coverage view: per-task total vs completed criteria count
+-- v_criteria_coverage view: per-task total vs completed criteria count (excludes deferred criteria)
 CREATE VIEW v_criteria_coverage AS
 SELECT t.id AS task_id,
        t.summary,
-       COUNT(ac.id) AS total_criteria,
-       COALESCE(SUM(CASE WHEN ac.is_completed = 1 THEN 1 ELSE 0 END), 0) AS completed_criteria,
-       COUNT(ac.id) - COALESCE(SUM(CASE WHEN ac.is_completed = 1 THEN 1 ELSE 0 END), 0) AS remaining_criteria
+       COUNT(CASE WHEN ac.is_deferred = 0 OR ac.is_deferred IS NULL THEN 1 END) AS total_criteria,
+       COALESCE(SUM(CASE WHEN ac.is_completed = 1 AND (ac.is_deferred = 0 OR ac.is_deferred IS NULL) THEN 1 ELSE 0 END), 0) AS completed_criteria,
+       COUNT(CASE WHEN ac.is_deferred = 0 OR ac.is_deferred IS NULL THEN 1 END) - COALESCE(SUM(CASE WHEN ac.is_completed = 1 AND (ac.is_deferred = 0 OR ac.is_deferred IS NULL) THEN 1 ELSE 0 END), 0) AS remaining_criteria
 FROM tasks t
 LEFT JOIN acceptance_criteria ac ON ac.task_id = t.id
 GROUP BY t.id, t.summary;
@@ -1138,9 +1138,9 @@ cmd_migrate() {
       CREATE VIEW IF NOT EXISTS v_criteria_coverage AS
       SELECT t.id AS task_id,
              t.summary,
-             COUNT(ac.id) AS total_criteria,
-             COALESCE(SUM(CASE WHEN ac.is_completed = 1 THEN 1 ELSE 0 END), 0) AS completed_criteria,
-             COUNT(ac.id) - COALESCE(SUM(CASE WHEN ac.is_completed = 1 THEN 1 ELSE 0 END), 0) AS remaining_criteria
+             COUNT(CASE WHEN ac.is_deferred = 0 OR ac.is_deferred IS NULL THEN 1 END) AS total_criteria,
+             COALESCE(SUM(CASE WHEN ac.is_completed = 1 AND (ac.is_deferred = 0 OR ac.is_deferred IS NULL) THEN 1 ELSE 0 END), 0) AS completed_criteria,
+             COUNT(CASE WHEN ac.is_deferred = 0 OR ac.is_deferred IS NULL THEN 1 END) - COALESCE(SUM(CASE WHEN ac.is_completed = 1 AND (ac.is_deferred = 0 OR ac.is_deferred IS NULL) THEN 1 ELSE 0 END), 0) AS remaining_criteria
       FROM tasks t
       LEFT JOIN acceptance_criteria ac ON ac.task_id = t.id
       GROUP BY t.id, t.summary;
