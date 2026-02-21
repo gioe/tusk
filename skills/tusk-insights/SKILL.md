@@ -62,7 +62,6 @@ SELECT
     WHERE dep.status <> 'Done'
       AND blocker.status = 'Done'
       AND blocker.closed_reason IN ('wont_do', 'duplicate')
-      AND d.relationship_type = 'blocks'
   ) as dependency_health,
 
   (SELECT COUNT(*) FROM task_sessions WHERE ended_at IS NULL)

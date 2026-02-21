@@ -123,7 +123,6 @@ JOIN tasks b ON d.depends_on_id = b.id
 WHERE t.status <> 'Done'
   AND b.status = 'Done'
   AND b.closed_reason IN ('wont_do', 'duplicate')
-  AND d.relationship_type = 'blocks'
 ORDER BY d.task_id;
 ```
 
