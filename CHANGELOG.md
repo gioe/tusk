@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [153] - 2026-02-21
+
+### Changed
+
+- Dashboard model column now sorts model names by most-recently-used first via derived-table subquery (SQLite does not support ORDER BY in GROUP_CONCAT)
+
 ## [152] - 2026-02-21
 
 ### Added
