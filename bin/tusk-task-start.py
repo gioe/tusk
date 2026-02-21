@@ -69,6 +69,21 @@ def main(argv: list[str]) -> int:
             )
             return 2
 
+        # 1c. Guard: task must not have open external blockers
+        open_blockers = conn.execute(
+            "SELECT id, description, blocker_type FROM external_blockers "
+            "WHERE task_id = ? AND is_resolved = 0",
+            (task_id,),
+        ).fetchall()
+        if open_blockers:
+            lines = [f"Error: Task {task_id} has unresolved external blockers:"]
+            for b in open_blockers:
+                btype = f" [{b['blocker_type']}]" if b["blocker_type"] else ""
+                lines.append(f"  • [{b['id']}]{btype} {b['description']}")
+            lines.append("Resolve blockers with: tusk blockers resolve <blocker_id>")
+            print("\n".join(lines), file=sys.stderr)
+            return 2
+
         # 2. Check for prior progress
         progress_rows = conn.execute(
             "SELECT * FROM task_progress WHERE task_id = ? ORDER BY created_at DESC",
