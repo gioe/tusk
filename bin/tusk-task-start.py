@@ -55,6 +55,20 @@ def main(argv: list[str]) -> int:
             print(f"Error: Task {task_id} is already Done", file=sys.stderr)
             return 2
 
+        # 1b. Guard: task must have at least one acceptance criterion
+        criteria_count = conn.execute(
+            "SELECT COUNT(*) FROM acceptance_criteria WHERE task_id = ? AND is_deferred = 0",
+            (task_id,),
+        ).fetchone()[0]
+        if criteria_count == 0:
+            print(
+                f"Error: Task {task_id} has no acceptance criteria. "
+                f"Add at least one before starting work:\n"
+                f"  tusk criteria add {task_id} \"<criterion text>\"",
+                file=sys.stderr,
+            )
+            return 2
+
         # 2. Check for prior progress
         progress_rows = conn.execute(
             "SELECT * FROM task_progress WHERE task_id = ? ORDER BY created_at DESC",
