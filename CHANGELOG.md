@@ -6,6 +6,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [159] - 2026-02-21
+
+### Added
+
+- [TASK-255] `branch-naming.sh` PreToolUse hook blocks `git push` when the current branch does not match `feature/TASK-<id>-<slug>` (main, master, and release/* are always allowed)
+- [TASK-255] `version-bump-check.sh` PreToolUse hook warns (advisory, exit 0) when distributable files (`bin/`, `skills/`, `config.default.json`, `install.sh`) changed since `origin/main` but `VERSION` was not bumped
+
 ## [158] - 2026-02-21
 
 ### Added

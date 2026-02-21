@@ -55,6 +55,24 @@
             "command": ".claude/hooks/commit-msg-format.sh"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/branch-naming.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/version-bump-check.sh"
+          }
+        ]
       }
     ],
     "PostToolUse": [
