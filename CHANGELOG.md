@@ -6,11 +6,172 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
-## [133] - 2026-02-19
+## [153] - 2026-02-21
 
 ### Changed
 
-- `/token-audit` skill now analyzes findings across 4 actionable categories (companion files, SQL anti-patterns, redundancy, narrative density) and feeds results into `/create-task` for task generation
+- Dashboard model column now sorts model names by most-recently-used first via derived-table subquery (SQLite does not support ORDER BY in GROUP_CONCAT)
+
+## [152] - 2026-02-21
+
+### Added
+
+- [TASK-240] Schema migration 10→11: `code_reviews` and `review_comments` tables with validation triggers for category/severity config keys
+- [TASK-241] `tusk review` CLI with subcommands: start, add-comment, list, resolve, approve, request-changes, status, summary
+- [TASK-242] `/review-pr` skill with parallel AI reviewer orchestration, fix loop, and deferred task creation
+- [TASK-243] Mode-aware review dispatch in `/next-task` FINALIZE.md (`disabled`, `ai_only`, `ai_then_human`)
+- [TASK-244] CLAUDE.md documentation for review feature (tables, CLI, skill, config keys)
+
+## [151] - 2026-02-21
+
+### Added
+
+- `tusk lint` Rule 8: warns when a `tusk-*.py` file exists in `bin/` but has no reference in the `bin/tusk` dispatcher (catches orphaned scripts after dispatcher cleanup)
+
+## [150] - 2026-02-21
+
+### Removed
+
+- Standalone `tusk dag` CLI command and `bin/tusk-dag.py` (DAG visualization is now part of the dashboard)
+- `/dag` skill (consolidated into `/dashboard`)
+
+## [149] - 2026-02-20
+
+### Added
+
+- Manual dark mode toggle button (sun/moon icon) in dashboard header with localStorage persistence
+- Dashboard footer showing generation timestamp and tusk version
+- Responsive breakpoints for tablet (900px) and mobile (600px) — KPI cards stack, low-priority columns hide
+
+### Changed
+
+- Dark mode CSS converted from `prefers-color-scheme` media queries to `[data-theme]` attribute for manual toggle support
+- Chart.js charts re-render with correct theme colors on toggle
+- Added hover states and transitions on KPI cards, filter chips, and table rows
+
+## [148] - 2026-02-20
+
+### Changed
+
+- Dashboard criteria panel rewritten to use client-side JSON rendering instead of server-side HTML string building
+
+## [147] - 2026-02-20
+
+### Added
+
+- Dashboard filter bar expanded with domain, complexity, and task type dropdowns populated from task data
+- Active filter count badge with Clear all button
+- Multi-dimensional AND filtering across status, domain, complexity, type, and search
+- URL hash state persistence for filter, sort, page number, and page size — restored on page load
+
+## [146] - 2026-02-20
+
+### Changed
+
+- Dashboard charts replaced inline SVG with Chart.js (loaded from CDN) for cost trend and completion trend visualizations
+- Added cost-by-domain doughnut chart to dashboard
+
+## [145] - 2026-02-20
+
+### Added
+
+- `tusk criteria done` warns on stderr when the captured commit hash matches another completed criterion on the same task, nudging agents to commit separately per criterion for accurate cost attribution
+
+## [144] - 2026-02-20
+
+### Added
+
+- `commit_hash` column on `acceptance_criteria` — automatically captures `git rev-parse --short HEAD` when a criterion is marked done via `tusk criteria done`
+- `tusk criteria list` displays commit hash column
+- `tusk criteria reset` clears commit_hash to NULL
+- Dashboard renders commit hash as a clickable GitHub link (when task has a PR URL) or plain monospace badge
+- Schema migration 8→9 adds `commit_hash TEXT` column to `acceptance_criteria`
+
+## [143] - 2026-02-20
+
+### Fixed
+
+- Acceptance criteria `completed_at` now uses millisecond precision (`strftime('%Y-%m-%d %H:%M:%f')`) instead of second-level `datetime('now')`, fixing zero-width cost windows and indistinguishable completion order
+- `parse_sqlite_timestamp` in pricing lib handles both second-level and millisecond-level timestamps
+
+## [142] - 2026-02-20
+
+### Added
+
+- Typed acceptance criteria with automated verification: `criterion_type` field (manual, code, test, file) on acceptance criteria with `verification_spec` and `verification_result` columns
+- `tusk criteria add` accepts `--type` and `--spec` flags for creating typed criteria
+- `tusk criteria done` runs automated verification for non-manual types (shell command for code/test, glob check for file) and blocks on failure; `--skip-verify` bypasses verification
+- `tusk criteria list` shows Type column
+- `tusk criteria reset` clears `verification_result`
+- `tusk task-insert --typed-criteria` flag for creating typed criteria atomically via JSON objects
+- `tusk task-start` includes `criterion_type` and `verification_spec` in criteria output
+- Schema migration 7→8 adds three columns to `acceptance_criteria` (criterion_type, verification_spec, verification_result)
+- `criterion_types` config key with config-driven trigger validation
+
+## [141] - 2026-02-20
+
+### Changed
+
+- Extract shared transcript/pricing utilities into `bin/tusk-pricing-lib.py` — `load_pricing()`, `resolve_model()`, `aggregate_session()`, `compute_cost()`, and related helpers are now defined once and imported by tusk-session-stats.py, tusk-criteria.py, and tusk-session-recalc.py
+
+## [140] - 2026-02-20
+
+### Added
+
+- Per-criterion cost tracking on acceptance criteria: `tusk criteria done` parses the Claude transcript for the time window since the previous criterion (or session start) and stores cost_dollars, tokens_in, tokens_out, and completed_at
+- Schema migration 6→7 adds four nullable columns to `acceptance_criteria` (completed_at, cost_dollars, tokens_in, tokens_out)
+- `tusk criteria list` shows Cost column and total cost across completed criteria
+- `tusk criteria reset` clears cost columns along with completion status
+- Dashboard renders green cost badges on completed criteria with cost data
+
+## [139] - 2026-02-19
+
+### Changed
+
+- `pricing.json` now carries both `cache_write_5m` and `cache_write_1h` rates per model; `cache_write_tier` top-level field removed
+- `tusk-session-stats.py` extracts per-tier cache write tokens from nested `cache_creation` object (falls back to 5m tier for older transcripts) and uses a five-term cost formula
+- `tusk pricing-update` emits both cache write rates per model; `--cache-tier` flag removed
+
+### Added
+
+- `tusk session-recalc` command to re-run cost calculations for all existing sessions after pricing changes
+
+## [138] - 2026-02-19
+
+### Added
+
+- `tusk pricing-update` command to fetch and update pricing.json from Anthropic docs with HTML table parsing, human-readable diff output, `--dry-run` mode, and `--cache-tier` option (5m default, 1h available)
+
+## [137] - 2026-02-19
+
+### Added
+
+- `tusk task-done` checks for uncompleted acceptance criteria before closing; warns and exits non-zero unless `--force` is passed
+- `tusk finalize` passes `--force` to `tusk task-done` to preserve existing behavior
+
+## [136] - 2026-02-19
+
+### Added
+
+- Acceptance criteria IDs (e.g., `#42`) displayed in dashboard collapsible criteria rows for easy CLI reference
+
+## [135] - 2026-02-19
+
+### Added
+
+- Collapsible rows in the HTML dashboard that expand to show acceptance criteria (text, completion status, source) per task
+
+## [134] - 2026-02-19
+
+### Added
+
+- `tusk branch` auto-stashes dirty working tree before checkout/pull and restores changes on the new feature branch
+
+## [133] - 2026-02-19
+
+### Added
+
+- Dashboard now includes "Started" (created_at) and "Last Updated" (updated_at) date columns with YYYY-MM-DD formatting and default sort by Last Updated descending
 
 ## [132] - 2026-02-19
 
