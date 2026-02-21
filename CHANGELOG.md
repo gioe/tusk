@@ -6,6 +6,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [156] - 2026-02-21
+
+### Added
+
+- [TASK-254] Rule 9 in `tusk-lint.py`: flags tasks with `[Deferred]` prefix but no `expires_at` set
+- [TASK-254] Rule 10 in `tusk-lint.py`: flags `acceptance_criteria` rows with `verification_spec` set but `criterion_type='manual'`
+
 ## [155] - 2026-02-21
 
 ### Fixed

@@ -191,6 +191,50 @@ def rule6_done_incomplete_criteria(root):
     return violations
 
 
+def rule9_deferred_missing_expiry(root):
+    """Tasks with [Deferred] prefix but no expires_at set."""
+    violations = []
+    tusk_bin = os.path.join(root, "bin", "tusk")
+    if not os.path.isfile(tusk_bin):
+        tusk_bin = "tusk"
+    try:
+        result = subprocess.run(
+            [tusk_bin, "-header", "-column",
+             "SELECT id, summary FROM tasks "
+             "WHERE summary LIKE '[Deferred]%' AND expires_at IS NULL AND status <> 'Done'"],
+            capture_output=True, text=True, timeout=5,
+        )
+        for line in result.stdout.strip().splitlines():
+            line = line.strip()
+            if line and not line.startswith("id") and not line.startswith("--"):
+                violations.append(f"  {line}")
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass  # Skip rule if tusk CLI is unavailable
+    return violations
+
+
+def rule10_criteria_type_mismatch(root):
+    """acceptance_criteria with verification_spec set but criterion_type='manual'."""
+    violations = []
+    tusk_bin = os.path.join(root, "bin", "tusk")
+    if not os.path.isfile(tusk_bin):
+        tusk_bin = "tusk"
+    try:
+        result = subprocess.run(
+            [tusk_bin, "-header", "-column",
+             "SELECT ac.id, ac.task_id, ac.criterion FROM acceptance_criteria ac "
+             "WHERE ac.verification_spec IS NOT NULL AND ac.criterion_type = 'manual'"],
+            capture_output=True, text=True, timeout=5,
+        )
+        for line in result.stdout.strip().splitlines():
+            line = line.strip()
+            if line and not line.startswith("id") and not line.startswith("--"):
+                violations.append(f"  {line}")
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass  # Skip rule if tusk CLI is unavailable
+    return violations
+
+
 def rule8_orphaned_python_scripts(root):
     """tusk-*.py files on disk not referenced in bin/tusk or other tusk-*.py files."""
     violations = []
@@ -298,6 +342,8 @@ RULES = [
     ("Rule 6: Done with incomplete acceptance criteria", rule6_done_incomplete_criteria),
     ("Rule 7: config.default.json keys match KNOWN_KEYS", rule7_config_keys_match_known_keys),
     ("Rule 8: Orphaned tusk-*.py scripts (in bin/ but not in dispatcher)", rule8_orphaned_python_scripts),
+    ("Rule 9: Deferred tasks missing expires_at", rule9_deferred_missing_expiry),
+    ("Rule 10: acceptance_criteria with verification_spec but criterion_type='manual'", rule10_criteria_type_mismatch),
 ]
 
 
