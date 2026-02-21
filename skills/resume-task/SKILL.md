@@ -24,8 +24,10 @@ echo "Task ID: $TASK_ID"
 ## Step 2: Start the Task (Idempotent)
 
 ```bash
-tusk task-start <TASK_ID>
+tusk task-start <TASK_ID> --force
 ```
+
+The `--force` flag ensures the workflow proceeds even if the task has no acceptance criteria (emits a warning rather than hard-failing).
 
 Returns JSON with four keys:
 

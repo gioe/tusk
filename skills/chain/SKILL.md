@@ -295,9 +295,9 @@ Complexity: {complexity}
 
 1. **Start the task:**
    ```
-   tusk task-start {id}
+   tusk task-start {id} --force
    ```
-   This returns JSON with task details, prior progress, criteria, and a session_id. Hold onto the session_id. The `criteria` array contains acceptance criteria — work through them in order and mark each done as you complete it.
+   The `--force` flag ensures the workflow proceeds even if the task has no acceptance criteria (emits a warning rather than hard-failing). This returns JSON with task details, prior progress, criteria, and a session_id. Hold onto the session_id. The `criteria` array contains acceptance criteria — work through them in order and mark each done as you complete it.
 
 2. **Create a git branch** from the default branch:
    ```

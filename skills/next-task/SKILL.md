@@ -77,9 +77,9 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
 
 1. **Start the task** — fetch details, check progress, create/reuse session, and set status in one call:
    ```bash
-   tusk task-start <id>
+   tusk task-start <id> --force
    ```
-   This returns a JSON blob with four keys:
+   The `--force` flag ensures the workflow proceeds even if the task has no acceptance criteria (emits a warning rather than hard-failing). This returns a JSON blob with four keys:
    - `task` — full task row (summary, description, priority, domain, assignee, etc.)
    - `progress` — array of prior progress checkpoints (most recent first). If non-empty, the first entry's `next_steps` tells you exactly where to pick up. Skip steps you've already completed (branch may already exist, some commits may already be made). Use `git log --oneline` on the existing branch to see what's already been done.
    - `criteria` — array of acceptance criteria objects (id, criterion, source, is_completed, criterion_type, verification_spec). These are the implementation checklist. Work through them in order during implementation. Mark each criterion done (`tusk criteria done <cid>`) as you complete it — do not defer this to the end. Non-manual criteria (type: code, test, file) run automated verification on `done`; use `--skip-verify` if needed. If the array is empty, proceed normally using the description as scope.

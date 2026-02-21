@@ -30,6 +30,8 @@ tusk loop --dry-run
    - **Standalone** → `claude -p /next-task <id>`
 4. Stops on non-zero exit from any agent, on empty backlog, or when `--max-tasks` is reached
 
+> **Note:** Tasks dispatched via `/next-task` or `/chain` use `tusk task-start --force` so that zero-criteria tasks emit a warning rather than hard-failing the automated workflow.
+
 ## Flags
 
 | Flag | Description |
