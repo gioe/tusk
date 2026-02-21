@@ -191,6 +191,51 @@ def rule6_done_incomplete_criteria(root):
     return violations
 
 
+def rule8_orphaned_python_scripts(root):
+    """tusk-*.py files on disk not referenced in bin/tusk or other tusk-*.py files."""
+    violations = []
+    bin_dir = os.path.join(root, "bin")
+    tusk_path = os.path.join(root, "bin", "tusk")
+
+    if not os.path.isfile(tusk_path):
+        return []
+
+    try:
+        with open(tusk_path, encoding="utf-8") as f:
+            tusk_content = f.read()
+    except OSError:
+        return []
+
+    try:
+        disk_scripts = sorted(
+            f for f in os.listdir(bin_dir)
+            if re.match(r"^tusk-.+\.py$", f)
+        )
+    except OSError:
+        return []
+
+    for script in disk_scripts:
+        if script in tusk_content:
+            continue
+        # Allow library files referenced by other tusk-*.py scripts
+        used_as_lib = False
+        for other in disk_scripts:
+            if other == script:
+                continue
+            try:
+                with open(os.path.join(bin_dir, other), encoding="utf-8") as f:
+                    if script in f.read():
+                        used_as_lib = True
+                        break
+            except OSError:
+                pass
+        if not used_as_lib:
+            violations.append(
+                f"  bin/{script}: exists on disk but is not referenced in bin/tusk dispatcher"
+            )
+    return violations
+
+
 def rule7_config_keys_match_known_keys(root):
     """config.default.json top-level keys must match KNOWN_KEYS in cmd_validate."""
     violations = []
@@ -252,6 +297,7 @@ RULES = [
     ("Rule 5: Done without closed_reason", rule5_done_without_closed_reason),
     ("Rule 6: Done with incomplete acceptance criteria", rule6_done_incomplete_criteria),
     ("Rule 7: config.default.json keys match KNOWN_KEYS", rule7_config_keys_match_known_keys),
+    ("Rule 8: Orphaned tusk-*.py scripts (in bin/ but not in dispatcher)", rule8_orphaned_python_scripts),
 ]
 
 

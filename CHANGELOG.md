@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [151] - 2026-02-21
+
+### Added
+
+- `tusk lint` Rule 8: warns when a `tusk-*.py` file exists in `bin/` but has no reference in the `bin/tusk` dispatcher (catches orphaned scripts after dispatcher cleanup)
+
 ## [150] - 2026-02-21
 
 ### Removed
