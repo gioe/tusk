@@ -196,6 +196,8 @@ LIMIT 10;
 **Blocked vs ready:**
 
 ```sql
+-- blocked + ready = total To Do (mutually exclusive: blocked means dep-blocked or ext-blocked;
+-- ready means neither; relationship_type = 'blocks' excludes contingent deps from both counts)
 SELECT
   (SELECT COUNT(*) FROM tasks t
     WHERE t.status = 'To Do'
