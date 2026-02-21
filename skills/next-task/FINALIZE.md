@@ -17,16 +17,61 @@ Capture the PR URL from the output.
 tusk task-update <id> --github-pr "<pr_url>"
 ```
 
-## Step 13: Review loop — iterate until approved
+## Step 13: Review dispatch — mode-aware pre-merge review
 
-Poll for review → analyze feedback → address or defer → push fixes → repeat until approved.
+Check the review mode from config:
+
+```bash
+tusk config review
+```
+
+This returns the `review` object (or `null`/empty if the key is missing). Extract `review.mode`.
+
+**Decision tree:**
+
+### mode = disabled (or review key missing from config)
+
+Skip AI review entirely. Proceed directly to Step 14.
+
+### mode = ai_only
+
+Run `/review-pr` by following the instructions in the review-pr skill. Pass the current task ID:
+
+```
+Follow the instructions in <base_directory>/../review-pr/SKILL.md for task <id>
+```
+
+The `/review-pr` skill handles:
+- Spawning parallel AI reviewer agents
+- Fixing `must_fix` findings
+- Handling `suggest` and `defer` findings
+- Printing a final verdict (APPROVED / CHANGES REMAINING)
+
+After `/review-pr` completes with verdict **APPROVED**, proceed directly to Step 14. If verdict is **CHANGES REMAINING**, surface the unresolved items to the user and stop — do not merge.
+
+### mode = ai_then_human
+
+First, run `/review-pr` exactly as in `ai_only` above. After the AI review is complete and verdict is APPROVED, then wait for human GitHub review:
+
+Poll for human review approval:
+
+```bash
+gh pr view <pr_number> --json reviewDecision,reviews
+```
+
+Repeat every 60 seconds until `reviewDecision` is `"APPROVED"`. While waiting, print:
+
+> Waiting for human GitHub review approval... (checking every 60s)
+> Current status: <reviewDecision>
+
+Once human review shows `APPROVED`, proceed to Step 14.
+
+If a human reviewer requests changes, address the feedback:
 
 **Category A — Address Immediately (must fix in this PR):**
 - Security concerns, bugs, breaking changes
 - Missing tests for code introduced/modified in this PR
 - Performance issues, type errors, missing error handling
-
-The bar is: if the reviewer comments on code this PR touches, fix it now.
 
 For each Category A comment:
 1. Read the relevant file(s)
@@ -45,6 +90,8 @@ For each Category B comment, create a deferred task (includes built-in duplicate
      --priority "Low" --domain "<domain>" --deferred
    ```
    Exit code 1 means a duplicate was found — skip silently.
+
+After addressing feedback, re-run `/review-pr` and re-poll for human approval until `reviewDecision` is `"APPROVED"`.
 
 ## Step 14: PR approved — finalize, merge, and retro
 
