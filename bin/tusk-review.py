@@ -40,36 +40,35 @@ def load_review_config(config_path: str) -> dict:
 def cmd_start(args: argparse.Namespace, db_path: str, config_path: str) -> int:
     """Create one code_reviews row per enabled reviewer (or a single unassigned row)."""
     conn = get_connection(db_path)
+    try:
+        task = conn.execute("SELECT id, summary FROM tasks WHERE id = ?", (args.task_id,)).fetchone()
+        if not task:
+            print(f"Error: Task {args.task_id} not found", file=sys.stderr)
+            return 2
 
-    task = conn.execute("SELECT id, summary FROM tasks WHERE id = ?", (args.task_id,)).fetchone()
-    if not task:
-        print(f"Error: Task {args.task_id} not found", file=sys.stderr)
+        cfg = load_review_config(config_path)
+        reviewers = cfg["reviewers"]
+
+        # If a specific reviewer was passed on the CLI, use only that one
+        if args.reviewer:
+            reviewers = [args.reviewer]
+
+        # If no reviewers configured and none specified, create one unassigned review
+        if not reviewers:
+            reviewers = [None]
+
+        created_ids = []
+        for reviewer in reviewers:
+            conn.execute(
+                "INSERT INTO code_reviews (task_id, reviewer, status, review_pass, diff_summary)"
+                " VALUES (?, ?, 'pending', ?, ?)",
+                (args.task_id, reviewer, args.pass_num, args.diff_summary),
+            )
+            conn.commit()
+            rid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            created_ids.append((rid, reviewer))
+    finally:
         conn.close()
-        return 2
-
-    cfg = load_review_config(config_path)
-    reviewers = cfg["reviewers"]
-
-    # If a specific reviewer was passed on the CLI, use only that one
-    if args.reviewer:
-        reviewers = [args.reviewer]
-
-    # If no reviewers configured and none specified, create one unassigned review
-    if not reviewers:
-        reviewers = [None]
-
-    created_ids = []
-    for reviewer in reviewers:
-        conn.execute(
-            "INSERT INTO code_reviews (task_id, reviewer, status, review_pass, diff_summary)"
-            " VALUES (?, ?, 'pending', ?, ?)",
-            (args.task_id, reviewer, args.pass_num, args.diff_summary),
-        )
-        conn.commit()
-        rid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-        created_ids.append((rid, reviewer))
-
-    conn.close()
 
     for rid, reviewer in created_ids:
         reviewer_str = f" (reviewer: {reviewer})" if reviewer else ""
@@ -81,55 +80,53 @@ def cmd_start(args: argparse.Namespace, db_path: str, config_path: str) -> int:
 def cmd_add_comment(args: argparse.Namespace, db_path: str, config_path: str) -> int:
     """Insert a review_comments row."""
     conn = get_connection(db_path)
+    try:
+        review = conn.execute(
+            "SELECT id, task_id, reviewer FROM code_reviews WHERE id = ?", (args.review_id,)
+        ).fetchone()
+        if not review:
+            print(f"Error: Review {args.review_id} not found", file=sys.stderr)
+            return 2
 
-    review = conn.execute(
-        "SELECT id, task_id, reviewer FROM code_reviews WHERE id = ?", (args.review_id,)
-    ).fetchone()
-    if not review:
-        print(f"Error: Review {args.review_id} not found", file=sys.stderr)
+        cfg = load_review_config(config_path)
+
+        if args.category:
+            valid_cats = cfg["categories"]
+            if valid_cats and args.category not in valid_cats:
+                print(
+                    f"Error: Invalid category '{args.category}'. Valid: {', '.join(valid_cats)}",
+                    file=sys.stderr,
+                )
+                return 2
+
+        if args.severity:
+            valid_sevs = cfg["severities"]
+            if valid_sevs and args.severity not in valid_sevs:
+                print(
+                    f"Error: Invalid severity '{args.severity}'. Valid: {', '.join(valid_sevs)}",
+                    file=sys.stderr,
+                )
+                return 2
+
+        conn.execute(
+            "INSERT INTO review_comments"
+            " (review_id, file_path, line_start, line_end, category, severity, comment)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                args.review_id,
+                args.file,
+                args.line_start,
+                args.line_end,
+                args.category,
+                args.severity,
+                args.comment,
+            ),
+        )
+        conn.commit()
+
+        cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    finally:
         conn.close()
-        return 2
-
-    cfg = load_review_config(config_path)
-
-    if args.category:
-        valid_cats = cfg["categories"]
-        if valid_cats and args.category not in valid_cats:
-            print(
-                f"Error: Invalid category '{args.category}'. Valid: {', '.join(valid_cats)}",
-                file=sys.stderr,
-            )
-            conn.close()
-            return 2
-
-    if args.severity:
-        valid_sevs = cfg["severities"]
-        if valid_sevs and args.severity not in valid_sevs:
-            print(
-                f"Error: Invalid severity '{args.severity}'. Valid: {', '.join(valid_sevs)}",
-                file=sys.stderr,
-            )
-            conn.close()
-            return 2
-
-    conn.execute(
-        "INSERT INTO review_comments"
-        " (review_id, file_path, line_start, line_end, category, severity, comment)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (
-            args.review_id,
-            args.file,
-            args.line_start,
-            args.line_end,
-            args.category,
-            args.severity,
-            args.comment,
-        ),
-    )
-    conn.commit()
-
-    cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-    conn.close()
 
     loc = ""
     if args.file:
@@ -148,21 +145,33 @@ def cmd_add_comment(args: argparse.Namespace, db_path: str, config_path: str) ->
 def cmd_list(args: argparse.Namespace, db_path: str) -> int:
     """Show reviews for a task, grouped by reviewer and category."""
     conn = get_connection(db_path)
+    try:
+        task = conn.execute(
+            "SELECT id, summary FROM tasks WHERE id = ?", (args.task_id,)
+        ).fetchone()
+        if not task:
+            print(f"Error: Task {args.task_id} not found", file=sys.stderr)
+            return 2
 
-    task = conn.execute(
-        "SELECT id, summary FROM tasks WHERE id = ?", (args.task_id,)
-    ).fetchone()
-    if not task:
-        print(f"Error: Task {args.task_id} not found", file=sys.stderr)
+        reviews = conn.execute(
+            "SELECT id, reviewer, status, review_pass, created_at"
+            " FROM code_reviews WHERE task_id = ? ORDER BY id",
+            (args.task_id,),
+        ).fetchall()
+
+        # Fetch all comments in a single pass to avoid re-opening the connection
+        review_ids = [rev["id"] for rev in reviews]
+        all_comments: dict[int, list] = {rid: [] for rid in review_ids}
+        if review_ids:
+            placeholders = ",".join("?" * len(review_ids))
+            for c in conn.execute(
+                f"SELECT id, review_id, file_path, line_start, category, severity, comment, resolution"
+                f" FROM review_comments WHERE review_id IN ({placeholders}) ORDER BY review_id, category, id",
+                review_ids,
+            ).fetchall():
+                all_comments[c["review_id"]].append(c)
+    finally:
         conn.close()
-        return 2
-
-    reviews = conn.execute(
-        "SELECT id, reviewer, status, review_pass, created_at"
-        " FROM code_reviews WHERE task_id = ? ORDER BY id",
-        (args.task_id,),
-    ).fetchall()
-    conn.close()
 
     if not reviews:
         print(f"No reviews for task #{args.task_id}: {task['summary']}")
@@ -175,14 +184,7 @@ def cmd_list(args: argparse.Namespace, db_path: str) -> int:
         reviewer_label = rev["reviewer"] or "(unassigned)"
         print(f"  Review #{rev['id']} — {reviewer_label} | status: {rev['status']} | pass {rev['review_pass']} | {rev['created_at']}")
 
-        # Re-open connection to fetch comments
-        conn2 = get_connection(db_path)
-        comments = conn2.execute(
-            "SELECT id, file_path, line_start, category, severity, comment, resolution"
-            " FROM review_comments WHERE review_id = ? ORDER BY category, id",
-            (rev["id"],),
-        ).fetchall()
-        conn2.close()
+        comments = all_comments.get(rev["id"], [])
 
         if not comments:
             print("    (no comments)")
@@ -219,22 +221,22 @@ def cmd_resolve(args: argparse.Namespace, db_path: str) -> int:
         return 2
 
     conn = get_connection(db_path)
+    try:
+        comment = conn.execute(
+            "SELECT id, comment, resolution FROM review_comments WHERE id = ?",
+            (args.comment_id,),
+        ).fetchone()
+        if not comment:
+            print(f"Error: Comment {args.comment_id} not found", file=sys.stderr)
+            return 2
 
-    comment = conn.execute(
-        "SELECT id, comment, resolution FROM review_comments WHERE id = ?",
-        (args.comment_id,),
-    ).fetchone()
-    if not comment:
-        print(f"Error: Comment {args.comment_id} not found", file=sys.stderr)
+        conn.execute(
+            "UPDATE review_comments SET resolution = ?, updated_at = datetime('now') WHERE id = ?",
+            (args.resolution, args.comment_id),
+        )
+        conn.commit()
+    finally:
         conn.close()
-        return 2
-
-    conn.execute(
-        "UPDATE review_comments SET resolution = ?, updated_at = datetime('now') WHERE id = ?",
-        (args.resolution, args.comment_id),
-    )
-    conn.commit()
-    conn.close()
 
     print(f"Comment #{args.comment_id} marked '{args.resolution}': {comment['comment'][:60]}")
     return 0
@@ -243,23 +245,23 @@ def cmd_resolve(args: argparse.Namespace, db_path: str) -> int:
 def cmd_approve(args: argparse.Namespace, db_path: str) -> int:
     """Set code_reviews.status = 'approved' and review_pass = 1."""
     conn = get_connection(db_path)
+    try:
+        review = conn.execute(
+            "SELECT id, task_id, reviewer, status FROM code_reviews WHERE id = ?",
+            (args.review_id,),
+        ).fetchone()
+        if not review:
+            print(f"Error: Review {args.review_id} not found", file=sys.stderr)
+            return 2
 
-    review = conn.execute(
-        "SELECT id, task_id, reviewer, status FROM code_reviews WHERE id = ?",
-        (args.review_id,),
-    ).fetchone()
-    if not review:
-        print(f"Error: Review {args.review_id} not found", file=sys.stderr)
+        conn.execute(
+            "UPDATE code_reviews SET status = 'approved', review_pass = 1,"
+            " updated_at = datetime('now') WHERE id = ?",
+            (args.review_id,),
+        )
+        conn.commit()
+    finally:
         conn.close()
-        return 2
-
-    conn.execute(
-        "UPDATE code_reviews SET status = 'approved', review_pass = 1,"
-        " updated_at = datetime('now') WHERE id = ?",
-        (args.review_id,),
-    )
-    conn.commit()
-    conn.close()
 
     reviewer_str = f" by {review['reviewer']}" if review["reviewer"] else ""
     print(f"Review #{args.review_id} approved{reviewer_str} for task #{review['task_id']}")
@@ -269,23 +271,23 @@ def cmd_approve(args: argparse.Namespace, db_path: str) -> int:
 def cmd_request_changes(args: argparse.Namespace, db_path: str) -> int:
     """Set code_reviews.status = 'changes_requested' and review_pass = 0."""
     conn = get_connection(db_path)
+    try:
+        review = conn.execute(
+            "SELECT id, task_id, reviewer, status FROM code_reviews WHERE id = ?",
+            (args.review_id,),
+        ).fetchone()
+        if not review:
+            print(f"Error: Review {args.review_id} not found", file=sys.stderr)
+            return 2
 
-    review = conn.execute(
-        "SELECT id, task_id, reviewer, status FROM code_reviews WHERE id = ?",
-        (args.review_id,),
-    ).fetchone()
-    if not review:
-        print(f"Error: Review {args.review_id} not found", file=sys.stderr)
+        conn.execute(
+            "UPDATE code_reviews SET status = 'changes_requested', review_pass = 0,"
+            " updated_at = datetime('now') WHERE id = ?",
+            (args.review_id,),
+        )
+        conn.commit()
+    finally:
         conn.close()
-        return 2
-
-    conn.execute(
-        "UPDATE code_reviews SET status = 'changes_requested', review_pass = 0,"
-        " updated_at = datetime('now') WHERE id = ?",
-        (args.review_id,),
-    )
-    conn.commit()
-    conn.close()
 
     reviewer_str = f" by {review['reviewer']}" if review["reviewer"] else ""
     print(f"Review #{args.review_id} changes requested{reviewer_str} for task #{review['task_id']}")
@@ -295,29 +297,29 @@ def cmd_request_changes(args: argparse.Namespace, db_path: str) -> int:
 def cmd_status(args: argparse.Namespace, db_path: str) -> int:
     """Return JSON with per-reviewer status and comment counts for a task."""
     conn = get_connection(db_path)
+    try:
+        task = conn.execute(
+            "SELECT id, summary FROM tasks WHERE id = ?", (args.task_id,)
+        ).fetchone()
+        if not task:
+            print(f"Error: Task {args.task_id} not found", file=sys.stderr)
+            return 2
 
-    task = conn.execute(
-        "SELECT id, summary FROM tasks WHERE id = ?", (args.task_id,)
-    ).fetchone()
-    if not task:
-        print(f"Error: Task {args.task_id} not found", file=sys.stderr)
+        reviews = conn.execute(
+            "SELECT r.id, r.reviewer, r.status, r.review_pass, r.created_at, r.updated_at,"
+            "  COUNT(c.id) as total_comments,"
+            "  SUM(CASE WHEN c.resolution = 'pending' THEN 1 ELSE 0 END) as open_comments,"
+            "  SUM(CASE WHEN c.resolution = 'fixed' THEN 1 ELSE 0 END) as fixed_comments,"
+            "  SUM(CASE WHEN c.resolution = 'deferred' THEN 1 ELSE 0 END) as deferred_comments,"
+            "  SUM(CASE WHEN c.resolution = 'dismissed' THEN 1 ELSE 0 END) as dismissed_comments"
+            " FROM code_reviews r"
+            " LEFT JOIN review_comments c ON c.review_id = r.id"
+            " WHERE r.task_id = ?"
+            " GROUP BY r.id ORDER BY r.id",
+            (args.task_id,),
+        ).fetchall()
+    finally:
         conn.close()
-        return 2
-
-    reviews = conn.execute(
-        "SELECT r.id, r.reviewer, r.status, r.review_pass, r.created_at, r.updated_at,"
-        "  COUNT(c.id) as total_comments,"
-        "  SUM(CASE WHEN c.resolution = 'pending' THEN 1 ELSE 0 END) as open_comments,"
-        "  SUM(CASE WHEN c.resolution = 'fixed' THEN 1 ELSE 0 END) as fixed_comments,"
-        "  SUM(CASE WHEN c.resolution = 'deferred' THEN 1 ELSE 0 END) as deferred_comments,"
-        "  SUM(CASE WHEN c.resolution = 'dismissed' THEN 1 ELSE 0 END) as dismissed_comments"
-        " FROM code_reviews r"
-        " LEFT JOIN review_comments c ON c.review_id = r.id"
-        " WHERE r.task_id = ?"
-        " GROUP BY r.id ORDER BY r.id",
-        (args.task_id,),
-    ).fetchall()
-    conn.close()
 
     result = {
         "task_id": args.task_id,
@@ -349,25 +351,25 @@ def cmd_status(args: argparse.Namespace, db_path: str) -> int:
 def cmd_summary(args: argparse.Namespace, db_path: str) -> int:
     """Output a summary of all findings for a review."""
     conn = get_connection(db_path)
+    try:
+        review = conn.execute(
+            "SELECT r.id, r.task_id, r.reviewer, r.status, r.review_pass,"
+            "  r.diff_summary, r.created_at, t.summary as task_summary"
+            " FROM code_reviews r JOIN tasks t ON t.id = r.task_id"
+            " WHERE r.id = ?",
+            (args.review_id,),
+        ).fetchone()
+        if not review:
+            print(f"Error: Review {args.review_id} not found", file=sys.stderr)
+            return 2
 
-    review = conn.execute(
-        "SELECT r.id, r.task_id, r.reviewer, r.status, r.review_pass,"
-        "  r.diff_summary, r.created_at, t.summary as task_summary"
-        " FROM code_reviews r JOIN tasks t ON t.id = r.task_id"
-        " WHERE r.id = ?",
-        (args.review_id,),
-    ).fetchone()
-    if not review:
-        print(f"Error: Review {args.review_id} not found", file=sys.stderr)
+        comments = conn.execute(
+            "SELECT id, file_path, line_start, line_end, category, severity, comment, resolution"
+            " FROM review_comments WHERE review_id = ? ORDER BY severity, category, id",
+            (args.review_id,),
+        ).fetchall()
+    finally:
         conn.close()
-        return 2
-
-    comments = conn.execute(
-        "SELECT id, file_path, line_start, line_end, category, severity, comment, resolution"
-        " FROM review_comments WHERE review_id = ? ORDER BY severity, category, id",
-        (args.review_id,),
-    ).fetchall()
-    conn.close()
 
     reviewer_label = review["reviewer"] or "unassigned"
     verdict = "APPROVED" if review["status"] == "approved" else (

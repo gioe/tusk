@@ -62,52 +62,53 @@ def main():
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        "SELECT id, started_at, ended_at FROM task_sessions WHERE started_at IS NOT NULL"
-    ).fetchall()
+    try:
+        rows = conn.execute(
+            "SELECT id, started_at, ended_at FROM task_sessions WHERE started_at IS NOT NULL"
+        ).fetchall()
 
-    if not rows:
-        print("No sessions found to recalculate.")
+        if not rows:
+            print("No sessions found to recalculate.")
+            return
+
+        print(f"Found {len(rows)} sessions and {len(transcripts)} transcripts")
+
+        updated = 0
+        skipped = 0
+
+        for row in rows:
+            session_id = row["id"]
+            started_at = lib.parse_sqlite_timestamp(row["started_at"])
+            ended_at = lib.parse_sqlite_timestamp(row["ended_at"]) if row["ended_at"] else None
+
+            # Try each transcript to find one with matching data
+            best_totals = None
+            for transcript_path in transcripts:
+                totals = lib.aggregate_session(transcript_path, started_at, ended_at)
+                if totals["request_count"] > 0:
+                    best_totals = totals
+                    break
+
+            if not best_totals or best_totals["request_count"] == 0:
+                skipped += 1
+                continue
+
+            tokens_in = lib.compute_tokens_in(best_totals)
+            tokens_out = best_totals["output_tokens"]
+            cost = lib.compute_cost(best_totals)
+            model = best_totals["model"]
+
+            conn.execute(
+                """UPDATE task_sessions
+                   SET tokens_in = ?, tokens_out = ?, cost_dollars = ?, model = ?
+                   WHERE id = ?""",
+                (tokens_in, tokens_out, cost, model, session_id),
+            )
+            updated += 1
+
+        conn.commit()
+    finally:
         conn.close()
-        return
-
-    print(f"Found {len(rows)} sessions and {len(transcripts)} transcripts")
-
-    updated = 0
-    skipped = 0
-
-    for row in rows:
-        session_id = row["id"]
-        started_at = lib.parse_sqlite_timestamp(row["started_at"])
-        ended_at = lib.parse_sqlite_timestamp(row["ended_at"]) if row["ended_at"] else None
-
-        # Try each transcript to find one with matching data
-        best_totals = None
-        for transcript_path in transcripts:
-            totals = lib.aggregate_session(transcript_path, started_at, ended_at)
-            if totals["request_count"] > 0:
-                best_totals = totals
-                break
-
-        if not best_totals or best_totals["request_count"] == 0:
-            skipped += 1
-            continue
-
-        tokens_in = lib.compute_tokens_in(best_totals)
-        tokens_out = best_totals["output_tokens"]
-        cost = lib.compute_cost(best_totals)
-        model = best_totals["model"]
-
-        conn.execute(
-            """UPDATE task_sessions
-               SET tokens_in = ?, tokens_out = ?, cost_dollars = ?, model = ?
-               WHERE id = ?""",
-            (tokens_in, tokens_out, cost, model, session_id),
-        )
-        updated += 1
-
-    conn.commit()
-    conn.close()
 
     print(f"Recalculated {updated} sessions, skipped {skipped} (no matching transcript)")
 

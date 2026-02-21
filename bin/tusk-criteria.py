@@ -147,62 +147,60 @@ def get_connection(db_path: str) -> sqlite3.Connection:
 
 def cmd_add(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn = get_connection(db_path)
+    try:
+        # Verify task exists
+        task = conn.execute("SELECT id FROM tasks WHERE id = ?", (args.task_id,)).fetchone()
+        if not task:
+            print(f"Error: Task {args.task_id} not found", file=sys.stderr)
+            return 2
 
-    # Verify task exists
-    task = conn.execute("SELECT id FROM tasks WHERE id = ?", (args.task_id,)).fetchone()
-    if not task:
-        print(f"Error: Task {args.task_id} not found", file=sys.stderr)
+        # Validate criterion_type against config
+        criterion_types = config.get("criterion_types", [])
+        if criterion_types and args.type not in criterion_types:
+            joined = ", ".join(criterion_types)
+            print(f"Error: Invalid criterion type '{args.type}'. Valid: {joined}", file=sys.stderr)
+            return 2
+
+        # Validate spec: required for non-manual types
+        if args.type in SPEC_REQUIRED_TYPES and not args.spec:
+            print(f"Error: --spec is required for criterion type '{args.type}'", file=sys.stderr)
+            return 2
+
+        conn.execute(
+            "INSERT INTO acceptance_criteria (task_id, criterion, source, criterion_type, verification_spec) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (args.task_id, args.text, args.source, args.type, args.spec),
+        )
+        conn.commit()
+
+        cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        type_suffix = f" (type: {args.type})" if args.type != "manual" else ""
+        print(f"Added criterion #{cid} to task #{args.task_id}{type_suffix}")
+        return 0
+    finally:
         conn.close()
-        return 2
-
-    # Validate criterion_type against config
-    criterion_types = config.get("criterion_types", [])
-    if criterion_types and args.type not in criterion_types:
-        joined = ", ".join(criterion_types)
-        print(f"Error: Invalid criterion type '{args.type}'. Valid: {joined}", file=sys.stderr)
-        conn.close()
-        return 2
-
-    # Validate spec: required for non-manual types
-    if args.type in SPEC_REQUIRED_TYPES and not args.spec:
-        print(f"Error: --spec is required for criterion type '{args.type}'", file=sys.stderr)
-        conn.close()
-        return 2
-
-    conn.execute(
-        "INSERT INTO acceptance_criteria (task_id, criterion, source, criterion_type, verification_spec) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (args.task_id, args.text, args.source, args.type, args.spec),
-    )
-    conn.commit()
-
-    cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-    conn.close()
-    type_suffix = f" (type: {args.type})" if args.type != "manual" else ""
-    print(f"Added criterion #{cid} to task #{args.task_id}{type_suffix}")
-    return 0
 
 
 def cmd_list(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn = get_connection(db_path)
+    try:
+        # Verify task exists
+        task = conn.execute(
+            "SELECT id, summary FROM tasks WHERE id = ?", (args.task_id,)
+        ).fetchone()
+        if not task:
+            print(f"Error: Task {args.task_id} not found", file=sys.stderr)
+            return 2
 
-    # Verify task exists
-    task = conn.execute(
-        "SELECT id, summary FROM tasks WHERE id = ?", (args.task_id,)
-    ).fetchone()
-    if not task:
-        print(f"Error: Task {args.task_id} not found", file=sys.stderr)
+        rows = conn.execute(
+            "SELECT id, criterion, source, is_completed, is_deferred, deferred_reason, "
+            "cost_dollars, tokens_in, tokens_out, "
+            "criterion_type, verification_spec, commit_hash, committed_at, created_at "
+            "FROM acceptance_criteria WHERE task_id = ? ORDER BY id",
+            (args.task_id,),
+        ).fetchall()
+    finally:
         conn.close()
-        return 2
-
-    rows = conn.execute(
-        "SELECT id, criterion, source, is_completed, is_deferred, deferred_reason, "
-        "cost_dollars, tokens_in, tokens_out, "
-        "criterion_type, verification_spec, commit_hash, committed_at, created_at "
-        "FROM acceptance_criteria WHERE task_id = ? ORDER BY id",
-        (args.task_id,),
-    ).fetchall()
-    conn.close()
 
     if not rows:
         print(f"No acceptance criteria for task #{args.task_id}: {task['summary']}")
@@ -245,170 +243,165 @@ def cmd_list(args: argparse.Namespace, db_path: str, config: dict) -> int:
 
 def cmd_done(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn = get_connection(db_path)
-
-    row = conn.execute(
-        "SELECT id, task_id, criterion, is_completed, criterion_type, verification_spec "
-        "FROM acceptance_criteria WHERE id = ?",
-        (args.criterion_id,),
-    ).fetchone()
-    if not row:
-        print(f"Error: Criterion {args.criterion_id} not found", file=sys.stderr)
-        conn.close()
-        return 2
-
-    if row["is_completed"]:
-        print(f"Criterion #{args.criterion_id} is already completed")
-        conn.close()
-        return 0
-
-    criterion_type = row["criterion_type"] or "manual"
-    spec = row["verification_spec"]
-
-    # Run verification for non-manual types (unless --skip-verify)
-    verification_result = None
-    if criterion_type != "manual" and spec and not args.skip_verify:
-        result = run_verification(criterion_type, spec)
-        verification_result = json.dumps(result)
-
-        if not result["passed"]:
-            # Store the failed result
-            conn.execute(
-                "UPDATE acceptance_criteria SET verification_result = ?, "
-                "updated_at = datetime('now') WHERE id = ?",
-                (verification_result, args.criterion_id),
-            )
-            conn.commit()
-            conn.close()
-
-            print(f"Verification FAILED for criterion #{args.criterion_id} ({criterion_type}):",
-                  file=sys.stderr)
-            if result["output"]:
-                print(result["output"], file=sys.stderr)
-            print("Use --skip-verify to bypass verification.", file=sys.stderr)
-            return 1
-
-    # Best-effort: capture current git HEAD short hash and commit timestamp
-    commit_hash = None
-    committed_at = None
     try:
-        commit_hash = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            stderr=subprocess.DEVNULL,
-        ).decode().strip() or None
-        if commit_hash:
-            committed_at = subprocess.check_output(
-                ["git", "log", "-1", "--format=%cI", "HEAD"],
+        row = conn.execute(
+            "SELECT id, task_id, criterion, is_completed, criterion_type, verification_spec "
+            "FROM acceptance_criteria WHERE id = ?",
+            (args.criterion_id,),
+        ).fetchone()
+        if not row:
+            print(f"Error: Criterion {args.criterion_id} not found", file=sys.stderr)
+            return 2
+
+        if row["is_completed"]:
+            print(f"Criterion #{args.criterion_id} is already completed")
+            return 0
+
+        criterion_type = row["criterion_type"] or "manual"
+        spec = row["verification_spec"]
+
+        # Run verification for non-manual types (unless --skip-verify)
+        verification_result = None
+        if criterion_type != "manual" and spec and not args.skip_verify:
+            result = run_verification(criterion_type, spec)
+            verification_result = json.dumps(result)
+
+            if not result["passed"]:
+                # Store the failed result
+                conn.execute(
+                    "UPDATE acceptance_criteria SET verification_result = ?, "
+                    "updated_at = datetime('now') WHERE id = ?",
+                    (verification_result, args.criterion_id),
+                )
+                conn.commit()
+
+                print(f"Verification FAILED for criterion #{args.criterion_id} ({criterion_type}):",
+                      file=sys.stderr)
+                if result["output"]:
+                    print(result["output"], file=sys.stderr)
+                print("Use --skip-verify to bypass verification.", file=sys.stderr)
+                return 1
+
+        # Best-effort: capture current git HEAD short hash and commit timestamp
+        commit_hash = None
+        committed_at = None
+        try:
+            commit_hash = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
                 stderr=subprocess.DEVNULL,
             ).decode().strip() or None
-    except Exception:
-        pass  # Non-git environment — leave as NULL
+            if commit_hash:
+                committed_at = subprocess.check_output(
+                    ["git", "log", "-1", "--format=%cI", "HEAD"],
+                    stderr=subprocess.DEVNULL,
+                ).decode().strip() or None
+        except Exception:
+            pass  # Non-git environment — leave as NULL
 
-    # Warn if another completed criterion on this task already has this commit hash
-    if commit_hash is not None:
-        dup = conn.execute(
-            "SELECT id FROM acceptance_criteria "
-            "WHERE task_id = ? AND id <> ? AND commit_hash = ? AND is_completed = 1 "
-            "LIMIT 1",
-            (row["task_id"], args.criterion_id, commit_hash),
-        ).fetchone()
-        if dup:
-            print(
-                f"Warning: Criterion #{args.criterion_id} shares commit {commit_hash} "
-                f"with criterion #{dup['id']}.\n"
-                f"Commit separately per criterion for accurate cost attribution.",
-                file=sys.stderr,
-            )
+        # Warn if another completed criterion on this task already has this commit hash
+        if commit_hash is not None:
+            dup = conn.execute(
+                "SELECT id FROM acceptance_criteria "
+                "WHERE task_id = ? AND id <> ? AND commit_hash = ? AND is_completed = 1 "
+                "LIMIT 1",
+                (row["task_id"], args.criterion_id, commit_hash),
+            ).fetchone()
+            if dup:
+                print(
+                    f"Warning: Criterion #{args.criterion_id} shares commit {commit_hash} "
+                    f"with criterion #{dup['id']}.\n"
+                    f"Commit separately per criterion for accurate cost attribution.",
+                    file=sys.stderr,
+                )
 
-    conn.execute(
-        "UPDATE acceptance_criteria SET is_completed = 1, "
-        "completed_at = strftime('%Y-%m-%d %H:%M:%f', 'now'), "
-        "commit_hash = ?, committed_at = ?, "
-        "verification_result = ?, updated_at = datetime('now') WHERE id = ?",
-        (commit_hash, committed_at, verification_result, args.criterion_id),
-    )
-    conn.commit()
+        conn.execute(
+            "UPDATE acceptance_criteria SET is_completed = 1, "
+            "completed_at = strftime('%Y-%m-%d %H:%M:%f', 'now'), "
+            "commit_hash = ?, committed_at = ?, "
+            "verification_result = ?, updated_at = datetime('now') WHERE id = ?",
+            (commit_hash, committed_at, verification_result, args.criterion_id),
+        )
+        conn.commit()
 
-    # Best-effort cost capture
-    capture_criterion_cost(conn, args.criterion_id, row["task_id"])
-    conn.commit()
+        # Best-effort cost capture
+        capture_criterion_cost(conn, args.criterion_id, row["task_id"])
+        conn.commit()
 
-    conn.close()
-    verified_msg = ""
-    if criterion_type != "manual" and not args.skip_verify:
-        verified_msg = " (verification passed)"
-    elif criterion_type != "manual" and args.skip_verify:
-        verified_msg = " (verification skipped)"
-    print(f"Criterion #{args.criterion_id} marked done{verified_msg}: {row['criterion']}")
-    return 0
+        verified_msg = ""
+        if criterion_type != "manual" and not args.skip_verify:
+            verified_msg = " (verification passed)"
+        elif criterion_type != "manual" and args.skip_verify:
+            verified_msg = " (verification skipped)"
+        print(f"Criterion #{args.criterion_id} marked done{verified_msg}: {row['criterion']}")
+        return 0
+    finally:
+        conn.close()
 
 
 def cmd_skip(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn = get_connection(db_path)
+    try:
+        row = conn.execute(
+            "SELECT id, task_id, criterion, is_completed, is_deferred, deferred_reason "
+            "FROM acceptance_criteria WHERE id = ?",
+            (args.criterion_id,),
+        ).fetchone()
+        if not row:
+            print(f"Error: Criterion {args.criterion_id} not found", file=sys.stderr)
+            return 2
 
-    row = conn.execute(
-        "SELECT id, task_id, criterion, is_completed, is_deferred, deferred_reason "
-        "FROM acceptance_criteria WHERE id = ?",
-        (args.criterion_id,),
-    ).fetchone()
-    if not row:
-        print(f"Error: Criterion {args.criterion_id} not found", file=sys.stderr)
-        conn.close()
-        return 2
+        if row["is_completed"]:
+            print(f"Criterion #{args.criterion_id} is already completed")
+            return 0
 
-    if row["is_completed"]:
-        print(f"Criterion #{args.criterion_id} is already completed")
-        conn.close()
-        return 0
+        if row["is_deferred"]:
+            print(
+                f"Criterion #{args.criterion_id} is already deferred "
+                f"(reason: {row['deferred_reason']}): {row['criterion']}"
+            )
+            return 0
 
-    if row["is_deferred"]:
-        print(
-            f"Criterion #{args.criterion_id} is already deferred "
-            f"(reason: {row['deferred_reason']}): {row['criterion']}"
+        conn.execute(
+            "UPDATE acceptance_criteria SET is_deferred = 1, deferred_reason = ?, "
+            "updated_at = datetime('now') WHERE id = ?",
+            (args.reason, args.criterion_id),
         )
-        conn.close()
+        conn.commit()
+        print(f"Criterion #{args.criterion_id} marked as deferred (reason: {args.reason}): {row['criterion']}")
         return 0
-
-    conn.execute(
-        "UPDATE acceptance_criteria SET is_deferred = 1, deferred_reason = ?, "
-        "updated_at = datetime('now') WHERE id = ?",
-        (args.reason, args.criterion_id),
-    )
-    conn.commit()
-    conn.close()
-    print(f"Criterion #{args.criterion_id} marked as deferred (reason: {args.reason}): {row['criterion']}")
-    return 0
+    finally:
+        conn.close()
 
 
 def cmd_reset(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn = get_connection(db_path)
+    try:
+        row = conn.execute(
+            "SELECT id, task_id, criterion, is_completed, is_deferred "
+            "FROM acceptance_criteria WHERE id = ?",
+            (args.criterion_id,),
+        ).fetchone()
+        if not row:
+            print(f"Error: Criterion {args.criterion_id} not found", file=sys.stderr)
+            return 2
 
-    row = conn.execute(
-        "SELECT id, task_id, criterion, is_completed, is_deferred "
-        "FROM acceptance_criteria WHERE id = ?",
-        (args.criterion_id,),
-    ).fetchone()
-    if not row:
-        print(f"Error: Criterion {args.criterion_id} not found", file=sys.stderr)
-        conn.close()
-        return 2
+        if not row["is_completed"] and not row["is_deferred"]:
+            print(f"Criterion #{args.criterion_id} is already incomplete and not deferred")
+            return 0
 
-    if not row["is_completed"] and not row["is_deferred"]:
-        print(f"Criterion #{args.criterion_id} is already incomplete and not deferred")
-        conn.close()
+        conn.execute(
+            "UPDATE acceptance_criteria SET is_completed = 0, completed_at = NULL, "
+            "cost_dollars = NULL, tokens_in = NULL, tokens_out = NULL, "
+            "verification_result = NULL, commit_hash = NULL, committed_at = NULL, "
+            "is_deferred = 0, deferred_reason = NULL, "
+            "updated_at = datetime('now') WHERE id = ?",
+            (args.criterion_id,),
+        )
+        conn.commit()
+        print(f"Criterion #{args.criterion_id} reset to incomplete: {row['criterion']}")
         return 0
-
-    conn.execute(
-        "UPDATE acceptance_criteria SET is_completed = 0, completed_at = NULL, "
-        "cost_dollars = NULL, tokens_in = NULL, tokens_out = NULL, "
-        "verification_result = NULL, commit_hash = NULL, committed_at = NULL, "
-        "is_deferred = 0, deferred_reason = NULL, "
-        "updated_at = datetime('now') WHERE id = ?",
-        (args.criterion_id,),
-    )
-    conn.commit()
-    conn.close()
-    print(f"Criterion #{args.criterion_id} reset to incomplete: {row['criterion']}")
-    return 0
+    finally:
+        conn.close()
 
 
 # ── CLI ──────────────────────────────────────────────────────────────

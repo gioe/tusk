@@ -77,48 +77,46 @@ def main(argv: list[str]) -> int:
         return 1
 
     conn = get_connection(db_path)
-
-    # Validate task exists
-    task = conn.execute("SELECT id, status FROM tasks WHERE id = ?", (task_id,)).fetchone()
-    if not task:
-        print(f"Error: Task {task_id} not found", file=sys.stderr)
-        conn.close()
-        return 2
-    if task["status"] == "Done":
-        print(f"Error: Task {task_id} is already Done", file=sys.stderr)
-        conn.close()
-        return 2
-
-    # Gather git info from HEAD
     try:
-        commit_hash = git(["rev-parse", "--short", "HEAD"])
-        commit_message = git(["log", "-1", "--pretty=%s"])
-        files_raw = git(["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"])
-        files_changed = ", ".join(files_raw.splitlines()) if files_raw else ""
-    except RuntimeError as e:
-        print(f"Error: {e}", file=sys.stderr)
+        # Validate task exists
+        task = conn.execute("SELECT id, status FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        if not task:
+            print(f"Error: Task {task_id} not found", file=sys.stderr)
+            return 2
+        if task["status"] == "Done":
+            print(f"Error: Task {task_id} is already Done", file=sys.stderr)
+            return 2
+
+        # Gather git info from HEAD
+        try:
+            commit_hash = git(["rev-parse", "--short", "HEAD"])
+            commit_message = git(["log", "-1", "--pretty=%s"])
+            files_raw = git(["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"])
+            files_changed = ", ".join(files_raw.splitlines()) if files_raw else ""
+        except RuntimeError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 2
+
+        # Insert progress checkpoint
+        conn.execute(
+            "INSERT INTO task_progress (task_id, commit_hash, commit_message, files_changed, next_steps) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (task_id, commit_hash, commit_message, files_changed, next_steps),
+        )
+        conn.commit()
+
+        # Print confirmation
+        result = {
+            "task_id": task_id,
+            "commit_hash": commit_hash,
+            "commit_message": commit_message,
+            "files_changed": files_changed,
+            "next_steps": next_steps,
+        }
+        print(json.dumps(result, indent=2))
+        return 0
+    finally:
         conn.close()
-        return 2
-
-    # Insert progress checkpoint
-    conn.execute(
-        "INSERT INTO task_progress (task_id, commit_hash, commit_message, files_changed, next_steps) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (task_id, commit_hash, commit_message, files_changed, next_steps),
-    )
-    conn.commit()
-
-    # Print confirmation
-    result = {
-        "task_id": task_id,
-        "commit_hash": commit_hash,
-        "commit_message": commit_message,
-        "files_changed": files_changed,
-        "next_steps": next_steps,
-    }
-    print(json.dumps(result, indent=2))
-    conn.close()
-    return 0
 
 
 if __name__ == "__main__":

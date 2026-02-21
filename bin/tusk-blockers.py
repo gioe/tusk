@@ -35,50 +35,49 @@ def load_blocker_types(config_path: str) -> list[str]:
 
 def cmd_add(args: argparse.Namespace, db_path: str, config_path: str) -> int:
     conn = get_connection(db_path)
-
-    task = conn.execute("SELECT id FROM tasks WHERE id = ?", (args.task_id,)).fetchone()
-    if not task:
-        print(f"Error: Task {args.task_id} not found", file=sys.stderr)
-        conn.close()
-        return 2
-
-    if args.type:
-        valid_types = load_blocker_types(config_path)
-        if valid_types and args.type not in valid_types:
-            print(f"Error: Invalid blocker_type '{args.type}'. Valid: {', '.join(valid_types)}", file=sys.stderr)
-            conn.close()
+    try:
+        task = conn.execute("SELECT id FROM tasks WHERE id = ?", (args.task_id,)).fetchone()
+        if not task:
+            print(f"Error: Task {args.task_id} not found", file=sys.stderr)
             return 2
 
-    conn.execute(
-        "INSERT INTO external_blockers (task_id, description, blocker_type) VALUES (?, ?, ?)",
-        (args.task_id, args.description, args.type),
-    )
-    conn.commit()
+        if args.type:
+            valid_types = load_blocker_types(config_path)
+            if valid_types and args.type not in valid_types:
+                print(f"Error: Invalid blocker_type '{args.type}'. Valid: {', '.join(valid_types)}", file=sys.stderr)
+                return 2
 
-    bid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-    conn.close()
-    type_str = f" [{args.type}]" if args.type else ""
-    print(f"Added blocker #{bid} to task #{args.task_id}{type_str}: {args.description}")
-    return 0
+        conn.execute(
+            "INSERT INTO external_blockers (task_id, description, blocker_type) VALUES (?, ?, ?)",
+            (args.task_id, args.description, args.type),
+        )
+        conn.commit()
+
+        bid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        type_str = f" [{args.type}]" if args.type else ""
+        print(f"Added blocker #{bid} to task #{args.task_id}{type_str}: {args.description}")
+        return 0
+    finally:
+        conn.close()
 
 
 def cmd_list(args: argparse.Namespace, db_path: str) -> int:
     conn = get_connection(db_path)
+    try:
+        task = conn.execute(
+            "SELECT id, summary FROM tasks WHERE id = ?", (args.task_id,)
+        ).fetchone()
+        if not task:
+            print(f"Error: Task {args.task_id} not found", file=sys.stderr)
+            return 2
 
-    task = conn.execute(
-        "SELECT id, summary FROM tasks WHERE id = ?", (args.task_id,)
-    ).fetchone()
-    if not task:
-        print(f"Error: Task {args.task_id} not found", file=sys.stderr)
+        rows = conn.execute(
+            "SELECT id, description, blocker_type, is_resolved, resolved_at, created_at "
+            "FROM external_blockers WHERE task_id = ? ORDER BY id",
+            (args.task_id,),
+        ).fetchall()
+    finally:
         conn.close()
-        return 2
-
-    rows = conn.execute(
-        "SELECT id, description, blocker_type, is_resolved, resolved_at, created_at "
-        "FROM external_blockers WHERE task_id = ? ORDER BY id",
-        (args.task_id,),
-    ).fetchall()
-    conn.close()
 
     if not rows:
         print(f"No blockers for task #{args.task_id}: {task['summary']}")
@@ -99,63 +98,63 @@ def cmd_list(args: argparse.Namespace, db_path: str) -> int:
 
 def cmd_resolve(args: argparse.Namespace, db_path: str) -> int:
     conn = get_connection(db_path)
+    try:
+        row = conn.execute(
+            "SELECT id, task_id, description, is_resolved FROM external_blockers WHERE id = ?",
+            (args.blocker_id,),
+        ).fetchone()
+        if not row:
+            print(f"Error: Blocker {args.blocker_id} not found", file=sys.stderr)
+            return 2
 
-    row = conn.execute(
-        "SELECT id, task_id, description, is_resolved FROM external_blockers WHERE id = ?",
-        (args.blocker_id,),
-    ).fetchone()
-    if not row:
-        print(f"Error: Blocker {args.blocker_id} not found", file=sys.stderr)
-        conn.close()
-        return 2
+        if row["is_resolved"]:
+            print(f"Blocker #{args.blocker_id} is already resolved")
+            return 0
 
-    if row["is_resolved"]:
-        print(f"Blocker #{args.blocker_id} is already resolved")
-        conn.close()
+        conn.execute(
+            "UPDATE external_blockers SET is_resolved = 1, resolved_at = datetime('now') WHERE id = ?",
+            (args.blocker_id,),
+        )
+        conn.commit()
+        print(f"Blocker #{args.blocker_id} resolved: {row['description']}")
         return 0
-
-    conn.execute(
-        "UPDATE external_blockers SET is_resolved = 1, resolved_at = datetime('now') WHERE id = ?",
-        (args.blocker_id,),
-    )
-    conn.commit()
-    conn.close()
-    print(f"Blocker #{args.blocker_id} resolved: {row['description']}")
-    return 0
+    finally:
+        conn.close()
 
 
 def cmd_remove(args: argparse.Namespace, db_path: str) -> int:
     conn = get_connection(db_path)
+    try:
+        row = conn.execute(
+            "SELECT id, description FROM external_blockers WHERE id = ?",
+            (args.blocker_id,),
+        ).fetchone()
+        if not row:
+            print(f"Error: Blocker {args.blocker_id} not found", file=sys.stderr)
+            return 2
 
-    row = conn.execute(
-        "SELECT id, description FROM external_blockers WHERE id = ?",
-        (args.blocker_id,),
-    ).fetchone()
-    if not row:
-        print(f"Error: Blocker {args.blocker_id} not found", file=sys.stderr)
+        conn.execute("DELETE FROM external_blockers WHERE id = ?", (args.blocker_id,))
+        conn.commit()
+        print(f"Removed blocker #{args.blocker_id}: {row['description']}")
+        return 0
+    finally:
         conn.close()
-        return 2
-
-    conn.execute("DELETE FROM external_blockers WHERE id = ?", (args.blocker_id,))
-    conn.commit()
-    conn.close()
-    print(f"Removed blocker #{args.blocker_id}: {row['description']}")
-    return 0
 
 
 def cmd_blocked(db_path: str) -> int:
     conn = get_connection(db_path)
-
-    rows = conn.execute("""
-        SELECT t.id, t.summary, t.status, t.priority,
-            COUNT(eb.id) as blocker_count
-        FROM tasks t
-        JOIN external_blockers eb ON eb.task_id = t.id
-        WHERE eb.is_resolved = 0
-        GROUP BY t.id
-        ORDER BY t.priority_score DESC, t.id
-    """).fetchall()
-    conn.close()
+    try:
+        rows = conn.execute("""
+            SELECT t.id, t.summary, t.status, t.priority,
+                COUNT(eb.id) as blocker_count
+            FROM tasks t
+            JOIN external_blockers eb ON eb.task_id = t.id
+            WHERE eb.is_resolved = 0
+            GROUP BY t.id
+            ORDER BY t.priority_score DESC, t.id
+        """).fetchall()
+    finally:
+        conn.close()
 
     if not rows:
         print("No tasks with unresolved blockers")
@@ -171,15 +170,16 @@ def cmd_blocked(db_path: str) -> int:
 
 def cmd_all(db_path: str) -> int:
     conn = get_connection(db_path)
-
-    rows = conn.execute("""
-        SELECT eb.id, eb.task_id, t.summary as task_summary,
-            eb.description, eb.blocker_type, eb.is_resolved, eb.resolved_at, eb.created_at
-        FROM external_blockers eb
-        JOIN tasks t ON eb.task_id = t.id
-        ORDER BY eb.is_resolved, eb.task_id, eb.id
-    """).fetchall()
-    conn.close()
+    try:
+        rows = conn.execute("""
+            SELECT eb.id, eb.task_id, t.summary as task_summary,
+                eb.description, eb.blocker_type, eb.is_resolved, eb.resolved_at, eb.created_at
+            FROM external_blockers eb
+            JOIN tasks t ON eb.task_id = t.id
+            ORDER BY eb.is_resolved, eb.task_id, eb.id
+        """).fetchall()
+    finally:
+        conn.close()
 
     if not rows:
         print("No blockers defined")

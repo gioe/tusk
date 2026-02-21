@@ -146,43 +146,43 @@ def main(argv: list[str]) -> int:
 
     # Verify task exists
     conn = get_connection(db_path)
-    task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-    if not task:
-        print(f"Error: Task {task_id} not found", file=sys.stderr)
-        conn.close()
-        return 1
-
-    # Build dynamic SET clause
-    set_parts = []
-    params = []
-    for col, val in updates.items():
-        set_parts.append(f"{col} = ?")
-        params.append(val)
-    set_parts.append("updated_at = datetime('now')")
-    params.append(task_id)
-
-    sql = f"UPDATE tasks SET {', '.join(set_parts)} WHERE id = ?"
-
     try:
-        conn.execute(sql, params)
-        conn.commit()
-    except sqlite3.Error as e:
-        conn.rollback()
-        print(f"Database error: {e}", file=sys.stderr)
+        task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        if not task:
+            print(f"Error: Task {task_id} not found", file=sys.stderr)
+            return 1
+
+        # Build dynamic SET clause
+        set_parts = []
+        params = []
+        for col, val in updates.items():
+            set_parts.append(f"{col} = ?")
+            params.append(val)
+        set_parts.append("updated_at = datetime('now')")
+        params.append(task_id)
+
+        sql = f"UPDATE tasks SET {', '.join(set_parts)} WHERE id = ?"
+
+        try:
+            conn.execute(sql, params)
+            conn.commit()
+        except sqlite3.Error as e:
+            conn.rollback()
+            print(f"Database error: {e}", file=sys.stderr)
+            return 2
+
+        # Re-score WSJF if priority or complexity changed (inputs to the formula)
+        if "priority" in updates or "complexity" in updates:
+            subprocess.run(["tusk", "wsjf"], capture_output=True)
+
+        # Re-fetch and return updated task
+        updated_task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        task_dict = {key: updated_task[key] for key in updated_task.keys()}
+
+        print(json.dumps(task_dict, indent=2))
+        return 0
+    finally:
         conn.close()
-        return 2
-
-    # Re-score WSJF if priority or complexity changed (inputs to the formula)
-    if "priority" in updates or "complexity" in updates:
-        subprocess.run(["tusk", "wsjf"], capture_output=True)
-
-    # Re-fetch and return updated task
-    updated_task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-    task_dict = {key: updated_task[key] for key in updated_task.keys()}
-
-    print(json.dumps(task_dict, indent=2))
-    conn.close()
-    return 0
 
 
 if __name__ == "__main__":

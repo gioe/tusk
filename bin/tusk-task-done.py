@@ -80,88 +80,86 @@ def main(argv: list[str]) -> int:
         return 1
 
     conn = get_connection(db_path)
+    try:
+        # 1. Fetch and validate the task
+        task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        if not task:
+            print(f"Error: Task {task_id} not found", file=sys.stderr)
+            return 2
 
-    # 1. Fetch and validate the task
-    task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-    if not task:
-        print(f"Error: Task {task_id} not found", file=sys.stderr)
+        if task["status"] == "Done":
+            print(f"Error: Task {task_id} is already Done", file=sys.stderr)
+            return 2
+
+        # 2. Check for uncompleted acceptance criteria (deferred criteria do not block closure)
+        open_criteria = conn.execute(
+            "SELECT id, criterion FROM acceptance_criteria "
+            "WHERE task_id = ? AND is_completed = 0 AND is_deferred = 0",
+            (task_id,),
+        ).fetchall()
+
+        if open_criteria and not force:
+            print(f"Error: Task {task_id} has {len(open_criteria)} uncompleted acceptance criteria:", file=sys.stderr)
+            for row in open_criteria:
+                print(f"  [{row['id']}] {row['criterion']}", file=sys.stderr)
+            print("\nUse --force to close anyway.", file=sys.stderr)
+            return 3
+
+        # 3. Close all open sessions
+        cursor = conn.execute(
+            "UPDATE task_sessions "
+            "SET ended_at = datetime('now'), "
+            "    duration_seconds = CAST((julianday(datetime('now')) - julianday(started_at)) * 86400 AS INTEGER), "
+            "    lines_added = COALESCE(lines_added, 0), "
+            "    lines_removed = COALESCE(lines_removed, 0) "
+            "WHERE task_id = ? AND ended_at IS NULL",
+            (task_id,),
+        )
+        sessions_closed = cursor.rowcount
+
+        # 4. Update task status to Done
+        conn.execute(
+            "UPDATE tasks SET status = 'Done', closed_reason = ?, updated_at = datetime('now') WHERE id = ?",
+            (reason, task_id),
+        )
+
+        conn.commit()
+
+        # 5. Find newly unblocked tasks
+        unblocked_rows = conn.execute(
+            "SELECT t.id, t.summary, t.priority, t.priority_score "
+            "FROM tasks t "
+            "JOIN task_dependencies d ON t.id = d.task_id "
+            "WHERE d.depends_on_id = ? "
+            "  AND t.status = 'To Do' "
+            "  AND NOT EXISTS ( "
+            "    SELECT 1 FROM task_dependencies d2 "
+            "    JOIN tasks blocker ON d2.depends_on_id = blocker.id "
+            "    WHERE d2.task_id = t.id AND blocker.status <> 'Done' "
+            "  ) "
+            "  AND NOT EXISTS ( "
+            "    SELECT 1 FROM external_blockers eb "
+            "    WHERE eb.task_id = t.id AND eb.is_resolved = 0 "
+            "  )",
+            (task_id,),
+        ).fetchall()
+
+        # 6. Build and return JSON result
+        # Re-fetch task to get updated values
+        updated_task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        task_dict = {key: updated_task[key] for key in updated_task.keys()}
+        unblocked_list = [{key: row[key] for key in row.keys()} for row in unblocked_rows]
+
+        result = {
+            "task": task_dict,
+            "sessions_closed": sessions_closed,
+            "unblocked_tasks": unblocked_list,
+        }
+
+        print(json.dumps(result, indent=2))
+        return 0
+    finally:
         conn.close()
-        return 2
-
-    if task["status"] == "Done":
-        print(f"Error: Task {task_id} is already Done", file=sys.stderr)
-        conn.close()
-        return 2
-
-    # 2. Check for uncompleted acceptance criteria (deferred criteria do not block closure)
-    open_criteria = conn.execute(
-        "SELECT id, criterion FROM acceptance_criteria "
-        "WHERE task_id = ? AND is_completed = 0 AND is_deferred = 0",
-        (task_id,),
-    ).fetchall()
-
-    if open_criteria and not force:
-        print(f"Error: Task {task_id} has {len(open_criteria)} uncompleted acceptance criteria:", file=sys.stderr)
-        for row in open_criteria:
-            print(f"  [{row['id']}] {row['criterion']}", file=sys.stderr)
-        print("\nUse --force to close anyway.", file=sys.stderr)
-        conn.close()
-        return 3
-
-    # 3. Close all open sessions
-    cursor = conn.execute(
-        "UPDATE task_sessions "
-        "SET ended_at = datetime('now'), "
-        "    duration_seconds = CAST((julianday(datetime('now')) - julianday(started_at)) * 86400 AS INTEGER), "
-        "    lines_added = COALESCE(lines_added, 0), "
-        "    lines_removed = COALESCE(lines_removed, 0) "
-        "WHERE task_id = ? AND ended_at IS NULL",
-        (task_id,),
-    )
-    sessions_closed = cursor.rowcount
-
-    # 4. Update task status to Done
-    conn.execute(
-        "UPDATE tasks SET status = 'Done', closed_reason = ?, updated_at = datetime('now') WHERE id = ?",
-        (reason, task_id),
-    )
-
-    conn.commit()
-
-    # 5. Find newly unblocked tasks
-    unblocked_rows = conn.execute(
-        "SELECT t.id, t.summary, t.priority, t.priority_score "
-        "FROM tasks t "
-        "JOIN task_dependencies d ON t.id = d.task_id "
-        "WHERE d.depends_on_id = ? "
-        "  AND t.status = 'To Do' "
-        "  AND NOT EXISTS ( "
-        "    SELECT 1 FROM task_dependencies d2 "
-        "    JOIN tasks blocker ON d2.depends_on_id = blocker.id "
-        "    WHERE d2.task_id = t.id AND blocker.status <> 'Done' "
-        "  ) "
-        "  AND NOT EXISTS ( "
-        "    SELECT 1 FROM external_blockers eb "
-        "    WHERE eb.task_id = t.id AND eb.is_resolved = 0 "
-        "  )",
-        (task_id,),
-    ).fetchall()
-
-    # 6. Build and return JSON result
-    # Re-fetch task to get updated values
-    updated_task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
-    task_dict = {key: updated_task[key] for key in updated_task.keys()}
-    unblocked_list = [{key: row[key] for key in row.keys()} for row in unblocked_rows]
-
-    result = {
-        "task": task_dict,
-        "sessions_closed": sessions_closed,
-        "unblocked_tasks": unblocked_list,
-    }
-
-    print(json.dumps(result, indent=2))
-    conn.close()
-    return 0
 
 
 if __name__ == "__main__":

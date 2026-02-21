@@ -159,8 +159,10 @@ def cmd_check(args: argparse.Namespace, db_path: str) -> int:
     log.debug("cmd_check: summary=%r, domain=%s, threshold=%s",
               args.summary, args.domain, args.threshold)
     conn = get_connection(db_path)
-    tasks = get_open_tasks(conn, domain=args.domain)
-    conn.close()
+    try:
+        tasks = get_open_tasks(conn, domain=args.domain)
+    finally:
+        conn.close()
 
     norm_input = normalize_summary(args.summary)
     log.debug("Normalized input: %r", norm_input)
@@ -200,8 +202,10 @@ def cmd_scan(args: argparse.Namespace, db_path: str) -> int:
     log.debug("cmd_scan: domain=%s, status=%s, threshold=%s",
               args.domain, args.status, args.threshold)
     conn = get_connection(db_path)
-    tasks = get_open_tasks(conn, domain=args.domain, status=args.status)
-    conn.close()
+    try:
+        tasks = get_open_tasks(conn, domain=args.domain, status=args.status)
+    finally:
+        conn.close()
 
     cache = build_norm_cache(tasks)
     log.debug("Comparing %d tasks (%d pairs)", len(tasks), len(tasks) * (len(tasks) - 1) // 2)
@@ -249,17 +253,17 @@ def cmd_similar(args: argparse.Namespace, db_path: str) -> int:
     log.debug("cmd_similar: id=%d, domain=%s, threshold=%s",
               args.id, args.domain, args.threshold)
     conn = get_connection(db_path)
+    try:
+        target = conn.execute(
+            "SELECT id, summary, domain FROM tasks WHERE id = ?", (args.id,)
+        ).fetchone()
+        if not target:
+            print(f"Error: Task {args.id} not found", file=sys.stderr)
+            return 2
 
-    target = conn.execute(
-        "SELECT id, summary, domain FROM tasks WHERE id = ?", (args.id,)
-    ).fetchone()
-    if not target:
-        print(f"Error: Task {args.id} not found", file=sys.stderr)
+        tasks = get_open_tasks(conn, domain=args.domain)
+    finally:
         conn.close()
-        return 2
-
-    tasks = get_open_tasks(conn, domain=args.domain)
-    conn.close()
 
     norm_target = normalize_summary(target["summary"])
     cache = build_norm_cache(tasks)

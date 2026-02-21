@@ -235,20 +235,19 @@ Examples:
         sys.exit(1)
 
     conn = get_connection(db_path)
+    try:
+        if not task_exists(conn, args.head_task_id):
+            print(f"Error: Task {args.head_task_id} does not exist", file=sys.stderr)
+            sys.exit(1)
 
-    if not task_exists(conn, args.head_task_id):
-        print(f"Error: Task {args.head_task_id} does not exist", file=sys.stderr)
+        if args.command == "scope":
+            cmd_scope(conn, args.head_task_id)
+        elif args.command == "frontier":
+            cmd_frontier(conn, args.head_task_id)
+        elif args.command == "status":
+            cmd_status(conn, args.head_task_id)
+    finally:
         conn.close()
-        sys.exit(1)
-
-    if args.command == "scope":
-        cmd_scope(conn, args.head_task_id)
-    elif args.command == "frontier":
-        cmd_frontier(conn, args.head_task_id)
-    elif args.command == "status":
-        cmd_status(conn, args.head_task_id)
-
-    conn.close()
 
 
 if __name__ == "__main__":

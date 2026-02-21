@@ -164,36 +164,36 @@ def main(argv: list[str]) -> int:
     # argv[1] is config_path — reserved for future use
 
     conn = get_connection(db_path)
+    try:
+        # 1. Expired deferred
+        expired_ids = autoclose_expired_deferred(conn)
 
-    # 1. Expired deferred
-    expired_ids = autoclose_expired_deferred(conn)
+        # 2. Merged PRs
+        pr_result = autoclose_merged_prs(conn)
 
-    # 2. Merged PRs
-    pr_result = autoclose_merged_prs(conn)
+        # 3. Moot contingent
+        moot_closed = autoclose_moot_contingent(conn)
 
-    # 3. Moot contingent
-    moot_closed = autoclose_moot_contingent(conn)
+        conn.commit()
 
-    conn.commit()
+        # Build summary
+        summary = {
+            "expired_deferred": {"count": len(expired_ids), "task_ids": expired_ids},
+            "merged_prs": {"count": len(pr_result["closed"]), "task_ids": pr_result["closed"]},
+            "moot_contingent": {"count": len(moot_closed), "task_ids": [c["id"] for c in moot_closed]},
+            "total_closed": len(expired_ids) + len(pr_result["closed"]) + len(moot_closed),
+        }
 
-    # Build summary
-    summary = {
-        "expired_deferred": {"count": len(expired_ids), "task_ids": expired_ids},
-        "merged_prs": {"count": len(pr_result["closed"]), "task_ids": pr_result["closed"]},
-        "moot_contingent": {"count": len(moot_closed), "task_ids": [c["id"] for c in moot_closed]},
-        "total_closed": len(expired_ids) + len(pr_result["closed"]) + len(moot_closed),
-    }
+        if pr_result["flagged"]:
+            summary["flagged_for_review"] = pr_result["flagged"]
 
-    if pr_result["flagged"]:
-        summary["flagged_for_review"] = pr_result["flagged"]
+        if moot_closed:
+            summary["moot_details"] = moot_closed
 
-    if moot_closed:
-        summary["moot_details"] = moot_closed
-
-    print(json.dumps(summary, indent=2))
-
-    conn.close()
-    return 0
+        print(json.dumps(summary, indent=2))
+        return 0
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

@@ -353,23 +353,23 @@ Examples:
         sys.exit(1)
 
     conn = get_connection(db_path)
-
-    if args.command == "add":
-        add_dependency(conn, args.task_id, args.depends_on_id, args.relationship_type)
-    elif args.command == "remove":
-        remove_dependency(conn, args.task_id, args.depends_on_id)
-    elif args.command == "list":
-        list_dependencies(conn, args.task_id)
-    elif args.command == "dependents":
-        list_dependents(conn, args.task_id)
-    elif args.command == "blocked":
-        show_blocked(conn)
-    elif args.command == "ready":
-        show_ready(conn)
-    elif args.command == "all":
-        show_all(conn)
-
-    conn.close()
+    try:
+        if args.command == "add":
+            add_dependency(conn, args.task_id, args.depends_on_id, args.relationship_type)
+        elif args.command == "remove":
+            remove_dependency(conn, args.task_id, args.depends_on_id)
+        elif args.command == "list":
+            list_dependencies(conn, args.task_id)
+        elif args.command == "dependents":
+            list_dependents(conn, args.task_id)
+        elif args.command == "blocked":
+            show_blocked(conn)
+        elif args.command == "ready":
+            show_ready(conn)
+        elif args.command == "all":
+            show_all(conn)
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

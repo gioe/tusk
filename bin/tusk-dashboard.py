@@ -3725,20 +3725,22 @@ def main():
 
     # Fetch data
     conn = get_connection(db_path)
-    task_metrics = fetch_task_metrics(conn)
-    kpi_data = fetch_kpi_data(conn)
-    cost_by_domain = fetch_cost_by_domain(conn)
-    complexity_metrics = fetch_complexity_metrics(conn)
-    cost_trend = fetch_cost_trend(conn)
-    cost_trend_daily = fetch_cost_trend_daily(conn)
-    cost_trend_monthly = fetch_cost_trend_monthly(conn)
-    all_criteria = fetch_all_criteria(conn)
-    task_deps = fetch_task_dependencies(conn)
-    # DAG data
-    dag_tasks = fetch_dag_tasks(conn)
-    dag_edges = fetch_edges(conn)
-    dag_blockers = fetch_blockers(conn)
-    conn.close()
+    try:
+        task_metrics = fetch_task_metrics(conn)
+        kpi_data = fetch_kpi_data(conn)
+        cost_by_domain = fetch_cost_by_domain(conn)
+        complexity_metrics = fetch_complexity_metrics(conn)
+        cost_trend = fetch_cost_trend(conn)
+        cost_trend_daily = fetch_cost_trend_daily(conn)
+        cost_trend_monthly = fetch_cost_trend_monthly(conn)
+        all_criteria = fetch_all_criteria(conn)
+        task_deps = fetch_task_dependencies(conn)
+        # DAG data
+        dag_tasks = fetch_dag_tasks(conn)
+        dag_edges = fetch_edges(conn)
+        dag_blockers = fetch_blockers(conn)
+    finally:
+        conn.close()
 
     log.debug("Cost by domain: %s", cost_by_domain)
 

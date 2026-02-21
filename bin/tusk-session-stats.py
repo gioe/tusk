@@ -75,65 +75,63 @@ def main():
     # Read session timestamps from DB
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    row = conn.execute(
-        "SELECT started_at, ended_at FROM task_sessions WHERE id = ?",
-        (session_id,),
-    ).fetchone()
+    try:
+        row = conn.execute(
+            "SELECT started_at, ended_at FROM task_sessions WHERE id = ?",
+            (session_id,),
+        ).fetchone()
 
-    if not row:
-        print(f"Error: No session found with id {session_id}", file=sys.stderr)
-        conn.close()
-        sys.exit(1)
-
-    started_at = lib.parse_sqlite_timestamp(row["started_at"])
-    ended_at = lib.parse_sqlite_timestamp(row["ended_at"]) if row["ended_at"] else None
-
-    # Discover transcript if not provided
-    if not transcript_path:
-        cwd = os.getcwd()
-        project_hash = lib.derive_project_hash(cwd)
-        transcript_path = lib.find_transcript(project_hash)
-        if not transcript_path:
-            print(
-                f"Error: No JSONL transcripts found for project hash '{project_hash}'.\n"
-                f"Looked in: ~/.claude/projects/{project_hash}/\n"
-                "Provide the transcript path explicitly.",
-                file=sys.stderr,
-            )
-            conn.close()
+        if not row:
+            print(f"Error: No session found with id {session_id}", file=sys.stderr)
             sys.exit(1)
 
-    if not os.path.isfile(transcript_path):
-        print(f"Error: Transcript not found: {transcript_path}", file=sys.stderr)
-        conn.close()
-        sys.exit(1)
+        started_at = lib.parse_sqlite_timestamp(row["started_at"])
+        ended_at = lib.parse_sqlite_timestamp(row["ended_at"]) if row["ended_at"] else None
 
-    # Aggregate tokens
-    totals = lib.aggregate_session(transcript_path, started_at, ended_at)
+        # Discover transcript if not provided
+        if not transcript_path:
+            cwd = os.getcwd()
+            project_hash = lib.derive_project_hash(cwd)
+            transcript_path = lib.find_transcript(project_hash)
+            if not transcript_path:
+                print(
+                    f"Error: No JSONL transcripts found for project hash '{project_hash}'.\n"
+                    f"Looked in: ~/.claude/projects/{project_hash}/\n"
+                    "Provide the transcript path explicitly.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
 
-    if totals["request_count"] == 0:
-        print(
-            f"Warning: No assistant messages found in time window "
-            f"[{started_at.isoformat()} .. {ended_at.isoformat() if ended_at else 'now'}]",
-            file=sys.stderr,
+        if not os.path.isfile(transcript_path):
+            print(f"Error: Transcript not found: {transcript_path}", file=sys.stderr)
+            sys.exit(1)
+
+        # Aggregate tokens
+        totals = lib.aggregate_session(transcript_path, started_at, ended_at)
+
+        if totals["request_count"] == 0:
+            print(
+                f"Warning: No assistant messages found in time window "
+                f"[{started_at.isoformat()} .. {ended_at.isoformat() if ended_at else 'now'}]",
+                file=sys.stderr,
+            )
+            sys.exit(0)
+
+        tokens_in = lib.compute_tokens_in(totals)
+        tokens_out = totals["output_tokens"]
+        cost = lib.compute_cost(totals)
+        model = totals["model"]
+
+        # Update DB
+        conn.execute(
+            """UPDATE task_sessions
+               SET tokens_in = ?, tokens_out = ?, cost_dollars = ?, model = ?
+               WHERE id = ?""",
+            (tokens_in, tokens_out, cost, model, session_id),
         )
+        conn.commit()
+    finally:
         conn.close()
-        sys.exit(0)
-
-    tokens_in = lib.compute_tokens_in(totals)
-    tokens_out = totals["output_tokens"]
-    cost = lib.compute_cost(totals)
-    model = totals["model"]
-
-    # Update DB
-    conn.execute(
-        """UPDATE task_sessions
-           SET tokens_in = ?, tokens_out = ?, cost_dollars = ?, model = ?
-           WHERE id = ?""",
-        (tokens_in, tokens_out, cost, model, session_id),
-    )
-    conn.commit()
-    conn.close()
 
     # Print summary
     print(f"Session {session_id} token stats updated:")

@@ -39,12 +39,14 @@ def main(argv: list[str]) -> int:
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
-        rows = conn.execute(
-            "SELECT id, summary, status, priority, domain, assignee, complexity, task_type, priority_score "
-            "FROM tasks WHERE status <> 'Done' ORDER BY priority_score DESC, id"
-        ).fetchall()
-        backlog = [dict(row) for row in rows]
-        conn.close()
+        try:
+            rows = conn.execute(
+                "SELECT id, summary, status, priority, domain, assignee, complexity, task_type, priority_score "
+                "FROM tasks WHERE status <> 'Done' ORDER BY priority_score DESC, id"
+            ).fetchall()
+            backlog = [dict(row) for row in rows]
+        finally:
+            conn.close()
     except sqlite3.Error as e:
         print(f"Error: Database query failed: {e}", file=sys.stderr)
         return 2
