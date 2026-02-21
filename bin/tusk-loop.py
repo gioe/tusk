@@ -138,54 +138,59 @@ Examples:
     )
     args = parser.parse_args(sys.argv[3:])
 
+    if args.max_tasks < 0:
+        print("Error: --max-tasks must be a positive integer", file=sys.stderr)
+        sys.exit(1)
+
     conn = get_connection(db_path)
     tasks_run = 0
-    # In dry-run, accumulate seen IDs to avoid showing the same task repeatedly
-    seen_ids: set[int] = set()
+    # Track dispatched IDs to prevent re-dispatching the same task if an agent
+    # exits 0 but leaves the task in 'To Do' (silent failure).
+    dispatched_ids: set[int] = set()
 
     print("tusk loop started", flush=True)
 
-    while True:
-        task = get_next_task(conn, exclude_ids=seen_ids if args.dry_run else None)
+    try:
+        while True:
+            task = get_next_task(conn, exclude_ids=dispatched_ids if dispatched_ids else None)
 
-        if task is None:
-            print("Backlog empty — loop complete.", flush=True)
-            break
+            if task is None:
+                print("Backlog empty — loop complete.", flush=True)
+                break
 
-        task_id = task["id"]
-        summary = task["summary"]
+            task_id = task["id"]
+            summary = task["summary"]
 
-        chain_head = is_chain_head(task_id)
-        skill = "chain" if chain_head else "next-task"
+            chain_head = is_chain_head(task_id)
+            skill = "chain" if chain_head else "next-task"
 
-        if args.dry_run:
-            print(
-                f"[dry-run] Would dispatch: claude -p /{skill} {task_id}"
-                f"  ({summary})",
-                flush=True,
-            )
-            seen_ids.add(task_id)
-        else:
-            print(
-                f"Dispatching TASK-{task_id} ({summary}) → claude -p /{skill} {task_id}",
-                flush=True,
-            )
-            exit_code = spawn_agent(skill, task_id)
-            if exit_code != 0:
+            if args.dry_run:
                 print(
-                    f"Agent exited with code {exit_code} for TASK-{task_id} — stopping loop.",
-                    file=sys.stderr,
+                    f"[dry-run] Would dispatch: claude -p /{skill} {task_id}  ({summary})",
                     flush=True,
                 )
-                conn.close()
-                sys.exit(exit_code)
+            else:
+                print(
+                    f"Dispatching TASK-{task_id} ({summary}) → claude -p /{skill} {task_id}",
+                    flush=True,
+                )
+                exit_code = spawn_agent(skill, task_id)
+                if exit_code != 0:
+                    print(
+                        f"Agent exited with code {exit_code} for TASK-{task_id} — stopping loop.",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    sys.exit(exit_code)
 
-        tasks_run += 1
-        if args.max_tasks and tasks_run >= args.max_tasks:
-            print(f"Reached --max-tasks {args.max_tasks} — stopping loop.", flush=True)
-            break
+            dispatched_ids.add(task_id)
+            tasks_run += 1
+            if args.max_tasks > 0 and tasks_run >= args.max_tasks:
+                print(f"Reached --max-tasks {args.max_tasks} — stopping loop.", flush=True)
+                break
+    finally:
+        conn.close()
 
-    conn.close()
     print(f"tusk loop finished. Tasks processed: {tasks_run}", flush=True)
 
 
