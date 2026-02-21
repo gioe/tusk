@@ -6,6 +6,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [166] - 2026-02-21
+
+### Added
+
+- [TASK-265] `v_chain_heads` view — non-Done tasks with unfinished downstream dependents and no unmet upstream dependencies (chain entry points); schema migration 14→15
+- [TASK-265] `v_blocked_tasks` view — non-Done tasks blocked by dependency or open external blocker, with `block_reason` and `blocking_summary` columns
+- [TASK-265] `v_criteria_coverage` view — per-task `total_criteria`, `completed_criteria`, and `remaining_criteria` counts
+
 ## [165] - 2026-02-21
 
 ### Added

@@ -524,6 +524,56 @@ WHERE t.status = 'To Do'
     SELECT 1 FROM external_blockers eb
     WHERE eb.task_id = t.id AND eb.is_resolved = 0
   );
+
+-- v_chain_heads view: tasks with dependents but no unmet upstream dependencies or open external blockers (chain entry points)
+CREATE VIEW v_chain_heads AS
+SELECT t.*
+FROM tasks t
+WHERE t.status <> 'Done'
+  AND EXISTS (
+    SELECT 1 FROM task_dependencies d
+    JOIN tasks downstream ON d.task_id = downstream.id
+    WHERE d.depends_on_id = t.id AND downstream.status <> 'Done'
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM task_dependencies d
+    JOIN tasks blocker ON d.depends_on_id = blocker.id
+    WHERE d.task_id = t.id AND blocker.status <> 'Done'
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM external_blockers eb
+    WHERE eb.task_id = t.id AND eb.is_resolved = 0
+  );
+
+-- v_blocked_tasks view: tasks blocked by dependency or external blocker with reason
+CREATE VIEW v_blocked_tasks AS
+SELECT t.id, t.summary, t.status, t.priority, t.domain, t.assignee,
+       'dependency' AS block_reason,
+       blocker.id AS blocking_id,
+       blocker.summary AS blocking_summary
+FROM tasks t
+JOIN task_dependencies d ON d.task_id = t.id
+JOIN tasks blocker ON d.depends_on_id = blocker.id
+WHERE t.status <> 'Done' AND blocker.status <> 'Done'
+UNION ALL
+SELECT t.id, t.summary, t.status, t.priority, t.domain, t.assignee,
+       'external_blocker' AS block_reason,
+       eb.id AS blocking_id,
+       eb.description AS blocking_summary
+FROM tasks t
+JOIN external_blockers eb ON eb.task_id = t.id
+WHERE t.status <> 'Done' AND eb.is_resolved = 0;
+
+-- v_criteria_coverage view: per-task total vs completed criteria count (excludes deferred criteria)
+CREATE VIEW v_criteria_coverage AS
+SELECT t.id AS task_id,
+       t.summary,
+       COUNT(CASE WHEN ac.is_deferred = 0 OR ac.is_deferred IS NULL THEN 1 END) AS total_criteria,
+       COALESCE(SUM(CASE WHEN ac.is_completed = 1 AND (ac.is_deferred = 0 OR ac.is_deferred IS NULL) THEN 1 ELSE 0 END), 0) AS completed_criteria,
+       COUNT(CASE WHEN ac.is_deferred = 0 OR ac.is_deferred IS NULL THEN 1 END) - COALESCE(SUM(CASE WHEN ac.is_completed = 1 AND (ac.is_deferred = 0 OR ac.is_deferred IS NULL) THEN 1 ELSE 0 END), 0) AS remaining_criteria
+FROM tasks t
+LEFT JOIN acceptance_criteria ac ON ac.task_id = t.id
+GROUP BY t.id, t.summary;
 SCHEMA
 
   # Enable WAL for concurrent read/write support
@@ -621,7 +671,7 @@ CR_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 14;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 15;"
 
   echo "Initialized task database at $DB_PATH"
 }
@@ -1043,6 +1093,61 @@ cmd_migrate() {
       PRAGMA user_version = 14;
     "
     echo "  Migration 14: created v_ready_tasks view"
+  fi
+
+  # Migration 14→15: add v_chain_heads, v_blocked_tasks, v_criteria_coverage views
+  if [[ "$current" -lt 15 ]]; then
+    sqlite3 "$DB_PATH" "
+      CREATE VIEW IF NOT EXISTS v_chain_heads AS
+      SELECT t.*
+      FROM tasks t
+      WHERE t.status <> 'Done'
+        AND EXISTS (
+          SELECT 1 FROM task_dependencies d
+          JOIN tasks downstream ON d.task_id = downstream.id
+          WHERE d.depends_on_id = t.id AND downstream.status <> 'Done'
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM task_dependencies d
+          JOIN tasks blocker ON d.depends_on_id = blocker.id
+          WHERE d.task_id = t.id AND blocker.status <> 'Done'
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM external_blockers eb
+          WHERE eb.task_id = t.id AND eb.is_resolved = 0
+        );
+
+      CREATE VIEW IF NOT EXISTS v_blocked_tasks AS
+      SELECT t.id, t.summary, t.status, t.priority, t.domain, t.assignee,
+             'dependency' AS block_reason,
+             blocker.id AS blocking_id,
+             blocker.summary AS blocking_summary
+      FROM tasks t
+      JOIN task_dependencies d ON d.task_id = t.id
+      JOIN tasks blocker ON d.depends_on_id = blocker.id
+      WHERE t.status <> 'Done' AND blocker.status <> 'Done'
+      UNION ALL
+      SELECT t.id, t.summary, t.status, t.priority, t.domain, t.assignee,
+             'external_blocker' AS block_reason,
+             eb.id AS blocking_id,
+             eb.description AS blocking_summary
+      FROM tasks t
+      JOIN external_blockers eb ON eb.task_id = t.id
+      WHERE t.status <> 'Done' AND eb.is_resolved = 0;
+
+      CREATE VIEW IF NOT EXISTS v_criteria_coverage AS
+      SELECT t.id AS task_id,
+             t.summary,
+             COUNT(CASE WHEN ac.is_deferred = 0 OR ac.is_deferred IS NULL THEN 1 END) AS total_criteria,
+             COALESCE(SUM(CASE WHEN ac.is_completed = 1 AND (ac.is_deferred = 0 OR ac.is_deferred IS NULL) THEN 1 ELSE 0 END), 0) AS completed_criteria,
+             COUNT(CASE WHEN ac.is_deferred = 0 OR ac.is_deferred IS NULL THEN 1 END) - COALESCE(SUM(CASE WHEN ac.is_completed = 1 AND (ac.is_deferred = 0 OR ac.is_deferred IS NULL) THEN 1 ELSE 0 END), 0) AS remaining_criteria
+      FROM tasks t
+      LEFT JOIN acceptance_criteria ac ON ac.task_id = t.id
+      GROUP BY t.id, t.summary;
+
+      PRAGMA user_version = 15;
+    "
+    echo "  Migration 15: added v_chain_heads, v_blocked_tasks, v_criteria_coverage views"
   fi
 
   local final
