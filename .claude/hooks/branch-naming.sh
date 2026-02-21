@@ -17,6 +17,11 @@ echo "$command" | grep -qE '(^|[|;&]|&&|\|\||\$\()\s*git\s+push\b' || exit 0
 # Get current branch
 branch=$(git branch --show-current 2>/dev/null)
 
+# Detached HEAD: branch name is empty — not worth policing, allow the push
+if [[ -z "$branch" ]]; then
+  exit 0
+fi
+
 # Allow main, master, and release/* branches without restriction
 if [[ "$branch" == "main" || "$branch" == "master" || "$branch" == release/* ]]; then
   exit 0
