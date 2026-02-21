@@ -1,16 +1,16 @@
 ---
-name: run-chain
+name: chain
 description: Execute a dependency chain in parallel waves using background agents
 allowed-tools: Bash, Task, Read, Glob, Grep
 ---
 
-# Run Chain
+# Chain
 
 Orchestrates parallel execution of a dependency sub-DAG. Validates the head task, displays the scope tree, executes the head task first, then spawns parallel background agents wave-by-wave for each frontier of ready tasks until the entire chain is complete.
 
 ## Arguments
 
-Requires a head task ID: `/run-chain <head_task_id>`
+Requires a head task ID: `/chain <head_task_id>`
 
 ## Step 1: Validate the Head Task
 
@@ -226,12 +226,12 @@ After all waves are complete, do a single VERSION bump and CHANGELOG update cove
 4. Commit, push, and merge:
    ```bash
    git checkout main && git pull origin main
-   git checkout -b chore/run-chain-<head_task_id>-version-bump
+   git checkout -b chore/chain-<head_task_id>-version-bump
    # Write VERSION and CHANGELOG.md
    git add VERSION CHANGELOG.md
-   git commit -m "Bump VERSION to <new_version> for run-chain <head_task_id>"
-   git push -u origin chore/run-chain-<head_task_id>-version-bump
-   gh pr create --base main --title "Bump VERSION to <new_version> (run-chain <head_task_id>)" --body "Consolidates VERSION bump for all tasks completed in run-chain <head_task_id>."
+   git commit -m "Bump VERSION to <new_version> for chain <head_task_id>"
+   git push -u origin chore/chain-<head_task_id>-version-bump
+   gh pr create --base main --title "Bump VERSION to <new_version> (chain <head_task_id>)" --body "Consolidates VERSION bump for all tasks completed in chain <head_task_id>."
    gh pr merge --squash --delete-branch
    ```
 

@@ -179,7 +179,7 @@ The config also includes a `review` block with three keys: `mode` (`"disabled"` 
 - **`/token-audit`** — Analyzes skill token consumption across five categories (size census, companion loading, SQL anti-patterns, redundancy, narrative density)
 - **`/tusk-insights`** — Read-only DB health audit across 6 categories with interactive Q&A recommendations
 - **`/resume-task`** — Automates session recovery: detects task from branch name, gathers progress/criteria/commits, and resumes the implementation workflow
-- **`/run-chain`** — Orchestrates parallel execution of a dependency sub-DAG: validates head task, displays scope tree, executes head first, then spawns parallel background agents wave-by-wave for each frontier of ready tasks, and runs a post-chain retro aggregation across all agent transcripts to surface cross-agent patterns and learnings
+- **`/chain`** — Orchestrates parallel execution of a dependency sub-DAG: validates head task, displays scope tree, executes head first, then spawns parallel background agents wave-by-wave for each frontier of ready tasks, and runs a post-chain retro aggregation across all agent transcripts to surface cross-agent patterns and learnings
 - **`/review-pr`** — Runs parallel AI code reviewers against a PR diff, fixes must_fix issues, handles suggest findings interactively, and creates deferred tasks for defer findings; respects `review.mode`, `review.max_passes`, and `review.reviewers` config settings
 
 ### Python Scripts

@@ -463,7 +463,7 @@ def main():
     skip_p.add_argument("criterion_id", type=int, help="Criterion ID")
     skip_p.add_argument(
         "--reason", required=True,
-        help="Reason for deferral (e.g., 'chain' when handled by run-chain orchestrator)",
+        help="Reason for deferral (e.g., 'chain' when handled by chain orchestrator)",
     )
 
     # reset

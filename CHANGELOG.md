@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [160] - 2026-02-21
+
+### Changed
+
+- [TASK-260] Renamed `/run-chain` skill to `/chain` (directory, frontmatter, all cross-references updated)
+
 ## [159] - 2026-02-21
 
 ### Added
