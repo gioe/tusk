@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [167] - 2026-02-21
+
+### Added
+
+- [TASK-279] `tusk task-reopen <task_id> --force` — resets a stuck In Progress or Done task back to To Do by bypassing the status-transition trigger; closes open sessions and regenerates triggers via `tusk regen-triggers`
+
 ## [166] - 2026-02-21
 
 ### Added
