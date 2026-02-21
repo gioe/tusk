@@ -71,30 +71,51 @@ def main(argv: list[str]) -> int:
 
         prior_status = task["status"]
 
-        # Close any open sessions before resetting status
-        sessions_closed = conn.execute(
-            "UPDATE task_sessions SET ended_at = datetime('now') "
-            "WHERE task_id = ? AND ended_at IS NULL",
-            (task_id,),
-        ).rowcount
-        conn.commit()
-
-        # Drop the status-transition trigger so we can move the status backwards.
-        # The trigger is recreated immediately after the UPDATE via `tusk regen-triggers`.
-        conn.execute("DROP TRIGGER IF EXISTS validate_status_transition")
-        conn.commit()
-
+        # Use explicit transaction control (isolation_level=None = autocommit) so that
+        # DROP TRIGGER and the two UPDATEs all commit atomically. Without this, Python's
+        # sqlite3 module auto-commits DDL before DML, leaving a window where the trigger
+        # is absent but the status has not yet been reset.
+        conn.isolation_level = None
+        conn.execute("BEGIN IMMEDIATE")
         try:
+            # Close any open sessions, computing duration_seconds to match tusk-task-done.py
+            sessions_closed = conn.execute(
+                "UPDATE task_sessions "
+                "SET ended_at = datetime('now'), "
+                "    duration_seconds = CAST((julianday(datetime('now')) - julianday(started_at)) * 86400 AS INTEGER) "
+                "WHERE task_id = ? AND ended_at IS NULL",
+                (task_id,),
+            ).rowcount
+
+            # Drop the status-transition trigger so we can move the status backwards.
+            # The trigger is recreated via `tusk regen-triggers` after COMMIT.
+            conn.execute("DROP TRIGGER IF EXISTS validate_status_transition")
+
             conn.execute(
                 "UPDATE tasks SET status = 'To Do', closed_reason = NULL, "
                 "updated_at = datetime('now') WHERE id = ?",
                 (task_id,),
             )
-            conn.commit()
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
         finally:
-            # Always regenerate triggers even if the UPDATE failed, so the DB
-            # is never left without the status-transition guard.
-            subprocess.run(["tusk", "regen-triggers"], check=False, capture_output=True)
+            # Regenerate the status-transition trigger. Always runs (even on rollback)
+            # so the DB is never permanently missing the guard. Check the return code
+            # and surface any failure visibly rather than swallowing it.
+            regen = subprocess.run(
+                ["tusk", "regen-triggers"],
+                capture_output=True,
+                text=True,
+            )
+            if regen.returncode != 0:
+                msg = regen.stderr.strip() or regen.stdout.strip() or "(no output)"
+                print(
+                    f"Warning: tusk regen-triggers failed (exit {regen.returncode}): {msg}\n"
+                    "Run 'tusk regen-triggers' manually to restore the status-transition guard.",
+                    file=sys.stderr,
+                )
 
         updated = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         task_dict = dict(updated)

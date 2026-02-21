@@ -218,9 +218,11 @@ Task `status` follows a one-way lifecycle. The `validate_status_transition` trig
 | `In Progress` | `Done` | Normal completion via `tusk task-done` |
 | Any | Any (same) | No-op updates allowed |
 
-**Blocked transitions:**
+**Blocked transitions (enforced by `validate_status_transition` trigger):**
 - `Done` → anything (`Done` is terminal)
 - `In Progress` → `To Do` (no reverting to unstarted)
+
+**Escape hatch — `tusk task-reopen <task_id> --force`:** Deliberately bypasses the trigger to reset an In Progress or Done task back to `To Do`. It drops `validate_status_transition`, applies the UPDATE, then regenerates the trigger via `tusk regen-triggers`. All three operations run inside a single explicit transaction (using `BEGIN IMMEDIATE` with `isolation_level=None`) so the DB is never left in a partially-modified state. Use only for crash recovery, accidental status changes, or CI cleanup.
 
 **Rule:** When setting `status = Done`, `closed_reason` MUST be set. The `validate_closed_reason` trigger enforces the value is from the config list.
 
