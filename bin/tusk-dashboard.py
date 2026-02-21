@@ -64,7 +64,10 @@ def fetch_task_metrics(conn: sqlite3.Connection) -> list[dict]:
                   COALESCE(tm.total_duration_seconds, 0) as total_duration_seconds,
                   COALESCE(tm.total_lines_added, 0) as total_lines_added,
                   COALESCE(tm.total_lines_removed, 0) as total_lines_removed,
-                  tm.updated_at
+                  tm.updated_at,
+                  (SELECT GROUP_CONCAT(DISTINCT s2.model)
+                   FROM task_sessions s2
+                   WHERE s2.task_id = tm.id AND s2.model IS NOT NULL) as models
            FROM task_metrics tm
            ORDER BY tm.total_cost DESC, tm.id ASC"""
     ).fetchall()
@@ -779,6 +782,15 @@ tfoot td {
   text-align: right;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.col-model {
+  white-space: nowrap;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .col-duration {
@@ -1680,7 +1692,7 @@ tbody tr {
   .kpi-grid {
     grid-template-columns: repeat(3, 1fr);
   }
-  .col-updated, .col-wsjf {
+  .col-updated, .col-wsjf, .col-model {
     display: none;
   }
   .header {
@@ -2168,12 +2180,13 @@ def generate_table_header() -> str:
     <th data-col="4" data-type="num">Size <span class="sort-arrow">\u25B2</span></th>
     <th data-col="5" data-type="num" style="text-align:right">WSJF <span class="sort-arrow">\u25B2</span></th>
     <th data-col="6" data-type="num" style="text-align:right">Sessions <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="7" data-type="num" style="text-align:right">Duration <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="8" data-type="num" style="text-align:right">Lines <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="9" data-type="num" style="text-align:right">Tokens In <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="10" data-type="num" style="text-align:right">Tokens Out <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="11" data-type="num" style="text-align:right">Cost <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="12" data-type="str" class="sort-desc">Updated <span class="sort-arrow">\u25BC</span></th>
+    <th data-col="7" data-type="str">Model <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="8" data-type="num" style="text-align:right">Duration <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="9" data-type="num" style="text-align:right">Lines <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="10" data-type="num" style="text-align:right">Tokens In <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="11" data-type="num" style="text-align:right">Tokens Out <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="12" data-type="num" style="text-align:right">Cost <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="13" data-type="str" class="sort-desc">Updated <span class="sort-arrow">\u25BC</span></th>
   </tr>
 </thead>"""
 
@@ -2269,6 +2282,7 @@ def generate_task_row(t: dict, criteria_list: list[dict], task_deps: dict, summa
     domain_val = esc(t.get('domain') or '')
     task_type_val = esc(t.get('task_type') or '')
     session_count = t.get('session_count') or 0
+    models_raw = t.get('models') or ''
     duration_seconds = t.get('total_duration_seconds') or 0
     lines_added = t.get('total_lines_added') or 0
     lines_removed = t.get('total_lines_removed') or 0
@@ -2288,6 +2302,7 @@ def generate_task_row(t: dict, criteria_list: list[dict], task_deps: dict, summa
   <td class="col-complexity" data-sort="{complexity_sort}">{f'<span class="complexity-badge">{complexity_val}</span>' if complexity_val else ''}</td>
   <td class="col-wsjf" data-sort="{priority_score}">{priority_score}</td>
   <td class="col-sessions" data-sort="{session_count}">{session_count if session_count else '<span class="text-muted-dash">&mdash;</span>'}</td>
+  <td class="col-model" data-sort="{esc(models_raw)}" title="{esc(models_raw)}">{esc(models_raw) if models_raw else '<span class="text-muted-dash">&mdash;</span>'}</td>
   <td class="col-duration" data-sort="{duration_seconds}">{format_duration(duration_seconds) if duration_seconds else '<span class="text-muted-dash">&mdash;</span>'}</td>
   <td class="col-lines" data-sort="{total_lines}" data-lines-added="{int(lines_added)}" data-lines-removed="{int(lines_removed)}">{format_lines_html(lines_added, lines_removed)}</td>
   <td class="col-tokens-in" data-sort="{t['total_tokens_in']}">{format_tokens_compact(t['total_tokens_in'])}</td>
@@ -2321,7 +2336,7 @@ def generate_criteria_detail(tid: int) -> str:
 
     return (
         f'<tr class="criteria-row" data-parent="{tid}" style="display:none">\n'
-        f'  <td colspan="13"><div class="criteria-detail" data-tid="{tid}">'
+        f'  <td colspan="14"><div class="criteria-detail" data-tid="{tid}">'
         f'{sort_bar}'
         f'<div class="criteria-render-target"></div>'
         f'</div></td>\n'
@@ -2339,6 +2354,7 @@ def generate_table_footer(total_sessions: int, total_duration: int, total_lines_
   <tr>
     <td colspan="6" id="footerLabel">Total</td>
     <td class="col-sessions" id="footerSessions">{total_sessions}</td>
+    <td class="col-model"></td>
     <td class="col-duration" id="footerDuration">{format_duration(total_duration)}</td>
     <td class="col-lines" id="footerLines">{format_lines_html(total_lines_added, total_lines_removed)}</td>
     <td class="col-tokens-in" id="footerTokensIn">{format_tokens_compact(total_tokens_in)}</td>
@@ -2542,7 +2558,7 @@ def generate_js() -> str:
   var filtered = allRows.slice();
   var currentPage = 1;
   var pageSize = 25;
-  var sortCol = 12;
+  var sortCol = 13;
   var sortAsc = false;
   var statusFilter = 'All';
   var searchTerm = '';
@@ -2619,7 +2635,7 @@ def generate_js() -> str:
     if (complexityFilter) params.push('c=' + encodeURIComponent(complexityFilter));
     if (typeFilter) params.push('t=' + encodeURIComponent(typeFilter));
     if (searchTerm) params.push('q=' + encodeURIComponent(searchTerm));
-    if (sortCol !== 12) params.push('sc=' + sortCol);
+    if (sortCol !== 13) params.push('sc=' + sortCol);
     if (sortAsc) params.push('sa=1');
     if (currentPage !== 1) params.push('p=' + currentPage);
     if (pageSize !== 25) params.push('ps=' + pageSize);
@@ -2650,7 +2666,7 @@ def generate_js() -> str:
         case 'c': complexityFilter = v; restored = true; break;
         case 't': typeFilter = v; restored = true; break;
         case 'q': searchTerm = v; restored = true; break;
-        case 'sc': sortCol = parseInt(v) || 12; restored = true; break;
+        case 'sc': sortCol = parseInt(v) || 13; restored = true; break;
         case 'sa': sortAsc = v === '1'; restored = true; break;
         case 'p': currentPage = parseInt(v) || 1; restored = true; break;
         case 'ps': pageSize = parseInt(v) || 25; restored = true; break;
