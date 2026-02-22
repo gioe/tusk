@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [181] - 2026-02-22
+
+### Changed
+
+- Extracted `generate_js()` (~1,035 lines) from `tusk-dashboard.py` into a companion module `tusk-dashboard-js.py`; main file now under 2,000 lines (1,975)
+
 ## [180] - 2026-02-22
 
 ### Changed
