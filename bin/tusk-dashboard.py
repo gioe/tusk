@@ -531,12 +531,8 @@ def format_relative_time(dt_str) -> str:
     """Format a datetime string as relative time (e.g., 2h ago, 3d ago)."""
     if dt_str is None:
         return ""
-    try:
-        if '.' in dt_str:
-            dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S.%f")
-        else:
-            dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
-    except (ValueError, TypeError):
+    dt = _parse_dt(dt_str)
+    if dt is None:
         return ""
     seconds = int((datetime.now() - dt).total_seconds())
     if seconds < 0:
