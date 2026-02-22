@@ -5,7 +5,7 @@ A portable task management system for [Claude Code](https://claude.ai/claude-cod
 ## What You Get
 
 - **`tusk` CLI** — single entry point for all task database operations
-- **Skills** — Claude Code skills for task workflows (`/tusk-init`, `/next-task`, `/groom-backlog`, `/check-dupes`, `/manage-dependencies`, `/tasks`)
+- **Skills** — Claude Code skills for task workflows (`/tusk-init`, `/tusk`, `/groom-backlog`, `/check-dupes`, `/manage-dependencies`, `/tasks`)
 - **Scripts** — Python utilities for duplicate detection and dependency management
 - **Config-driven schema** — define your project's domains, task types, and agents in JSON; validation triggers are generated automatically
 
@@ -83,10 +83,10 @@ tusk upgrade                 # Upgrade tusk from GitHub
 
 | Skill | Description |
 |-------|-------------|
-| `/next-task` | Get the highest-priority ready task and start working on it |
-| `/next-task 42` | Begin the full dev workflow on task #42 |
-| `/next-task list 5` | Show top 5 ready tasks |
-| `/next-task preview` | Show next task without starting it |
+| `/tusk` | Get the highest-priority ready task and start working on it |
+| `/tusk 42` | Begin the full dev workflow on task #42 |
+| `/tusk list 5` | Show top 5 ready tasks |
+| `/tusk preview` | Show next task without starting it |
 | `/groom-backlog` | Analyze and clean up the backlog |
 | `/check-dupes` | Check for duplicate tasks before creating new ones |
 | `/manage-dependencies` | Add, remove, or query task dependencies |
@@ -227,7 +227,7 @@ your-project/
 │   │   ├── pricing.json               # Per-model token rates (USD/MTok)
 │   │   └── VERSION                    # Installed distribution version
 │   └── skills/
-│       ├── next-task/SKILL.md
+│       ├── tusk/SKILL.md
 │       ├── groom-backlog/SKILL.md
 │       ├── check-dupes/SKILL.md
 │       ├── manage-dependencies/SKILL.md

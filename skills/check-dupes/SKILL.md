@@ -28,7 +28,7 @@ Pre-insert gate. Checks if a summary is a duplicate of any open task.
 tusk dupes check "<summary>" --domain <domain>
 ```
 
-**When to use:** Before every `INSERT INTO tasks` — in `/next-task`, `/create-task`, or any manual task creation.
+**When to use:** Before every `INSERT INTO tasks` — in `/tusk`, `/create-task`, or any manual task creation.
 
 ### `scan`
 
@@ -83,5 +83,5 @@ Use `--json` for programmatic consumption:
 ## Integration Points
 
 This skill is referenced by:
-- **`/next-task`** — Before creating deferred tasks
+- **`/tusk`** — Before creating deferred tasks
 - **`/groom-backlog`** — Scanning for duplicate pairs

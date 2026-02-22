@@ -14,7 +14,7 @@ Loop behavior:
   2. If no task found: stop (empty backlog)
   3. Check if chain head via v_chain_heads view — task in view means it has downstream dependents
   4. If chain head → spawn claude -p /chain <id>
-     Else        → spawn claude -p /next-task <id>
+     Else        → spawn claude -p /tusk <id>
   5. On non-zero exit code: stop the loop
   6. Repeat until empty backlog or --max-tasks reached
 
@@ -74,7 +74,7 @@ def is_chain_head(conn: sqlite3.Connection, task_id: int) -> bool:
 
     v_chain_heads selects non-Done tasks that have non-Done downstream dependents,
     no unmet blocks-type upstream deps, and no open external blockers.
-    Returns False on any error (falls back to /next-task dispatch).
+    Returns False on any error (falls back to /tusk dispatch).
     """
     try:
         row = conn.execute("SELECT 1 FROM v_chain_heads WHERE id = ?", (task_id,)).fetchone()
@@ -145,7 +145,7 @@ Examples:
             summary = task["summary"]
 
             chain_head = is_chain_head(conn, task_id)
-            skill = "chain" if chain_head else "next-task"
+            skill = "chain" if chain_head else "tusk"
 
             if args.dry_run:
                 print(

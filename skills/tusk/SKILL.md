@@ -1,10 +1,10 @@
 ---
-name: next-task
+name: tusk
 description: Get the most important task that is ready to be worked on
 allowed-tools: Bash, Task, Read, Edit, Write, Grep, Glob
 ---
 
-# Next Task Skill
+# Tusk Skill
 
 The primary interface for working with tasks from the project task database (via `tusk` CLI). Use this to get the next task, start working on it, and manage the full development workflow.
 
@@ -40,8 +40,8 @@ tusk -header -column "SELECT status, COUNT(*) as count FROM tasks GROUP BY statu
 ```
 
 - If there are **no tasks at all** (or all are Done): inform the user the backlog is empty and suggest running `/create-task` to add new work.
-- If there are **To Do tasks but all are blocked**: inform the user and suggest running `/next-task blocked` to see what's holding them up.
-- If there are **In Progress tasks**: inform the user and suggest running `/next-task wip` to check on active work.
+- If there are **To Do tasks but all are blocked**: inform the user and suggest running `/tusk blocked` to see what's holding them up.
+- If there are **In Progress tasks**: inform the user and suggest running `/tusk wip` to check on active work.
 
 Do **not** suggest `/groom-backlog` or `/retro` when there are no ready tasks — those skills require an active backlog or session history to be useful.
 
@@ -61,7 +61,7 @@ After the user confirms (or if the task is not L/XL), **immediately proceed to t
 
 ### Begin Work on a Task (with task ID argument)
 
-When called with a task ID (e.g., `/next-task 6`), begin the full development workflow:
+When called with a task ID (e.g., `/tusk 6`), begin the full development workflow:
 
 **Follow these steps IN ORDER:**
 
@@ -142,7 +142,7 @@ When called with a task ID (e.g., `/next-task 6`), begin the full development wo
 
 ### Other Subcommands
 
-If the user invoked a subcommand (e.g., `/next-task done`, `/next-task list`, `/next-task blocked`), read the reference file:
+If the user invoked a subcommand (e.g., `/tusk done`, `/tusk list`, `/tusk blocked`), read the reference file:
 
 ```
 Read file: <base_directory>/SUBCOMMANDS.md

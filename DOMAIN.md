@@ -340,9 +340,9 @@ Task A **contingently blocks** Task B means: B can theoretically proceed, but it
 | View | Purpose | Used By |
 |------|---------|---------|
 | `task_metrics` | Aggregates session cost/tokens/lines per task | `tusk-dashboard.py`, reporting |
-| `v_ready_tasks` | Canonical "ready to work" definition: To Do, all `blocks`-type deps Done, no open external blockers (contingent deps do not prevent readiness) | `/next-task`, `tusk-loop.py`, `tusk deps ready` |
+| `v_ready_tasks` | Canonical "ready to work" definition: To Do, all `blocks`-type deps Done, no open external blockers (contingent deps do not prevent readiness) | `/tusk`, `tusk-loop.py`, `tusk deps ready` |
 | `v_chain_heads` | Non-Done tasks with unfinished downstream dependents and no unmet upstream deps | `/chain` |
-| `v_blocked_tasks` | Non-Done tasks blocked by dependency or external blocker, with `block_reason` and `blocking_summary` | `/next-task blocked`, `tusk deps blocked` |
+| `v_blocked_tasks` | Non-Done tasks blocked by dependency or external blocker, with `block_reason` and `blocking_summary` | `/tusk blocked`, `tusk deps blocked` |
 | `v_criteria_coverage` | Per-task counts of total, completed, and remaining criteria (deferred excluded) | Reporting, `/tusk-insights` |
 
 ---

@@ -1,6 +1,6 @@
-# Next Task: Finalize, PR & Merge
+# Tusk: Finalize, PR & Merge
 
-Steps 11-16 of the next-task workflow. Read this after implementation is complete and all acceptance criteria are verified.
+Steps 11-16 of the tusk workflow. Read this after implementation is complete and all acceptance criteria are verified.
 
 ## Step 11: Push the branch and create a PR
 

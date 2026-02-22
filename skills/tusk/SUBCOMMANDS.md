@@ -1,6 +1,6 @@
-# Next Task — Subcommand Reference
+# Tusk — Subcommand Reference
 
-These subcommands are available when `/next-task` is invoked with arguments.
+These subcommands are available when `/tusk` is invoked with arguments.
 
 ## Mark Task as Done
 
