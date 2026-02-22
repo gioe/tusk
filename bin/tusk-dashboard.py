@@ -2073,6 +2073,51 @@ tbody tr {
   .tab-bar {
     padding: 0 var(--sp-3);
   }
+}
+
+/* ── Shared stat-card strip (skill-runs + tool-calls sections) ── */
+.dash-stat-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+}
+
+.dash-stat-card {
+  flex: 1;
+  min-width: 130px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: var(--sp-4);
+  text-align: center;
+}
+
+.dash-stat-value {
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+
+.dash-stat-value--text {
+  font-size: 1.0rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dash-stat-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.dash-table-scroll {
+  overflow-x: auto;
+  padding: var(--sp-4);
+}
+
+.dash-chart-wrap {
+  padding: var(--sp-4);
 }"""
 
 
@@ -2288,22 +2333,22 @@ def generate_skill_runs_section(skill_runs: list[dict]) -> str:
 
     # --- Stat cards HTML ---
     stat_cards_html = f"""\
-<div style="display:flex;flex-wrap:wrap;gap:var(--sp-4);padding:var(--sp-4);">
-  <div style="flex:1;min-width:130px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
-    <div style="font-size:1.6rem;font-weight:700;">{total_runs}</div>
-    <div class="text-muted" style="font-size:0.8rem;">Total Runs</div>
+<div class="dash-stat-cards">
+  <div class="dash-stat-card">
+    <div class="dash-stat-value">{total_runs}</div>
+    <div class="dash-stat-label">Total Runs</div>
   </div>
-  <div style="flex:1;min-width:130px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
-    <div style="font-size:1.6rem;font-weight:700;">${total_cost:.4f}</div>
-    <div class="text-muted" style="font-size:0.8rem;">Total Cost</div>
+  <div class="dash-stat-card">
+    <div class="dash-stat-value">${total_cost:.4f}</div>
+    <div class="dash-stat-label">Total Cost</div>
   </div>
-  <div style="flex:1;min-width:130px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
-    <div style="font-size:1.6rem;font-weight:700;">${avg_cost:.4f}</div>
-    <div class="text-muted" style="font-size:0.8rem;">Avg Cost / Run</div>
+  <div class="dash-stat-card">
+    <div class="dash-stat-value">${avg_cost:.4f}</div>
+    <div class="dash-stat-label">Avg Cost / Run</div>
   </div>
-  <div style="flex:1;min-width:130px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
-    <div style="font-size:1.0rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{esc(most_expensive_skill)}">{esc(most_expensive_skill)}</div>
-    <div class="text-muted" style="font-size:0.8rem;">Priciest Skill</div>
+  <div class="dash-stat-card">
+    <div class="dash-stat-value--text" title="{esc(most_expensive_skill)}">{esc(most_expensive_skill)}</div>
+    <div class="dash-stat-label">Priciest Skill</div>
   </div>
 </div>"""
 
@@ -2311,14 +2356,14 @@ def generate_skill_runs_section(skill_runs: list[dict]) -> str:
     line_chart_section = (
         f'<div class="section-header" style="border-top:1px solid var(--border);">'
         f'Cost Trend \u2014 Last 30 Days (Top {len(top_skills)} Skills)</div>'
-        f'<div style="padding:var(--sp-4);"><canvas id="skillLineChart" height="100"></canvas></div>'
+        f'<div class="dash-chart-wrap"><canvas id="skillLineChart" height="100"></canvas></div>'
         if line_labels else
         '<div class="section-header" style="border-top:1px solid var(--border);">Cost Trend \u2014 Last 30 Days</div>'
         '<p class="text-muted" style="padding:var(--sp-4);">No runs in the last 30 days.</p>'
     )
     charts_html = f"""\
 <div class="section-header" style="border-top:1px solid var(--border);">Cost by Skill (Total)</div>
-<div style="padding:var(--sp-4);">
+<div class="dash-chart-wrap">
   <canvas id="skillBarChart" height="{bar_chart_height}"></canvas>
 </div>
 {line_chart_section}"""
@@ -2388,7 +2433,7 @@ def generate_skill_runs_section(skill_runs: list[dict]) -> str:
   {stat_cards_html}
   {charts_html}
   <div class="section-header" style="border-top:1px solid var(--border);">All Runs</div>
-  <div style="overflow-x:auto;padding:var(--sp-4);">
+  <div class="dash-table-scroll">
     <table>
       <thead>
         <tr>
@@ -2458,28 +2503,28 @@ def generate_tool_call_section(global_stats: list[dict], per_task_stats: list[di
 
     # Summary stat cards
     stat_cards_html = f"""\
-<div class="tc-stats" style="display:flex;flex-wrap:wrap;gap:var(--sp-4);padding:var(--sp-4);">
-  <div style="flex:1;min-width:130px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
-    <div style="font-size:1.6rem;font-weight:700;">${grand_total_cost:.4f}</div>
-    <div class="text-muted" style="font-size:0.8rem;">Total Tool Cost</div>
+<div class="dash-stat-cards">
+  <div class="dash-stat-card">
+    <div class="dash-stat-value">${grand_total_cost:.4f}</div>
+    <div class="dash-stat-label">Total Tool Cost</div>
   </div>
-  <div style="flex:1;min-width:130px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
-    <div style="font-size:1.6rem;font-weight:700;">{grand_total_calls:,}</div>
-    <div class="text-muted" style="font-size:0.8rem;">Total Calls</div>
+  <div class="dash-stat-card">
+    <div class="dash-stat-value">{grand_total_calls:,}</div>
+    <div class="dash-stat-label">Total Calls</div>
   </div>
-  <div style="flex:1;min-width:130px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
-    <div style="font-size:1.6rem;font-weight:700;">{len(global_stats)}</div>
-    <div class="text-muted" style="font-size:0.8rem;">Distinct Tools</div>
+  <div class="dash-stat-card">
+    <div class="dash-stat-value">{len(global_stats)}</div>
+    <div class="dash-stat-label">Distinct Tools</div>
   </div>
-  <div style="flex:1;min-width:130px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
-    <div style="font-size:1.0rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{esc(top_tool)}">{esc(top_tool)}</div>
-    <div class="text-muted" style="font-size:0.8rem;">Priciest Tool</div>
+  <div class="dash-stat-card">
+    <div class="dash-stat-value--text" title="{esc(top_tool)}">{esc(top_tool)}</div>
+    <div class="dash-stat-label">Priciest Tool</div>
   </div>
 </div>"""
 
     global_table_html = f"""\
 <div class="section-header" style="border-top:1px solid var(--border);">Global Aggregate \u2014 All Tasks</div>
-<div style="overflow-x:auto;padding:var(--sp-4);">
+<div class="dash-table-scroll">
   <table class="tc-table">
     <thead>
       <tr>
