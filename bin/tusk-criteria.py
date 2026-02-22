@@ -121,30 +121,7 @@ def _capture_criterion_tool_stats(
             s["max_cost"] = max(s["max_cost"], item["cost"])
             s["tokens_out"] += item["output_tokens"]
 
-        if not stats:
-            return
-
-        for tool_name, s in stats.items():
-            conn.execute(
-                """INSERT INTO tool_call_stats
-                       (criterion_id, task_id, tool_name, call_count, total_cost, max_cost, tokens_out, computed_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                   ON CONFLICT(criterion_id, tool_name) DO UPDATE SET
-                       call_count  = excluded.call_count,
-                       total_cost  = excluded.total_cost,
-                       max_cost    = excluded.max_cost,
-                       tokens_out  = excluded.tokens_out,
-                       computed_at = excluded.computed_at""",
-                (
-                    criterion_id,
-                    task_id,
-                    tool_name,
-                    s["call_count"],
-                    round(s["total_cost"], 8),
-                    round(s["max_cost"], 8),
-                    s["tokens_out"],
-                ),
-            )
+        lib.upsert_criterion_tool_stats(conn, criterion_id, task_id, stats)
     except Exception:
         pass  # Best-effort — never block completion
 

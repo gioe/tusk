@@ -206,7 +206,7 @@ The config also includes a `review` block with three keys: `mode` (`"disabled"` 
 
 ### Python Scripts
 
-- `bin/tusk-pricing-lib.py` — Shared transcript/pricing utilities (not a CLI command). Provides `load_pricing()`, `resolve_model()`, `parse_timestamp()`, `parse_sqlite_timestamp()`, `derive_project_hash()`, `find_transcript()`, `aggregate_session()`, `compute_cost()`, `compute_tokens_in()`, and `iter_tool_call_costs()`. Imported by tusk-session-stats.py, tusk-criteria.py, tusk-session-recalc.py, and tusk-call-breakdown.py.
+- `bin/tusk-pricing-lib.py` — Shared transcript/pricing utilities (not a CLI command). Provides `load_pricing()`, `resolve_model()`, `parse_timestamp()`, `parse_sqlite_timestamp()`, `derive_project_hash()`, `find_transcript()`, `aggregate_session()`, `compute_cost()`, `compute_tokens_in()`, `iter_tool_call_costs()`, and `upsert_criterion_tool_stats()`. Imported by tusk-session-stats.py, tusk-criteria.py, tusk-session-recalc.py, and tusk-call-breakdown.py.
 - `bin/tusk-dupes.py` — Duplicate detection against open tasks (invoked via `tusk dupes`). Normalizes summaries by stripping configurable prefixes and uses `difflib.SequenceMatcher` for similarity scoring.
 - `bin/tusk-session-stats.py` — Token/cost tracking for task sessions (invoked via `tusk session-stats`). Parses Claude Code JSONL transcripts and updates session rows using shared utilities from tusk-pricing-lib.py.
 - `bin/tusk-dashboard.py` — Static HTML dashboard generator (invoked via `tusk dashboard`). Queries the `task_metrics` view for per-task token counts and cost, writes a self-contained HTML file, and opens it in the browser.

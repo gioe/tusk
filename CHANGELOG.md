@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [179] - 2026-02-22
+
+### Changed
+
+- Extracted shared `upsert_criterion_tool_stats()` helper into `tusk-pricing-lib.py`; both `tusk-call-breakdown.py` and `tusk-criteria.py` now delegate to it, eliminating duplicate INSERT...ON CONFLICT logic
+
 ## [178] - 2026-02-22
 
 ### Added

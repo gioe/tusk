@@ -8,6 +8,7 @@ tusk-criteria.py, tusk-session-recalc.py, and tusk-call-breakdown.py.
 import json
 import logging
 import os
+import sqlite3
 import sys
 from collections.abc import Iterator
 from datetime import datetime, timezone
@@ -374,3 +375,36 @@ def iter_tool_call_costs(
                     "cost": round(cost_each, 8),
                     "ts": ts,
                 }
+
+
+def upsert_criterion_tool_stats(
+    conn: sqlite3.Connection,
+    criterion_id: int,
+    task_id: int,
+    stats: dict[str, dict],
+) -> None:
+    """Write aggregated tool_call_stats rows for a criterion (upsert on UNIQUE conflict)."""
+    if not stats:
+        return
+    for tool_name, s in stats.items():
+        conn.execute(
+            """INSERT INTO tool_call_stats
+                   (criterion_id, task_id, tool_name, call_count, total_cost, max_cost, tokens_out, computed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(criterion_id, tool_name) DO UPDATE SET
+                   call_count  = excluded.call_count,
+                   total_cost  = excluded.total_cost,
+                   max_cost    = excluded.max_cost,
+                   tokens_out  = excluded.tokens_out,
+                   computed_at = excluded.computed_at""",
+            (
+                criterion_id,
+                task_id,
+                tool_name,
+                s["call_count"],
+                round(s["total_cost"], 8),
+                round(s["max_cost"], 8),
+                s["tokens_out"],
+            ),
+        )
+    conn.commit()
