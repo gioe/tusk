@@ -327,8 +327,7 @@ def fetch_tool_call_stats_global(conn: sqlite3.Connection) -> list[dict]:
         rows = conn.execute(
             """SELECT tool_name,
                       SUM(call_count) as total_calls,
-                      SUM(total_cost) as total_cost,
-                      MAX(max_cost) as max_cost
+                      SUM(total_cost) as total_cost
                FROM tool_call_stats
                WHERE session_id IS NOT NULL
                GROUP BY tool_name
@@ -2566,10 +2565,17 @@ def generate_global_tool_costs_section(tool_stats: list[dict]) -> str:
     """Generate a project-wide tool cost aggregate table for the Skills tab.
 
     Shows tool_name, total_calls, total_cost, and share of total across all
-    task sessions. Returns an empty string when no data is available.
+    task sessions. Returns a placeholder panel with onboarding instructions
+    when no data is available.
     """
     if not tool_stats:
-        return ""
+        return """\
+<div class="panel" style="margin-bottom: var(--sp-6);">
+  <div class="section-header">Project-Wide Tool Costs</div>
+  <div style="padding:var(--sp-4);color:var(--text-muted,#6b7280);font-size:0.875rem;">
+    No tool call stats yet. Run <code>tusk session-close &lt;session_id&gt;</code> to populate this panel.
+  </div>
+</div>"""
 
     grand_total = sum(r["total_cost"] or 0 for r in tool_stats)
     total_calls = sum(r["total_calls"] or 0 for r in tool_stats)
@@ -2582,7 +2588,7 @@ def generate_global_tool_costs_section(tool_stats: list[dict]) -> str:
         rows_html += (
             f'<tr>'
             f'<td style="font-weight:500;">{esc(r["tool_name"])}</td>'
-            f'<td style="text-align:right;font-variant-numeric:tabular-nums;">{calls:,}</td>'
+            f'<td style="text-align:right;font-variant-numeric:tabular-nums;">{int(calls):,}</td>'
             f'<td style="text-align:right;font-variant-numeric:tabular-nums;">${cost:.4f}</td>'
             f'<td style="min-width:130px;">'
             f'<div style="display:flex;align-items:center;gap:6px;">'
@@ -2613,7 +2619,7 @@ def generate_global_tool_costs_section(tool_stats: list[dict]) -> str:
     </div>
     <div class="kpi-card">
       <div class="kpi-label">Costliest Tool</div>
-      <div class="kpi-value" style="font-size:var(--text-base);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{esc(tool_stats[0]['tool_name']) if tool_stats else ''}">{esc(tool_stats[0]['tool_name']) if tool_stats else '&mdash;'}</div>
+      <div class="kpi-value" style="font-size:var(--text-base);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{esc(tool_stats[0]['tool_name'])}">{esc(tool_stats[0]['tool_name'])}</div>
     </div>
   </div>
   <div class="section-header section-header--bordered">All Tools</div>
