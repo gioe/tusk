@@ -2122,8 +2122,11 @@ def generate_skill_runs_section(skill_runs: list[dict]) -> str:
     avg_cost = total_cost / total_runs if total_runs else 0
     most_expensive_skill = max(skill_totals, key=lambda k: skill_totals[k]) if skill_totals else "\u2014"
 
-    # --- Top-3 most expensive individual runs ---
-    top3_ids = {r['id'] for r in sorted(skill_runs, key=lambda x: x.get('cost_dollars') or 0, reverse=True)[:3]}
+    # --- Top-3 most expensive individual runs (only badge when > 3 total) ---
+    top3_ids = (
+        {r['id'] for r in sorted(skill_runs, key=lambda x: x.get('cost_dollars') or 0, reverse=True)[:3]}
+        if total_runs > 3 else set()
+    )
 
     # --- Cost intensity thresholds for color-coding ---
     all_costs = [r.get('cost_dollars') or 0 for r in skill_runs]
@@ -2257,15 +2260,21 @@ def generate_skill_runs_section(skill_runs: list[dict]) -> str:
   </div>
 </div>"""
 
+    bar_chart_height = max(80, len(skill_totals) * 25)
+    line_chart_section = (
+        f'<div class="section-header" style="border-top:1px solid var(--border);">'
+        f'Cost Trend \u2014 Last 30 Days (Top {len(top_skills)} Skills)</div>'
+        f'<div style="padding:var(--sp-4);"><canvas id="skillLineChart" height="100"></canvas></div>'
+        if line_labels else
+        '<div class="section-header" style="border-top:1px solid var(--border);">Cost Trend \u2014 Last 30 Days</div>'
+        '<p class="text-muted" style="padding:var(--sp-4);">No runs in the last 30 days.</p>'
+    )
     charts_html = f"""\
 <div class="section-header" style="border-top:1px solid var(--border);">Cost by Skill (Total)</div>
 <div style="padding:var(--sp-4);">
-  <canvas id="skillBarChart" height="80"></canvas>
+  <canvas id="skillBarChart" height="{bar_chart_height}"></canvas>
 </div>
-<div class="section-header" style="border-top:1px solid var(--border);">Cost Trend — Last 30 Days (Top {len(top_skills)} Skills)</div>
-<div style="padding:var(--sp-4);">
-  <canvas id="skillLineChart" height="100"></canvas>
-</div>"""
+{line_chart_section}"""
 
     charts_script = f"""\
 <script>
