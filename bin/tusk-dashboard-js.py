@@ -4,7 +4,6 @@ Extracted from generate_js() to reduce the main file size.
 """
 
 JS: str = """\
-<script>
 (function() {
   var body = document.getElementById('metricsBody');
   if (!body) return;
@@ -1029,5 +1028,4 @@ JS: str = """\
     document.getElementById('dagSbMetrics').innerHTML = m;
   };
 })();
-</script>
 """

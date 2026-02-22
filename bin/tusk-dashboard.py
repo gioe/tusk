@@ -1672,7 +1672,7 @@ var DAG_MERMAID_ALL = {mermaid_all_json};
 
 def generate_js() -> str:
     """Generate all dashboard JavaScript."""
-    return _load_dashboard_js_module().JS
+    return '<script>\n' + _load_dashboard_js_module().JS + '\n</script>'
 
 
 # ---------------------------------------------------------------------------
