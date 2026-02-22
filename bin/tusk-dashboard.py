@@ -2090,8 +2090,20 @@ def generate_kpi_cards(kpi_data: dict) -> str:
 </div>"""
 
 
+def _parse_dt(dt_str: str) -> datetime | None:
+    """Parse a datetime string in either %Y-%m-%d %H:%M:%S or %Y-%m-%d %H:%M:%S.%f format."""
+    if not dt_str:
+        return None
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(dt_str, fmt)
+        except ValueError:
+            pass
+    return None
+
+
 def generate_skill_runs_section(skill_runs: list[dict]) -> str:
-    """Generate the Skill Run Costs section with a table and per-skill cost bar charts."""
+    """Generate the Skill Run Costs section with summary cards, charts, and enriched table."""
     if not skill_runs:
         return """\
 <div class="panel" style="margin-bottom: var(--sp-6);">
@@ -2099,107 +2111,226 @@ def generate_skill_runs_section(skill_runs: list[dict]) -> str:
   <p class="empty" style="padding: var(--sp-4);">No skill runs recorded yet.</p>
 </div>"""
 
-    # Build table rows (most recent first)
+    # --- Aggregate cost per skill ---
+    skill_totals: dict[str, float] = defaultdict(float)
+    for r in skill_runs:
+        skill_totals[r['skill_name']] += r.get('cost_dollars') or 0
+
+    # --- Summary stats ---
+    total_runs = len(skill_runs)
+    total_cost = sum(r.get('cost_dollars') or 0 for r in skill_runs)
+    avg_cost = total_cost / total_runs if total_runs else 0
+    most_expensive_skill = max(skill_totals, key=lambda k: skill_totals[k]) if skill_totals else "\u2014"
+
+    # --- Top-3 most expensive individual runs (only badge when > 3 total) ---
+    top3_ids = (
+        {r['id'] for r in sorted(skill_runs, key=lambda x: x.get('cost_dollars') or 0, reverse=True)[:3]}
+        if total_runs > 3 else set()
+    )
+
+    # --- Cost intensity thresholds for color-coding ---
+    all_costs = [r.get('cost_dollars') or 0 for r in skill_runs]
+    max_cost = max(all_costs) if all_costs else 0
+
+    def cost_cell_style(cost: float) -> str:
+        if max_cost <= 0 or cost <= 0:
+            return "text-align:right;font-variant-numeric:tabular-nums;"
+        ratio = cost / max_cost
+        if ratio >= 0.8:
+            bg = "background-color:#fde68a;"
+        elif ratio >= 0.5:
+            bg = "background-color:#fef3c7;"
+        elif ratio >= 0.2:
+            bg = "background-color:#ecfdf5;"
+        else:
+            bg = ""
+        return f"text-align:right;font-variant-numeric:tabular-nums;{bg}"
+
+    # --- Build table rows (most recent first) ---
     table_rows = ""
     for r in skill_runs:
-        cost_str = f"${(r.get('cost_dollars') or 0):.4f}"
+        cost = r.get('cost_dollars') or 0
+        cost_str = f"${cost:.4f}"
         tokens_in_str = format_tokens_compact(r.get('tokens_in') or 0)
         tokens_out_str = format_tokens_compact(r.get('tokens_out') or 0)
         model_str = esc(r.get('model') or '')
-        meta_str = esc(r.get('metadata') or '')
         date_str = format_date(r.get('started_at'))
         skill_str = esc(r.get('skill_name') or '')
+
+        start_dt = _parse_dt(r.get('started_at') or '')
+        end_dt = _parse_dt(r.get('ended_at') or '')
+        if start_dt and end_dt:
+            dur_secs = (end_dt - start_dt).total_seconds()
+            dur_str = format_duration(dur_secs)
+        else:
+            dur_str = '<span class="text-muted-dash">&mdash;</span>'
+
+        is_top3 = r['id'] in top3_ids
+        badge = (
+            ' <span style="background:#f59e0b;color:#fff;font-size:0.65rem;'
+            'padding:1px 5px;border-radius:9999px;font-weight:700;vertical-align:middle;">TOP</span>'
+            if is_top3 else ''
+        )
+        row_style = ' style="font-weight:600;"' if is_top3 else ''
+
         table_rows += (
-            f"<tr>"
+            f"<tr{row_style}>"
             f"<td>{r['id']}</td>"
-            f"<td>{skill_str}</td>"
+            f"<td>{skill_str}{badge}</td>"
             f"<td class=\"text-muted\">{date_str}</td>"
-            f"<td style=\"text-align:right;font-variant-numeric:tabular-nums\">{cost_str}</td>"
+            f"<td style=\"{cost_cell_style(cost)}\">{cost_str}</td>"
             f"<td style=\"text-align:right\">{tokens_in_str}</td>"
             f"<td style=\"text-align:right\">{tokens_out_str}</td>"
+            f"<td class=\"text-muted\">{dur_str}</td>"
             f"<td class=\"text-muted\">{model_str}</td>"
-            f"<td class=\"text-muted\" style=\"font-size:0.75rem;max-width:200px;overflow:hidden;"
-            f"text-overflow:ellipsis;white-space:nowrap;\">{meta_str}</td>"
             f"</tr>\n"
         )
 
-    # Build chart data for skills with 2+ runs (chronological order for chart)
-    runs_by_skill: dict[str, list] = defaultdict(list)
-    for r in reversed(skill_runs):  # skill_runs is DESC; reverse to get chronological order
-        runs_by_skill[r['skill_name']].append(r)
-    chart_skills = {sk: runs for sk, runs in runs_by_skill.items() if len(runs) >= 2}
+    # --- Horizontal bar chart: total cost per skill (sorted descending) ---
+    bar_labels = []
+    bar_values = []
+    for sk, total in sorted(skill_totals.items(), key=lambda x: x[1], reverse=True):
+        bar_labels.append(sk)
+        bar_values.append(round(total, 4))
 
-    chart_html = ""
-    charts_script = ""
-    if chart_skills:
-        chart_data: dict[str, dict] = {}
-        for skill, runs in chart_skills.items():
-            labels = []
-            costs = []
-            for run in runs:
-                dt_str = run.get('started_at', '')
-                try:
-                    dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
-                    labels.append(dt.strftime("%b %d"))
-                except ValueError:
-                    labels.append(dt_str[:10] if dt_str else 'unknown')
-                costs.append(round(run.get('cost_dollars') or 0, 4))
-            chart_data[skill] = {"labels": labels, "costs": costs}
+    # --- Line chart: per-run cost over last 30 days, top-5 skills by total cost ---
+    cutoff_dt = datetime.utcnow() - timedelta(days=30)
+    top_skills = [sk for sk, _ in sorted(skill_totals.items(), key=lambda x: x[1], reverse=True)[:5]]
 
-        chart_data_json = json.dumps(chart_data).replace("</", "<\\/")
+    # Accumulate daily cost per top skill
+    skill_date_costs: dict[str, dict[str, float]] = {sk: {} for sk in top_skills}
+    all_date_keys: set[str] = set()
+    for r in skill_runs:
+        sk = r.get('skill_name')
+        if sk not in top_skills:
+            continue
+        start_dt_r = _parse_dt(r.get('started_at') or '')
+        if start_dt_r is None or start_dt_r < cutoff_dt:
+            continue
+        day_key = start_dt_r.strftime("%Y-%m-%d")
+        all_date_keys.add(day_key)
+        label = start_dt_r.strftime("%b %d")
+        skill_date_costs[sk][label] = skill_date_costs[sk].get(label, 0) + (r.get('cost_dollars') or 0)
 
-        canvas_html = ""
-        for skill in chart_skills:
-            canvas_id = "skillRunChart_" + re.sub(r'[^a-zA-Z0-9_]', '_', skill)
-            canvas_html += (
-                f'<div style="flex:1;min-width:250px;max-width:420px;">'
-                f'<div class="text-muted" style="font-size:0.8rem;margin-bottom:4px;">{esc(skill)}</div>'
-                f'<canvas id="{canvas_id}" height="120"></canvas>'
-                f'</div>\n'
-            )
+    # Sort date labels chronologically
+    sorted_day_keys = sorted(all_date_keys)
+    line_labels = []
+    for dk in sorted_day_keys:
+        try:
+            line_labels.append(datetime.strptime(dk, "%Y-%m-%d").strftime("%b %d"))
+        except ValueError:
+            line_labels.append(dk)
 
-        chart_html = (
-            f'<div class="section-header" style="border-top:1px solid var(--border);">Cost per Run</div>'
-            f'<div style="display:flex;flex-wrap:wrap;gap:var(--sp-6);padding:var(--sp-4);">'
-            f'{canvas_html}'
-            f'</div>'
-        )
+    palette = ['#3b82f6', '#f59e0b', '#22c55e', '#ef4444', '#8b5cf6']
+    line_datasets = []
+    for i, sk in enumerate(top_skills):
+        data_points = [round(skill_date_costs[sk].get(lbl, 0), 4) for lbl in line_labels]
+        line_datasets.append({
+            "label": sk,
+            "data": data_points,
+            "borderColor": palette[i % len(palette)],
+            "backgroundColor": palette[i % len(palette)] + "33",
+            "tension": 0.3,
+            "fill": False,
+        })
 
-        charts_script = f"""\
+    chart_data_json = json.dumps({
+        "bar": {"labels": bar_labels, "values": bar_values},
+        "line": {"labels": line_labels, "datasets": line_datasets},
+    }).replace("</", "<\\/")
+
+    # --- Stat cards HTML ---
+    stat_cards_html = f"""\
+<div style="display:flex;flex-wrap:wrap;gap:var(--sp-4);padding:var(--sp-4);">
+  <div style="flex:1;min-width:130px;background:var(--bg-alt);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
+    <div style="font-size:1.6rem;font-weight:700;">{total_runs}</div>
+    <div class="text-muted" style="font-size:0.8rem;">Total Runs</div>
+  </div>
+  <div style="flex:1;min-width:130px;background:var(--bg-alt);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
+    <div style="font-size:1.6rem;font-weight:700;">${total_cost:.4f}</div>
+    <div class="text-muted" style="font-size:0.8rem;">Total Cost</div>
+  </div>
+  <div style="flex:1;min-width:130px;background:var(--bg-alt);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
+    <div style="font-size:1.6rem;font-weight:700;">${avg_cost:.4f}</div>
+    <div class="text-muted" style="font-size:0.8rem;">Avg Cost / Run</div>
+  </div>
+  <div style="flex:1;min-width:130px;background:var(--bg-alt);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
+    <div style="font-size:1.0rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{esc(most_expensive_skill)}">{esc(most_expensive_skill)}</div>
+    <div class="text-muted" style="font-size:0.8rem;">Priciest Skill</div>
+  </div>
+</div>"""
+
+    bar_chart_height = max(80, len(skill_totals) * 25)
+    line_chart_section = (
+        f'<div class="section-header" style="border-top:1px solid var(--border);">'
+        f'Cost Trend \u2014 Last 30 Days (Top {len(top_skills)} Skills)</div>'
+        f'<div style="padding:var(--sp-4);"><canvas id="skillLineChart" height="100"></canvas></div>'
+        if line_labels else
+        '<div class="section-header" style="border-top:1px solid var(--border);">Cost Trend \u2014 Last 30 Days</div>'
+        '<p class="text-muted" style="padding:var(--sp-4);">No runs in the last 30 days.</p>'
+    )
+    charts_html = f"""\
+<div class="section-header" style="border-top:1px solid var(--border);">Cost by Skill (Total)</div>
+<div style="padding:var(--sp-4);">
+  <canvas id="skillBarChart" height="{bar_chart_height}"></canvas>
+</div>
+{line_chart_section}"""
+
+    charts_script = f"""\
 <script>
 (function() {{
-  var skillData = {chart_data_json};
-  var palette = ['#3b82f6','#f59e0b','#22c55e','#ef4444','#8b5cf6','#06b6d4'];
-  var ci = 0;
-  for (var skill in skillData) {{
-    var d = skillData[skill];
-    var canvasId = 'skillRunChart_' + skill.replace(/[^a-zA-Z0-9_]/g, '_');
-    var canvas = document.getElementById(canvasId);
-    if (!canvas) continue;
-    new Chart(canvas, {{
+  var chartData = {chart_data_json};
+  var palette = ['#3b82f6','#f59e0b','#22c55e','#ef4444','#8b5cf6'];
+
+  // Horizontal bar chart: total cost per skill
+  var barCanvas = document.getElementById('skillBarChart');
+  if (barCanvas && chartData.bar.labels.length > 0) {{
+    new Chart(barCanvas, {{
       type: 'bar',
       data: {{
-        labels: d.labels,
+        labels: chartData.bar.labels,
         datasets: [{{
-          label: 'Cost',
-          data: d.costs,
-          backgroundColor: palette[ci % palette.length] + '99',
-          borderColor: palette[ci % palette.length],
+          label: 'Total Cost',
+          data: chartData.bar.values,
+          backgroundColor: chartData.bar.labels.map(function(_, i) {{ return palette[i % palette.length] + '99'; }}),
+          borderColor: chartData.bar.labels.map(function(_, i) {{ return palette[i % palette.length]; }}),
           borderWidth: 1
         }}]
       }},
       options: {{
+        indexAxis: 'y',
         responsive: true,
         plugins: {{
           legend: {{ display: false }},
-          tooltip: {{ callbacks: {{ label: function(c) {{ return '$' + c.parsed.y.toFixed(4); }} }} }}
+          tooltip: {{ callbacks: {{ label: function(c) {{ return '$' + c.parsed.x.toFixed(4); }} }} }}
+        }},
+        scales: {{
+          x: {{ beginAtZero: true, ticks: {{ callback: function(v) {{ return '$' + v.toFixed(3); }} }} }}
+        }}
+      }}
+    }});
+  }}
+
+  // Line chart: per-run cost trend over time per skill
+  var lineCanvas = document.getElementById('skillLineChart');
+  if (lineCanvas && chartData.line.labels.length > 0) {{
+    new Chart(lineCanvas, {{
+      type: 'line',
+      data: {{
+        labels: chartData.line.labels,
+        datasets: chartData.line.datasets
+      }},
+      options: {{
+        responsive: true,
+        plugins: {{
+          legend: {{ position: 'top' }},
+          tooltip: {{ callbacks: {{ label: function(c) {{ return c.dataset.label + ': $' + c.parsed.y.toFixed(4); }} }} }}
         }},
         scales: {{
           y: {{ beginAtZero: true, ticks: {{ callback: function(v) {{ return '$' + v.toFixed(3); }} }} }}
         }}
       }}
     }});
-    ci++;
   }}
 }})();
 </script>"""
@@ -2207,6 +2338,9 @@ def generate_skill_runs_section(skill_runs: list[dict]) -> str:
     return f"""\
 <div class="panel" style="margin-bottom: var(--sp-6);">
   <div class="section-header">Skill Run Costs</div>
+  {stat_cards_html}
+  {charts_html}
+  <div class="section-header" style="border-top:1px solid var(--border);">All Runs</div>
   <div style="overflow-x:auto;padding:var(--sp-4);">
     <table>
       <thead>
@@ -2217,8 +2351,8 @@ def generate_skill_runs_section(skill_runs: list[dict]) -> str:
           <th style="text-align:right">Cost</th>
           <th style="text-align:right">Tokens In</th>
           <th style="text-align:right">Tokens Out</th>
+          <th>Duration</th>
           <th>Model</th>
-          <th>Metadata</th>
         </tr>
       </thead>
       <tbody>
@@ -2226,7 +2360,6 @@ def generate_skill_runs_section(skill_runs: list[dict]) -> str:
       </tbody>
     </table>
   </div>
-  {chart_html}
 </div>{charts_script}"""
 
 
@@ -3757,7 +3890,8 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
                 "repo_url": repo_url,
                 "criteria": cl,
             }
-    criteria_script = f'<script>window.CRITERIA_DATA = {json.dumps(criteria_json).replace("</", "<\\/")};</script>'
+    _criteria_json_str = json.dumps(criteria_json).replace("</", "<\\/")
+    criteria_script = f'<script>window.CRITERIA_DATA = {_criteria_json_str};</script>'
 
     # KPI cards
     kpi_html = generate_kpi_cards(kpi_data) if kpi_data else ""
