@@ -689,7 +689,7 @@ def format_relative_time(dt_str) -> str:
 
 def generate_css() -> str:
     """Generate the full CSS with design system tokens."""
-    return _load_dashboard_css_module().CSS
+    return '<style>\n' + _load_dashboard_css_module().CSS + '\n</style>'
 
 
 def generate_header(now: str) -> str:
@@ -1832,9 +1832,7 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
   }});
 }})();
 </script>
-<style>
 {css}
-</style>
 </head>
 <body>
 
