@@ -6,6 +6,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [187] - 2026-02-22
+
+### Changed
+
+- Removed boilerplate `## Arguments`, `## Integration Points`, `## Adding New Rules`, and `## What It Shows` sections from six skill files (`progress`, `criteria`, `blockers`, `lint-conventions`, `check-dupes`, `dashboard`)
+- Removed WSJF scoring explanation note from `skills/tusk/SKILL.md`
+- Replaced `SELECT *` with explicit column list in `skills/tusk/SUBCOMMANDS.md` view command
+- Eliminated duplicate `tusk setup` call on the full retro path: moved the call to `skills/retro/SKILL.md` Step 0 (shared for both lightweight and full retro) and removed it from `skills/retro/FULL-RETRO.md` Step 2
+
 ## [186] - 2026-02-22
 
 ### Changed

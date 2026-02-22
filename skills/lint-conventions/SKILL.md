@@ -27,12 +27,3 @@ The output groups findings by rule. Each rule shows either `PASS` or `WARN` with
 
 If violations are found, fix them before proceeding with your PR or release.
 
-## Adding New Rules
-
-New rules are added to `bin/tusk-lint.py`, not to this skill. See the existing rule functions in that file for the pattern to follow.
-
-## Integration Points
-
-This skill can be referenced by:
-- **`/tusk`** — As an optional pre-PR check
-- **`/retro`** — To audit convention compliance after a session

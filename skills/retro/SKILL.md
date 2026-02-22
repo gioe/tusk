@@ -8,13 +8,16 @@ allowed-tools: Bash, Read
 
 Reviews the current conversation history to capture process learnings, instruction improvements, and tangential issues. Creates structured follow-up tasks so nothing falls through the cracks.
 
-## Step 0: Determine Retro Mode
+## Step 0: Setup
 
-Check the complexity of the task that was just completed:
+Fetch config, backlog, and conventions, then determine retro mode:
 
 ```bash
 tusk "SELECT complexity FROM tasks WHERE status = 'Done' ORDER BY updated_at DESC LIMIT 1"
+tusk setup
 ```
+
+Parse the JSON from `tusk setup`: use `config` for metadata assignment, `backlog` for duplicate comparison, and `conventions` for convention checks.
 
 - **XS or S** → follow the **Lightweight Retro** path below
 - **M, L, XL, or NULL** → read the full retro guide:
@@ -44,22 +47,16 @@ If **all categories are empty**, report "Clean session — no findings" and stop
 
 ### LR-2: Create Tasks (only if findings exist)
 
-1. Fetch config, backlog, and conventions in one call:
-   ```bash
-   tusk setup
-   ```
-   Parse the JSON: use `config` for metadata assignment, `backlog` for duplicate comparison, and `conventions` for LR-2b.
+1. Compare each finding against the backlog for semantic overlap (use `backlog` from Step 0). Drop any already covered.
 
-2. Compare each finding against the backlog for semantic overlap. Drop any already covered.
-
-3. Run heuristic dupe check on surviving findings:
+2. Run heuristic dupe check on surviving findings:
    ```bash
    tusk dupes check "<proposed summary>"
    ```
 
-4. Present findings and proposed tasks in a table. Wait for explicit user approval before inserting.
+3. Present findings and proposed tasks in a table. Wait for explicit user approval before inserting.
 
-5. Insert approved tasks:
+4. Insert approved tasks:
    ```bash
    tusk task-insert "<summary>" "<description>" --priority "<priority>" --domain "<domain>" --task-type "<task_type>" --assignee "<assignee>" --complexity "<complexity>" \
      --criteria "<criterion 1>" [--criteria "<criterion 2>" ...]
@@ -68,7 +65,7 @@ If **all categories are empty**, report "Clean session — no findings" and stop
 
 ### LR-2b: Write Conventions (only if Category D has findings)
 
-For each Category D finding, check whether it is already captured in the `conventions` string from `tusk setup` (fetched in LR-2 step 1).
+For each Category D finding, check whether it is already captured in the `conventions` string from Step 0.
 
 Skip any convention whose meaning is already present (even if worded differently). For each new convention, append it:
 

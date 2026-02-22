@@ -62,11 +62,3 @@ tusk criteria reset <criterion_id>
 
 Clears completion status, cost data, and verification result.
 
-## Arguments
-
-Parse the user's request to determine:
-1. The subcommand (add, list, done, reset)
-2. The task ID or criterion ID involved
-3. The criterion text, source, type, and spec (for add)
-
-Then run the appropriate command from the examples above.

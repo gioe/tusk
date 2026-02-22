@@ -61,11 +61,3 @@ tusk blockers blocked
 tusk blockers all
 ```
 
-## Arguments
-
-Parse the user's request to determine:
-1. The subcommand (add, list, resolve, remove, blocked, all)
-2. The task ID or blocker ID involved (if applicable)
-3. The description and type (for add)
-
-Then run the appropriate command from the examples above.

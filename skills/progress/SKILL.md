@@ -21,10 +21,3 @@ Example:
 tusk progress 42 --next-steps "Wire up the DELETE endpoint and add tests"
 ```
 
-## Arguments
-
-Parse the user's request to determine:
-1. The task ID
-2. Any next-steps context the user wants to record
-
-Then run the command. Remind the user to provide `--next-steps` if they omitted it, as it significantly helps context recovery.

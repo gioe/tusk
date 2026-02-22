@@ -80,8 +80,3 @@ Use `--json` for programmatic consumption:
 }
 ```
 
-## Integration Points
-
-This skill is referenced by:
-- **`/tusk`** — Before creating deferred tasks
-- **`/groom-backlog`** — Scanning for duplicate pairs
