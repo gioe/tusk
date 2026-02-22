@@ -21,7 +21,7 @@ import sqlite3
 import sys
 import webbrowser
 from collections import defaultdict, deque
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 log = logging.getLogger(__name__)
 
@@ -557,15 +557,16 @@ def format_duration(seconds) -> str:
 
 
 def format_date(dt_str) -> str:
-    """Format an ISO datetime string as YYYY-MM-DD HH:MM:SS[.mmm]."""
+    """Format an ISO datetime string as YYYY-MM-DD HH:MM:SS in local timezone."""
     if dt_str is None:
         return '<span class="text-muted-dash">&mdash;</span>'
     dt = _parse_dt(dt_str)
     if dt is None:
         return esc(dt_str)
-    if dt.microsecond:
-        return dt.strftime("%Y-%m-%d %H:%M:%S.") + f"{dt.microsecond // 1000:03d}"
-    return dt.strftime("%Y-%m-%d %H:%M:%S")
+    local_dt = dt.astimezone()
+    if local_dt.microsecond:
+        return local_dt.strftime("%Y-%m-%d %H:%M:%S.") + f"{local_dt.microsecond // 1000:03d}"
+    return local_dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def format_tokens_compact(n) -> str:
@@ -587,7 +588,7 @@ def format_relative_time(dt_str) -> str:
     dt = _parse_dt(dt_str)
     if dt is None:
         return ""
-    seconds = int((datetime.now() - dt).total_seconds())
+    seconds = int((datetime.now(timezone.utc) - dt).total_seconds())
     if seconds < 0:
         return "just now"
     if seconds < 60:
@@ -2152,12 +2153,12 @@ def generate_kpi_cards(kpi_data: dict) -> str:
 
 
 def _parse_dt(dt_str: str) -> datetime | None:
-    """Parse a datetime string in either %Y-%m-%d %H:%M:%S or %Y-%m-%d %H:%M:%S.%f format."""
+    """Parse a datetime string (assumed UTC) and return a UTC-aware datetime."""
     if not dt_str:
         return None
     for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
         try:
-            return datetime.strptime(dt_str, fmt)
+            return datetime.strptime(dt_str, fmt).replace(tzinfo=timezone.utc)
         except ValueError:
             pass
     return None
@@ -2255,7 +2256,7 @@ def generate_skill_runs_section(skill_runs: list[dict]) -> str:
         bar_values.append(round(total, 4))
 
     # --- Line chart: per-run cost over last 30 days, top-5 skills by total cost ---
-    cutoff_dt = datetime.utcnow() - timedelta(days=30)
+    cutoff_dt = datetime.now(timezone.utc) - timedelta(days=30)
     top_skills = [sk for sk, _ in sorted(skill_totals.items(), key=lambda x: x[1], reverse=True)[:5]]
 
     # Accumulate daily cost per top skill
@@ -2268,9 +2269,10 @@ def generate_skill_runs_section(skill_runs: list[dict]) -> str:
         start_dt_r = _parse_dt(r.get('started_at') or '')
         if start_dt_r is None or start_dt_r < cutoff_dt:
             continue
-        day_key = start_dt_r.strftime("%Y-%m-%d")
+        local_start = start_dt_r.astimezone()
+        day_key = local_start.strftime("%Y-%m-%d")
         all_date_keys.add(day_key)
-        label = start_dt_r.strftime("%b %d")
+        label = local_start.strftime("%b %d")
         skill_date_costs[sk][label] = skill_date_costs[sk].get(label, 0) + (r.get('cost_dollars') or 0)
 
     # Sort date labels chronologically
