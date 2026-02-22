@@ -2045,6 +2045,7 @@ def generate_header(now: str) -> str:
 <div class="tab-bar" id="tabBar">
   <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
   <button class="tab-btn" data-tab="dag">DAG</button>
+  <button class="tab-btn" data-tab="skills">Skill Runs</button>
 </div>"""
 
 
@@ -3834,7 +3835,6 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
 <div id="tab-dashboard" class="tab-panel active">
   <div class="container">
     {kpi_html}
-    {skill_runs_html}
     {charts_html}
     <div class="panel">
       {filter_bar}
@@ -3852,6 +3852,12 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
 
 <div id="tab-dag" class="tab-panel dag-tab-panel">
   {dag_html}
+</div>
+
+<div id="tab-skills" class="tab-panel">
+  <div class="container">
+    {skill_runs_html}
+  </div>
 </div>
 
 {footer}
