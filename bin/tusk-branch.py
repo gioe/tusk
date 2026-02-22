@@ -110,6 +110,8 @@ def main(argv: list[str]) -> int:
             f"Delete all but one before running tusk branch.",
             file=sys.stderr,
         )
+        if dirty:
+            run(["git", "stash", "pop"], check=False)
         return 2
     elif existing_branches:
         existing_branch = existing_branches[0]
