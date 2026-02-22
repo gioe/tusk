@@ -6,6 +6,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [177] - 2026-02-22
+
+### Added
+
+- Schema migration 21→22: nullable `criterion_id` FK added to `tool_call_stats`; new `UNIQUE(criterion_id, tool_name)` constraint, index, and updated CHECK to allow criterion-only rows
+- `tusk criteria done` now upserts per-tool cost rows into `tool_call_stats` with `criterion_id` set using the same transcript time window used for aggregate cost attribution
+- Dashboard criterion entries show a collapsible tool-cost breakdown panel when `tool_call_stats` rows exist for that criterion; degrades gracefully on pre-migration DBs
+
 ## [176] - 2026-02-22
 
 ### Added
