@@ -124,10 +124,11 @@ tusk "UPDATE tasks SET description = $(tusk sql-quote "$AMENDED_DESC"), updated_
 ### 5b: Insert New Tasks
 
 ```bash
-tusk task-insert "<summary>" "<description>" --priority "<priority>" --domain "<domain>" --task-type "<task_type>" --assignee "<assignee>" --complexity "<complexity>"
+tusk task-insert "<summary>" "<description>" --priority "<priority>" --domain "<domain>" --task-type "<task_type>" --assignee "<assignee>" --complexity "<complexity>" \
+  --criteria "<criterion 1>" [--criteria "<criterion 2>" ...]
 ```
 
-Omit `--domain` or `--assignee` entirely if the value is NULL/empty. Exit code 1 means duplicate — skip.
+Always include at least one `--criteria` flag — derive 1–3 concrete acceptance criteria from the task description. Omit `--domain` or `--assignee` entirely if the value is NULL/empty. Exit code 1 means duplicate — skip.
 
 ### 5c: Propose Dependencies
 

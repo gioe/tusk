@@ -61,9 +61,10 @@ If **all categories are empty**, report "Clean session — no findings" and stop
 
 5. Insert approved tasks:
    ```bash
-   tusk task-insert "<summary>" "<description>" --priority "<priority>" --domain "<domain>" --task-type "<task_type>" --assignee "<assignee>" --complexity "<complexity>"
+   tusk task-insert "<summary>" "<description>" --priority "<priority>" --domain "<domain>" --task-type "<task_type>" --assignee "<assignee>" --complexity "<complexity>" \
+     --criteria "<criterion 1>" [--criteria "<criterion 2>" ...]
    ```
-   Omit `--domain` or `--assignee` entirely if the value is NULL/empty. Exit code 1 means duplicate — skip. Skip subsumption and dependency proposals.
+   Always include at least one `--criteria` flag — derive 1–3 concrete acceptance criteria from the task description. Omit `--domain` or `--assignee` entirely if the value is NULL/empty. Exit code 1 means duplicate — skip. Skip subsumption and dependency proposals.
 
 ### LR-2b: Write Conventions (only if Category D has findings)
 
