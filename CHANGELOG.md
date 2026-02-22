@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [180] - 2026-02-22
+
+### Changed
+
+- Extracted `generate_css()` (~1,510 lines) from `tusk-dashboard.py` into a companion module `tusk-dashboard-css.py`; main file reduced from ~4,480 to ~2,980 lines
+
 ## [179] - 2026-02-22
 
 ### Changed
