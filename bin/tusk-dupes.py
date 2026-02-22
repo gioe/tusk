@@ -79,7 +79,7 @@ def tokenize(text: str) -> set[str]:
     splitting only on whitespace.  The input should already be
     normalized (lowercased, prefix-stripped, whitespace-collapsed).
 
-    Leading slashes are stripped so that ``/next-task`` and ``next-task``
+    Leading slashes are stripped so that ``/tusk`` and ``tusk``
     are treated as the same token.
     """
     return {tok.lstrip("/") for tok in text.split()}

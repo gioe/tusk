@@ -50,7 +50,7 @@ Where:
 - **base_priority**: Highest=100, High=80, Medium=60, Low=40, Lowest=20
 - **source_bonus**: +10 if NOT a `[Deferred]` task
 - **unblocks_bonus**: +5 per dependent task, capped at +15
-- **contingent_penalty**: -10 if ALL of the task's blockers are `contingent` (none are `blocks`), biasing `/next-task` toward tasks with guaranteed value
+- **contingent_penalty**: -10 if ALL of the task's blockers are `contingent` (none are `blocks`), biasing `/tusk` toward tasks with guaranteed value
 - **complexity_weight**: XS=1, S=2, M=3, L=5, XL=8 (NULL defaults to 3, same as M)
 
 This gives small, high-priority tasks a natural advantage over large ones — a High/XS task (90) outranks a Highest/XL task (14).

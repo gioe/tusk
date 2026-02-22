@@ -6,6 +6,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [186] - 2026-02-22
+
+### Changed
+
+- `skills/review-pr/SKILL.md`: added conditional guard to REVIEWER-PROMPT.md load — file is now only read when a non-empty diff exists and reviews have been started, saving ~1530 tokens on early-exit invocations
+
+## [185] - 2026-02-22
+
+### Changed
+
+- Renamed `/next-task` skill to `/tusk` — skill directory, frontmatter `name`, and all cross-references updated throughout skills, `bin/tusk-loop.py`, `CLAUDE.md`, `DOMAIN.md`, `README.md`, and `uninstall.sh`
+
 ## [184] - 2026-02-22
 
 ### Added

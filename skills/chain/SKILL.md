@@ -53,7 +53,7 @@ Progress: <completed>/<total> tasks completed (<percent>%)
 ```
 
 **Early exits:**
-- If `total_tasks` is 1 (head only, no dependents): inform the user this is a single task with no chain — suggest `/next-task <id>` instead. Stop here.
+- If `total_tasks` is 1 (head only, no dependents): inform the user this is a single task with no chain — suggest `/tusk <id>` instead. Stop here.
 - If all tasks are already Done: inform the user the chain is already complete. Stop here.
 - If the head task is already Done but dependents remain: skip Step 3 and go directly to Step 4 (wave loop).
 
@@ -291,7 +291,7 @@ Complexity: {complexity}
 
 ---
 
-**Instructions — follow the /next-task workflow end-to-end:**
+**Instructions — follow the /tusk workflow end-to-end:**
 
 1. **Start the task:**
    ```

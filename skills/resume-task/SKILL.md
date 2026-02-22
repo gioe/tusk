@@ -65,9 +65,9 @@ Recent Commits: (git log output from Step 3)
 Next Steps: <most recent checkpoint's next_steps, or incomplete criteria if none>
 ```
 
-## Step 5: Resume the /next-task Workflow
+## Step 5: Resume the /tusk Workflow
 
-Continue from `/next-task` **step 4 onward** (subagents → explore → implement → commit → criteria → finalize). Steps 1-3 are already done.
+Continue from `/tusk` **step 4 onward** (subagents → explore → implement → commit → criteria → finalize). Steps 1-3 are already done.
 
 - Mark criteria done as you go: `tusk criteria done <cid>`
 - Log progress after each commit:
@@ -77,6 +77,6 @@ Continue from `/next-task` **step 4 onward** (subagents → explore → implemen
 - Run `tusk lint` before pushing (advisory only)
 - For finalize steps, read:
   ```
-  Read file: <next_task_base>/FINALIZE.md
+  Read file: <tusk_base>/FINALIZE.md
   ```
-  Where `<next_task_base>` is the `next-task` skill's base directory (sibling to this skill).
+  Where `<tusk_base>` is the `tusk` skill's base directory (sibling to this skill).

@@ -80,7 +80,7 @@ Store the mapping: reviewer name → review_id.
 
 ## Step 5: Spawn Parallel Reviewer Agents
 
-Read the reviewer prompt template:
+Only when the diff is non-empty and reviews have been started in Step 4, read the reviewer prompt template:
 
 ```
 Read file: <base_directory>/REVIEWER-PROMPT.md

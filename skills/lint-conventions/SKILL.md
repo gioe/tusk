@@ -34,5 +34,5 @@ New rules are added to `bin/tusk-lint.py`, not to this skill. See the existing r
 ## Integration Points
 
 This skill can be referenced by:
-- **`/next-task`** — As an optional pre-PR check
+- **`/tusk`** — As an optional pre-PR check
 - **`/retro`** — To audit convention compliance after a session
