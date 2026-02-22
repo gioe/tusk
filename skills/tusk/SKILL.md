@@ -45,8 +45,6 @@ tusk -header -column "SELECT status, COUNT(*) as count FROM tasks GROUP BY statu
 
 Do **not** suggest `/groom-backlog` or `/retro` when there are no ready tasks — those skills require an active backlog or session history to be useful.
 
-**Note**: The `priority_score` is pre-computed by `/groom-backlog` using WSJF (Weighted Shortest Job First) scoring — it factors in priority level, how many tasks this unblocks, and divides by complexity weight (XS=1, S=2, M=3, L=5, XL=8) so small high-value tasks rank higher.
-
 **Complexity warning**: If the selected task has complexity **L** or **XL**, display a warning to the user before proceeding:
 
 > **Note: This is a large task (complexity: L/XL) — expect 3+ sessions to complete.**
