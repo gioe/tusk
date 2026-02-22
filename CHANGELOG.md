@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [172] - 2026-02-22
+
+### Changed
+
+- `tusk dashboard` Skill Run Costs section promoted to its own top-level "Skill Runs" tab (alongside Dashboard and DAG)
+
 ## [171] - 2026-02-21
 
 ### Added
