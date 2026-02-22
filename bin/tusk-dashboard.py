@@ -3757,7 +3757,7 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
                 "repo_url": repo_url,
                 "criteria": cl,
             }
-    criteria_script = f'<script>window.CRITERIA_DATA = {json.dumps(criteria_json)};</script>'
+    criteria_script = f'<script>window.CRITERIA_DATA = {json.dumps(criteria_json).replace("</", "<\\/")};</script>'
 
     # KPI cards
     kpi_html = generate_kpi_cards(kpi_data) if kpi_data else ""
