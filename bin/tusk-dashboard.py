@@ -271,6 +271,28 @@ def fetch_tool_call_stats_per_task(conn: sqlite3.Connection) -> list[dict]:
     return result
 
 
+def fetch_tool_call_stats_per_skill_run(conn: sqlite3.Connection) -> list[dict]:
+    """Fetch per-skill-run tool call rows.
+
+    Returns an empty list if the tool_call_stats table or skill_run_id column
+    does not exist (pre-migration DB).
+    """
+    log.debug("Querying tool_call_stats for per-skill-run aggregates")
+    try:
+        rows = conn.execute(
+            """SELECT skill_run_id, tool_name, call_count, total_cost, max_cost
+               FROM tool_call_stats
+               WHERE skill_run_id IS NOT NULL
+               ORDER BY skill_run_id, total_cost DESC"""
+        ).fetchall()
+    except sqlite3.OperationalError:
+        log.warning("tool_call_stats skill_run_id column not found — run 'tusk migrate' to update schema")
+        return []
+    result = [dict(r) for r in rows]
+    log.debug("Fetched %d per-skill-run tool call stat rows", len(result))
+    return result
+
+
 def filter_dag_nodes(tasks: list[dict], edges: list[dict], blockers: list[dict],
                      show_all: bool) -> tuple[list[dict], list[dict], list[dict]]:
     """Filter tasks, edges, and blockers for DAG visibility.
@@ -2163,8 +2185,10 @@ def _parse_dt(dt_str: str) -> datetime | None:
     return None
 
 
-def generate_skill_runs_section(skill_runs: list[dict]) -> str:
+def generate_skill_runs_section(skill_runs: list[dict], tool_stats_by_run: dict = None) -> str:
     """Generate the Skill Run Costs section with summary cards, charts, and enriched table."""
+    if tool_stats_by_run is None:
+        tool_stats_by_run = {}
     if not skill_runs:
         return """\
 <div class="panel" style="margin-bottom: var(--sp-6);">
@@ -2234,6 +2258,9 @@ def generate_skill_runs_section(skill_runs: list[dict]) -> str:
         )
         row_style = ' style="font-weight:600;"' if is_top3 else ''
 
+        run_tool_stats = tool_stats_by_run.get(r['id'], [])
+        tool_panel_html = _generate_tool_stats_panel(run_tool_stats)
+
         table_rows += (
             f"<tr{row_style}>"
             f"<td>{r['id']}</td>"
@@ -2246,6 +2273,12 @@ def generate_skill_runs_section(skill_runs: list[dict]) -> str:
             f"<td class=\"text-muted\">{model_str}</td>"
             f"</tr>\n"
         )
+        if tool_panel_html:
+            table_rows += (
+                f'<tr><td colspan="8" style="padding:0;">'
+                f'{tool_panel_html}'
+                f'</td></tr>\n'
+            )
 
     # --- Horizontal bar chart: total cost per skill (sorted descending) ---
     bar_labels = []
@@ -3973,7 +4006,8 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
                   cost_by_domain: list[dict] = None, version: str = "",
                   dag_tasks: list[dict] = None, dag_edges: list[dict] = None,
                   dag_blockers: list[dict] = None, skill_runs: list[dict] = None,
-                  tool_call_per_task: list[dict] = None) -> str:
+                  tool_call_per_task: list[dict] = None,
+                  tool_call_per_skill_run: list[dict] = None) -> str:
     """Generate the full HTML dashboard by composing sub-functions."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -3987,6 +4021,12 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
     for r in (tool_call_per_task or []):
         tid = r["task_id"]
         tool_stats_by_task.setdefault(tid, []).append(r)
+
+    # Build per-skill-run tool stats lookup
+    tool_stats_by_run: dict[int, list[dict]] = {}
+    for r in (tool_call_per_skill_run or []):
+        rid = r["skill_run_id"]
+        tool_stats_by_run.setdefault(rid, []).append(r)
 
     # Build summary map for dependency tooltips
     summary_map: dict[int, str] = {t["id"]: t["summary"] for t in task_metrics}
@@ -4035,7 +4075,7 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
     kpi_html = generate_kpi_cards(kpi_data) if kpi_data else ""
 
     # Skill run costs section
-    skill_runs_html = generate_skill_runs_section(skill_runs or [])
+    skill_runs_html = generate_skill_runs_section(skill_runs or [], tool_stats_by_run)
 
     # Charts
     charts_html = generate_charts_section(
@@ -4186,6 +4226,8 @@ def main():
         skill_runs = fetch_skill_runs(conn)
         # Per-task tool call stats (for inline drilldown panels)
         tool_call_per_task = fetch_tool_call_stats_per_task(conn)
+        # Per-skill-run tool call stats (for drilldown panels in skill-run table)
+        tool_call_per_skill_run = fetch_tool_call_stats_per_skill_run(conn)
     finally:
         conn.close()
 
@@ -4210,7 +4252,7 @@ def main():
         cost_trend_daily, cost_trend_monthly, task_deps, kpi_data,
         cost_by_domain, version,
         dag_tasks, dag_edges, dag_blockers, skill_runs,
-        tool_call_per_task
+        tool_call_per_task, tool_call_per_skill_run
     )
     log.debug("Generated %d bytes of HTML", len(html_content))
 

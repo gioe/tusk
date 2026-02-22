@@ -6,6 +6,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [176] - 2026-02-22
+
+### Added
+
+- Schema migration 19→20: `skill_run_id` nullable FK added to `tool_call_stats`; `session_id` made nullable; new `UNIQUE(skill_run_id, tool_name)` constraint and index
+- `tusk call-breakdown --skill-run <id>` now upserts rows into `tool_call_stats` with `skill_run_id` set (was display-only)
+- `tusk skill-run finish` calls `tusk call-breakdown --skill-run` to persist per-tool breakdown after each run
+- Dashboard skill-run table shows collapsible tool-cost drilldown panel per row when breakdown data exists
+
 ## [175] - 2026-02-22
 
 ### Changed

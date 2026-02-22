@@ -18,8 +18,8 @@ Arguments received from tusk:
 Flags:
     --task <id>       Aggregate all sessions for the given task
     --session <id>    Analyze a single session (writes to tool_call_stats)
-    --skill-run <id>  Analyze a skill-run time window (display only)
-    --write-only      Write to DB without printing the table (used by session-close)
+    --skill-run <id>  Analyze a skill-run time window (writes to tool_call_stats)
+    --write-only      Write to DB without printing the table (used by session-close / skill-run finish)
 """
 
 import importlib.util
@@ -218,8 +218,37 @@ def cmd_task(conn, task_id: int, transcripts: list[str], write_only: bool) -> No
         print_table(combined, f"task {task_id} ({len(rows)} session(s))")
 
 
-def cmd_skill_run(conn, run_id: int, transcripts: list[str]) -> None:
-    """Analyze a skill-run time window (display only, no DB write)."""
+def upsert_skill_run_stats(
+    conn: sqlite3.Connection,
+    run_id: int,
+    stats: dict[str, dict],
+) -> None:
+    """Write aggregated tool_call_stats rows for a skill run (upsert on UNIQUE conflict)."""
+    for tool_name, s in stats.items():
+        conn.execute(
+            """INSERT INTO tool_call_stats
+                   (skill_run_id, tool_name, call_count, total_cost, max_cost, tokens_out, computed_at)
+               VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(skill_run_id, tool_name) DO UPDATE SET
+                   call_count  = excluded.call_count,
+                   total_cost  = excluded.total_cost,
+                   max_cost    = excluded.max_cost,
+                   tokens_out  = excluded.tokens_out,
+                   computed_at = excluded.computed_at""",
+            (
+                run_id,
+                tool_name,
+                s["call_count"],
+                round(s["total_cost"], 8),
+                round(s["max_cost"], 8),
+                s["tokens_out"],
+            ),
+        )
+    conn.commit()
+
+
+def cmd_skill_run(conn, run_id: int, transcripts: list[str], write_only: bool = False) -> None:
+    """Analyze a skill-run time window, write stats to tool_call_stats, optionally display."""
     row = conn.execute(
         "SELECT id, skill_name, started_at, ended_at FROM skill_runs WHERE id = ?",
         (run_id,),
@@ -241,7 +270,12 @@ def cmd_skill_run(conn, run_id: int, transcripts: list[str]) -> None:
         return
 
     stats = aggregate_tool_calls(transcripts, started_at, ended_at)
-    print_table(stats, f"skill-run {run_id} ({row['skill_name']})")
+
+    if stats:
+        upsert_skill_run_stats(conn, run_id, stats)
+
+    if not write_only:
+        print_table(stats, f"skill-run {run_id} ({row['skill_name']})")
 
 
 def main():
@@ -322,9 +356,7 @@ def main():
         elif task_id is not None:
             cmd_task(conn, task_id, transcripts, write_only)
         elif run_id is not None:
-            if write_only:
-                print("Warning: --write-only has no effect with --skill-run (no DB write for skill runs).", file=sys.stderr)
-            cmd_skill_run(conn, run_id, transcripts)
+            cmd_skill_run(conn, run_id, transcripts, write_only)
     finally:
         conn.close()
 
