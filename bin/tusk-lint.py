@@ -178,7 +178,7 @@ def rule6_done_incomplete_criteria(root):
              "SELECT t.id, t.summary, COUNT(ac.id) AS incomplete "
              "FROM tasks t "
              "JOIN acceptance_criteria ac ON ac.task_id = t.id "
-             "WHERE t.status = 'Done' AND ac.is_completed = 0 "
+             "WHERE t.status = 'Done' AND ac.is_completed = 0 AND ac.is_deferred = 0 "
              "GROUP BY t.id"],
             capture_output=True, text=True, timeout=5,
         )
