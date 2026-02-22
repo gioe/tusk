@@ -260,6 +260,7 @@ def fetch_tool_call_stats_per_task(conn: sqlite3.Connection) -> list[dict]:
                FROM tool_call_stats tcs
                LEFT JOIN tasks t ON tcs.task_id = t.id
                WHERE tcs.task_id IS NOT NULL
+                 AND tcs.session_id IS NOT NULL
                GROUP BY tcs.task_id, tcs.tool_name
                ORDER BY tcs.task_id, total_cost DESC"""
         ).fetchall()
