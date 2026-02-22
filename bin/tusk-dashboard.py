@@ -1049,6 +1049,9 @@ html[data-theme="dark"] .dep-type-contingent {
   font-size: var(--text-sm);
   border-bottom: 1px solid var(--border);
 }
+.section-header--bordered {
+  border-top: 1px solid var(--border);
+}
 
 .col-complexity {
   white-space: nowrap;
@@ -2379,15 +2382,15 @@ def generate_skill_runs_section(skill_runs: list[dict], tool_stats_by_run: dict 
 
     bar_chart_height = max(80, len(skill_totals) * 25)
     line_chart_section = (
-        f'<div class="section-header" style="border-top:1px solid var(--border);">'
+        f'<div class="section-header section-header--bordered">'
         f'Cost Trend \u2014 Last 30 Days (Top {len(top_skills)} Skills)</div>'
         f'<div class="dash-chart-wrap"><canvas id="skillLineChart" height="100"></canvas></div>'
         if line_labels else
-        '<div class="section-header" style="border-top:1px solid var(--border);">Cost Trend \u2014 Last 30 Days</div>'
+        '<div class="section-header section-header--bordered">Cost Trend \u2014 Last 30 Days</div>'
         '<p class="text-muted" style="padding:var(--sp-4);">No runs in the last 30 days.</p>'
     )
     charts_html = f"""\
-<div class="section-header" style="border-top:1px solid var(--border);">Cost by Skill (Total)</div>
+<div class="section-header section-header--bordered">Cost by Skill (Total)</div>
 <div class="dash-chart-wrap">
   <canvas id="skillBarChart" height="{bar_chart_height}"></canvas>
 </div>
@@ -2457,7 +2460,7 @@ def generate_skill_runs_section(skill_runs: list[dict], tool_stats_by_run: dict 
   <div class="section-header">Skill Run Costs</div>
   {stat_cards_html}
   {charts_html}
-  <div class="section-header" style="border-top:1px solid var(--border);">All Runs</div>
+  <div class="section-header section-header--bordered">All Runs</div>
   <div class="dash-table-scroll">
     <table>
       <thead>
