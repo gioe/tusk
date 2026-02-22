@@ -9,6 +9,7 @@ Called by the tusk wrapper:
     tusk call-breakdown --task <id>
     tusk call-breakdown --session <id>
     tusk call-breakdown --skill-run <id>
+    tusk call-breakdown --criterion <id>
 
 Arguments received from tusk:
     sys.argv[1] — DB path
@@ -19,6 +20,7 @@ Flags:
     --task <id>       Aggregate all sessions for the given task
     --session <id>    Analyze a single session (writes to tool_call_stats)
     --skill-run <id>  Analyze a skill-run time window (writes to tool_call_stats)
+    --criterion <id>  Recompute tool stats for a criterion's time window (writes to tool_call_stats)
     --write-only      Write to DB without printing the table (used by session-close / skill-run finish)
 """
 
@@ -278,10 +280,104 @@ def cmd_skill_run(conn, run_id: int, transcripts: list[str], write_only: bool = 
         print_table(stats, f"skill-run {run_id} ({row['skill_name']})")
 
 
+def upsert_criterion_stats(
+    conn: sqlite3.Connection,
+    criterion_id: int,
+    task_id: int,
+    stats: dict[str, dict],
+) -> None:
+    """Write aggregated tool_call_stats rows for a criterion (upsert on UNIQUE conflict)."""
+    if not stats:
+        return
+    for tool_name, s in stats.items():
+        conn.execute(
+            """INSERT INTO tool_call_stats
+                   (criterion_id, task_id, tool_name, call_count, total_cost, max_cost, tokens_out, computed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(criterion_id, tool_name) DO UPDATE SET
+                   call_count  = excluded.call_count,
+                   total_cost  = excluded.total_cost,
+                   max_cost    = excluded.max_cost,
+                   tokens_out  = excluded.tokens_out,
+                   computed_at = excluded.computed_at""",
+            (
+                criterion_id,
+                task_id,
+                tool_name,
+                s["call_count"],
+                round(s["total_cost"], 8),
+                round(s["max_cost"], 8),
+                s["tokens_out"],
+            ),
+        )
+    conn.commit()
+
+
+def cmd_criterion(conn, criterion_id: int, transcripts: list[str], write_only: bool) -> None:
+    """Recompute tool stats for a criterion's time window and write to tool_call_stats."""
+    row = conn.execute(
+        "SELECT id, task_id, completed_at FROM acceptance_criteria WHERE id = ?",
+        (criterion_id,),
+    ).fetchone()
+
+    if not row:
+        print(f"Error: No criterion found with id {criterion_id}", file=sys.stderr)
+        sys.exit(1)
+
+    task_id = row["task_id"]
+    ended_at = lib.parse_sqlite_timestamp(row["completed_at"]) if row["completed_at"] else None
+
+    # Window start: most recent completed_at of a prior criterion on the same task
+    prev = conn.execute(
+        "SELECT COALESCE(committed_at, completed_at) AS window_ts "
+        "FROM acceptance_criteria "
+        "WHERE task_id = ? AND id <> ? AND completed_at IS NOT NULL "
+        "ORDER BY completed_at DESC LIMIT 1",
+        (task_id, criterion_id),
+    ).fetchone()
+
+    if prev and prev["window_ts"]:
+        started_at = lib.parse_sqlite_timestamp(prev["window_ts"])
+    else:
+        # Fall back to the earliest session start for this task
+        session = conn.execute(
+            "SELECT started_at FROM task_sessions "
+            "WHERE task_id = ? ORDER BY started_at ASC LIMIT 1",
+            (task_id,),
+        ).fetchone()
+        if session and session["started_at"]:
+            started_at = lib.parse_sqlite_timestamp(session["started_at"])
+        else:
+            print(
+                f"Error: Cannot determine window start for criterion {criterion_id} "
+                "(no prior criterion and no task session found).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    if not transcripts:
+        print("Warning: No transcripts found — cannot compute breakdown.", file=sys.stderr)
+        return
+
+    stats = aggregate_tool_calls(transcripts, started_at, ended_at)
+
+    if not stats:
+        print(
+            f"Warning: No tool calls found in transcript for criterion {criterion_id}.",
+            file=sys.stderr,
+        )
+        return
+
+    upsert_criterion_stats(conn, criterion_id, task_id, stats)
+
+    if not write_only:
+        print_table(stats, f"criterion {criterion_id} (task {task_id})")
+
+
 def main():
     if len(sys.argv) < 3:
         print(
-            "Usage: tusk call-breakdown {--task <id> | --session <id> | --skill-run <id>} [--write-only]",
+            "Usage: tusk call-breakdown {--task <id> | --session <id> | --skill-run <id> | --criterion <id>} [--write-only]",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -294,6 +390,7 @@ def main():
     task_id: int | None = None
     session_id: int | None = None
     run_id: int | None = None
+    criterion_id: int | None = None
     write_only = False
 
     i = 0
@@ -328,6 +425,16 @@ def main():
                 print(f"Error: --skill-run requires an integer, got '{args[i+1]}'", file=sys.stderr)
                 sys.exit(1)
             i += 2
+        elif args[i] == "--criterion":
+            if i + 1 >= len(args):
+                print("Error: --criterion requires an integer ID", file=sys.stderr)
+                sys.exit(1)
+            try:
+                criterion_id = int(args[i + 1])
+            except ValueError:
+                print(f"Error: --criterion requires an integer, got '{args[i+1]}'", file=sys.stderr)
+                sys.exit(1)
+            i += 2
         elif args[i] == "--write-only":
             write_only = True
             i += 1
@@ -335,9 +442,9 @@ def main():
             print(f"Error: Unknown argument '{args[i]}'", file=sys.stderr)
             sys.exit(1)
 
-    if task_id is None and session_id is None and run_id is None:
+    if task_id is None and session_id is None and run_id is None and criterion_id is None:
         print(
-            "Usage: tusk call-breakdown {--task <id> | --session <id> | --skill-run <id>} [--write-only]",
+            "Usage: tusk call-breakdown {--task <id> | --session <id> | --skill-run <id> | --criterion <id>} [--write-only]",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -357,6 +464,8 @@ def main():
             cmd_task(conn, task_id, transcripts, write_only)
         elif run_id is not None:
             cmd_skill_run(conn, run_id, transcripts, write_only)
+        elif criterion_id is not None:
+            cmd_criterion(conn, criterion_id, transcripts, write_only)
     finally:
         conn.close()
 
