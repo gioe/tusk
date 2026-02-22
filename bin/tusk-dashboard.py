@@ -16,6 +16,7 @@ import html
 import json
 import logging
 import os
+import re
 import sqlite3
 import sys
 import webbrowser
@@ -223,13 +224,20 @@ def fetch_blockers(conn: sqlite3.Connection) -> list[dict]:
 
 
 def fetch_skill_runs(conn: sqlite3.Connection) -> list[dict]:
-    """Fetch all skill runs sorted by most recent first."""
+    """Fetch all skill runs sorted by most recent first.
+
+    Returns an empty list if the skill_runs table does not exist (pre-migration DB).
+    """
     log.debug("Querying skill_runs table")
-    rows = conn.execute(
-        """SELECT id, skill_name, started_at, ended_at, cost_dollars, tokens_in, tokens_out, model, metadata
-           FROM skill_runs
-           ORDER BY started_at DESC"""
-    ).fetchall()
+    try:
+        rows = conn.execute(
+            """SELECT id, skill_name, started_at, ended_at, cost_dollars, tokens_in, tokens_out, model, metadata
+               FROM skill_runs
+               ORDER BY started_at DESC"""
+        ).fetchall()
+    except sqlite3.OperationalError:
+        log.warning("skill_runs table not found — run 'tusk migrate' to create it")
+        return []
     result = [dict(r) for r in rows]
     log.debug("Fetched %d skill runs", len(result))
     return result
@@ -2137,11 +2145,11 @@ def generate_skill_runs_section(skill_runs: list[dict]) -> str:
                 costs.append(round(run.get('cost_dollars') or 0, 4))
             chart_data[skill] = {"labels": labels, "costs": costs}
 
-        chart_data_json = json.dumps(chart_data)
+        chart_data_json = json.dumps(chart_data).replace("</", "<\\/")
 
         canvas_html = ""
         for skill in chart_skills:
-            canvas_id = "skillRunChart_" + skill.replace("-", "_")
+            canvas_id = "skillRunChart_" + re.sub(r'[^a-zA-Z0-9_]', '_', skill)
             canvas_html += (
                 f'<div style="flex:1;min-width:250px;max-width:420px;">'
                 f'<div class="text-muted" style="font-size:0.8rem;margin-bottom:4px;">{esc(skill)}</div>'
@@ -2164,7 +2172,7 @@ def generate_skill_runs_section(skill_runs: list[dict]) -> str:
   var ci = 0;
   for (var skill in skillData) {{
     var d = skillData[skill];
-    var canvasId = 'skillRunChart_' + skill.replace(/-/g, '_');
+    var canvasId = 'skillRunChart_' + skill.replace(/[^a-zA-Z0-9_]/g, '_');
     var canvas = document.getElementById(canvasId);
     if (!canvas) continue;
     new Chart(canvas, {{
