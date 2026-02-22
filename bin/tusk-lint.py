@@ -11,6 +11,7 @@ Prints results grouped by rule and exits with status 1 if any violations found.
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -393,6 +394,48 @@ def rule11_skill_frontmatter(root):
     return violations
 
 
+def rule12_python_syntax(root):
+    """Python syntax check for all bin/tusk-*.py files via py_compile."""
+    violations = []
+
+    # Guard: skip rule if python3 is not available (which python3)
+    if not shutil.which("python3"):
+        return []
+
+    bin_dir = os.path.join(root, "bin")
+    if not os.path.isdir(bin_dir):
+        return []
+
+    try:
+        scripts = sorted(
+            f for f in os.listdir(bin_dir)
+            if re.match(r"^tusk-.+\.py$", f)
+        )
+    except OSError:
+        return []
+
+    for script in scripts:
+        full = os.path.join(bin_dir, script)
+        rel = os.path.relpath(full, root)
+        try:
+            result = subprocess.run(
+                ["python3", "-m", "py_compile", full],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode != 0:
+                err = result.stderr.strip()
+                # Extract line number from "File ..., line N" in the traceback
+                line_match = re.search(r"line (\d+)", err)
+                line_info = f":{line_match.group(1)}" if line_match else ""
+                # Surface the last (most informative) line of the error
+                last_line = err.splitlines()[-1] if err else "SyntaxError"
+                violations.append(f"  {rel}{line_info}: {last_line}")
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass  # Skip file if py_compile invocation fails
+
+    return violations
+
+
 # ── Main ─────────────────────────────────────────────────────────────
 
 RULES = [
@@ -407,6 +450,7 @@ RULES = [
     ("Rule 9: Deferred tasks missing expires_at", rule9_deferred_missing_expiry),
     ("Rule 10: acceptance_criteria with verification_spec but criterion_type='manual'", rule10_criteria_type_mismatch),
     ("Rule 11: SKILL.md frontmatter validation", rule11_skill_frontmatter),
+    ("Rule 12: Python syntax check (py_compile) for bin/tusk-*.py", rule12_python_syntax),
 ]
 
 
