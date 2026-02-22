@@ -354,14 +354,14 @@ JS: str = """\
         + '</div>'
         + '<span style="font-size:0.75rem;color:var(--text-muted,#6b7280);min-width:36px;">' + pct.toFixed(1) + '%</span>'
         + '</div></td>'
-        + '</tr>\n';
+        + '</tr>\\n';
     });
     return '<details class="tc-task-panel tc-task-panel--bordered" style="margin-top:4px;">'
       + '<summary style="padding:4px 8px;cursor:pointer;list-style:none;'
       + 'display:flex;justify-content:space-between;align-items:center;'
       + 'font-size:0.8rem;color:var(--text-muted,#6b7280);">'
       + '<span>Tool-attributed cost</span>'
-      + '<span style="font-variant-numeric:tabular-nums;" title="Sum of per-tool attributed costs — may differ from criterion\'s cost_dollars">$' + total.toFixed(4) + '</span>'
+      + '<span style="font-variant-numeric:tabular-nums;" title="Sum of per-tool attributed costs — may differ from criterion&apos;s cost_dollars">$' + total.toFixed(4) + '</span>'
       + '</summary>'
       + '<div style="overflow-x:auto;padding:0 8px 6px;">'
       + '<table class="tc-table" style="margin-top:0;width:100%;">'

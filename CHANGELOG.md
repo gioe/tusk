@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [188] - 2026-02-22
+
+### Fixed
+
+- Fixed JS syntax errors in `tusk-dashboard-js.py` that broke all click handlers: unescaped `\n` inside a single-quoted string literal (`</tr>\n` → `</tr>\\n`) and HTML-encoded the apostrophe in a tooltip title to avoid breaking the JS string
+
 ## [187] - 2026-02-22
 
 ### Changed
