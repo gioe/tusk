@@ -371,4 +371,5 @@ def iter_tool_call_costs(
                     "marginal_input_tokens": inp_each,
                     "output_tokens": out_each,
                     "cost": round(cost_each, 8),
+                    "ts": ts,
                 }

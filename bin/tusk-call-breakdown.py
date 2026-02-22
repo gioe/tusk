@@ -174,6 +174,57 @@ def cmd_session(conn, session_id: int, transcripts: list[str], write_only: bool)
         print_table(stats, f"session {session_id}")
 
 
+def _aggregate_sessions_single_pass(
+    transcripts: list[str],
+    sessions: list[tuple],
+) -> dict[int, dict[str, dict]]:
+    """Read each transcript once and route tool calls to the correct session window.
+
+    sessions: list of (session_id, started_at, ended_at) tuples where started_at
+    and ended_at are tz-aware datetimes (ended_at may be None for an open session).
+
+    Returns a dict mapping session_id -> {tool_name -> stats dict}.
+
+    Complexity: O(transcripts) file reads instead of O(sessions × transcripts).
+    """
+    per_session: dict[int, dict[str, dict]] = {sid: {} for sid, _, _ in sessions}
+
+    # Broad window: earliest session start to latest session end.
+    # If any session is still open, use None (unbounded) as the upper bound.
+    overall_start = min(s[1] for s in sessions)
+    overall_end = (
+        max(s[2] for s in sessions)
+        if all(s[2] is not None for s in sessions)
+        else None
+    )
+
+    for transcript_path in transcripts:
+        if not os.path.isfile(transcript_path):
+            continue
+        for item in lib.iter_tool_call_costs(transcript_path, overall_start, overall_end):
+            ts = item["ts"]
+            # Route to the first matching session window (sessions should not overlap).
+            for sid, start, end in sessions:
+                if ts >= start and (end is None or ts <= end):
+                    stats = per_session[sid]
+                    tool = item["tool_name"]
+                    if tool not in stats:
+                        stats[tool] = {
+                            "call_count": 0,
+                            "total_cost": 0.0,
+                            "max_cost": 0.0,
+                            "tokens_out": 0,
+                        }
+                    s = stats[tool]
+                    s["call_count"] += 1
+                    s["total_cost"] += item["cost"]
+                    s["max_cost"] = max(s["max_cost"], item["cost"])
+                    s["tokens_out"] += item["output_tokens"]
+                    break
+
+    return per_session
+
+
 def cmd_task(conn, task_id: int, transcripts: list[str], write_only: bool) -> None:
     """Analyze all sessions for a task, write per-session stats, display aggregate."""
     rows = conn.execute(
@@ -189,19 +240,25 @@ def cmd_task(conn, task_id: int, transcripts: list[str], write_only: bool) -> No
         print("Warning: No transcripts found — cannot compute breakdown.", file=sys.stderr)
         return
 
+    sessions = [
+        (
+            row["id"],
+            lib.parse_sqlite_timestamp(row["started_at"]),
+            lib.parse_sqlite_timestamp(row["ended_at"]) if row["ended_at"] else None,
+        )
+        for row in rows
+    ]
+
+    # Single pass: each transcript file is read once regardless of session count.
+    per_session = _aggregate_sessions_single_pass(transcripts, sessions)
+
     combined: dict[str, dict] = {}
 
-    for row in rows:
-        sid = row["id"]
-        started_at = lib.parse_sqlite_timestamp(row["started_at"])
-        ended_at = lib.parse_sqlite_timestamp(row["ended_at"]) if row["ended_at"] else None
-
-        session_stats = aggregate_tool_calls(transcripts, started_at, ended_at)
-
+    for sid, _, _ in sessions:
+        session_stats = per_session[sid]
         if session_stats:
             upsert_session_stats(conn, sid, task_id, session_stats)
 
-        # Merge into combined for display
         for tool_name, s in session_stats.items():
             if tool_name not in combined:
                 combined[tool_name] = {
