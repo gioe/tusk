@@ -243,6 +243,59 @@ def fetch_skill_runs(conn: sqlite3.Connection) -> list[dict]:
     return result
 
 
+def fetch_tool_call_stats_global(conn: sqlite3.Connection) -> list[dict]:
+    """Fetch global tool call aggregates across all tasks.
+
+    Returns an empty list if the tool_call_stats table does not exist.
+    """
+    log.debug("Querying tool_call_stats for global aggregates")
+    try:
+        rows = conn.execute(
+            """SELECT tool_name,
+                      SUM(call_count) as total_calls,
+                      SUM(total_cost) as total_cost,
+                      MAX(max_cost) as max_single_call_cost,
+                      SUM(tokens_out) as total_tokens_out
+               FROM tool_call_stats
+               GROUP BY tool_name
+               ORDER BY total_cost DESC"""
+        ).fetchall()
+    except sqlite3.OperationalError:
+        log.warning("tool_call_stats table not found — run 'tusk migrate' to create it")
+        return []
+    result = [dict(r) for r in rows]
+    log.debug("Fetched %d global tool call stat rows", len(result))
+    return result
+
+
+def fetch_tool_call_stats_per_task(conn: sqlite3.Connection) -> list[dict]:
+    """Fetch per-task tool call aggregates (all tools per task).
+
+    Returns an empty list if the tool_call_stats table does not exist.
+    """
+    log.debug("Querying tool_call_stats for per-task aggregates")
+    try:
+        rows = conn.execute(
+            """SELECT tcs.task_id,
+                      COALESCE(t.summary, '(Task ' || tcs.task_id || ')') as task_summary,
+                      tcs.tool_name,
+                      SUM(tcs.call_count) as call_count,
+                      SUM(tcs.total_cost) as total_cost,
+                      MAX(tcs.max_cost) as max_cost
+               FROM tool_call_stats tcs
+               LEFT JOIN tasks t ON tcs.task_id = t.id
+               WHERE tcs.task_id IS NOT NULL
+               GROUP BY tcs.task_id, tcs.tool_name
+               ORDER BY tcs.task_id, total_cost DESC"""
+        ).fetchall()
+    except sqlite3.OperationalError:
+        log.warning("tool_call_stats table not found — run 'tusk migrate' to create it")
+        return []
+    result = [dict(r) for r in rows]
+    log.debug("Fetched %d per-task tool call stat rows", len(result))
+    return result
+
+
 def filter_dag_nodes(tasks: list[dict], edges: list[dict], blockers: list[dict],
                      show_all: bool) -> tuple[list[dict], list[dict], list[dict]]:
     """Filter tasks, edges, and blockers for DAG visibility.
@@ -2236,19 +2289,19 @@ def generate_skill_runs_section(skill_runs: list[dict]) -> str:
     # --- Stat cards HTML ---
     stat_cards_html = f"""\
 <div style="display:flex;flex-wrap:wrap;gap:var(--sp-4);padding:var(--sp-4);">
-  <div style="flex:1;min-width:130px;background:var(--bg-alt);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
+  <div style="flex:1;min-width:130px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
     <div style="font-size:1.6rem;font-weight:700;">{total_runs}</div>
     <div class="text-muted" style="font-size:0.8rem;">Total Runs</div>
   </div>
-  <div style="flex:1;min-width:130px;background:var(--bg-alt);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
+  <div style="flex:1;min-width:130px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
     <div style="font-size:1.6rem;font-weight:700;">${total_cost:.4f}</div>
     <div class="text-muted" style="font-size:0.8rem;">Total Cost</div>
   </div>
-  <div style="flex:1;min-width:130px;background:var(--bg-alt);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
+  <div style="flex:1;min-width:130px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
     <div style="font-size:1.6rem;font-weight:700;">${avg_cost:.4f}</div>
     <div class="text-muted" style="font-size:0.8rem;">Avg Cost / Run</div>
   </div>
-  <div style="flex:1;min-width:130px;background:var(--bg-alt);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
+  <div style="flex:1;min-width:130px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
     <div style="font-size:1.0rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{esc(most_expensive_skill)}">{esc(most_expensive_skill)}</div>
     <div class="text-muted" style="font-size:0.8rem;">Priciest Skill</div>
   </div>
@@ -2355,6 +2408,181 @@ def generate_skill_runs_section(skill_runs: list[dict]) -> str:
     </table>
   </div>
 </div>{charts_script}"""
+
+
+def generate_tool_call_section(global_stats: list[dict], per_task_stats: list[dict]) -> str:
+    """Generate the Tool Call Cost Breakdown section.
+
+    Shows two views:
+    1. Global aggregate — which tools are most expensive across all tasks.
+    2. Per-task drilldown — top tool costs per task as collapsible details.
+
+    Uses tc-* CSS namespace. Degrades gracefully when tool_call_stats is empty.
+    """
+    if not global_stats:
+        return """\
+<div class="panel tc-panel" style="margin-bottom: var(--sp-6);">
+  <div class="section-header">Tool Call Cost Breakdown</div>
+  <p class="empty" style="padding: var(--sp-4);">No tool call stats recorded yet. Run <code>tusk call-breakdown</code> after a session to populate.</p>
+</div>"""
+
+    # --- Global aggregate stats ---
+    grand_total_cost = sum(r["total_cost"] or 0 for r in global_stats)
+    grand_total_calls = sum(r["total_calls"] or 0 for r in global_stats)
+    top_tool = global_stats[0]["tool_name"] if global_stats else "\u2014"
+
+    # Global table rows
+    global_rows_html = ""
+    for r in global_stats:
+        cost = r["total_cost"] or 0
+        calls = int(r["total_calls"] or 0)
+        max_single = r["max_single_call_cost"] or 0
+        pct = (cost / grand_total_cost * 100) if grand_total_cost > 0 else 0
+        tool_str = esc(r["tool_name"])
+        global_rows_html += (
+            f'<tr class="tc-row">'
+            f'<td class="tc-tool">{tool_str}</td>'
+            f'<td class="tc-calls" style="text-align:right;font-variant-numeric:tabular-nums;">{calls:,}</td>'
+            f'<td class="tc-cost" style="text-align:right;font-variant-numeric:tabular-nums;">${cost:.4f}</td>'
+            f'<td class="tc-max" style="text-align:right;font-variant-numeric:tabular-nums;">${max_single:.4f}</td>'
+            f'<td class="tc-pct" style="min-width:100px;">'
+            f'<div style="display:flex;align-items:center;gap:6px;">'
+            f'<div style="flex:1;background:var(--border);border-radius:3px;height:8px;overflow:hidden;">'
+            f'<div style="width:{pct:.1f}%;background:var(--accent,#3b82f6);height:100%;border-radius:3px;"></div>'
+            f'</div>'
+            f'<span style="font-size:0.75rem;color:var(--text-muted,#6b7280);min-width:36px;">{pct:.1f}%</span>'
+            f'</div>'
+            f'</td>'
+            f'</tr>\n'
+        )
+
+    # Summary stat cards
+    stat_cards_html = f"""\
+<div class="tc-stats" style="display:flex;flex-wrap:wrap;gap:var(--sp-4);padding:var(--sp-4);">
+  <div style="flex:1;min-width:130px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
+    <div style="font-size:1.6rem;font-weight:700;">${grand_total_cost:.4f}</div>
+    <div class="text-muted" style="font-size:0.8rem;">Total Tool Cost</div>
+  </div>
+  <div style="flex:1;min-width:130px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
+    <div style="font-size:1.6rem;font-weight:700;">{grand_total_calls:,}</div>
+    <div class="text-muted" style="font-size:0.8rem;">Total Calls</div>
+  </div>
+  <div style="flex:1;min-width:130px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
+    <div style="font-size:1.6rem;font-weight:700;">{len(global_stats)}</div>
+    <div class="text-muted" style="font-size:0.8rem;">Distinct Tools</div>
+  </div>
+  <div style="flex:1;min-width:130px;background:var(--bg-subtle);border:1px solid var(--border);border-radius:6px;padding:var(--sp-4);text-align:center;">
+    <div style="font-size:1.0rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{esc(top_tool)}">{esc(top_tool)}</div>
+    <div class="text-muted" style="font-size:0.8rem;">Priciest Tool</div>
+  </div>
+</div>"""
+
+    global_table_html = f"""\
+<div class="section-header" style="border-top:1px solid var(--border);">Global Aggregate \u2014 All Tasks</div>
+<div style="overflow-x:auto;padding:var(--sp-4);">
+  <table class="tc-table">
+    <thead>
+      <tr>
+        <th>Tool</th>
+        <th style="text-align:right">Calls</th>
+        <th style="text-align:right">Total Cost</th>
+        <th style="text-align:right">Max Single Call</th>
+        <th>Share of Cost</th>
+      </tr>
+    </thead>
+    <tbody>
+      {global_rows_html}
+    </tbody>
+    <tfoot>
+      <tr style="font-weight:600;border-top:2px solid var(--border);">
+        <td>Total</td>
+        <td style="text-align:right;font-variant-numeric:tabular-nums;">{grand_total_calls:,}</td>
+        <td style="text-align:right;font-variant-numeric:tabular-nums;">${grand_total_cost:.4f}</td>
+        <td></td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>
+</div>"""
+
+    # --- Per-task drilldown ---
+    # Group per_task_stats rows by task_id
+    tasks_order: list[int] = []
+    tasks_map: dict[int, dict] = {}
+    for r in per_task_stats:
+        tid = r["task_id"]
+        if tid not in tasks_map:
+            tasks_map[tid] = {"summary": r["task_summary"], "tools": [], "task_total": 0.0}
+            tasks_order.append(tid)
+        tasks_map[tid]["tools"].append(r)
+        tasks_map[tid]["task_total"] += r["total_cost"] or 0
+
+    # Sort tasks by descending total cost
+    tasks_order.sort(key=lambda t: tasks_map[t]["task_total"], reverse=True)
+
+    per_task_html = ""
+    for tid in tasks_order:
+        info = tasks_map[tid]
+        task_total = info["task_total"]
+        task_summary_str = esc(info["summary"])
+        tool_rows = ""
+        for tr in info["tools"]:
+            tool_cost = tr["total_cost"] or 0
+            tool_pct = (tool_cost / task_total * 100) if task_total > 0 else 0
+            tool_rows += (
+                f'<tr class="tc-row">'
+                f'<td class="tc-tool" style="padding-left:var(--sp-4);">{esc(tr["tool_name"])}</td>'
+                f'<td class="tc-calls" style="text-align:right;font-variant-numeric:tabular-nums;">{int(tr["call_count"] or 0):,}</td>'
+                f'<td class="tc-cost" style="text-align:right;font-variant-numeric:tabular-nums;">${tool_cost:.4f}</td>'
+                f'<td class="tc-max" style="text-align:right;font-variant-numeric:tabular-nums;">${(tr["max_cost"] or 0):.4f}</td>'
+                f'<td class="tc-pct" style="min-width:100px;">'
+                f'<div style="display:flex;align-items:center;gap:6px;">'
+                f'<div style="flex:1;background:var(--border);border-radius:3px;height:8px;overflow:hidden;">'
+                f'<div style="width:{tool_pct:.1f}%;background:var(--accent,#3b82f6);height:100%;border-radius:3px;"></div>'
+                f'</div>'
+                f'<span style="font-size:0.75rem;color:var(--text-muted,#6b7280);min-width:36px;">{tool_pct:.1f}%</span>'
+                f'</div>'
+                f'</td>'
+                f'</tr>\n'
+            )
+        per_task_html += f"""\
+<details class="tc-task-detail" style="border-top:1px solid var(--border);">
+  <summary class="tc-task-summary" style="padding:var(--sp-3) var(--sp-4);cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;">
+    <span><strong>#{tid}</strong> &mdash; {task_summary_str}</span>
+    <span style="font-variant-numeric:tabular-nums;color:var(--text-muted,#6b7280);font-size:0.85rem;">${task_total:.4f}</span>
+  </summary>
+  <div style="overflow-x:auto;padding:0 var(--sp-4) var(--sp-4);">
+    <table class="tc-table" style="margin-top:0;">
+      <thead>
+        <tr>
+          <th>Tool</th>
+          <th style="text-align:right">Calls</th>
+          <th style="text-align:right">Total Cost</th>
+          <th style="text-align:right">Max Single Call</th>
+          <th>Share of Task Cost</th>
+        </tr>
+      </thead>
+      <tbody>
+        {tool_rows}
+      </tbody>
+    </table>
+  </div>
+</details>
+"""
+
+    per_task_section = (
+        per_task_html if per_task_html
+        else '<p class="empty" style="padding:var(--sp-4);">No per-task data (tool_call_stats rows have no task_id).</p>'
+    )
+
+    return f"""\
+<div class="panel tc-panel" style="margin-bottom: var(--sp-6);">
+  <div class="section-header">Tool Call Cost Breakdown</div>
+  {stat_cards_html}
+  {global_table_html}
+  <div class="section-header" style="border-top:1px solid var(--border);">Per-Task Drilldown</div>
+  {per_task_section}
+</div>"""
 
 
 def _format_chart_labels(rows: list[dict], period_key: str, period_label: str) -> list[str]:
@@ -3838,7 +4066,9 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
                   task_deps: dict[int, dict] = None, kpi_data: dict = None,
                   cost_by_domain: list[dict] = None, version: str = "",
                   dag_tasks: list[dict] = None, dag_edges: list[dict] = None,
-                  dag_blockers: list[dict] = None, skill_runs: list[dict] = None) -> str:
+                  dag_blockers: list[dict] = None, skill_runs: list[dict] = None,
+                  tool_call_global: list[dict] = None,
+                  tool_call_per_task: list[dict] = None) -> str:
     """Generate the full HTML dashboard by composing sub-functions."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -3892,6 +4122,9 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
 
     # Skill run costs section
     skill_runs_html = generate_skill_runs_section(skill_runs or [])
+
+    # Tool call cost breakdown section
+    tool_call_html = generate_tool_call_section(tool_call_global or [], tool_call_per_task or [])
 
     # Charts
     charts_html = generate_charts_section(
@@ -3985,6 +4218,7 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
 <div id="tab-skills" class="tab-panel">
   <div class="container">
     {skill_runs_html}
+    {tool_call_html}
   </div>
 </div>
 
@@ -4040,6 +4274,9 @@ def main():
         dag_blockers = fetch_blockers(conn)
         # Skill run cost history
         skill_runs = fetch_skill_runs(conn)
+        # Tool call cost breakdown
+        tool_call_global = fetch_tool_call_stats_global(conn)
+        tool_call_per_task = fetch_tool_call_stats_per_task(conn)
     finally:
         conn.close()
 
@@ -4063,7 +4300,8 @@ def main():
         task_metrics, complexity_metrics, cost_trend, all_criteria,
         cost_trend_daily, cost_trend_monthly, task_deps, kpi_data,
         cost_by_domain, version,
-        dag_tasks, dag_edges, dag_blockers, skill_runs
+        dag_tasks, dag_edges, dag_blockers, skill_runs,
+        tool_call_global, tool_call_per_task
     )
     log.debug("Generated %d bytes of HTML", len(html_content))
 
