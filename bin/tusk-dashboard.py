@@ -2076,41 +2076,6 @@ tbody tr {
 }
 
 /* ── Shared stat-card strip (skill-runs + tool-calls sections) ── */
-.dash-stat-cards {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-4);
-  padding: var(--sp-4);
-}
-
-.dash-stat-card {
-  flex: 1;
-  min-width: 130px;
-  background: var(--bg-subtle);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: var(--sp-4);
-  text-align: center;
-}
-
-.dash-stat-value {
-  font-size: 1.6rem;
-  font-weight: 700;
-}
-
-.dash-stat-value--text {
-  display: block;
-  font-size: 1.0rem;
-  font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dash-stat-label {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-}
 
 /* Utility: muted text color — pairs with the --text-muted CSS variable */
 .text-muted {
@@ -2339,22 +2304,22 @@ def generate_skill_runs_section(skill_runs: list[dict]) -> str:
 
     # --- Stat cards HTML ---
     stat_cards_html = f"""\
-<div class="dash-stat-cards">
-  <div class="dash-stat-card">
-    <div class="dash-stat-value">{total_runs}</div>
-    <div class="dash-stat-label">Total Runs</div>
+<div class="kpi-grid" style="padding:var(--sp-4);margin-bottom:0;">
+  <div class="kpi-card">
+    <div class="kpi-label">Total Runs</div>
+    <div class="kpi-value">{total_runs}</div>
   </div>
-  <div class="dash-stat-card">
-    <div class="dash-stat-value">${total_cost:.4f}</div>
-    <div class="dash-stat-label">Total Cost</div>
+  <div class="kpi-card">
+    <div class="kpi-label">Total Cost</div>
+    <div class="kpi-value">${total_cost:.4f}</div>
   </div>
-  <div class="dash-stat-card">
-    <div class="dash-stat-value">${avg_cost:.4f}</div>
-    <div class="dash-stat-label">Avg Cost / Run</div>
+  <div class="kpi-card">
+    <div class="kpi-label">Avg Cost / Run</div>
+    <div class="kpi-value">${avg_cost:.4f}</div>
   </div>
-  <div class="dash-stat-card">
-    <div class="dash-stat-value--text" title="{esc(most_expensive_skill)}">{esc(most_expensive_skill)}</div>
-    <div class="dash-stat-label">Priciest Skill</div>
+  <div class="kpi-card">
+    <div class="kpi-label">Priciest Skill</div>
+    <div class="kpi-value" style="font-size:var(--text-base);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{esc(most_expensive_skill)}">{esc(most_expensive_skill)}</div>
   </div>
 </div>"""
 
@@ -2509,22 +2474,22 @@ def generate_tool_call_section(global_stats: list[dict], per_task_stats: list[di
 
     # Summary stat cards
     stat_cards_html = f"""\
-<div class="dash-stat-cards">
-  <div class="dash-stat-card">
-    <div class="dash-stat-value">${grand_total_cost:.4f}</div>
-    <div class="dash-stat-label">Total Tool Cost</div>
+<div class="kpi-grid" style="padding:var(--sp-4);margin-bottom:0;">
+  <div class="kpi-card">
+    <div class="kpi-label">Total Tool Cost</div>
+    <div class="kpi-value">${grand_total_cost:.4f}</div>
   </div>
-  <div class="dash-stat-card">
-    <div class="dash-stat-value">{grand_total_calls:,}</div>
-    <div class="dash-stat-label">Total Calls</div>
+  <div class="kpi-card">
+    <div class="kpi-label">Total Calls</div>
+    <div class="kpi-value">{grand_total_calls:,}</div>
   </div>
-  <div class="dash-stat-card">
-    <div class="dash-stat-value">{len(global_stats)}</div>
-    <div class="dash-stat-label">Distinct Tools</div>
+  <div class="kpi-card">
+    <div class="kpi-label">Distinct Tools</div>
+    <div class="kpi-value">{len(global_stats)}</div>
   </div>
-  <div class="dash-stat-card">
-    <div class="dash-stat-value--text" title="{esc(top_tool)}">{esc(top_tool)}</div>
-    <div class="dash-stat-label">Priciest Tool</div>
+  <div class="kpi-card">
+    <div class="kpi-label">Priciest Tool</div>
+    <div class="kpi-value" style="font-size:var(--text-base);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{esc(top_tool)}">{esc(top_tool)}</div>
   </div>
 </div>"""
 
