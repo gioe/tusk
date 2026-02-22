@@ -6,6 +6,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [176] - 2026-02-22
+
+### Added
+
+- Schema migration 19→20: `skill_run_id` nullable FK added to `tool_call_stats`; `session_id` made nullable; new `UNIQUE(skill_run_id, tool_name)` constraint and index
+- Schema migration 20→21: `CHECK (session_id IS NOT NULL OR skill_run_id IS NOT NULL)` added to `tool_call_stats` to prevent orphaned rows
+- `tusk call-breakdown --skill-run <id>` now upserts rows into `tool_call_stats` with `skill_run_id` set (was display-only)
+- `tusk skill-run finish` calls `tusk call-breakdown --skill-run` to persist per-tool breakdown after each run; connection closed before subprocess to avoid SQLite locking
+- Dashboard skill-run table shows collapsible tool-cost drilldown panel per row when breakdown data exists
+- DOMAIN.md Tool Call Stats section updated to reflect nullable session_id, skill_run_id FK, dual UNIQUE constraints, and CHECK constraint
+
 ## [175] - 2026-02-22
 
 ### Changed

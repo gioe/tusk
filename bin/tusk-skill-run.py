@@ -19,6 +19,7 @@ import importlib.util
 import json
 import os
 import sqlite3
+import subprocess
 import sys
 from pathlib import Path
 
@@ -52,7 +53,7 @@ def cmd_start(conn, skill_name: str) -> None:
     print(json.dumps({"run_id": row["id"], "started_at": row["started_at"]}))
 
 
-def cmd_finish(conn, run_id: int, metadata: str | None) -> None:
+def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
     """Set ended_at, parse transcript, compute cost, update row, print summary."""
     row = conn.execute(
         "SELECT id, skill_name, started_at, ended_at FROM skill_runs WHERE id = ?",
@@ -114,6 +115,22 @@ def cmd_finish(conn, run_id: int, metadata: str | None) -> None:
         (cost, tokens_in, tokens_out, model, metadata, run_id),
     )
     conn.commit()
+    # Close connection before spawning subprocess to avoid SQLITE_BUSY (two write
+    # connections to the same DB file under the default journal mode).
+    conn.close()
+
+    # Persist per-tool-call cost breakdown for this skill run
+    try:
+        result = subprocess.run(
+            ["tusk", "call-breakdown", "--skill-run", str(run_id), "--write-only"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            msg = result.stderr.strip() or f"exit code {result.returncode}"
+            print(f"Warning: call-breakdown failed: {msg}", file=sys.stderr)
+    except FileNotFoundError:
+        print("Warning: 'tusk' not found — tool call breakdown not persisted.", file=sys.stderr)
 
     print(f"Skill run {run_id} ({row['skill_name']}) finished:")
     print(f"  Model:         {model or '(unknown)'}")
@@ -205,7 +222,7 @@ def main():
                     i += 2
                 else:
                     i += 1
-            cmd_finish(conn, run_id, metadata)
+            cmd_finish(conn, run_id, metadata, db_path)
 
         elif subcommand == "list":
             skill_filter = None

@@ -212,21 +212,27 @@ A record of a single execution of a tusk skill, capturing start/end timestamps, 
 
 ### Tool Call Stats
 
-Pre-computed per-tool-call cost aggregates, grouped by session and tool name. Populated by tooling that parses Claude transcripts and summarises which tools were called most/least expensively within a session.
+Pre-computed per-tool-call cost aggregates, grouped by session (or skill run) and tool name. Populated by `tusk call-breakdown` which parses Claude transcripts and summarises which tools were called most/least expensively. Each row belongs to either a session OR a skill run — never both, never neither.
 
 | Attribute | Type | Constraints | Description |
 |-----------|------|-------------|-------------|
 | `id` | INTEGER | PK, autoincrement | |
-| `session_id` | INTEGER | NOT NULL, FK → task_sessions(id) CASCADE | Owning session |
+| `session_id` | INTEGER | nullable, FK → task_sessions(id) ON DELETE CASCADE | Owning session (set for session rows, NULL for skill-run rows) |
 | `task_id` | INTEGER | nullable, FK → tasks(id) ON DELETE SET NULL | Denormalised task reference for convenient joins |
+| `skill_run_id` | INTEGER | nullable, FK → skill_runs(id) ON DELETE CASCADE | Owning skill run (set for skill-run rows, NULL for session rows) |
 | `tool_name` | TEXT | NOT NULL | Name of the Claude tool (e.g. `Bash`, `Read`, `Edit`) |
-| `call_count` | INTEGER | NOT NULL, default 0 | Number of invocations of this tool in the session |
+| `call_count` | INTEGER | NOT NULL, default 0 | Number of invocations of this tool in the session or skill run |
 | `total_cost` | REAL | NOT NULL, default 0.0 | Summed estimated cost across all calls |
 | `max_cost` | REAL | NOT NULL, default 0.0 | Cost of the single most expensive call |
 | `tokens_out` | INTEGER | NOT NULL, default 0 | Total output tokens attributed to this tool |
 | `computed_at` | TEXT | NOT NULL, default now | When this aggregate row was written |
 
-**Constraints:** `UNIQUE (session_id, tool_name)` — ensures at most one aggregate row per tool per session; writers should use `INSERT OR REPLACE` to upsert.
+**Constraints:**
+- `UNIQUE (session_id, tool_name)` — at most one aggregate row per tool per session (upsert safe).
+- `UNIQUE (skill_run_id, tool_name)` — at most one aggregate row per tool per skill run (upsert safe).
+- `CHECK (session_id IS NOT NULL OR skill_run_id IS NOT NULL)` — every row must have at least one parent; orphaned rows are rejected.
+
+**Indexes:** `idx_tool_call_stats_session_id`, `idx_tool_call_stats_task_id`, `idx_tool_call_stats_skill_run_id`.
 
 ---
 
