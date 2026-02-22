@@ -483,9 +483,10 @@ def rule13_version_bump_missing(root):
                 # Handle renamed files: "R old -> new"
                 if " -> " in path:
                     path = path.split(" -> ")[-1]
-                if xy.strip() and path == "VERSION":
+                # Exclude untracked files (??) — they're not yet part of the project
+                if xy.strip() and xy != "??" and path == "VERSION":
                     version_dirty = True
-                if xy.strip() and script_re.match(path):
+                if xy.strip() and xy != "??" and script_re.match(path):
                     dirty_scripts.append(path)
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
@@ -515,8 +516,10 @@ def rule13_version_bump_missing(root):
                 if r2.returncode == 0:
                     changed = r2.stdout.splitlines()
                     committed_scripts = [p for p in changed if script_re.match(p)]
-                    version_in_diff = "VERSION" in changed
-                    if committed_scripts and not version_in_diff:
+                    # No need to check if VERSION is in the diff — last_ver_commit is by
+                    # definition the most recent commit that touched VERSION, so nothing
+                    # between it and HEAD can contain another VERSION change.
+                    if committed_scripts:
                         ver = read_version()
                         violations.append(
                             f"  Committed since last VERSION bump: VERSION={ver}, "
@@ -575,7 +578,8 @@ def main():
             if not advisory:
                 total_violations += len(violations)
                 rules_with_violations += 1
-            print(f"  WARN — {len(violations)} violation{'s' if len(violations) != 1 else ''}")
+            label = "WARN [ADVISORY]" if advisory else "WARN"
+            print(f"  {label} — {len(violations)} violation{'s' if len(violations) != 1 else ''}")
             for v in violations:
                 print(v)
         else:
