@@ -507,14 +507,12 @@ def format_date(dt_str) -> str:
     """Format an ISO datetime string as YYYY-MM-DD HH:MM:SS[.mmm]."""
     if dt_str is None:
         return '<span class="text-muted-dash">&mdash;</span>'
-    try:
-        if '.' in dt_str:
-            dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S.%f")
-            return dt.strftime("%Y-%m-%d %H:%M:%S.") + f"{dt.microsecond // 1000:03d}"
-        dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
-        return dt.strftime("%Y-%m-%d %H:%M:%S")
-    except (ValueError, TypeError):
+    dt = _parse_dt(dt_str)
+    if dt is None:
         return esc(dt_str)
+    if dt.microsecond:
+        return dt.strftime("%Y-%m-%d %H:%M:%S.") + f"{dt.microsecond // 1000:03d}"
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def format_tokens_compact(n) -> str:
@@ -533,12 +531,8 @@ def format_relative_time(dt_str) -> str:
     """Format a datetime string as relative time (e.g., 2h ago, 3d ago)."""
     if dt_str is None:
         return ""
-    try:
-        if '.' in dt_str:
-            dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S.%f")
-        else:
-            dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
-    except (ValueError, TypeError):
+    dt = _parse_dt(dt_str)
+    if dt is None:
         return ""
     seconds = int((datetime.now() - dt).total_seconds())
     if seconds < 0:
