@@ -663,6 +663,22 @@ CREATE TABLE review_comments (
 CREATE INDEX idx_review_comments_review_id ON review_comments(review_id);
 CR_SCHEMA
 
+  # Skill runs (cost tracking per skill execution)
+  sqlite3 "$DB_PATH" <<'SR_SCHEMA'
+CREATE TABLE skill_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    skill_name TEXT NOT NULL,
+    started_at TEXT NOT NULL DEFAULT (datetime('now')),
+    ended_at TEXT,
+    cost_dollars REAL,
+    tokens_in INTEGER,
+    tokens_out INTEGER,
+    model TEXT,
+    metadata TEXT
+);
+CREATE INDEX idx_skill_runs_skill_name ON skill_runs(skill_name);
+SR_SCHEMA
+
   # Apply validation triggers from config (after all tables are created)
   local triggers
   triggers="$(generate_triggers)"
@@ -671,7 +687,7 @@ CR_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 17;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 18;"
 
   echo "Initialized task database at $DB_PATH"
 }
@@ -1222,6 +1238,26 @@ cmd_migrate() {
     echo "  Migration 17: fixed v_chain_heads and v_blocked_tasks to only filter 'blocks'-type deps (not contingent)"
   fi
 
+  # Migration 17→18: add skill_runs table for per-skill cost tracking
+  if [[ "$current" -lt 18 ]]; then
+    sqlite3 "$DB_PATH" "
+      CREATE TABLE IF NOT EXISTS skill_runs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          skill_name TEXT NOT NULL,
+          started_at TEXT NOT NULL DEFAULT (datetime('now')),
+          ended_at TEXT,
+          cost_dollars REAL,
+          tokens_in INTEGER,
+          tokens_out INTEGER,
+          model TEXT,
+          metadata TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_skill_runs_skill_name ON skill_runs(skill_name);
+      PRAGMA user_version = 18;
+    "
+    echo "  Migration 18: added skill_runs table for per-skill cost tracking"
+  fi
+
   local final
   final="$(sqlite3 "$DB_PATH" "PRAGMA user_version;")"
   if [[ "$final" -eq "$current" ]]; then
@@ -1589,6 +1625,7 @@ case "${1:-}" in
   deps) shift; exec python3 "$SCRIPT_DIR/tusk-deps.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   session-stats) shift; exec python3 "$SCRIPT_DIR/tusk-session-stats.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   session-recalc) shift; exec python3 "$SCRIPT_DIR/tusk-session-recalc.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  skill-run) shift; exec python3 "$SCRIPT_DIR/tusk-skill-run.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   session-close) shift; cmd_session_close "$@" ;;
   task-start) shift; exec python3 "$SCRIPT_DIR/tusk-task-start.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   task-done) shift; exec python3 "$SCRIPT_DIR/tusk-task-done.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
@@ -1610,6 +1647,6 @@ case "${1:-}" in
   migrate) cmd_migrate ;;
   regen-triggers) cmd_regen_triggers ;;
   upgrade) cmd_upgrade ;;
-  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|branch|commit|lint|dupes|deps|blockers|review|criteria|dag|dashboard|wsjf|conventions|setup|autoclose|token-audit|sync-skills|pricing-update|session-stats|session-recalc|session-close|task-start|task-done|task-insert|task-update|task-reopen|progress|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
+  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|branch|commit|lint|dupes|deps|blockers|review|criteria|dag|dashboard|wsjf|conventions|setup|autoclose|token-audit|sync-skills|pricing-update|session-stats|session-recalc|session-close|skill-run|task-start|task-done|task-insert|task-update|task-reopen|progress|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac

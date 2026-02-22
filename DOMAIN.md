@@ -192,6 +192,24 @@ An individual finding within a code review, with its own resolution lifecycle.
 
 ---
 
+### Skill Run
+
+A record of a single execution of a tusk skill, capturing start/end timestamps, token usage, and estimated cost. Used to track operational cost of maintenance operations like `/groom-backlog` over time.
+
+| Attribute | Type | Constraints | Description |
+|-----------|------|-------------|-------------|
+| `id` | INTEGER | PK, autoincrement | |
+| `skill_name` | TEXT | NOT NULL | Skill invoked (e.g. `groom-backlog`) |
+| `started_at` | TEXT | NOT NULL, default now | When `tusk skill-run start` was called |
+| `ended_at` | TEXT | nullable | Set by `tusk skill-run finish` |
+| `cost_dollars` | REAL | nullable | Estimated cost from transcript parsing |
+| `tokens_in` | INTEGER | nullable | Total input tokens (base + cache write + cache read) |
+| `tokens_out` | INTEGER | nullable | Output tokens |
+| `model` | TEXT | nullable | Dominant model used during the run |
+| `metadata` | TEXT | nullable | JSON blob with skill-specific stats (e.g. tasks_done, tasks_deleted) |
+
+---
+
 ## Status Transitions
 
 Task `status` follows a one-way lifecycle. The `validate_status_transition` trigger (in `bin/tusk`, recreated by `tusk regen-triggers`) enforces this graph:

@@ -8,6 +8,16 @@ allowed-tools: Bash, Glob, Grep, Read
 
 Grooms the local task database by identifying completed, redundant, incorrectly prioritized, or unassigned tasks.
 
+## Step 0: Start Cost Tracking
+
+Record the start of this groom run so cost can be captured at the end:
+
+```bash
+tusk skill-run start groom-backlog
+```
+
+This prints `{"run_id": N, "started_at": "..."}`. Capture `run_id` — you will need it in Step 7.
+
 ## Setup: Fetch Config, Backlog, and Conventions
 
 Before grooming, fetch everything needed in a single call:
@@ -214,6 +224,22 @@ FROM tasks
 WHERE status <> 'Done'
 ORDER BY priority_score DESC, id
 "
+```
+
+## Step 7b: Finish Cost Tracking
+
+Record cost for this groom run. Replace `<run_id>` with the value captured in Step 0, and fill in the actual counts from the actions taken:
+
+```bash
+tusk skill-run finish <run_id> --metadata '{"tasks_done":<W>,"tasks_deleted":<X>,"tasks_reprioritized":<Y>,"tasks_assigned":<U>}'
+```
+
+This reads the Claude Code transcript for the time window of this run and stores token counts and estimated cost in the `skill_runs` table.
+
+To view cost history across all groom runs:
+
+```bash
+tusk skill-run list groom-backlog
 ```
 
 ## Important Guidelines

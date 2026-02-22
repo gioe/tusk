@@ -6,6 +6,20 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [171] - 2026-02-21
+
+### Added
+
+- `tusk dashboard` now renders a "Skill Run Costs" section below the KPI cards with a table of recent skill runs (ID, skill name, date, cost, tokens in/out, model, metadata) and a per-run cost bar chart for skills with 2+ runs
+
+## [170] - 2026-02-22
+
+### Added
+
+- `skill_runs` table (schema migration 17→18) for tracking per-execution cost of maintenance skills
+- `tusk skill-run start/finish/list` CLI command backed by `bin/tusk-skill-run.py`
+- `/groom-backlog` now calls `tusk skill-run start` at Step 0 and `tusk skill-run finish` at Step 7b to record token usage and estimated cost for every run
+
 ## [169] - 2026-02-21
 
 ### Fixed

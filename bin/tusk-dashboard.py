@@ -16,6 +16,7 @@ import html
 import json
 import logging
 import os
+import re
 import sqlite3
 import sys
 import webbrowser
@@ -219,6 +220,26 @@ def fetch_blockers(conn: sqlite3.Connection) -> list[dict]:
     ).fetchall()
     result = [dict(r) for r in rows]
     log.debug("Fetched %d blockers", len(result))
+    return result
+
+
+def fetch_skill_runs(conn: sqlite3.Connection) -> list[dict]:
+    """Fetch all skill runs sorted by most recent first.
+
+    Returns an empty list if the skill_runs table does not exist (pre-migration DB).
+    """
+    log.debug("Querying skill_runs table")
+    try:
+        rows = conn.execute(
+            """SELECT id, skill_name, started_at, ended_at, cost_dollars, tokens_in, tokens_out, model, metadata
+               FROM skill_runs
+               ORDER BY started_at DESC"""
+        ).fetchall()
+    except sqlite3.OperationalError:
+        log.warning("skill_runs table not found — run 'tusk migrate' to create it")
+        return []
+    result = [dict(r) for r in rows]
+    log.debug("Fetched %d skill runs", len(result))
     return result
 
 
@@ -2068,6 +2089,146 @@ def generate_kpi_cards(kpi_data: dict) -> str:
 </div>"""
 
 
+def generate_skill_runs_section(skill_runs: list[dict]) -> str:
+    """Generate the Skill Run Costs section with a table and per-skill cost bar charts."""
+    if not skill_runs:
+        return """\
+<div class="panel" style="margin-bottom: var(--sp-6);">
+  <div class="section-header">Skill Run Costs</div>
+  <p class="empty" style="padding: var(--sp-4);">No skill runs recorded yet.</p>
+</div>"""
+
+    # Build table rows (most recent first)
+    table_rows = ""
+    for r in skill_runs:
+        cost_str = f"${(r.get('cost_dollars') or 0):.4f}"
+        tokens_in_str = format_tokens_compact(r.get('tokens_in') or 0)
+        tokens_out_str = format_tokens_compact(r.get('tokens_out') or 0)
+        model_str = esc(r.get('model') or '')
+        meta_str = esc(r.get('metadata') or '')
+        date_str = format_date(r.get('started_at'))
+        skill_str = esc(r.get('skill_name') or '')
+        table_rows += (
+            f"<tr>"
+            f"<td>{r['id']}</td>"
+            f"<td>{skill_str}</td>"
+            f"<td class=\"text-muted\">{date_str}</td>"
+            f"<td style=\"text-align:right;font-variant-numeric:tabular-nums\">{cost_str}</td>"
+            f"<td style=\"text-align:right\">{tokens_in_str}</td>"
+            f"<td style=\"text-align:right\">{tokens_out_str}</td>"
+            f"<td class=\"text-muted\">{model_str}</td>"
+            f"<td class=\"text-muted\" style=\"font-size:0.75rem;max-width:200px;overflow:hidden;"
+            f"text-overflow:ellipsis;white-space:nowrap;\">{meta_str}</td>"
+            f"</tr>\n"
+        )
+
+    # Build chart data for skills with 2+ runs (chronological order for chart)
+    runs_by_skill: dict[str, list] = defaultdict(list)
+    for r in reversed(skill_runs):  # skill_runs is DESC; reverse to get chronological order
+        runs_by_skill[r['skill_name']].append(r)
+    chart_skills = {sk: runs for sk, runs in runs_by_skill.items() if len(runs) >= 2}
+
+    chart_html = ""
+    charts_script = ""
+    if chart_skills:
+        chart_data: dict[str, dict] = {}
+        for skill, runs in chart_skills.items():
+            labels = []
+            costs = []
+            for run in runs:
+                dt_str = run.get('started_at', '')
+                try:
+                    dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+                    labels.append(dt.strftime("%b %d"))
+                except ValueError:
+                    labels.append(dt_str[:10] if dt_str else 'unknown')
+                costs.append(round(run.get('cost_dollars') or 0, 4))
+            chart_data[skill] = {"labels": labels, "costs": costs}
+
+        chart_data_json = json.dumps(chart_data).replace("</", "<\\/")
+
+        canvas_html = ""
+        for skill in chart_skills:
+            canvas_id = "skillRunChart_" + re.sub(r'[^a-zA-Z0-9_]', '_', skill)
+            canvas_html += (
+                f'<div style="flex:1;min-width:250px;max-width:420px;">'
+                f'<div class="text-muted" style="font-size:0.8rem;margin-bottom:4px;">{esc(skill)}</div>'
+                f'<canvas id="{canvas_id}" height="120"></canvas>'
+                f'</div>\n'
+            )
+
+        chart_html = (
+            f'<div class="section-header" style="border-top:1px solid var(--border);">Cost per Run</div>'
+            f'<div style="display:flex;flex-wrap:wrap;gap:var(--sp-6);padding:var(--sp-4);">'
+            f'{canvas_html}'
+            f'</div>'
+        )
+
+        charts_script = f"""\
+<script>
+(function() {{
+  var skillData = {chart_data_json};
+  var palette = ['#3b82f6','#f59e0b','#22c55e','#ef4444','#8b5cf6','#06b6d4'];
+  var ci = 0;
+  for (var skill in skillData) {{
+    var d = skillData[skill];
+    var canvasId = 'skillRunChart_' + skill.replace(/[^a-zA-Z0-9_]/g, '_');
+    var canvas = document.getElementById(canvasId);
+    if (!canvas) continue;
+    new Chart(canvas, {{
+      type: 'bar',
+      data: {{
+        labels: d.labels,
+        datasets: [{{
+          label: 'Cost',
+          data: d.costs,
+          backgroundColor: palette[ci % palette.length] + '99',
+          borderColor: palette[ci % palette.length],
+          borderWidth: 1
+        }}]
+      }},
+      options: {{
+        responsive: true,
+        plugins: {{
+          legend: {{ display: false }},
+          tooltip: {{ callbacks: {{ label: function(c) {{ return '$' + c.parsed.y.toFixed(4); }} }} }}
+        }},
+        scales: {{
+          y: {{ beginAtZero: true, ticks: {{ callback: function(v) {{ return '$' + v.toFixed(3); }} }} }}
+        }}
+      }}
+    }});
+    ci++;
+  }}
+}})();
+</script>"""
+
+    return f"""\
+<div class="panel" style="margin-bottom: var(--sp-6);">
+  <div class="section-header">Skill Run Costs</div>
+  <div style="overflow-x:auto;padding:var(--sp-4);">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Skill</th>
+          <th>Date</th>
+          <th style="text-align:right">Cost</th>
+          <th style="text-align:right">Tokens In</th>
+          <th style="text-align:right">Tokens Out</th>
+          <th>Model</th>
+          <th>Metadata</th>
+        </tr>
+      </thead>
+      <tbody>
+        {table_rows}
+      </tbody>
+    </table>
+  </div>
+  {chart_html}
+</div>{charts_script}"""
+
+
 def _format_chart_labels(rows: list[dict], period_key: str, period_label: str) -> list[str]:
     """Format period strings into human-readable chart labels."""
     labels = []
@@ -3549,7 +3710,7 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
                   task_deps: dict[int, dict] = None, kpi_data: dict = None,
                   cost_by_domain: list[dict] = None, version: str = "",
                   dag_tasks: list[dict] = None, dag_edges: list[dict] = None,
-                  dag_blockers: list[dict] = None) -> str:
+                  dag_blockers: list[dict] = None, skill_runs: list[dict] = None) -> str:
     """Generate the full HTML dashboard by composing sub-functions."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -3599,6 +3760,9 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
 
     # KPI cards
     kpi_html = generate_kpi_cards(kpi_data) if kpi_data else ""
+
+    # Skill run costs section
+    skill_runs_html = generate_skill_runs_section(skill_runs or [])
 
     # Charts
     charts_html = generate_charts_section(
@@ -3670,6 +3834,7 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
 <div id="tab-dashboard" class="tab-panel active">
   <div class="container">
     {kpi_html}
+    {skill_runs_html}
     {charts_html}
     <div class="panel">
       {filter_bar}
@@ -3739,6 +3904,8 @@ def main():
         dag_tasks = fetch_dag_tasks(conn)
         dag_edges = fetch_edges(conn)
         dag_blockers = fetch_blockers(conn)
+        # Skill run cost history
+        skill_runs = fetch_skill_runs(conn)
     finally:
         conn.close()
 
@@ -3762,7 +3929,7 @@ def main():
         task_metrics, complexity_metrics, cost_trend, all_criteria,
         cost_trend_daily, cost_trend_monthly, task_deps, kpi_data,
         cost_by_domain, version,
-        dag_tasks, dag_edges, dag_blockers
+        dag_tasks, dag_edges, dag_blockers, skill_runs
     )
     log.debug("Generated %d bytes of HTML", len(html_content))
 
