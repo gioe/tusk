@@ -315,6 +315,33 @@ def fetch_tool_call_stats_per_criterion(conn: sqlite3.Connection) -> list[dict]:
     return result
 
 
+def fetch_tool_call_stats_global(conn: sqlite3.Connection) -> list[dict]:
+    """Fetch project-wide tool call aggregates across all task sessions.
+
+    Aggregates session_id-attributed rows only to avoid double-counting with
+    criterion rows (which share the same transcript window as their parent session).
+    Returns an empty list if the tool_call_stats table does not exist.
+    """
+    log.debug("Querying tool_call_stats for project-wide aggregates")
+    try:
+        rows = conn.execute(
+            """SELECT tool_name,
+                      SUM(call_count) as total_calls,
+                      SUM(total_cost) as total_cost,
+                      MAX(max_cost) as max_cost
+               FROM tool_call_stats
+               WHERE session_id IS NOT NULL
+               GROUP BY tool_name
+               ORDER BY total_cost DESC"""
+        ).fetchall()
+    except sqlite3.OperationalError:
+        log.warning("tool_call_stats table not found — run 'tusk migrate' to create it")
+        return []
+    result = [dict(r) for r in rows]
+    log.debug("Fetched %d global tool call stat rows", len(result))
+    return result
+
+
 def filter_dag_nodes(tasks: list[dict], edges: list[dict], blockers: list[dict],
                      show_all: bool) -> tuple[list[dict], list[dict], list[dict]]:
     """Filter tasks, edges, and blockers for DAG visibility.
@@ -2535,6 +2562,87 @@ def _generate_tool_stats_panel(tool_stats: list[dict]) -> str:
     )
 
 
+def generate_global_tool_costs_section(tool_stats: list[dict]) -> str:
+    """Generate a project-wide tool cost aggregate table for the Skills tab.
+
+    Shows tool_name, total_calls, total_cost, and share of total across all
+    task sessions. Returns an empty string when no data is available.
+    """
+    if not tool_stats:
+        return ""
+
+    grand_total = sum(r["total_cost"] or 0 for r in tool_stats)
+    total_calls = sum(r["total_calls"] or 0 for r in tool_stats)
+
+    rows_html = ""
+    for r in tool_stats:
+        cost = r["total_cost"] or 0
+        calls = r["total_calls"] or 0
+        pct = (cost / grand_total * 100) if grand_total > 0 else 0
+        rows_html += (
+            f'<tr>'
+            f'<td style="font-weight:500;">{esc(r["tool_name"])}</td>'
+            f'<td style="text-align:right;font-variant-numeric:tabular-nums;">{calls:,}</td>'
+            f'<td style="text-align:right;font-variant-numeric:tabular-nums;">${cost:.4f}</td>'
+            f'<td style="min-width:130px;">'
+            f'<div style="display:flex;align-items:center;gap:6px;">'
+            f'<div style="flex:1;background:var(--border);border-radius:3px;height:8px;overflow:hidden;">'
+            f'<div style="width:{pct:.1f}%;background:var(--accent,#3b82f6);height:100%;border-radius:3px;"></div>'
+            f'</div>'
+            f'<span style="font-size:0.75rem;color:var(--text-muted,#6b7280);min-width:36px;">{pct:.1f}%</span>'
+            f'</div>'
+            f'</td>'
+            f'</tr>\n'
+        )
+
+    return f"""\
+<div class="panel" style="margin-bottom: var(--sp-6);">
+  <div class="section-header">Project-Wide Tool Costs</div>
+  <div class="kpi-grid" style="padding:var(--sp-4);margin-bottom:0;">
+    <div class="kpi-card">
+      <div class="kpi-label">Tools Used</div>
+      <div class="kpi-value">{len(tool_stats)}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Total Calls</div>
+      <div class="kpi-value">{total_calls:,}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Total Cost (sessions)</div>
+      <div class="kpi-value">${grand_total:.4f}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Costliest Tool</div>
+      <div class="kpi-value" style="font-size:var(--text-base);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{esc(tool_stats[0]['tool_name']) if tool_stats else ''}">{esc(tool_stats[0]['tool_name']) if tool_stats else '&mdash;'}</div>
+    </div>
+  </div>
+  <div class="section-header section-header--bordered">All Tools</div>
+  <div class="dash-table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>Tool</th>
+          <th style="text-align:right">Total Calls</th>
+          <th style="text-align:right">Total Cost</th>
+          <th>Share of Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows_html}
+      </tbody>
+      <tfoot>
+        <tr style="font-weight:600;border-top:2px solid var(--border);">
+          <td>Total</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums;">{total_calls:,}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums;">${grand_total:.4f}</td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>"""
+
+
 def _format_chart_labels(rows: list[dict], period_key: str, period_label: str) -> list[str]:
     """Format period strings into human-readable chart labels."""
     labels = []
@@ -4072,7 +4180,8 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
                   dag_blockers: list[dict] = None, skill_runs: list[dict] = None,
                   tool_call_per_task: list[dict] = None,
                   tool_call_per_skill_run: list[dict] = None,
-                  tool_call_per_criterion: list[dict] = None) -> str:
+                  tool_call_per_criterion: list[dict] = None,
+                  tool_call_global: list[dict] = None) -> str:
     """Generate the full HTML dashboard by composing sub-functions."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -4152,6 +4261,9 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
 
     # Skill run costs section
     skill_runs_html = generate_skill_runs_section(skill_runs or [], tool_stats_by_run)
+
+    # Project-wide tool cost aggregate
+    global_tool_costs_html = generate_global_tool_costs_section(tool_call_global or [])
 
     # Charts
     charts_html = generate_charts_section(
@@ -4244,6 +4356,7 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
 
 <div id="tab-skills" class="tab-panel">
   <div class="container">
+    {global_tool_costs_html}
     {skill_runs_html}
   </div>
 </div>
@@ -4306,6 +4419,8 @@ def main():
         tool_call_per_skill_run = fetch_tool_call_stats_per_skill_run(conn)
         # Per-criterion tool call stats (for inline drilldown inside each criterion entry)
         tool_call_per_criterion = fetch_tool_call_stats_per_criterion(conn)
+        # Project-wide tool call stats (for Skills tab aggregate view)
+        tool_call_global = fetch_tool_call_stats_global(conn)
     finally:
         conn.close()
 
@@ -4331,7 +4446,7 @@ def main():
         cost_by_domain, version,
         dag_tasks, dag_edges, dag_blockers, skill_runs,
         tool_call_per_task, tool_call_per_skill_run,
-        tool_call_per_criterion
+        tool_call_per_criterion, tool_call_global
     )
     log.debug("Generated %d bytes of HTML", len(html_content))
 

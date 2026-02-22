@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [178] - 2026-02-22
+
+### Added
+
+- Dashboard Skills tab now shows a project-wide tool cost aggregate panel (tools used, total calls, total cost, share-of-total bar) above the Skill Run Costs section
+
 ## [177] - 2026-02-22
 
 ### Added
