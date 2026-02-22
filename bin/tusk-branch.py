@@ -88,12 +88,28 @@ def main(argv: list[str]) -> int:
         print(f"Error: git pull origin {default_branch} failed:\n{result.stderr.strip()}", file=sys.stderr)
         return 2
 
-    # Create feature branch
+    # Create feature branch — check if one already exists for this task
     branch_name = f"feature/TASK-{task_id}-{slug}"
-    result = run(["git", "checkout", "-b", branch_name], check=False)
-    if result.returncode != 0:
-        print(f"Error: git checkout -b {branch_name} failed:\n{result.stderr.strip()}", file=sys.stderr)
-        return 2
+    existing = run(["git", "branch", "--list", f"feature/TASK-{task_id}-*"], check=False)
+    existing_branch = existing.stdout.strip().lstrip("* ") if existing.returncode == 0 else ""
+
+    if existing_branch:
+        print(
+            f"Warning: branch '{existing_branch}' already exists for TASK-{task_id}. "
+            f"Switching to it instead of creating a new branch. "
+            f"If you want a fresh branch, delete it first: git branch -D {existing_branch}",
+            file=sys.stderr,
+        )
+        result = run(["git", "checkout", existing_branch], check=False)
+        if result.returncode != 0:
+            print(f"Error: git checkout {existing_branch} failed:\n{result.stderr.strip()}", file=sys.stderr)
+            return 2
+        branch_name = existing_branch
+    else:
+        result = run(["git", "checkout", "-b", branch_name], check=False)
+        if result.returncode != 0:
+            print(f"Error: git checkout -b {branch_name} failed:\n{result.stderr.strip()}", file=sys.stderr)
+            return 2
 
     # Restore stashed changes
     if dirty:
