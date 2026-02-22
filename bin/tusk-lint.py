@@ -493,11 +493,8 @@ def rule13_version_bump_missing(root):
 
     if dirty_scripts and not version_dirty:
         ver = read_version()
-        violations.append(
-            f"  Uncommitted: VERSION={ver}, but {len(dirty_scripts)} script(s) modified without a VERSION bump:"
-        )
         for s in sorted(dirty_scripts):
-            violations.append(f"    {s}")
+            violations.append(f"  Uncommitted: VERSION={ver}, script modified without VERSION bump: {s}")
 
     # --- Part B: Committed changes since last VERSION bump ---
     # Skip if VERSION is currently dirty (user is already in the process of bumping it)
@@ -521,12 +518,10 @@ def rule13_version_bump_missing(root):
                     # between it and HEAD can contain another VERSION change.
                     if committed_scripts:
                         ver = read_version()
-                        violations.append(
-                            f"  Committed since last VERSION bump: VERSION={ver}, "
-                            f"{len(committed_scripts)} script(s) changed without bumping VERSION:"
-                        )
                         for s in sorted(committed_scripts):
-                            violations.append(f"    {s}")
+                            violations.append(
+                                f"  Committed since last VERSION bump: VERSION={ver}, script changed without bump: {s}"
+                            )
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass
 

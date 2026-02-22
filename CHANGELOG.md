@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [183] - 2026-02-22
+
+### Fixed
+
+- `tusk lint` Rule 13 violation count now reports the number of affected scripts (not list entries); 1 modified script now correctly prints "1 violation" instead of "2 violations"
+
 ## [182] - 2026-02-22
 
 ### Added
