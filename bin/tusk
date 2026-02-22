@@ -679,6 +679,25 @@ CREATE TABLE skill_runs (
 CREATE INDEX idx_skill_runs_skill_name ON skill_runs(skill_name);
 SR_SCHEMA
 
+  # Tool call stats (pre-computed per-tool-call cost aggregates per session)
+  sqlite3 "$DB_PATH" <<'TCS_SCHEMA'
+CREATE TABLE tool_call_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    task_id INTEGER,
+    tool_name TEXT NOT NULL,
+    call_count INTEGER NOT NULL DEFAULT 0,
+    total_cost REAL NOT NULL DEFAULT 0.0,
+    max_cost REAL NOT NULL DEFAULT 0.0,
+    tokens_out INTEGER NOT NULL DEFAULT 0,
+    computed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (session_id) REFERENCES task_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
+);
+CREATE INDEX idx_tool_call_stats_session_id ON tool_call_stats(session_id);
+CREATE INDEX idx_tool_call_stats_task_id ON tool_call_stats(task_id);
+TCS_SCHEMA
+
   # Apply validation triggers from config (after all tables are created)
   local triggers
   triggers="$(generate_triggers)"
@@ -687,7 +706,7 @@ SR_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 18;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 19;"
 
   echo "Initialized task database at $DB_PATH"
 }
@@ -1256,6 +1275,29 @@ cmd_migrate() {
       PRAGMA user_version = 18;
     "
     echo "  Migration 18: added skill_runs table for per-skill cost tracking"
+  fi
+
+  # Migration 18→19: add tool_call_stats table for pre-computed per-tool-call cost aggregates
+  if [[ "$current" -lt 19 ]]; then
+    sqlite3 "$DB_PATH" "
+      CREATE TABLE IF NOT EXISTS tool_call_stats (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id TEXT NOT NULL,
+          task_id INTEGER,
+          tool_name TEXT NOT NULL,
+          call_count INTEGER NOT NULL DEFAULT 0,
+          total_cost REAL NOT NULL DEFAULT 0.0,
+          max_cost REAL NOT NULL DEFAULT 0.0,
+          tokens_out INTEGER NOT NULL DEFAULT 0,
+          computed_at TEXT NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY (session_id) REFERENCES task_sessions(id) ON DELETE CASCADE,
+          FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_tool_call_stats_session_id ON tool_call_stats(session_id);
+      CREATE INDEX IF NOT EXISTS idx_tool_call_stats_task_id ON tool_call_stats(task_id);
+      PRAGMA user_version = 19;
+    "
+    echo "  Migration 19: added tool_call_stats table for per-tool-call cost aggregates"
   fi
 
   local final

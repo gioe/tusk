@@ -210,6 +210,24 @@ A record of a single execution of a tusk skill, capturing start/end timestamps, 
 
 ---
 
+### Tool Call Stats
+
+Pre-computed per-tool-call cost aggregates, grouped by session and tool name. Populated by tooling that parses Claude transcripts and summarises which tools were called most/least expensively within a session.
+
+| Attribute | Type | Constraints | Description |
+|-----------|------|-------------|-------------|
+| `id` | INTEGER | PK, autoincrement | |
+| `session_id` | TEXT | NOT NULL, FK → task_sessions(id) CASCADE | Owning session |
+| `task_id` | INTEGER | nullable, FK → tasks(id) ON DELETE SET NULL | Denormalised task reference for convenient joins |
+| `tool_name` | TEXT | NOT NULL | Name of the Claude tool (e.g. `Bash`, `Read`, `Edit`) |
+| `call_count` | INTEGER | NOT NULL, default 0 | Number of invocations of this tool in the session |
+| `total_cost` | REAL | NOT NULL, default 0.0 | Summed estimated cost across all calls |
+| `max_cost` | REAL | NOT NULL, default 0.0 | Cost of the single most expensive call |
+| `tokens_out` | INTEGER | NOT NULL, default 0 | Total output tokens attributed to this tool |
+| `computed_at` | TEXT | NOT NULL, default now | When this aggregate row was written |
+
+---
+
 ## Status Transitions
 
 Task `status` follows a one-way lifecycle. The `validate_status_transition` trigger (in `bin/tusk`, recreated by `tusk regen-triggers`) enforces this graph:

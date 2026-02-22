@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [173] - 2026-02-21
+
+### Added
+
+- Schema migration 19: `tool_call_stats` table for pre-computed per-tool-call cost aggregates per session
+
 ## [172] - 2026-02-22
 
 ### Changed
