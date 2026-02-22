@@ -2,13 +2,14 @@
 
 Provides pricing loading, model resolution, transcript parsing, token
 aggregation, and cost computation.  Imported by tusk-session-stats.py,
-tusk-criteria.py, and tusk-session-recalc.py.
+tusk-criteria.py, tusk-session-recalc.py, and tusk-call-breakdown.py.
 """
 
 import json
 import logging
 import os
 import sys
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -270,3 +271,104 @@ def compute_tokens_in(totals: dict) -> int:
         + totals["cache_creation_input_tokens"]
         + totals["cache_read_input_tokens"]
     )
+
+
+def iter_tool_call_costs(
+    transcript_path: str,
+    started_at: datetime,
+    ended_at: datetime | None,
+) -> Iterator[dict]:
+    """Iterate per-tool-call cost attribution within a transcript time window.
+
+    Yields one dict per tool_use block found in assistant messages:
+        tool_name             (str)   — tool identifier
+        marginal_input_tokens (int)   — non-cached input tokens attributed to this call
+        output_tokens         (int)   — output tokens attributed to this call
+        cost                  (float) — dollars attributed to this call
+
+    When a single assistant message contains N tool_use blocks, tokens and
+    cost are split evenly across them (floor-division for token counts).
+    Messages with no tool_use blocks are skipped.
+
+    Callers must invoke load_pricing() before using this function so that
+    PRICING and MODEL_ALIASES are populated.
+    """
+    seen_requests: set[str] = set()
+
+    with open(transcript_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            if entry.get("type") != "assistant":
+                continue
+
+            ts_str = entry.get("timestamp")
+            if not ts_str:
+                continue
+            try:
+                ts = parse_timestamp(ts_str)
+            except (ValueError, TypeError):
+                continue
+
+            if ts < started_at:
+                continue
+            if ended_at and ts > ended_at:
+                continue
+
+            request_id = entry.get("requestId")
+            if not request_id or request_id in seen_requests:
+                continue
+            seen_requests.add(request_id)
+
+            message = entry.get("message", {})
+            content = message.get("content", [])
+            if not isinstance(content, list):
+                continue
+
+            # Collect all tool_use block names in this message
+            tools = [
+                b.get("name", "(unknown)")
+                for b in content
+                if isinstance(b, dict) and b.get("type") == "tool_use"
+            ]
+            if not tools:
+                continue
+
+            # Extract per-message usage
+            usage = message.get("usage", {})
+            inp = usage.get("input_tokens", 0)
+            out = usage.get("output_tokens", 0)
+
+            # Marginal cost formula: Δinput_tokens × input_price + output_tokens × output_price.
+            # input_tokens here represents the non-cached tokens submitted in this round-trip
+            # (i.e. the incremental tokens beyond what was already cached).
+            msg_model = resolve_model(message.get("model", ""))
+            rates = PRICING.get(msg_model)
+            if rates:
+                mtok = 1_000_000
+                call_cost = (
+                    inp / mtok * rates["input"]
+                    + out / mtok * rates["output"]
+                )
+            else:
+                call_cost = 0.0
+
+            # Split evenly across N tool_use blocks in this message
+            n = len(tools)
+            inp_each = inp // n
+            out_each = out // n
+            cost_each = call_cost / n
+
+            for tool_name in tools:
+                yield {
+                    "tool_name": tool_name,
+                    "marginal_input_tokens": inp_each,
+                    "output_tokens": out_each,
+                    "cost": round(cost_each, 8),
+                }

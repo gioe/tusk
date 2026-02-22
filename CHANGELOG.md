@@ -6,6 +6,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [174] - 2026-02-22
+
+### Added
+
+- `tusk call-breakdown` command: per-tool-call cost attribution with `--task`, `--session`, and `--skill-run` scopes
+- `iter_tool_call_costs()` in `tusk-pricing-lib.py` for iterating per-tool-call costs in a transcript window
+- `tusk session-close` now auto-populates `tool_call_stats` rows after closing a session
+
 ## [173] - 2026-02-22
 
 ### Added

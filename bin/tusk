@@ -1601,7 +1601,8 @@ cmd_session_close() {
 
   # Populate token/cost stats unless skipped
   if [[ "$skip_stats" = false ]]; then
-    exec python3 "$SCRIPT_DIR/tusk-session-stats.py" "$DB_PATH" "$(resolve_config)" "$session_id"
+    python3 "$SCRIPT_DIR/tusk-session-stats.py" "$DB_PATH" "$(resolve_config)" "$session_id"
+    python3 "$SCRIPT_DIR/tusk-call-breakdown.py" "$DB_PATH" "$(resolve_config)" --session "$session_id" --write-only || true
   fi
 }
 
@@ -1670,6 +1671,7 @@ case "${1:-}" in
   session-stats) shift; exec python3 "$SCRIPT_DIR/tusk-session-stats.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   session-recalc) shift; exec python3 "$SCRIPT_DIR/tusk-session-recalc.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   skill-run) shift; exec python3 "$SCRIPT_DIR/tusk-skill-run.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  call-breakdown) shift; exec python3 "$SCRIPT_DIR/tusk-call-breakdown.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   session-close) shift; cmd_session_close "$@" ;;
   task-start) shift; exec python3 "$SCRIPT_DIR/tusk-task-start.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   task-done) shift; exec python3 "$SCRIPT_DIR/tusk-task-done.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
@@ -1691,6 +1693,6 @@ case "${1:-}" in
   migrate) cmd_migrate ;;
   regen-triggers) cmd_regen_triggers ;;
   upgrade) cmd_upgrade ;;
-  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|branch|commit|lint|dupes|deps|blockers|review|criteria|dag|dashboard|wsjf|conventions|setup|autoclose|token-audit|sync-skills|pricing-update|session-stats|session-recalc|session-close|skill-run|task-start|task-done|task-insert|task-update|task-reopen|progress|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
+  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|branch|commit|lint|dupes|deps|blockers|review|criteria|dag|dashboard|wsjf|conventions|setup|autoclose|token-audit|sync-skills|pricing-update|session-stats|session-recalc|session-close|skill-run|call-breakdown|task-start|task-done|task-insert|task-update|task-reopen|progress|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac
