@@ -6,6 +6,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [184] - 2026-02-22
+
+### Added
+
+- `bin/tusk-dashboard-data.py`: new data-access library module containing all 17 `fetch_*` functions and `get_connection`, extracted from `tusk-dashboard.py`
+
+### Changed
+
+- `tusk-dashboard.py` imports data functions from `tusk-dashboard-data` via `_load_dashboard_data_module()`, removing ~350 lines of SQL/data code from the main file
+
 ## [183] - 2026-02-22
 
 ### Fixed
