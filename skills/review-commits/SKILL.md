@@ -52,7 +52,7 @@ Determine the base branch and compute the diff:
 ```bash
 git remote set-head origin --auto 2>/dev/null
 DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
-git diff "${DEFAULT_BRANCH}..HEAD"
+git diff "${DEFAULT_BRANCH}...HEAD"
 ```
 
 If the diff is empty, report "No changes found compared to the base branch." and stop.
@@ -199,7 +199,7 @@ Track current pass number (starts at 1). If `current_pass < max_passes`:
 
 1. Get the updated diff:
    ```bash
-   git diff "${DEFAULT_BRANCH}..HEAD"
+   git diff "${DEFAULT_BRANCH}...HEAD"
    ```
 
 2. Start a new review pass:
