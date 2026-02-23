@@ -86,7 +86,7 @@ remove_file ".claude/bin/VERSION"
 rmdir_if_empty ".claude/bin"
 
 # ── 2. Remove skills ────────────────────────────────────────────────
-for skill in create-task groom-backlog manage-dependencies tusk reconfigure retro tusk-init; do
+for skill in create-task groom-backlog tusk reconfigure retro tusk-init; do
   remove_dir ".claude/skills/$skill"
 done
 rmdir_if_empty ".claude/skills"

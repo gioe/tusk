@@ -79,7 +79,6 @@ The config also includes a `review` block: `mode` (`"disabled"` or `"ai_only"`),
 - **`/tusk`** — Full dev workflow: pick task, implement, commit, review, done, retro
 - **`/groom-backlog`** — Auto-close expired tasks, dedup, re-prioritize backlog
 - **`/create-task`** — Decompose freeform text into structured tasks
-- **`/manage-dependencies`** — Add/remove/query dependencies with cycle prevention
 - **`/retro`** — Post-session retrospective; surfaces improvements and writes conventions
 - **`/reconfigure`** — Update config post-install without losing data
 - **`/tusk-init`** — Interactive setup wizard

@@ -66,8 +66,6 @@
                            task-insert ──► dupes check
                                        └──► wsjf
 
-/manage-dependencies ────── deps (add / remove / list / ready / blocked / all)
-
 /resume-task ───────────── task-start
                            criteria done
                            progress
@@ -249,7 +247,6 @@ SKILL               start  done   insert update                  eria           
 /create-task          ✗      ✗      ✓      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✓      ✓        ✗        ✗     ✗      ✓       ✗       ✗
 /resume-task          ✓      ✗      ✗      ✗       ✗        ✗       ✓      ✗      ✗     ✗       ✗      ✗        ✓        ✗     ✓      ✗       ✗       ✗
 /token-audit          ✗      ✗      ✓*     ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✓        ✗        ✗     ✗      ✓       ✓       ✗
-/manage-dependencies  ✗      ✗      ✗      ✗       ✗        ✗       ✗      ✗      ✓     ✗       ✗      ✗        ✗        ✗     ✗      ✗       ✗       ✗
 /reconfigure          ✗      ✗      ✗      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✗        ✗        ✗     ✗      ✓       ✗       ✗
 /tusk-insights        ✗      ✗      ✗      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✗        ✗        ✗     ✗      ✗       ✗       ✗
 /dashboard            ✗      ✗      ✗      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✗        ✗        ✗     ✗      ✗       ✗       ✗
