@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [207] - 2026-02-23
+
+### Added
+- Rule 14 in `tusk-lint.py`: advisory check for `skills/` file modifications without a VERSION bump (mirrors Rule 13 for `bin/tusk-*.py`)
+- Refactored Rule 13 to use shared `_version_bump_check` helper, eliminating duplicate logic
+
 ## [206] - 2026-02-23
 
 ### Added

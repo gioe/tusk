@@ -436,10 +436,10 @@ def rule12_python_syntax(root):
     return violations
 
 
-def rule13_version_bump_missing(root):
-    """bin/tusk-*.py modified in working tree or recent commits without VERSION bump.
+def _version_bump_check(root, path_re, label):
+    """Shared helper: check if files matching path_re were modified without a VERSION bump.
 
-    Advisory only — violations are printed but do not contribute to the exit code.
+    Advisory only — caller is responsible for not counting violations toward exit code.
     """
     violations = []
 
@@ -457,8 +457,6 @@ def rule13_version_bump_missing(root):
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return []
 
-    script_re = re.compile(r"^bin/tusk-.+\.py$")
-
     def read_version():
         try:
             with open(os.path.join(root, "VERSION"), encoding="utf-8") as f:
@@ -467,7 +465,7 @@ def rule13_version_bump_missing(root):
             return "unknown"
 
     # --- Part A: Uncommitted changes (staged or unstaged) ---
-    dirty_scripts = []
+    dirty_files = []
     version_dirty = False
     try:
         r = subprocess.run(
@@ -486,15 +484,15 @@ def rule13_version_bump_missing(root):
                 # Exclude untracked files (??) — they're not yet part of the project
                 if xy.strip() and xy != "??" and path == "VERSION":
                     version_dirty = True
-                if xy.strip() and xy != "??" and script_re.match(path):
-                    dirty_scripts.append(path)
+                if xy.strip() and xy != "??" and path_re.match(path):
+                    dirty_files.append(path)
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
 
-    if dirty_scripts and not version_dirty:
+    if dirty_files and not version_dirty:
         ver = read_version()
-        for s in sorted(dirty_scripts):
-            violations.append(f"  Uncommitted: VERSION={ver}, script modified without VERSION bump: {s}")
+        for s in sorted(dirty_files):
+            violations.append(f"  Uncommitted: VERSION={ver}, {label} modified without VERSION bump: {s}")
 
     # --- Part B: Committed changes since last VERSION bump ---
     # Skip if VERSION is currently dirty (user is already in the process of bumping it)
@@ -512,20 +510,37 @@ def rule13_version_bump_missing(root):
                 )
                 if r2.returncode == 0:
                     changed = r2.stdout.splitlines()
-                    committed_scripts = [p for p in changed if script_re.match(p)]
+                    committed_files = [p for p in changed if path_re.match(p)]
                     # No need to check if VERSION is in the diff — last_ver_commit is by
                     # definition the most recent commit that touched VERSION, so nothing
                     # between it and HEAD can contain another VERSION change.
-                    if committed_scripts:
+                    if committed_files:
                         ver = read_version()
-                        for s in sorted(committed_scripts):
+                        for s in sorted(committed_files):
                             violations.append(
-                                f"  Committed since last VERSION bump: VERSION={ver}, script modified without VERSION bump: {s}"
+                                f"  Committed since last VERSION bump: VERSION={ver}, {label} modified without VERSION bump: {s}"
                             )
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass
 
     return violations
+
+
+def rule13_version_bump_missing(root):
+    """bin/tusk-*.py modified in working tree or recent commits without VERSION bump.
+
+    Advisory only — violations are printed but do not contribute to the exit code.
+    """
+    return _version_bump_check(root, re.compile(r"^bin/tusk-.+\.py$"), "script")
+
+
+def rule14_skills_version_bump_missing(root):
+    """skills/ file modified in working tree or recent commits without VERSION bump.
+
+    Advisory only — violations are printed but do not contribute to the exit code.
+    skills-internal/ is excluded: those files are not distributed to target projects.
+    """
+    return _version_bump_check(root, re.compile(r"^skills/"), "skill")
 
 
 # ── Main ─────────────────────────────────────────────────────────────
@@ -547,6 +562,7 @@ RULES = [
     ("Rule 11: SKILL.md frontmatter validation", rule11_skill_frontmatter, False),
     ("Rule 12: Python syntax check (py_compile) for bin/tusk-*.py", rule12_python_syntax, False),
     ("Rule 13: bin/tusk-*.py modified without VERSION bump (advisory)", rule13_version_bump_missing, True),
+    ("Rule 14: skills/ file modified without VERSION bump (advisory)", rule14_skills_version_bump_missing, True),
 ]
 
 
