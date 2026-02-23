@@ -179,7 +179,7 @@ The config also includes a `review` block with three keys: `mode` (valid values:
 
 ### Skills (installed to `.claude/skills/` in target projects)
 
-- **`/tusk`** — Selects the highest-priority unblocked task and begins a full dev workflow (branching, implementation, PR)
+- **`/tusk`** — Selects the highest-priority unblocked task and begins a full dev workflow (implementation, commit with criteria, review, done, retro)
 - **`/groom-backlog`** — Auto-closes expired deferred tasks, scans for duplicates, categorizes and re-prioritizes the backlog
 - **`/create-task`** — Decomposes freeform text (feature specs, meeting notes, bug reports) into structured, deduplicated tasks
 - **`/check-dupes`** — Similarity-based duplicate detection (uses `difflib.SequenceMatcher`, thresholds 0.60–0.82)

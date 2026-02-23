@@ -6,6 +6,18 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [204] - 2026-02-23
+
+### Added
+- `agent_name TEXT` nullable column on `task_sessions` and `code_reviews` (schema migration 26)
+- `--agent <name>` flag on `tusk task-start` to record which named agent opened the session
+- `--agent <name>` flag on `tusk review start` to record which named agent ran the review
+
+## [203] - 2026-02-23
+
+### Changed
+- Rewrote `/tusk` skill to branch-free commit workflow: removed mandatory branch creation step, inlined review-commits + task-done + retro as steps 10–11, gutted `FINALIZE.md` to a supersession stub
+
 ## [202] - 2026-02-23
 
 ### Changed

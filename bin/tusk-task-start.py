@@ -2,12 +2,12 @@
 """Consolidate task-start setup into a single CLI command.
 
 Called by the tusk wrapper:
-    tusk task-start <task_id> [--force]
+    tusk task-start <task_id> [--force] [--agent <name>]
 
 Arguments received from tusk:
     sys.argv[1] — DB path
     sys.argv[2] — config path
-    sys.argv[3:] — task_id [--force]
+    sys.argv[3:] — task_id [--force] [--agent <name>]
 
 Performs all setup steps for beginning work on a task:
   1. Fetch the task (validate it exists and is actionable)
@@ -46,6 +46,14 @@ def main(argv: list[str]) -> int:
         return 1
 
     force = "--force" in argv[3:]
+
+    # Parse optional --agent <name>
+    agent_name = None
+    remaining = argv[3:]
+    if "--agent" in remaining:
+        idx = remaining.index("--agent")
+        if idx + 1 < len(remaining):
+            agent_name = remaining[idx + 1]
 
     conn = get_connection(db_path)
     try:
@@ -110,11 +118,18 @@ def main(argv: list[str]) -> int:
 
         if open_session:
             session_id = open_session["id"]
+            # Update agent_name on reused session if --agent was passed
+            if agent_name is not None:
+                conn.execute(
+                    "UPDATE task_sessions SET agent_name = ? WHERE id = ?",
+                    (agent_name, session_id),
+                )
         else:
             # Create a new session
             conn.execute(
-                "INSERT INTO task_sessions (task_id, started_at) VALUES (?, datetime('now'))",
-                (task_id,),
+                "INSERT INTO task_sessions (task_id, started_at, agent_name)"
+                " VALUES (?, datetime('now'), ?)",
+                (task_id, agent_name),
             )
             session_id = conn.execute(
                 "SELECT MAX(id) as id FROM task_sessions WHERE task_id = ?",

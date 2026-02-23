@@ -60,9 +60,9 @@ def cmd_start(args: argparse.Namespace, db_path: str, config_path: str) -> int:
         created_ids = []
         for reviewer in reviewers:
             conn.execute(
-                "INSERT INTO code_reviews (task_id, reviewer, status, review_pass, diff_summary)"
-                " VALUES (?, ?, 'pending', ?, ?)",
-                (args.task_id, reviewer, args.pass_num, args.diff_summary),
+                "INSERT INTO code_reviews (task_id, reviewer, status, review_pass, diff_summary, agent_name)"
+                " VALUES (?, ?, 'pending', ?, ?, ?)",
+                (args.task_id, reviewer, args.pass_num, args.diff_summary, args.agent),
             )
             conn.commit()
             rid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -448,6 +448,7 @@ def main():
     start_p.add_argument("--reviewer", default=None, help="Reviewer name (overrides config reviewers)")
     start_p.add_argument("--pass-num", type=int, default=1, help="Review pass number (default: 1)")
     start_p.add_argument("--diff-summary", default=None, help="Optional diff summary text")
+    start_p.add_argument("--agent", default=None, help="Agent name that ran the review (e.g. from /chain)")
 
     # add-comment
     add_comment_p = subparsers.add_parser("add-comment", help="Add a finding comment to a review")

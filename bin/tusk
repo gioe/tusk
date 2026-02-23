@@ -494,6 +494,7 @@ CREATE TABLE task_sessions (
     lines_added INTEGER,
     lines_removed INTEGER,
     model TEXT,
+    agent_name TEXT,
     FOREIGN KEY (task_id) REFERENCES tasks(id)
 );
 
@@ -652,6 +653,7 @@ CREATE TABLE code_reviews (
     cost_dollars REAL,
     tokens_in INTEGER,
     tokens_out INTEGER,
+    agent_name TEXT,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
@@ -732,7 +734,7 @@ TCS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 25;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 26;"
 
   echo "Initialized task database at $DB_PATH"
 }
@@ -1637,6 +1639,16 @@ cmd_migrate() {
     fi
 
     echo "  Migration 25: dropped github_pr column from tasks table"
+  fi
+
+  # Migration 25→26: add agent_name column to task_sessions and code_reviews
+  if [[ "$current" -lt 26 ]]; then
+    sqlite3 "$DB_PATH" "
+      ALTER TABLE task_sessions ADD COLUMN agent_name TEXT;
+      ALTER TABLE code_reviews ADD COLUMN agent_name TEXT;
+      PRAGMA user_version = 26;
+    "
+    echo "  Migration 26: added agent_name column to task_sessions and code_reviews"
   fi
 
   local final
