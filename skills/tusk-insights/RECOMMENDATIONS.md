@@ -6,8 +6,6 @@ Companion file for `/tusk-insights` Phase 2. Contains query templates and analys
 
 ## Topic 1: Domain Alignment
 
-**Purpose:** Assess whether task domains reflect actual project structure and workload distribution.
-
 ### Queries
 
 **Task distribution by domain:**
@@ -49,8 +47,6 @@ ORDER BY id;
 ---
 
 ## Topic 2: Agent Effectiveness
-
-**Purpose:** Evaluate agent workload and throughput using session metrics.
 
 ### Queries
 
@@ -99,8 +95,6 @@ ORDER BY priority_score DESC, id;
 ---
 
 ## Topic 3: Workflow Patterns
-
-**Purpose:** Analyze task lifecycle — how tasks flow from creation to completion.
 
 ### Queries
 
@@ -164,8 +158,6 @@ ORDER BY day;
 
 ## Topic 4: Backlog Strategy
 
-**Purpose:** Evaluate backlog health — size, age, prioritization quality.
-
 ### Queries
 
 **Backlog size by priority:**
@@ -195,38 +187,9 @@ LIMIT 10;
 
 **Blocked vs ready:**
 
-```sql
--- blocked + ready = total To Do (mutually exclusive: blocked means dep-blocked or ext-blocked;
--- ready means neither; relationship_type = 'blocks' excludes contingent deps from both counts)
-SELECT
-  (SELECT COUNT(*) FROM tasks t
-    WHERE t.status = 'To Do'
-    AND (
-      EXISTS (
-        SELECT 1 FROM task_dependencies d
-        JOIN tasks blocker ON d.depends_on_id = blocker.id
-        WHERE d.task_id = t.id AND blocker.status <> 'Done'
-          AND d.relationship_type = 'blocks'
-      )
-      OR EXISTS (
-        SELECT 1 FROM external_blockers eb
-        WHERE eb.task_id = t.id AND eb.is_resolved = 0
-      )
-    )
-  ) as blocked,
-  (SELECT COUNT(*) FROM tasks t
-    WHERE t.status = 'To Do'
-    AND NOT EXISTS (
-      SELECT 1 FROM task_dependencies d
-      JOIN tasks blocker ON d.depends_on_id = blocker.id
-      WHERE d.task_id = t.id AND blocker.status <> 'Done'
-        AND d.relationship_type = 'blocks'
-    )
-    AND NOT EXISTS (
-      SELECT 1 FROM external_blockers eb
-      WHERE eb.task_id = t.id AND eb.is_resolved = 0
-    )
-  ) as ready;
+```bash
+tusk deps ready    # tasks with all blockers satisfied
+tusk deps blocked  # tasks held up by dependencies or external blockers
 ```
 
 **Complexity distribution (open tasks):**
@@ -254,20 +217,4 @@ ORDER BY
 
 ## Topic 5: Free-Form Exploration
 
-**Purpose:** Let the user ask any question about their task data.
-
-### Instructions
-
-Ask the user what they'd like to explore. Common requests:
-
-- "Show me all tasks related to X"
-- "What's the most expensive task?"
-- "How much have I spent total?"
-- "Which tasks have the most dependencies?"
-
-Build and run the appropriate read-only SQL query using `tusk`. Remember:
-
-- **Read-only only** — SELECT statements only, never INSERT/UPDATE/DELETE
-- Use `tusk -header -column "..."` for formatted output
-- Use `<>` instead of `!=` in SQL (shell history expansion conflict)
-- Use `$(tusk sql-quote "...")` for any user-provided text in WHERE clauses
+Ask the user what they'd like to explore and build the appropriate read-only `tusk` SQL query. SELECT only; use `tusk -header -column "..."` for formatted output.
