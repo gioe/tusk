@@ -110,6 +110,45 @@ Present findings grouped by category with task IDs and summaries so the user can
 (etc. for all 6 categories)
 ```
 
+### Step 4: Velocity Summary
+
+Always run this step regardless of finding counts — velocity is informational, not a health issue.
+
+Load the velocity query from the companion file (section 7):
+
+```
+Read file: <base_directory>/QUERIES.md
+```
+
+Run the Velocity query:
+
+```bash
+tusk -header -column "
+SELECT week, task_count, ROUND(avg_cost, 4) as avg_cost
+FROM v_velocity
+ORDER BY week DESC
+LIMIT 8;
+"
+```
+
+Present results in the audit report as:
+
+```
+### Velocity — Tasks Completed Per Week
+
+week        task_count  avg_cost
+----------  ----------  --------
+2025-W08             3    0.1523
+2025-W07             5    0.2100
+...
+```
+
+If the query returns no rows, display:
+
+```
+### Velocity — No completed tasks recorded yet
+```
+
 ---
 
 ## Phase 2: Interactive Q&A

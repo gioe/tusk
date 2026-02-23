@@ -263,3 +263,20 @@ WHERE status = 'To Do'
 GROUP BY score_range
 ORDER BY MIN(priority_score) DESC;
 ```
+
+---
+
+## 7. Velocity
+
+Always run this query (not gated on a finding count — velocity is informational).
+
+### Tasks Completed Per Week
+
+```sql
+SELECT week, task_count, ROUND(avg_cost, 4) as avg_cost
+FROM v_velocity
+ORDER BY week DESC
+LIMIT 8;
+```
+
+Display as a formatted table. If the query returns no rows, note that no completed tasks exist yet.
