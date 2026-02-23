@@ -54,9 +54,17 @@ def is_self(rel):
 # ── Rule implementations ────────────────────────────────────────────
 
 def rule1_raw_sqlite3(root):
-    """No raw sqlite3 usage outside bin/tusk."""
+    """No raw sqlite3 CLI usage outside bin/tusk.
+
+    Skills/scripts: flag any 'sqlite3 ' reference (shell CLI invocation).
+    bin/tusk-*.py: flag only subprocess calls to sqlite3 (e.g. subprocess.run(['sqlite3',...]))
+                   — Python's native sqlite3 module (sqlite3.connect, etc.) is allowed for
+                   read-only lookups in bin scripts.
+    """
     violations = []
     exempt = {"bin/tusk", "CLAUDE.md", "README.md"}
+
+    # Skills and plain scripts: flag any sqlite3 CLI invocation
     for rel, full in find_files(root, ["skills", "scripts"], [".md", ".sh", ".py"]):
         if is_self(rel) or any(rel.endswith(e) or rel == e for e in exempt):
             continue
@@ -73,6 +81,23 @@ def rule1_raw_sqlite3(root):
                 if "sqlite3 " not in before_comment:
                     continue
             violations.append(f"  {rel}:{lineno}: {line.rstrip()}")
+
+    # bin/tusk-*.py: flag only subprocess-based sqlite3 CLI calls; allow Python's sqlite3 module
+    import re as _re
+    _subprocess_sqlite3 = _re.compile(r'subprocess[^#\n]*["\']sqlite3["\']')
+    bin_exempt = exempt | {"bin/tusk-lint.py"}
+    for rel, full in find_files(root, ["bin"], [".py"]):
+        if not _re.match(r"bin/tusk-.+\.py$", rel):
+            continue
+        if rel in bin_exempt:
+            continue
+        for lineno, line in read_lines(full):
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            if _subprocess_sqlite3.search(line):
+                violations.append(f"  {rel}:{lineno}: {line.rstrip()}")
+
     return violations
 
 

@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [216] - 2026-02-23
+
+### Changed
+- `tusk lint` Rule 1: now also scans `bin/tusk-*.py` for subprocess-based sqlite3 CLI calls (still allows Python's native `sqlite3` module for read-only queries in bin scripts)
+
 ## [215] - 2026-02-23
 
 ### Changed
