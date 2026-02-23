@@ -17,6 +17,8 @@ Flags:
     --task-type <t>       Update task_type
     --assignee <a>        Update assignee
     --complexity <c>      Update complexity
+    --deferred            Set is_deferred=1, prefix summary with [Deferred], set expires_at +60d if unset
+    --no-deferred         Set is_deferred=0, strip [Deferred] prefix from summary
 
 Only specified fields are updated; unspecified fields are left unchanged.
 Always sets updated_at = datetime('now').
@@ -31,6 +33,7 @@ import json
 import sqlite3
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 
 
 def get_connection(db_path: str) -> sqlite3.Connection:
@@ -60,7 +63,7 @@ def main(argv: list[str]) -> int:
         print(
             "Usage: tusk task-update <task_id> [--priority P] [--domain D] "
             "[--task-type T] [--assignee A] [--complexity C] "
-            "[--summary S] [--description D]",
+            "[--summary S] [--description D] [--deferred] [--no-deferred]",
             file=sys.stderr,
         )
         return 2
@@ -76,7 +79,8 @@ def main(argv: list[str]) -> int:
 
     # Parse flags
     remaining = argv[3:]
-    updates: dict[str, str] = {}
+    updates: dict = {}
+    deferred = None  # None = not specified, True = --deferred, False = --no-deferred
 
     flag_map = {
         "--summary": "summary",
@@ -97,11 +101,17 @@ def main(argv: list[str]) -> int:
                 return 2
             updates[flag_map[arg]] = remaining[i + 1]
             i += 2
+        elif arg == "--deferred":
+            deferred = True
+            i += 1
+        elif arg == "--no-deferred":
+            deferred = False
+            i += 1
         else:
             print(f"Error: Unknown argument: {arg}", file=sys.stderr)
             return 2
 
-    if not updates:
+    if not updates and deferred is None:
         print("Error: At least one field flag is required", file=sys.stderr)
         return 2
 
@@ -149,6 +159,23 @@ def main(argv: list[str]) -> int:
         if not task:
             print(f"Error: Task {task_id} not found", file=sys.stderr)
             return 1
+
+        # Apply --deferred / --no-deferred logic using current task values as base
+        if deferred is True:
+            current_summary = updates.get("summary", task["summary"])
+            if not current_summary.startswith("[Deferred]"):
+                updates["summary"] = f"[Deferred] {current_summary}"
+            updates["is_deferred"] = 1
+            if task["expires_at"] is None and "expires_at" not in updates:
+                expires_dt = datetime.now(timezone.utc) + timedelta(days=60)
+                updates["expires_at"] = expires_dt.strftime("%Y-%m-%d %H:%M:%S")
+        elif deferred is False:
+            current_summary = updates.get("summary", task["summary"])
+            if current_summary.startswith("[Deferred] "):
+                updates["summary"] = current_summary[len("[Deferred] "):]
+            elif current_summary.startswith("[Deferred]"):
+                updates["summary"] = current_summary[len("[Deferred]"):]
+            updates["is_deferred"] = 0
 
         # Build dynamic SET clause
         set_parts = []
