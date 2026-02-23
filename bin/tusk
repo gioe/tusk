@@ -692,6 +692,7 @@ CREATE TABLE tool_call_stats (
     total_cost REAL NOT NULL DEFAULT 0.0,
     max_cost REAL NOT NULL DEFAULT 0.0,
     tokens_out INTEGER NOT NULL DEFAULT 0,
+    tokens_in INTEGER NOT NULL DEFAULT 0,
     computed_at TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (session_id) REFERENCES task_sessions(id) ON DELETE CASCADE,
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL,
@@ -716,7 +717,7 @@ TCS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 22;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 23;"
 
   echo "Initialized task database at $DB_PATH"
 }
@@ -1451,6 +1452,15 @@ cmd_migrate() {
       PRAGMA user_version = 22;
     "
     echo "  Migration 22: added criterion_id FK to tool_call_stats for per-criterion tool-cost drilldown"
+  fi
+
+  # Migration 22→23: add tokens_in column to tool_call_stats for per-tool input-token tracking
+  if [[ "$current" -lt 23 ]]; then
+    sqlite3 "$DB_PATH" "
+      ALTER TABLE tool_call_stats ADD COLUMN tokens_in INTEGER NOT NULL DEFAULT 0;
+      PRAGMA user_version = 23;
+    "
+    echo "  Migration 23: added tokens_in column to tool_call_stats"
   fi
 
   local final
