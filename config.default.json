@@ -19,5 +19,8 @@
     "reviewers": []
   },
   "review_categories": ["must_fix", "suggest", "defer"],
-  "review_severities": ["critical", "major", "minor"]
+  "review_severities": ["critical", "major", "minor"],
+  "merge": {
+    "mode": "local"
+  }
 }

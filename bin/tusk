@@ -152,7 +152,7 @@ if not isinstance(cfg, dict):
 errors = []
 
 # ── Check for unknown top-level keys ──
-KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'complexity', 'blocker_types', 'criterion_types', 'agents', 'dupes', 'review', 'review_categories', 'review_severities'}
+KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'complexity', 'blocker_types', 'criterion_types', 'agents', 'dupes', 'review', 'review_categories', 'review_severities', 'merge'}
 known_list = ', '.join(sorted(KNOWN_KEYS))
 unknown = set(cfg.keys()) - KNOWN_KEYS
 if unknown:
@@ -263,6 +263,25 @@ if 'review' in cfg:
                 for i, item in enumerate(rv):
                     if not isinstance(item, str):
                         errors.append(f'\"review.reviewers[{i}]\" must be a string (got {type(item).__name__}: {item!r}).')
+
+# ── Validate merge (optional object) ──
+if 'merge' in cfg:
+    merge = cfg['merge']
+    if not isinstance(merge, dict):
+        errors.append(f'\"merge\" must be an object (got {type(merge).__name__}).')
+    else:
+        KNOWN_MERGE_KEYS = {'mode'}
+        known_merge_list = ', '.join(sorted(KNOWN_MERGE_KEYS))
+        unknown_merge = set(merge.keys()) - KNOWN_MERGE_KEYS
+        if unknown_merge:
+            for k in sorted(unknown_merge):
+                errors.append(f'Unknown key \"merge.{k}\". Valid merge keys: {known_merge_list}')
+
+        if 'mode' in merge:
+            VALID_MERGE_MODES = {'local', 'pr'}
+            if merge['mode'] not in VALID_MERGE_MODES:
+                modes_list = ', '.join(sorted(VALID_MERGE_MODES))
+                errors.append(f'\"merge.mode\" must be one of: {modes_list} (got {merge[\"mode\"]!r}).')
 
 # ── Report ──
 if errors:
@@ -2183,6 +2202,7 @@ case "${1:-}" in
   task-reopen) shift; exec python3 "$SCRIPT_DIR/tusk-task-reopen.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   autoclose) shift; exec python3 "$SCRIPT_DIR/tusk-autoclose.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   loop) shift; exec python3 "$SCRIPT_DIR/tusk-loop.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  merge) shift; exec python3 "$SCRIPT_DIR/tusk-merge.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   progress) shift; exec python3 "$SCRIPT_DIR/tusk-progress.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   setup) shift; exec python3 "$SCRIPT_DIR/tusk-setup.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   token-audit) shift; exec python3 "$SCRIPT_DIR/tusk-token-audit.py" "$REPO_ROOT" "$@" ;;
@@ -2195,6 +2215,6 @@ case "${1:-}" in
   migrate) cmd_migrate ;;
   regen-triggers) cmd_regen_triggers ;;
   upgrade) cmd_upgrade ;;
-  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|commit|lint|dupes|deps|blockers|review|criteria|dag|dashboard|wsjf|conventions|setup|autoclose|token-audit|sync-skills|pricing-update|session-stats|session-recalc|session-close|skill-run|call-breakdown|task-start|task-done|task-insert|task-update|task-reopen|progress|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
+  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|commit|lint|dupes|deps|blockers|review|criteria|dag|dashboard|wsjf|conventions|setup|autoclose|token-audit|sync-skills|pricing-update|session-stats|session-recalc|session-close|skill-run|call-breakdown|task-start|task-done|task-insert|task-update|task-reopen|merge|progress|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac

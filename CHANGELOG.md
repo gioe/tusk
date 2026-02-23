@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [214] - 2026-02-23
+
+### Added
+- `tusk merge <task_id> --session <session_id>`: new command that finalizes a task in one call — closes the session (capturing diff stats), ff-only merges the feature branch into the default branch, pushes, deletes the branch, and calls `tusk task-done --reason completed --force`; `--pr --pr-number <N>` flag (or `merge.mode = pr` in config) uses `gh pr merge --squash --delete-branch` instead of local merge
+- `merge.mode` config key added to `config.default.json` (values: `local` | `pr`, default: `local`) with validation in `tusk validate`
+
 ## [213] - 2026-02-23
 
 ### Added
