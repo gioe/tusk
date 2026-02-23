@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [199] - 2026-02-23
+
+### Changed
+- `tusk task-done` step 2b now prints `Error:` when blocking (force=False) and `Warning:` when overriding (force=True), matching the established convention in step 2
+
 ## [198] - 2026-02-23
 
 ### Changed

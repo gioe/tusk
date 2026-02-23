@@ -116,8 +116,9 @@ def main(argv: list[str]) -> int:
             ).fetchall()
 
             if uncommitted_criteria:
+                label = "Warning" if force else "Error"
                 print(
-                    f"Warning: Task {task_id} has {len(uncommitted_criteria)} completed "
+                    f"{label}: Task {task_id} has {len(uncommitted_criteria)} completed "
                     f"criteria without a commit hash:",
                     file=sys.stderr,
                 )
