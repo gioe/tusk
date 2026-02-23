@@ -107,9 +107,12 @@ For each approved task action:
 
 2. If no duplicate, insert:
    ```bash
-   tusk "INSERT INTO tasks (summary, description, status, priority, domain, task_type, complexity, created_at, updated_at)
-     VALUES ($(tusk sql-quote '<summary>'), $(tusk sql-quote '<description>'), 'To Do', '<priority>', '<domain_or_NULL>', '<task_type>', '<complexity_or_NULL>', datetime('now'), datetime('now'))"
+   tusk task-insert "<summary>" "<description>" \
+     --priority "<priority>" --task-type "<task_type>" \
+     --domain "<domain>" --complexity "<complexity>" \
+     --criteria "<criterion>"
    ```
+   Omit `--domain` or `--assignee` if NULL/empty.
 
 ### Conventions
 
@@ -119,14 +122,16 @@ For each approved convention action, check existing conventions:
 tusk conventions
 ```
 
-Skip any convention already captured. For new conventions, append to `tusk/conventions.md`:
+Skip any convention already captured. For new conventions:
 
-```markdown
-
+```bash
+CONV_TEXT=$(cat << 'CONVEOF'
 ## <short title>
-_Source: chain <head_task_id> — <YYYY-MM-DD>_
 
 <one-to-two sentence description of the convention and when it applies>
+CONVEOF
+)
+tusk conventions add "$CONV_TEXT" --source chain
 ```
 
 ## RA-6: Retro Summary

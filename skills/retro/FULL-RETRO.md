@@ -23,17 +23,10 @@ Use the JSON already fetched via `tusk setup` in Step 0 of the retro skill: `con
 
 Organize into four categories:
 
-### Category A: Process Improvements
-Changes to skills, CLAUDE.md, or tooling that would have made the session smoother (misleading instructions, missing conventions, skill gaps).
-
-### Category B: Tangential Issues
-Problems discovered during the session that were out of scope but need tracking (unrelated test failures, tech debt, architectural concerns).
-
-### Category C: Follow-up Work
-Incomplete items, deferred decisions, or next steps (partial implementations, punted decisions, unhandled edge cases).
-
-### Category D: Conventions
-Generalizable project heuristics worth codifying — file coupling patterns (e.g., "X and Y always change together"), decomposition rules (e.g., "don't split mechanical consequences into separate tasks"), naming conventions, or workflow patterns that recur across sessions. These are written to `tusk/conventions.md`, not filed as tasks.
+- **A**: Process improvements — skill/CLAUDE.md/tooling friction, confusing instructions, missing conventions
+- **B**: Tangential issues — out-of-scope bugs, tech debt, architectural concerns
+- **C**: Follow-up work — incomplete items, deferred decisions, edge cases
+- **D**: Conventions — generalizable heuristics (file coupling, decomposition rules, naming). Written to DB via `tusk conventions add`, not filed as tasks.
 
 If a category has no findings, note that explicitly — an empty category is a positive signal.
 
