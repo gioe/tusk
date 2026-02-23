@@ -95,26 +95,23 @@ After addressing feedback, re-run `/review-pr` and re-poll for human approval un
 
 ## Step 14: PR approved — finalize, merge, and retro
 
-Execute steps 14-16 as a single uninterrupted sequence — do NOT pause for user confirmation between them.
+Execute steps 14-15 as a single uninterrupted sequence — do NOT pause for user confirmation between them.
 
-Finalize the task in four steps:
+Finalize the task in three steps:
 
 ```bash
-# 1. Set github_pr on the task
-tusk task-update <id> --github-pr "$PR_URL"
-
-# 2. Close the session (captures diff stats before the branch is deleted)
+# 1. Close the session (captures diff stats before the branch is deleted)
 tusk session-close $SESSION_ID
 
-# 3. Merge the PR
+# 2. Merge the PR
 gh pr merge $PR_NUMBER --squash --delete-branch
 
-# 4. Mark task Done
+# 3. Mark task Done
 tusk task-done <id> --reason completed --force
 ```
 
 `tusk task-done` returns JSON including an `unblocked_tasks` array. If there are newly unblocked tasks, note them in the retro.
 
-## Step 16: Run retrospective
+## Step 15: Run retrospective
 
 Mandatory — run immediately without asking. Invoke `/retro` to review the session, surface process improvements, and create any follow-up tasks. Do NOT ask "shall I run retro?" — just run it.
