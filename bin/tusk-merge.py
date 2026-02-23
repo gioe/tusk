@@ -2,12 +2,17 @@
 """Finalize a task: close session, merge branch, push, clean up, and close task.
 
 Called by the tusk wrapper:
-    tusk merge <task_id> --session <session_id> [--pr] [--pr-number N]
+    tusk merge <task_id> [--session <session_id>] [--pr] [--pr-number N]
 
 Arguments received from tusk:
     sys.argv[1] — DB path
     sys.argv[2] — config path
-    sys.argv[3:] — task_id --session <session_id> [--pr] [--pr-number N]
+    sys.argv[3:] — task_id [--session <session_id>] [--pr] [--pr-number N]
+
+If --session is omitted, the open session for the task is auto-detected:
+  - Exactly one open session → use it
+  - No open sessions → error with helpful message
+  - Multiple open sessions → error listing all of them
 
 Default behavior (merge.mode = local):
   1. tusk session-close <session_id> (captures diff stats before branch change)
@@ -26,6 +31,7 @@ Default behavior (merge.mode = local):
 
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 
@@ -89,7 +95,7 @@ def find_task_branch(task_id: int) -> tuple[str | None, str | None]:
 def main(argv: list[str]) -> int:
     if len(argv) < 3:
         print(
-            "Usage: tusk merge <task_id> --session <session_id> [--pr] [--pr-number N]",
+            "Usage: tusk merge <task_id> [--session <session_id>] [--pr] [--pr-number N]",
             file=sys.stderr,
         )
         return 1
@@ -141,8 +147,36 @@ def main(argv: list[str]) -> int:
             return 1
 
     if session_id is None:
-        print("Error: --session <session_id> is required", file=sys.stderr)
-        return 1
+        # Auto-detect the open session for this task
+        try:
+            conn = sqlite3.connect(_db_path)
+            rows = conn.execute(
+                "SELECT id, started_at FROM task_sessions WHERE task_id = ? AND ended_at IS NULL ORDER BY id",
+                (task_id,),
+            ).fetchall()
+            conn.close()
+        except sqlite3.Error as e:
+            print(f"Error: Could not query sessions: {e}", file=sys.stderr)
+            return 1
+
+        if len(rows) == 0:
+            print(
+                f"Error: No open session found for task {task_id}. "
+                "Start a session with `tusk task-start` or pass --session <id> explicitly.",
+                file=sys.stderr,
+            )
+            return 1
+        if len(rows) > 1:
+            lines = "\n".join(f"  session {r[0]}  (started {r[1]})" for r in rows)
+            print(
+                f"Error: Multiple open sessions found for task {task_id}:\n{lines}\n"
+                "Close all but one, or pass --session <id> explicitly.",
+                file=sys.stderr,
+            )
+            return 1
+
+        session_id = rows[0][0]
+        print(f"Auto-detected session {session_id} for task {task_id}.", file=sys.stderr)
 
     # Resolve merge mode (config can force PR mode)
     merge_mode = load_merge_mode(config_path)

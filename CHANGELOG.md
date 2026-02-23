@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [215] - 2026-02-23
+
+### Changed
+- `tusk merge`: `--session` is now optional; when omitted, the single open session for the task is auto-detected (errors clearly if none or multiple open sessions exist)
+
 ## [214] - 2026-02-23
 
 ### Added
