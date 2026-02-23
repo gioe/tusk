@@ -143,23 +143,19 @@ Then insert approved dependencies with `tusk deps add <task_id> <depends_on_id> 
 
 Check the `conventions` string from Step 0 (passed through Step 2) to avoid duplicates.
 
-Skip any convention whose meaning is already captured (even if worded differently). For each new convention, look up the current session ID:
+Skip any convention whose meaning is already captured (even if worded differently). For each new convention, insert it into the DB:
 
 ```bash
-tusk "SELECT id FROM task_sessions WHERE task_id = (SELECT id FROM tasks WHERE status = 'Done' ORDER BY updated_at DESC LIMIT 1) ORDER BY id DESC LIMIT 1"
-```
-
-Append each new convention to `tusk/conventions.md` using this format:
-
-```markdown
-
+CONV_TEXT=$(cat << 'CONVEOF'
 ## <short title>
-_Source: session <session_id> — <YYYY-MM-DD>_
 
 <one-to-two sentence description of the convention and when it applies>
+CONVEOF
+)
+tusk conventions add "$CONV_TEXT" --source retro
 ```
 
-Do not reorder or delete existing entries — always append at the end of the file.
+The DB records `created_at` automatically. Do not append to `tusk/conventions.md` — the DB is now the source of truth.
 
 ## Step 6: Report Results
 

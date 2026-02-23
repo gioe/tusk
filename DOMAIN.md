@@ -243,6 +243,21 @@ Pre-computed per-tool-call cost aggregates, grouped by session, skill run, or cr
 
 ---
 
+### Convention
+
+A generalizable project heuristic written by `/retro` after each session. Replaces the append-only `tusk/conventions.md` file with a queryable, linkable DB table. Consumed by `tusk conventions` (print) and `tusk setup` (context for skills). Written by `tusk conventions add`.
+
+| Attribute | Type | Constraints | Description |
+|-----------|------|-------------|-------------|
+| `id` | INTEGER | PK, autoincrement | |
+| `text` | TEXT | NOT NULL | Convention body, optionally starting with `## <title>` heading |
+| `source_skill` | TEXT | nullable | Skill that wrote this convention (e.g. `retro`) |
+| `lint_rule` | TEXT | nullable | Associated lint rule identifier, if any |
+| `violation_count` | INTEGER | NOT NULL, default 0 | Number of times this convention has been violated (for future lint integration) |
+| `created_at` | TEXT | default now | When the convention was written |
+
+---
+
 ## Status Transitions
 
 Task `status` follows a one-way lifecycle. The `validate_status_transition` trigger (in `bin/tusk`, recreated by `tusk regen-triggers`) enforces this graph:

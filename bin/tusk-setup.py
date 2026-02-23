@@ -51,13 +51,39 @@ def main(argv: list[str]) -> int:
         print(f"Error: Database query failed: {e}", file=sys.stderr)
         return 2
 
-    # Read conventions
-    conventions_path = os.path.join(os.path.dirname(db_path), "conventions.md")
+    # Read conventions from DB (fall back to file for installs without the conventions table)
+    conventions = ""
     try:
-        with open(conventions_path) as f:
-            conventions = f.read()
-    except FileNotFoundError:
-        conventions = ""
+        conn2 = sqlite3.connect(db_path)
+        conn2.row_factory = sqlite3.Row
+        try:
+            rows2 = conn2.execute(
+                "SELECT text, source_skill, created_at FROM conventions ORDER BY id"
+            ).fetchall()
+            blocks = []
+            for row in rows2:
+                text = row["text"] or ""
+                source = row["source_skill"] or "unknown"
+                date = (row["created_at"] or "")[:10]
+                lines = text.split("\n")
+                if lines and lines[0].startswith("## "):
+                    formatted = lines[0] + "\n_Source: " + source + " — " + date + "_\n" + "\n".join(lines[1:])
+                else:
+                    formatted = "_Source: " + source + " — " + date + "_\n\n" + text
+                blocks.append(formatted)
+            conventions = "\n\n".join(blocks)
+        except sqlite3.OperationalError:
+            # conventions table doesn't exist (old install) — fall back to file
+            conventions_path = os.path.join(os.path.dirname(db_path), "conventions.md")
+            try:
+                with open(conventions_path) as f:
+                    conventions = f.read()
+            except FileNotFoundError:
+                conventions = ""
+        finally:
+            conn2.close()
+    except sqlite3.Error as e:
+        print(f"Warning: could not read conventions: {e}", file=sys.stderr)
 
     result = {
         "config": config,

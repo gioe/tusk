@@ -6,6 +6,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [211] - 2026-02-23
+
+### Added
+- `conventions` DB table (id, text, source_skill, lint_rule, violation_count, created_at) — replaces append-only `tusk/conventions.md` as source of truth; schema migration 28→29 imports existing file entries
+- `tusk conventions add "<text>" [--source <skill>]` — inserts a new convention row into the DB
+- `tusk conventions` (no args) — now reads from DB instead of printing the flat file; reconstructs markdown format per row
+
+### Changed
+- `tusk-setup.py`: `conventions` field in `tusk setup` JSON now sourced from DB conventions table (falls back to `conventions.md` for installs without the table)
+- `/retro` skill (SKILL.md and FULL-RETRO.md): convention writing now uses `tusk conventions add` instead of appending to `tusk/conventions.md`
+
 ## [210] - 2026-02-23
 
 ### Fixed
