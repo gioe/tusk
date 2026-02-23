@@ -18,12 +18,4 @@ tusk lint
 
 The command exits with status 0 if no violations are found, or status 1 if there are violations.
 
-## Interpreting Results
-
-The output groups findings by rule. Each rule shows either `PASS` or `WARN` with specific `file:line` locations:
-
-- **PASS** — No violations for that rule.
-- **WARN** — One or more violations detected. Review each listed file and line.
-
-If violations are found, fix them before proceeding with your PR or release.
 

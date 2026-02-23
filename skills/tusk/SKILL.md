@@ -167,9 +167,3 @@ Run `tusk config` to see all valid values for this project. Using non-canonical 
 
 Always set `closed_reason` when marking a task Done.
 
-## Important Guidelines
-
-- Write tests for all tasks unless the task is untestable
-- Ask clarifying questions if task requirements are ambiguous
-- Make sure work is delegated to the correct subagent based on the assignee field
-- Mark complete only when fully implemented and tested

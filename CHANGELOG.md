@@ -6,6 +6,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [220] - 2026-02-23
+
+### Changed
+- `/check-dupes` skill: removed "Callers" integration-points paragraph (prose-only, no functional impact)
+- `/lint-conventions` skill: removed "Interpreting Results" section (self-evident from command output)
+- `/tusk` skill: removed "Important Guidelines" boilerplate section
+
 ## [219] - 2026-02-23
 
 ### Changed
