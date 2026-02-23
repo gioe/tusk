@@ -10,7 +10,7 @@ Fast, deterministic pre-filter for textual near-matches. Uses character-level (S
 
 **Limitation:** This heuristic catches near-identical wording but misses semantic duplicates (e.g., "Implement password reset flow" vs. "Add forgot password endpoint"). Skills that insert tasks (`/create-task`, `/retro`) should also review the existing backlog for semantic overlap during their analysis phase — the heuristic is a supplement, not a replacement, for LLM-based semantic review.
 
-**Callers:** `/tusk` runs `check` before creating deferred tasks from PR reviews; `/create-task` and `/retro` run `check` before each insert; `/groom-backlog` runs `scan` during its duplicate sweep.
+**Callers:** `/retro` runs `check` explicitly before each insert; `/create-task` and `/review-pr` rely on `tusk task-insert` which runs the check internally; `/groom-backlog` runs `scan` during its duplicate sweep.
 
 ## Usage
 
