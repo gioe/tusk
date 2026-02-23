@@ -2,7 +2,7 @@
 """Lint, stage, and commit in one atomic operation.
 
 Called by the tusk wrapper:
-    tusk commit <task_id> "<message>" <file1> [file2 ...] [--criteria <id> ...] [--skip-verify]
+    tusk commit <task_id> "<message>" <file1> [file2 ...] [--criteria <id1> [<id2> ...]] [--skip-verify]
 
 Arguments received from tusk:
     sys.argv[1] — repo root
@@ -12,7 +12,7 @@ Steps:
     1. Run tusk lint (advisory — output is printed but never blocks)
     2. git add the specified files
     3. git commit with [TASK-<id>] <message> format and Co-Authored-By trailer
-    4. For each --criteria <id>, call tusk criteria done <id> (captures HEAD automatically)
+    4. For each criterion ID passed via --criteria, call tusk criteria done <id> (captures HEAD automatically)
 """
 
 import subprocess
@@ -29,7 +29,7 @@ def run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
 def main(argv: list[str]) -> int:
     if len(argv) < 3:
         print(
-            "Usage: tusk commit <task_id> \"<message>\" <file1> [file2 ...] [--criteria <id> ...] [--skip-verify]",
+            "Usage: tusk commit <task_id> \"<message>\" <file1> [file2 ...] [--criteria <id1> [<id2> ...]] [--skip-verify]",
             file=sys.stderr,
         )
         return 1
@@ -44,11 +44,15 @@ def main(argv: list[str]) -> int:
     i = 0
     while i < len(remaining):
         if remaining[i] == "--criteria":
-            if i + 1 >= len(remaining):
-                print("Error: --criteria requires an argument", file=sys.stderr)
+            i += 1
+            collected = 0
+            while i < len(remaining) and not remaining[i].startswith("--"):
+                criteria_ids.append(remaining[i])
+                i += 1
+                collected += 1
+            if collected == 0:
+                print("Error: --criteria requires at least one argument", file=sys.stderr)
                 return 1
-            criteria_ids.append(remaining[i + 1])
-            i += 2
         elif remaining[i] == "--skip-verify":
             skip_verify = True
             i += 1
@@ -58,7 +62,7 @@ def main(argv: list[str]) -> int:
 
     if len(positional) < 3:
         print(
-            "Usage: tusk commit <task_id> \"<message>\" <file1> [file2 ...] [--criteria <id> ...] [--skip-verify]",
+            "Usage: tusk commit <task_id> \"<message>\" <file1> [file2 ...] [--criteria <id1> [<id2> ...]] [--skip-verify]",
             file=sys.stderr,
         )
         return 1

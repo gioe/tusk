@@ -102,9 +102,9 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     1. Implement the changes that satisfy it
     2. Commit and mark the criterion done atomically using `tusk commit --criteria`:
        ```bash
-       tusk commit <id> "<message>" <file1> [file2 ...] --criteria <cid>
+       tusk commit <id> "<message>" <file1> [file2 ...] --criteria <cid1> [<cid2> ...]
        ```
-       This runs `tusk lint` (advisory — never blocks), stages the listed files, commits with the `[TASK-<id>] <message>` format and Co-Authored-By trailer, and marks the criterion done — all in one call. The criterion is bound to the new commit hash automatically.
+       This runs `tusk lint` (advisory — never blocks), stages the listed files, commits with the `[TASK-<id>] <message>` format and Co-Authored-By trailer, and marks each criterion done — all in one call. Each criterion is bound to the new commit hash automatically. Multiple criterion IDs can be passed space-separated after a single `--criteria` flag.
     3. Log a progress checkpoint:
       ```bash
       tusk progress <id> --next-steps "<what remains to be done>"

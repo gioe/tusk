@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [219] - 2026-02-23
+
+### Changed
+- `tusk commit --criteria` now accepts multiple space-separated IDs per flag (`--criteria 1042 1043 1044`); single-ID usage unchanged
+
 ## [218] - 2026-02-23
 
 ### Added
