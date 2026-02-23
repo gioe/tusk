@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [196] - 2026-02-23
+
+### Added
+- `v_velocity` view: completed tasks grouped by ISO week with task_count, avg_cost, avg_tokens_in, avg_tokens_out (schema migration 24)
+
 ## [195] - 2026-02-23
 
 ### Removed

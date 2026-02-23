@@ -574,6 +574,19 @@ SELECT t.id AS task_id,
 FROM tasks t
 LEFT JOIN acceptance_criteria ac ON ac.task_id = t.id
 GROUP BY t.id, t.summary;
+
+-- v_velocity view: completed tasks grouped by ISO week with throughput and cost metrics
+CREATE VIEW v_velocity AS
+SELECT
+    strftime('%Y-W%W', updated_at) AS week,
+    COUNT(id) AS task_count,
+    AVG(total_cost) AS avg_cost,
+    AVG(total_tokens_in) AS avg_tokens_in,
+    AVG(total_tokens_out) AS avg_tokens_out
+FROM task_metrics
+WHERE status = 'Done' AND closed_reason = 'completed'
+GROUP BY strftime('%Y-W%W', updated_at)
+ORDER BY week;
 SCHEMA
 
   # Enable WAL for concurrent read/write support
@@ -717,7 +730,7 @@ TCS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 23;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 24;"
 
   echo "Initialized task database at $DB_PATH"
 }
@@ -1461,6 +1474,25 @@ cmd_migrate() {
       PRAGMA user_version = 23;
     "
     echo "  Migration 23: added tokens_in column to tool_call_stats"
+  fi
+
+  # Migration 23→24: add v_velocity view for task throughput and cost-per-task metrics by ISO week
+  if [[ "$current" -lt 24 ]]; then
+    sqlite3 "$DB_PATH" "
+      CREATE VIEW IF NOT EXISTS v_velocity AS
+      SELECT
+          strftime('%Y-W%W', updated_at) AS week,
+          COUNT(id) AS task_count,
+          AVG(total_cost) AS avg_cost,
+          AVG(total_tokens_in) AS avg_tokens_in,
+          AVG(total_tokens_out) AS avg_tokens_out
+      FROM task_metrics
+      WHERE status = 'Done' AND closed_reason = 'completed'
+      GROUP BY strftime('%Y-W%W', updated_at)
+      ORDER BY week;
+      PRAGMA user_version = 24;
+    "
+    echo "  Migration 24: added v_velocity view for throughput and cost-per-task metrics"
   fi
 
   local final
