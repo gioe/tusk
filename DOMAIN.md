@@ -347,7 +347,7 @@ Task A **contingently blocks** Task B means: B can theoretically proceed, but it
 | `v_chain_heads` | Non-Done tasks with unfinished downstream dependents and no unmet upstream deps | `/chain` |
 | `v_blocked_tasks` | Non-Done tasks blocked by dependency or external blocker, with `block_reason` and `blocking_summary` | `/tusk blocked`, `tusk deps blocked` |
 | `v_criteria_coverage` | Per-task counts of total, completed, and remaining criteria (deferred excluded) | Reporting, `/tusk-insights` |
-| `v_velocity` | Completed tasks (closed_reason=completed) grouped by ISO week with task_count, avg_cost, avg_tokens_in, avg_tokens_out | `/tusk-insights`, dashboard velocity card |
+| `v_velocity` | Completed tasks (closed_reason=completed) grouped by calendar week (Mon-start, `%Y-W%W`) with task_count, avg_cost, avg_tokens_in, avg_tokens_out | `/tusk-insights`, dashboard velocity card |
 
 ---
 
