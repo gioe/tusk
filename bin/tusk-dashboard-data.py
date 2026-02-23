@@ -234,7 +234,8 @@ def fetch_tool_call_stats_per_task(conn: sqlite3.Connection) -> list[dict]:
                       tcs.tool_name,
                       SUM(tcs.call_count) as call_count,
                       SUM(tcs.total_cost) as total_cost,
-                      MAX(tcs.max_cost) as max_cost
+                      MAX(tcs.max_cost) as max_cost,
+                      SUM(tcs.tokens_in) as tokens_in
                FROM tool_call_stats tcs
                LEFT JOIN tasks t ON tcs.task_id = t.id
                WHERE tcs.task_id IS NOT NULL
@@ -259,7 +260,7 @@ def fetch_tool_call_stats_per_skill_run(conn: sqlite3.Connection) -> list[dict]:
     log.debug("Querying tool_call_stats for per-skill-run aggregates")
     try:
         rows = conn.execute(
-            """SELECT skill_run_id, tool_name, call_count, total_cost, max_cost
+            """SELECT skill_run_id, tool_name, call_count, total_cost, max_cost, tokens_in
                FROM tool_call_stats
                WHERE skill_run_id IS NOT NULL
                ORDER BY skill_run_id, total_cost DESC"""
@@ -280,7 +281,7 @@ def fetch_tool_call_stats_per_criterion(conn: sqlite3.Connection) -> list[dict]:
     log.debug("Querying tool_call_stats for per-criterion aggregates")
     try:
         rows = conn.execute(
-            """SELECT criterion_id, tool_name, call_count, total_cost, max_cost
+            """SELECT criterion_id, tool_name, call_count, total_cost, max_cost, tokens_in
                FROM tool_call_stats
                WHERE criterion_id IS NOT NULL
                ORDER BY criterion_id, total_cost DESC"""
@@ -305,7 +306,8 @@ def fetch_tool_call_stats_global(conn: sqlite3.Connection) -> list[dict]:
         rows = conn.execute(
             """SELECT tool_name,
                       SUM(call_count) as total_calls,
-                      SUM(total_cost) as total_cost
+                      SUM(total_cost) as total_cost,
+                      SUM(tokens_in) as tokens_in
                FROM tool_call_stats
                WHERE session_id IS NOT NULL
                GROUP BY tool_name
