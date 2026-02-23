@@ -129,6 +129,7 @@ A bounded work session on a task, tracking cost and metrics. A task can have mul
 | `lines_added` | INTEGER | nullable | Git diff lines added |
 | `lines_removed` | INTEGER | nullable | Git diff lines removed |
 | `model` | TEXT | nullable | Claude model ID used |
+| `agent_name` | TEXT | nullable | Named agent that ran the session (e.g. set by /chain when spawning parallel agents) |
 
 ---
 
@@ -165,6 +166,7 @@ One reviewer's assessment of a task's PR, for one pass of the fix-and-re-review 
 | `cost_dollars` | REAL | nullable | AI cost of this review pass |
 | `tokens_in` | INTEGER | nullable | |
 | `tokens_out` | INTEGER | nullable | |
+| `agent_name` | TEXT | nullable | Named agent that ran the review (e.g. set by /chain when spawning parallel reviewers) |
 | `created_at` | TEXT | default now | |
 | `updated_at` | TEXT | default now | |
 
