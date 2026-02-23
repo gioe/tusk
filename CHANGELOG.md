@@ -6,6 +6,15 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [210] - 2026-02-23
+
+### Fixed
+- `tusk task-update --no-deferred`: now also clears `expires_at` so autoclose no longer expires a task after it has been un-deferred
+- `tusk task-update`: passing both `--deferred` and `--no-deferred` now errors with "mutually exclusive" instead of silently applying the last flag
+
+### Changed
+- `tusk task-update`: tightened `updates` type annotation from bare `dict` to `dict[str, Any]`
+
 ## [209] - 2026-02-23
 
 ### Added

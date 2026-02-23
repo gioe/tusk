@@ -34,6 +34,7 @@ import sqlite3
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 
 def get_connection(db_path: str) -> sqlite3.Connection:
@@ -79,7 +80,7 @@ def main(argv: list[str]) -> int:
 
     # Parse flags
     remaining = argv[3:]
-    updates: dict = {}
+    updates: dict[str, Any] = {}
     deferred = None  # None = not specified, True = --deferred, False = --no-deferred
 
     flag_map = {
@@ -113,6 +114,10 @@ def main(argv: list[str]) -> int:
 
     if not updates and deferred is None:
         print("Error: At least one field flag is required", file=sys.stderr)
+        return 2
+
+    if "--deferred" in remaining and "--no-deferred" in remaining:
+        print("Error: --deferred and --no-deferred are mutually exclusive", file=sys.stderr)
         return 2
 
     # Validate enum fields against config
@@ -176,6 +181,8 @@ def main(argv: list[str]) -> int:
             elif current_summary.startswith("[Deferred]"):
                 updates["summary"] = current_summary[len("[Deferred]"):]
             updates["is_deferred"] = 0
+            if "expires_at" not in updates:
+                updates["expires_at"] = None
 
         # Build dynamic SET clause
         set_parts = []
