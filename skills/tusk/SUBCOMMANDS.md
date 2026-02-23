@@ -17,7 +17,7 @@ This closes open sessions, sets status to Done, and returns JSON including an `u
 When called with `view <id>`:
 
 ```bash
-tusk -header -column "SELECT id, summary, description, status, priority, domain, assignee, task_type, complexity, priority_score, github_pr, expires_at, closed_reason, created_at, updated_at FROM tasks WHERE id = <id>"
+tusk -header -column "SELECT id, summary, description, status, priority, domain, assignee, task_type, complexity, priority_score, expires_at, closed_reason, created_at, updated_at FROM tasks WHERE id = <id>"
 ```
 
 ## List Top N Ready Tasks
@@ -72,7 +72,7 @@ ORDER BY t.id
 When called with `wip` or `in-progress`:
 
 ```bash
-tusk -header -column "SELECT id, summary, priority, domain, assignee, github_pr FROM tasks WHERE status = 'In Progress'"
+tusk -header -column "SELECT id, summary, priority, domain, assignee FROM tasks WHERE status = 'In Progress'"
 ```
 
 ## Preview Next Task (without starting)

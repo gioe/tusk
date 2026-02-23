@@ -21,7 +21,6 @@ The core unit of work. Every piece of planned work is a task.
 | `assignee` | TEXT | validated if config non-empty | Agent or person responsible |
 | `task_type` | TEXT | validated if config non-empty | Category (bug, feature, refactor, test, docs, infrastructure) |
 | `priority_score` | INTEGER | default 0 | WSJF score; recomputed by `tusk wsjf` |
-| `github_pr` | TEXT | nullable | URL of the associated pull request |
 | `expires_at` | TEXT | nullable | ISO datetime; task auto-closed when past this date |
 | `closed_reason` | TEXT | validated; required when status=Done | Why the task was closed |
 | `complexity` | TEXT | validated if config non-empty | T-shirt size estimate (XS, S, M, L, XL) |

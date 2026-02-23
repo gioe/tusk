@@ -17,7 +17,6 @@ Flags:
     --task-type <t>       Update task_type
     --assignee <a>        Update assignee
     --complexity <c>      Update complexity
-    --github-pr <url>     Update github_pr
 
 Only specified fields are updated; unspecified fields are left unchanged.
 Always sets updated_at = datetime('now').
@@ -61,7 +60,7 @@ def main(argv: list[str]) -> int:
         print(
             "Usage: tusk task-update <task_id> [--priority P] [--domain D] "
             "[--task-type T] [--assignee A] [--complexity C] "
-            "[--summary S] [--description D] [--github-pr URL]",
+            "[--summary S] [--description D]",
             file=sys.stderr,
         )
         return 2
@@ -87,7 +86,6 @@ def main(argv: list[str]) -> int:
         "--task-type": "task_type",
         "--assignee": "assignee",
         "--complexity": "complexity",
-        "--github-pr": "github_pr",
     }
 
     i = 0

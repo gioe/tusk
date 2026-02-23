@@ -6,6 +6,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [200] - 2026-02-23
+
+### Removed
+- `github_pr` column dropped from `tasks` table (schema migration 24→25)
+- Removed `--github-pr` flag from `tusk task-update`
+- Removed merged-PR auto-close check from `tusk autoclose` (no longer has a column to query)
+- Removed `github_pr` references from `tusk-dashboard-data.py`, `tusk-dashboard.py`, `skills/chain/SKILL.md`, `skills/tusk/SUBCOMMANDS.md`, and `skills/review-pr/SKILL.md`
+
 ## [199] - 2026-02-23
 
 ### Changed

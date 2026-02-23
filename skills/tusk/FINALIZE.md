@@ -1,6 +1,6 @@
 # Tusk: Finalize, PR & Merge
 
-Steps 11-16 of the tusk workflow. Read this after implementation is complete and all acceptance criteria are verified.
+Steps 11-14 of the tusk workflow. Read this after implementation is complete and all acceptance criteria are verified.
 
 ## Step 11: Push the branch and create a PR
 
@@ -11,13 +11,7 @@ gh pr create --base "$DEFAULT_BRANCH" --title "[TASK-<id>] Brief task descriptio
 
 Capture the PR URL from the output.
 
-## Step 12: Update the task with the PR URL
-
-```bash
-tusk task-update <id> --github-pr "<pr_url>"
-```
-
-## Step 13: Review dispatch — mode-aware pre-merge review
+## Step 12: Review dispatch — mode-aware pre-merge review
 
 Check the review mode from config:
 
@@ -31,7 +25,7 @@ This returns the `review` object (or `null`/empty if the key is missing). Extrac
 
 ### mode = disabled (or review key missing from config)
 
-Skip AI review entirely. Proceed directly to Step 14.
+Skip AI review entirely. Proceed directly to Step 13.
 
 ### mode = ai_only
 
@@ -47,7 +41,7 @@ The `/review-pr` skill handles:
 - Handling `suggest` and `defer` findings
 - Printing a final verdict (APPROVED / CHANGES REMAINING)
 
-After `/review-pr` completes with verdict **APPROVED**, proceed directly to Step 14. If verdict is **CHANGES REMAINING**, surface the unresolved items to the user and stop — do not merge.
+After `/review-pr` completes with verdict **APPROVED**, proceed directly to Step 13. If verdict is **CHANGES REMAINING**, surface the unresolved items to the user and stop — do not merge.
 
 ### mode = ai_then_human
 
@@ -64,7 +58,7 @@ Repeat every 60 seconds until `reviewDecision` is `"APPROVED"`. While waiting, p
 > Waiting for human GitHub review approval... (checking every 60s)
 > Current status: <reviewDecision>
 
-Once human review shows `APPROVED`, proceed to Step 14.
+Once human review shows `APPROVED`, proceed to Step 13.
 
 If a human reviewer requests changes, address the feedback:
 
@@ -93,9 +87,9 @@ For each Category B comment, create a deferred task (includes built-in duplicate
 
 After addressing feedback, re-run `/review-pr` and re-poll for human approval until `reviewDecision` is `"APPROVED"`.
 
-## Step 14: PR approved — finalize, merge, and retro
+## Step 13: PR approved — finalize, merge, and retro
 
-Execute steps 14-15 as a single uninterrupted sequence — do NOT pause for user confirmation between them.
+Execute steps 13-14 as a single uninterrupted sequence — do NOT pause for user confirmation between them.
 
 Finalize the task in three steps:
 
@@ -112,6 +106,6 @@ tusk task-done <id> --reason completed --force
 
 `tusk task-done` returns JSON including an `unblocked_tasks` array. If there are newly unblocked tasks, note them in the retro.
 
-## Step 15: Run retrospective
+## Step 14: Run retrospective
 
 Mandatory — run immediately without asking. Invoke `/retro` to review the session, surface process improvements, and create any follow-up tasks. Do NOT ask "shall I run retro?" — just run it.

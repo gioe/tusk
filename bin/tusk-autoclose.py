@@ -9,10 +9,9 @@ Arguments received from tusk:
     sys.argv[2] — config path
     sys.argv[3:] — (unused, reserved for future flags)
 
-Runs all three pre-checks in one call:
+Runs two pre-checks in one call:
   1. Expired deferred tasks → closed_reason = 'expired'
-  2. To Do / In Progress tasks with merged PRs → closed_reason = 'completed'
-  3. Moot contingent tasks → closed_reason = 'wont_do'
+  2. Moot contingent tasks → closed_reason = 'wont_do'
 
 For each closure, appends an annotation to the description and closes open sessions.
 Prints a JSON summary with counts per category and closed task IDs.
@@ -20,7 +19,6 @@ Prints a JSON summary with counts per category and closed task IDs.
 
 import json
 import sqlite3
-import subprocess
 import sys
 
 
@@ -81,49 +79,6 @@ def autoclose_expired_deferred(conn: sqlite3.Connection) -> list[int]:
     return closed_ids
 
 
-def check_pr_merged(pr_url: str) -> str | None:
-    """Check PR merge status via gh CLI. Returns 'MERGED', 'CLOSED', 'OPEN', or None on error."""
-    try:
-        result = subprocess.run(
-            ["gh", "pr", "view", pr_url, "--json", "state", "--jq", ".state"],
-            capture_output=True, text=True, timeout=15,
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
-    return None
-
-
-def autoclose_merged_prs(conn: sqlite3.Connection) -> dict:
-    """Close To Do / In Progress tasks whose PRs are merged. Returns dict with closed IDs and flagged IDs."""
-    rows = conn.execute(
-        "SELECT id, summary, github_pr FROM tasks "
-        "WHERE status IN ('To Do', 'In Progress') "
-        "  AND github_pr IS NOT NULL "
-        "  AND github_pr <> ''"
-    ).fetchall()
-
-    closed_ids = []
-    flagged = []  # PRs closed without merge — for user review
-
-    for row in rows:
-        task_id = row["id"]
-        pr_url = row["github_pr"]
-        state = check_pr_merged(pr_url)
-
-        if state == "MERGED":
-            close_task(
-                conn, task_id, "completed",
-                "Auto-closed: PR was already merged.",
-            )
-            close_sessions(conn, task_id)
-            closed_ids.append(task_id)
-        elif state == "CLOSED":
-            flagged.append({"id": task_id, "summary": row["summary"], "pr": pr_url, "note": "PR closed without merge"})
-
-    return {"closed": closed_ids, "flagged": flagged}
-
 
 def autoclose_moot_contingent(conn: sqlite3.Connection) -> list[dict]:
     """Close tasks contingent on upstream tasks that closed as wont_do/expired.
@@ -168,10 +123,7 @@ def main(argv: list[str]) -> int:
         # 1. Expired deferred
         expired_ids = autoclose_expired_deferred(conn)
 
-        # 2. Merged PRs
-        pr_result = autoclose_merged_prs(conn)
-
-        # 3. Moot contingent
+        # 2. Moot contingent
         moot_closed = autoclose_moot_contingent(conn)
 
         conn.commit()
@@ -179,13 +131,9 @@ def main(argv: list[str]) -> int:
         # Build summary
         summary = {
             "expired_deferred": {"count": len(expired_ids), "task_ids": expired_ids},
-            "merged_prs": {"count": len(pr_result["closed"]), "task_ids": pr_result["closed"]},
             "moot_contingent": {"count": len(moot_closed), "task_ids": [c["id"] for c in moot_closed]},
-            "total_closed": len(expired_ids) + len(pr_result["closed"]) + len(moot_closed),
+            "total_closed": len(expired_ids) + len(moot_closed),
         }
-
-        if pr_result["flagged"]:
-            summary["flagged_for_review"] = pr_result["flagged"]
 
         if moot_closed:
             summary["moot_details"] = moot_closed

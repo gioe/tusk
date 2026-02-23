@@ -172,17 +172,12 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
         tid = t['id']
         cl = all_criteria.get(tid, [])
         if cl:
-            pr_url = t.get("github_pr") or ""
-            repo_url = ""
-            if pr_url and "/pull/" in pr_url:
-                repo_url = pr_url.split("/pull/")[0]
             enriched = []
             for c in cl:
                 ec = dict(c)
                 ec["tool_stats"] = tool_stats_by_criterion.get(c["id"], [])
                 enriched.append(ec)
             criteria_json[tid] = {
-                "repo_url": repo_url,
                 "criteria": enriched,
             }
     _criteria_json_str = json.dumps(criteria_json).replace("</", "<\\/")
