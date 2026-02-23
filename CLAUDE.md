@@ -479,6 +479,8 @@ Commit the bump in the same branch as the feature — not as a separate PR. The 
 
 When bumping `VERSION`, also update `CHANGELOG.md` in the same commit. Add an entry under a new `## [<version>] - <YYYY-MM-DD>` heading describing what changed. Use the [Keep a Changelog](https://keepachangelog.com/) categories (`Added`, `Changed`, `Fixed`, `Removed`) and keep descriptions to one line each.
 
+**One VERSION bump per PR.** A PR should increment VERSION exactly once and have exactly one CHANGELOG entry. If iterative development within a branch creates multiple intermediate bumps, consolidate them to a single final version number before merging — the changelog history should reflect one entry per PR, not one entry per commit.
+
 ## Key Conventions
 
 - All DB access goes through `bin/tusk`, never raw `sqlite3`
