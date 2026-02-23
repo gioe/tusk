@@ -69,30 +69,36 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
    ```
    The `--force` flag ensures the workflow proceeds even if the task has no acceptance criteria (emits a warning rather than hard-failing). This returns a JSON blob with four keys:
    - `task` — full task row (summary, description, priority, domain, assignee, etc.)
-   - `progress` — array of prior progress checkpoints (most recent first). If non-empty, the first entry's `next_steps` tells you exactly where to pick up. Skip steps you've already completed (some commits may already be made). Use `git log --oneline` to see what's already been done.
+   - `progress` — array of prior progress checkpoints (most recent first). If non-empty, the first entry's `next_steps` tells you exactly where to pick up. Skip steps you've already completed (branch may already exist, some commits may already be made). Use `git log --oneline` on the existing branch to see what's already been done.
    - `criteria` — array of acceptance criteria objects (id, criterion, source, is_completed, criterion_type, verification_spec). These are the implementation checklist. Work through them in order during implementation. Mark each criterion done (`tusk criteria done <cid>`) as you complete it — do not defer this to the end. Non-manual criteria (type: code, test, file) run automated verification on `done`; use `--skip-verify` if needed. If the array is empty, proceed normally using the description as scope.
    - `session_id` — the session ID to use for the duration of the workflow (reuses an open session if one exists, otherwise creates a new one)
 
    Hold onto `session_id` from the JSON — it will be used to close the session when the task is done.
 
-2. **Determine the best subagent(s)** based on:
+2. **Create a new git branch IMMEDIATELY** (skip if resuming and branch already exists):
+   ```bash
+   tusk branch <id> <brief-description-slug>
+   ```
+   This detects the default branch (remote HEAD → gh fallback → main), checks it out, pulls latest, and creates `feature/TASK-<id>-<slug>`. It prints the created branch name on success.
+
+3. **Determine the best subagent(s)** based on:
    - Task domain
    - Task assignee field (often indicates the right agent type)
    - Task description and requirements
 
-3. **Explore the codebase before implementing** — use a sub-agent to research:
+4. **Explore the codebase before implementing** — use a sub-agent to research:
    - What files will need to change?
    - Are there existing patterns to follow?
    - What tests already exist for this area?
 
    Report findings before writing any code.
 
-4. **Scope check — only implement what the task describes.**
+5. **Scope check — only implement what the task describes.**
    The task's `summary` and `description` fields define the full scope of work for this session. If the description references or links to external documents (evaluation docs, design specs, RFCs), treat them as **background context only** — do not implement items from those docs that go beyond what the task's own description asks for. Referenced docs often describe multi-task plans; implementing the entire plan collapses future tasks into one PR and defeats dependency ordering.
 
-5. **Delegate the work** to the chosen subagent(s).
+6. **Delegate the work** to the chosen subagent(s).
 
-6. **Implement, commit, and mark criteria done.** Work through the acceptance criteria from step 1 as your checklist — **one commit per criterion**. For each criterion in order:
+7. **Implement, commit, and mark criteria done.** Work through the acceptance criteria from step 1 as your checklist — **one commit per criterion**. For each criterion in order:
     1. Implement the changes that satisfy it
     2. Commit and mark the criterion done atomically using `tusk commit --criteria`:
        ```bash
@@ -103,45 +109,42 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
       ```bash
       tusk progress <id> --next-steps "<what remains to be done>"
       ```
+    - All commits should be on the feature branch (`feature/TASK-<id>-<slug>`), NOT the default branch.
 
-    The `next_steps` field is critical — write it as if briefing a new agent who has zero context. Include what's been done, what remains, and decisions made.
+    The `next_steps` field is critical — write it as if briefing a new agent who has zero context. Include what's been done, what remains, decisions made, and the branch name.
 
     **Schema migration reminder:** If the commit includes changes to `bin/tusk` that add or modify a migration (inside `cmd_migrate()`), run `tusk migrate` on the live database immediately after committing.
 
-7. **Review the code locally** before considering the work complete.
+8. **Review the code locally** before considering the work complete.
 
-8. **Verify all acceptance criteria are done** before finalizing:
+9. **Verify all acceptance criteria are done** before pushing:
     ```bash
     tusk criteria list <id>
     ```
-    If any criteria are still incomplete, address them now.
+    If any criteria are still incomplete, address them now. If a criterion was intentionally skipped, note why in the PR description.
 
-9. **Run convention lint (advisory)** — `tusk commit` already runs lint before each commit. If you need to check lint independently:
+10. **Run convention lint (advisory)** — `tusk commit` already runs lint before each commit. If you need to check lint independently before pushing:
     ```bash
     tusk lint
     ```
     Review the output. This check is **advisory only** — violations are warnings, not blockers. Fix any clear violations in files you've already touched. Do not refactor unrelated code just to satisfy lint.
 
-10. **Run `/review-commits`** — check the review mode first:
+11. **Run `/review-commits`** — check the review mode first:
     ```bash
     tusk config review
     ```
-    - **mode = disabled** (or review key missing): skip review, proceed to step 11.
+    - **mode = disabled** (or review key missing): skip review, proceed to step 12.
     - **mode = ai_only**: run `/review-commits` by following the instructions in:
       ```
       Read file: <base_directory>/../review-commits/SKILL.md for task <id>
       ```
-      After `/review-commits` completes with verdict **APPROVED**, proceed to step 11. If verdict is **CHANGES REMAINING**, surface the unresolved items to the user and stop.
+      After `/review-commits` completes with verdict **APPROVED**, proceed to step 12. If verdict is **CHANGES REMAINING**, surface the unresolved items to the user and stop.
 
-11. **Finalize — close session, mark done, run retro.** Execute as a single uninterrupted sequence — do NOT pause for user confirmation between steps:
+12. **Finalize — merge, push, and run retro.** Execute as a single uninterrupted sequence — do NOT pause for user confirmation between steps:
     ```bash
-    # 1. Close the session (captures diff stats)
-    tusk session-close $SESSION_ID
-
-    # 2. Mark task Done
-    tusk task-done <id> --reason completed --force
+    tusk merge <id> --session $SESSION_ID
     ```
-    `tusk task-done` returns JSON including an `unblocked_tasks` array. If there are newly unblocked tasks, note them in the retro.
+    `tusk merge` closes the session, merges the feature branch into the default branch, pushes, deletes the feature branch, and marks the task Done. It returns JSON including an `unblocked_tasks` array. If there are newly unblocked tasks, note them in the retro.
 
     Then run `/retro` immediately — do not ask "shall I run retro?". Invoke it to review the session, surface process improvements, and create follow-up tasks.
 
