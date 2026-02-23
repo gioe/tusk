@@ -387,17 +387,68 @@ cmd_validate() {
 }
 
 cmd_conventions() {
-  local conventions_path="$REPO_ROOT/tusk/conventions.md"
-  if [[ "${1:-}" == "--path" ]]; then
-    echo "$conventions_path"
+  local subcommand="${1:-}"
+
+  if [[ "$subcommand" == "--path" ]]; then
+    echo "$REPO_ROOT/tusk/conventions.md"
     return
   fi
-  if [[ ! -f "$conventions_path" ]]; then
-    echo "No conventions file found at $conventions_path" >&2
-    echo "Run 'tusk init' to create it." >&2
-    exit 1
+
+  if [[ "$subcommand" == "add" ]]; then
+    shift
+    local text="" source_skill=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --source) source_skill="$2"; shift 2 ;;
+        *)
+          if [[ -z "$text" ]]; then
+            text="$1"
+          fi
+          shift
+          ;;
+      esac
+    done
+    if [[ -z "$text" ]]; then
+      echo "Usage: tusk conventions add <text> [--source <skill>]" >&2
+      exit 1
+    fi
+    local quoted_text quoted_source
+    quoted_text="$(sql_quote "$text")"
+    if [[ -n "$source_skill" ]]; then
+      quoted_source="$(sql_quote "$source_skill")"
+    else
+      quoted_source="NULL"
+    fi
+    sqlite3 "$DB_PATH" "INSERT INTO conventions (text, source_skill) VALUES ($quoted_text, $quoted_source);"
+    echo "Convention added."
+    return
   fi
-  cat "$conventions_path"
+
+  # Default: print all conventions from DB
+  python3 -c "
+import sqlite3, sys
+conn = sqlite3.connect('$DB_PATH')
+try:
+    rows = conn.execute('SELECT id, text, source_skill, created_at FROM conventions ORDER BY id').fetchall()
+except Exception as e:
+    print('Error: conventions table not found. Run tusk migrate.', file=sys.stderr)
+    sys.exit(1)
+finally:
+    conn.close()
+if not rows:
+    print('No conventions in database.')
+    sys.exit(0)
+for row in rows:
+    id_, text, source_skill, created_at = row
+    date = (created_at or '')[:10]
+    source = source_skill or 'unknown'
+    lines = text.split('\n')
+    if lines and lines[0].startswith('## '):
+        output = lines[0] + '\n_Source: ' + source + ' — ' + date + '_\n' + '\n'.join(lines[1:])
+    else:
+        output = '_Source: ' + source + ' — ' + date + '_\n\n' + text
+    print(output)
+"
 }
 
 cmd_init() {
@@ -728,6 +779,18 @@ CREATE INDEX idx_tool_call_stats_skill_run_id ON tool_call_stats(skill_run_id);
 CREATE INDEX idx_tool_call_stats_criterion_id ON tool_call_stats(criterion_id);
 TCS_SCHEMA
 
+  # Conventions (generalizable heuristics written by /retro)
+  sqlite3 "$DB_PATH" <<'CONV_SCHEMA'
+CREATE TABLE conventions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    text TEXT NOT NULL,
+    source_skill TEXT,
+    lint_rule TEXT,
+    violation_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CONV_SCHEMA
+
   # Apply validation triggers from config (after all tables are created)
   local triggers
   triggers="$(generate_triggers)"
@@ -736,7 +799,7 @@ TCS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 28;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 29;"
 
   echo "Initialized task database at $DB_PATH"
 }
@@ -1679,6 +1742,54 @@ cmd_migrate() {
       PRAGMA user_version = 28;
     "
     echo "  Migration 28: added is_deferred column to tasks and backfilled from [Deferred] prefix"
+  fi
+
+  # Migration 28→29: add conventions table and import existing conventions.md
+  if [[ "$current" -lt 29 ]]; then
+    sqlite3 "$DB_PATH" "
+      CREATE TABLE conventions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          text TEXT NOT NULL,
+          source_skill TEXT,
+          lint_rule TEXT,
+          violation_count INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT DEFAULT (datetime('now'))
+      );
+      PRAGMA user_version = 29;
+    "
+    # Import existing conventions.md entries into the DB
+    local conventions_md="$REPO_ROOT/tusk/conventions.md"
+    if [[ -f "$conventions_md" ]]; then
+      python3 << PYEOF
+import sqlite3, re
+db_path = "$DB_PATH"
+md_path = "$conventions_md"
+with open(md_path) as f:
+    content = f.read()
+# Split into individual convention blocks (each starts with ## )
+blocks = re.split(r'(?m)^(?=## )', content)
+conn = sqlite3.connect(db_path)
+count = 0
+for block in blocks:
+    block = block.strip()
+    if not block.startswith('## '):
+        continue
+    # Extract date from _Source: session N — YYYY-MM-DD_ line
+    date_match = re.search(r'_Source: session \d+ — (\d{4}-\d{2}-\d{2})_', block)
+    created_at = date_match.group(1) if date_match else None
+    # Strip the _Source: ..._ line from text (keep ## title + blank line + body)
+    text = re.sub(r'\n_Source: session \d+ — \d{4}-\d{2}-\d{2}_', '', block).strip()
+    conn.execute(
+        "INSERT INTO conventions (text, source_skill, created_at) VALUES (?, ?, ?)",
+        (text, 'retro', created_at)
+    )
+    count += 1
+conn.commit()
+conn.close()
+print(f"  Imported {count} convention(s) from conventions.md")
+PYEOF
+    fi
+    echo "  Migration 29: added conventions table"
   fi
 
   local final
