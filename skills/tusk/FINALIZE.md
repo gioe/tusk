@@ -29,23 +29,23 @@ Skip AI review entirely. Proceed directly to Step 13.
 
 ### mode = ai_only
 
-Run `/review-pr` by following the instructions in the review-pr skill. Pass the current task ID:
+Run `/review-commits` by following the instructions in the review-commits skill. Pass the current task ID:
 
 ```
-Follow the instructions in <base_directory>/../review-pr/SKILL.md for task <id>
+Follow the instructions in <base_directory>/../review-commits/SKILL.md for task <id>
 ```
 
-The `/review-pr` skill handles:
+The `/review-commits` skill handles:
 - Spawning parallel AI reviewer agents
 - Fixing `must_fix` findings
 - Handling `suggest` and `defer` findings
 - Printing a final verdict (APPROVED / CHANGES REMAINING)
 
-After `/review-pr` completes with verdict **APPROVED**, proceed directly to Step 13. If verdict is **CHANGES REMAINING**, surface the unresolved items to the user and stop — do not merge.
+After `/review-commits` completes with verdict **APPROVED**, proceed directly to Step 13. If verdict is **CHANGES REMAINING**, surface the unresolved items to the user and stop — do not merge.
 
 ### mode = ai_then_human
 
-First, run `/review-pr` exactly as in `ai_only` above. After the AI review is complete and verdict is APPROVED, then wait for human GitHub review:
+First, run `/review-commits` exactly as in `ai_only` above. After the AI review is complete and verdict is APPROVED, then wait for human GitHub review:
 
 Poll for human review approval:
 
@@ -85,7 +85,7 @@ For each Category B comment, create a deferred task (includes built-in duplicate
    ```
    Exit code 1 means a duplicate was found — skip silently.
 
-After addressing feedback, re-run `/review-pr` and re-poll for human approval until `reviewDecision` is `"APPROVED"`.
+After addressing feedback, re-run `/review-commits` and re-poll for human approval until `reviewDecision` is `"APPROVED"`.
 
 ## Step 13: PR approved — finalize, merge, and retro
 
