@@ -117,6 +117,9 @@ bin/tusk loop                    # Run until backlog is empty
 bin/tusk loop --max-tasks N      # Stop after N tasks
 bin/tusk loop --dry-run          # Preview without executing
 
+# Create a feature branch for a task (detects default branch, auto-stashes dirty tree)
+bin/tusk branch <task_id> <slug>
+
 # Lint, stage, and commit in one step
 bin/tusk commit <task_id> "<message>" <file1> [file2 ...] [--criteria <id> ...] [--skip-verify]
 
