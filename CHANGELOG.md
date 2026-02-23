@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [191] - 2026-02-22
+
+### Changed
+
+- Extracted HTML generator functions (~1,000 lines) from `tusk-dashboard.py` into new `tusk-dashboard-html.py` library module; `tusk-dashboard.py` is now 397 lines (orchestration + main only)
+
 ## [190] - 2026-02-22
 
 ### Added
