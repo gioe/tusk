@@ -109,7 +109,7 @@ def print_table(stats: dict[str, dict], label: str) -> None:
         print(
             f"{tool_name:<{col_w}}  {s['call_count']:>6}  "
             f"${s['total_cost']:.6f}  ${s['max_cost']:.6f}  "
-            f"{s.get('tokens_in', 0):>10,}  {s['tokens_out']:>11,}"
+            f"{s['tokens_in']:>10,}  {s['tokens_out']:>11,}"
         )
     print("-" * len(header))
     print(f"{'TOTAL':<{col_w}}  {total_calls:>6}  ${total_cost:.6f}")
