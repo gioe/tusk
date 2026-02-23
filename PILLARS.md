@@ -1,6 +1,6 @@
 # Tusk Product Pillars
 
-This document defines the seven product pillars that guide tusk's design and development. Each pillar represents a core value the product commits to. Use this file to categorize backlog items and evaluate proposed work against which pillar it advances.
+This document defines the eight product pillars that guide tusk's design and development. Each pillar represents a core value the product commits to. Use this file to categorize backlog items and evaluate proposed work against which pillar it advances.
 
 ---
 
@@ -15,6 +15,7 @@ This document defines the seven product pillars that guide tusk's design and dev
 | Autonomous | Medium | `/loop` and `/chain` exist; reliability and interrupt handling still maturing |
 | Observable | Medium | Dashboard and cost tracking are strong; real-time visibility and alerting are sparse |
 | Self-Improving | Low | `/retro` and `/lint-conventions` exist; learning loop and convention propagation are nascent |
+| Efficient | Medium | Token audit and per-criterion cost tracking exist; active optimization guidance is sparse |
 
 ---
 
@@ -146,3 +147,24 @@ This document defines the seven product pillars that guide tusk's design and dev
 - `tusk-dupes.py` — heuristic duplicate detection with `difflib.SequenceMatcher`
 - `/groom-backlog` — auto-close, re-prioritize, and normalize backlog in one pass
 - `skill_runs` table + `tusk skill-run` — per-execution cost tracking for operational overhead awareness
+
+---
+
+## 8. Efficient
+
+**Definition:** Tusk is designed to accomplish work with the minimum tokens, cost, and compute necessary. Skills are lean by default — they load only what they need, avoid re-fetching data already in context, and prefer targeted SQL over broad scans. Companion files are conditional. Prompts are dense, not narrative. Tusk does not outsource waste to the model when a deterministic tool call suffices.
+
+**Core claim:** Tusk operates at a lower cost per task than comparable agentic workflows — not because it does less, but because it avoids redundancy, keeps skills small, and makes every token count.
+
+**Why this matters:** Other agentic systems (loop-heavy orchestrators, high-context companions) trade token spend for convenience. Tusk's users pay real money per task; a skill that loads 10 KB of context to answer a one-line question is a tax on every invocation. Efficiency is a first-class constraint, not an afterthought.
+
+**Current maturity:** Medium. `/token-audit` identifies bloated skills and SQL anti-patterns. Per-criterion and per-session cost tracking give ground-truth data on where tokens are spent. Companion files (`FINALIZE.md`, `SUBCOMMANDS.md`) are loaded conditionally. `tusk-pricing-lib.py` provides shared transcript utilities to avoid re-implementation. Gaps: skills are not automatically flagged when they grow past a size threshold; there is no enforcement mechanism to block high-cost patterns before merge; the companion-loading model is convention-only with no tooling to verify it.
+
+**Representative features:**
+- `/token-audit` — five diagnostic categories: size census, companion loading, SQL anti-patterns, redundancy, narrative density
+- Conditional companion files (`FINALIZE.md`, `SUBCOMMANDS.md`, `REFERENCE.md`) — loaded only when the relevant subcommand is invoked
+- `tusk-pricing-lib.py` shared library — single implementation of transcript parsing, cost computation, and session aggregation
+- `acceptance_criteria.cost_dollars` / `tokens_in` / `tokens_out` — per-criterion cost attribution to pinpoint expensive steps
+- `tool_call_stats` table — pre-computed per-tool-call cost aggregates, avoiding live transcript re-parsing
+- `tusk session-stats` / `tusk call-breakdown` — transcript ingestion deferred to session close, not inline
+- Targeted SQL in skills (`LIMIT 1`, column-specific SELECTs) rather than `SELECT *` full-table scans
