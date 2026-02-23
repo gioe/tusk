@@ -114,12 +114,13 @@ def _capture_criterion_tool_stats(
         for item in lib.iter_tool_call_costs(transcript_path, window_start, window_end):
             tool = item["tool_name"]
             if tool not in stats:
-                stats[tool] = {"call_count": 0, "total_cost": 0.0, "max_cost": 0.0, "tokens_out": 0}
+                stats[tool] = {"call_count": 0, "total_cost": 0.0, "max_cost": 0.0, "tokens_out": 0, "tokens_in": 0}
             s = stats[tool]
             s["call_count"] += 1
             s["total_cost"] += item["cost"]
             s["max_cost"] = max(s["max_cost"], item["cost"])
             s["tokens_out"] += item["output_tokens"]
+            s["tokens_in"] += item["marginal_input_tokens"]
 
         lib.upsert_criterion_tool_stats(conn, criterion_id, task_id, stats)
     except Exception:
