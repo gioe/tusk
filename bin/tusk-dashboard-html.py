@@ -733,9 +733,9 @@ def generate_skill_runs_section(skill_runs: list[dict], tool_stats_by_run: dict 
 def generate_global_tool_costs_section(tool_stats: list[dict]) -> str:
     """Generate a project-wide tool cost aggregate table for the Skills tab.
 
-    Shows tool_name, total_calls, total_cost, and share of total across all
-    task sessions. Returns a placeholder panel with onboarding instructions
-    when no data is available.
+    Shows tool_name, total_calls, tokens_in, total_cost, and share of total
+    across all task sessions. Returns a placeholder panel with onboarding
+    instructions when no data is available.
     """
     if not tool_stats:
         return """\
@@ -748,16 +748,19 @@ def generate_global_tool_costs_section(tool_stats: list[dict]) -> str:
 
     grand_total = sum(r["total_cost"] or 0 for r in tool_stats)
     total_calls = sum(r["total_calls"] or 0 for r in tool_stats)
+    total_tokens_in = sum(r["tokens_in"] or 0 for r in tool_stats)
 
     rows_html = ""
     for r in tool_stats:
         cost = r["total_cost"] or 0
         calls = r["total_calls"] or 0
+        tokens_in = r["tokens_in"] or 0
         pct = (cost / grand_total * 100) if grand_total > 0 else 0
         rows_html += (
             f'<tr>'
             f'<td style="font-weight:500;">{esc(r["tool_name"])}</td>'
             f'<td style="text-align:right;font-variant-numeric:tabular-nums;">{int(calls):,}</td>'
+            f'<td style="text-align:right;font-variant-numeric:tabular-nums;">{format_tokens_compact(tokens_in)}</td>'
             f'<td style="text-align:right;font-variant-numeric:tabular-nums;">${cost:.4f}</td>'
             f'<td style="min-width:130px;">'
             f'<div style="display:flex;align-items:center;gap:6px;">'
@@ -798,6 +801,7 @@ def generate_global_tool_costs_section(tool_stats: list[dict]) -> str:
         <tr>
           <th>Tool</th>
           <th style="text-align:right">Total Calls</th>
+          <th style="text-align:right">Tokens In</th>
           <th style="text-align:right">Total Cost</th>
           <th>Share of Total</th>
         </tr>
@@ -809,6 +813,7 @@ def generate_global_tool_costs_section(tool_stats: list[dict]) -> str:
         <tr style="font-weight:600;border-top:2px solid var(--border);">
           <td>Total</td>
           <td style="text-align:right;font-variant-numeric:tabular-nums;">{total_calls:,}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums;">{format_tokens_compact(total_tokens_in)}</td>
           <td style="text-align:right;font-variant-numeric:tabular-nums;">${grand_total:.4f}</td>
           <td></td>
         </tr>

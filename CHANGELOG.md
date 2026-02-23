@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [212] - 2026-02-23
+
+### Changed
+- `tusk-dashboard-html.py`: Global Tool Costs table now includes a `Tokens In` column alongside `Total Calls`, `Total Cost`, and `Share of Total`
+
 ## [211] - 2026-02-23
 
 ### Added
