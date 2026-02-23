@@ -97,13 +97,23 @@ After addressing feedback, re-run `/review-pr` and re-poll for human approval un
 
 Execute steps 14-16 as a single uninterrupted sequence — do NOT pause for user confirmation between them.
 
-Finalize the task in a single call — this sets `github_pr`, closes the session (capturing diff stats before the branch is deleted), merges the PR with `--squash --delete-branch`, and marks the task Done:
+Finalize the task in four steps:
 
 ```bash
-tusk finalize <id> --session $SESSION_ID --pr-url "$PR_URL" --pr-number $PR_NUMBER
+# 1. Set github_pr on the task
+tusk task-update <id> --github-pr "$PR_URL"
+
+# 2. Close the session (captures diff stats before the branch is deleted)
+tusk session-close $SESSION_ID
+
+# 3. Merge the PR
+gh pr merge $PR_NUMBER --squash --delete-branch
+
+# 4. Mark task Done
+tusk task-done <id> --reason completed --force
 ```
 
-This returns JSON including an `unblocked_tasks` array (from `tusk task-done`). If there are newly unblocked tasks, note them in the retro.
+`tusk task-done` returns JSON including an `unblocked_tasks` array. If there are newly unblocked tasks, note them in the retro.
 
 ## Step 16: Run retrospective
 

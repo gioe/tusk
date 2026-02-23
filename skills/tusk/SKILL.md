@@ -77,9 +77,12 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
 2. **Create a new git branch IMMEDIATELY** (skip if resuming and branch already exists):
    ```bash
-   tusk branch <id> <brief-description-slug>
+   DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+   DEFAULT_BRANCH=${DEFAULT_BRANCH:-$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null)}
+   DEFAULT_BRANCH=${DEFAULT_BRANCH:-main}
+   git checkout "$DEFAULT_BRANCH" && git pull
+   git checkout -b feature/TASK-<id>-<brief-description-slug>
    ```
-   This detects the default branch (remote HEAD → gh fallback → "main"), checks it out, pulls latest, and creates `feature/TASK-<id>-<slug>`. It prints the created branch name on success.
 
 3. **Determine the best subagent(s)** based on:
    - Task domain

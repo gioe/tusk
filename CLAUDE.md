@@ -117,12 +117,6 @@ bin/tusk loop                    # Run until backlog is empty
 bin/tusk loop --max-tasks N      # Stop after N tasks
 bin/tusk loop --dry-run          # Preview without executing
 
-# Finalize a task: set PR URL, close session, merge PR, mark Done
-bin/tusk finalize <task_id> --session <session_id> --pr-url <url> --pr-number <number>
-
-# Create a feature branch for a task
-bin/tusk branch <task_id> <slug>
-
 # Lint, stage, and commit in one step
 bin/tusk commit <task_id> "<message>" <file1> [file2 ...] [--criteria <id> ...] [--skip-verify]
 
@@ -220,13 +214,11 @@ The config also includes a `review` block with three keys: `mode` (`"disabled"` 
 - `bin/tusk-task-start.py` — Task start consolidation (invoked via `tusk task-start`). Fetches task, checks prior progress, reuses or creates a session, sets status to In Progress, and returns a JSON blob with all details. Exits non-zero if the task has zero active acceptance criteria unless `--force` is passed (emits a warning but proceeds).
 - `bin/tusk-task-done.py` — Task closure consolidation (invoked via `tusk task-done`). Checks for uncompleted acceptance criteria (warns and exits non-zero unless `--force`), closes open sessions, sets status to Done with closed_reason, and returns JSON with newly unblocked tasks.
 - `bin/tusk-commit.py` — Atomic lint-stage-commit (invoked via `tusk commit`). Runs `tusk lint` (advisory), stages listed files, commits with `[TASK-<id>] <message>` format and Co-Authored-By trailer, then calls `tusk criteria done <id> --allow-shared-commit` for each `--criteria <id>` flag — binding each criterion to the new commit hash atomically. Pass `--skip-verify` to forward it to each `tusk criteria done` call. Returns exit code 3 if any criterion fails to be marked done.
-- `bin/tusk-branch.py` — Feature branch creation (invoked via `tusk branch`). Detects default branch (remote HEAD → gh fallback → "main"), checks out and pulls latest, creates `feature/TASK-<id>-<slug>`.
 - `bin/tusk-progress.py` — Progress checkpoint logging (invoked via `tusk progress`). Gathers commit hash, message, and changed files from HEAD via git, then inserts a `task_progress` row. Replaces the 4-command manual checkpoint sequence.
 - `bin/tusk-task-insert.py` — Atomic task creation (invoked via `tusk task-insert`). Validates all enum fields against config, runs heuristic duplicate detection, and inserts the task row + acceptance criteria in one transaction. Supports `--typed-criteria` for non-manual criterion types with verification specs. Replaces the multi-step INSERT + sql-quote + criteria-add pattern in skills.
 - `bin/tusk-task-update.py` — Task field updates with validation (invoked via `tusk task-update`). Accepts a task ID and optional flags for any updatable field, validates enum values against config, and builds a dynamic UPDATE touching only specified columns. Replaces model-composed UPDATE SQL in skills.
 - `bin/tusk-task-reopen.py` — Stuck-task recovery (invoked via `tusk task-reopen`). Resets an In Progress or Done task back to To Do by temporarily dropping the `validate_status_transition` trigger, running the UPDATE, and regenerating triggers via `tusk regen-triggers`. Closes any open sessions. Requires `--force` to prevent accidental use. Returns JSON with the updated task, prior status, and session-close count.
 - `bin/tusk-autoclose.py` — Consolidated auto-close pre-checks (invoked via `tusk autoclose`). Runs three checks in one call: expired deferred tasks, To Do / In Progress tasks with merged PRs (via `gh pr view`), and moot contingent tasks. Closes each with appropriate reason and description annotation. Returns JSON summary with counts and task IDs per category.
-- `bin/tusk-finalize.py` — Post-merge finalization (invoked via `tusk finalize`). Accepts task ID, session ID, PR URL, and PR number. Sets `github_pr` on the task, closes the session (capturing diff stats), merges the PR via `gh pr merge --squash --delete-branch`, and marks the task Done via `tusk task-done`. Returns JSON with task details and newly unblocked tasks.
 - `bin/tusk-token-audit.py` — Skill token consumption analyzer (invoked via `tusk token-audit`). Scans skill directories and reports five categories: size census (lines + estimated tokens per skill), companion file analysis (conditional vs unconditional loading), SQL anti-patterns, redundancy detection (duplicate commands, setup + re-fetch), and narrative density (prose:code ratio). Supports `--summary` and `--json` output modes.
 - `bin/tusk-loop.py` — Autonomous backlog loop (invoked via `tusk loop`). Queries the highest-priority ready task, checks if it is a chain head (via `v_chain_heads` view), dispatches to `claude -p /chain <id>` or `claude -p /tusk <id>`, and repeats until the backlog is empty or a stop condition is met. Supports `--max-tasks N` and `--dry-run`.
 - `bin/tusk-sync-skills.py` — Skill symlink regeneration (invoked via `tusk sync-skills`). Removes all existing symlinks in `.claude/skills/`, then creates one per skill directory found in `skills/` (public) and `skills-internal/` (private). Source-repo only — not used in target projects.

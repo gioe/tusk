@@ -32,5 +32,5 @@ if [[ "$branch" =~ ^feature/TASK-[0-9]+-. ]]; then
   exit 0
 fi
 
-echo "Branch '$branch' does not match required pattern 'feature/TASK-<id>-<slug>'. Use 'tusk branch <id> <slug>' to create a properly named branch."
+echo "Branch '$branch' does not match required pattern 'feature/TASK-<id>-<slug>'. Create a branch with: git checkout -b feature/TASK-<id>-<slug>"
 exit 2

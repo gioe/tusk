@@ -6,6 +6,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [195] - 2026-02-23
+
+### Removed
+
+- `tusk branch` command and `bin/tusk-branch.py` — replaced by inline git commands in `/tusk` SKILL.md Step 2
+- `tusk finalize` command and `bin/tusk-finalize.py` — replaced by explicit four-step sequence in `/tusk` FINALIZE.md Step 14
+
 ## [194] - 2026-02-22
 
 ### Added
