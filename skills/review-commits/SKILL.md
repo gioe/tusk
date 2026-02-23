@@ -1,16 +1,16 @@
 ---
-name: review-pr
-description: Run parallel AI code reviewers against a PR diff, fix must_fix issues, and defer or dismiss suggestions
+name: review-commits
+description: Run parallel AI code reviewers against the task's git diff, fix must_fix issues, and defer or dismiss suggestions
 allowed-tools: Bash, Read, Task
 ---
 
-# Review PR Skill
+# Review Commits Skill
 
-Orchestrates parallel code review against a PR diff. Spawns one background reviewer agent per enabled reviewer in config, monitors completion, fixes must_fix findings, handles suggest findings interactively, and creates deferred tasks for defer findings.
+Orchestrates parallel code review against the task's git diff (commits on the current branch vs the base branch). Spawns one background reviewer agent per enabled reviewer in config, monitors completion, fixes must_fix findings, handles suggest findings interactively, and creates deferred tasks for defer findings.
 
 ## Arguments
 
-Optional: `/review-pr <task_id>` — if omitted, task ID is inferred from the current branch name.
+Optional: `/review-commits <task_id>` — if omitted, task ID is inferred from the current branch name.
 
 ---
 
@@ -21,7 +21,7 @@ tusk config
 ```
 
 Parse the returned JSON. Extract:
-- `review.mode` — if `"disabled"`, print "Review mode is disabled in config (review.mode = disabled). Enable it in tusk/config.json to use /review-pr." and **stop**.
+- `review.mode` — if `"disabled"`, print "Review mode is disabled in config (review.mode = disabled). Enable it in tusk/config.json to use /review-commits." and **stop**.
 - `review.max_passes` — maximum fix-and-re-review cycles (default: 2)
 - `review.reviewers` — list of reviewer names. If empty, a single unassigned review will be used.
 - `review_categories` — valid comment categories (typically `["must_fix", "suggest", "defer"]`)
@@ -45,21 +45,9 @@ tusk -header -column "SELECT id, summary, status FROM tasks WHERE id = <task_id>
 
 If no row is returned, abort: "Task `<task_id>` not found."
 
-## Step 3: Get the PR Diff
+## Step 3: Get the Git Diff
 
-Check for an open PR on the current branch:
-
-```bash
-gh pr view --json number,state --jq '.number' 2>/dev/null
-```
-
-If a PR number is found, use it:
-
-```bash
-gh pr diff <pr_number>
-```
-
-Otherwise, fall back to comparing against the default branch:
+Determine the base branch and compute the diff:
 
 ```bash
 git remote set-head origin --auto 2>/dev/null
@@ -76,7 +64,7 @@ Capture the diff content — it will be passed to each reviewer agent.
 Start a review record for the task. This creates one `code_reviews` row per configured reviewer (or one unassigned row if no reviewers are configured):
 
 ```bash
-tusk review start <task_id> --diff-summary "<first 120 chars of diff or PR title>"
+tusk review start <task_id> --diff-summary "<first 120 chars of diff summary>"
 ```
 
 The command prints one line per created review, each showing the review ID. Parse the output to collect all review IDs (e.g., `Started review #<id> for task #<task_id> ...`).
@@ -97,7 +85,7 @@ For each review_id, spawn a **background agent** using the Task tool. Issue **al
 
 ```
 Task tool call (for EACH review_id):
-  description: "review-pr reviewer <reviewer_name or 'unassigned'> task <task_id>"
+  description: "review-commits reviewer <reviewer_name or 'unassigned'> task <task_id>"
   subagent_type: general-purpose
   run_in_background: true
   prompt: <REVIEWER-PROMPT.md content, with placeholders replaced — see template>
@@ -146,7 +134,7 @@ Gather all open (unresolved) comments across all reviews. Group them by category
 
 ### must_fix comments
 
-These are blocking issues that must be resolved before the PR can be merged.
+These are blocking issues that must be resolved before the work can be merged.
 
 For each open `must_fix` comment:
 1. Read the comment details (file path, line numbers, comment text, severity).
@@ -187,7 +175,7 @@ If there are no interactive users (running in a background agent context), **dis
 
 ### defer comments
 
-These are valid issues but out of scope for the current PR. Create a tusk task for each:
+These are valid issues but out of scope for the current work. Create a tusk task for each:
 
 ```bash
 tusk task-insert "<summary from comment>" "<full comment text>" \
@@ -213,7 +201,6 @@ Track current pass number (starts at 1). If `current_pass < max_passes`:
    ```bash
    git diff "${DEFAULT_BRANCH}...HEAD"
    ```
-   Or re-fetch the PR diff if a PR exists.
 
 2. Start a new review pass:
    ```bash
@@ -228,7 +215,7 @@ Track current pass number (starts at 1). If `current_pass < max_passes`:
    > Max review passes (<max_passes>) reached. The following must_fix items remain unresolved:
    > <list each open must_fix comment>
    >
-   > Please resolve these manually before merging.
+   > Please resolve these manually before continuing.
 
    Stop the re-review loop.
 
@@ -258,10 +245,3 @@ Verdict: APPROVED / CHANGES REMAINING
 ```
 
 The verdict is **APPROVED** if all must_fix comments are resolved (fixed). Otherwise, **CHANGES REMAINING**.
-
-If APPROVED, the PR is ready to merge. Suggest:
-
-> All blocking findings have been addressed. The PR is ready to merge:
-> ```bash
-> gh pr merge <pr_number> --squash --delete-branch
-> ```

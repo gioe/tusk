@@ -6,6 +6,16 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [201] - 2026-02-23
+
+### Changed
+- Renamed `/review-pr` skill to `/review-commits`; diff source now uses `git diff <base>...HEAD` instead of `gh pr diff`
+- Updated `skills/tusk/FINALIZE.md` and `skills/check-dupes/SKILL.md` to reference `/review-commits`
+- Updated `CLAUDE.md` to document the new skill name
+
+### Removed
+- `skills/review-pr/` directory replaced by `skills/review-commits/`
+
 ## [200] - 2026-02-23
 
 ### Removed

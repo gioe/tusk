@@ -175,7 +175,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 
 `config.default.json` defines domains, task_types, statuses, priorities, closed_reasons, complexity, criterion_types, and agents. On `tusk init`, SQLite validation triggers are **auto-generated** from the config via an embedded Python snippet in `bin/tusk`. Empty arrays (e.g., `"domains": []`) disable validation for that column. After editing config post-install, run `tusk regen-triggers` to update triggers without destroying the database (unlike `tusk init --force` which recreates the DB).
 
-The config also includes a `review` block with three keys: `mode` (`"disabled"` suppresses the `/review-pr` skill entirely), `max_passes` (maximum fix-and-re-review cycles), and `reviewers` (list of reviewer names that each get their own parallel review agent). Two additional top-level keys, `review_categories` and `review_severities`, define the valid values for comment categorization (default: `must_fix`, `suggest`, `defer`) and severity (default: `critical`, `major`, `minor`) — empty arrays disable validation for those fields.
+The config also includes a `review` block with three keys: `mode` (`"disabled"` suppresses the `/review-commits` skill entirely), `max_passes` (maximum fix-and-re-review cycles), and `reviewers` (list of reviewer names that each get their own parallel review agent). Two additional top-level keys, `review_categories` and `review_severities`, define the valid values for comment categorization (default: `must_fix`, `suggest`, `defer`) and severity (default: `critical`, `major`, `minor`) — empty arrays disable validation for those fields.
 
 ### Skills (installed to `.claude/skills/` in target projects)
 
@@ -198,7 +198,7 @@ The config also includes a `review` block with three keys: `mode` (`"disabled"` 
 - **`/resume-task`** — Automates session recovery: detects task from branch name, gathers progress/criteria/commits, and resumes the implementation workflow
 - **`/chain`** — Orchestrates parallel execution of a dependency sub-DAG: validates head task, displays scope tree, executes head first, then spawns parallel background agents wave-by-wave for each frontier of ready tasks, and runs a post-chain retro aggregation across all agent transcripts to surface cross-agent patterns and learnings
 - **`/loop`** — Autonomous backlog loop: repeatedly picks the highest-priority ready task and dispatches it to `/chain` (if it has dependents) or `/tusk` (standalone) until the backlog is empty; supports `--max-tasks N` and `--dry-run`
-- **`/review-pr`** — Runs parallel AI code reviewers against a PR diff, fixes must_fix issues, handles suggest findings interactively, and creates deferred tasks for defer findings; respects `review.mode`, `review.max_passes`, and `review.reviewers` config settings
+- **`/review-commits`** — Runs parallel AI code reviewers against the task's git diff (`git diff <base>...HEAD`), fixes must_fix issues, handles suggest findings interactively, and creates deferred tasks for defer findings; respects `review.mode`, `review.max_passes`, and `review.reviewers` config settings
 
 ### Python Scripts
 

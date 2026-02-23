@@ -299,7 +299,7 @@ Business rules and their enforcement mechanisms:
 | All active criteria done before task closure | Warning + non-zero exit unless `--force` | `bin/tusk-task-done.py` |
 | Non-`manual` criteria run automated verification on `done` | Shell exec (code/test) or glob check (file); blocks unless `--skip-verify` | `bin/tusk-criteria.py` |
 | `closed_reason = duplicate` used for dupes | Convention enforced by skills | `/check-dupes`, `/groom-backlog`, `/retro` |
-| Deferred tasks get `[Deferred]` prefix and `expires_at` | Convention applied by `/review-pr` | `skills/review-pr/SKILL.md` |
+| Deferred tasks get `[Deferred]` prefix and `expires_at` | Convention applied by `/review-commits` | `skills/review-commits/SKILL.md` |
 
 Config-driven triggers are regenerated from `config.json` by `tusk regen-triggers` and after each trigger-only migration. They enforce whatever values are in the config at regen time.
 
