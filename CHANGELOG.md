@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [209] - 2026-02-23
+
+### Added
+- `tusk task-update --deferred`: sets `is_deferred=1`, prefixes summary with `[Deferred]`, sets `expires_at` to +60 days if unset
+- `tusk task-update --no-deferred`: sets `is_deferred=0`, strips `[Deferred]` prefix from summary
+
 ## [208] - 2026-02-23
 
 ### Added
