@@ -40,21 +40,26 @@ Parse the branch name for the pattern `TASK-<id>` (e.g., `feature/TASK-123-my-fe
 Verify the task exists:
 
 ```bash
-tusk -header -column "SELECT id, summary, status, github_pr FROM tasks WHERE id = <task_id>"
+tusk -header -column "SELECT id, summary, status FROM tasks WHERE id = <task_id>"
 ```
 
 If no row is returned, abort: "Task `<task_id>` not found."
 
 ## Step 3: Get the PR Diff
 
-If the task has a `github_pr` URL, use it to fetch the diff:
+Check for an open PR on the current branch:
 
 ```bash
-# Extract PR number from URL (e.g., https://github.com/org/repo/pull/42 → 42)
+gh pr view --json number,state --jq '.number' 2>/dev/null
+```
+
+If a PR number is found, use it:
+
+```bash
 gh pr diff <pr_number>
 ```
 
-If no `github_pr` is set, fall back to comparing against the default branch:
+Otherwise, fall back to comparing against the default branch:
 
 ```bash
 git remote set-head origin --auto 2>/dev/null

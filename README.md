@@ -127,7 +127,6 @@ The database has three tables:
 | assignee | TEXT | Agent name |
 | task_type | TEXT | `bug`, `feature`, `refactor`, etc. |
 | priority_score | INTEGER | Pre-computed score for task selection |
-| github_pr | TEXT | PR URL when work is in progress |
 | expires_at | TEXT | Auto-close date for deferred tasks |
 | closed_reason | TEXT | `completed`, `expired`, `wont_do`, `duplicate` |
 | created_at | TEXT | Creation timestamp |

@@ -37,7 +37,6 @@ def fetch_task_metrics(conn: sqlite3.Connection) -> list[dict]:
                   COALESCE(tm.total_cost, 0) as total_cost,
                   tm.complexity,
                   tm.priority_score,
-                  tm.github_pr,
                   tm.domain,
                   tm.task_type,
                   COALESCE(tm.total_duration_seconds, 0) as total_duration_seconds,

@@ -330,14 +330,9 @@ Complexity: {complexity}
    gh pr create --base "$DEFAULT_BRANCH" --title "[TASK-{id}] <summary>" --body "## Summary\n<bullets>\n\n## Test plan\n<checklist>"
    ```
 
-7. **Update task with PR URL:**
-   ```
-   tusk "UPDATE tasks SET github_pr = $(tusk sql-quote '<pr_url>'), updated_at = datetime('now') WHERE id = {id}"
-   ```
+7. **Self-review the PR** — read the diff, fix any issues, push follow-up commits.
 
-8. **Self-review the PR** — read the diff, fix any issues, push follow-up commits.
-
-9. **Merge:**
+8. **Merge:**
     ```
     tusk session-close <session_id>
     gh pr merge <pr_number> --squash --delete-branch
