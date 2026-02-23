@@ -66,13 +66,7 @@
                            task-insert ──► dupes check
                                        └──► wsjf
 
-/criteria ──────────────── criteria (add / list / done / skip / reset)
-
-/blockers ──────────────── blockers (add / list / resolve / remove / blocked / all)
-
 /manage-dependencies ────── deps (add / remove / list / ready / blocked / all)
-
-/progress ──────────────── progress
 
 /resume-task ───────────── task-start
                            criteria done
@@ -99,7 +93,6 @@
 
 /tusk-insights ─────────── (raw SQL queries only — no sub-commands)
 
-/tasks ─────────────────── path  (resolves DB location for DB Browser)
 ```
 
 ---
@@ -256,15 +249,11 @@ SKILL               start  done   insert update                  eria           
 /create-task          ✗      ✗      ✓      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✓      ✓        ✗        ✗     ✗      ✓       ✗       ✗
 /resume-task          ✓      ✗      ✗      ✗       ✗        ✗       ✓      ✗      ✗     ✗       ✗      ✗        ✓        ✗     ✓      ✗       ✗       ✗
 /token-audit          ✗      ✗      ✓*     ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✓        ✗        ✗     ✗      ✓       ✓       ✗
-/criteria             ✗      ✗      ✗      ✗       ✗        ✗       ✓      ✗      ✗     ✗       ✗      ✗        ✗        ✗     ✗      ✗       ✗       ✗
-/blockers             ✗      ✗      ✗      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✗        ✗        ✗     ✗      ✗       ✗       ✗
 /manage-dependencies  ✗      ✗      ✗      ✗       ✗        ✗       ✗      ✗      ✓     ✗       ✗      ✗        ✗        ✗     ✗      ✗       ✗       ✗
-/progress             ✗      ✗      ✗      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✗        ✓        ✗     ✗      ✗       ✗       ✗
 /reconfigure          ✗      ✗      ✗      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✗        ✗        ✗     ✗      ✓       ✗       ✗
 /tusk-insights        ✗      ✗      ✗      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✗        ✗        ✗     ✗      ✗       ✗       ✗
 /dashboard            ✗      ✗      ✗      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✗        ✗        ✗     ✗      ✗       ✗       ✗
 /tusk-init            ✗      ✗      ✗      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✗        ✗        ✗     ✗      ✓       ✗       ✗
-/tasks                ✗      ✗      ✗      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✗        ✗        ✗     ✗      ✗       ✗       ✗
 
 * via /create-task delegation
 † /chain orchestrator calls chain scope/frontier/status and criteria done (deferred criteria) directly;
