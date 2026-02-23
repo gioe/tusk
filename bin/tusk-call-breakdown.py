@@ -63,7 +63,7 @@ def aggregate_tool_calls(
     """Collect tool call stats across all transcripts for a time window.
 
     Returns a dict keyed by tool_name with sub-keys:
-        call_count, total_cost, max_cost, tokens_out
+        call_count, total_cost, max_cost, tokens_out, tokens_in
     """
     stats: dict[str, dict] = {}
     for transcript_path in transcripts:
@@ -77,12 +77,14 @@ def aggregate_tool_calls(
                     "total_cost": 0.0,
                     "max_cost": 0.0,
                     "tokens_out": 0,
+                    "tokens_in": 0,
                 }
             s = stats[tool]
             s["call_count"] += 1
             s["total_cost"] += item["cost"]
             s["max_cost"] = max(s["max_cost"], item["cost"])
             s["tokens_out"] += item["output_tokens"]
+            s["tokens_in"] += item["marginal_input_tokens"]
     return stats
 
 
@@ -99,14 +101,15 @@ def print_table(stats: dict[str, dict], label: str) -> None:
     col_w = max(len(t) for t, _ in sorted_tools)
     col_w = max(col_w, 10)
 
-    header = f"{'Tool':<{col_w}}  {'Calls':>6}  {'Total Cost':>11}  {'Max Cost':>9}  {'Tokens Out':>11}"
+    header = f"{'Tool':<{col_w}}  {'Calls':>6}  {'Total Cost':>11}  {'Max Cost':>9}  {'Tokens In':>10}  {'Tokens Out':>11}"
     print(f"\nCall breakdown for {label}:")
     print(header)
     print("-" * len(header))
     for tool_name, s in sorted_tools:
         print(
             f"{tool_name:<{col_w}}  {s['call_count']:>6}  "
-            f"${s['total_cost']:.6f}  ${s['max_cost']:.6f}  {s['tokens_out']:>11,}"
+            f"${s['total_cost']:.6f}  ${s['max_cost']:.6f}  "
+            f"{s.get('tokens_in', 0):>10,}  {s['tokens_out']:>11,}"
         )
     print("-" * len(header))
     print(f"{'TOTAL':<{col_w}}  {total_calls:>6}  ${total_cost:.6f}")
@@ -122,13 +125,14 @@ def upsert_session_stats(
     for tool_name, s in stats.items():
         conn.execute(
             """INSERT INTO tool_call_stats
-                   (session_id, task_id, tool_name, call_count, total_cost, max_cost, tokens_out, computed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                   (session_id, task_id, tool_name, call_count, total_cost, max_cost, tokens_out, tokens_in, computed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                ON CONFLICT(session_id, tool_name) DO UPDATE SET
                    call_count  = excluded.call_count,
                    total_cost  = excluded.total_cost,
                    max_cost    = excluded.max_cost,
                    tokens_out  = excluded.tokens_out,
+                   tokens_in   = excluded.tokens_in,
                    computed_at = excluded.computed_at""",
             (
                 session_id,
@@ -138,6 +142,7 @@ def upsert_session_stats(
                 round(s["total_cost"], 8),
                 round(s["max_cost"], 8),
                 s["tokens_out"],
+                s["tokens_in"],
             ),
         )
     conn.commit()
@@ -222,12 +227,14 @@ def _aggregate_sessions_single_pass(
                             "total_cost": 0.0,
                             "max_cost": 0.0,
                             "tokens_out": 0,
+                            "tokens_in": 0,
                         }
                     s = stats[tool]
                     s["call_count"] += 1
                     s["total_cost"] += item["cost"]
                     s["max_cost"] = max(s["max_cost"], item["cost"])
                     s["tokens_out"] += item["output_tokens"]
+                    s["tokens_in"] += item["marginal_input_tokens"]
                     break
 
     return per_session
@@ -274,12 +281,14 @@ def cmd_task(conn, task_id: int, transcripts: list[str], write_only: bool) -> No
                     "total_cost": 0.0,
                     "max_cost": 0.0,
                     "tokens_out": 0,
+                    "tokens_in": 0,
                 }
             c = combined[tool_name]
             c["call_count"] += s["call_count"]
             c["total_cost"] += s["total_cost"]
             c["max_cost"] = max(c["max_cost"], s["max_cost"])
             c["tokens_out"] += s["tokens_out"]
+            c["tokens_in"] += s["tokens_in"]
 
     if not write_only:
         print_table(combined, f"task {task_id} ({len(rows)} session(s))")
@@ -296,13 +305,14 @@ def upsert_skill_run_stats(
     for tool_name, s in stats.items():
         conn.execute(
             """INSERT INTO tool_call_stats
-                   (skill_run_id, tool_name, call_count, total_cost, max_cost, tokens_out, computed_at)
-               VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+                   (skill_run_id, tool_name, call_count, total_cost, max_cost, tokens_out, tokens_in, computed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
                ON CONFLICT(skill_run_id, tool_name) DO UPDATE SET
                    call_count  = excluded.call_count,
                    total_cost  = excluded.total_cost,
                    max_cost    = excluded.max_cost,
                    tokens_out  = excluded.tokens_out,
+                   tokens_in   = excluded.tokens_in,
                    computed_at = excluded.computed_at""",
             (
                 run_id,
@@ -311,6 +321,7 @@ def upsert_skill_run_stats(
                 round(s["total_cost"], 8),
                 round(s["max_cost"], 8),
                 s["tokens_out"],
+                s["tokens_in"],
             ),
         )
     conn.commit()

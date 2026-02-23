@@ -389,13 +389,14 @@ def upsert_criterion_tool_stats(
     for tool_name, s in stats.items():
         conn.execute(
             """INSERT INTO tool_call_stats
-                   (criterion_id, task_id, tool_name, call_count, total_cost, max_cost, tokens_out, computed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                   (criterion_id, task_id, tool_name, call_count, total_cost, max_cost, tokens_out, tokens_in, computed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                ON CONFLICT(criterion_id, tool_name) DO UPDATE SET
                    call_count  = excluded.call_count,
                    total_cost  = excluded.total_cost,
                    max_cost    = excluded.max_cost,
                    tokens_out  = excluded.tokens_out,
+                   tokens_in   = excluded.tokens_in,
                    computed_at = excluded.computed_at""",
             (
                 criterion_id,
@@ -405,6 +406,7 @@ def upsert_criterion_tool_stats(
                 round(s["total_cost"], 8),
                 round(s["max_cost"], 8),
                 s["tokens_out"],
+                s.get("tokens_in", 0),
             ),
         )
     conn.commit()
