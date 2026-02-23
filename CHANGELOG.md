@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [208] - 2026-02-23
+
+### Added
+- Lint Rule 14 (advisory): detects open tasks where `is_deferred` flag and `[Deferred]` summary prefix disagree
+
 ## [207] - 2026-02-23
 
 ### Added

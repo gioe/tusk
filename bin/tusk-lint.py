@@ -436,6 +436,31 @@ def rule12_python_syntax(root):
     return violations
 
 
+def rule14_deferred_prefix_mismatch(root):
+    """Open tasks where is_deferred flag and [Deferred] summary prefix disagree."""
+    violations = []
+    tusk_bin = os.path.join(root, "bin", "tusk")
+    if not os.path.isfile(tusk_bin):
+        tusk_bin = "tusk"
+    try:
+        result = subprocess.run(
+            [tusk_bin, "-header", "-column",
+             "SELECT id, is_deferred, summary FROM tasks "
+             "WHERE status <> 'Done' AND ("
+             "  (summary LIKE '[Deferred]%' AND is_deferred = 0) OR "
+             "  (summary NOT LIKE '[Deferred]%' AND is_deferred = 1)"
+             ")"],
+            capture_output=True, text=True, timeout=5,
+        )
+        for line in result.stdout.strip().splitlines():
+            line = line.strip()
+            if line and not line.startswith("id") and not line.startswith("--"):
+                violations.append(f"  {line}")
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass  # Skip rule if tusk CLI is unavailable
+    return violations
+
+
 def rule13_version_bump_missing(root):
     """bin/tusk-*.py modified in working tree or recent commits without VERSION bump.
 
@@ -547,6 +572,7 @@ RULES = [
     ("Rule 11: SKILL.md frontmatter validation", rule11_skill_frontmatter, False),
     ("Rule 12: Python syntax check (py_compile) for bin/tusk-*.py", rule12_python_syntax, False),
     ("Rule 13: bin/tusk-*.py modified without VERSION bump (advisory)", rule13_version_bump_missing, True),
+    ("Rule 14: is_deferred flag / [Deferred] prefix mismatch (advisory)", rule14_deferred_prefix_mismatch, True),
 ]
 
 
