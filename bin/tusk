@@ -241,8 +241,10 @@ if 'review' in cfg:
                 errors.append(f'Unknown key \"review.{k}\". Valid review keys: {known_review_list}')
 
         if 'mode' in review:
-            VALID_MODES = {'ai_only', 'ai_then_human', 'disabled'}
-            if review['mode'] not in VALID_MODES:
+            VALID_MODES = {'ai_only', 'disabled'}
+            if review['mode'] == 'ai_then_human':
+                errors.append(f'\"review.mode\" value \"ai_then_human\" has been removed; use \"ai_only\" instead.')
+            elif review['mode'] not in VALID_MODES:
                 modes_list = ', '.join(sorted(VALID_MODES))
                 errors.append(f'\"review.mode\" must be one of: {modes_list} (got {review[\"mode\"]!r}).')
 
