@@ -24,6 +24,7 @@ The core unit of work. Every piece of planned work is a task.
 | `expires_at` | TEXT | nullable | ISO datetime; task auto-closed when past this date |
 | `closed_reason` | TEXT | validated; required when status=Done | Why the task was closed |
 | `complexity` | TEXT | validated if config non-empty | T-shirt size estimate (XS, S, M, L, XL) |
+| `is_deferred` | INTEGER | CHECK IN (0, 1); NOT NULL DEFAULT 0 | 1 if this is a deferred task (set by `tusk task-insert --deferred` or when summary starts with `[Deferred]`) |
 | `created_at` | TEXT | default now | Creation timestamp |
 | `updated_at` | TEXT | default now | Last-modified timestamp |
 
@@ -303,7 +304,7 @@ Business rules and their enforcement mechanisms:
 | All active criteria done before task closure | Warning + non-zero exit unless `--force` | `bin/tusk-task-done.py` |
 | Non-`manual` criteria run automated verification on `done` | Shell exec (code/test) or glob check (file); blocks unless `--skip-verify` | `bin/tusk-criteria.py` |
 | `closed_reason = duplicate` used for dupes | Convention enforced by skills | `/check-dupes`, `/groom-backlog`, `/retro` |
-| Deferred tasks get `[Deferred]` prefix and `expires_at` | Convention applied by `/review-commits` | `skills/review-commits/SKILL.md` |
+| Deferred tasks have `is_deferred = 1`, `[Deferred]` prefix, and `expires_at` | `is_deferred` set by `tusk task-insert --deferred`; both prefix and column required | `bin/tusk-task-insert.py`, `skills/review-commits/SKILL.md` |
 
 Config-driven triggers are regenerated from `config.json` by `tusk regen-triggers` and after each trigger-only migration. They enforce whatever values are in the config at regen time.
 
@@ -367,7 +368,7 @@ priority_score = ROUND(
 | Component | Value |
 |-----------|-------|
 | `base_priority` | Highest=100, High=80, Medium=60, Low=40, Lowest=20 |
-| `non_deferred_bonus` | +10 if summary does NOT contain `[Deferred]`; 0 if it does (deferred tasks get no bonus) |
+| `non_deferred_bonus` | +10 if `is_deferred = 0`; 0 if `is_deferred = 1` (deferred tasks get no bonus) |
 | `unblocks_bonus` | +5 per downstream dependent (any type), capped at +15 |
 | `contingent_adjustment` | −10 if task has at least one `contingent` dependency and no `blocks` dependencies; 0 otherwise |
 | `complexity_weight` (divisor) | XS=1, S=2, M=3, L=5, XL=8; default=3 if no complexity set |

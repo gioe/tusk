@@ -60,7 +60,7 @@ def autoclose_expired_deferred(conn: sqlite3.Connection) -> list[int]:
     """Close deferred tasks past their expiry date. Returns list of closed task IDs."""
     rows = conn.execute(
         "SELECT id FROM tasks "
-        "WHERE summary LIKE '%[Deferred]%' "
+        "WHERE is_deferred = 1 "
         "  AND status = 'To Do' "
         "  AND expires_at IS NOT NULL "
         "  AND expires_at < datetime('now')"

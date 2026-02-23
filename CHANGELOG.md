@@ -6,6 +6,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [207] - 2026-02-23
+
+### Added
+- `is_deferred INTEGER NOT NULL DEFAULT 0 CHECK (is_deferred IN (0, 1))` column on `tasks` table (schema migration 28)
+
+### Changed
+- WSJF formula uses `is_deferred = 0` instead of `summary NOT LIKE '%[Deferred]%'` for the non-deferred bonus
+- `tusk task-insert --deferred` and manual `[Deferred]` prefix both set `is_deferred = 1` on insert
+- `tusk autoclose` queries `is_deferred = 1` instead of `LIKE '%[Deferred]%'`
+- Lint Rule 9 checks `is_deferred = 1` instead of `LIKE '[Deferred]%'`
+
 ## [206] - 2026-02-23
 
 ### Added

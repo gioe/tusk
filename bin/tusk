@@ -448,6 +448,7 @@ CREATE TABLE tasks (
     expires_at TEXT,
     closed_reason TEXT,
     complexity TEXT,
+    is_deferred INTEGER NOT NULL DEFAULT 0 CHECK (is_deferred IN (0, 1)),
     -- Timestamps are UTC (SQLite datetime('now') returns UTC)
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
@@ -735,7 +736,7 @@ TCS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 27;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 28;"
 
   echo "Initialized task database at $DB_PATH"
 }
@@ -1670,6 +1671,16 @@ cmd_migrate() {
     echo "  Migration 27: added partial UNIQUE index on task_sessions(task_id) WHERE ended_at IS NULL"
   fi
 
+  # Migration 27→28: add is_deferred boolean column to tasks and backfill from [Deferred] prefix
+  if [[ "$current" -lt 28 ]]; then
+    sqlite3 "$DB_PATH" "
+      ALTER TABLE tasks ADD COLUMN is_deferred INTEGER NOT NULL DEFAULT 0 CHECK (is_deferred IN (0, 1));
+      UPDATE tasks SET is_deferred = 1 WHERE summary LIKE '[Deferred]%';
+      PRAGMA user_version = 28;
+    "
+    echo "  Migration 28: added is_deferred column to tasks and backfilled from [Deferred] prefix"
+  fi
+
   local final
   final="$(sqlite3 "$DB_PATH" "PRAGMA user_version;")"
   if [[ "$final" -eq "$current" ]]; then
@@ -1989,7 +2000,7 @@ cmd_wsjf() {
           WHEN 'Lowest' THEN 20
           ELSE 40
         END
-        + CASE WHEN summary NOT LIKE '%[Deferred]%' THEN 10 ELSE 0 END
+        + CASE WHEN is_deferred = 0 THEN 10 ELSE 0 END
         + MIN(COALESCE((
           SELECT COUNT(*) * 5
           FROM task_dependencies d

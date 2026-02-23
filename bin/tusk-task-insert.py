@@ -204,6 +204,9 @@ def main(argv: list[str]) -> int:
         if expires_in_days is None:
             expires_in_days = 60
 
+    # is_deferred=1 whenever summary starts with [Deferred] (covers --deferred flag and manual prefix)
+    is_deferred = 1 if summary.startswith("[Deferred]") else 0
+
     # Load and validate against config
     config = load_config(config_path)
 
@@ -269,19 +272,19 @@ def main(argv: list[str]) -> int:
         if expires_at_expr:
             conn.execute(
                 "INSERT INTO tasks (summary, description, status, priority, domain, "
-                "task_type, assignee, complexity, expires_at, created_at, updated_at) "
-                "VALUES (?, ?, 'To Do', ?, ?, ?, ?, ?, datetime('now', ?), "
+                "task_type, assignee, complexity, is_deferred, expires_at, created_at, updated_at) "
+                "VALUES (?, ?, 'To Do', ?, ?, ?, ?, ?, ?, datetime('now', ?), "
                 "datetime('now'), datetime('now'))",
                 (summary, description, priority, domain, task_type, assignee,
-                 complexity, expires_at_expr),
+                 complexity, is_deferred, expires_at_expr),
             )
         else:
             conn.execute(
                 "INSERT INTO tasks (summary, description, status, priority, domain, "
-                "task_type, assignee, complexity, created_at, updated_at) "
-                "VALUES (?, ?, 'To Do', ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+                "task_type, assignee, complexity, is_deferred, created_at, updated_at) "
+                "VALUES (?, ?, 'To Do', ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
                 (summary, description, priority, domain, task_type, assignee,
-                 complexity),
+                 complexity, is_deferred),
             )
 
         task_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]

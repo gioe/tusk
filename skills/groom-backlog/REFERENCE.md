@@ -48,7 +48,7 @@ priority_score = ROUND(raw_score / complexity_weight)
 
 Where:
 - **base_priority**: Highest=100, High=80, Medium=60, Low=40, Lowest=20
-- **source_bonus**: +10 if NOT a `[Deferred]` task
+- **source_bonus**: +10 if `is_deferred = 0`; 0 if deferred
 - **unblocks_bonus**: +5 per dependent task, capped at +15
 - **contingent_penalty**: -10 if ALL of the task's blockers are `contingent` (none are `blocks`), biasing `/tusk` toward tasks with guaranteed value
 - **complexity_weight**: XS=1, S=2, M=3, L=5, XL=8 (NULL defaults to 3, same as M)
@@ -67,7 +67,7 @@ UPDATE tasks SET priority_score = ROUND(
       WHEN 'Lowest' THEN 20
       ELSE 40
     END
-    + CASE WHEN summary NOT LIKE '%[Deferred]%' THEN 10 ELSE 0 END
+    + CASE WHEN is_deferred = 0 THEN 10 ELSE 0 END
     + MIN(COALESCE((
       SELECT COUNT(*) * 5
       FROM task_dependencies d

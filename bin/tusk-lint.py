@@ -193,7 +193,7 @@ def rule6_done_incomplete_criteria(root):
 
 
 def rule9_deferred_missing_expiry(root):
-    """Tasks with [Deferred] prefix but no expires_at set."""
+    """Deferred tasks (is_deferred=1) with no expires_at set."""
     violations = []
     tusk_bin = os.path.join(root, "bin", "tusk")
     if not os.path.isfile(tusk_bin):
@@ -202,7 +202,7 @@ def rule9_deferred_missing_expiry(root):
         result = subprocess.run(
             [tusk_bin, "-header", "-column",
              "SELECT id, summary FROM tasks "
-             "WHERE summary LIKE '[Deferred]%' AND expires_at IS NULL AND status <> 'Done'"],
+             "WHERE is_deferred = 1 AND expires_at IS NULL AND status <> 'Done'"],
             capture_output=True, text=True, timeout=5,
         )
         for line in result.stdout.strip().splitlines():
