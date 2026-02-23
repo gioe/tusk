@@ -2,11 +2,6 @@
 
 After inserting tasks, analyze them for dependencies — both among the newly created tasks **and** against existing open backlog tasks (fetched in Step 2b).
 
-## When to run this step
-
-- If **two or more tasks** were created: check for inter-task ordering among the new tasks AND for dependencies on existing backlog tasks.
-- Skip this step entirely if **zero or one** task was created (all duplicates, or single-task fast path).
-
 ## How to identify dependencies among new tasks
 
 Look for these patterns among the newly created tasks:
@@ -59,13 +54,7 @@ Wait for explicit user approval before inserting.
 For each approved dependency, run:
 
 ```bash
-tusk deps add <task_id> <depends_on_id>
-```
-
-Or with a specific type:
-
-```bash
-tusk deps add <task_id> <depends_on_id> --type contingent
+tusk deps add <task_id> <depends_on_id> [--type contingent]
 ```
 
 Report any validation errors (cycle detected, task not found) and continue with the remaining dependencies.
