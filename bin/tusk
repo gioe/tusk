@@ -427,7 +427,7 @@ cmd_conventions() {
   # Default: print all conventions from DB
   python3 -c "
 import sqlite3, sys
-conn = sqlite3.connect('$DB_PATH')
+conn = sqlite3.connect(\"$DB_PATH\")
 try:
     rows = conn.execute('SELECT id, text, source_skill, created_at FROM conventions ORDER BY id').fetchall()
 except Exception as e:
@@ -448,6 +448,7 @@ for row in rows:
     else:
         output = '_Source: ' + source + ' — ' + date + '_\n\n' + text
     print(output)
+    print()
 "
 }
 
@@ -1757,36 +1758,48 @@ cmd_migrate() {
       );
       PRAGMA user_version = 29;
     "
-    # Import existing conventions.md entries into the DB
+    # Import existing conventions.md entries into the DB (idempotent: skip if already imported)
     local conventions_md="$REPO_ROOT/tusk/conventions.md"
     if [[ -f "$conventions_md" ]]; then
       python3 << PYEOF
-import sqlite3, re
+import sqlite3, re, sys
 db_path = "$DB_PATH"
 md_path = "$conventions_md"
-with open(md_path) as f:
-    content = f.read()
-# Split into individual convention blocks (each starts with ## )
-blocks = re.split(r'(?m)^(?=## )', content)
 conn = sqlite3.connect(db_path)
-count = 0
-for block in blocks:
-    block = block.strip()
-    if not block.startswith('## '):
-        continue
-    # Extract date from _Source: session N — YYYY-MM-DD_ line
-    date_match = re.search(r'_Source: session \d+ — (\d{4}-\d{2}-\d{2})_', block)
-    created_at = date_match.group(1) if date_match else None
-    # Strip the _Source: ..._ line from text (keep ## title + blank line + body)
-    text = re.sub(r'\n_Source: session \d+ — \d{4}-\d{2}-\d{2}_', '', block).strip()
-    conn.execute(
-        "INSERT INTO conventions (text, source_skill, created_at) VALUES (?, ?, ?)",
-        (text, 'retro', created_at)
-    )
-    count += 1
-conn.commit()
-conn.close()
-print(f"  Imported {count} convention(s) from conventions.md")
+# Idempotent: skip import if rows already exist (allows safe retry after partial failure)
+existing = conn.execute("SELECT COUNT(*) FROM conventions").fetchone()[0]
+if existing > 0:
+    conn.close()
+    print(f"  Skipped import: {existing} convention(s) already in DB")
+    sys.exit(0)
+try:
+    with open(md_path) as f:
+        content = f.read()
+    # Split into individual convention blocks (each starts with ## )
+    blocks = re.split(r'(?m)^(?=## )', content)
+    count = 0
+    for block in blocks:
+        block = block.strip()
+        if not block.startswith('## '):
+            continue
+        # Extract date from _Source: session N — YYYY-MM-DD_ line
+        date_match = re.search(r'_Source: session \d+ — (\d{4}-\d{2}-\d{2})_', block)
+        created_at = date_match.group(1) if date_match else None
+        # Strip the _Source: ..._ line from text (keep ## title + blank line + body)
+        text = re.sub(r'\n_Source: session \d+ — \d{4}-\d{2}-\d{2}_', '', block).strip()
+        conn.execute(
+            "INSERT INTO conventions (text, source_skill, created_at) VALUES (?, ?, ?)",
+            (text, 'retro', created_at)
+        )
+        count += 1
+    conn.commit()
+    print(f"  Imported {count} convention(s) from conventions.md")
+except Exception as e:
+    conn.rollback()
+    print(f"  Warning: conventions.md import failed: {e}", file=sys.stderr)
+    print(f"  Re-run 'tusk migrate' to retry the import (idempotent when table is empty).", file=sys.stderr)
+finally:
+    conn.close()
 PYEOF
     fi
     echo "  Migration 29: added conventions table"

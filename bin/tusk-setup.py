@@ -71,7 +71,7 @@ def main(argv: list[str]) -> int:
                 else:
                     formatted = "_Source: " + source + " — " + date + "_\n\n" + text
                 blocks.append(formatted)
-            conventions = "\n".join(blocks)
+            conventions = "\n\n".join(blocks)
         except sqlite3.OperationalError:
             # conventions table doesn't exist (old install) — fall back to file
             conventions_path = os.path.join(os.path.dirname(db_path), "conventions.md")
