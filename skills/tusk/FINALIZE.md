@@ -43,50 +43,6 @@ The `/review-commits` skill handles:
 
 After `/review-commits` completes with verdict **APPROVED**, proceed directly to Step 13. If verdict is **CHANGES REMAINING**, surface the unresolved items to the user and stop — do not merge.
 
-### mode = ai_then_human
-
-First, run `/review-commits` exactly as in `ai_only` above. After the AI review is complete and verdict is APPROVED, then wait for human GitHub review:
-
-Poll for human review approval:
-
-```bash
-gh pr view <pr_number> --json reviewDecision,reviews
-```
-
-Repeat every 60 seconds until `reviewDecision` is `"APPROVED"`. While waiting, print:
-
-> Waiting for human GitHub review approval... (checking every 60s)
-> Current status: <reviewDecision>
-
-Once human review shows `APPROVED`, proceed to Step 13.
-
-If a human reviewer requests changes, address the feedback:
-
-**Category A — Address Immediately (must fix in this PR):**
-- Security concerns, bugs, breaking changes
-- Missing tests for code introduced/modified in this PR
-- Performance issues, type errors, missing error handling
-
-For each Category A comment:
-1. Read the relevant file(s)
-2. Make the code fix
-3. Commit: `[TASK-<id>] Address PR review: <brief description>`
-4. Log a progress checkpoint (step 7) after each review-fix commit
-
-**Category B — Defer to backlog (cosmetic only):**
-- Pure style preferences not affecting correctness
-- Suggestions about pre-existing code NOT touched by this PR
-- Aspirational ideas about unrelated modules
-
-For each Category B comment, create a deferred task (includes built-in duplicate check and 60-day expiry):
-   ```bash
-   tusk task-insert "<brief description>" "Deferred from PR #<pr_number> review for TASK-<id>. Original comment: <comment text>. Reason deferred: <why this can wait>" \
-     --priority "Low" --domain "<domain>" --deferred
-   ```
-   Exit code 1 means a duplicate was found — skip silently.
-
-After addressing feedback, re-run `/review-commits` and re-poll for human approval until `reviewDecision` is `"APPROVED"`.
-
 ## Step 13: PR approved — finalize, merge, and retro
 
 Execute steps 13-14 as a single uninterrupted sequence — do NOT pause for user confirmation between them.
