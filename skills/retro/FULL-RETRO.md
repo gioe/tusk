@@ -4,6 +4,10 @@ Thorough retro for medium-to-large tasks. Includes subsumption analysis, depende
 
 ## Step 1: Review Session History
 
+**Check for custom focus areas first.** Attempt to read `<base_directory>/FOCUS.md`.
+- If the file exists: use the categories defined in it for Step 3 instead of the defaults.
+- If the file does not exist: use the default categories A–D defined in Step 3.
+
 Analyze the full conversation context. Look for:
 
 - **Friction points** — confusing instructions, missing context, repeated mistakes
@@ -21,7 +25,9 @@ Use the JSON already fetched via `tusk setup` in Step 0 of the retro skill: `con
 
 ## Step 3: Categorize Findings
 
-Organize into four categories:
+If `<base_directory>/FOCUS.md` was found in Step 1, use those categories.
+
+Otherwise organize into the default four categories:
 
 - **A**: Process improvements — skill/CLAUDE.md/tooling friction, confusing instructions, missing conventions
 - **B**: Tangential issues — out-of-scope bugs, tech debt, architectural concerns

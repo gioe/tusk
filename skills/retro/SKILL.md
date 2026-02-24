@@ -34,12 +34,15 @@ Streamlined retro for small tasks. Skips subsumption analysis and dependency pro
 
 ### LR-1: Review & Categorize
 
-Analyze the full conversation context. Look for:
+**Check for custom focus areas first.** Attempt to read `<base_directory>/FOCUS.md`.
+- If the file exists: use the categories defined in it for the analysis below.
+- If the file does not exist: use the default categories:
+  - **Category A**: Process improvements — friction in skills, CLAUDE.md, tooling
+  - **Category B**: Tangential issues — bugs, tech debt, architectural concerns discovered out of scope
+  - **Category C**: Follow-up work — incomplete items, deferred decisions, edge cases
+  - **Category D**: Lint Rules — concrete, grep-detectable anti-patterns observed in this session (max 3). Only include if an actual mistake occurred that a grep rule could prevent — e.g., calling a deprecated command, using a wrong pattern in a specific file type. Do NOT include general advice or style preferences.
 
-- **Category A**: Process improvements — friction in skills, CLAUDE.md, tooling
-- **Category B**: Tangential issues — bugs, tech debt, architectural concerns discovered out of scope
-- **Category C**: Follow-up work — incomplete items, deferred decisions, edge cases
-- **Category D**: Lint Rules — concrete, grep-detectable anti-patterns observed in this session (max 3). Only include if an actual mistake occurred that a grep rule could prevent — e.g., calling a deprecated command, using a wrong pattern in a specific file type. Do NOT include general advice or style preferences.
+Analyze the full conversation context using the resolved categories.
 
 If **all categories are empty**, report "Clean session — no findings" and stop. (Config and backlog were already fetched in Step 0 — no additional work needed.)
 
@@ -95,3 +98,18 @@ tusk -header -column "SELECT id, summary, priority, domain, task_type, status FR
 ```
 
 **End of lightweight retro.** Do not continue to FULL-RETRO.md.
+
+---
+
+## Customization
+
+To override the default analysis categories, create a `FOCUS.md` file in the skill directory:
+
+```bash
+cp "<base_directory>/FOCUS.md.example" "<base_directory>/FOCUS.md"
+# Edit FOCUS.md to define your custom categories
+```
+
+A template is available at `<base_directory>/FOCUS.md.example` showing the default category format. Custom categories replace A–D. Include a **"Lint Rules"** section to retain lint-rule task creation.
+
+`FOCUS.md` is not part of the distributed skill and will not be overwritten by `tusk upgrade`.

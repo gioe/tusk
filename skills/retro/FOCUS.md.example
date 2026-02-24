@@ -1,0 +1,30 @@
+# Retro Focus Areas
+
+Copy this file to `FOCUS.md` in the same directory to customize retro analysis categories.
+Edit the sections below to reflect your team's priorities. Add or remove categories as needed.
+
+If a **Lint Rules** section is present, the retro will generate lint-rule tasks for
+concrete, grep-detectable anti-patterns (max 3, actual mistakes only).
+
+---
+
+## Category A: Process Improvements
+
+Friction in skills, CLAUDE.md, tooling, or instructions. Confusing steps that led to
+repeated mistakes or unnecessary backtracking.
+
+## Category B: Tangential Issues
+
+Bugs, tech debt, or architectural concerns discovered out of scope. Things that should
+be fixed but weren't the focus of this session.
+
+## Category C: Follow-up Work
+
+Incomplete items, deferred decisions, or edge cases not addressed. Work that should
+continue in a future session.
+
+## Category D: Lint Rules
+
+Concrete, grep-detectable anti-patterns observed in this session (max 3).
+Only include if an actual mistake occurred that a grep rule would catch.
+Do NOT include general advice or style preferences.
