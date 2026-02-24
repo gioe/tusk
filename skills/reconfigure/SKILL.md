@@ -49,7 +49,7 @@ Configurable fields:
 
 ## Step 2b: Update test_command (if requested)
 
-If the user wants to update `test_command` (or if no specific changes were requested and you're presenting options), run this step.
+If the user explicitly asks to update `test_command`, run this step.
 
 Read the current value:
 
@@ -76,7 +76,7 @@ Present the current value and suggestion together:
 >
 > Options:
 > - **Keep current** — no change
-> - **Use detected** — set to `<suggested_command>`
+> - **Use detected** — set to `<suggested_command>` *(only shown when a suggestion was found AND it differs from the current value)*
 > - **Override** — enter a custom command
 > - **Clear** — remove the gate (set to empty string)
 
@@ -145,7 +145,7 @@ tusk regen-triggers
 
 This drops all existing `validate_*` triggers and recreates them from the updated config. **No data is lost.**
 
-If only non-trigger fields changed (`agents`, `dupes`), skip this step.
+If only non-trigger fields changed (`agents`, `dupes`, `test_command`), skip this step.
 
 ## Step 7: Verify
 
