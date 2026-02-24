@@ -6,6 +6,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [236] - 2026-02-24
+- `skills/tusk-init/SKILL.md`: Step 2a now scans for Makefile; new Step 5b auto-detects test command from project manifests (package.json → `npm test`, pyproject.toml/setup.py → `pytest`, Cargo.toml → `cargo test`, Makefile with test target → `make test`) and prompts user to confirm, override, or skip; Step 6 config template now includes `test_command`
+
 ## [235] - 2026-02-24
 - `skills/tusk/SKILL.md`: step 7 now documents that `tusk commit` hard-fails (exit code 2) when `test_command` is set and tests fail; instructs agent to read full test output, trace root cause, implement fix, and retry — with a 3-attempt max-retries guardrail before surfacing failure to the user
 
