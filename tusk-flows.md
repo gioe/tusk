@@ -7,7 +7,8 @@
 ```
 /tusk ──────────────────── task-start
                            branch
-                           commit ──► lint
+                           commit ──► test_command gate (hard-block, --skip-verify bypasses)
+                                  ├──► lint
                                   └──► criteria done   (atomic)
                            criteria list
                            progress
@@ -45,10 +46,11 @@
                             task-insert                  (for deferred findings)
                             [spawns reviewer agents]     (one per reviewer in config)
 
-/retro ─────────────────── setup  (config + backlog + conventions)
+/retro ─────────────────── setup  (config + backlog)
                            dupes check                   (before each insert)
                            task-insert
-                           conventions add
+                           [reads FOCUS.md if present]  (custom category override)
+                           lint-rule (via task-insert)   (lint rule findings → task, not direct call)
 
 /groom-backlog ─────────── skill-run start
                            setup
@@ -84,10 +86,12 @@
                            init --force   (if schema rebuild needed)
                            regen-triggers
                            sql-quote
+                           [test_command update]        (Step 2b if requested)
 
 /tusk-init ─────────────── init --force
                            path
                            config
+                           [test_command detection]     (Step 5b — detect from manifests, confirm)
 
 /tusk-insights ─────────── (raw SQL queries only — no sub-commands)
 
@@ -119,6 +123,7 @@ USER / /loop
     │
     ├── 6. PER CRITERION LOOP:
     │       commit <id> "<msg>" <files> --criteria <cid>
+    │         ├── test_command gate     (hard-block; --skip-verify bypasses; exit 2 on failure)
     │         ├── lint                  (advisory)
     │         ├── git stage + commit    [TASK-<id>] format
     │         └── criteria done <cid>  (binds commit hash)
@@ -148,10 +153,11 @@ USER / /loop
     │         merges via gh pr merge --squash --delete-branch instead of local ff
     │
     └── 11. /retro
-              ├── setup  (config + backlog + conventions)
+              ├── setup  (config + backlog)
+              ├── [reads FOCUS.md if present]  (custom category override)
               ├── dupes check  (before each proposed insert)
-              ├── task-insert  (follow-up tasks)
-              └── conventions add  (generalizable heuristics)
+              ├── task-insert  (follow-up tasks + lint-rule tasks for grep-detectable patterns)
+              └── (conventions add is deprecated — lint-rule tasks used instead)
 ```
 
 ---
@@ -161,14 +167,17 @@ USER / /loop
 ```
 COMMAND             CALLS INTERNALLY
 ──────────────────  ─────────────────────────────────────────────────────
-commit              lint  ·  criteria done  (per --criteria flag)
-merge               session-close  ·  task-done  (+ git ff-merge, push, branch delete)
+commit              test_command gate  ·  lint  ·  criteria done  (per --criteria flag)
+                    exit codes: 2=test_command, 3=git add/commit, 4=criteria
+merge               preflight checks  ·  session-close  ·  task-done  (+ git ff-merge, push, branch delete)
 branch              (git operations only — no tusk sub-commands)
 task-insert         dupes check  ·  wsjf
 task-update         wsjf
 task-reopen         regen-triggers             (resets validation triggers; DB state repair)
 session-close       session-stats  ·  call-breakdown --session --write-only
 skill-run finish    call-breakdown --skill-run --write-only
+lint                (static rules 1–15)  ·  DB-backed rules 16–17 (from lint_rules table)
+lint-rule           add / list / remove  (managed via tusk-lint-rules.py)
 loop                claude -p /chain  |  claude -p /tusk
 ```
 
@@ -188,7 +197,7 @@ LIFECYCLE
   wsjf                (recompute priority_score for all open tasks)
 
 WORK CAPTURE
-  commit              lint + stage + commit + criteria done (atomic)
+  commit              test_command gate + lint + stage + commit + criteria done (atomic)
   criteria            add / list / done / skip / reset
   progress            append checkpoint to task_progress
   review              start / add-comment / resolve / approve / summary
@@ -208,8 +217,8 @@ GRAPH & BLOCKING
 OBSERVABILITY
   dashboard ──► dashboard-data / dashboard-html / dashboard-css / dashboard-js
   token-audit         (scans skill files for token anti-patterns)
-  conventions         print / add
-  setup               config + backlog + conventions (one call)
+  conventions         print / add  (add is deprecated — use lint-rule add instead)
+  setup               config + backlog (one call)
 
 CONFIG & SCHEMA
   init ──► migrate
@@ -217,12 +226,13 @@ CONFIG & SCHEMA
   regen-triggers      (drop + recreate validation triggers from config)
   validate            (check config.json against expected schema)
   upgrade ──► migrate
-  config              (print resolved config JSON)
+  config              (print resolved config JSON; includes test_command field)
 
 UTILITY
   sql-quote           (safe string escaping for SQL interpolation)
   dupes               check / scan / similar
-  lint                (convention checks, advisory)
+  lint                (static rules 1–15 + DB-backed rules 16–17, advisory)
+  lint-rule           add / list / remove  (DB-backed grep rules; blocking=rule16, advisory=rule17)
   path                (print resolved DB path)
   shell               (interactive sqlite3)
   version             (print distribution version)
@@ -242,7 +252,7 @@ SKILL               start  done   insert update                  eria           
 /chain†               ✓      ✗             ✗       ✗        ✗       ✓             ✗     ✓       ✗      ✗        ✓        ✗     ✓      ✗       ✗       ✗
 /loop                 ✗      ✗             ✗       ✗        ✗       ✗             ✗            ✗      ✗        ✗        ✗     ✗      ✗       ✗       ✗
 /review-commits       ✗      ✗      ✓      ✗       ✗        ✗       ✗      ✓      ✗     ✗       ✗      ✗        ✗        ✗     ✗      ✓       ✗       ✗
-/retro                ✗      ✗      ✓      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✓      ✓        ✗        ✗     ✗      ✗       ✓       ✗
+/retro                ✗      ✗      ✓      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✓      ✓        ✗        ✗     ✗      ✗       ✗       ✗
 /groom-backlog        ✗      ✓      ✗      ✓       ✗        ✗       ✗      ✗      ✓     ✗       ✓      ✓        ✗        ✗     ✗      ✓       ✗       ✓
 /create-task          ✗      ✗      ✓      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✓      ✓        ✗        ✗     ✗      ✓       ✗       ✗
 /resume-task          ✓      ✗      ✗      ✗       ✗        ✗       ✓      ✗      ✗     ✗       ✗      ✗        ✓        ✗     ✓      ✗       ✗       ✗
@@ -256,6 +266,7 @@ SKILL               start  done   insert update                  eria           
 † /chain orchestrator calls chain scope/frontier/status and criteria done (deferred criteria) directly;
   all other ✓ entries are delegated to per-task /tusk sub-agents
   merge column = "tusk merge" (wraps session-close + task-done + git ff-merge + push + branch delete)
+  conventions column: /retro no longer calls conventions add (deprecated); lint-rule tasks created via task-insert instead
 ```
 
 ---
