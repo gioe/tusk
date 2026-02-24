@@ -6,6 +6,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [235] - 2026-02-24
+- `skills/tusk/SKILL.md`: step 7 now documents that `tusk commit` hard-fails (exit code 2) when `test_command` is set and tests fail; instructs agent to read full test output, trace root cause, implement fix, and retry — with a 3-attempt max-retries guardrail before surfacing failure to the user
+
 ## [234] - 2026-02-24
 - `bin/tusk-commit.py`: use distinct exit codes — `2` = test_command failed, `3` = git add/commit failed, `4` = criteria marking failed (was all `2` except criteria which was `3`); document exit codes in module docstring
 
