@@ -369,7 +369,7 @@ def upsert_criterion_stats(
 def cmd_criterion(conn, criterion_id: int, transcripts: list[str], write_only: bool) -> None:
     """Recompute tool stats for a criterion's time window and write to tool_call_stats."""
     row = conn.execute(
-        "SELECT id, task_id, completed_at FROM acceptance_criteria WHERE id = ?",
+        "SELECT id, task_id, completed_at, commit_hash FROM acceptance_criteria WHERE id = ?",
         (criterion_id,),
     ).fetchone()
 
@@ -386,17 +386,43 @@ def cmd_criterion(conn, criterion_id: int, transcripts: list[str], write_only: b
         sys.exit(1)
 
     task_id = row["task_id"]
-    ended_at = lib.parse_sqlite_timestamp(row["completed_at"])
+    commit_hash = row["commit_hash"]
 
-    # Window start: most recent prior criterion on the same task, ordered by the
-    # effective timestamp (COALESCE(committed_at, completed_at)) to avoid overlap.
-    prev = conn.execute(
-        "SELECT COALESCE(committed_at, completed_at) AS window_ts "
-        "FROM acceptance_criteria "
-        "WHERE task_id = ? AND id <> ? AND completed_at IS NOT NULL "
-        "ORDER BY COALESCE(committed_at, completed_at) DESC LIMIT 1",
-        (task_id, criterion_id),
-    ).fetchone()
+    # Detect shared-commit group: all completed criteria on this task with the same commit_hash.
+    group_ids: list = []
+    if commit_hash:
+        group_rows = conn.execute(
+            "SELECT id FROM acceptance_criteria "
+            "WHERE task_id = ? AND commit_hash = ? AND is_completed = 1 "
+            "ORDER BY COALESCE(committed_at, completed_at) ASC",
+            (task_id, commit_hash),
+        ).fetchall()
+        group_ids = [r["id"] for r in group_rows]
+
+    n = len(group_ids) if len(group_ids) > 1 else 1
+
+    # Window start.
+    # For a shared-commit group, exclude all group members from the boundary search
+    # so the window spans the full work period for the entire group.
+    if n > 1:
+        prev = conn.execute(
+            "SELECT COALESCE(committed_at, completed_at) AS window_ts "
+            "FROM acceptance_criteria "
+            "WHERE task_id = ? AND (commit_hash IS NULL OR commit_hash <> ?) "
+            "AND completed_at IS NOT NULL "
+            "ORDER BY COALESCE(committed_at, completed_at) DESC LIMIT 1",
+            (task_id, commit_hash),
+        ).fetchone()
+    else:
+        # Single-criterion: most recent prior criterion on the same task, ordered by the
+        # effective timestamp (COALESCE(committed_at, completed_at)) to avoid overlap.
+        prev = conn.execute(
+            "SELECT COALESCE(committed_at, completed_at) AS window_ts "
+            "FROM acceptance_criteria "
+            "WHERE task_id = ? AND id <> ? AND completed_at IS NOT NULL "
+            "ORDER BY COALESCE(committed_at, completed_at) DESC LIMIT 1",
+            (task_id, criterion_id),
+        ).fetchone()
 
     if prev and prev["window_ts"]:
         started_at = lib.parse_sqlite_timestamp(prev["window_ts"])
@@ -417,6 +443,23 @@ def cmd_criterion(conn, criterion_id: int, transcripts: list[str], write_only: b
             )
             sys.exit(1)
 
+    # Window end.
+    # For a shared-commit group, use the latest completed_at among all group members
+    # as the window end so the full group's cost is captured.
+    if n > 1:
+        latest_row = conn.execute(
+            "SELECT MAX(completed_at) AS max_ts FROM acceptance_criteria "
+            "WHERE task_id = ? AND commit_hash = ? AND is_completed = 1",
+            (task_id, commit_hash),
+        ).fetchone()
+        ended_at = (
+            lib.parse_sqlite_timestamp(latest_row["max_ts"])
+            if latest_row and latest_row["max_ts"]
+            else lib.parse_sqlite_timestamp(row["completed_at"])
+        )
+    else:
+        ended_at = lib.parse_sqlite_timestamp(row["completed_at"])
+
     if not transcripts:
         print("Warning: No transcripts found — cannot compute breakdown.", file=sys.stderr)
         return
@@ -430,7 +473,18 @@ def cmd_criterion(conn, criterion_id: int, transcripts: list[str], write_only: b
         )
         return
 
-    upsert_criterion_stats(conn, criterion_id, task_id, stats)
+    # For a shared-commit group, split stats evenly across N members and update all of them.
+    if n > 1:
+        for s in stats.values():
+            s["call_count"] = s["call_count"] // n
+            s["total_cost"] /= n
+            s["max_cost"] /= n
+            s["tokens_out"] //= n
+            s["tokens_in"] //= n
+        for gid in group_ids:
+            upsert_criterion_stats(conn, gid, task_id, stats)
+    else:
+        upsert_criterion_stats(conn, criterion_id, task_id, stats)
 
     if not write_only:
         print_table(stats, f"criterion {criterion_id} (task {task_id})")

@@ -6,6 +6,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [232] - 2026-02-24
+- `bin/tusk-call-breakdown.py`: `--criterion` recompute now detects shared-commit groups (N criteria with the same `commit_hash`), adjusts the window start to exclude group members, uses the latest `completed_at` as window end, splits stats evenly across N, and upserts into `tool_call_stats` for all group members — mirroring the `capture_criterion_cost` logic in `tusk-criteria.py`
+
 ## [231] - 2026-02-24
 - `bin/tusk-lint.py`: added Rule 15 (advisory) — warns when all completed non-deferred criteria for an In Progress task share a single commit hash (big-bang commit pattern); only fires when 2+ eligible criteria exist and all share one hash
 
