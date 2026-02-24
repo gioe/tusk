@@ -382,8 +382,13 @@ def upsert_criterion_tool_stats(
     criterion_id: int,
     task_id: int,
     stats: dict[str, dict],
+    commit: bool = True,
 ) -> None:
-    """Write aggregated tool_call_stats rows for a criterion (upsert on UNIQUE conflict)."""
+    """Write aggregated tool_call_stats rows for a criterion (upsert on UNIQUE conflict).
+
+    Pass commit=False to defer the commit, allowing the caller to batch additional
+    writes (e.g. acceptance_criteria cost columns) into a single atomic transaction.
+    """
     if not stats:
         return
     for tool_name, s in stats.items():
@@ -409,4 +414,5 @@ def upsert_criterion_tool_stats(
                 s.get("tokens_in", 0),
             ),
         )
-    conn.commit()
+    if commit:
+        conn.commit()

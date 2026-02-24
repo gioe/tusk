@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [243] - 2026-02-24
+- `bin/tusk-pricing-lib.py`: added `commit=True` parameter to `upsert_criterion_tool_stats` so callers can defer the commit and batch additional writes into one atomic transaction
+- `bin/tusk-call-breakdown.py`: `--criterion` recompute now calls `upsert_criterion_stats` with `commit=False` and issues a single `conn.commit()` after the `acceptance_criteria` cost UPDATE, making both writes atomic; added clarifying comments
+
 ## [242] - 2026-02-24
 - `bin/tusk-call-breakdown.py`: `--criterion` recompute now refreshes `acceptance_criteria.cost_dollars`, `tokens_in`, and `tokens_out` after updating `tool_call_stats`, keeping AC cost summary in sync with recomputed tool stats; shared-commit groups update all members with the split values
 

@@ -361,9 +361,10 @@ def upsert_criterion_stats(
     criterion_id: int,
     task_id: int,
     stats: dict[str, dict],
+    commit: bool = True,
 ) -> None:
     """Write aggregated tool_call_stats rows for a criterion (upsert on UNIQUE conflict)."""
-    lib.upsert_criterion_tool_stats(conn, criterion_id, task_id, stats)
+    lib.upsert_criterion_tool_stats(conn, criterion_id, task_id, stats, commit=commit)
 
 
 def cmd_criterion(conn, criterion_id: int, transcripts: list[str], write_only: bool) -> None:
@@ -474,6 +475,8 @@ def cmd_criterion(conn, criterion_id: int, transcripts: list[str], write_only: b
         return
 
     # For a shared-commit group, split stats evenly across N members and update all of them.
+    # Use commit=False so the tool_call_stats inserts and the AC cost UPDATE below land in
+    # one atomic transaction — a single conn.commit() at the end covers both writes.
     if n > 1:
         for s in stats.values():
             s["call_count"] = s["call_count"] // n
@@ -482,11 +485,12 @@ def cmd_criterion(conn, criterion_id: int, transcripts: list[str], write_only: b
             s["tokens_out"] //= n
             s["tokens_in"] //= n
         for gid in group_ids:
-            upsert_criterion_stats(conn, gid, task_id, stats)
+            upsert_criterion_stats(conn, gid, task_id, stats, commit=False)
     else:
-        upsert_criterion_stats(conn, criterion_id, task_id, stats)
+        upsert_criterion_stats(conn, criterion_id, task_id, stats, commit=False)
 
     # Refresh acceptance_criteria cost columns to match the recomputed (and possibly split) stats.
+    # This UPDATE and the tool_call_stats inserts above are committed together below.
     ac_cost = round(sum(s["total_cost"] for s in stats.values()), 8)
     ac_tokens_in = sum(s["tokens_in"] for s in stats.values())
     ac_tokens_out = sum(s["tokens_out"] for s in stats.values())
