@@ -74,7 +74,7 @@ fi
 
 **Key points:**
 
-- Wrap all DDL inside an explicit `BEGIN;` / `COMMIT;` block within the `sqlite3` call. SQLite does not wrap multi-statement scripts in a single implicit transaction — each statement auto-commits independently. Without `BEGIN`/`COMMIT`, a kill between `DROP TABLE` and `ALTER TABLE ... RENAME` permanently destroys the original table.
+- Wrap the entire table-recreation DDL block inside an explicit `BEGIN;` / `COMMIT;` block within the `sqlite3` call. SQLite does not wrap multi-statement scripts in a single implicit transaction — each statement auto-commits independently. Without `BEGIN`/`COMMIT`, a kill between `DROP TABLE` and `ALTER TABLE ... RENAME` permanently destroys the original table. (This requirement applies to table-recreation migrations only; trigger-only migrations do not need `BEGIN`/`COMMIT`.)
 - Steps 1 (drop triggers), 10 (regenerate triggers), and 11 (update DOMAIN.md) are separated: triggers are dropped inside the SQL transaction, regenerated afterward via the `generate_triggers` bash function, and DOMAIN.md is updated last as a manual step.
 - Always update `PRAGMA user_version` inside the SQL block, and update the `tusk init` fresh-DB version to match.
 - If the table has foreign keys pointing to it, SQLite will remap them automatically on `RENAME` as long as `PRAGMA foreign_keys` is OFF (the default for raw `sqlite3` calls).
