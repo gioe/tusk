@@ -500,7 +500,7 @@ def rule15_big_bang_commits(root):
     try:
         result = subprocess.run(
             [tusk_bin, "-header", "-column",
-             "SELECT t.id, t.summary, COUNT(ac.id) AS criteria_count "
+             "SELECT t.id, MIN(t.summary) AS summary, COUNT(ac.id) AS criteria_count "
              "FROM tasks t "
              "JOIN acceptance_criteria ac ON ac.task_id = t.id "
              "WHERE t.status = 'In Progress' "
