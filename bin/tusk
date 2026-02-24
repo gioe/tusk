@@ -742,8 +742,8 @@ CREATE TABLE review_comments (
     category TEXT,
     severity TEXT,
     comment TEXT NOT NULL,
-    resolution TEXT DEFAULT 'pending'
-        CHECK (resolution IN ('pending', 'fixed', 'deferred', 'dismissed')),
+    resolution TEXT DEFAULT NULL
+        CHECK (resolution IN ('fixed', 'deferred', 'dismissed')),
     deferred_task_id INTEGER,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),
@@ -819,7 +819,7 @@ CONV_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 29;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 30;"
 
   echo "Initialized task database at $DB_PATH"
 }
@@ -1822,6 +1822,59 @@ finally:
 PYEOF
     fi
     echo "  Migration 29: added conventions table"
+  fi
+
+  # Migration 29→30: drop pending from review_comments.resolution; NULL is now the unresolved sentinel
+  if [[ "$current" -lt 30 ]]; then
+    sqlite3 "$DB_PATH" "
+      -- 1. Drop validation triggers (they reference review_comments)
+      $(sqlite3 "$DB_PATH" "SELECT 'DROP TRIGGER IF EXISTS ' || name || ';' FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'validate_%';")
+
+      -- 2. Create new review_comments table without pending in resolution CHECK
+      CREATE TABLE review_comments_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          review_id INTEGER NOT NULL,
+          file_path TEXT,
+          line_start INTEGER,
+          line_end INTEGER,
+          category TEXT,
+          severity TEXT,
+          comment TEXT NOT NULL,
+          resolution TEXT DEFAULT NULL
+              CHECK (resolution IN ('fixed', 'deferred', 'dismissed')),
+          deferred_task_id INTEGER,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now')),
+          FOREIGN KEY (review_id) REFERENCES code_reviews(id) ON DELETE CASCADE,
+          FOREIGN KEY (deferred_task_id) REFERENCES tasks(id)
+      );
+
+      -- 3. Copy data, mapping pending -> NULL
+      INSERT INTO review_comments_new (id, review_id, file_path, line_start, line_end, category, severity, comment, resolution, deferred_task_id, created_at, updated_at)
+      SELECT id, review_id, file_path, line_start, line_end, category, severity, comment,
+          CASE WHEN resolution = 'pending' THEN NULL ELSE resolution END,
+          deferred_task_id, created_at, updated_at
+      FROM review_comments;
+
+      -- 4. Drop old table and rename new
+      DROP TABLE review_comments;
+      ALTER TABLE review_comments_new RENAME TO review_comments;
+
+      -- 5. Recreate index
+      CREATE INDEX idx_review_comments_review_id ON review_comments(review_id);
+
+      -- 6. Bump schema version
+      PRAGMA user_version = 30;
+    "
+
+    # 7. Regenerate validation triggers from config
+    local triggers
+    triggers="$(generate_triggers)"
+    if [[ -n "$triggers" ]]; then
+      sqlite3 "$DB_PATH" "$triggers"
+    fi
+
+    echo "  Migration 30: dropped pending from review_comments.resolution; NULL is now the unresolved sentinel"
   fi
 
   local final
