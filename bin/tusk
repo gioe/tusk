@@ -822,6 +822,20 @@ CREATE TABLE conventions (
 );
 CONV_SCHEMA
 
+  # Lint rules (DB-backed grep rules added by skills or users)
+  sqlite3 "$DB_PATH" <<'LINT_RULES_SCHEMA'
+CREATE TABLE lint_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    grep_pattern TEXT NOT NULL,
+    file_glob TEXT NOT NULL,
+    message TEXT NOT NULL,
+    is_blocking INTEGER NOT NULL DEFAULT 0,
+    source_skill TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    CHECK (is_blocking IN (0, 1))
+);
+LINT_RULES_SCHEMA
+
   # Apply validation triggers from config (after all tables are created)
   local triggers
   triggers="$(generate_triggers)"
@@ -830,7 +844,7 @@ CONV_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 30;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 31;"
 
   echo "Initialized task database at $DB_PATH"
 }
@@ -1888,6 +1902,30 @@ PYEOF
     echo "  Migration 30: dropped pending from review_comments.resolution; NULL is now the unresolved sentinel"
   fi
 
+  # Migration 30→31: add lint_rules table
+  if [[ "$current" -lt 31 ]]; then
+    local has_lint_rules
+    has_lint_rules="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='lint_rules';")"
+    if [[ "$has_lint_rules" -eq 0 ]]; then
+      sqlite3 "$DB_PATH" "
+        CREATE TABLE lint_rules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            grep_pattern TEXT NOT NULL,
+            file_glob TEXT NOT NULL,
+            message TEXT NOT NULL,
+            is_blocking INTEGER NOT NULL DEFAULT 0,
+            source_skill TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            CHECK (is_blocking IN (0, 1))
+        );
+        PRAGMA user_version = 31;
+      "
+    else
+      sqlite3 "$DB_PATH" "PRAGMA user_version = 31;"
+    fi
+    echo "  Migration 31: added lint_rules table"
+  fi
+
   local final
   final="$(sqlite3 "$DB_PATH" "PRAGMA user_version;")"
   if [[ "$final" -eq "$current" ]]; then
@@ -2247,6 +2285,7 @@ case "${1:-}" in
   branch) shift; exec python3 "$SCRIPT_DIR/tusk-branch.py" "$REPO_ROOT" "$@" ;;
   commit) shift; exec python3 "$SCRIPT_DIR/tusk-commit.py" "$REPO_ROOT" "$(resolve_config)" "$@" ;;
   lint)   shift; exec python3 "$SCRIPT_DIR/tusk-lint.py" "$REPO_ROOT" "$@" ;;
+  lint-rule) shift; exec python3 "$SCRIPT_DIR/tusk-lint-rules.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   dupes)  shift; exec python3 "$SCRIPT_DIR/tusk-dupes.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   criteria) shift; exec python3 "$SCRIPT_DIR/tusk-criteria.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   dashboard) shift; exec python3 "$SCRIPT_DIR/tusk-dashboard.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
@@ -2279,6 +2318,6 @@ case "${1:-}" in
   migrate) cmd_migrate ;;
   regen-triggers) cmd_regen_triggers ;;
   upgrade) cmd_upgrade ;;
-  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|commit|lint|dupes|deps|blockers|review|criteria|dag|dashboard|wsjf|conventions|setup|autoclose|token-audit|sync-skills|pricing-update|session-stats|session-recalc|session-close|skill-run|call-breakdown|task-start|task-done|task-insert|task-update|task-reopen|merge|progress|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
+  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|commit|lint|lint-rule|dupes|deps|blockers|review|criteria|dag|dashboard|wsjf|conventions|setup|autoclose|token-audit|sync-skills|pricing-update|session-stats|session-recalc|session-close|skill-run|call-breakdown|task-start|task-done|task-insert|task-update|task-reopen|merge|progress|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac
