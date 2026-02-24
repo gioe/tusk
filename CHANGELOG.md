@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [240] - 2026-02-24
+- `skills/retro/SKILL.md`: added FOCUS.md check to LR-1; custom categories replace A–D when file present; added Customization section documenting the hook
+- `skills/retro/FULL-RETRO.md`: added FOCUS.md check to Steps 1 and 3
+- `skills/retro/FOCUS.md.example`: new template showing default category format for user customization
+
 ## [239] - 2026-02-24
 - `tusk-setup.py`: removed `conventions` key from output (retro now creates lint-rule tasks instead of writing conventions)
 - `skills/retro/SKILL.md`, `FULL-RETRO.md`: replaced Category D conventions with lint-rule task creation; `/retro` now files tasks with `tusk lint-rule add` invocations instead of calling `tusk conventions add`
