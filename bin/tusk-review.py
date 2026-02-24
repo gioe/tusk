@@ -58,15 +58,20 @@ def cmd_start(args: argparse.Namespace, db_path: str, config_path: str) -> int:
             reviewers = [None]
 
         created_ids = []
-        for reviewer in reviewers:
+        for reviewer_item in reviewers:
+            # reviewer_item may be a dict {"name": ..., "description": ...} or a plain string/None
+            if isinstance(reviewer_item, dict):
+                reviewer_name = reviewer_item.get("name")
+            else:
+                reviewer_name = reviewer_item
             conn.execute(
                 "INSERT INTO code_reviews (task_id, reviewer, status, review_pass, diff_summary, agent_name)"
                 " VALUES (?, ?, 'pending', ?, ?, ?)",
-                (args.task_id, reviewer, args.pass_num, args.diff_summary, args.agent),
+                (args.task_id, reviewer_name, args.pass_num, args.diff_summary, args.agent),
             )
             conn.commit()
             rid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-            created_ids.append((rid, reviewer))
+            created_ids.append((rid, reviewer_name))
     finally:
         conn.close()
 
