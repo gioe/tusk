@@ -154,18 +154,32 @@ def main(argv: list[str]) -> int:
                     "SELECT id, started_at FROM task_sessions WHERE task_id = ? AND ended_at IS NULL ORDER BY id",
                     (task_id,),
                 ).fetchall()
+                if len(rows) == 0:
+                    closed_rows = conn.execute(
+                        "SELECT id FROM task_sessions WHERE task_id = ? AND ended_at IS NOT NULL ORDER BY id DESC LIMIT 1",
+                        (task_id,),
+                    ).fetchall()
+                else:
+                    closed_rows = []
         except sqlite3.Error as e:
             print(f"Error: Could not query sessions: {e}", file=sys.stderr)
             return 1
 
         if len(rows) == 0:
+            if len(closed_rows) == 0:
+                print(
+                    f"Error: No open session found for task {task_id}. "
+                    "Start a session with `tusk task-start` or pass --session <id> explicitly.",
+                    file=sys.stderr,
+                )
+                return 1
+            session_id = closed_rows[0][0]
             print(
-                f"Error: No open session found for task {task_id}. "
-                "Start a session with `tusk task-start` or pass --session <id> explicitly.",
+                f"Warning: No open session found for task {task_id}; "
+                f"falling back to last closed session {session_id}.",
                 file=sys.stderr,
             )
-            return 1
-        if len(rows) > 1:
+        elif len(rows) > 1:
             lines = "\n".join(f"  session {r[0]}  (started {r[1]})" for r in rows)
             print(
                 f"Error: Multiple open sessions found for task {task_id}:\n{lines}\n"
@@ -173,9 +187,9 @@ def main(argv: list[str]) -> int:
                 file=sys.stderr,
             )
             return 1
-
-        session_id = rows[0][0]
-        print(f"Auto-detected session {session_id} for task {task_id}.", file=sys.stderr)
+        else:
+            session_id = rows[0][0]
+            print(f"Auto-detected session {session_id} for task {task_id}.", file=sys.stderr)
 
     # Resolve merge mode (config can force PR mode)
     merge_mode = load_merge_mode(config_path)
