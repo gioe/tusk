@@ -42,9 +42,45 @@ Configurable fields:
 | `priorities` | Yes | Always validated |
 | `closed_reasons` | Yes | Always validated |
 | `agents` | No | Free-form object; no DB triggers |
+| `test_command` | No | Shell command run before each commit; empty string disables the gate |
 | `dupes.strip_prefixes` | No | Python-side only |
 | `dupes.check_threshold` | No | Python-side only (0.0–1.0) |
 | `dupes.similar_threshold` | No | Python-side only (0.0–1.0) |
+
+## Step 2b: Update test_command (if requested)
+
+If the user wants to update `test_command` (or if no specific changes were requested and you're presenting options), run this step.
+
+Read the current value:
+
+```bash
+tusk config test_command
+```
+
+Then scan the repo for test framework signals (check in this priority order):
+
+1. `package.json` present → suggest `npm test`
+2. `pyproject.toml` or `setup.py` present → suggest `pytest`
+3. `Cargo.toml` present → suggest `cargo test`
+4. `Makefile` present → check for a test target:
+   ```bash
+   grep -q "^test:" Makefile && echo "has_test_target"
+   ```
+   If `has_test_target` → suggest `make test`
+
+Present the current value and suggestion together:
+
+> Current `test_command`: **`<current value>`** *(empty = no gate)*
+>
+> Auto-detected: **`<suggested_command>`** *(or "none detected")*
+>
+> Options:
+> - **Keep current** — no change
+> - **Use detected** — set to `<suggested_command>`
+> - **Override** — enter a custom command
+> - **Clear** — remove the gate (set to empty string)
+
+Store the confirmed value. If the user chose "Keep current", skip the write for this field. Otherwise include it when writing config in Step 5.
 
 ## Step 3: Safety Checks for Removals
 
