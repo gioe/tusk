@@ -27,7 +27,7 @@ bin/tusk task-reopen <task_id> --force
 
 # Dev workflow
 bin/tusk branch <task_id> <slug>
-bin/tusk commit <task_id> "<message>" <file1> [file2 ...] [--criteria <id1> [<id2> ...]] [--skip-verify]
+bin/tusk commit <task_id> "<message>" <file1> [file2 ...] [--criteria <id>] ... [--skip-verify]
 bin/tusk merge <task_id> [--session <session_id>] [--pr --pr-number <N>]
 bin/tusk progress <task_id> [--next-steps "..."]
 
