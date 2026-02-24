@@ -16,7 +16,16 @@
   "review": {
     "mode": "disabled",
     "max_passes": 2,
-    "reviewers": []
+    "reviewers": [
+      {
+        "name": "security",
+        "description": "Focuses on security vulnerabilities: injection attacks, authentication bypass, data exposure, input validation gaps, secrets in code, and unsafe deserialization."
+      },
+      {
+        "name": "correctness",
+        "description": "Focuses on logic errors, incorrect behavior, edge cases, missing error handling, race conditions, and code that contradicts the acceptance criteria."
+      }
+    ]
   },
   "review_categories": ["must_fix", "suggest", "defer"],
   "review_severities": ["critical", "major", "minor"],
