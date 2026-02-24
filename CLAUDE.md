@@ -94,7 +94,7 @@ The config also includes a `review` block: `mode` (`"disabled"` or `"ai_only"`),
 
 See `DOMAIN.md` for the full schema, views, invariants, and status-transition rules.
 
-Ten tables: `tasks`, `task_dependencies`, `task_progress`, `task_sessions`, `acceptance_criteria`, `code_reviews`, `review_comments`, `skill_runs`, `tool_call_stats`, `conventions`. Five views: `task_metrics`, `v_ready_tasks`, `v_chain_heads`, `v_blocked_tasks`, `v_criteria_coverage`.
+Eleven tables: `tasks`, `task_dependencies`, `task_progress`, `task_sessions`, `acceptance_criteria`, `code_reviews`, `review_comments`, `skill_runs`, `tool_call_stats`, `conventions`, `lint_rules`. Five views: `task_metrics`, `v_ready_tasks`, `v_chain_heads`, `v_blocked_tasks`, `v_criteria_coverage`.
 
 ### Installation Model
 
