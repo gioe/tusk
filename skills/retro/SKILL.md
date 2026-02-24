@@ -10,14 +10,14 @@ Reviews the current conversation history to capture process learnings, instructi
 
 ## Step 0: Setup
 
-Fetch config, backlog, and conventions, then determine retro mode:
+Fetch config, backlog, then determine retro mode:
 
 ```bash
 tusk "SELECT complexity FROM tasks WHERE status = 'Done' ORDER BY updated_at DESC LIMIT 1"
 tusk setup
 ```
 
-Parse the JSON from `tusk setup`: use `config` for metadata assignment, `backlog` for duplicate comparison, and `conventions` for convention checks.
+Parse the JSON from `tusk setup`: use `config` for metadata assignment and `backlog` for duplicate comparison.
 
 - **XS or S** → follow the **Lightweight Retro** path below
 - **M, L, XL, or NULL** → read the full retro guide:
@@ -39,9 +39,7 @@ Analyze the full conversation context. Look for:
 - **Category A**: Process improvements — friction in skills, CLAUDE.md, tooling
 - **Category B**: Tangential issues — bugs, tech debt, architectural concerns discovered out of scope
 - **Category C**: Follow-up work — incomplete items, deferred decisions, edge cases
-- **Category D**: Conventions — generalizable project heuristics worth codifying (file coupling patterns, decomposition rules, naming conventions, workflow patterns that recur across sessions)
-
-Category D examples: "bin/tusk-*.py always needs a dispatcher entry in bin/tusk", "schema migrations require bumping both user_version and tusk init", "skills that INSERT tasks must run dupe check first".
+- **Category D**: Lint Rules — concrete, grep-detectable anti-patterns observed in this session (max 3). Only include if an actual mistake occurred that a grep rule could prevent — e.g., calling a deprecated command, using a wrong pattern in a specific file type. Do NOT include general advice or style preferences.
 
 If **all categories are empty**, report "Clean session — no findings" and stop. (Config and backlog were already fetched in Step 0 — no additional work needed.)
 
@@ -63,23 +61,20 @@ If **all categories are empty**, report "Clean session — no findings" and stop
    ```
    Always include at least one `--criteria` flag — derive 1–3 concrete acceptance criteria from the task description. Omit `--domain` or `--assignee` entirely if the value is NULL/empty. Exit code 1 means duplicate — skip. Skip subsumption and dependency proposals.
 
-### LR-2b: Write Conventions (only if Category D has findings)
+### LR-2b: Create Lint Rule Tasks (only if Category D has findings)
 
-For each Category D finding, check whether it is already captured in the `conventions` string from Step 0.
+For each Category D finding, create a task whose description contains the exact `tusk lint-rule add` invocation. The retro identifies the pattern and files; the implementing agent runs the command.
 
-Skip any convention whose meaning is already present (even if worded differently). For each new convention, insert it into the DB:
+The bar is high — only create a lint rule task if you observed an **actual mistake** that a grep rule would have caught. Do not create lint rule tasks for general advice.
 
 ```bash
-CONV_TEXT=$(cat << 'CONVEOF'
-## <short title>
-
-<one-to-two sentence description of the convention and when it applies>
-CONVEOF
-)
-tusk conventions add "$CONV_TEXT" --source retro
+tusk task-insert "Add lint rule: <short description>" \
+  "Run: tusk lint-rule add '<pattern>' '<file_glob>' '<message>'" \
+  --priority "Low" --task-type "chore" --complexity "XS" \
+  --criteria "tusk lint-rule add has been run with the specified pattern, glob, and message"
 ```
 
-The DB records `created_at` automatically. Do not append to `tusk/conventions.md` — the DB is now the source of truth.
+Fill in `<pattern>` (grep regex), `<file_glob>` (e.g., `*.md` or `bin/tusk-*.py`), and `<message>` (human-readable warning) with the specific values from your finding.
 
 ### LR-3: Report
 
@@ -87,9 +82,9 @@ The DB records `created_at` automatically. Do not append to `tusk/conventions.md
 ## Retrospective Complete (Lightweight)
 
 **Session**: <what was accomplished>
-**Findings**: X total (A process / B tangential / C follow-up / D conventions)
+**Findings**: X total (A process / B tangential / C follow-up / D lint rules)
 **Created**: N tasks (#id, #id)
-**Conventions written**: K new (L skipped as duplicates)
+**Lint rule tasks created**: K
 **Skipped**: M duplicates
 ```
 

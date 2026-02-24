@@ -11,13 +11,13 @@ Analyze the full conversation context. Look for:
 - **Tangential issues** — test failures, tech debt, bugs discovered out of scope
 - **Incomplete work** — deferred decisions, TODOs, partial implementations
 - **Failed approaches** — strategies that didn't work and why
-- **Conventions** — generalizable heuristics: file coupling patterns, decomposition rules, naming conventions, workflow patterns that recur across sessions
+- **Lint Rules** — concrete, grep-detectable anti-patterns observed in this session (max 3). Only if an actual mistake occurred that a grep rule could prevent.
 
 Review the entire session, not just the most recent messages.
 
 ## Step 2: Config, Backlog, and Conventions
 
-Use the JSON already fetched via `tusk setup` in Step 0 of the retro skill: `config` for metadata assignment, `backlog` for semantic duplicate comparison in Step 3, and `conventions` for Step 5d.
+Use the JSON already fetched via `tusk setup` in Step 0 of the retro skill: `config` for metadata assignment and `backlog` for semantic duplicate comparison in Step 3.
 
 ## Step 3: Categorize Findings
 
@@ -26,7 +26,7 @@ Organize into four categories:
 - **A**: Process improvements — skill/CLAUDE.md/tooling friction, confusing instructions, missing conventions
 - **B**: Tangential issues — out-of-scope bugs, tech debt, architectural concerns
 - **C**: Follow-up work — incomplete items, deferred decisions, edge cases
-- **D**: Conventions — generalizable heuristics (file coupling, decomposition rules, naming). Written to DB via `tusk conventions add`, not filed as tasks.
+- **D**: Lint Rules — concrete, grep-detectable anti-patterns (max 3). Only if an actual mistake occurred that a grep rule could prevent. Filed as tasks, not written directly.
 
 If a category has no findings, note that explicitly — an empty category is a positive signal.
 
@@ -132,23 +132,20 @@ Present a numbered table for approval:
 
 Then insert approved dependencies with `tusk deps add <task_id> <depends_on_id> [--type contingent]`.
 
-### 5d: Write Conventions (only if Category D has findings)
+### 5d: Create Lint Rule Tasks (only if Category D has findings)
 
-Check the `conventions` string from Step 0 (passed through Step 2) to avoid duplicates.
+For each Category D finding, create a task whose description contains the exact `tusk lint-rule add` invocation. The retro identifies the pattern and files; the implementing agent runs the command.
 
-Skip any convention whose meaning is already captured (even if worded differently). For each new convention, insert it into the DB:
+The bar is high — only create a lint rule task if you observed an **actual mistake** that a grep rule would have caught. Do not create lint rule tasks for general advice.
 
 ```bash
-CONV_TEXT=$(cat << 'CONVEOF'
-## <short title>
-
-<one-to-two sentence description of the convention and when it applies>
-CONVEOF
-)
-tusk conventions add "$CONV_TEXT" --source retro
+tusk task-insert "Add lint rule: <short description>" \
+  "Run: tusk lint-rule add '<pattern>' '<file_glob>' '<message>'" \
+  --priority "Low" --task-type "chore" --complexity "XS" \
+  --criteria "tusk lint-rule add has been run with the specified pattern, glob, and message"
 ```
 
-The DB records `created_at` automatically. Do not append to `tusk/conventions.md` — the DB is now the source of truth.
+Fill in `<pattern>` (grep regex), `<file_glob>` (e.g., `*.md` or `bin/tusk-*.py`), and `<message>` (human-readable warning) with the specific values from your finding.
 
 ## Step 6: Report Results
 
@@ -156,9 +153,9 @@ The DB records `created_at` automatically. Do not append to `tusk/conventions.md
 ## Retrospective Complete
 
 **Session**: <what was accomplished>
-**Findings**: A process / B tangential / C follow-up / D conventions
+**Findings**: A process / B tangential / C follow-up / D lint rules
 **Created**: N tasks (#id, #id)
-**Conventions written**: K new (L skipped as duplicates)
+**Lint rule tasks created**: K
 **Subsumed**: S findings into existing tasks (#id)
 **Dependencies added**: D (if any were created)
 **Skipped**: M duplicates
