@@ -266,6 +266,22 @@ A generalizable project heuristic written by `/retro` after each session. Replac
 
 ---
 
+### Lint Rule
+
+A DB-backed grep rule that `tusk lint` runs alongside its hardcoded rules. Rules are managed via `tusk lint-rule add/list/remove` and created by skills or users. Advisory rules emit `WARN [ADVISORY]`; blocking rules contribute to the non-zero exit code.
+
+| Attribute | Type | Constraints | Description |
+|-----------|------|-------------|-------------|
+| `id` | INTEGER | PK, autoincrement | Stable identifier |
+| `grep_pattern` | TEXT | NOT NULL | Extended regex pattern (`grep -E`) to search for |
+| `file_glob` | TEXT | NOT NULL | Glob pattern for files to search (e.g. `**/*.py`, `skills/**/*.md`) |
+| `message` | TEXT | NOT NULL | Violation message shown when the pattern is found |
+| `is_blocking` | INTEGER | CHECK IN (0, 1); NOT NULL, default 0 | 1 = counts toward lint exit code; 0 = advisory warning only |
+| `source_skill` | TEXT | nullable | Skill that created this rule (e.g. `lint-conventions`) |
+| `created_at` | TEXT | default now | When the rule was added |
+
+---
+
 ## Status Transitions
 
 Task `status` follows a one-way lifecycle. The `validate_status_transition` trigger (in `bin/tusk`, recreated by `tusk regen-triggers`) enforces this graph:
