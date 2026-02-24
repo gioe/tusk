@@ -15,6 +15,13 @@ Steps:
     3. git add the specified files
     4. git commit with [TASK-<id>] <message> format and Co-Authored-By trailer
     5. For each criterion ID passed via --criteria, call tusk criteria done <id> (captures HEAD automatically)
+
+Exit codes:
+    0 — success
+    1 — usage or validation error (bad arguments, invalid task ID, etc.)
+    2 — test_command failed (nothing was staged or committed)
+    3 — git add or git commit failed
+    4 — one or more criteria could not be marked done (commit itself succeeded)
 """
 
 import json
@@ -129,14 +136,14 @@ def main(argv: list[str]) -> int:
     result = run(["git", "add"] + files, check=False)
     if result.returncode != 0:
         print(f"Error: git add failed:\n{result.stderr.strip()}", file=sys.stderr)
-        return 2
+        return 3
 
     # ── Step 4: Commit ───────────────────────────────────────────────
     full_message = f"[TASK-{task_id}] {message}\n\n{TRAILER}"
     result = run(["git", "commit", "-m", full_message], check=False)
     if result.returncode != 0:
         print(f"Error: git commit failed:\n{result.stderr.strip()}", file=sys.stderr)
-        return 2
+        return 3
 
     print(result.stdout.strip())
 
@@ -165,7 +172,7 @@ def main(argv: list[str]) -> int:
             "check the output above and mark them manually with: tusk criteria done <id>",
             file=sys.stderr,
         )
-        return 3
+        return 4
 
     return 0
 

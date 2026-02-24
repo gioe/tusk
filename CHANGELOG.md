@@ -6,6 +6,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [234] - 2026-02-24
+- `bin/tusk-commit.py`: use distinct exit codes — `2` = test_command failed, `3` = git add/commit failed, `4` = criteria marking failed (was all `2` except criteria which was `3`); document exit codes in module docstring
+
 ## [233] - 2026-02-24
 - `config.default.json`: added `test_command` top-level key (empty string default = disabled)
 - `bin/tusk`: added `test_command` to `KNOWN_KEYS` in `validate_config`; added validation block ensuring `test_command` is a string when present
