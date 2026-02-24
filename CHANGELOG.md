@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [239] - 2026-02-24
+- `tusk-setup.py`: removed `conventions` key from output (retro now creates lint-rule tasks instead of writing conventions)
+- `skills/retro/SKILL.md`, `FULL-RETRO.md`: replaced Category D conventions with lint-rule task creation; `/retro` now files tasks with `tusk lint-rule add` invocations instead of calling `tusk conventions add`
+- `skills/create-task/SKILL.md`: removed conventions preamble context from Step 2
+- `bin/tusk`: `conventions add` now emits a deprecation warning
+
 ## [238] - 2026-02-24
 - `bin/tusk`: added `lint_rules` table to `cmd_init`; migration 30→31 adds the table to existing DBs; new `lint-rule` dispatcher entry
 - `bin/tusk-lint-rules.py`: new script implementing `tusk lint-rule add/list/remove` commands
