@@ -116,7 +116,7 @@ def main(argv: list[str]) -> int:
     test_cmd = load_test_command(config_path)
     if test_cmd and not skip_verify:
         print(f"=== Running test_command: {test_cmd} ===")
-        test = subprocess.run(test_cmd, shell=True, capture_output=False)
+        test = subprocess.run(test_cmd, shell=True, capture_output=False, cwd=repo_root)
         if test.returncode != 0:
             print(
                 f"\nError: test_command failed (exit {test.returncode}) — aborting commit",
