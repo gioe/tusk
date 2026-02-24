@@ -14,6 +14,9 @@ You are a code reviewer agent. Your job is to analyze a git diff for task #{task
 - Review ID:  {review_id}
 - Reviewer:   {reviewer_name}
 
+**Your focus area:**
+{reviewer_focus}
+
 **Review categories** (use exactly these values when adding comments):
 {review_categories}
 
