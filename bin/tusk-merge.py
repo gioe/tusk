@@ -11,7 +11,8 @@ Arguments received from tusk:
 
 If --session is omitted, the open session for the task is auto-detected:
   - Exactly one open session → use it
-  - No open sessions → error with helpful message
+  - No open sessions, but closed one exists → use most-recent closed session (warning)
+  - No open sessions, no closed sessions → error with helpful message
   - Multiple open sessions → error listing all of them
 
 Default behavior (merge.mode = local):
