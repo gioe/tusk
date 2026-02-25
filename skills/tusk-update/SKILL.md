@@ -208,5 +208,5 @@ Run `tusk validate` as the canonical final check after all writes and trigger re
 tusk validate
 ```
 
-- If `tusk validate` **fails**: show the full output to the user.
+- If `tusk validate` **fails**: show the full output to the user and warn that the configuration or database may have issues.
 - If `tusk validate` **passes**: report "✓ Configuration updated and validated successfully."
