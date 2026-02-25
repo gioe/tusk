@@ -8,6 +8,8 @@ allowed-tools: Bash, Task, Read, Edit, Write, Grep, Glob
 
 The primary interface for working with tasks from the project task database (via `tusk` CLI). Use this to get the next task, start working on it, and manage the full development workflow.
 
+> **Prefer `/create-task` for all task creation.** It handles decomposition, deduplication, acceptance criteria generation, and dependency proposals in one workflow. Use `bin/tusk task-insert` directly only when scripting bulk inserts or in automated contexts where the interactive review step is not applicable.
+
 ## Setup: Discover Project Config
 
 Before any operation that needs domain or agent values, run:
