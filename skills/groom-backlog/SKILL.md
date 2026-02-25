@@ -8,6 +8,8 @@ allowed-tools: Bash, Glob, Grep, Read
 
 Grooms the local task database by identifying completed, redundant, incorrectly prioritized, or unassigned tasks.
 
+> **Prefer `/create-task` for all task creation.** It handles decomposition, deduplication, acceptance criteria generation, and dependency proposals in one workflow. Use `bin/tusk task-insert` directly only when scripting bulk inserts or in automated contexts where the interactive review step is not applicable.
+
 ## Step 0: Start Cost Tracking
 
 Record the start of this groom run so cost can be captured at the end:

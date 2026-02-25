@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [248] - 2026-02-24
+
+### Changed
+- `/groom-backlog` skill: added convention note encouraging `/create-task` as the default for all task creation over raw `bin/tusk task-insert`
+
 ## [247] - 2026-02-24
 
 ### Changed
