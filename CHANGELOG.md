@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [250] - 2026-02-24
+
+### Changed
+- `/chain` skill: added convention note encouraging `/create-task` as the default for all task creation over raw `bin/tusk task-insert`
+
 ## [249] - 2026-02-24
 
 ### Changed

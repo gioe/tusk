@@ -8,6 +8,8 @@ allowed-tools: Bash, Task, Read, Glob, Grep
 
 Orchestrates parallel execution of a dependency sub-DAG. Validates the head task(s), displays the scope tree, executes the head task(s) first, then spawns parallel background agents wave-by-wave for each frontier of ready tasks until the entire chain is complete.
 
+> **Prefer `/create-task` for all task creation.** It handles decomposition, deduplication, acceptance criteria generation, and dependency proposals in one workflow. Use `bin/tusk task-insert` directly only when scripting bulk inserts or in automated contexts where the interactive review step is not applicable.
+
 ## Arguments
 
 Accepts one or more head task IDs: `/chain <head_task_id1> [<head_task_id2> ...]`
