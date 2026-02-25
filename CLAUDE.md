@@ -83,7 +83,6 @@ The config also includes a `review` block: `mode` (`"disabled"` or `"ai_only"`),
 - **`/reconfigure`** — Update config post-install without losing data
 - **`/tusk-init`** — Interactive setup wizard
 - **`/dashboard`** — HTML task dashboard with per-task metrics
-- **`/token-audit`** — Skill token consumption analysis
 - **`/tusk-insights`** — Read-only DB health audit
 - **`/resume-task`** — Recover session from branch name + progress log
 - **`/chain`** — Parallel dependency sub-DAG execution (one or more head IDs)
