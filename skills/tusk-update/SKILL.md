@@ -46,6 +46,11 @@ Configurable fields:
 | `dupes.strip_prefixes` | No | Python-side only |
 | `dupes.check_threshold` | No | Python-side only (0.0–1.0) |
 | `dupes.similar_threshold` | No | Python-side only (0.0–1.0) |
+| `review.mode` | No | `"disabled"` or `"ai_only"`; config-side only |
+| `review.max_passes` | No | Integer; max fix-and-re-review cycles; config-side only |
+| `review.reviewers` | No | Array of `{name, description}` objects; config-side only |
+| `review_categories` | Yes | Valid comment categories; empty array disables validation |
+| `review_severities` | Yes | Valid severity levels; empty array disables validation |
 
 ## Step 2b: Update test_command (if requested)
 
