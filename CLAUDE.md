@@ -80,7 +80,7 @@ The config also includes a `review` block: `mode` (`"disabled"` or `"ai_only"`),
 - **`/groom-backlog`** — Auto-close expired tasks, dedup, re-prioritize backlog
 - **`/create-task`** — Decompose freeform text into structured tasks
 - **`/retro`** — Post-session retrospective; surfaces improvements and writes conventions
-- **`/reconfigure`** — Update config post-install without losing data
+- **`/tusk-update`** — Update config post-install without losing data
 - **`/tusk-init`** — Interactive setup wizard
 - **`/dashboard`** — HTML task dashboard with per-task metrics
 - **`/tusk-insights`** — Read-only DB health audit

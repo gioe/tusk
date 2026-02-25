@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [245] - 2026-02-24
+
+### Changed
+- [TASK-396] Renamed `/reconfigure` skill to `/tusk-update` — moved `skills/reconfigure/` to `skills/tusk-update/`, updated frontmatter `name` field, regenerated symlink via `tusk sync-skills`, and updated all references in `CLAUDE.md`
+
 ## [244] - 2026-02-25
 
 ### Changed
