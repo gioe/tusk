@@ -69,7 +69,6 @@ except FileNotFoundError as _e:
 get_connection = _data.get_connection
 fetch_task_metrics = _data.fetch_task_metrics
 fetch_kpi_data = _data.fetch_kpi_data
-fetch_cost_by_domain = _data.fetch_cost_by_domain
 fetch_all_criteria = _data.fetch_all_criteria
 fetch_task_dependencies = _data.fetch_task_dependencies
 fetch_dag_tasks = _data.fetch_dag_tasks
@@ -83,40 +82,32 @@ fetch_tool_call_stats_global = _data.fetch_tool_call_stats_global
 fetch_cost_trend = _data.fetch_cost_trend
 fetch_cost_trend_daily = _data.fetch_cost_trend_daily
 fetch_cost_trend_monthly = _data.fetch_cost_trend_monthly
-fetch_complexity_metrics = _data.fetch_complexity_metrics
-fetch_velocity = _data.fetch_velocity
-
 # HTML generation layer
 generate_css = _html.generate_css
 generate_header = _html.generate_header
 generate_footer = _html.generate_footer
-generate_kpi_cards = _html.generate_kpi_cards
 generate_skill_runs_section = _html.generate_skill_runs_section
-generate_global_tool_costs_section = _html.generate_global_tool_costs_section
-generate_charts_section = _html.generate_charts_section
+
+generate_cost_trend_section = _html.generate_cost_trend_section
 generate_filter_bar = _html.generate_filter_bar
 generate_table_header = _html.generate_table_header
-generate_table_footer = _html.generate_table_footer
 generate_pagination = _html.generate_pagination
-generate_velocity_section = _html.generate_velocity_section
-generate_complexity_section = _html.generate_complexity_section
 generate_dag_section = _html.generate_dag_section
 generate_js = _html.generate_js
 generate_task_row = _html.generate_task_row
 
 
-def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = None,
+def generate_html(task_metrics: list[dict],
                   cost_trend: list[dict] = None, all_criteria: dict[int, list[dict]] = None,
                   cost_trend_daily: list[dict] = None, cost_trend_monthly: list[dict] = None,
-                  task_deps: dict[int, dict] = None, kpi_data: dict = None,
-                  cost_by_domain: list[dict] = None, version: str = "",
+                  task_deps: dict[int, dict] = None,
+                  version: str = "",
                   dag_tasks: list[dict] = None, dag_edges: list[dict] = None,
                   dag_blockers: list[dict] = None, skill_runs: list[dict] = None,
                   tool_call_per_task: list[dict] = None,
                   tool_call_per_skill_run: list[dict] = None,
                   tool_call_per_criterion: list[dict] = None,
-                  tool_call_global: list[dict] = None,
-                  velocity: list[dict] = None) -> str:
+                  tool_call_global: list[dict] = None) -> str:
     """Generate the full HTML dashboard by composing sub-functions."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -182,30 +173,20 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
                 enriched.append(ec)
             criteria_json[tid] = {
                 "criteria": enriched,
+                "task_tool_stats": tool_stats_by_task.get(tid, []),
+                "task_total_cost": t["total_cost"],
             }
     _criteria_json_str = json.dumps(criteria_json).replace("</", "<\\/")
     criteria_script = f'<script>window.CRITERIA_DATA = {_criteria_json_str};</script>'
 
-    # KPI cards
-    kpi_html = generate_kpi_cards(kpi_data) if kpi_data else ""
-
-    # Velocity card
-    velocity_html = generate_velocity_section(velocity or [])
-
-    # Skill run costs section
+    # All Runs table → Skills tab
     skill_runs_html = generate_skill_runs_section(skill_runs or [], tool_stats_by_run)
 
-    # Project-wide tool cost aggregate
-    global_tool_costs_html = generate_global_tool_costs_section(tool_call_global or [])
-
-    # Charts
-    charts_html = generate_charts_section(
+    # Unified cost trend chart (Tasks/Skills toggle → Cost tab)
+    cost_trend_html = generate_cost_trend_section(
         cost_trend or [], cost_trend_daily or [], cost_trend_monthly or [],
-        cost_by_domain or []
+        skill_runs or []
     )
-
-    # Complexity
-    complexity_html = generate_complexity_section(complexity_metrics)
 
     # DAG section
     dag_html = generate_dag_section(
@@ -217,8 +198,6 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
     footer = generate_footer(now, version)
     filter_bar = generate_filter_bar()
     table_header = generate_table_header()
-    table_footer = generate_table_footer(total_sessions, total_duration, total_lines_added,
-                                         total_lines_removed, total_tokens_in, total_tokens_out, total_cost)
     pagination = generate_pagination()
     js = generate_js()
 
@@ -265,9 +244,6 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
 
 <div id="tab-dashboard" class="tab-panel active">
   <div class="container">
-    {kpi_html}
-    {velocity_html}
-    {charts_html}
     <div class="panel">
       {filter_bar}
       <table id="metricsTable">
@@ -275,10 +251,9 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
         <tbody id="metricsBody">
           {task_rows}
         </tbody>
-        {table_footer}
       </table>
       {pagination}
-    </div>{complexity_html}
+    </div>
   </div>
 </div>
 
@@ -288,8 +263,13 @@ def generate_html(task_metrics: list[dict], complexity_metrics: list[dict] = Non
 
 <div id="tab-skills" class="tab-panel">
   <div class="container">
-    {global_tool_costs_html}
     {skill_runs_html}
+  </div>
+</div>
+
+<div id="tab-cost" class="tab-panel">
+  <div class="container">
+    {cost_trend_html}
   </div>
 </div>
 
@@ -331,9 +311,6 @@ def main():
     conn = get_connection(db_path)
     try:
         task_metrics = fetch_task_metrics(conn)
-        kpi_data = fetch_kpi_data(conn)
-        cost_by_domain = fetch_cost_by_domain(conn)
-        complexity_metrics = fetch_complexity_metrics(conn)
         cost_trend = fetch_cost_trend(conn)
         cost_trend_daily = fetch_cost_trend_daily(conn)
         cost_trend_monthly = fetch_cost_trend_monthly(conn)
@@ -353,12 +330,8 @@ def main():
         tool_call_per_criterion = fetch_tool_call_stats_per_criterion(conn)
         # Project-wide tool call stats (for Skills tab aggregate view)
         tool_call_global = fetch_tool_call_stats_global(conn)
-        # Velocity data (tasks completed per week)
-        velocity = fetch_velocity(conn)
     finally:
         conn.close()
-
-    log.debug("Cost by domain: %s", cost_by_domain)
 
     # Read VERSION — check script dir first, then repo root (parent of DB dir)
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -375,13 +348,12 @@ def main():
 
     # Generate HTML
     html_content = generate_html(
-        task_metrics, complexity_metrics, cost_trend, all_criteria,
-        cost_trend_daily, cost_trend_monthly, task_deps, kpi_data,
-        cost_by_domain, version,
+        task_metrics, cost_trend, all_criteria,
+        cost_trend_daily, cost_trend_monthly, task_deps,
+        version,
         dag_tasks, dag_edges, dag_blockers, skill_runs,
         tool_call_per_task, tool_call_per_skill_run,
         tool_call_per_criterion, tool_call_global,
-        velocity=velocity
     )
     log.debug("Generated %d bytes of HTML", len(html_content))
 

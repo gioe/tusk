@@ -212,13 +212,6 @@ tr.muted td {
   color: var(--text-muted);
 }
 
-tfoot td {
-  padding: var(--sp-3) var(--sp-4);
-  border-top: 2px solid var(--border);
-  font-weight: 700;
-  font-size: var(--text-sm);
-}
-
 .col-id {
   white-space: nowrap;
   color: var(--text-muted);
@@ -473,6 +466,30 @@ html[data-theme="dark"] .dep-type-contingent {
   color: var(--text-muted);
 }
 
+/* Cost trend controls row */
+.cost-trend-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cost-toggle-label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin-right: 0.1rem;
+}
+
+.cost-controls-sep {
+  display: inline-block;
+  width: 1px;
+  height: 1rem;
+  background: var(--border);
+  margin: 0 0.25rem;
+}
+
 /* Cost trend tabs */
 .cost-trend-tabs {
   display: flex;
@@ -500,6 +517,20 @@ html[data-theme="dark"] .dep-type-contingent {
   background: var(--accent);
   color: #fff;
   border-color: var(--accent);
+}
+
+/* Cost trend sub-sections */
+.cost-section {
+  border-top: 1px solid var(--border);
+}
+
+.cost-section-label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding: var(--sp-3) var(--sp-4);
 }
 
 /* Collapsible criteria rows */
@@ -536,6 +567,12 @@ tr.expandable.expanded .expand-icon {
   padding: 0.25rem 0;
   font-size: 0.8rem;
   display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.criterion-item-row {
+  display: flex;
   align-items: baseline;
   gap: 0.4rem;
 }
@@ -564,7 +601,7 @@ tr.expandable.expanded .expand-icon {
   transition: opacity 0.15s;
 }
 
-.criterion-item:hover .criterion-id {
+.criterion-item:hover .criterion-item-row .criterion-id {
   opacity: 1;
 }
 
@@ -580,14 +617,6 @@ tr.expandable.expanded .expand-icon {
   flex-shrink: 0;
 }
 
-.criterion-source {
-  font-size: 0.65rem;
-  font-weight: 600;
-  padding: 0.1rem 0.35rem;
-  border-radius: var(--radius-sm);
-  background: var(--bg-subtle);
-  color: var(--text-muted);
-}
 
 .criterion-cost {
   font-size: 0.65rem;
@@ -599,16 +628,6 @@ tr.expandable.expanded .expand-icon {
   font-variant-numeric: tabular-nums;
 }
 
-.criterion-time {
-  font-size: 0.65rem;
-  font-weight: 600;
-  padding: 0.1rem 0.35rem;
-  border-radius: var(--radius-sm);
-  background: var(--accent-light);
-  color: #1e40af;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
 
 .criterion-commit {
   font-size: 0.65rem;
@@ -639,53 +658,7 @@ html[data-theme="dark"] .criterion-cost {
   background: var(--success-light);
   color: #86efac;
 }
-html[data-theme="dark"] .criterion-time {
-  background: var(--accent-light);
-  color: #93c5fd;
-}
 
-.criterion-type {
-  font-size: 0.65rem;
-  font-weight: 600;
-  padding: 0.1rem 0.35rem;
-  border-radius: var(--radius-sm);
-  background: #f3e8ff;
-  color: #7c3aed;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.criterion-type-code {
-  background: var(--warning-light);
-  color: var(--warning);
-}
-
-.criterion-type-test {
-  background: var(--success-light);
-  color: var(--success);
-}
-
-.criterion-type-file {
-  background: var(--accent-light);
-  color: #1e40af;
-}
-
-html[data-theme="dark"] .criterion-type {
-  background: #4c1d95;
-  color: #c4b5fd;
-}
-html[data-theme="dark"] .criterion-type-code {
-  background: var(--warning-light);
-  color: var(--warning);
-}
-html[data-theme="dark"] .criterion-type-test {
-  background: var(--success-light);
-  color: var(--success);
-}
-html[data-theme="dark"] .criterion-type-file {
-  background: var(--accent-light);
-  color: #93c5fd;
-}
 
 /* Criteria sort bar */
 .criteria-sort-bar {
@@ -744,54 +717,6 @@ html[data-theme="dark"] .criterion-type-file {
   font-style: italic;
 }
 
-/* Criteria view mode buttons */
-.criteria-view-modes {
-  display: flex;
-  gap: 0;
-}
-
-.criteria-view-btn {
-  font-size: 0.7rem;
-  font-weight: 600;
-  padding: 0.15rem 0.45rem;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  user-select: none;
-  transition: all 0.15s;
-  white-space: nowrap;
-}
-
-.criteria-view-btn:first-child {
-  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
-}
-
-.criteria-view-btn:last-child {
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-}
-
-.criteria-view-btn:not(:first-child) {
-  border-left: none;
-}
-
-.criteria-view-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.criteria-view-btn.active {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
-}
-
-.criteria-sort-sep {
-  width: 1px;
-  height: 1em;
-  background: var(--border);
-  margin: 0 0.2rem;
-}
 
 /* Criteria type groups */
 .criteria-type-group {
@@ -898,24 +823,9 @@ html[data-theme="dark"] .criterion-type-file {
   margin-left: 0.4rem;
 }
 
-.criteria-group-tokens {
-  font-size: 0.65rem;
-  font-weight: 600;
-  padding: 0.1rem 0.35rem;
-  border-radius: var(--radius-sm);
-  background: var(--accent-light);
-  color: #1e40af;
-  font-variant-numeric: tabular-nums;
-  margin-left: 0.3rem;
-}
-
 html[data-theme="dark"] .criteria-group-cost {
   background: var(--success-light);
   color: #86efac;
-}
-html[data-theme="dark"] .criteria-group-tokens {
-  background: var(--accent-light);
-  color: #93c5fd;
 }
 
 .criteria-group-items {
@@ -934,34 +844,6 @@ html[data-theme="dark"] .criteria-group-tokens {
   padding: var(--sp-3) var(--sp-4);
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
-}
-
-.filter-chips {
-  display: flex;
-  gap: 0.35rem;
-}
-
-.filter-chip {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  padding: 0.25rem 0.65rem;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.filter-chip:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.filter-chip.active {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
 }
 
 .search-input {
@@ -1146,7 +1028,7 @@ html:not([data-theme]) .theme-toggle .icon-moon { display: inline; }
   box-shadow: var(--shadow-md);
   border-color: var(--accent);
 }
-.filter-chip, .cost-tab, .page-btn, .criteria-sort-btn {
+.cost-tab, .page-btn, .criteria-sort-btn {
   transition: all 0.15s;
 }
 tbody tr {
@@ -1508,4 +1390,51 @@ tbody tr {
 .tc-task-panel > summary::-webkit-details-marker { display: none; }
 .tc-task-panel > summary::marker { display: none; }
 .tc-task-panel--bordered { border-top: 1px solid var(--border); }
+
+/* Per-criterion tool cost panel */
+.cr-tool-panel {
+  margin-top: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  overflow: hidden;
+}
+.cr-tool-panel > summary::-webkit-details-marker { display: none; }
+.cr-tool-panel > summary::marker { display: none; }
+.cr-tool-panel-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  list-style: none;
+}
+.cr-tool-panel-arrow {
+  font-size: 0.55rem;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.cr-tool-panel[open] .cr-tool-panel-arrow {
+  transform: rotate(90deg);
+}
+.cr-tool-panel-label {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.cr-tool-panel-total {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text);
+}
+.cr-tool-panel-body {
+  overflow-x: auto;
+  border-top: 1px solid var(--border);
+  padding: 0 0.5rem 0.4rem;
+}
 """

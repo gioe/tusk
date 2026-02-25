@@ -14,35 +14,23 @@ JS: str = """\
   });
   var filtered = allRows.slice();
   var currentPage = 1;
-  var pageSize = 25;
-  var sortCol = 13;
+  var pageSize = 10;
+  var sortCol = 2;
   var sortAsc = false;
   var statusFilter = 'All';
   var searchTerm = '';
-  var domainFilter = '';
   var complexityFilter = '';
-  var typeFilter = '';
 
-  var headers = document.querySelectorAll('#metricsTable thead th');
-  var chips = document.querySelectorAll('#statusFilters .filter-chip');
+  var headers = document.querySelectorAll('#metricsTable > thead th');
+  var statusSelect = document.getElementById('statusFilter');
   var searchInput = document.getElementById('searchInput');
-  var domainSelect = document.getElementById('domainFilter');
   var complexitySelect = document.getElementById('complexityFilter');
-  var typeSelect = document.getElementById('typeFilter');
   var filterBadge = document.getElementById('filterBadge');
   var clearBtn = document.getElementById('clearFilters');
   var pageSizeEl = document.getElementById('pageSize');
   var prevBtn = document.getElementById('prevPage');
   var nextBtn = document.getElementById('nextPage');
   var pageInfo = document.getElementById('pageInfo');
-  var footerLabel = document.getElementById('footerLabel');
-  var footerSessions = document.getElementById('footerSessions');
-  var footerDuration = document.getElementById('footerDuration');
-  var footerLines = document.getElementById('footerLines');
-  var footerIn = document.getElementById('footerTokensIn');
-  var footerOut = document.getElementById('footerTokensOut');
-  var footerCost = document.getElementById('footerCost');
-
   // Populate dropdown options from row data
   function populateSelect(select, attr, placeholder) {
     var values = {};
@@ -78,9 +66,7 @@ JS: str = """\
     });
   }
 
-  populateSelect(domainSelect, 'data-domain', 'Domain');
   populateComplexitySelect();
-  populateSelect(typeSelect, 'data-type', 'Type');
 
   // --- URL hash state ---
   var hashUpdateTimer = null;
@@ -88,14 +74,12 @@ JS: str = """\
   function encodeHashState() {
     var params = [];
     if (statusFilter !== 'All') params.push('s=' + encodeURIComponent(statusFilter));
-    if (domainFilter) params.push('d=' + encodeURIComponent(domainFilter));
     if (complexityFilter) params.push('c=' + encodeURIComponent(complexityFilter));
-    if (typeFilter) params.push('t=' + encodeURIComponent(typeFilter));
     if (searchTerm) params.push('q=' + encodeURIComponent(searchTerm));
     if (sortCol !== 13) params.push('sc=' + sortCol);
     if (sortAsc) params.push('sa=1');
     if (currentPage !== 1) params.push('p=' + currentPage);
-    if (pageSize !== 25) params.push('ps=' + pageSize);
+    if (pageSize !== 10) params.push('ps=' + pageSize);
     return params.length > 0 ? params.join('&') : '';
   }
 
@@ -119,28 +103,21 @@ JS: str = """\
       var v = decodeURIComponent(kv.slice(1).join('='));
       switch (k) {
         case 's': statusFilter = v; restored = true; break;
-        case 'd': domainFilter = v; restored = true; break;
         case 'c': complexityFilter = v; restored = true; break;
-        case 't': typeFilter = v; restored = true; break;
         case 'q': searchTerm = v; restored = true; break;
-        case 'sc': sortCol = parseInt(v) || 13; restored = true; break;
+        case 'sc': sortCol = parseInt(v) || 2; restored = true; break;
         case 'sa': sortAsc = v === '1'; restored = true; break;
         case 'p': currentPage = parseInt(v) || 1; restored = true; break;
-        case 'ps': pageSize = parseInt(v) || 25; restored = true; break;
+        case 'ps': pageSize = parseInt(v) || 10; restored = true; break;
       }
     });
     return restored;
   }
 
   function syncUIFromState() {
-    // Status chips
-    chips.forEach(function(c) {
-      c.classList.toggle('active', c.getAttribute('data-filter') === statusFilter);
-    });
-    // Dropdowns
-    domainSelect.value = domainFilter;
+    // Status dropdown
+    statusSelect.value = statusFilter;
     complexitySelect.value = complexityFilter;
-    typeSelect.value = typeFilter;
     // Search
     searchInput.value = searchTerm;
     // Page size
@@ -160,9 +137,7 @@ JS: str = """\
   function updateFilterBadge() {
     var count = 0;
     if (statusFilter !== 'All') count++;
-    if (domainFilter) count++;
     if (complexityFilter) count++;
-    if (typeFilter) count++;
     if (searchTerm) count++;
     if (count > 0) {
       filterBadge.textContent = count;
@@ -176,9 +151,7 @@ JS: str = """\
 
   function clearAllFilters() {
     statusFilter = 'All';
-    domainFilter = '';
     complexityFilter = '';
-    typeFilter = '';
     searchTerm = '';
     syncUIFromState();
     applyFilter();
@@ -210,9 +183,7 @@ JS: str = """\
   function applyFilter() {
     filtered = allRows.filter(function(row) {
       if (statusFilter !== 'All' && row.getAttribute('data-status') !== statusFilter) return false;
-      if (domainFilter && row.getAttribute('data-domain') !== domainFilter) return false;
       if (complexityFilter && row.getAttribute('data-complexity') !== complexityFilter) return false;
-      if (typeFilter && row.getAttribute('data-type') !== typeFilter) return false;
       if (searchTerm && row.getAttribute('data-summary').indexOf(searchTerm) === -1) return false;
       return true;
     });
@@ -245,34 +216,7 @@ JS: str = """\
   }
 
   function isFiltered() {
-    return statusFilter !== 'All' || domainFilter || complexityFilter || typeFilter || searchTerm;
-  }
-
-  function updateFooter() {
-    var totalSessions = 0, totalDuration = 0;
-    var totalLinesAdded = 0, totalLinesRemoved = 0;
-    var totalIn = 0, totalOut = 0, totalCost = 0, count = 0;
-    filtered.forEach(function(row) {
-      totalSessions += parseFloat(row.children[6].getAttribute('data-sort')) || 0;
-      totalDuration += parseFloat(row.children[8].getAttribute('data-sort')) || 0;
-      totalLinesAdded += parseFloat(row.children[9].getAttribute('data-lines-added')) || 0;
-      totalLinesRemoved += parseFloat(row.children[9].getAttribute('data-lines-removed')) || 0;
-      totalIn += parseFloat(row.children[10].getAttribute('data-sort')) || 0;
-      totalOut += parseFloat(row.children[11].getAttribute('data-sort')) || 0;
-      totalCost += parseFloat(row.children[12].getAttribute('data-sort')) || 0;
-      count++;
-    });
-    var label = isFiltered() ? 'Filtered total (' + count + ' tasks)' : 'Total';
-    footerLabel.textContent = label;
-    footerSessions.textContent = totalSessions;
-    footerDuration.textContent = formatDuration(totalDuration);
-    var linesParts = [];
-    if (totalLinesAdded > 0) linesParts.push('<span class="lines-added">+' + totalLinesAdded + '</span>');
-    if (totalLinesRemoved > 0) linesParts.push('<span class="lines-removed">\u2212' + totalLinesRemoved + '</span>');
-    footerLines.innerHTML = linesParts.length > 0 ? linesParts.join(' / ') : '\u2014';
-    footerIn.textContent = formatTokensCompact(totalIn);
-    footerOut.textContent = formatTokensCompact(totalOut);
-    footerCost.textContent = formatCost(totalCost);
+    return statusFilter !== 'All' || complexityFilter || searchTerm;
   }
 
   function render() {
@@ -315,8 +259,6 @@ JS: str = """\
       prevBtn.disabled = currentPage <= 1;
       nextBtn.disabled = currentPage >= maxP;
     }
-
-    updateFooter();
   }
 
   // --- Criteria client-side rendering engine ---
@@ -356,72 +298,85 @@ JS: str = """\
         + '</div></td>'
         + '</tr>\\n';
     });
-    return '<details class="tc-task-panel tc-task-panel--bordered" style="margin-top:4px;">'
-      + '<summary style="padding:4px 8px;cursor:pointer;list-style:none;'
-      + 'display:flex;justify-content:space-between;align-items:center;'
-      + 'font-size:0.8rem;color:var(--text-muted,#6b7280);">'
-      + '<span>Tool-attributed cost</span>'
-      + '<span style="font-variant-numeric:tabular-nums;" title="Sum of per-tool attributed costs — may differ from criterion&apos;s cost_dollars">$' + total.toFixed(4) + '</span>'
+    return '<details class="cr-tool-panel">'
+      + '<summary class="cr-tool-panel-summary">'
+      + '<span class="cr-tool-panel-arrow">&#9654;</span>'
+      + '<span class="cr-tool-panel-label">Tool cost</span>'
+      + '<span class="cr-tool-panel-total" title="Sum of per-tool attributed costs — may differ from criterion cost_dollars">$' + total.toFixed(4) + '</span>'
       + '</summary>'
-      + '<div style="overflow-x:auto;padding:0 8px 6px;">'
-      + '<table class="tc-table" style="margin-top:0;width:100%;">'
+      + '<div class="cr-tool-panel-body">'
+      + '<table class="tc-table">'
       + '<thead><tr><th>Tool</th><th style="text-align:right">Calls</th>'
       + '<th style="text-align:right">Cost</th><th>Share</th></tr></thead>'
       + '<tbody>' + rows + '</tbody>'
       + '</table></div></details>';
   }
 
-  function renderCriterionItem(cr, repoUrl) {
+  function getProportionalToolStats(cr, taskData) {
+    if (cr.tool_stats && cr.tool_stats.length > 0) return cr.tool_stats;
+    var taskToolStats = (taskData && taskData.task_tool_stats) || [];
+    if (!taskToolStats.length) return [];
+    var crCost = cr.cost_dollars || 0;
+    var taskTotalCost = (taskData && taskData.task_total_cost) || 0;
+    if (crCost <= 0 || taskTotalCost <= 0) return [];
+    var frac = crCost / taskTotalCost;
+    return taskToolStats.map(function(t) {
+      return {
+        tool_name: t.tool_name,
+        call_count: Math.round((t.call_count || 0) * frac),
+        total_cost: (t.total_cost || 0) * frac,
+      };
+    }).filter(function(t) { return t.total_cost > 0.000001; });
+  }
+
+  function renderCriterionItem(cr, repoUrl, taskData) {
     var done = cr.is_completed;
     var css = done ? 'criterion-done' : 'criterion-pending';
     var check = done ? '&#10003;' : '&#9711;';
-    var ctype = cr.criterion_type || 'manual';
-    var badges = '<span class="criterion-badges">';
-    badges += '<span class="criterion-type criterion-type-' + escHtml(ctype) + '">' + escHtml(ctype) + '</span>';
-    if (cr.source) badges += ' <span class="criterion-source">' + escHtml(cr.source) + '</span>';
-    if (cr.cost_dollars) badges += ' <span class="criterion-cost">$' + cr.cost_dollars.toFixed(4) + '</span>';
+    var commitBadge = '';
     if (cr.commit_hash) {
       if (repoUrl) {
-        badges += ' <a href="' + repoUrl + '/commit/' + escHtml(cr.commit_hash) + '" class="criterion-commit" target="_blank">' + escHtml(cr.commit_hash) + '</a>';
+        commitBadge = '<a href="' + repoUrl + '/commit/' + escHtml(cr.commit_hash) + '" class="criterion-commit" target="_blank">' + escHtml(cr.commit_hash) + '</a>';
       } else {
-        badges += ' <span class="criterion-commit">' + escHtml(cr.commit_hash) + '</span>';
+        commitBadge = '<span class="criterion-commit">' + escHtml(cr.commit_hash) + '</span>';
       }
     }
-    if (cr.completed_at) badges += ' <span class="criterion-time">' + fmtDate(cr.completed_at) + '</span>';
-    badges += '</span>';
+    var costInline = cr.cost_dollars ? '<span class="criterion-cost">$' + cr.cost_dollars.toFixed(4) + '</span>' : '';
 
-    var toolPanel = renderCriterionToolPanel(cr.tool_stats);
+    var toolPanel = renderCriterionToolPanel(getProportionalToolStats(cr, taskData));
 
     return '<div class="criterion-item ' + css + '" data-sort-completed="' + escHtml(cr.completed_at || '') + '" '
       + 'data-sort-cost="' + (cr.cost_dollars || 0) + '" data-sort-commit="' + escHtml(cr.commit_hash || '') + '" data-cid="' + cr.id + '">'
+      + '<div class="criterion-item-row">'
       + '<span class="criterion-id">#' + cr.id + '</span>'
       + '<span class="criterion-status">' + check + '</span>'
+      + costInline
       + '<span class="criterion-text">' + escHtml(cr.criterion) + '</span>'
-      + badges + toolPanel + '</div>';
+      + (commitBadge ? '<span class="criterion-badges">' + commitBadge + '</span>' : '')
+      + '</div>'
+      + toolPanel + '</div>';
   }
 
-  function renderGroupHeader(label, labelHtml, done, total, cost, tokens) {
+  function renderGroupHeader(label, labelHtml, done, total, cost) {
     var costBadge = cost ? ' <span class="criteria-group-cost">$' + cost.toFixed(4) + '</span>' : '';
-    var tokenBadge = tokens ? ' <span class="criteria-group-tokens">' + tokens.toLocaleString() + ' tok</span>' : '';
     var pct = total > 0 ? Math.round(done / total * 100) : 0;
     return '<div class="criteria-group-header"><span class="criteria-group-icon">&#9654;</span> '
       + labelHtml + ' &mdash; <span class="criteria-group-count">' + done + '/' + total + ' done</span>'
-      + costBadge + tokenBadge + '</div>'
+      + costBadge + '</div>'
       + '<div class="criteria-group-progress"><div class="criteria-group-progress-fill" style="width:' + pct + '%"></div></div>';
   }
 
-  function buildGroup(groupKey, labelHtml, items, repoUrl) {
-    var done = 0, total = items.length, cost = 0, tokens = 0;
+  function buildGroup(groupKey, labelHtml, items, repoUrl, taskData) {
+    var done = 0, total = items.length, cost = 0;
     items.forEach(function(cr) {
       if (cr.is_completed) done++;
       cost += cr.cost_dollars || 0;
-      tokens += (cr.tokens_in || 0) + (cr.tokens_out || 0);
     });
     var allDone = done === total ? ' criteria-group-all-done' : '';
     var html = '<div class="criteria-type-group' + allDone + '" data-group-type="' + escHtml(groupKey) + '">';
-    html += renderGroupHeader(groupKey, labelHtml, done, total, cost, tokens);
+    html += renderGroupHeader(groupKey, labelHtml, done, total, cost);
     html += '<div class="criteria-group-items">';
-    items.forEach(function(cr) { html += renderCriterionItem(cr, repoUrl); });
+    items.forEach(function(cr) { html += renderCriterionItem(cr, repoUrl, taskData); });
     html += '</div></div>';
     return html;
   }
@@ -458,58 +413,23 @@ JS: str = """\
         }
         if (ts) labelHtml += ' <span class="criteria-group-time">' + ts + '</span>';
       }
-      html += buildGroup(key, labelHtml, groups[key], repoUrl);
+      html += buildGroup(key, labelHtml, groups[key], repoUrl, taskData);
     });
     return html;
   }
 
-  function renderByStatus(taskData) {
-    var criteria = taskData.criteria;
-    var repoUrl = taskData.repo_url || '';
-    var done = [], pending = [];
-    criteria.forEach(function(cr) {
-      if (cr.is_completed) done.push(cr); else pending.push(cr);
-    });
-    var html = '';
-    if (pending.length) {
-      html += buildGroup('pending', '<span class="criteria-group-name">Pending</span>', pending, repoUrl);
-    }
-    if (done.length) {
-      html += buildGroup('done', '<span class="criteria-group-name">Completed</span>', done, repoUrl);
-    }
-    return html;
-  }
-
-  function renderFlat(taskData) {
-    var repoUrl = taskData.repo_url || '';
-    var html = '';
-    taskData.criteria.forEach(function(cr) { html += renderCriterionItem(cr, repoUrl); });
-    return html;
-  }
-
-  function renderCriteria(detail, viewMode) {
+  function renderCriteria(detail) {
     var tid = detail.getAttribute('data-tid');
     var taskData = CDATA[tid];
     if (!taskData) return;
     var target = detail.querySelector('.criteria-render-target');
-    if (viewMode === 'commit') {
-      target.innerHTML = renderByCommit(taskData);
-    } else if (viewMode === 'status') {
-      target.innerHTML = renderByStatus(taskData);
-    } else {
-      target.innerHTML = renderFlat(taskData);
-    }
+    target.innerHTML = renderByCommit(taskData);
     // Re-apply sort if active
     var activeSort = detail.querySelector('.criteria-sort-btn.sort-asc, .criteria-sort-btn.sort-desc');
     if (activeSort) {
       applyCriteriaSort(detail, activeSort.getAttribute('data-sort-key'),
         activeSort.classList.contains('sort-asc') ? 'asc' : 'desc');
     }
-  }
-
-  function getActiveView(detail) {
-    var activeBtn = detail.querySelector('.criteria-view-btn.active');
-    return activeBtn ? activeBtn.getAttribute('data-view') : 'commit';
   }
 
   function applyCriteriaSort(detail, sortKey, dir) {
@@ -545,21 +465,9 @@ JS: str = """\
     detail.style.display = isExpanded ? '' : 'none';
     if (isExpanded && !criteriaRendered[tid]) {
       var cd = detail.querySelector('.criteria-detail');
-      if (cd) renderCriteria(cd, getActiveView(cd));
+      if (cd) renderCriteria(cd);
       criteriaRendered[tid] = true;
     }
-  });
-
-  // Criteria view mode buttons
-  document.addEventListener('click', function(e) {
-    var btn = e.target.closest('.criteria-view-btn');
-    if (!btn) return;
-    e.stopPropagation();
-    var detail = btn.closest('.criteria-detail');
-    if (!detail) return;
-    detail.querySelectorAll('.criteria-view-btn').forEach(function(b) { b.classList.remove('active'); });
-    btn.classList.add('active');
-    renderCriteria(detail, btn.getAttribute('data-view'));
   });
 
   // Criteria group header collapse/expand
@@ -621,27 +529,15 @@ JS: str = """\
     });
   });
 
-  // Status filter chips
-  chips.forEach(function(chip) {
-    chip.addEventListener('click', function() {
-      chips.forEach(function(c) { c.classList.remove('active'); });
-      chip.classList.add('active');
-      statusFilter = chip.getAttribute('data-filter');
-      applyFilter();
-    });
+  // Status filter dropdown
+  statusSelect.addEventListener('change', function() {
+    statusFilter = statusSelect.value;
+    applyFilter();
   });
 
   // Dropdown filters
-  domainSelect.addEventListener('change', function() {
-    domainFilter = domainSelect.value;
-    applyFilter();
-  });
   complexitySelect.addEventListener('change', function() {
     complexityFilter = complexitySelect.value;
-    applyFilter();
-  });
-  typeSelect.addEventListener('change', function() {
-    typeFilter = typeSelect.value;
     applyFilter();
   });
 
@@ -684,7 +580,7 @@ JS: str = """\
 
   // Chart.js initialization (graceful fallback if CDN unavailable)
   var costTrendChart = null;
-  var domainChart = null;
+  var costSkillTrendChart = null;
   var currentPeriod = 'weekly';
 
   function initCharts() {
@@ -692,12 +588,14 @@ JS: str = """\
 
     var style = getComputedStyle(document.documentElement);
     function cssVar(name) { return style.getPropertyValue(name).trim(); }
+    var textMuted = cssVar('--text-muted') || '#94a3b8';
+    var border = cssVar('--border') || '#e2e8f0';
+    var periodLabels = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' };
 
-    // Trend chart
+    // --- Task trend chart ---
     if (window.__tuskCostTrend) {
       var trendData = window.__tuskCostTrend;
       var costTrendCanvas = document.getElementById('costTrendChart');
-      var periodLabels = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' };
 
       if (costTrendChart) { costTrendChart.destroy(); costTrendChart = null; }
 
@@ -705,15 +603,13 @@ JS: str = """\
       if (d && d.costs.length && costTrendCanvas) {
         var accent = cssVar('--accent') || '#3b82f6';
         var warning = cssVar('--warning') || '#f59e0b';
-        var textMuted = cssVar('--text-muted') || '#94a3b8';
-        var border = cssVar('--border') || '#e2e8f0';
         costTrendChart = new Chart(costTrendCanvas, {
           type: 'bar',
           data: {
             labels: d.labels,
             datasets: [
               {
-                label: periodLabels[currentPeriod] + ' Cost',
+                label: periodLabels[currentPeriod] + ' Cost (Tasks)',
                 data: d.costs,
                 backgroundColor: accent + 'B3',
                 borderColor: accent,
@@ -723,7 +619,7 @@ JS: str = """\
                 order: 2
               },
               {
-                label: 'Cumulative',
+                label: 'Cumulative (Tasks)',
                 data: d.cumulative,
                 type: 'line',
                 borderColor: warning,
@@ -752,9 +648,7 @@ JS: str = """\
                   }
                 }
               },
-              legend: {
-                labels: { color: textMuted, usePointStyle: true, padding: 16 }
-              }
+              legend: { labels: { color: textMuted, usePointStyle: true, padding: 16 } }
             },
             scales: {
               x: {
@@ -785,64 +679,91 @@ JS: str = """\
       }
     }
 
-    // Cost by domain chart
-    var domainData = window.__tuskCostByDomain;
-    var domainCanvas = document.getElementById('costByDomainChart');
-    if (domainCanvas && domainData && domainData.length > 0) {
-      if (domainChart) { domainChart.destroy(); domainChart = null; }
-      var domainLabels = domainData.map(function(d) { return d.domain || 'unset'; });
-      var domainCosts = domainData.map(function(d) { return d.domain_cost; });
-      var domainCounts = domainData.map(function(d) { return d.task_count; });
-      var domainColors = domainData.map(function(_, i) {
-        var hue = (i * 137.5) % 360;
-        return 'hsl(' + hue + ', 65%, 55%)';
-      });
-      var style2 = getComputedStyle(document.documentElement);
-      domainChart = new Chart(domainCanvas, {
-        type: 'bar',
-        data: {
-          labels: domainLabels,
-          datasets: [{
-            label: 'Cost ($)',
-            data: domainCosts,
-            backgroundColor: domainColors.map(function(c) { return c.replace('55%)', '55%, 0.7)').replace('hsl(', 'hsla('); }),
-            borderColor: domainColors,
-            borderWidth: 1,
-            borderRadius: 2
-          }]
-        },
-        options: {
-          indexAxis: 'y',
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            tooltip: {
-              callbacks: {
-                label: function(ctx) {
-                  var cost = '$' + ctx.parsed.x.toFixed(2).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ',');
-                  var count = domainCounts[ctx.dataIndex];
-                  return cost + ' (' + count + ' task' + (count !== 1 ? 's' : '') + ')';
-                }
-              }
-            },
-            legend: { display: false }
-          },
-          scales: {
-            x: {
-              ticks: {
-                color: style2.getPropertyValue('--text-muted').trim() || '#94a3b8',
-                font: { size: 11 },
-                callback: function(v) { return '$' + v.toFixed(0).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ','); }
+    // --- Skill trend chart ---
+    if (window.__tuskSkillTrend) {
+      var skillTrendData = window.__tuskSkillTrend;
+      var skillTrendCanvas = document.getElementById('costSkillTrendChart');
+
+      if (costSkillTrendChart) { costSkillTrendChart.destroy(); costSkillTrendChart = null; }
+
+      var sd = skillTrendData[currentPeriod];
+      if (sd && sd.costs.length && skillTrendCanvas) {
+        var skillAccent = cssVar('--success') || '#22c55e';
+        var skillCum = '#8b5cf6';
+        costSkillTrendChart = new Chart(skillTrendCanvas, {
+          type: 'bar',
+          data: {
+            labels: sd.labels,
+            datasets: [
+              {
+                label: periodLabels[currentPeriod] + ' Cost (Skills)',
+                data: sd.costs,
+                backgroundColor: skillAccent + 'B3',
+                borderColor: skillAccent,
+                borderWidth: 1,
+                borderRadius: 2,
+                yAxisID: 'y',
+                order: 2
               },
-              grid: { color: style2.getPropertyValue('--border').trim() || '#e2e8f0', borderDash: [3, 3] }
+              {
+                label: 'Cumulative (Skills)',
+                data: sd.cumulative,
+                type: 'line',
+                borderColor: skillCum,
+                backgroundColor: skillCum + '33',
+                pointBackgroundColor: skillCum,
+                pointBorderColor: cssVar('--bg-panel') || '#ffffff',
+                pointBorderWidth: 1.5,
+                pointRadius: 3.5,
+                borderWidth: 2.5,
+                fill: false,
+                tension: 0.1,
+                yAxisID: 'y1',
+                order: 1
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              tooltip: {
+                callbacks: {
+                  label: function(ctx) {
+                    return ctx.dataset.label + ': $' + ctx.parsed.y.toFixed(4).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ',');
+                  }
+                }
+              },
+              legend: { labels: { color: textMuted, usePointStyle: true, padding: 16 } }
             },
-            y: {
-              ticks: { color: style2.getPropertyValue('--text-muted').trim() || '#94a3b8', font: { size: 12 } },
-              grid: { display: false }
+            scales: {
+              x: {
+                ticks: { color: textMuted, maxRotation: 45, autoSkip: true, maxTicksLimit: 12, font: { size: 11 } },
+                grid: { display: false }
+              },
+              y: {
+                position: 'left',
+                ticks: {
+                  color: textMuted,
+                  font: { size: 11 },
+                  callback: function(v) { return '$' + v.toFixed(4).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ','); }
+                },
+                grid: { color: border, borderDash: [3, 3] }
+              },
+              y1: {
+                position: 'right',
+                ticks: {
+                  color: skillCum,
+                  font: { size: 11 },
+                  callback: function(v) { return '$' + v.toFixed(4).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ','); }
+                },
+                grid: { drawOnChartArea: false }
+              }
             }
           }
-        }
-      });
+        });
+      }
     }
   }
 

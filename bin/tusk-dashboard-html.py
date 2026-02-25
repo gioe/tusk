@@ -361,7 +361,8 @@ def generate_header(now: str) -> str:
 <div class="tab-bar" id="tabBar">
   <button class="tab-btn active" data-tab="dashboard">Tasks</button>
   <button class="tab-btn" data-tab="dag">DAG</button>
-  <button class="tab-btn" data-tab="skills">Skill Runs</button>
+  <button class="tab-btn" data-tab="skills">Skills</button>
+  <button class="tab-btn" data-tab="cost">Cost</button>
 </div>"""
 
 
@@ -457,10 +458,8 @@ def _generate_tool_stats_panel(tool_stats: list[dict]) -> str:
     )
 
 
-def generate_skill_runs_section(skill_runs: list[dict], tool_stats_by_run: dict = None) -> str:
-    """Generate the Skill Run Costs section with summary cards, charts, and enriched table."""
-    if tool_stats_by_run is None:
-        tool_stats_by_run = {}
+def generate_skill_run_costs_section(skill_runs: list[dict]) -> str:
+    """Generate the Skill Run Costs KPI cards panel for the Cost tab."""
     if not skill_runs:
         return """\
 <div class="panel" style="margin-bottom: var(--sp-6);">
@@ -468,24 +467,56 @@ def generate_skill_runs_section(skill_runs: list[dict], tool_stats_by_run: dict 
   <p class="empty" style="padding: var(--sp-4);">No skill runs recorded yet.</p>
 </div>"""
 
-    # --- Aggregate cost per skill ---
     skill_totals: dict[str, float] = defaultdict(float)
     for r in skill_runs:
         skill_totals[r['skill_name']] += r.get('cost_dollars') or 0
 
-    # --- Summary stats ---
     total_runs = len(skill_runs)
     total_cost = sum(r.get('cost_dollars') or 0 for r in skill_runs)
     avg_cost = total_cost / total_runs if total_runs else 0
     most_expensive_skill = max(skill_totals, key=lambda k: skill_totals[k]) if skill_totals else "\u2014"
 
-    # --- Top-3 most expensive individual runs (only badge when > 3 total) ---
+    return f"""\
+<div class="panel" style="margin-bottom: var(--sp-6);">
+  <div class="section-header">Skill Run Costs</div>
+  <div class="kpi-grid" style="padding:var(--sp-4);margin-bottom:0;">
+    <div class="kpi-card">
+      <div class="kpi-label">Total Runs</div>
+      <div class="kpi-value">{total_runs}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Total Cost</div>
+      <div class="kpi-value">${total_cost:.4f}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Avg Cost / Run</div>
+      <div class="kpi-value">${avg_cost:.4f}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Priciest Skill</div>
+      <div class="kpi-value" style="font-size:var(--text-base);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{esc(most_expensive_skill)}">{esc(most_expensive_skill)}</div>
+    </div>
+  </div>
+</div>"""
+
+
+def generate_skill_runs_section(skill_runs: list[dict], tool_stats_by_run: dict = None) -> str:
+    """Generate the All Runs table panel for the Skills tab."""
+    if tool_stats_by_run is None:
+        tool_stats_by_run = {}
+    if not skill_runs:
+        return """\
+<div class="panel" style="margin-bottom: var(--sp-6);">
+  <div class="section-header">All Runs</div>
+  <p class="empty" style="padding: var(--sp-4);">No skill runs recorded yet.</p>
+</div>"""
+
+    total_runs = len(skill_runs)
     top3_ids = (
         {r['id'] for r in sorted(skill_runs, key=lambda x: x.get('cost_dollars') or 0, reverse=True)[:3]}
         if total_runs > 3 else set()
     )
 
-    # --- Cost intensity thresholds for color-coding ---
     all_costs = [r.get('cost_dollars') or 0 for r in skill_runs]
     max_cost = max(all_costs) if all_costs else 0
 
@@ -494,16 +525,15 @@ def generate_skill_runs_section(skill_runs: list[dict], tool_stats_by_run: dict 
             return "text-align:right;font-variant-numeric:tabular-nums;"
         ratio = cost / max_cost
         if ratio >= 0.8:
-            bg = "background-color:#fde68a;"
+            bg = "background-color:#fecaca;color:#7f1d1d;"
         elif ratio >= 0.5:
-            bg = "background-color:#fef3c7;"
+            bg = "background-color:#fed7aa;color:#7c2d12;"
         elif ratio >= 0.2:
-            bg = "background-color:#ecfdf5;"
+            bg = "background-color:#dcfce7;color:#14532d;"
         else:
             bg = ""
         return f"text-align:right;font-variant-numeric:tabular-nums;{bg}"
 
-    # --- Build table rows (most recent first) ---
     table_rows = ""
     for r in skill_runs:
         cost = r.get('cost_dollars') or 0
@@ -552,162 +582,9 @@ def generate_skill_runs_section(skill_runs: list[dict], tool_stats_by_run: dict 
                 f'</td></tr>\n'
             )
 
-    # --- Horizontal bar chart: total cost per skill (sorted descending) ---
-    bar_labels = []
-    bar_values = []
-    for sk, total in sorted(skill_totals.items(), key=lambda x: x[1], reverse=True):
-        bar_labels.append(sk)
-        bar_values.append(round(total, 4))
-
-    # --- Line chart: per-run cost over last 30 days, top-5 skills by total cost ---
-    cutoff_dt = datetime.now(timezone.utc) - timedelta(days=30)
-    top_skills = [sk for sk, _ in sorted(skill_totals.items(), key=lambda x: x[1], reverse=True)[:5]]
-
-    # Accumulate daily cost per top skill
-    skill_date_costs: dict[str, dict[str, float]] = {sk: {} for sk in top_skills}
-    all_date_keys: set[str] = set()
-    for r in skill_runs:
-        sk = r.get('skill_name')
-        if sk not in top_skills:
-            continue
-        start_dt_r = _parse_dt(r.get('started_at') or '')
-        if start_dt_r is None or start_dt_r < cutoff_dt:
-            continue
-        local_start = start_dt_r.astimezone()
-        day_key = local_start.strftime("%Y-%m-%d")
-        all_date_keys.add(day_key)
-        label = local_start.strftime("%b %d")
-        skill_date_costs[sk][label] = skill_date_costs[sk].get(label, 0) + (r.get('cost_dollars') or 0)
-
-    # Sort date labels chronologically
-    sorted_day_keys = sorted(all_date_keys)
-    line_labels = []
-    for dk in sorted_day_keys:
-        try:
-            line_labels.append(datetime.strptime(dk, "%Y-%m-%d").strftime("%b %d"))
-        except ValueError:
-            line_labels.append(dk)
-
-    palette = ['#3b82f6', '#f59e0b', '#22c55e', '#ef4444', '#8b5cf6']
-    line_datasets = []
-    for i, sk in enumerate(top_skills):
-        data_points = [round(skill_date_costs[sk].get(lbl, 0), 4) for lbl in line_labels]
-        line_datasets.append({
-            "label": sk,
-            "data": data_points,
-            "borderColor": palette[i % len(palette)],
-            "backgroundColor": palette[i % len(palette)] + "33",
-            "tension": 0.3,
-            "fill": False,
-        })
-
-    chart_data_json = json.dumps({
-        "bar": {"labels": bar_labels, "values": bar_values},
-        "line": {"labels": line_labels, "datasets": line_datasets},
-    }).replace("</", "<\\/")
-
-    # --- Stat cards HTML ---
-    stat_cards_html = f"""\
-<div class="kpi-grid" style="padding:var(--sp-4);margin-bottom:0;">
-  <div class="kpi-card">
-    <div class="kpi-label">Total Runs</div>
-    <div class="kpi-value">{total_runs}</div>
-  </div>
-  <div class="kpi-card">
-    <div class="kpi-label">Total Cost</div>
-    <div class="kpi-value">${total_cost:.4f}</div>
-  </div>
-  <div class="kpi-card">
-    <div class="kpi-label">Avg Cost / Run</div>
-    <div class="kpi-value">${avg_cost:.4f}</div>
-  </div>
-  <div class="kpi-card">
-    <div class="kpi-label">Priciest Skill</div>
-    <div class="kpi-value" style="font-size:var(--text-base);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{esc(most_expensive_skill)}">{esc(most_expensive_skill)}</div>
-  </div>
-</div>"""
-
-    bar_chart_height = max(80, len(skill_totals) * 25)
-    line_chart_section = (
-        f'<div class="section-header section-header--bordered">'
-        f'Cost Trend \u2014 Last 30 Days (Top {len(top_skills)} Skills)</div>'
-        f'<div class="dash-chart-wrap"><canvas id="skillLineChart" height="100"></canvas></div>'
-        if line_labels else
-        '<div class="section-header section-header--bordered">Cost Trend \u2014 Last 30 Days</div>'
-        '<p class="text-muted" style="padding:var(--sp-4);">No runs in the last 30 days.</p>'
-    )
-    charts_html = f"""\
-<div class="section-header section-header--bordered">Cost by Skill (Total)</div>
-<div class="dash-chart-wrap">
-  <canvas id="skillBarChart" height="{bar_chart_height}"></canvas>
-</div>
-{line_chart_section}"""
-
-    charts_script = f"""\
-<script>
-(function() {{
-  var chartData = {chart_data_json};
-  var palette = ['#3b82f6','#f59e0b','#22c55e','#ef4444','#8b5cf6'];
-
-  // Horizontal bar chart: total cost per skill
-  var barCanvas = document.getElementById('skillBarChart');
-  if (barCanvas && chartData.bar.labels.length > 0) {{
-    new Chart(barCanvas, {{
-      type: 'bar',
-      data: {{
-        labels: chartData.bar.labels,
-        datasets: [{{
-          label: 'Total Cost',
-          data: chartData.bar.values,
-          backgroundColor: chartData.bar.labels.map(function(_, i) {{ return palette[i % palette.length] + '99'; }}),
-          borderColor: chartData.bar.labels.map(function(_, i) {{ return palette[i % palette.length]; }}),
-          borderWidth: 1
-        }}]
-      }},
-      options: {{
-        indexAxis: 'y',
-        responsive: true,
-        plugins: {{
-          legend: {{ display: false }},
-          tooltip: {{ callbacks: {{ label: function(c) {{ return '$' + c.parsed.x.toFixed(4); }} }} }}
-        }},
-        scales: {{
-          x: {{ beginAtZero: true, ticks: {{ callback: function(v) {{ return '$' + v.toFixed(3); }} }} }}
-        }}
-      }}
-    }});
-  }}
-
-  // Line chart: per-run cost trend over time per skill
-  var lineCanvas = document.getElementById('skillLineChart');
-  if (lineCanvas && chartData.line.labels.length > 0) {{
-    new Chart(lineCanvas, {{
-      type: 'line',
-      data: {{
-        labels: chartData.line.labels,
-        datasets: chartData.line.datasets
-      }},
-      options: {{
-        responsive: true,
-        plugins: {{
-          legend: {{ position: 'top' }},
-          tooltip: {{ callbacks: {{ label: function(c) {{ return c.dataset.label + ': $' + c.parsed.y.toFixed(4); }} }} }}
-        }},
-        scales: {{
-          y: {{ beginAtZero: true, ticks: {{ callback: function(v) {{ return '$' + v.toFixed(3); }} }} }}
-        }}
-      }}
-    }});
-  }}
-}})();
-</script>"""
-
     return f"""\
 <div class="panel" style="margin-bottom: var(--sp-6);">
-  <div class="section-header">Skill Run Costs</div>
-  {stat_cards_html}
-  {charts_html}
-  <div class="section-header section-header--bordered">All Runs</div>
+  <div class="section-header">All Runs</div>
   <div class="dash-table-scroll">
     <table>
       <thead>
@@ -727,100 +604,8 @@ def generate_skill_runs_section(skill_runs: list[dict], tool_stats_by_run: dict 
       </tbody>
     </table>
   </div>
-</div>{charts_script}"""
-
-
-def generate_global_tool_costs_section(tool_stats: list[dict]) -> str:
-    """Generate a project-wide tool cost aggregate table for the Skills tab.
-
-    Shows tool_name, total_calls, tokens_in, total_cost, and share of total
-    across all task sessions. Returns a placeholder panel with onboarding
-    instructions when no data is available.
-    """
-    if not tool_stats:
-        return """\
-<div class="panel" style="margin-bottom: var(--sp-6);">
-  <div class="section-header">Project-Wide Tool Costs</div>
-  <div style="padding:var(--sp-4);color:var(--text-muted,#6b7280);font-size:0.875rem;">
-    No tool call stats yet. Run <code>tusk session-close &lt;session_id&gt;</code> to populate this panel.
-  </div>
 </div>"""
 
-    grand_total = sum(r["total_cost"] or 0 for r in tool_stats)
-    total_calls = sum(r["total_calls"] or 0 for r in tool_stats)
-    total_tokens_in = sum(r["tokens_in"] or 0 for r in tool_stats)
-
-    rows_html = ""
-    for r in tool_stats:
-        cost = r["total_cost"] or 0
-        calls = r["total_calls"] or 0
-        tokens_in = r["tokens_in"] or 0
-        pct = (cost / grand_total * 100) if grand_total > 0 else 0
-        rows_html += (
-            f'<tr>'
-            f'<td style="font-weight:500;">{esc(r["tool_name"])}</td>'
-            f'<td style="text-align:right;font-variant-numeric:tabular-nums;">{int(calls):,}</td>'
-            f'<td style="text-align:right;font-variant-numeric:tabular-nums;">{format_tokens_compact(tokens_in)}</td>'
-            f'<td style="text-align:right;font-variant-numeric:tabular-nums;">${cost:.4f}</td>'
-            f'<td style="min-width:130px;">'
-            f'<div style="display:flex;align-items:center;gap:6px;">'
-            f'<div style="flex:1;background:var(--border);border-radius:3px;height:8px;overflow:hidden;">'
-            f'<div style="width:{pct:.1f}%;background:var(--accent,#3b82f6);height:100%;border-radius:3px;"></div>'
-            f'</div>'
-            f'<span style="font-size:0.75rem;color:var(--text-muted,#6b7280);min-width:36px;">{pct:.1f}%</span>'
-            f'</div>'
-            f'</td>'
-            f'</tr>\n'
-        )
-
-    return f"""\
-<div class="panel" style="margin-bottom: var(--sp-6);">
-  <div class="section-header">Project-Wide Tool Costs</div>
-  <div class="kpi-grid" style="padding:var(--sp-4);margin-bottom:0;">
-    <div class="kpi-card">
-      <div class="kpi-label">Tools Used</div>
-      <div class="kpi-value">{len(tool_stats)}</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Total Calls</div>
-      <div class="kpi-value">{total_calls:,}</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Total Cost (sessions)</div>
-      <div class="kpi-value">${grand_total:.4f}</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Costliest Tool</div>
-      <div class="kpi-value" style="font-size:var(--text-base);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{esc(tool_stats[0]['tool_name'])}">{esc(tool_stats[0]['tool_name'])}</div>
-    </div>
-  </div>
-  <div class="section-header section-header--bordered">All Tools</div>
-  <div class="dash-table-scroll">
-    <table>
-      <thead>
-        <tr>
-          <th>Tool</th>
-          <th style="text-align:right">Total Calls</th>
-          <th style="text-align:right">Tokens In</th>
-          <th style="text-align:right">Total Cost</th>
-          <th>Share of Total</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows_html}
-      </tbody>
-      <tfoot>
-        <tr style="font-weight:600;border-top:2px solid var(--border);">
-          <td>Total</td>
-          <td style="text-align:right;font-variant-numeric:tabular-nums;">{total_calls:,}</td>
-          <td style="text-align:right;font-variant-numeric:tabular-nums;">{format_tokens_compact(total_tokens_in)}</td>
-          <td style="text-align:right;font-variant-numeric:tabular-nums;">${grand_total:.4f}</td>
-          <td></td>
-        </tr>
-      </tfoot>
-    </table>
-  </div>
-</div>"""
 
 
 def _format_chart_labels(rows: list[dict], period_key: str, period_label: str) -> list[str]:
@@ -854,70 +639,122 @@ def _build_chart_dataset(rows: list[dict], period_key: str, cost_key: str, perio
     return {"labels": labels, "costs": costs, "cumulative": cumulative}
 
 
-def generate_charts_section(cost_trend: list[dict], cost_trend_daily: list[dict],
-                            cost_trend_monthly: list[dict], cost_by_domain: list[dict] = None) -> str:
-    """Generate the charts panel with Chart.js canvases and embedded JSON data."""
+def generate_cost_trend_section(cost_trend: list[dict], cost_trend_daily: list[dict],
+                                cost_trend_monthly: list[dict], skill_runs: list[dict] = None) -> str:
+    """Generate Cost Trend panel with period toggle and separate Task/Skill charts."""
+    skill_runs = skill_runs or []
+
+    # --- Task chart data ---
     daily_data = _build_chart_dataset(cost_trend_daily, "day", "daily_cost", "Daily")
     weekly_data = _build_chart_dataset(cost_trend, "week_start", "weekly_cost", "Weekly")
     monthly_data = _build_chart_dataset(cost_trend_monthly, "month", "monthly_cost", "Monthly")
-
     chart_data = json.dumps({
         "daily": daily_data,
         "weekly": weekly_data,
         "monthly": monthly_data,
     }).replace("</", "<\\/")
-
-    domain_data = json.dumps(cost_by_domain or []).replace("</", "<\\/")
-
     has_cost_data = any(d["costs"] for d in [daily_data, weekly_data, monthly_data])
-    empty_msg = '<p class="empty">No session cost data available yet.</p>' if not has_cost_data else ''
+    empty_msg = '<p class="empty" style="padding:var(--sp-4) 0;">No session cost data available yet.</p>' if not has_cost_data else ''
 
-    has_domain_data = bool(cost_by_domain and any(d["domain_cost"] > 0 for d in cost_by_domain))
-    domain_empty_msg = '<p class="empty">No cost-by-domain data available yet.</p>' if not has_domain_data else ''
+    # --- Skill trend data (aggregated by day/week/month) ---
+    skill_daily_agg: dict[str, float] = {}
+    skill_weekly_agg: dict[str, float] = {}
+    skill_monthly_agg: dict[str, float] = {}
+    for r in skill_runs:
+        cost = r.get('cost_dollars') or 0
+        if not cost:
+            continue
+        started = _parse_dt(r.get('started_at') or '')
+        if started is None:
+            continue
+        local = started.astimezone()
+        day_key = local.strftime('%Y-%m-%d')
+        week_start = (local - timedelta(days=local.weekday())).strftime('%Y-%m-%d')
+        month_key = local.strftime('%Y-%m')
+        skill_daily_agg[day_key] = round(skill_daily_agg.get(day_key, 0) + cost, 4)
+        skill_weekly_agg[week_start] = round(skill_weekly_agg.get(week_start, 0) + cost, 4)
+        skill_monthly_agg[month_key] = round(skill_monthly_agg.get(month_key, 0) + cost, 4)
+
+    skill_daily_rows = [{"day": k, "daily_cost": v} for k, v in sorted(skill_daily_agg.items())]
+    skill_weekly_rows = [{"week_start": k, "weekly_cost": v} for k, v in sorted(skill_weekly_agg.items())]
+    skill_monthly_rows = [{"month": k, "monthly_cost": v} for k, v in sorted(skill_monthly_agg.items())]
+    skill_trend_data = json.dumps({
+        "daily": _build_chart_dataset(skill_daily_rows, "day", "daily_cost", "Daily"),
+        "weekly": _build_chart_dataset(skill_weekly_rows, "week_start", "weekly_cost", "Weekly"),
+        "monthly": _build_chart_dataset(skill_monthly_rows, "month", "monthly_cost", "Monthly"),
+    }).replace("</", "<\\/")
+    has_skill_trend = bool(skill_daily_agg or skill_weekly_agg or skill_monthly_agg)
+    empty_skill_msg = '<p class="empty" style="padding:var(--sp-4) 0;">No skill cost data available yet.</p>' if not has_skill_trend else ''
+
+    task_chart_hidden = ' display:none;' if not has_cost_data else ''
+    skill_chart_hidden = ' display:none;' if not has_skill_trend else ''
 
     return f"""\
 <script>
 window.__tuskCostTrend = {chart_data};
-window.__tuskCostByDomain = {domain_data};
+window.__tuskSkillTrend = {skill_trend_data};
 </script>
 <div class="panel" style="margin-bottom: var(--sp-6);">
   <div class="section-header" style="display:flex;align-items:center;justify-content:space-between;">
     <span>Cost Trend</span>
-    <div class="cost-trend-tabs" id="costTrendTabs">
-      <button class="cost-tab" data-tab="daily">Daily</button>
-      <button class="cost-tab active" data-tab="weekly">Weekly</button>
-      <button class="cost-tab" data-tab="monthly">Monthly</button>
+    <div class="cost-trend-controls">
+      <span class="cost-toggle-label">Source</span>
+      <div class="cost-trend-tabs" id="costTypeTabs">
+        <button class="cost-tab active" data-type="task">Tasks</button>
+        <button class="cost-tab" data-type="skill">Skills</button>
+      </div>
+      <span class="cost-controls-sep"></span>
+      <span class="cost-toggle-label">Period</span>
+      <div class="cost-trend-tabs" id="costTrendTabs">
+        <button class="cost-tab" data-tab="daily">Daily</button>
+        <button class="cost-tab active" data-tab="weekly">Weekly</button>
+        <button class="cost-tab" data-tab="monthly">Monthly</button>
+      </div>
     </div>
   </div>
-  <div style="padding: var(--sp-4);">
+  <div id="costTaskView" style="padding:0 var(--sp-4) var(--sp-4);">
     {empty_msg}
-    <canvas id="costTrendChart" height="260" style="max-width:850px;width:100%;{' display:none;' if not has_cost_data else ''}"></canvas>
+    <canvas id="costTrendChart" height="220" style="max-width:100%;width:100%;{task_chart_hidden}"></canvas>
+  </div>
+  <div id="costSkillView" style="display:none;padding:0 var(--sp-4) var(--sp-4);">
+    {empty_skill_msg}
+    <canvas id="costSkillTrendChart" height="220" style="max-width:100%;width:100%;{skill_chart_hidden}"></canvas>
   </div>
 </div>
-<div class="panel" style="margin-bottom: var(--sp-6);">
-  <div class="section-header">
-    <span>Cost by Domain</span>
-  </div>
-  <div style="padding: var(--sp-4);">
-    {domain_empty_msg}
-    <canvas id="costByDomainChart" height="200" style="max-width:850px;width:100%;{' display:none;' if not has_domain_data else ''}"></canvas>
-  </div>
-</div>"""
+<script>
+(function() {{
+  var typeBtns = document.querySelectorAll('#costTypeTabs .cost-tab');
+  var taskView = document.getElementById('costTaskView');
+  var skillView = document.getElementById('costSkillView');
+  typeBtns.forEach(function(btn) {{
+    btn.addEventListener('click', function() {{
+      var type = btn.getAttribute('data-type');
+      typeBtns.forEach(function(b) {{ b.classList.remove('active'); }});
+      btn.classList.add('active');
+      if (type === 'skill') {{
+        taskView.style.display = 'none';
+        skillView.style.display = '';
+      }} else {{
+        taskView.style.display = '';
+        skillView.style.display = 'none';
+      }}
+    }});
+  }});
+}})();
+</script>"""
 
 
 def generate_filter_bar() -> str:
     """Generate the filter chips, dropdowns, search input, and filter badge."""
     return """\
 <div class="filter-bar">
-  <div class="filter-chips" id="statusFilters">
-    <button class="filter-chip active" data-filter="All">All</button>
-    <button class="filter-chip" data-filter="To Do">To Do</button>
-    <button class="filter-chip" data-filter="In Progress">In Progress</button>
-    <button class="filter-chip" data-filter="Done">Done</button>
-  </div>
-  <select class="filter-select" id="domainFilter"><option value="">Domain</option></select>
+  <select class="filter-select" id="statusFilter">
+    <option value="All">Status</option>
+    <option value="To Do">To Do</option>
+    <option value="In Progress">In Progress</option>
+    <option value="Done">Done</option>
+  </select>
   <select class="filter-select" id="complexityFilter"><option value="">Size</option></select>
-  <select class="filter-select" id="typeFilter"><option value="">Type</option></select>
   <input type="text" class="search-input" id="searchInput" placeholder="Search tasks\u2026">
   <div class="filter-meta">
     <span class="filter-badge hidden" id="filterBadge">0</span>
@@ -933,18 +770,15 @@ def generate_table_header() -> str:
   <tr>
     <th data-col="0" data-type="num">ID <span class="sort-arrow">\u25B2</span></th>
     <th data-col="1" data-type="str">Task <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="2" data-type="str">Status <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="3" data-type="str">Domain <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="2" data-type="num" style="text-align:right" class="sort-desc">Cost <span class="sort-arrow">\u25BC</span></th>
+    <th data-col="3" data-type="str">Status <span class="sort-arrow">\u25B2</span></th>
     <th data-col="4" data-type="num">Size <span class="sort-arrow">\u25B2</span></th>
     <th data-col="5" data-type="num" style="text-align:right">WSJF <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="6" data-type="num" style="text-align:right">Sessions <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="7" data-type="str">Model <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="8" data-type="num" style="text-align:right">Duration <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="9" data-type="num" style="text-align:right">Lines <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="10" data-type="num" style="text-align:right">Tokens In <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="11" data-type="num" style="text-align:right">Tokens Out <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="12" data-type="num" style="text-align:right">Cost <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="13" data-type="str" class="sort-desc">Updated <span class="sort-arrow">\u25BC</span></th>
+    <th data-col="6" data-type="str">Model <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="7" data-type="num" style="text-align:right">Duration <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="8" data-type="num" style="text-align:right">Lines <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="9" data-type="num" style="text-align:right">Tokens In <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="10" data-type="num" style="text-align:right">Tokens Out <span class="sort-arrow">\u25B2</span></th>
   </tr>
 </thead>"""
 
@@ -995,12 +829,6 @@ def generate_criteria_detail(tid: int, has_criteria: bool = True, tool_stats: li
     if has_criteria:
         sort_bar = (
             '<div class="criteria-sort-bar">'
-            '<div class="criteria-view-modes">'
-            '<button class="criteria-view-btn active" data-view="commit">By Commit</button>'
-            '<button class="criteria-view-btn" data-view="status">By Status</button>'
-            '<button class="criteria-view-btn" data-view="flat">Flat</button>'
-            '</div>'
-            '<span class="criteria-sort-sep"></span>'
             '<span class="criteria-sort-label">Sort:</span>'
             '<button class="criteria-sort-btn" data-sort-key="completed">Completed <span class="sort-arrow">&#9650;</span></button>'
             '<button class="criteria-sort-btn" data-sort-key="cost">Cost <span class="sort-arrow">&#9650;</span></button>'
@@ -1019,7 +847,7 @@ def generate_criteria_detail(tid: int, has_criteria: bool = True, tool_stats: li
 
     return (
         f'<tr class="criteria-row" data-parent="{tid}" style="display:none">\n'
-        f'  <td colspan="14">{inner}</td>\n'
+        f'  <td colspan="11">{inner}</td>\n'
         f'</tr>\n'
     )
 
@@ -1059,21 +887,18 @@ def generate_task_row(t: dict, criteria_list: list[dict], task_deps: dict, summa
     heat_cls = cost_heat_class(t['total_cost'], max_cost)
     cost_cls = f'col-cost {heat_cls}'.strip()
 
-    row = f"""<tr{cls_attr} data-status="{status_val}" data-summary="{esc(t['summary']).lower()}" data-task-id="{tid}" data-domain="{domain_val}" data-complexity="{complexity_val}" data-type="{task_type_val}">
+    row = f"""<tr{cls_attr} data-status="{status_val}" data-summary="{esc(t['summary']).lower()}" data-task-id="{tid}" data-complexity="{complexity_val}" data-type="{task_type_val}">
   <td class="col-id" data-sort="{tid}">{toggle_icon}#{tid}</td>
   <td class="col-summary">{summary_cell}</td>
+  <td class="{cost_cls}" data-sort="{t['total_cost']}">{format_cost(t['total_cost'])}</td>
   <td class="col-status"><span class="status-badge status-{status_val.lower().replace(' ', '-')}">{status_val}</span></td>
-  <td class="col-domain">{domain_val}</td>
   <td class="col-complexity" data-sort="{complexity_sort}">{f'<span class="complexity-badge">{complexity_val}</span>' if complexity_val else ''}</td>
   <td class="col-wsjf" data-sort="{priority_score}">{priority_score}</td>
-  <td class="col-sessions" data-sort="{session_count}">{session_count if session_count else '<span class="text-muted-dash">&mdash;</span>'}</td>
   <td class="col-model" data-sort="{esc(models_raw)}" title="{esc(models_raw)}">{esc(models_raw) if models_raw else '<span class="text-muted-dash">&mdash;</span>'}</td>
   <td class="col-duration" data-sort="{duration_seconds}">{format_duration(duration_seconds) if duration_seconds else '<span class="text-muted-dash">&mdash;</span>'}</td>
   <td class="col-lines" data-sort="{total_lines}" data-lines-added="{int(lines_added)}" data-lines-removed="{int(lines_removed)}">{format_lines_html(lines_added, lines_removed)}</td>
   <td class="col-tokens-in" data-sort="{t['total_tokens_in']}">{format_tokens_compact(t['total_tokens_in'])}</td>
   <td class="col-tokens-out" data-sort="{t['total_tokens_out']}">{format_tokens_compact(t['total_tokens_out'])}</td>
-  <td class="{cost_cls}" data-sort="{t['total_cost']}">{format_cost(t['total_cost'])}</td>
-  <td class="col-updated" data-sort="{esc(t.get('updated_at') or '')}">{format_relative_time(t.get('updated_at'))}</td>
 </tr>\n"""
 
     if has_expandable:
@@ -1081,26 +906,6 @@ def generate_task_row(t: dict, criteria_list: list[dict], task_deps: dict, summa
 
     return row
 
-
-def generate_table_footer(total_sessions: int, total_duration: int, total_lines_added: int,
-                          total_lines_removed: int, total_tokens_in: int, total_tokens_out: int,
-                          total_cost: float) -> str:
-    """Generate the table footer with totals."""
-    total_lines = int(total_lines_added) + int(total_lines_removed)
-    return f"""\
-<tfoot>
-  <tr>
-    <td colspan="6" id="footerLabel">Total</td>
-    <td class="col-sessions" id="footerSessions">{total_sessions}</td>
-    <td class="col-model"></td>
-    <td class="col-duration" id="footerDuration">{format_duration(total_duration)}</td>
-    <td class="col-lines" id="footerLines">{format_lines_html(total_lines_added, total_lines_removed)}</td>
-    <td class="col-tokens-in" id="footerTokensIn">{format_tokens_compact(total_tokens_in)}</td>
-    <td class="col-tokens-out" id="footerTokensOut">{format_tokens_compact(total_tokens_out)}</td>
-    <td class="col-cost" id="footerCost">{format_cost(total_cost)}</td>
-    <td></td>
-  </tr>
-</tfoot>"""
 
 
 def generate_pagination() -> str:
@@ -1111,6 +916,7 @@ def generate_pagination() -> str:
   <div class="pagination-controls">
     <label>Per page:
       <select class="page-size-select" id="pageSize">
+        <option value="10">10</option>
         <option value="25">25</option>
         <option value="50">50</option>
         <option value="0">All</option>
@@ -1122,100 +928,6 @@ def generate_pagination() -> str:
 </div>"""
 
 
-def generate_velocity_section(velocity: list[dict]) -> str:
-    """Generate the Velocity panel showing completed tasks per week with avg cost."""
-    if not velocity:
-        return """\
-<div class="panel" style="margin-bottom: var(--sp-6);">
-  <div class="section-header">Velocity</div>
-  <p class="empty" style="padding: var(--sp-4);">No completed tasks yet. Velocity data will appear here once tasks are marked done.</p>
-</div>"""
-
-    total_tasks = sum(r["task_count"] for r in velocity)
-    avg_per_week = total_tasks / len(velocity) if velocity else 0
-
-    labels = [r["week"] for r in velocity]
-    counts = [int(r["task_count"]) for r in velocity]
-
-    chart_data = json.dumps({
-        "labels": labels,
-        "counts": counts,
-    }).replace("</", "<\\/")
-
-    table_rows = ""
-    for r in velocity:
-        avg_cost = r["avg_cost"] or 0
-        table_rows += (
-            f'<tr>'
-            f'<td style="font-variant-numeric:tabular-nums;">{esc(r["week"])}</td>'
-            f'<td style="text-align:right;font-variant-numeric:tabular-nums;">{int(r["task_count"])}</td>'
-            f'<td style="text-align:right;font-variant-numeric:tabular-nums;">{format_cost(avg_cost)}</td>'
-            f'</tr>\n'
-        )
-
-    return f"""\
-<div class="panel" style="margin-bottom: var(--sp-6);">
-  <div class="section-header">Velocity</div>
-  <div class="kpi-grid" style="padding:var(--sp-4);margin-bottom:0;">
-    <div class="kpi-card">
-      <div class="kpi-label">Weeks Tracked</div>
-      <div class="kpi-value">{len(velocity)}</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Tasks / Active Week (avg)</div>
-      <div class="kpi-value">{avg_per_week:.1f}</div>
-    </div>
-  </div>
-  <div style="display:flex;gap:var(--sp-6);padding:var(--sp-4);align-items:flex-start;flex-wrap:wrap;">
-    <div class="dash-table-scroll" style="flex:1;min-width:220px;">
-      <table>
-        <thead>
-          <tr>
-            <th>Week</th>
-            <th style="text-align:right">Tasks</th>
-            <th style="text-align:right">Avg Cost</th>
-          </tr>
-        </thead>
-        <tbody>
-          {table_rows}
-        </tbody>
-      </table>
-    </div>
-    <div style="flex:2;min-width:200px;">
-      <canvas id="velocityChart" height="150"></canvas>
-    </div>
-  </div>
-</div>
-<script>
-(function() {{
-  var vData = {chart_data};
-  var canvas = document.getElementById('velocityChart');
-  if (!canvas || !vData.labels.length) return;
-  new Chart(canvas, {{
-    type: 'bar',
-    data: {{
-      labels: vData.labels,
-      datasets: [{{
-        label: 'Tasks Completed',
-        data: vData.counts,
-        backgroundColor: '#3b82f699',
-        borderColor: '#3b82f6',
-        borderWidth: 1
-      }}]
-    }},
-    options: {{
-      responsive: true,
-      plugins: {{
-        legend: {{ display: false }},
-        tooltip: {{ callbacks: {{ label: function(c) {{ return c.parsed.y + ' tasks'; }} }} }}
-      }},
-      scales: {{
-        y: {{ beginAtZero: true, ticks: {{ stepSize: 1 }} }}
-      }}
-    }}
-  }});
-}})();
-</script>"""
 
 
 def generate_complexity_section(complexity_metrics: list[dict] | None) -> str:

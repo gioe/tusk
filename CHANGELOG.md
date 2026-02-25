@@ -6,6 +6,62 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [266] - 2026-02-25
+
+- Redesign criterion tool cost panel: styled card with rotating chevron arrow, total cost right-aligned, proper CSS classes replacing inline styles
+
+## [265] - 2026-02-25
+
+- Fix criterion-item layout: switch to column flex so tool cost dropdown renders below row content instead of inline
+
+## [264] - 2026-02-25
+
+- Add Tool Cost Breakdown dropdown to each acceptance criterion, proportionally calculated from task-level tool stats by criterion cost fraction
+
+## [263] - 2026-02-25
+
+- Remove completion timestamp from criteria items; move cost pill inline between status and text
+
+## [262] - 2026-02-25
+
+- Remove token count pill from acceptance criteria group headers
+
+## [261] - 2026-02-25
+
+- Remove Manual type and Original source pills from acceptance criteria rows
+
+## [260] - 2026-02-25
+
+- Remove By Commit/By Status/Flat view toggles from criteria detail rows; always group by commit
+
+## [259] - 2026-02-25
+
+- Remove Domain, Sessions, and Updated columns from task table; default sort now by Cost
+
+## [258] - 2026-02-25
+
+- Remove Domain and Type filter dropdowns from task table filter bar
+
+## [257] - 2026-02-25
+
+- Replace status filter pill buttons (All/To Do/In Progress/Done) with a Status dropdown consistent with Domain, Size, and Type filters
+
+## [256] - 2026-02-25
+
+- Remove KPI cards and dead complexity section from Tasks tab; Tasks tab now shows only the filter bar + table + pagination
+
+## [255] - 2026-02-25
+
+- Remove Velocity chart and all associated code from dashboard (generate_velocity_section, fetch_velocity call, velocity_html template variable)
+
+## [254] - 2026-02-25
+
+- Redesign Cost Trend panel: replace Tasks/Skills type toggle with always-visible dual chart sections (Tasks + Skills), each showing period-controlled bar+cumulative-line charts; single clearly-labeled Period toggle (Daily/Weekly/Monthly) controls both; Skills section appends an all-time By Skill breakdown
+
+## [253] - 2026-02-25
+
+- Remove Project-Wide Tool Costs section from dashboard Skills tab
+
 ## [252] - 2026-02-25
 
 ### Changed
