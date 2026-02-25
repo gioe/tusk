@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [244] - 2026-02-25
+
+### Changed
+- [TASK-395] `/chain` wave dispatch now includes `isolation: worktree` for parallel agents, preventing file conflicts and branch-state interference between concurrent agents
+
 ## [243] - 2026-02-24
 - `bin/tusk-pricing-lib.py`: added `commit=True` parameter to `upsert_criterion_tool_stats` so callers can defer the commit and batch additional writes into one atomic transaction
 - `bin/tusk-call-breakdown.py`: `--criterion` recompute now calls `upsert_criterion_stats` with `commit=False` and issues a single `conn.commit()` after the `acceptance_criteria` cost UPDATE, making both writes atomic; added clarifying comments
