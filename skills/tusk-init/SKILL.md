@@ -143,7 +143,7 @@ Read the existing config first to preserve any custom review settings:
 cat "$(tusk path | xargs dirname)/config.json" 2>/dev/null
 ```
 
-Assemble `tusk/config.json`, carrying forward any existing `review`, `review_categories`, and `review_severities` values from the current config (do not reset them to defaults unless the user explicitly changes them):
+Assemble `tusk/config.json`, carrying forward values from the existing config for any key the user has not explicitly changed (do not reset to defaults):
 
 ```json
 {
@@ -152,6 +152,9 @@ Assemble `tusk/config.json`, carrying forward any existing `review`, `review_cat
   "statuses": ["To Do", "In Progress", "Done"],
   "priorities": ["Highest", "High", "Medium", "Low", "Lowest"],
   "closed_reasons": ["completed", "expired", "wont_do", "duplicate"],
+  "complexity": ["XS", "S", "M", "L", "XL"],
+  "blocker_types": ["data", "approval", "infra", "external"],
+  "criterion_types": ["manual", "code", "test", "file"],
   "agents": { "<confirmed>" },
   "dupes": {
     "strip_prefixes": ["Deferred", "Enhancement", "Optional"],
@@ -159,15 +162,20 @@ Assemble `tusk/config.json`, carrying forward any existing `review`, `review_cat
     "similar_threshold": 0.6
   },
   "review": {
-    "mode": "<from existing config, or 'disabled' if none>",
-    "max_passes": "<from existing config, or 2 if none>",
-    "reviewers": "<from existing config, or [] if none>"
+    "mode": "<from existing config, or \"disabled\" if none>",
+    "max_passes": 2,
+    "reviewers": []
   },
-  "review_categories": "<from existing config, or ['must_fix', 'suggest', 'defer'] if none>",
-  "review_severities": "<from existing config, or ['critical', 'major', 'minor'] if none>",
+  "review_categories": ["must_fix", "suggest", "defer"],
+  "review_severities": ["critical", "major", "minor"],
+  "merge": {
+    "mode": "<from existing config, or \"local\" if none>"
+  },
   "test_command": "<confirmed or empty>"
 }
 ```
+
+For `review`, `review_categories`, `review_severities`, and `merge`: read the values from the existing config and substitute them here — only use the defaults shown if no existing config is present.
 
 Write the file (resolve path via `tusk path`), then:
 
