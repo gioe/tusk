@@ -78,6 +78,11 @@ def main(argv: list[str]) -> int:
         for line in status_result.stdout.splitlines()
     )
     if dirty:
+        print(
+            f"Warning: uncommitted changes detected — stashing them before creating branch.\n"
+            f"Run 'git stash pop' when ready to restore your changes.",
+            file=sys.stderr,
+        )
         stash = run(
             ["git", "stash", "push", "-m", f"tusk-branch: auto-stash for TASK-{task_id}"],
             check=False,
@@ -137,34 +142,6 @@ def main(argv: list[str]) -> int:
         if result.returncode != 0:
             print(f"Error: git checkout -b {branch_name} failed:\n{result.stderr.strip()}", file=sys.stderr)
             return 2
-
-    # Restore stashed changes
-    if dirty:
-        pop = run(["git", "stash", "pop"], check=False)
-        if pop.returncode != 0:
-            conflict_result = run(
-                ["git", "diff", "--name-only", "--diff-filter=U"], check=False
-            )
-            conflict_files = (
-                conflict_result.stdout.strip() if conflict_result.returncode == 0 else ""
-            )
-            msg = (
-                "Error: git stash pop produced merge conflicts — the stashed changes "
-                "could not be cleanly applied to the updated branch.\n"
-            )
-            if conflict_files:
-                msg += "Conflicting files:\n"
-                for f in conflict_files.splitlines():
-                    msg += f"  {f}\n"
-            msg += (
-                "\nTo fix:\n"
-                "  1. Resolve the conflict markers in each file above\n"
-                "  2. Stage the resolved files:  git add <file>\n"
-                "  3. Drop the stash entry:      git stash drop\n"
-                f"\nNote: branch '{branch_name}' was created and is checked out."
-            )
-            print(msg, file=sys.stderr)
-            return 3
 
     print(branch_name)
     return 0

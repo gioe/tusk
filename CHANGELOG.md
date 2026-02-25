@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [267] - 2026-02-25
+
+- Warn and stash uncommitted changes in tusk branch; leave stash intact so changes are not silently carried into new feature branch
+
 ## [266] - 2026-02-25
 
 - Redesign criterion tool cost panel: styled card with rotating chevron arrow, total cost right-aligned, proper CSS classes replacing inline styles
