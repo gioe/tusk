@@ -82,6 +82,7 @@ Task tool call (for EACH head task):
   description: "TASK-<id> <first 3 words of summary>"
   subagent_type: general-purpose
   run_in_background: true
+  isolation: worktree   ← include when spawning multiple heads in parallel; omit for a single head
   prompt: <AGENT-PROMPT.md content with {placeholders} filled from task details>
 ```
 
@@ -158,6 +159,7 @@ Task tool call (for EACH frontier task):
   description: "TASK-<id> <first 3 words of summary>"
   subagent_type: general-purpose
   run_in_background: true
+  isolation: worktree   ← include when the wave has more than one task; omit for single-task waves
   prompt: <AGENT-PROMPT.md content with {placeholders} filled from task details>
 ```
 
