@@ -137,7 +137,13 @@ Store the confirmed value (empty string if skipped) for Step 6.
 
 ## Step 6: Write Config and Initialize
 
-Assemble `tusk/config.json`, preserving unchanged defaults:
+Read the existing config first to preserve any custom review settings:
+
+```bash
+cat "$(tusk path | xargs dirname)/config.json" 2>/dev/null
+```
+
+Assemble `tusk/config.json`, carrying forward any existing `review`, `review_categories`, and `review_severities` values from the current config (do not reset them to defaults unless the user explicitly changes them):
 
 ```json
 {
@@ -152,6 +158,13 @@ Assemble `tusk/config.json`, preserving unchanged defaults:
     "check_threshold": 0.82,
     "similar_threshold": 0.6
   },
+  "review": {
+    "mode": "<from existing config, or 'disabled' if none>",
+    "max_passes": "<from existing config, or 2 if none>",
+    "reviewers": "<from existing config, or [] if none>"
+  },
+  "review_categories": "<from existing config, or ['must_fix', 'suggest', 'defer'] if none>",
+  "review_severities": "<from existing config, or ['critical', 'major', 'minor'] if none>",
   "test_command": "<confirmed or empty>"
 }
 ```
