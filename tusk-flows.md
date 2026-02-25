@@ -82,7 +82,7 @@
                            conventions
                            [invokes /create-task]        (for findings)
 
-/reconfigure ───────────── config
+/tusk-update ───────────── config
                            init --force   (if schema rebuild needed)
                            regen-triggers
                            sql-quote
@@ -257,7 +257,7 @@ SKILL               start  done   insert update                  eria           
 /create-task          ✗      ✗      ✓      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✓      ✓        ✗        ✗     ✗      ✓       ✗       ✗
 /resume-task          ✓      ✗      ✗      ✗       ✗        ✗       ✓      ✗      ✗     ✗       ✗      ✗        ✓        ✗     ✓      ✗       ✗       ✗
 /token-audit          ✗      ✗      ✓*     ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✓        ✗        ✗     ✗      ✓       ✓       ✗
-/reconfigure          ✗      ✗      ✗      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✗        ✗        ✗     ✗      ✓       ✗       ✗
+/tusk-update          ✗      ✗      ✗      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✗        ✗        ✗     ✗      ✓       ✗       ✗
 /tusk-insights        ✗      ✗      ✗      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✗        ✗        ✗     ✗      ✗       ✗       ✗
 /dashboard            ✗      ✗      ✗      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✗        ✗        ✗     ✗      ✗       ✗       ✗
 /tusk-init            ✗      ✗      ✗      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✗        ✗        ✗     ✗      ✓       ✗       ✗

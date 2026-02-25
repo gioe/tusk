@@ -61,13 +61,13 @@ This document defines the eight product pillars that guide tusk's design and dev
 
 **Core claim:** Adapting tusk to a new project's conventions requires editing `config.json`, not editing source code.
 
-**Current maturity:** High. `config.default.json` drives SQLite trigger generation for all enum columns — adding a domain or task type is a one-line config edit followed by `tusk regen-triggers`. The skill system is open: each skill is a Markdown file with YAML frontmatter, discoverable at session startup. Python scripts use a shared library pattern (`tusk-pricing-lib.py`) with importlib for reuse. The `/reconfigure` skill updates config post-install without data loss.
+**Current maturity:** High. `config.default.json` drives SQLite trigger generation for all enum columns — adding a domain or task type is a one-line config edit followed by `tusk regen-triggers`. The skill system is open: each skill is a Markdown file with YAML frontmatter, discoverable at session startup. Python scripts use a shared library pattern (`tusk-pricing-lib.py`) with importlib for reuse. The `/tusk-update` skill updates config post-install without data loss.
 
 **Representative features:**
 - `config.default.json` with auto-generated SQLite validation triggers via `generate_triggers()`
 - `tusk regen-triggers` — live trigger rebuild from config without DB recreation
 - `/tusk-init` — codebase-aware config suggestion
-- `/reconfigure` — post-install config updates
+- `/tusk-update` — post-install config updates
 - `skills/` + `skills-internal/` two-tier skill distribution model
 - `tusk-pricing-lib.py` shared library imported by multiple scripts via importlib
 - `tusk sync-skills` — symlink regeneration for source repo skill development
