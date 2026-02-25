@@ -385,9 +385,10 @@ def main():
     )
     log.debug("Generated %d bytes of HTML", len(html_content))
 
-    # Write to tusk/dashboard.html (same dir as DB)
+    # Write to tusk/<project>-dashboard.html (same dir as DB)
     db_dir = os.path.dirname(db_path)
-    output_path = os.path.join(db_dir, "dashboard.html")
+    project_name = os.path.basename(os.path.dirname(db_dir))
+    output_path = os.path.join(db_dir, f"{project_name}-dashboard.html")
     with open(output_path, "w") as f:
         f.write(html_content)
     log.debug("Wrote dashboard to %s", output_path)

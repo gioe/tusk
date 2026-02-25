@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [252] - 2026-02-25
+
+### Changed
+- `tusk-dashboard.py`: prefix dashboard output filename with the repo root directory name (e.g., `myproject-dashboard.html`) so multiple projects can have dashboards open simultaneously without overwriting each other
+
 ## [251] - 2026-02-24
 
 ### Changed
