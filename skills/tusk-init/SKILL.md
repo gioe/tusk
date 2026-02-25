@@ -205,7 +205,14 @@ tusk init --force
    > - **DB** (`${DB_PATH}`): restored from backup if one existed, otherwise in unknown state. Re-run `/tusk-init` once the error above is resolved.
 3. Stop — do not proceed to Step 7.
 
-**On success:** Print summary: confirmed domains, agents, task types, DB reinitialized.
+**On success:** Run `tusk validate` as a final verification check:
+
+```bash
+tusk validate
+```
+
+- If `tusk validate` **fails**: show the full output to the user and warn that the configuration or database may have issues. Do not proceed to Step 7.
+- If `tusk validate` **passes**: print success summary — confirmed domains, agents, task types, DB reinitialized, and "✓ tusk validate passed".
 
 ## Step 7: CLAUDE.md Snippet
 
