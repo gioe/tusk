@@ -719,8 +719,11 @@ def rule18_manifest_drift(root):
     # Scripts that are only meaningful in the tusk source repo — not distributed.
     # Canonical source: bin/dist-excluded.txt (also read by tusk-generate-manifest.py and install.sh).
     _dist_excl_path = os.path.join(root, "bin", "dist-excluded.txt")
-    with open(_dist_excl_path, encoding="utf-8") as _f:
-        _dist_excluded = {line.strip() for line in _f if line.strip()}
+    try:
+        with open(_dist_excl_path, encoding="utf-8") as _f:
+            _dist_excluded = {line.strip() for line in _f if line.strip()}
+    except OSError as exc:
+        return [f"  bin/dist-excluded.txt could not be read: {exc}"]
 
     expected = []
 
