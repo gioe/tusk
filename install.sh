@@ -156,8 +156,12 @@ repo_root = '$REPO_ROOT'
 
 files = []
 
+dist_excluded = {'tusk-generate-manifest.py'}
+
 files.append('.claude/bin/tusk')
 for p in sorted(glob.glob(os.path.join(script_dir, 'bin', 'tusk-*.py'))):
+    if os.path.basename(p) in dist_excluded:
+        continue
     files.append('.claude/bin/' + os.path.basename(p))
 for name in ['config.default.json', 'VERSION', 'pricing.json']:
     files.append('.claude/bin/' + name)
