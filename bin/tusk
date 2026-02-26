@@ -822,6 +822,7 @@ CREATE TABLE tool_call_events (
     task_id INTEGER,
     session_id INTEGER,
     criterion_id INTEGER,
+    skill_run_id INTEGER,
     tool_name TEXT NOT NULL,
     cost_dollars REAL NOT NULL DEFAULT 0.0,
     tokens_in INTEGER NOT NULL DEFAULT 0,
@@ -831,11 +832,13 @@ CREATE TABLE tool_call_events (
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL,
     FOREIGN KEY (session_id) REFERENCES task_sessions(id) ON DELETE CASCADE,
     FOREIGN KEY (criterion_id) REFERENCES acceptance_criteria(id) ON DELETE CASCADE,
-    CHECK (session_id IS NOT NULL OR criterion_id IS NOT NULL)
+    FOREIGN KEY (skill_run_id) REFERENCES skill_runs(id) ON DELETE CASCADE,
+    CHECK (session_id IS NOT NULL OR criterion_id IS NOT NULL OR skill_run_id IS NOT NULL)
 );
 CREATE INDEX idx_tool_call_events_session_id ON tool_call_events(session_id);
 CREATE INDEX idx_tool_call_events_task_id ON tool_call_events(task_id);
 CREATE INDEX idx_tool_call_events_criterion_id ON tool_call_events(criterion_id);
+CREATE INDEX idx_tool_call_events_skill_run_id ON tool_call_events(skill_run_id);
 TCE_SCHEMA
 
   # Conventions (generalizable heuristics written by /retro)
@@ -2017,6 +2020,48 @@ PYEOF
     fi
     sqlite3 "$DB_PATH" "PRAGMA user_version = 33;"
     echo "  Migration 33: added qualitative column to conventions"
+  fi
+
+  # Migration 33→34: add skill_run_id FK to tool_call_events and update CHECK constraint
+  if [[ "$current" -lt 34 ]]; then
+    local has_skill_run_id
+    has_skill_run_id="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM pragma_table_info('tool_call_events') WHERE name='skill_run_id';")"
+    if [[ "$has_skill_run_id" -eq 0 ]]; then
+      sqlite3 "$DB_PATH" "BEGIN;
+        CREATE TABLE tool_call_events_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER,
+            session_id INTEGER,
+            criterion_id INTEGER,
+            skill_run_id INTEGER,
+            tool_name TEXT NOT NULL,
+            cost_dollars REAL NOT NULL DEFAULT 0.0,
+            tokens_in INTEGER NOT NULL DEFAULT 0,
+            tokens_out INTEGER NOT NULL DEFAULT 0,
+            call_sequence INTEGER NOT NULL DEFAULT 0,
+            called_at TEXT NOT NULL,
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL,
+            FOREIGN KEY (session_id) REFERENCES task_sessions(id) ON DELETE CASCADE,
+            FOREIGN KEY (criterion_id) REFERENCES acceptance_criteria(id) ON DELETE CASCADE,
+            FOREIGN KEY (skill_run_id) REFERENCES skill_runs(id) ON DELETE CASCADE,
+            CHECK (session_id IS NOT NULL OR criterion_id IS NOT NULL OR skill_run_id IS NOT NULL)
+        );
+        INSERT INTO tool_call_events_new
+            (id, task_id, session_id, criterion_id, tool_name, cost_dollars, tokens_in, tokens_out, call_sequence, called_at)
+        SELECT id, task_id, session_id, criterion_id, tool_name, cost_dollars, tokens_in, tokens_out, call_sequence, called_at
+        FROM tool_call_events;
+        DROP TABLE tool_call_events;
+        ALTER TABLE tool_call_events_new RENAME TO tool_call_events;
+        CREATE INDEX idx_tool_call_events_session_id ON tool_call_events(session_id);
+        CREATE INDEX idx_tool_call_events_task_id ON tool_call_events(task_id);
+        CREATE INDEX idx_tool_call_events_criterion_id ON tool_call_events(criterion_id);
+        CREATE INDEX idx_tool_call_events_skill_run_id ON tool_call_events(skill_run_id);
+        PRAGMA user_version = 34;
+      COMMIT;"
+    else
+      sqlite3 "$DB_PATH" "PRAGMA user_version = 34;"
+    fi
+    echo "  Migration 34: added skill_run_id column to tool_call_events"
   fi
 
   local final

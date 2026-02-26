@@ -253,25 +253,26 @@ Pre-computed per-tool-call cost aggregates, grouped by session, skill run, or cr
 
 ### Tool Call Events
 
-Individual per-call rows recording one entry per tool invocation within a session or criterion time window. Unlike `tool_call_stats` which aggregates per-tool per-window, `tool_call_events` preserves the full timeline with ordering (`call_sequence`) and timestamps (`called_at`). Populated by `tusk call-breakdown` alongside the aggregate writes. Each row belongs to exactly one of: a session or a criterion — never none.
+Individual per-call rows recording one entry per tool invocation within a session, criterion, or skill-run time window. Unlike `tool_call_stats` which aggregates per-tool per-window, `tool_call_events` preserves the full timeline with ordering (`call_sequence`) and timestamps (`called_at`). Populated by `tusk call-breakdown` alongside the aggregate writes. Each row belongs to exactly one of: a session, a criterion, or a skill run — never none.
 
 | Attribute | Type | Constraints | Description |
 |-----------|------|-------------|-------------|
 | `id` | INTEGER | PK, autoincrement | |
 | `task_id` | INTEGER | nullable, FK → tasks(id) ON DELETE SET NULL | Denormalised task reference for convenient joins |
-| `session_id` | INTEGER | nullable, FK → task_sessions(id) ON DELETE CASCADE | Owning session (set for session rows, NULL for criterion rows) |
-| `criterion_id` | INTEGER | nullable, FK → acceptance_criteria(id) ON DELETE CASCADE | Owning criterion (set for criterion rows, NULL for session rows) |
+| `session_id` | INTEGER | nullable, FK → task_sessions(id) ON DELETE CASCADE | Owning session (set for session rows, NULL otherwise) |
+| `criterion_id` | INTEGER | nullable, FK → acceptance_criteria(id) ON DELETE CASCADE | Owning criterion (set for criterion rows, NULL otherwise) |
+| `skill_run_id` | INTEGER | nullable, FK → skill_runs(id) ON DELETE CASCADE | Owning skill run (set for skill-run rows, NULL otherwise) |
 | `tool_name` | TEXT | NOT NULL | Name of the Claude tool (e.g. `Bash`, `Read`, `Edit`) |
 | `cost_dollars` | REAL | NOT NULL, default 0.0 | Estimated cost for this individual call |
 | `tokens_in` | INTEGER | NOT NULL, default 0 | Input tokens attributed to this call |
 | `tokens_out` | INTEGER | NOT NULL, default 0 | Output tokens attributed to this call |
-| `call_sequence` | INTEGER | NOT NULL, default 0 | 1-based ordering of this call within the session or criterion window |
+| `call_sequence` | INTEGER | NOT NULL, default 0 | 1-based ordering of this call within the window |
 | `called_at` | TEXT | NOT NULL | ISO 8601 timestamp of the assistant message containing this tool use |
 
 **Constraints:**
-- `CHECK (session_id IS NOT NULL OR criterion_id IS NOT NULL)` — every row must be attributed to a session or criterion; fully-orphaned rows are rejected.
+- `CHECK (session_id IS NOT NULL OR criterion_id IS NOT NULL OR skill_run_id IS NOT NULL)` — every row must be attributed to a session, criterion, or skill run; fully-orphaned rows are rejected.
 
-**Indexes:** `idx_tool_call_events_session_id`, `idx_tool_call_events_task_id`, `idx_tool_call_events_criterion_id`.
+**Indexes:** `idx_tool_call_events_session_id`, `idx_tool_call_events_task_id`, `idx_tool_call_events_criterion_id`, `idx_tool_call_events_skill_run_id`.
 
 ---
 
