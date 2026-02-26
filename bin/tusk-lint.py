@@ -696,6 +696,55 @@ def rule17_db_rules_advisory(root):
     return _run_lint_rules(root, rules)
 
 
+def rule18_manifest_drift(root):
+    """MANIFEST file is out of sync with files distributed by install.sh."""
+    import glob as _glob
+    import json as _json
+
+    manifest_path = os.path.join(root, "MANIFEST")
+    if not os.path.isfile(manifest_path):
+        return ["  MANIFEST file not found — run install.sh or check source tree"]
+
+    try:
+        with open(manifest_path, encoding="utf-8") as f:
+            on_disk = set(_json.load(f))
+    except (OSError, _json.JSONDecodeError) as exc:
+        return [f"  MANIFEST could not be parsed: {exc}"]
+
+    # Generate expected manifest using the same logic as install.sh section 4c
+    expected = []
+
+    expected.append(".claude/bin/tusk")
+
+    for p in sorted(_glob.glob(os.path.join(root, "bin", "tusk-*.py"))):
+        expected.append(".claude/bin/" + os.path.basename(p))
+
+    for name in ["config.default.json", "VERSION", "pricing.json"]:
+        expected.append(".claude/bin/" + name)
+
+    for skill_dir in sorted(_glob.glob(os.path.join(root, "skills", "*/"))):
+        skill_name = os.path.basename(skill_dir.rstrip("/"))
+        for fname in sorted(os.listdir(skill_dir)):
+            full = os.path.join(skill_dir, fname)
+            if os.path.isfile(full):
+                expected.append(".claude/skills/" + skill_name + "/" + fname)
+
+    hooks_src = os.path.join(root, ".claude", "hooks")
+    if os.path.isdir(hooks_src):
+        for fname in sorted(os.listdir(hooks_src)):
+            full = os.path.join(hooks_src, fname)
+            if os.path.isfile(full):
+                expected.append(".claude/hooks/" + fname)
+
+    expected_set = set(expected)
+    violations = []
+    for path in sorted(expected_set - on_disk):
+        violations.append(f"  MANIFEST: missing '{path}' (in source tree but not in MANIFEST)")
+    for path in sorted(on_disk - expected_set):
+        violations.append(f"  MANIFEST: extra '{path}' (in MANIFEST but not in source tree)")
+    return violations
+
+
 # ── Main ─────────────────────────────────────────────────────────────
 
 # Each entry: (display_name, check_function, advisory)
@@ -719,6 +768,7 @@ RULES = [
     ("Rule 15: Big-bang commits (all criteria on one commit) (advisory)", rule15_big_bang_commits, True),
     ("Rule 16: DB-backed blocking lint rules", rule16_db_rules_blocking, False),
     ("Rule 17: DB-backed advisory lint rules (advisory)", rule17_db_rules_advisory, True),
+    ("Rule 18: MANIFEST drift from source tree", rule18_manifest_drift, False),
 ]
 
 

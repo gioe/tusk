@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [277] - 2026-02-26
+
+- Feature: `tusk lint` Rule 18 detects MANIFEST drift — reports blocking violations when the committed `MANIFEST` file is missing entries present in the source tree (`bin/tusk-*.py`, `skills/*/`, `.claude/hooks/*`) or contains entries no longer distributed by `install.sh`.
+
 ## [276] - 2026-02-25
 
 - Feature: `tusk upgrade` now uses a two-manifest approach to safely remove orphaned files. `install.sh` writes `.claude/tusk-manifest.json` after install; `tusk upgrade` diffs the stored manifest against the new release's `MANIFEST` file and `rm`s any orphan skills, scripts, or hooks — leaving user-added files untouched. A `MANIFEST` file is now included in each release tarball.
