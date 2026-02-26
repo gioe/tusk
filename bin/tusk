@@ -2006,6 +2006,39 @@ cmd_upgrade() {
     exit 1
   fi
 
+  # Remove orphaned files using manifests
+  local old_manifest="$REPO_ROOT/.claude/tusk-manifest.json"
+  local new_manifest="$src/MANIFEST"
+  if [[ -f "$old_manifest" && -f "$new_manifest" ]]; then
+    python3 -c "
+import json, os
+
+old_manifest = '$old_manifest'
+new_manifest = '$new_manifest'
+repo_root = '$REPO_ROOT'
+
+with open(old_manifest) as f:
+    old_files = set(json.load(f))
+with open(new_manifest) as f:
+    new_files = set(json.load(f))
+
+orphans = old_files - new_files
+for rel_path in sorted(orphans):
+    full_path = os.path.join(repo_root, rel_path)
+    if os.path.isfile(full_path):
+        os.remove(full_path)
+        print('  Removed orphan: ' + rel_path)
+        parent = os.path.dirname(full_path)
+        try:
+            os.rmdir(parent)
+            print('  Removed empty dir: ' + os.path.relpath(parent, repo_root))
+        except OSError:
+            pass
+"
+  elif [[ ! -f "$old_manifest" ]]; then
+    echo "  No prior manifest found; skipping orphan removal (first upgrade with manifest support)"
+  fi
+
   # Copy bin files alongside current binary
   # Use mv (atomic rename) for the running script so bash's open fd keeps
   # reading the old inode instead of seeing overwritten content mid-execution.
@@ -2127,6 +2160,12 @@ CONVENTIONS
 
   # Run migrations using the NEW binary
   "$SCRIPT_DIR/tusk" migrate
+
+  # Write updated manifest (copy from the new release's MANIFEST)
+  if [[ -f "$new_manifest" ]]; then
+    cp "$new_manifest" "$REPO_ROOT/.claude/tusk-manifest.json"
+    echo "  Updated .claude/tusk-manifest.json"
+  fi
 
   echo ""
   echo "Upgrade complete (version $remote_version)."
