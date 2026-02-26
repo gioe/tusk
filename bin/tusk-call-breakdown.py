@@ -425,6 +425,36 @@ def cmd_task(conn, task_id: int, transcripts: list[str], write_only: bool) -> No
         print_table(combined, f"task {task_id} ({len(rows)} session(s))")
 
 
+def insert_skill_run_events(
+    conn: sqlite3.Connection,
+    run_id: int,
+    items: list[dict],
+    commit: bool = True,
+) -> None:
+    """Replace tool_call_events rows for a skill run with fresh individual event rows.
+
+    Pass commit=False to defer the commit, allowing the caller to batch additional writes.
+    """
+    conn.execute("DELETE FROM tool_call_events WHERE skill_run_id = ?", (run_id,))
+    for seq, item in enumerate(items, 1):
+        conn.execute(
+            "INSERT INTO tool_call_events "
+            "(skill_run_id, tool_name, cost_dollars, tokens_in, tokens_out, call_sequence, called_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                run_id,
+                item["tool_name"],
+                round(item["cost"], 8),
+                item["marginal_input_tokens"],
+                item["output_tokens"],
+                seq,
+                item["ts"].isoformat(),
+            ),
+        )
+    if commit:
+        conn.commit()
+
+
 def upsert_skill_run_stats(
     conn: sqlite3.Connection,
     run_id: int,
@@ -480,8 +510,10 @@ def cmd_skill_run(conn, run_id: int, transcripts: list[str], write_only: bool = 
         print("Warning: No transcripts found — cannot compute breakdown.", file=sys.stderr)
         return
 
-    stats = aggregate_tool_calls(transcripts, started_at, ended_at)
+    stats, items = _aggregate_single_window(transcripts, started_at, ended_at)
     upsert_skill_run_stats(conn, run_id, stats)
+    if items:
+        insert_skill_run_events(conn, run_id, items)
 
     if not write_only:
         print_table(stats, f"skill-run {run_id} ({row['skill_name']})")
