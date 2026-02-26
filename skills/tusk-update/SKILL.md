@@ -81,14 +81,16 @@ Then scan the repo for test framework signals (check in this priority order):
    ```bash
    node -e "const p=require('./package.json'); console.log(JSON.stringify({scripts:p.scripts||{},dev:Object.keys({...p.devDependencies,...p.dependencies})}));" 2>/dev/null
    ```
-   - If `vitest` appears in `devDependencies` or `dependencies` → suggest `bun run vitest`
+   - If the command produces no output (no `package.json`, or `node` unavailable) → fall back to `bun test`
+   - Else if `vitest` appears in `devDependencies` or `dependencies` → suggest `bun run vitest`
    - Else if `jest` appears in `devDependencies`/`dependencies` OR a `test` script contains `jest` → suggest `bun run jest`
    - Else → suggest `bun test`
 2. `pnpm-lock.yaml` present → inspect `package.json` first (run from repo root):
    ```bash
    node -e "const p=require('./package.json'); console.log(JSON.stringify({scripts:p.scripts||{},dev:Object.keys({...p.devDependencies,...p.dependencies})}));" 2>/dev/null
    ```
-   - If `vitest` appears in `devDependencies` or `dependencies` → suggest `pnpm vitest`
+   - If the command produces no output (no `package.json`, or `node` unavailable) → fall back to `pnpm test`
+   - Else if `vitest` appears in `devDependencies` or `dependencies` → suggest `pnpm vitest`
    - Else if `jest` appears in `devDependencies`/`dependencies` OR a `test` script contains `jest` → suggest `pnpm jest`
    - Else → suggest `pnpm test`
 3. `package.json` present (no lockfile) → inspect it to pick the right runner (run from repo root):
