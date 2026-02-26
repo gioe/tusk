@@ -286,27 +286,58 @@ JS: str = """\
     return '+' + m + 'm ' + rs + 's';
   }
 
+  var TOOL_COLOR_MAP = {
+    'Bash': '#f59e0b', 'Read': '#3b82f6', 'Edit': '#22c55e', 'Write': '#a855f7',
+    'Grep': '#06b6d4', 'Glob': '#0ea5e9', 'WebFetch': '#ec4899', 'WebSearch': '#db2777',
+    'Task': '#ef4444', 'TaskOutput': '#dc2626', 'TaskStop': '#b91c1c',
+    'NotebookEdit': '#8b5cf6', 'AskUserQuestion': '#64748b', 'ExitPlanMode': '#64748b',
+    'EnterPlanMode': '#64748b'
+  };
+  function toolColor(name) {
+    if (TOOL_COLOR_MAP[name]) return TOOL_COLOR_MAP[name];
+    if (name && name.indexOf('mcp__') === 0) return '#f97316';
+    return '#6b7280';
+  }
+
   function renderCriterionTimeline(events) {
     if (!events || events.length === 0) return '';
     var total = 0;
     events.forEach(function(e) { total += e.cost_dollars || 0; });
     var t0 = null;
     try { t0 = new Date(events[0].called_at).getTime(); } catch(err) {}
+    function relTimeFor(e) {
+      if (t0 === null) return '';
+      try {
+        var ms = new Date(e.called_at).getTime() - t0;
+        return fmtRelTime(ms >= 0 ? ms : 0);
+      } catch(err) { return ''; }
+    }
+
+    // Swimlane bar: one colored segment per call, width ∝ cost
+    var minFlex = total > 0 ? total * 0.01 / events.length : 1;
+    var segs = '';
+    events.forEach(function(e) {
+      var cost = e.cost_dollars || 0;
+      var flexVal = total > 0 ? Math.max(cost, minFlex) : 1;
+      var rt = relTimeFor(e);
+      var tip = '#' + (e.call_sequence || 0) + ' ' + e.tool_name
+        + ' ($' + cost.toFixed(4) + ')' + (rt ? ' ' + rt : '');
+      segs += '<span class="cr-tl-seg" style="flex:' + flexVal
+        + ';background:' + toolColor(e.tool_name) + '" title="'
+        + tip.replace(/"/g, '&quot;') + '"></span>';
+    });
+    var swimlane = '<div class="cr-tl-bar">' + segs + '</div>';
+
+    // Detail table rows
     var rows = '';
     events.forEach(function(e) {
       var cost = e.cost_dollars || 0;
-      var relTime = '';
-      if (t0 !== null) {
-        try {
-          var ms = new Date(e.called_at).getTime() - t0;
-          relTime = fmtRelTime(ms >= 0 ? ms : 0);
-        } catch(err) {}
-      }
       rows += '<tr class="tc-row">'
         + '<td class="tc-seq">' + (e.call_sequence || 0) + '</td>'
-        + '<td class="tc-tool">' + escHtml(e.tool_name) + '</td>'
+        + '<td class="tc-tool"><span class="cr-tl-dot" style="background:'
+        + toolColor(e.tool_name) + '"></span>' + escHtml(e.tool_name) + '</td>'
         + '<td class="tc-cost" style="text-align:right;font-variant-numeric:tabular-nums;">$' + cost.toFixed(4) + '</td>'
-        + '<td class="tc-reltime">' + escHtml(relTime) + '</td>'
+        + '<td class="tc-reltime">' + escHtml(relTimeFor(e)) + '</td>'
         + '</tr>\\n';
     });
     return '<details class="cr-tool-panel">'
@@ -317,6 +348,7 @@ JS: str = """\
       + '<span class="cr-tool-panel-total" title="Total cost of individual call events">$' + total.toFixed(4) + '</span>'
       + '</summary>'
       + '<div class="cr-tool-panel-body">'
+      + swimlane
       + '<table class="tc-table">'
       + '<thead><tr><th class="tc-seq" style="text-align:right">#</th><th>Tool</th>'
       + '<th style="text-align:right">Cost</th><th class="tc-reltime">Time</th></tr></thead>'

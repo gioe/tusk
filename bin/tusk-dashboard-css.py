@@ -1453,4 +1453,40 @@ tbody tr {
   color: var(--text-muted);
   white-space: nowrap;
 }
+/* Criterion tool timeline swimlane */
+.cr-tl-bar {
+  display: flex;
+  width: 100%;
+  height: 18px;
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 0.4rem 0 0.35rem;
+  gap: 1px;
+  background: var(--border);
+}
+.cr-tl-seg {
+  display: block;
+  min-width: 2px;
+  height: 100%;
+  cursor: default;
+  opacity: 0.82;
+  transition: opacity 0.1s;
+}
+.cr-tl-seg:hover {
+  opacity: 1;
+  outline: 2px solid rgba(255,255,255,0.6);
+  outline-offset: -2px;
+  position: relative;
+  z-index: 1;
+}
+.cr-tl-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 4px;
+  flex-shrink: 0;
+  vertical-align: middle;
+  opacity: 0.85;
+}
 """

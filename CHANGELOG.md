@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [293] - 2026-02-26
+
+- Feature: Dashboard criterion tool timeline now renders a visual swimlane bar above the detail table — each tool call is a color-coded horizontal segment (width ∝ cost) with a hover tooltip showing tool name, cost, and relative time. Tool name dots also added to the table rows for quick color-matching.
+
 ## [292] - 2026-02-26
 
 - Fix: Move `VERSION` stamp to the end of `tusk upgrade` so an interrupted upgrade doesn't leave skills, scripts, hooks, or migrations in a stale state while the version check falsely reports "Already up to date".
