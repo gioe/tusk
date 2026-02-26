@@ -40,7 +40,9 @@ cp "$SCRIPT_DIR/bin/tusk" "$REPO_ROOT/.claude/bin/tusk"
 chmod +x "$REPO_ROOT/.claude/bin/tusk"
 echo "  Installed .claude/bin/tusk"
 
-# Scripts that are only meaningful in the tusk source repo — not distributed
+# Scripts that are only meaningful in the tusk source repo — not distributed.
+# Keep in sync with: section 4c dist_excluded, tusk-generate-manifest.py _DIST_EXCLUDED,
+# and rule18_manifest_drift _dist_excluded in tusk-lint.py.
 TUSK_SKIP_SCRIPTS="tusk-generate-manifest.py"
 
 # Copy Python scripts alongside binary (needed for $SCRIPT_DIR dispatch)
@@ -156,6 +158,8 @@ repo_root = '$REPO_ROOT'
 
 files = []
 
+# Keep in sync with: TUSK_SKIP_SCRIPTS above, tusk-generate-manifest.py _DIST_EXCLUDED,
+# and rule18_manifest_drift _dist_excluded in tusk-lint.py.
 dist_excluded = {'tusk-generate-manifest.py'}
 
 files.append('.claude/bin/tusk')

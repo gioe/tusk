@@ -25,6 +25,8 @@ def get_repo_root():
     return result.stdout.strip()
 
 
+# Keep in sync with: install.sh TUSK_SKIP_SCRIPTS, install.sh section 4c dist_excluded,
+# and rule18_manifest_drift _dist_excluded in tusk-lint.py.
 _DIST_EXCLUDED = {"tusk-generate-manifest.py"}
 
 
