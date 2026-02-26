@@ -41,7 +41,7 @@ Configurable fields:
 | `statuses` | Yes | Always validated; changing can break workflow queries |
 | `priorities` | Yes | Always validated |
 | `closed_reasons` | Yes | Always validated |
-| `agents` | No | `{ "name": "description" }` — see note below |
+| `agents` | No | `{ "<name>": "description" }` — see note below |
 | `test_command` | No | Shell command run before each commit; empty string disables the gate |
 | `dupes.strip_prefixes` | No | Python-side only |
 | `dupes.check_threshold` | No | Python-side only (0.0–1.0) |
