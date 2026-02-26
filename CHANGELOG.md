@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [274] - 2026-02-25
+
+- Docs: `/loop` and `/groom-backlog` SKILL.md files now include a Headless / CI Usage section documenting `--on-failure` flag usage, non-interactive assumptions, and example CI invocations.
+
 ## [273] - 2026-02-25
 
 - Fix: `tusk loop --dry-run --on-failure <strategy>` now includes `--on-failure <strategy>` in the printed dispatch line when skill is `chain`.
