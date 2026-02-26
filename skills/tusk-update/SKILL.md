@@ -77,29 +77,32 @@ tusk config test_command
 
 Then scan the repo for test framework signals (check in this priority order):
 
-1. `bun.lockb` or `bun.lock` present → inspect `package.json` first (run from repo root):
-   ```bash
-   node -e "const p=require('./package.json'); console.log(JSON.stringify({scripts:p.scripts||{},dev:Object.keys({...p.devDependencies,...p.dependencies})}));" 2>/dev/null
-   ```
-   - If the command produces no output (no `package.json`, or `node` unavailable) → fall back to `bun test`
-   - Else if `vitest` appears in `devDependencies` or `dependencies` → suggest `bun run vitest`
-   - Else if `jest` appears in `devDependencies`/`dependencies` OR a `test` script contains `jest` → suggest `bun run jest`
-   - Else → suggest `bun test`
-2. `pnpm-lock.yaml` present → inspect `package.json` first (run from repo root):
-   ```bash
-   node -e "const p=require('./package.json'); console.log(JSON.stringify({scripts:p.scripts||{},dev:Object.keys({...p.devDependencies,...p.dependencies})}));" 2>/dev/null
-   ```
-   - If the command produces no output (no `package.json`, or `node` unavailable) → fall back to `pnpm test`
-   - Else if `vitest` appears in `devDependencies` or `dependencies` → suggest `pnpm vitest`
-   - Else if `jest` appears in `devDependencies`/`dependencies` OR a `test` script contains `jest` → suggest `pnpm jest`
-   - Else → suggest `pnpm test`
-3. `package.json` present (no lockfile) → inspect it to pick the right runner (run from repo root):
-   ```bash
-   node -e "const p=require('./package.json'); console.log(JSON.stringify({scripts:p.scripts||{},dev:Object.keys({...p.devDependencies,...p.dependencies})}));" 2>/dev/null
-   ```
-   - If `vitest` appears in `devDependencies` or `dependencies` → suggest `npx vitest`
-   - Else if `jest` appears in `devDependencies`/`dependencies` OR a `test` script contains `jest` → suggest `npx jest`
-   - Else → suggest `npm test`
+**Sub-step – Inspect package.json for test runner** (used by items 1–3 below):
+Run from repo root:
+```bash
+node -e "const p=require('./package.json'); console.log(JSON.stringify({scripts:p.scripts||{},dev:Object.keys({...p.devDependencies,...p.dependencies})}));" 2>/dev/null
+```
+Interpret the output:
+- No output (no `package.json`, or `node` unavailable) → no result
+- `vitest` appears in `devDependencies` or `dependencies` → result: `vitest`
+- `jest` appears in `devDependencies`/`dependencies` OR a `test` script contains `jest` → result: `jest`
+- Otherwise → no result
+
+1. `bun.lockb` or `bun.lock` present → run **Inspect package.json for test runner**, then:
+   - No result → suggest `bun test`
+   - `vitest` → suggest `bun run vitest`
+   - `jest` → suggest `bun run jest`
+   - Other → suggest `bun test`
+2. `pnpm-lock.yaml` present → run **Inspect package.json for test runner**, then:
+   - No result → suggest `pnpm test`
+   - `vitest` → suggest `pnpm vitest`
+   - `jest` → suggest `pnpm jest`
+   - Other → suggest `pnpm test`
+3. `package.json` present (no lockfile) → run **Inspect package.json for test runner**, then:
+   - No result → suggest `npm test`
+   - `vitest` → suggest `npx vitest`
+   - `jest` → suggest `npx jest`
+   - Other → suggest `npm test`
 4. `pyproject.toml` or `setup.py` present → suggest `pytest`
 5. `Cargo.toml` present → suggest `cargo test`
 6. `Makefile` present → check for a test target:
