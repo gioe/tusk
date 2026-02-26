@@ -2033,10 +2033,12 @@ for rel_path in sorted(orphans):
             os.rmdir(parent)
             print('  Removed empty dir: ' + os.path.relpath(parent, repo_root))
         except OSError:
-            pass
+            print('  Kept non-empty dir (user files present): ' + os.path.relpath(parent, repo_root))
 "
   elif [[ ! -f "$old_manifest" ]]; then
     echo "  No prior manifest found; skipping orphan removal (first upgrade with manifest support)"
+  else
+    echo "  Warning: new release has no MANIFEST file; skipping orphan removal"
   fi
 
   # Copy bin files alongside current binary

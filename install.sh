@@ -155,7 +155,7 @@ for p in sorted(glob.glob(os.path.join(script_dir, 'bin', 'tusk-*.py'))):
 for name in ['config.default.json', 'VERSION', 'pricing.json']:
     files.append('.claude/bin/' + name)
 
-for skill_dir in sorted(glob.glob(os.path.join(script_dir, 'skills', '*/'), recursive=False)):
+for skill_dir in sorted(glob.glob(os.path.join(script_dir, 'skills', '*/'))):
     skill_name = os.path.basename(skill_dir.rstrip('/'))
     for fname in sorted(os.listdir(skill_dir)):
         full = os.path.join(skill_dir, fname)
