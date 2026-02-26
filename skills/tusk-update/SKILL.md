@@ -166,7 +166,7 @@ tusk regen-triggers
 
 This drops all existing `validate_*` triggers and recreates them from the updated config. **No data is lost.**
 
-If only non-trigger fields changed (`agents`, `dupes`, `test_command`), skip this step.
+If only non-trigger fields changed (`agents`, `dupes`, `test_command`, `review`), skip this step.
 
 ## Step 7: Verify
 
