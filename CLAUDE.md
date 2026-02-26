@@ -155,3 +155,9 @@ Commit the bump in the same branch as the feature. Also update `CHANGELOG.md` in
 - In SQL passed through bash, use `<>` instead of `!=` for not-equal comparisons — `!=` can cause parse errors due to shell history expansion
 - In embedded Python (`python3 -c "..."`), avoid `', '.join(...)` or single-quoted strings directly inside f-string expressions — precompute the join result into a variable first
 - Skills are discovered at Claude Code session startup — after installing or adding a new skill, you must start a new session before invoking it with `/skill-name`
+- **Source-repo-only lint rules must guard against target projects.** Any rule in `bin/tusk-lint.py` that is only meaningful inside the tusk source repo (e.g., checks on `bin/tusk`, `MANIFEST`, or other source-only files) must begin with:
+  ```python
+  if not os.path.isfile(os.path.join(root, "bin", "tusk")):
+      return []
+  ```
+  This mirrors `rule8`'s pattern and prevents the rule from firing as a blocking violation in target projects (where `REPO_ROOT` is the target project root, which has no `bin/tusk` shell script).
