@@ -699,16 +699,20 @@ def rule17_db_rules_advisory(root):
 def rule18_manifest_drift(root):
     """MANIFEST file is out of sync with files distributed by install.sh."""
     import glob as _glob
-    import json as _json
+
+    # This rule is only meaningful in the tusk source repo.  Target projects
+    # don't have a MANIFEST or a bin/tusk shell script.  Mirror rule8's guard.
+    if not os.path.isfile(os.path.join(root, "bin", "tusk")):
+        return []
 
     manifest_path = os.path.join(root, "MANIFEST")
     if not os.path.isfile(manifest_path):
-        return ["  MANIFEST file not found — run install.sh or check source tree"]
+        return ["  MANIFEST file not found — update MANIFEST to match the current source tree"]
 
     try:
         with open(manifest_path, encoding="utf-8") as f:
-            on_disk = set(_json.load(f))
-    except (OSError, _json.JSONDecodeError) as exc:
+            on_disk = set(json.load(f))
+    except (OSError, json.JSONDecodeError) as exc:
         return [f"  MANIFEST could not be parsed: {exc}"]
 
     # Generate expected manifest using the same logic as install.sh section 4c
