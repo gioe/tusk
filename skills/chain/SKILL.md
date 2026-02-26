@@ -12,9 +12,24 @@ Orchestrates parallel execution of a dependency sub-DAG. Validates the head task
 
 ## Arguments
 
-Accepts one or more head task IDs: `/chain <head_task_id1> [<head_task_id2> ...]`
+Accepts one or more head task IDs and optional flags: `/chain <head_task_id1> [<head_task_id2> ...] [--on-failure skip|abort]`
 
 When multiple IDs are provided, all heads are treated as wave 0 (run in parallel), and subsequent waves use the union of their downstream sub-DAGs.
+
+## Flags
+
+| Flag | Values | Description |
+|------|--------|-------------|
+| `--on-failure` | `skip`, `abort` | Unattended failure strategy applied when an agent finishes without completing its task. **skip** — log a warning and continue to the next wave. **abort** — stop the chain immediately and report all incomplete tasks. Omit for interactive mode (default). |
+
+## Argument Parsing
+
+Before Step 1, extract flags from the skill arguments:
+
+- Parse `--on-failure <strategy>` from the argument string. Valid values: `skip`, `abort`.
+- If `--on-failure` is present with a valid value, store it as `on_failure_strategy`.
+- If `--on-failure` is absent or the value is invalid, `on_failure_strategy` is unset (interactive mode).
+- The remaining tokens (non-flag values) are the head task IDs.
 
 ## Step 1: Validate the Head Task(s)
 
@@ -109,7 +124,13 @@ After spawning, store the **agent task ID** and **output file path** returned by
 
 **Recovery (agents completed, tasks not Done):**
 
-Read the agents' output files to capture any final messages, then report to the user:
+Read the agents' output files to capture any final messages.
+
+**If `on_failure_strategy` is set**, apply it automatically without prompting:
+- **skip**: Log a warning for each stuck task — "Warning: Task `<id>` (`<summary>`) did not complete (status: `<status>`). Skipping due to `--on-failure skip`." — then proceed to Step 4.
+- **abort**: Stop immediately. Report that the chain was aborted due to `--on-failure abort` and list which tasks completed vs. which did not.
+
+**Otherwise (interactive)**, report to the user:
 
 > Agent(s) for Task(s) `<ids>` have finished, but the task status is still `<status>`.
 > Agent output file(s): `<output_file_paths>`
@@ -188,7 +209,13 @@ Build a map of **tusk task ID → agent task ID → output file path** for every
 
 **Recovery (all agents completed, some tasks not Done):**
 
-For each stuck task, read the agent's output file to capture any final messages. Then report to the user:
+For each stuck task, read the agent's output file to capture any final messages.
+
+**If `on_failure_strategy` is set**, apply it automatically without prompting:
+- **skip**: Log a warning for each stuck task — "Warning: Task `<id>` (`<summary>`) did not complete (status: `<status>`). Skipping due to `--on-failure skip`." — then proceed to **4a** for the next frontier. Note: downstream tasks that depend on skipped tasks will never become ready — if the chain gets stuck later, report this to the user.
+- **abort**: Stop immediately. Report that the chain was aborted due to `--on-failure abort` and list which tasks completed vs. which did not.
+
+**Otherwise (interactive)**, report to the user:
 
 > The following tasks' agents have finished without completing:
 > - Task `<id>`: `<summary>` (status: `<status>`, agent output: `<output_file_path>`)
