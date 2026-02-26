@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [284] - 2026-02-26
+
+- Docs: `/create-task` skill now explicitly requires a DOMAIN.md criterion for any task in the `schema` domain or that creates a new DB table, preventing the gap from being caught only at review time.
+
 ## [283] - 2026-02-26
 
 - Feature: Dashboard criterion panels now show a vertical tool call timeline (sequence #, tool name, cost, relative timestamp) when per-call event data exists in `tool_call_events`. Falls back to the existing aggregated bar display when no event-level data is available.
