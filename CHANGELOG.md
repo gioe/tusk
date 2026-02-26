@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [290] - 2026-02-26
+
+- Fix: When a bun or pnpm lockfile is detected during `tusk-init` and `tusk-update` test-command detection, inspect `package.json` for vitest/jest before falling back to generic `bun test`/`pnpm test`; suggest `bun run vitest`, `bun run jest`, `pnpm vitest`, or `pnpm jest` as appropriate.
+
 ## [289] - 2026-02-26
 
 - Fix: Add early-return guard to `cmd_skill_run` in `tusk-call-breakdown.py` when `_aggregate_single_window` returns empty stats, matching the existing behavior in `cmd_session`.
