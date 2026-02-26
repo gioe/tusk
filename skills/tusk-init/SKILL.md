@@ -159,17 +159,14 @@ Interpret the output:
    - No result → suggest `bun test`
    - `vitest` → suggest `bun run vitest`
    - `jest` → suggest `bun run jest`
-   - Other → suggest `bun test`
 2. `pnpm-lock.yaml` found → run **Inspect package.json for test runner**, then:
    - No result → suggest `pnpm test`
    - `vitest` → suggest `pnpm vitest`
    - `jest` → suggest `pnpm jest`
-   - Other → suggest `pnpm test`
 3. `package.json` found (no lockfile) → run **Inspect package.json for test runner**, then:
    - No result → suggest `npm test`
    - `vitest` → suggest `npx vitest`
    - `jest` → suggest `npx jest`
-   - Other → suggest `npm test`
 4. `pyproject.toml` or `setup.py` found → suggest `pytest`
 5. `Cargo.toml` found → suggest `cargo test`
 6. `Makefile` found → check if it has a test target:
