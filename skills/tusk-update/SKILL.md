@@ -156,6 +156,53 @@ Read the current config file, apply changes, and write it back:
 
 Use the Read tool to load `tusk/config.json`, then use the Edit tool to update it with the new values. Preserve all fields — only modify the ones the user requested.
 
+## Step 5b: Offer Task Reassignment for New Domains
+
+**Only run this step if one or more domains were added in this update.**
+
+After writing the config, check whether any open tasks have no domain assigned — these are natural candidates for the new domain:
+
+```bash
+tusk -header -column "
+SELECT id, summary, task_type, priority
+FROM tasks
+WHERE status <> 'Done'
+AND (domain IS NULL OR domain = '')
+ORDER BY priority_score DESC, id
+LIMIT 20
+"
+```
+
+If the query returns **no rows**, skip this step silently.
+
+If rows are returned, display them and prompt the user:
+
+> **N open task(s) have no domain assigned. Would you like to reassign any to `<new_domain>`?**
+>
+> - **Reassign all** — set `domain = '<new_domain>'` for every listed task
+> - **Pick specific tasks** — user provides a comma-separated list of IDs
+> - **Skip** — leave domain assignments unchanged
+
+If the user chooses **Reassign all**:
+
+```bash
+DOMAIN=$(tusk sql-quote "<new_domain>")
+tusk "UPDATE tasks SET domain = $DOMAIN, updated_at = datetime('now') WHERE status <> 'Done' AND (domain IS NULL OR domain = '')"
+```
+
+If the user picks **specific IDs** (e.g., 12, 15, 18):
+
+```bash
+DOMAIN=$(tusk sql-quote "<new_domain>")
+tusk "UPDATE tasks SET domain = $DOMAIN, updated_at = datetime('now') WHERE id IN (12, 15, 18)"
+```
+
+Report how many rows were updated, then proceed to Step 6.
+
+If the user chooses **Skip**, proceed to Step 6 without any changes. This is always safe — triggers are not affected by unassigned domains.
+
+If multiple domains were added in this update, repeat this step for each new domain before proceeding to Step 6.
+
 ## Step 6: Regenerate Triggers (if needed)
 
 If any trigger-validated field was changed (`domains`, `task_types`, `statuses`, `priorities`, `closed_reasons`), regenerate triggers:
