@@ -254,13 +254,29 @@ tusk "INSERT INTO tasks (summary, <column>) VALUES ('__tusk_trigger_smoke_test__
 
 Expected: zero exit. If this INSERT **fails**, the trigger is over-blocking valid values — report failure.
 
-**Cleanup (always run, even if Part A or Part B failed)**:
+**Part C — UPDATE trigger: invalid value must be rejected, valid value must be accepted** (run only if Part B succeeded):
+
+```bash
+tusk "UPDATE tasks SET <column> = '__invalid__' WHERE summary = '__tusk_trigger_smoke_test__'"
+```
+
+Expected: non-zero exit with a trigger error. If this UPDATE **succeeds**, the UPDATE trigger is not working — report failure.
+
+```bash
+tusk "UPDATE tasks SET <column> = '<valid_value>' WHERE summary = '__tusk_trigger_smoke_test__'"
+```
+
+Expected: zero exit. If this UPDATE **fails**, the UPDATE trigger is over-blocking valid values — report failure.
+
+> **Note:** Part C reuses the row inserted in Part B. If Part B failed (no row exists), these UPDATE commands will match 0 rows and succeed silently without firing the trigger — skip reporting Part C results in that case and rely on the Part B failure report.
+
+**Cleanup (always run, even if Part A, Part B, or Part C failed)**:
 
 ```bash
 tusk "DELETE FROM tasks WHERE summary = '__tusk_trigger_smoke_test__'"
 ```
 
-Report success to the user only if Part A rejected the invalid value and Part B accepted the valid value.
+Report success to the user only if Part A rejected the invalid value, Part B accepted the valid value, and Part C rejected the invalid UPDATE while accepting the valid UPDATE.
 
 **Never call `tusk init --force`** — this destroys the database. Use `tusk regen-triggers` instead.
 
