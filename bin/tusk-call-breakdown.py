@@ -88,25 +88,6 @@ def aggregate_tool_calls(
     return stats
 
 
-def collect_tool_call_items(
-    transcripts: list[str],
-    started_at,
-    ended_at,
-) -> list[dict]:
-    """Collect individual tool call items within a time window (not aggregated).
-
-    Returns a flat list of raw item dicts as yielded by iter_tool_call_costs.
-    Each dict has: tool_name, marginal_input_tokens, output_tokens, cost, ts.
-    """
-    items = []
-    for transcript_path in transcripts:
-        if not os.path.isfile(transcript_path):
-            continue
-        for item in lib.iter_tool_call_costs(transcript_path, started_at, ended_at):
-            items.append(item)
-    return items
-
-
 def _aggregate_single_window(
     transcripts: list[str],
     started_at,
