@@ -162,11 +162,11 @@ This document defines the eight product pillars that guide tusk's design and dev
 
 **Why this matters:** Other agentic systems (loop-heavy orchestrators, high-context companions) trade token spend for convenience. Tusk's users pay real money per task; a skill that loads 10 KB of context to answer a one-line question is a tax on every invocation. Efficiency is a first-class constraint, not an afterthought.
 
-**Current maturity:** Medium. `/token-audit` identifies bloated skills and SQL anti-patterns. Per-criterion and per-session cost tracking give ground-truth data on where tokens are spent. Companion files (`FINALIZE.md`, `SUBCOMMANDS.md`) are loaded conditionally. `tusk-pricing-lib.py` provides shared transcript utilities to avoid re-implementation. Gaps: skills are not automatically flagged when they grow past a size threshold; there is no enforcement mechanism to block high-cost patterns before merge; the companion-loading model is convention-only with no tooling to verify it.
+**Current maturity:** Medium. `/token-audit` identifies bloated skills and SQL anti-patterns. Per-criterion and per-session cost tracking give ground-truth data on where tokens are spent. Companion files (`SUBCOMMANDS.md`) are loaded conditionally. `tusk-pricing-lib.py` provides shared transcript utilities to avoid re-implementation. Gaps: skills are not automatically flagged when they grow past a size threshold; there is no enforcement mechanism to block high-cost patterns before merge; the companion-loading model is convention-only with no tooling to verify it.
 
 **Representative features:**
 - `/token-audit` — five diagnostic categories: size census, companion loading, SQL anti-patterns, redundancy, narrative density
-- Conditional companion files (`FINALIZE.md`, `SUBCOMMANDS.md`, `REFERENCE.md`) — loaded only when the relevant subcommand is invoked
+- Conditional companion files (`SUBCOMMANDS.md`, `REFERENCE.md`) — loaded only when the relevant subcommand is invoked
 - `tusk-pricing-lib.py` shared library — single implementation of transcript parsing, cost computation, and session aggregation
 - `acceptance_criteria.cost_dollars` / `tokens_in` / `tokens_out` — per-criterion cost attribution to pinpoint expensive steps
 - `tool_call_stats` table — pre-computed per-tool-call cost aggregates, avoiding live transcript re-parsing
