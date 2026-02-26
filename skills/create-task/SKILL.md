@@ -108,7 +108,7 @@ Wait for explicit user approval before proceeding. Do NOT insert anything until 
 
 ## Step 5: Deduplicate, Insert, and Generate Criteria
 
-For each approved task, generate **3–7 acceptance criteria** — concrete, testable conditions that define "done." Derive them from the description: each distinct requirement or expected behavior maps to a criterion. For **bug** tasks, include a criterion that the failure case is resolved. For **feature** tasks, include the happy path and at least one edge case. For tasks in the **schema** domain or any task that creates a new database table, always include the criterion: "DOMAIN.md updated with schema entry for `<table_name>`".
+For each approved task, generate **3–7 acceptance criteria** — concrete, testable conditions that define "done." Derive them from the description: each distinct requirement or expected behavior maps to a criterion. For **bug** tasks, include a criterion that the failure case is resolved. For **feature** tasks, include the happy path and at least one edge case. For any task that creates a new database table (or is in a schema-related domain), always include the criterion: "DOMAIN.md updated with schema entry for `<table_name>`".
 
 Then insert the task with criteria in a single call using `tusk task-insert`. This validates enum values against config, runs a heuristic duplicate check internally, and inserts the task + criteria in one transaction:
 
