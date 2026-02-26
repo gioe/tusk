@@ -876,7 +876,7 @@ LINT_RULES_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 33;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 34;"
 
   echo "Initialized task database at $DB_PATH"
 }
