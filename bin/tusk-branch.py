@@ -169,12 +169,36 @@ def main(argv: list[str]) -> int:
         result = run(["git", "checkout", existing_branch], check=False)
         if result.returncode != 0:
             print(f"Error: git checkout {existing_branch} failed:\n{result.stderr.strip()}", file=sys.stderr)
+            if dirty:
+                pop = run(["git", "stash", "pop"], check=False)
+                if pop.returncode == 0:
+                    print(
+                        "Note: stash restored to working tree — you do not need to run git stash pop.",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(
+                        "Note: git stash pop failed — run 'git stash pop' manually to restore your changes.",
+                        file=sys.stderr,
+                    )
             return 2
         branch_name = existing_branch
     else:
         result = run(["git", "checkout", "-b", branch_name], check=False)
         if result.returncode != 0:
             print(f"Error: git checkout -b {branch_name} failed:\n{result.stderr.strip()}", file=sys.stderr)
+            if dirty:
+                pop = run(["git", "stash", "pop"], check=False)
+                if pop.returncode == 0:
+                    print(
+                        "Note: stash restored to working tree — you do not need to run git stash pop.",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(
+                        "Note: git stash pop failed — run 'git stash pop' manually to restore your changes.",
+                        file=sys.stderr,
+                    )
             return 2
 
     print(branch_name)
