@@ -88,6 +88,111 @@ def aggregate_tool_calls(
     return stats
 
 
+def collect_tool_call_items(
+    transcripts: list[str],
+    started_at,
+    ended_at,
+) -> list[dict]:
+    """Collect individual tool call items within a time window (not aggregated).
+
+    Returns a flat list of raw item dicts as yielded by iter_tool_call_costs.
+    Each dict has: tool_name, marginal_input_tokens, output_tokens, cost, ts.
+    """
+    items = []
+    for transcript_path in transcripts:
+        if not os.path.isfile(transcript_path):
+            continue
+        for item in lib.iter_tool_call_costs(transcript_path, started_at, ended_at):
+            items.append(item)
+    return items
+
+
+def insert_session_events(
+    conn: sqlite3.Connection,
+    session_id: int,
+    task_id: int | None,
+    items: list[dict],
+) -> None:
+    """Replace tool_call_events rows for a session with fresh individual event rows."""
+    conn.execute("DELETE FROM tool_call_events WHERE session_id = ?", (session_id,))
+    for seq, item in enumerate(items, 1):
+        conn.execute(
+            "INSERT INTO tool_call_events "
+            "(task_id, session_id, tool_name, cost_dollars, tokens_in, tokens_out, call_sequence, called_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                task_id,
+                session_id,
+                item["tool_name"],
+                round(item["cost"], 8),
+                item["marginal_input_tokens"],
+                item["output_tokens"],
+                seq,
+                item["ts"].isoformat(),
+            ),
+        )
+    conn.commit()
+
+
+def insert_criterion_events(
+    conn: sqlite3.Connection,
+    criterion_id: int,
+    task_id: int,
+    items: list[dict],
+    group_ids: list[int] | None = None,
+    commit: bool = True,
+) -> None:
+    """Replace tool_call_events rows for a criterion (or shared group) with fresh event rows.
+
+    For a shared-commit group (group_ids has > 1 entry), events are round-robin assigned
+    across group members so each tool call is attributed to exactly one criterion.
+    Pass commit=False to defer the commit, allowing the caller to batch additional writes.
+    """
+    if group_ids and len(group_ids) > 1:
+        n = len(group_ids)
+        for gid in group_ids:
+            conn.execute("DELETE FROM tool_call_events WHERE criterion_id = ?", (gid,))
+        seq_counters = {gid: 0 for gid in group_ids}
+        for i, item in enumerate(items):
+            gid = group_ids[i % n]
+            seq_counters[gid] += 1
+            conn.execute(
+                "INSERT INTO tool_call_events "
+                "(task_id, criterion_id, tool_name, cost_dollars, tokens_in, tokens_out, call_sequence, called_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    task_id,
+                    gid,
+                    item["tool_name"],
+                    round(item["cost"], 8),
+                    item["marginal_input_tokens"],
+                    item["output_tokens"],
+                    seq_counters[gid],
+                    item["ts"].isoformat(),
+                ),
+            )
+    else:
+        conn.execute("DELETE FROM tool_call_events WHERE criterion_id = ?", (criterion_id,))
+        for seq, item in enumerate(items, 1):
+            conn.execute(
+                "INSERT INTO tool_call_events "
+                "(task_id, criterion_id, tool_name, cost_dollars, tokens_in, tokens_out, call_sequence, called_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    task_id,
+                    criterion_id,
+                    item["tool_name"],
+                    round(item["cost"], 8),
+                    item["marginal_input_tokens"],
+                    item["output_tokens"],
+                    seq,
+                    item["ts"].isoformat(),
+                ),
+            )
+    if commit:
+        conn.commit()
+
+
 def print_table(stats: dict[str, dict], label: str) -> None:
     """Print the aggregate tool-call cost table."""
     if not stats:
@@ -174,6 +279,10 @@ def cmd_session(conn, session_id: int, transcripts: list[str], write_only: bool)
         return
 
     upsert_session_stats(conn, session_id, task_id, stats)
+
+    items = collect_tool_call_items(transcripts, started_at, ended_at)
+    if items:
+        insert_session_events(conn, session_id, task_id, items)
 
     if not write_only:
         print_table(stats, f"session {session_id}")
@@ -269,10 +378,13 @@ def cmd_task(conn, task_id: int, transcripts: list[str], write_only: bool) -> No
 
     combined: dict[str, dict] = {}
 
-    for sid, _, _ in sessions:
+    for sid, s_start, s_end in sessions:
         session_stats = per_session[sid]
         if session_stats:
             upsert_session_stats(conn, sid, task_id, session_stats)
+            items = collect_tool_call_items(transcripts, s_start, s_end)
+            if items:
+                insert_session_events(conn, sid, task_id, items)
 
         for tool_name, s in session_stats.items():
             if tool_name not in combined:
@@ -474,9 +586,12 @@ def cmd_criterion(conn, criterion_id: int, transcripts: list[str], write_only: b
         )
         return
 
+    # Collect individual tool call items for event rows (same window as stats).
+    items = collect_tool_call_items(transcripts, started_at, ended_at)
+
     # For a shared-commit group, split stats evenly across N members and update all of them.
-    # Use commit=False so the tool_call_stats inserts and the AC cost UPDATE below land in
-    # one atomic transaction — a single conn.commit() at the end covers both writes.
+    # Use commit=False so the tool_call_stats inserts, event inserts, and the AC cost UPDATE
+    # below all land in one atomic transaction — a single conn.commit() at the end covers all.
     if n > 1:
         for s in stats.values():
             s["call_count"] = s["call_count"] // n
@@ -486,11 +601,15 @@ def cmd_criterion(conn, criterion_id: int, transcripts: list[str], write_only: b
             s["tokens_in"] //= n
         for gid in group_ids:
             upsert_criterion_stats(conn, gid, task_id, stats, commit=False)
+        if items:
+            insert_criterion_events(conn, criterion_id, task_id, items, group_ids=group_ids, commit=False)
     else:
         upsert_criterion_stats(conn, criterion_id, task_id, stats, commit=False)
+        if items:
+            insert_criterion_events(conn, criterion_id, task_id, items, commit=False)
 
     # Refresh acceptance_criteria cost columns to match the recomputed (and possibly split) stats.
-    # This UPDATE and the tool_call_stats inserts above are committed together below.
+    # This UPDATE and the tool_call_stats/event inserts above are committed together below.
     ac_cost = round(sum(s["total_cost"] for s in stats.values()), 8)
     ac_tokens_in = sum(s["tokens_in"] for s in stats.values())
     ac_tokens_out = sum(s["tokens_out"] for s in stats.values())

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [280] - 2026-02-26
+
+- Feature: `tool_call_events` table (migration 32) records one row per individual tool call with `task_id`, `session_id`, `criterion_id`, `tool_name`, `cost_dollars`, `tokens_in`, `tokens_out`, `call_sequence`, and `called_at` timestamp. `tusk-call-breakdown.py` populates it alongside the existing `tool_call_stats` aggregates for sessions and criteria.
+
 ## [279] - 2026-02-26
 
 - Fix: `tusk-generate-manifest.py` is no longer distributed to target projects. `install.sh` skips it via an exclusion list; `MANIFEST`, `rule18_manifest_drift`, and `build_manifest()` all apply the same exclusion so Rule 18 remains passing.
