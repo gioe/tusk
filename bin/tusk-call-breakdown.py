@@ -107,6 +107,42 @@ def collect_tool_call_items(
     return items
 
 
+def _aggregate_single_window(
+    transcripts: list[str],
+    started_at,
+    ended_at,
+) -> tuple[dict[str, dict], list[dict]]:
+    """Read each transcript once, collecting both stats and items for a single time window.
+
+    Returns (stats, items) where stats is keyed by tool_name and items is a flat list of
+    raw item dicts.  This replaces separate aggregate_tool_calls + collect_tool_call_items
+    calls, halving transcript I/O for per-session and per-criterion breakdown operations.
+    """
+    stats: dict[str, dict] = {}
+    items: list[dict] = []
+    for transcript_path in transcripts:
+        if not os.path.isfile(transcript_path):
+            continue
+        for item in lib.iter_tool_call_costs(transcript_path, started_at, ended_at):
+            tool = item["tool_name"]
+            if tool not in stats:
+                stats[tool] = {
+                    "call_count": 0,
+                    "total_cost": 0.0,
+                    "max_cost": 0.0,
+                    "tokens_out": 0,
+                    "tokens_in": 0,
+                }
+            s = stats[tool]
+            s["call_count"] += 1
+            s["total_cost"] += item["cost"]
+            s["max_cost"] = max(s["max_cost"], item["cost"])
+            s["tokens_out"] += item["output_tokens"]
+            s["tokens_in"] += item["marginal_input_tokens"]
+            items.append(item)
+    return stats, items
+
+
 def insert_session_events(
     conn: sqlite3.Connection,
     session_id: int,
@@ -277,7 +313,7 @@ def cmd_session(conn, session_id: int, transcripts: list[str], write_only: bool)
         print("Warning: No transcripts found — tool_call_stats will be empty.", file=sys.stderr)
         return
 
-    stats = aggregate_tool_calls(transcripts, started_at, ended_at)
+    stats, items = _aggregate_single_window(transcripts, started_at, ended_at)
 
     if not stats:
         print("Warning: No tool calls found in transcript for this session.", file=sys.stderr)
@@ -285,7 +321,6 @@ def cmd_session(conn, session_id: int, transcripts: list[str], write_only: bool)
 
     upsert_session_stats(conn, session_id, task_id, stats)
 
-    items = collect_tool_call_items(transcripts, started_at, ended_at)
     if items:
         insert_session_events(conn, session_id, task_id, items)
 
