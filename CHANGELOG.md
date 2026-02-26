@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [278] - 2026-02-26
+
+- Feature: `tusk generate-manifest` command regenerates the `MANIFEST` file from the current source tree using the same logic as `install.sh` section 4c. Makes MANIFEST drift trivially fixable — run `tusk generate-manifest`, review the diff, commit.
+
 ## [277] - 2026-02-26
 
 - Feature: `tusk lint` Rule 18 detects MANIFEST drift — reports blocking violations when the committed `MANIFEST` file is missing entries present in the source tree (`bin/tusk-*.py`, `skills/*/`, `.claude/hooks/*`) or contains entries no longer distributed by `install.sh`.
