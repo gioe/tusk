@@ -811,6 +811,28 @@ CREATE INDEX idx_tool_call_stats_skill_run_id ON tool_call_stats(skill_run_id);
 CREATE INDEX idx_tool_call_stats_criterion_id ON tool_call_stats(criterion_id);
 TCS_SCHEMA
 
+  # Tool call events (individual per-call rows; tool_call_stats holds aggregates)
+  sqlite3 "$DB_PATH" <<'TCE_SCHEMA'
+CREATE TABLE tool_call_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER,
+    session_id INTEGER,
+    criterion_id INTEGER,
+    tool_name TEXT NOT NULL,
+    cost_dollars REAL NOT NULL DEFAULT 0.0,
+    tokens_in INTEGER NOT NULL DEFAULT 0,
+    tokens_out INTEGER NOT NULL DEFAULT 0,
+    call_sequence INTEGER NOT NULL DEFAULT 0,
+    called_at TEXT NOT NULL,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL,
+    FOREIGN KEY (session_id) REFERENCES task_sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (criterion_id) REFERENCES acceptance_criteria(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_tool_call_events_session_id ON tool_call_events(session_id);
+CREATE INDEX idx_tool_call_events_task_id ON tool_call_events(task_id);
+CREATE INDEX idx_tool_call_events_criterion_id ON tool_call_events(criterion_id);
+TCE_SCHEMA
+
   # Conventions (generalizable heuristics written by /retro)
   sqlite3 "$DB_PATH" <<'CONV_SCHEMA'
 CREATE TABLE conventions (
@@ -845,7 +867,7 @@ LINT_RULES_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 31;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 32;"
 
   echo "Initialized task database at $DB_PATH"
 }
@@ -1945,6 +1967,38 @@ PYEOF
       sqlite3 "$DB_PATH" "PRAGMA user_version = 31;"
     fi
     echo "  Migration 31: added lint_rules table"
+  fi
+
+  # Migration 31→32: add tool_call_events table
+  if [[ "$current" -lt 32 ]]; then
+    local has_tce
+    has_tce="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='tool_call_events';")"
+    if [[ "$has_tce" -eq 0 ]]; then
+      sqlite3 "$DB_PATH" "
+        CREATE TABLE tool_call_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER,
+            session_id INTEGER,
+            criterion_id INTEGER,
+            tool_name TEXT NOT NULL,
+            cost_dollars REAL NOT NULL DEFAULT 0.0,
+            tokens_in INTEGER NOT NULL DEFAULT 0,
+            tokens_out INTEGER NOT NULL DEFAULT 0,
+            call_sequence INTEGER NOT NULL DEFAULT 0,
+            called_at TEXT NOT NULL,
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL,
+            FOREIGN KEY (session_id) REFERENCES task_sessions(id) ON DELETE CASCADE,
+            FOREIGN KEY (criterion_id) REFERENCES acceptance_criteria(id) ON DELETE CASCADE
+        );
+        CREATE INDEX idx_tool_call_events_session_id ON tool_call_events(session_id);
+        CREATE INDEX idx_tool_call_events_task_id ON tool_call_events(task_id);
+        CREATE INDEX idx_tool_call_events_criterion_id ON tool_call_events(criterion_id);
+        PRAGMA user_version = 32;
+      "
+    else
+      sqlite3 "$DB_PATH" "PRAGMA user_version = 32;"
+    fi
+    echo "  Migration 32: added tool_call_events table"
   fi
 
   local final
