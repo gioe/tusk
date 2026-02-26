@@ -111,11 +111,11 @@ User confirms, modifies, or skips (empty = no agent validation).
 
 Use the manifests found in Step 2a to suggest a test command. Check in this priority order:
 
-1. `bun.lockb` found → suggest `bun test`
+1. `bun.lockb` or `bun.lock` found → suggest `bun test`
 2. `pnpm-lock.yaml` found → suggest `pnpm test`
-3. `package.json` found → inspect it to pick the right runner:
+3. `package.json` found → inspect it to pick the right runner (run from repo root):
    ```bash
-   node -e "const p=require('./package.json'); const d=Object.keys({...p.devDependencies,...p.dependencies,...p.scripts}); console.log(JSON.stringify({scripts:p.scripts||{},dev:Object.keys({...p.devDependencies,...p.dependencies})}));" 2>/dev/null
+   node -e "const p=require('./package.json'); console.log(JSON.stringify({scripts:p.scripts||{},dev:Object.keys({...p.devDependencies,...p.dependencies})}));" 2>/dev/null
    ```
    - If `vitest` appears in `devDependencies` or `dependencies` → suggest `npx vitest`
    - Else if `jest` appears in `devDependencies`/`dependencies` OR a `test` script contains `jest` → suggest `npx jest`
