@@ -113,7 +113,8 @@ See `MIGRATIONS.md` for table-recreation and trigger-only migration templates, i
 
 **Checklist when adding migration N:**
 - Add the migration block inside `cmd_migrate()` in `bin/tusk`
-- Update `PRAGMA user_version = N` inside the fresh-DB SQL block in `cmd_init()` so that new installs never need to run that migration
+- Stamp `PRAGMA user_version = N` in `cmd_init()` (the standalone sqlite3 call near the end) so that fresh installs never need to run that migration
+- Update `DOMAIN.md` to reflect any schema, view, or trigger changes introduced by the migration
 
 ## Creating a New Skill
 
