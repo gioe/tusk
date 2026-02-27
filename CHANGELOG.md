@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [296] - 2026-02-27
+
+- Feature: `tusk upgrade` now automatically stages manifest-tracked files and creates a git commit (`Upgrade tusk to vN`) after a successful upgrade. A `--no-commit` flag skips this step for scripting/CI contexts. If the working tree is not a git repo or there are no changed files, upgrade completes normally with a warning.
+
 ## [295] - 2026-02-26
 
 - Fix: `tusk upgrade` now also removes the legacy `tusk/tusk.db` file if present (superseded by `tasks.db`).

@@ -2062,6 +2062,20 @@ PYEOF
 }
 
 cmd_upgrade() {
+  local no_commit=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --no-commit) no_commit=true; shift ;;
+      --help|-h)
+        echo "Usage: tusk upgrade [--no-commit]"
+        echo "  --no-commit  Skip the automatic git commit after a successful upgrade"
+        exit 0
+        ;;
+      *) echo "Error: Unknown argument '$1'" >&2; exit 1 ;;
+    esac
+  done
+
   echo "Checking for updates..."
 
   # Get latest release tag from GitHub Releases API
@@ -2286,6 +2300,40 @@ with open(target_settings_path, 'w') as f:
 
   echo ""
   echo "Upgrade complete (version $remote_version)."
+
+  # Auto-commit upgraded files
+  if [[ "$no_commit" == true ]]; then
+    echo "  Skipping auto-commit (--no-commit flag set)."
+  elif ! git -C "$REPO_ROOT" rev-parse --is-inside-work-tree &>/dev/null; then
+    echo "  Warning: Not inside a git repository — skipping auto-commit."
+  else
+    local manifest_path="$REPO_ROOT/.claude/tusk-manifest.json"
+    if [[ ! -f "$manifest_path" ]]; then
+      echo "  Warning: .claude/tusk-manifest.json not found — skipping auto-commit."
+    else
+      # Stage all manifest-listed files that exist
+      python3 -c "
+import json, subprocess, sys
+
+manifest_path = '$manifest_path'
+repo_root = '$REPO_ROOT'
+
+with open(manifest_path) as f:
+    files = json.load(f)
+
+to_stage = [p for p in files if __import__('os').path.isfile(__import__('os').path.join(repo_root, p))]
+if to_stage:
+    subprocess.run(['git', '-C', repo_root, 'add', '--'] + to_stage, check=True)
+"
+      # Only commit if there are staged changes
+      if ! git -C "$REPO_ROOT" diff --cached --quiet; then
+        git -C "$REPO_ROOT" commit -m "Upgrade tusk to v$remote_version"
+        echo "  Created commit: Upgrade tusk to v$remote_version"
+      else
+        echo "  No changes to commit (working tree already up to date)."
+      fi
+    fi
+  fi
 }
 
 # ── Session Close ────────────────────────────────────────────────────
@@ -2495,7 +2543,7 @@ case "${1:-}" in
   version) cmd_version ;;
   migrate) cmd_migrate ;;
   regen-triggers) cmd_regen_triggers ;;
-  upgrade) cmd_upgrade ;;
+  upgrade) shift; cmd_upgrade "$@" ;;
   "")     echo "Usage: tusk {init|path|config|validate|sql-quote|commit|lint|lint-rule|dupes|deps|blockers|review|criteria|dag|dashboard|wsjf|conventions|setup|autoclose|token-audit|sync-skills|pricing-update|session-stats|session-recalc|session-close|skill-run|call-breakdown|task-start|task-done|task-insert|task-update|task-reopen|merge|progress|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac
