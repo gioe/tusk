@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [297] - 2026-02-27
+
+- Fix: `/tusk` skill step 1 now explicitly says `session_id` is passed to `tusk merge` in step 12, not to `tusk task-done`. SUBCOMMANDS.md adds a warning that `task-done` is for manual out-of-workflow use only — never use it instead of `tusk merge` in the normal dev workflow.
+
 ## [296] - 2026-02-27
 
 - Feature: `tusk upgrade` now automatically stages manifest-tracked files and creates a git commit (`Upgrade tusk to vN`) after a successful upgrade. A `--no-commit` flag skips this step for scripting/CI contexts. If the working tree is not a git repo or there are no changed files, upgrade completes normally with a warning.

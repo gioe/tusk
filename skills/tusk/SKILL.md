@@ -75,7 +75,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
    - `criteria` — array of acceptance criteria objects (id, criterion, source, is_completed, criterion_type, verification_spec). These are the implementation checklist. Work through them in order during implementation. Mark each criterion done (`tusk criteria done <cid>`) as you complete it — do not defer this to the end. Non-manual criteria (type: code, test, file) run automated verification on `done`; use `--skip-verify` if needed. If the array is empty, proceed normally using the description as scope.
    - `session_id` — the session ID to use for the duration of the workflow (reuses an open session if one exists, otherwise creates a new one)
 
-   Hold onto `session_id` from the JSON — it will be used to close the session when the task is done.
+   Hold onto `session_id` from the JSON — it will be passed to `tusk merge` in step 12 to close the session. **Do not pass it to `tusk task-done`; use `tusk merge` for the full finalization sequence.**
 
 2. **Create a new git branch IMMEDIATELY** (skip if resuming and branch already exists):
    ```bash

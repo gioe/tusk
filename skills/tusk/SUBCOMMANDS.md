@@ -10,6 +10,8 @@ When called with `done <id>`:
 tusk task-done <id> --reason completed
 ```
 
+> **Note:** This is for manual out-of-workflow use only (e.g. closing a task without a branch). When finishing a task through the normal dev workflow, always use `tusk merge <id> --session $SESSION_ID` (step 12) — it handles session close, branch merge, push, and task closure together. Never pass `--session` to `tusk task-done`.
+
 ## View Task Details
 
 When called with `view <id>`:
