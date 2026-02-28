@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [298] - 2026-02-28
+
+- Feature: Add `/investigate` skill — scopes a problem via Plan Mode using read-only tools, then proposes remediation tasks for handoff to `/create-task`. Never writes files or implements anything.
+
 ## [297] - 2026-02-27
 
 - Fix: `/tusk` skill step 1 now explicitly says `session_id` is passed to `tusk merge` in step 12, not to `tusk task-done`. SUBCOMMANDS.md adds a warning that `task-done` is for manual out-of-workflow use only — never use it instead of `tusk merge` in the normal dev workflow.

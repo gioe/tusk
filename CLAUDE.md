@@ -84,6 +84,7 @@ The config also includes a `review` block: `mode` (`"disabled"` or `"ai_only"`),
 - **`/tusk-init`** — Interactive setup wizard
 - **`/dashboard`** — HTML task dashboard with per-task metrics
 - **`/tusk-insights`** — Read-only DB health audit
+- **`/investigate`** — Scope a problem via Plan Mode and propose remediation tasks for `/create-task`
 - **`/resume-task`** — Recover session from branch name + progress log
 - **`/chain`** — Parallel dependency sub-DAG execution (one or more head IDs)
 - **`/loop`** — Autonomous backlog loop; dispatches `/chain` or `/tusk` until empty
