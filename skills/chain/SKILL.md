@@ -148,24 +148,25 @@ Read the agents' output files to capture any final messages.
 
 Repeat the following until the chain is complete:
 
-### 4a. Get the Frontier
+### 4a. Get Frontier and Check Termination
 
 ```bash
-tusk chain frontier <head_task_id1> [<head_task_id2> ...]
+tusk chain frontier-check <head_task_id1> [<head_task_id2> ...]
 ```
 
-Parse the returned JSON. The `frontier` array contains tasks that are `To Do` with all dependencies met within the union scope.
+Parse the returned JSON. It has two fields:
+- `status` — one of `complete`, `stuck`, or `continue`
+- `frontier` — array of ready tasks (non-empty only when `status=continue`)
 
-### 4b. Check Termination
+### 4b. Branch on Status
 
-If `frontier` is empty:
-
-```bash
-tusk chain status <head_task_id1> [<head_task_id2> ...]
-```
-
-- If all scope tasks are Done: **break** — chain is complete, go to Step 5.
-- If tasks remain but no frontier exists: the chain is **stuck**. Display the status output showing which tasks are blocked, and ask the user how to proceed.
+- **`complete`**: all tasks in the subgraph are Done — **break** out of the wave loop and go to Step 5.
+- **`stuck`**: tasks remain but no ready tasks exist in the frontier. Display the chain status for context:
+  ```bash
+  tusk chain status <head_task_id1> [<head_task_id2> ...]
+  ```
+  Show the output to the user and ask how to proceed.
+- **`continue`**: the `frontier` array contains at least one ready task — proceed to Step 4c.
 
 ### 4c. Spawn Parallel Agents
 

@@ -196,6 +196,64 @@ def cmd_frontier(conn: sqlite3.Connection, head_ids: list[int]):
     print(json.dumps({"head_task_ids": head_ids, "frontier": frontier}, indent=2))
 
 
+def cmd_frontier_check(conn: sqlite3.Connection, head_ids: list[int]):
+    """Return status and frontier in a single call for loop-termination detection.
+
+    Outputs JSON: {"status": "complete|stuck|continue", "frontier": [...]}
+      - complete:  all tasks in the subgraph are Done
+      - stuck:     some tasks are not Done but no ready tasks remain in the frontier
+      - continue:  frontier has at least one ready task
+    """
+    downstream = bfs_downstream_union(conn, head_ids)
+    task_ids = [tid for tid, _ in downstream]
+
+    if not task_ids:
+        print(json.dumps({"status": "complete", "frontier": []}))
+        return
+
+    placeholders = ",".join("?" * len(task_ids))
+    ready = conn.execute(
+        f"""
+        SELECT t.id, t.summary, t.priority, t.complexity
+        FROM tasks t
+        WHERE t.id IN ({placeholders})
+          AND t.status = 'To Do'
+          AND NOT EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks blocker ON d.depends_on_id = blocker.id
+            WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM external_blockers eb
+            WHERE eb.task_id = t.id AND eb.is_resolved = 0
+          )
+        ORDER BY t.id
+        """,
+        task_ids,
+    ).fetchall()
+
+    frontier = [
+        {
+            "id": row["id"],
+            "summary": row["summary"],
+            "priority": row["priority"],
+            "complexity": row["complexity"],
+        }
+        for row in ready
+    ]
+
+    if frontier:
+        status = "continue"
+    else:
+        not_done = conn.execute(
+            f"SELECT COUNT(*) FROM tasks WHERE id IN ({placeholders}) AND status <> 'Done'",
+            task_ids,
+        ).fetchone()[0]
+        status = "complete" if not_done == 0 else "stuck"
+
+    print(json.dumps({"status": status, "frontier": frontier}, indent=2))
+
+
 def cmd_status(conn: sqlite3.Connection, head_ids: list[int]):
     """Print a human-readable progress summary for the downstream sub-DAG."""
     downstream = bfs_downstream_union(conn, head_ids)
@@ -260,12 +318,14 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  tusk chain scope 42           # JSON: all tasks downstream of 42 with depths
-  tusk chain scope 42 43        # JSON: union of sub-DAGs rooted at 42 and 43
-  tusk chain frontier 42        # JSON: ready tasks within 42's sub-DAG
-  tusk chain frontier 42 43     # JSON: ready tasks in union of 42+43 sub-DAGs
-  tusk chain status 42          # Human-readable progress summary
-  tusk chain status 42 43       # Human-readable progress for multi-head chain
+  tusk chain scope 42              # JSON: all tasks downstream of 42 with depths
+  tusk chain scope 42 43           # JSON: union of sub-DAGs rooted at 42 and 43
+  tusk chain frontier 42           # JSON: ready tasks within 42's sub-DAG
+  tusk chain frontier 42 43        # JSON: ready tasks in union of 42+43 sub-DAGs
+  tusk chain frontier-check 42     # JSON: {status, frontier} for loop termination
+  tusk chain frontier-check 42 43  # JSON: {status, frontier} for multi-head chain
+  tusk chain status 42             # Human-readable progress summary
+  tusk chain status 42 43          # Human-readable progress for multi-head chain
         """,
     )
     parser.add_argument("--debug", action="store_true", help="Enable verbose debug output")
@@ -279,6 +339,13 @@ Examples:
     # frontier command
     frontier_parser = subparsers.add_parser("frontier", help="List ready tasks within scope")
     frontier_parser.add_argument("head_task_ids", type=int, nargs="+", help="Head task ID(s)")
+
+    # frontier-check command
+    frontier_check_parser = subparsers.add_parser(
+        "frontier-check",
+        help="Return {status, frontier} JSON for loop-termination detection",
+    )
+    frontier_check_parser.add_argument("head_task_ids", type=int, nargs="+", help="Head task ID(s)")
 
     # status command
     status_parser = subparsers.add_parser("status", help="Show progress summary")
@@ -312,6 +379,8 @@ Examples:
             cmd_scope(conn, args.head_task_ids)
         elif args.command == "frontier":
             cmd_frontier(conn, args.head_task_ids)
+        elif args.command == "frontier-check":
+            cmd_frontier_check(conn, args.head_task_ids)
         elif args.command == "status":
             cmd_status(conn, args.head_task_ids)
     finally:
