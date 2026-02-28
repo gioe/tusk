@@ -19,6 +19,7 @@ bin/tusk setup          # config + backlog + conventions in one JSON call
 bin/tusk validate
 
 # Task lifecycle
+bin/tusk task-select [--max-complexity XS|S|M|L|XL]
 bin/tusk task-insert "<summary>" "<description>" [--priority P] [--domain D] [--task-type T] [--assignee A] [--complexity C] [--criteria "..." ...] [--typed-criteria '{"text":"...","type":"...","spec":"..."}' ...] [--deferred] [--expires-in DAYS]
 bin/tusk task-start <task_id> [--force]
 bin/tusk task-done <task_id> --reason completed|expired|wont_do|duplicate [--force]

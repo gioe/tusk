@@ -27,15 +27,10 @@ This returns the full config as JSON (domains, agents, task_types, priorities, c
 Finds the highest-priority task that is ready to work on (no incomplete dependencies) and **automatically begins working on it**.
 
 ```bash
-tusk -header -column "
-SELECT id, summary, priority, priority_score, domain, assignee, complexity, description
-FROM v_ready_tasks
-ORDER BY priority_score DESC, id
-LIMIT 1;
-"
+tusk task-select
 ```
 
-**Empty backlog**: If the query returns no rows, the backlog has no ready tasks. Check why:
+**Empty backlog**: If the command exits with code 1, the backlog has no ready tasks. Check why:
 
 ```bash
 tusk -header -column "SELECT status, COUNT(*) as count FROM tasks GROUP BY status"
@@ -51,9 +46,11 @@ Do **not** suggest `/groom-backlog` or `/retro` when there are no ready tasks â€
 
 > **Note: This is a large task (complexity: L/XL) â€” expect 3+ sessions to complete.**
 
-Then ask the user whether to proceed or request a smaller task. If the user chooses a smaller task, re-run the query excluding L and XL:
+Then ask the user whether to proceed or request a smaller task. If the user chooses a smaller task, re-run excluding L and XL:
 
-Re-run the query above, adding `WHERE complexity NOT IN ('L', 'XL')` to filter by complexity.
+```bash
+tusk task-select --max-complexity M
+```
 
 If no smaller task is available, inform the user and offer to proceed with the original L/XL task.
 

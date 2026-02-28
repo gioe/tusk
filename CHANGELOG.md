@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [306] - 2026-02-28
+
+### Added
+- [TASK-449] `tusk task-select [--max-complexity XS|S|M|L|XL]` — returns top WSJF-ranked ready task as JSON; updated `/tusk` and `/loop` SKILL.md to use it instead of inline SELECT queries
+
 ## [305] - 2026-02-28
 
 ### Added
