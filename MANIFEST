@@ -30,6 +30,7 @@
   ".claude/bin/tusk-task-done.py",
   ".claude/bin/tusk-task-insert.py",
   ".claude/bin/tusk-task-reopen.py",
+  ".claude/bin/tusk-task-select.py",
   ".claude/bin/tusk-task-start.py",
   ".claude/bin/tusk-task-update.py",
   ".claude/bin/tusk-token-audit.py",
