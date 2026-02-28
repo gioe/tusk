@@ -140,9 +140,11 @@ The bar is high — only create a lint rule task if you observed an **actual mis
 ```bash
 tusk task-insert "Add lint rule: <short description>" \
   "Run: tusk lint-rule add '<pattern>' '<file_glob>' '<message>'" \
-  --priority "Low" --task-type "chore" --complexity "XS" \
+  --priority "Low" --task-type "<task_type>" --complexity "XS" \
   --criteria "tusk lint-rule add has been run with the specified pattern, glob, and message"
 ```
+
+For `<task_type>`: use the project's config `task_types` array (already fetched via `tusk setup` in Step 0). Pick the entry that best fits a maintenance/tooling task (e.g., `maintenance`, `chore`, `tech-debt`, `infra` — whatever is closest in your project's list). If no entry is a clear fit, omit `--task-type` entirely.
 
 Fill in `<pattern>` (grep regex), `<file_glob>` (e.g., `*.md` or `bin/tusk-*.py`), and `<message>` (human-readable warning) with the specific values from your finding.
 

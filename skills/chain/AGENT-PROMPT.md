@@ -52,7 +52,20 @@ Complexity: {complexity}
 
 7. **Self-review the PR** — read the diff, fix any issues, push follow-up commits.
 
-8. **Merge:**
+8. **Run code review** — check the review mode first:
+   ```bash
+   tusk config review
+   ```
+   - **mode = disabled** (or review key missing): skip review, proceed to step 9.
+   - **mode = ai_only**: read and follow the review-commits skill instructions end-to-end:
+     ```
+     Read file: .claude/skills/review-commits/SKILL.md
+     ```
+     Follow those instructions for task {id}. After all passes complete:
+     - **Verdict APPROVED**: proceed to step 9.
+     - **Verdict CHANGES REMAINING**: commit and push any fixes you made, then **stop** — do not merge, do not mark the task Done. Report the unresolved findings in your final output so the chain orchestrator can surface them.
+
+9. **Merge:**
    ```
    tusk session-close <session_id>
    gh pr merge <pr_number> --squash --delete-branch

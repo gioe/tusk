@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [299] - 2026-02-28
+
+### Changed
+- `/chain` agents now run `/review-commits` (respecting `review.mode` config) before merging — CHANGES REMAINING stops the agent so the chain orchestrator can surface unresolved findings
+- Retro skills (`/retro` lightweight, `/retro` full, `/chain` post-chain) no longer hardcode `--task-type "chore"` for lint rule tasks — agent now picks the closest match from the project's configured `task_types`, or omits the flag if none fits
+
 ## [298] - 2026-02-28
 
 - Feature: Add `/investigate` skill — scopes a problem via Plan Mode using read-only tools, then proposes remediation tasks for handoff to `/create-task`. Never writes files or implements anything.
