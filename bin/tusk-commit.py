@@ -12,7 +12,7 @@ Arguments received from tusk:
 Steps:
     1. Run tusk lint (advisory — output is printed but never blocks)
     2. Run test_command from config if set and --skip-verify not passed (hard-blocks on failure)
-    3. git add the specified files
+    3. Stage files: git add for files present on disk, git rm for files absent from disk
     4. git commit with [TASK-<id>] <message> format and Co-Authored-By trailer
     5. For each criterion ID passed via --criteria, call tusk criteria done <id> (captures HEAD automatically)
 
