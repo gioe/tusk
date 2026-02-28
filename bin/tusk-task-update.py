@@ -30,11 +30,14 @@ Exit codes:
 """
 
 import json
+import os
 import sqlite3
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from typing import Any
+
+TUSK_BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
 
 
 def get_connection(db_path: str) -> sqlite3.Connection:
@@ -205,7 +208,7 @@ def main(argv: list[str]) -> int:
 
         # Re-score WSJF if priority or complexity changed (inputs to the formula)
         if "priority" in updates or "complexity" in updates:
-            subprocess.run(["tusk", "wsjf"], capture_output=True)
+            subprocess.run([TUSK_BIN, "wsjf"], capture_output=True)
 
         # Re-fetch and return updated task
         updated_task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [304] - 2026-02-28
+
+- Fix hardcoded `tusk` binary path in `tusk-task-insert.py` and `tusk-task-update.py`; resolve via `__file__`-relative path like other scripts
+
 ## [303] - 2026-02-28
 
 ### Fixed

@@ -31,9 +31,12 @@ Exit codes:
 """
 
 import json
+import os
 import sqlite3
 import subprocess
 import sys
+
+TUSK_BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
 
 
 def get_connection(db_path: str) -> sqlite3.Connection:
@@ -60,7 +63,7 @@ def validate_enum(value, valid_values: list, field_name: str) -> str | None:
 
 def run_dupe_check(summary: str, domain: str | None) -> dict | None:
     """Run tusk dupes check and return match info if duplicate found."""
-    cmd = ["tusk", "dupes", "check", summary, "--json"]
+    cmd = [TUSK_BIN, "dupes", "check", summary, "--json"]
     if domain:
         cmd.extend(["--domain", domain])
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -318,7 +321,7 @@ def main(argv: list[str]) -> int:
         conn.close()
 
     # Run WSJF scoring so the new task gets a priority_score immediately
-    subprocess.run(["tusk", "wsjf"], capture_output=True)
+    subprocess.run([TUSK_BIN, "wsjf"], capture_output=True)
 
     result = {
         "task_id": task_id,
