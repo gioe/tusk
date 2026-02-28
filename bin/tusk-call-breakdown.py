@@ -43,17 +43,6 @@ def _load_lib():
 lib = _load_lib()
 
 
-def find_all_transcripts(project_hash: str) -> list[str]:
-    """Return all JSONL transcript files for the project, newest first."""
-    claude_dir = Path.home() / ".claude" / "projects" / project_hash
-    if not claude_dir.is_dir():
-        return []
-    return sorted(
-        [str(p) for p in claude_dir.glob("*.jsonl")],
-        key=lambda p: os.path.getmtime(p),
-        reverse=True,
-    )
-
 
 def aggregate_tool_calls(
     transcripts: list[str],
@@ -765,8 +754,7 @@ def main():
 
     lib.load_pricing()
 
-    project_hash = lib.derive_project_hash(os.getcwd())
-    transcripts = find_all_transcripts(project_hash)
+    transcripts = lib.find_all_transcripts_with_fallback()
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row

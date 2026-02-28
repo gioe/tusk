@@ -86,7 +86,7 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
     ended_at = lib.parse_sqlite_timestamp(row["ended_at"])
 
     # Discover transcript
-    transcript_path = lib.find_transcript(lib.derive_project_hash(os.getcwd()))
+    transcript_path = lib.find_transcript()
 
     cost = 0.0
     tokens_in = 0

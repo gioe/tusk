@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import sqlite3
+import subprocess
 import sys
 from collections.abc import Iterator
 from datetime import datetime, timezone
@@ -106,7 +107,7 @@ def _jsonl_files_for_hash(project_hash: str) -> list[Path]:
 
 
 def _candidate_dirs(start: str) -> list[str]:
-    """Yield candidate directories to try for transcript discovery.
+    """Return candidate directories to try for transcript discovery.
 
     Order: cwd, git root (if different), then each parent up to filesystem root.
     Deduplicates while preserving order.
@@ -123,7 +124,6 @@ def _candidate_dirs(start: str) -> list[str]:
 
     # Try git root
     try:
-        import subprocess
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
             capture_output=True,
