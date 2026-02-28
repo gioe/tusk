@@ -2450,7 +2450,8 @@ cmd_session_close() {
 
   # Populate token/cost stats unless skipped
   if [[ "$skip_stats" = false ]]; then
-    python3 "$SCRIPT_DIR/tusk-session-stats.py" "$DB_PATH" "$(resolve_config)" "$session_id"
+    python3 "$SCRIPT_DIR/tusk-session-stats.py" "$DB_PATH" "$(resolve_config)" "$session_id" \
+      || echo "Warning: could not collect session stats; continuing" >&2
     python3 "$SCRIPT_DIR/tusk-call-breakdown.py" "$DB_PATH" "$(resolve_config)" --session "$session_id" --write-only || true
   fi
 }

@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [302] - 2026-02-28
+
+### Fixed
+- `tusk session-close` now emits a warning and continues when `tusk-session-stats.py` exits non-zero (e.g. no JSONL transcripts), instead of propagating failure and blocking `tusk merge`
+- `tusk commit` now resolves the `tusk` binary via its own path (like `tusk-merge.py`), fixing `FileNotFoundError` when `tusk` is not on PATH
+
 ## [301] - 2026-02-28
 
 ### Fixed

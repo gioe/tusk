@@ -113,8 +113,9 @@ def main(argv: list[str]) -> int:
         return 1
 
     # ── Step 1: Run lint (advisory) ──────────────────────────────────
+    tusk_bin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
     print("=== Running tusk lint (advisory) ===")
-    lint = subprocess.run(["tusk", "lint"], capture_output=False)
+    lint = subprocess.run([tusk_bin, "lint"], capture_output=False)
     if lint.returncode != 0:
         print("\nLint reported warnings (advisory only — continuing)\n")
     else:
@@ -164,7 +165,7 @@ def main(argv: list[str]) -> int:
     criteria_failed = False
     for idx, cid in enumerate(criteria_ids):
         print(f"\n=== Marking criterion {cid} done ===")
-        cmd = ["tusk", "criteria", "done", cid]
+        cmd = [tusk_bin, "criteria", "done", cid]
         if skip_verify:
             cmd.append("--skip-verify")
         if idx > 0 and len(criteria_ids) > 1:
