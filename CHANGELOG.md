@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [317] - 2026-02-28
+
+- [TASK-460] Add cost tracking to /investigate via tusk skill-run start/finish
+
 ## [316] - 2026-02-28
 
 ### Added

@@ -8,6 +8,16 @@ allowed-tools: Bash, Read, Glob, Grep, Task, Write, EnterPlanMode
 
 Scopes a problem through structured codebase research, then proposes concrete remediation tasks for later work. **This skill is investigation-only — it never modifies files, runs tests, or implements anything.** All output feeds into `/create-task`.
 
+## Step 0: Start Cost Tracking
+
+Record the start of this investigation so cost can be captured at the end:
+
+```bash
+tusk skill-run start investigate
+```
+
+This prints `{"run_id": N, "started_at": "..."}`. Capture `run_id` — you will need it in Step 8.
+
 ## Step 1: Capture the Problem
 
 The user provides a problem statement after `/investigate`. It could be:
@@ -124,6 +134,22 @@ Follow its instructions from **Step 1**, using the Proposed Remediation section 
 - Duplicate detection
 - Metadata assignment (priority, domain, task_type, complexity, assignee)
 - Dependency proposals
+
+## Step 8: Finish Cost Tracking
+
+Record cost for this investigation run. Replace `<run_id>` with the value captured in Step 0:
+
+```bash
+tusk skill-run finish <run_id>
+```
+
+This reads the Claude Code transcript for the time window of this run and stores token counts and estimated cost in the `skill_runs` table.
+
+To view cost history across all investigate runs:
+
+```bash
+tusk skill-run list investigate
+```
 
 ## Hard Constraints
 
