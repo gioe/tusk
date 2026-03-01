@@ -346,8 +346,11 @@ def main(argv: list[str]) -> int:
 
     # tusk session-close already closed the session before task-done ran, so
     # task-done always sees 0 open sessions. Correct the counter here.
+    # When session-close returned non-zero with "already closed", session_was_closed
+    # is False and sessions_closed stays 0 — accurate, since this invocation did not
+    # close anything. merge always operates on exactly one session_id.
     if session_was_closed:
-        task_done_result["sessions_closed"] = 1
+        task_done_result["sessions_closed"] = 1  # merge always operates on one session
 
     print(json.dumps(task_done_result, indent=2))
     return 0
