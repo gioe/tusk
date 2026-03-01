@@ -12,7 +12,7 @@ Arguments received from tusk:
 Steps:
     1. Run tusk lint (advisory — output is printed but never blocks)
     2. Run test_command from config if set and --skip-verify not passed (hard-blocks on failure)
-    3. Stage files: git add for files present on disk, git rm for files absent from disk
+    3. Stage files: git add for all files (handles additions, modifications, and deletions)
     4. git commit with [TASK-<id>] <message> format and Co-Authored-By trailer
     5. For each criterion ID passed via --criteria, call tusk criteria done <id> (captures HEAD automatically)
 
@@ -135,20 +135,10 @@ def main(argv: list[str]) -> int:
         print()
 
     # ── Step 3: Stage files ──────────────────────────────────────────
-    to_add = [f for f in files if os.path.exists(f)]
-    to_remove = [f for f in files if not os.path.exists(f)]
-
-    if to_add:
-        result = run(["git", "add"] + to_add, check=False)
-        if result.returncode != 0:
-            print(f"Error: git add failed:\n{result.stderr.strip()}", file=sys.stderr)
-            return 3
-
-    if to_remove:
-        result = run(["git", "rm"] + to_remove, check=False)
-        if result.returncode != 0:
-            print(f"Error: git rm failed:\n{result.stderr.strip()}", file=sys.stderr)
-            return 3
+    result = run(["git", "add"] + files, check=False)
+    if result.returncode != 0:
+        print(f"Error: git add failed:\n{result.stderr.strip()}", file=sys.stderr)
+        return 3
 
     # ── Step 4: Commit ───────────────────────────────────────────────
     full_message = f"[TASK-{task_id}] {message}\n\n{TRAILER}"

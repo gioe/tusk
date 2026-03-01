@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [320] - 2026-03-01
+
+- [TASK-462] Fix tusk commit to use git add for all files including deletions
+
 ## [319] - 2026-03-01
 
 - Fix /review-commits Step 3 and Step 8 to fall back to HEAD~1..HEAD when on the default branch (three-dot diff is always empty in that case)
