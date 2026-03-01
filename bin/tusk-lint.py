@@ -760,6 +760,46 @@ def rule18_manifest_drift(root):
     return violations
 
 
+def rule19_tusk_manifest_json_sync(root):
+    """.claude/tusk-manifest.json must have identical entries to MANIFEST."""
+    # This rule is only meaningful in the tusk source repo.  Target projects
+    # don't have a MANIFEST file.  Mirror rule8's guard.
+    if not os.path.isfile(os.path.join(root, "bin", "tusk")):
+        return []
+
+    manifest_path = os.path.join(root, "MANIFEST")
+    tusk_manifest_path = os.path.join(root, ".claude", "tusk-manifest.json")
+
+    if not os.path.isfile(manifest_path):
+        return ["  MANIFEST file not found"]
+
+    if not os.path.isfile(tusk_manifest_path):
+        return ["  .claude/tusk-manifest.json file not found"]
+
+    try:
+        with open(manifest_path, encoding="utf-8") as f:
+            manifest = set(json.load(f))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"  MANIFEST could not be parsed: {exc}"]
+
+    try:
+        with open(tusk_manifest_path, encoding="utf-8") as f:
+            tusk_manifest = set(json.load(f))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"  .claude/tusk-manifest.json could not be parsed: {exc}"]
+
+    violations = []
+    for path in sorted(manifest - tusk_manifest):
+        violations.append(
+            f"  MANIFEST has '{path}' but .claude/tusk-manifest.json does not"
+        )
+    for path in sorted(tusk_manifest - manifest):
+        violations.append(
+            f"  .claude/tusk-manifest.json has '{path}' but MANIFEST does not"
+        )
+    return violations
+
+
 # ── Main ─────────────────────────────────────────────────────────────
 
 # Each entry: (display_name, check_function, advisory)
@@ -784,6 +824,7 @@ RULES = [
     ("Rule 16: DB-backed blocking lint rules", rule16_db_rules_blocking, False),
     ("Rule 17: DB-backed advisory lint rules (advisory)", rule17_db_rules_advisory, True),
     ("Rule 18: MANIFEST drift from source tree", rule18_manifest_drift, False),
+    ("Rule 19: .claude/tusk-manifest.json out of sync with MANIFEST", rule19_tusk_manifest_json_sync, False),
 ]
 
 

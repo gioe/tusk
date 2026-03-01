@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [307] - 2026-02-28
+
+### Added
+- [TASK-455] Rule 19 in `tusk-lint.py`: flags divergence between `MANIFEST` and `.claude/tusk-manifest.json`; also fixed existing drift (missing `investigate/SKILL.md` entry)
+
 ## [306] - 2026-02-28
 
 ### Added
