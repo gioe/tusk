@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [313] - 2026-02-28
+
+- [TASK-459] tusk merge sessions_closed counter is always 0 even when session is closed
+
 ## [311] - 2026-02-28
 
 - [TASK-450] Add tusk version-bump and tusk changelog-add commands
