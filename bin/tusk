@@ -925,6 +925,24 @@ cmd_version() {
   echo "tusk version $TUSK_VERSION"
 }
 
+cmd_version_bump() {
+  local version_file
+  if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
+    version_file="$SCRIPT_DIR/VERSION"
+  elif [[ -f "$INSTALL_DIR/VERSION" ]]; then
+    version_file="$INSTALL_DIR/VERSION"
+  else
+    echo "Error: VERSION file not found" >&2
+    exit 1
+  fi
+  local current_version new_version
+  current_version="$(cat "$version_file")"
+  new_version=$(( current_version + 1 ))
+  echo "$new_version" > "$version_file"
+  git -C "$REPO_ROOT" add "$version_file"
+  echo "$new_version"
+}
+
 cmd_migrate() {
   if [[ ! -f "$DB_PATH" ]]; then
     echo "No database found at $DB_PATH — run 'tusk init' first." >&2
@@ -2545,9 +2563,11 @@ case "${1:-}" in
   conventions) shift; cmd_conventions "$@" ;;
   shell)  cmd_shell ;;
   version) cmd_version ;;
+  version-bump) cmd_version_bump ;;
+  changelog-add) shift; exec python3 "$SCRIPT_DIR/tusk-changelog-add.py" "$REPO_ROOT" "$DB_PATH" "$@" ;;
   migrate) cmd_migrate ;;
   regen-triggers) cmd_regen_triggers ;;
   upgrade) shift; cmd_upgrade "$@" ;;
-  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|commit|lint|lint-rule|dupes|deps|blockers|review|criteria|dag|dashboard|wsjf|conventions|setup|autoclose|backlog-scan|token-audit|sync-skills|pricing-update|session-stats|session-recalc|session-close|skill-run|call-breakdown|task-select|task-start|task-done|task-insert|task-update|task-reopen|merge|progress|shell|version|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
+  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|commit|lint|lint-rule|dupes|deps|blockers|review|criteria|dag|dashboard|wsjf|conventions|setup|autoclose|backlog-scan|token-audit|sync-skills|pricing-update|session-stats|session-recalc|session-close|skill-run|call-breakdown|task-select|task-start|task-done|task-insert|task-update|task-reopen|merge|progress|shell|version|version-bump|changelog-add|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac
