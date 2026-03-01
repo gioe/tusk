@@ -139,13 +139,13 @@ Follow its instructions from **Step 1**, using the Proposed Remediation section 
 
 ## Step 8: Finish Cost Tracking
 
-Record cost for this investigation run. Replace `<run_id>` with the value captured in Step 0:
+Record cost for this investigation run. Replace `<run_id>` with the value captured in Step 0, `<N>` with the number of tasks proposed in your Investigation Report (Step 5), and `<M>` with the number of tasks actually created by `/create-task` (Step 7). If the user declined to create tasks, set `<M>` to 0.
 
 ```bash
-tusk skill-run finish <run_id>
+tusk skill-run finish <run_id> --metadata '{"tasks_proposed":<N>,"tasks_created":<M>}'
 ```
 
-This reads the Claude Code transcript for the time window of this run and stores token counts and estimated cost in the `skill_runs` table. Note that the captured window covers the full session — including both the investigation phase and the `/create-task` workflow — so the reported cost reflects the entire `/investigate` invocation.
+This reads the Claude Code transcript for the time window of this run and stores token counts, estimated cost, and productivity metadata in the `skill_runs` table. Note that the captured window covers the full session — including both the investigation phase and the `/create-task` workflow — so the reported cost reflects the entire `/investigate` invocation.
 
 To view cost history across all investigate runs:
 

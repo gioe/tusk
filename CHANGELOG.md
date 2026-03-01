@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [318] - 2026-02-28
+
+- [TASK-461] Add --metadata to /investigate skill-run finish with tasks_proposed/tasks_created counts
+
 ## [317] - 2026-02-28
 
 - [TASK-460] Add cost tracking to /investigate via tusk skill-run start/finish
