@@ -6,6 +6,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [316] - 2026-02-28
+
+### Added
+- Rule 20 in `tusk-lint.py`: advisory check for `skills/` file modifications without a VERSION bump (mirrors Rule 13 for `bin/tusk-*.py`)
+- Refactored Rule 13 to use shared `_version_bump_check` helper, eliminating duplicate logic
+
 ## [315] - 2026-02-28
 
 - [TASK-454] [Deferred] Add --exclude-ids support to tusk task-select for loop delegation
