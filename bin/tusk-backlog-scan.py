@@ -84,6 +84,8 @@ def scan_duplicates(db_path: str) -> list[dict]:
     )
     # exit 0 = no pairs, 1 = pairs found, anything else = error
     if result.returncode not in (0, 1):
+        if result.stderr:
+            print(f"backlog-scan: dupes scan error: {result.stderr.strip()}", file=sys.stderr)
         return []
     try:
         data = json.loads(result.stdout)

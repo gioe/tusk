@@ -75,7 +75,7 @@ This returns JSON with four categories — hold onto the result, it replaces sev
 - **`duplicates`** — Heuristic duplicate pairs among open tasks (feeds Step 2a)
 - **`unassigned`** — Open tasks with no assignee (feeds Category D)
 - **`unsized`** — Open tasks without a complexity estimate (feeds Step 6)
-- **`expired`** — Open tasks past their `expires_at` date (supplements the auto-close pre-check)
+- **`expired`** — Open tasks past their `expires_at` date; if non-empty, report those task IDs alongside the `tusk autoclose` results from the Pre-Check step as additional candidates for manual review
 
 ## Step 2: Scan for Duplicates and Categorize Tasks
 
