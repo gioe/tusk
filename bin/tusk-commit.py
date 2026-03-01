@@ -135,6 +135,7 @@ def main(argv: list[str]) -> int:
         print()
 
     # ── Step 3: Stage files ──────────────────────────────────────────
+    # git add handles deletions of tracked files natively since Git 2.x — no git rm needed.
     result = run(["git", "add"] + files, check=False)
     if result.returncode != 0:
         print(f"Error: git add failed:\n{result.stderr.strip()}", file=sys.stderr)
