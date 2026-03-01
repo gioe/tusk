@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [308] - 2026-02-28
+
+### Added
+- [TASK-451] `tusk test-detect` — inspects repo root lockfiles and returns `{"command": "<cmd>", "confidence": "high|medium|low|none"}`; `/tusk-init` Step 5b and `/tusk-update` Step 2b updated to call it instead of duplicating prose heuristics
+
 ## [307] - 2026-02-28
 
 ### Added
