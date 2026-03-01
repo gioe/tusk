@@ -253,13 +253,12 @@ After all waves are complete, do a single VERSION bump and CHANGELOG update cove
    tusk changelog-add $new_version <task_id1> [<task_id2> ...]
    ```
    `tusk version-bump` reads VERSION, increments by 1, writes it back, stages it, and prints the new version number.
-   `tusk changelog-add` prepends a dated `## [N] - YYYY-MM-DD` heading to CHANGELOG.md with a bullet for each task ID, then outputs the inserted block to stdout for review.
+   `tusk changelog-add` prepends a dated `## [N] - YYYY-MM-DD` heading to CHANGELOG.md with a bullet for each task ID, stages CHANGELOG.md, then outputs the inserted block to stdout for review.
 
 3. Review the changelog output, then commit, push, and merge:
    ```bash
    git checkout main && git pull origin main
    git checkout -b chore/chain-<head_task_ids>-version-bump
-   git add CHANGELOG.md
    git commit -m "Bump VERSION to <new_version> for chain <head_task_ids>"
    git push -u origin chore/chain-<head_task_ids>-version-bump
    gh pr create --base main --title "Bump VERSION to <new_version> (chain <head_task_ids>)" --body "Consolidates VERSION bump for all tasks completed in chain <head_task_ids>."
