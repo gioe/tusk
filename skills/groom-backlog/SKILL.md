@@ -63,12 +63,27 @@ tusk deps all
 tusk -header -column "SELECT id, summary, description FROM tasks WHERE id IN (<comma-separated ids>)"
 ```
 
+## Step 1b: Consolidated Backlog Pre-flight Scan
+
+Run the consolidated pre-flight scan to gather all grooming signals in a single call:
+
+```bash
+tusk backlog-scan
+```
+
+This returns JSON with four categories — hold onto the result, it replaces several individual queries throughout the workflow:
+- **`duplicates`** — Heuristic duplicate pairs among open tasks (feeds Step 2a)
+- **`unassigned`** — Open tasks with no assignee (feeds Category D)
+- **`unsized`** — Open tasks without a complexity estimate (feeds Step 6)
+- **`expired`** — Open tasks past their `expires_at` date (supplements the auto-close pre-check)
+
 ## Step 2: Scan for Duplicates and Categorize Tasks
 
 ### Step 2a: Scan for Duplicate Pairs
 
-```bash
-tusk dupes scan --status "To Do"
+Use the **`duplicates`** array from the `tusk backlog-scan` result (Step 1b). Each entry is:
+```json
+{"task_a": {"id": N, "summary": "..."}, "task_b": {"id": N, "summary": "..."}, "similarity": 0.N}
 ```
 
 Any pairs found should be included in **Category B** with reason "duplicate".
@@ -102,11 +117,7 @@ tusk deps dependents <id>
 - **Over-prioritized**: Nice-to-haves, speculative work
 
 ### Category D: Unassigned Tasks
-Tasks without an agent assignee:
-
-```bash
-tusk -header -column "SELECT id, summary, domain FROM tasks WHERE status <> 'Done' AND assignee IS NULL"
-```
+Tasks without an agent assignee. Use the **`unassigned`** array from the `tusk backlog-scan` result (Step 1b) — each entry includes `id`, `summary`, and `domain`.
 
 Assign based on project agents (from `tusk config`).
 
@@ -179,19 +190,9 @@ tusk -header -column "SELECT id, summary, status, priority, assignee FROM tasks 
 
 ## Step 6: Bulk-Estimate Unsized Tasks
 
-Before computing priority scores, check for tasks without complexity estimates:
+Before computing priority scores, check for tasks without complexity estimates. Use the **`unsized`** array from the `tusk backlog-scan` result (Step 1b) — each entry includes `id`, `summary`, `domain`, and `task_type`.
 
-```bash
-tusk -header -column "
-SELECT id, summary, description, domain, task_type
-FROM tasks
-WHERE status <> 'Done'
-  AND complexity IS NULL
-ORDER BY id
-"
-```
-
-If no rows are returned, skip to Step 7.
+If the `unsized` array is empty, skip to Step 7.
 
 If unsized tasks are found, read the reference file for the sizing workflow:
 

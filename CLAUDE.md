@@ -49,6 +49,7 @@ bin/tusk deps ready
 bin/tusk wsjf
 bin/tusk lint
 bin/tusk autoclose
+bin/tusk backlog-scan [--duplicates] [--unassigned] [--unsized] [--expired]   # → {duplicates:[...], unassigned:[...], unsized:[...], expired:[...]}
 bin/tusk test-detect               # → {"command": "<cmd>", "confidence": "high|medium|low|none"}
 bin/tusk sql-quote "O'Reilly's book"   # → 'O''Reilly''s book'
 bin/tusk shell

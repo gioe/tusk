@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [309] - 2026-02-28
+
+### Added
+- [TASK-452] `tusk backlog-scan [--duplicates] [--unassigned] [--unsized] [--expired]` — consolidated grooming pre-flight scan returning JSON with all four categories; `/groom-backlog` updated to use it instead of individual DB queries
+
 ## [308] - 2026-02-28
 
 ### Added
