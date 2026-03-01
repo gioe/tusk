@@ -15,6 +15,7 @@ heading and outputs the inserted block text to stdout for LLM review.
 """
 
 import sqlite3
+import subprocess
 import sys
 from datetime import date
 
@@ -83,6 +84,8 @@ def main() -> None:
 
     with open(changelog_path, "w") as f:
         f.write(new_content)
+
+    subprocess.run(["git", "-C", repo_root, "add", changelog_path], check=True)
 
     # Output the inserted block for LLM review
     print(entry_block, end="")
