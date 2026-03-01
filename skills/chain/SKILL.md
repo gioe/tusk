@@ -247,28 +247,19 @@ After all waves are complete, do a single VERSION bump and CHANGELOG update cove
    ```
    Filter to tasks with status = Done that were completed during this chain run.
 
-2. Read the current VERSION and CHANGELOG:
+2. Bump VERSION and update CHANGELOG in one step each:
    ```bash
-   cat VERSION
-   cat CHANGELOG.md | head -20
+   new_version=$(tusk version-bump)
+   tusk changelog-add $new_version <task_id1> [<task_id2> ...]
    ```
+   `tusk version-bump` reads VERSION, increments by 1, writes it back, stages it, and prints the new version number.
+   `tusk changelog-add` prepends a dated `## [N] - YYYY-MM-DD` heading to CHANGELOG.md with a bullet for each task ID, then outputs the inserted block to stdout for review.
 
-3. Increment VERSION by 1 and add a CHANGELOG entry under a new version heading. The entry should list all completed chain tasks:
-   ```markdown
-   ## [<new_version>] - <YYYY-MM-DD>
-
-   ### Added/Changed/Fixed
-   - [TASK-<id>] <summary>
-   - [TASK-<id>] <summary>
-   ...
-   ```
-
-4. Commit, push, and merge:
+3. Review the changelog output, then commit, push, and merge:
    ```bash
    git checkout main && git pull origin main
    git checkout -b chore/chain-<head_task_ids>-version-bump
-   # Write VERSION and CHANGELOG.md
-   git add VERSION CHANGELOG.md
+   git add CHANGELOG.md
    git commit -m "Bump VERSION to <new_version> for chain <head_task_ids>"
    git push -u origin chore/chain-<head_task_ids>-version-bump
    gh pr create --base main --title "Bump VERSION to <new_version> (chain <head_task_ids>)" --body "Consolidates VERSION bump for all tasks completed in chain <head_task_ids>."
