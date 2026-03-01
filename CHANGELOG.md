@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [314] - 2026-02-28
+
+- [TASK-457] Fix tusk-generate-manifest.py to write both MANIFEST and .claude/tusk-manifest.json
+
 ## [313] - 2026-02-28
 
 - [TASK-459] tusk merge sessions_closed counter is always 0 even when session is closed
