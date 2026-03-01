@@ -56,6 +56,8 @@ bin/tusk shell
 
 # Versioning
 bin/tusk version
+bin/tusk version-bump                              # increment VERSION by 1, stage, echo new version
+bin/tusk changelog-add <version> [<task_id>...]   # prepend dated entry to CHANGELOG.md, echo block
 bin/tusk migrate
 bin/tusk regen-triggers
 bin/tusk upgrade
