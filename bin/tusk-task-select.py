@@ -29,7 +29,7 @@ def get_connection(db_path: str) -> sqlite3.Connection:
 
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
-        print("Usage: tusk task-select [--max-complexity XS|S|M|L|XL]", file=sys.stderr)
+        print("Usage: tusk task-select [--max-complexity XS|S|M|L|XL] [--exclude-ids 1,2,3]", file=sys.stderr)
         return 1
 
     db_path = argv[0]
@@ -94,6 +94,8 @@ LIMIT 1
         msg = "No ready tasks found"
         if args.max_complexity:
             msg += f" with complexity at or below {args.max_complexity}"
+        if exclude_ids:
+            msg += f" (excluding {len(exclude_ids)} task ID{'s' if len(exclude_ids) != 1 else ''})"
         print(msg, file=sys.stderr)
         return 1
 
