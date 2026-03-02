@@ -85,14 +85,18 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
    - Task assignee field (often indicates the right agent type)
    - Task description and requirements
 
-4. **Confirm failure (bug/test-fix tasks only)** — If the task `task_type` is `bug` or `test` (or the summary/description describes fixing a failing test), run the failing tests *before* exploring any code. This confirms the bug still exists and avoids wasted investigation.
+4. **Confirm failure (bug/test-fix tasks only)** — Run the failing tests *before* exploring any code when the task is about *fixing* an existing failure. This confirms the bug still exists and avoids wasted investigation.
+
+   **When to run this step:**
+   - `task_type: bug` → always run
+   - `task_type: test` AND the summary/description indicates fixing a failing or flaky test → run
+   - `task_type: test` AND the summary/description indicates *writing new tests* (no existing failure to reproduce, e.g. "Add tests for X", "Write test suite for Y") → **skip this step entirely and proceed to Explore**
+   - All other task types (feature, chore, docs, etc.) → skip
 
    1. Check the task description and acceptance criteria for specific test commands or test names to run.
    2. If specific tests are named, run them directly. Otherwise, use `tusk test-detect` to find the project's test command, then run the most relevant subset.
    3. **If tests pass**: the issue may already be fixed or the description may be inaccurate — surface this to the user and stop before investigating further.
    4. **If tests fail**: capture the failure output. Use it as the primary diagnostic anchor in step 5 (Explore).
-
-   Skip this step for non-bug/non-test task types (features, chores, docs, etc.).
 
 5. **Explore the codebase before implementing** — use a sub-agent to research:
    - What files will need to change?

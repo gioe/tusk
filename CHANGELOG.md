@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [328] - 2026-03-02
+
+- [TASK-471] Fix confirm-failure logic in /tusk for test tasks
+
 ## [327] - 2026-03-02
 
 - Fix `tusk commit` path-doubling when called from a subdirectory (cwd=repo_root for git add/commit)
