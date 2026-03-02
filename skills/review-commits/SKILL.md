@@ -184,21 +184,29 @@ Record every decision (fix or dismiss) with a one-line rationale — these will 
 
 ### defer comments
 
-These are valid issues but out of scope for the current work. Create a tusk task for each:
+These are valid issues but out of scope for the current work. For each `defer` comment:
 
-```bash
-tusk task-insert "<summary from comment>" "<full comment text>" \
-  --priority Medium \
-  --domain <same domain as current task> \
-  --task-type refactor \
-  --deferred
-```
+1. Run a heuristic dupe check first:
+   ```bash
+   tusk dupes check "<summary from comment>"
+   ```
+   Exit code 1 means a duplicate already exists — **skip task creation** and print a note (e.g., "Skipped deferred task — duplicate found: <summary>"). Mark the comment resolved as deferred anyway:
+   ```bash
+   tusk review resolve <comment_id> deferred
+   ```
 
-After creating each deferred task, mark the comment resolved:
-
-```bash
-tusk review resolve <comment_id> deferred
-```
+2. If exit code 0 (no duplicate), create the deferred task:
+   ```bash
+   tusk task-insert "<summary from comment>" "<full comment text>" \
+     --priority Medium \
+     --domain <same domain as current task> \
+     --task-type refactor \
+     --deferred
+   ```
+   Then mark the comment resolved:
+   ```bash
+   tusk review resolve <comment_id> deferred
+   ```
 
 ## Step 8: Re-review Loop (if there were must_fix changes)
 

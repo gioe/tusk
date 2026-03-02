@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [321] - 2026-03-01
+
+- [TASK-463] Add dupe check to review-commits defer path
+
 ## [320] - 2026-03-01
 
 - [TASK-462] Fix tusk commit to use git add for all files including deletions
