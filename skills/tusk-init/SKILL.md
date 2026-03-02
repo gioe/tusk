@@ -115,6 +115,19 @@ Once you have a proposed domain and agent list, proceed to **Step 3** and **Step
 
 ## Step 3: Suggest and Confirm Domains
 
+Before presenting suggestions, frame the concept for the user:
+
+> **What makes a good domain?**
+>
+> Domains should reflect **structural or functional areas of your codebase** — the answer to "what part of the system will change?". Good domains map to directories, subsystems, or product areas (e.g., `api`, `frontend`, `database`, `cli`). Avoid language-based names like `bash`, `python`, or `sql` — those describe *how* the code is written, not *what* it does, and they add no routing value since file patterns already encode language implicitly.
+>
+> **Three domain axes to consider:**
+> - **Structural** — what layer or subsystem changes? (e.g., `cli`, `api`, `database`, `scheduler`)
+> - **Functional / product area** — what user-facing capability does it serve? (e.g., `auth`, `billing`, `notifications`)
+> - **Infrastructure** — how is the system operated? (e.g., `infrastructure`, `ci`, `docs`)
+>
+> For example, in tusk itself, `cli` is a structural domain meaning "the bash dispatcher (`bin/tusk`)". It's not named `bash` — the language is irrelevant; the structure is what matters.
+
 Present each as `- **name** — evidence found`. User confirms, adds, removes, or empties to disable validation.
 
 ## Step 4: Suggest and Confirm Agents

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [329] - 2026-03-02
+
+- [TASK-472] Add domain philosophy section to /tusk-init skill
+
 ## [328] - 2026-03-02
 
 - [TASK-471] Fix confirm-failure logic in /tusk for test tasks
