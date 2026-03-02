@@ -124,7 +124,7 @@ Before presenting suggestions, frame the concept for the user:
 > **Three domain axes to consider:**
 > - **Structural** — what layer or subsystem changes? (e.g., `cli`, `api`, `database`, `scheduler`)
 > - **Functional / product area** — what user-facing capability does it serve? (e.g., `auth`, `billing`, `notifications`)
-> - **Infrastructure** — how is the system operated? (e.g., `infrastructure`, `ci`, `docs`)
+> - **Infrastructure** — how is the system operated? (e.g., `infrastructure`, `monitoring`, `deployment`)
 >
 > For example, in tusk itself, `cli` is a structural domain meaning "the bash dispatcher (`bin/tusk`)". It's not named `bash` — the language is irrelevant; the structure is what matters.
 
