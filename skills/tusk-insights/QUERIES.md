@@ -263,4 +263,3 @@ WHERE status = 'To Do'
 GROUP BY score_range
 ORDER BY MIN(priority_score) DESC;
 ```
-

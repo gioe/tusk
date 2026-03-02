@@ -629,6 +629,33 @@ def rule20_skills_version_bump_missing(root):
     return _version_bump_check(root, re.compile(r"^skills/"), "skill")
 
 
+def rule21_skills_trailing_newlines(root):
+    """Distributed skill files must end with exactly one newline.
+
+    Extra trailing newlines trigger the end-of-file-fixer pre-commit hook in
+    target projects on every install.  Source-repo only (guarded by bin/tusk).
+    """
+    if not os.path.isfile(os.path.join(root, "bin", "tusk")):
+        return []
+
+    violations = []
+    skills_dir = os.path.join(root, "skills")
+    if not os.path.isdir(skills_dir):
+        return []
+
+    for dirroot, _dirs, filenames in os.walk(skills_dir):
+        for fname in filenames:
+            full = os.path.join(dirroot, fname)
+            rel = os.path.relpath(full, root)
+            try:
+                data = open(full, "rb").read()
+            except OSError:
+                continue
+            if data and data[-1:] == b"\n" and data[-2:-1] == b"\n":
+                violations.append(f"  {rel}: ends with multiple trailing newlines")
+    return violations
+
+
 # ── DB-backed rules ──────────────────────────────────────────────────
 
 def _db_path_from_root(root):
@@ -845,6 +872,7 @@ RULES = [
     ("Rule 18: MANIFEST drift from source tree", rule18_manifest_drift, False),
     ("Rule 19: .claude/tusk-manifest.json out of sync with MANIFEST", rule19_tusk_manifest_json_sync, False),
     ("Rule 20: skills/ file modified without VERSION bump (advisory)", rule20_skills_version_bump_missing, True),
+    ("Rule 21: Skill files with multiple trailing newlines", rule21_skills_trailing_newlines, False),
 ]
 
 
