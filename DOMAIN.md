@@ -19,7 +19,7 @@ The core unit of work. Every piece of planned work is a task.
 | `priority` | TEXT | validated; default `Medium` | Relative importance (Highest → Lowest) |
 | `domain` | TEXT | validated if config non-empty | Functional area (e.g., cli, db, docs) |
 | `assignee` | TEXT | validated if config non-empty | Agent or person responsible |
-| `task_type` | TEXT | validated if config non-empty | Category (bug, feature, refactor, test, docs, infrastructure) |
+| `task_type` | TEXT | validated if config non-empty | Category of work (see [Task Type Semantics](#task-type-semantics)) |
 | `priority_score` | INTEGER | default 0 | WSJF score; recomputed by `tusk wsjf` |
 | `expires_at` | TEXT | nullable | ISO datetime; task auto-closed when past this date |
 | `closed_reason` | TEXT | validated; required when status=Done | Why the task was closed |
@@ -33,6 +33,24 @@ The core unit of work. Every piece of planned work is a task.
 - `priority`: `Highest`, `High`, `Medium`, `Low`, `Lowest`
 - `closed_reason`: `completed`, `expired`, `wont_do`, `duplicate`
 - `complexity`: `XS` (~1 quick session), `S` (~1 full session), `M` (~1–2 sessions), `L` (~3–5 sessions), `XL` (~5+ sessions)
+
+#### Task Type Semantics
+
+The core question when choosing a `task_type` is: **is this a deliverable, or a proof of completeness?**
+
+- **Deliverable** → the work itself belongs in a task.
+- **Proof of completeness** → it belongs as an acceptance criterion on an existing task, not as its own task.
+
+| task_type | When to use as a task | Task-vs-criterion guidance |
+|---|---|---|
+| `feature` | New user-facing capability or behaviour | A feature is always a task deliverable. Tests that verify the feature are criteria on that task, not separate tasks. |
+| `bug` | Fix incorrect or unintended behaviour | The fix is the deliverable task. A failing test that reproduces the bug is a criterion, not a separate task. |
+| `refactor` | Improve code structure without changing external behaviour | Refactors are deliverable tasks. Verifying that existing tests still pass is a criterion, not a separate task. |
+| `infrastructure` | CI, tooling, deployment, or environment changes | Infrastructure work is a task deliverable. A smoke-test confirming the pipeline works is a criterion. |
+| `test` | *Create or significantly overhaul a test suite as the primary goal.* Use this only when writing tests is itself the deliverable (e.g. adding coverage to a previously-untested module). **Do not use `test` for tests written as proof-of-completeness for another task** — those are acceptance criteria (`criterion_type = test`) on the parent task. |
+| `docs` | *Create or significantly update documentation as the primary goal.* Use this only when the documentation is itself the deliverable (e.g. writing a new DOMAIN.md section, a user guide, or an ADR). **Do not use `docs` for a docstring, inline comment, or changelog entry added while completing another task** — those are acceptance criteria on the parent task. |
+
+**Summary rule:** If the work *directly delivers* the outcome the user asked for, make it a task. If the work *verifies* that an outcome was achieved, make it a criterion (`criterion_type = test`, `code`, `file`, or `manual`) on the owning task.
 
 ---
 
