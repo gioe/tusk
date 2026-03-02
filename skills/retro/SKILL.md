@@ -91,7 +91,7 @@ For each approved Category A finding:
       >
       > **approve** — apply the edit now (no task created for this finding)
       > **defer** — create a task with this diff included in the description
-      > **skip** — create a generic task as usual (or no task)
+      > **skip** — create a generic task as usual
 
 3. **If approved**: apply the edit in-session using the Edit tool. Do **not** create a task for this finding.
 
