@@ -43,6 +43,7 @@ Streamlined retro for small tasks. Skips subsumption analysis and dependency pro
   - **Category B**: Tangential issues — bugs, tech debt, architectural concerns discovered out of scope
   - **Category C**: Follow-up work — incomplete items, deferred decisions, edge cases
   - **Category D**: Lint Rules — concrete, grep-detectable anti-patterns observed in this session (max 3). Only include if an actual mistake occurred that a grep rule could prevent — e.g., calling a deprecated command, using a wrong pattern in a specific file type. Do NOT include general advice or style preferences.
+  - **Category E**: Debugging Velocity — only if the session involved fixing a bug or diagnosing unexpected behavior. Reflect on: what information was missing that delayed diagnosis; what tool, log, or trace would have surfaced the root cause immediately; whether a test would have caught this before it became a bug. If no bug was present, this category is empty. Findings must be concrete (tasks or skill/CLAUDE.md patches) — not generic advice like "add more logging."
 
 Analyze the full conversation context using the resolved categories.
 
@@ -59,7 +60,7 @@ If **all categories are empty**, report "Clean session — no findings" and stop
 
 3. Present findings and proposed tasks in a table. Wait for explicit user approval before inserting.
 
-4. For **Category A** approved findings, follow **LR-2a** below before inserting tasks. For all other approved findings, insert tasks now:
+4. For **Category A and Category E** approved findings, follow **LR-2a** below before inserting tasks. For all other approved findings, insert tasks now:
    ```bash
    tusk task-insert "<summary>" "<description>" --priority "<priority>" --domain "<domain>" --task-type "<task_type>" --assignee "<assignee>" --complexity "<complexity>" \
      --criteria "<criterion 1>" [--criteria "<criterion 2>" ...]

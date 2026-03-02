@@ -33,6 +33,7 @@ Otherwise organize into the default four categories:
 - **B**: Tangential issues — out-of-scope bugs, tech debt, architectural concerns
 - **C**: Follow-up work — incomplete items, deferred decisions, edge cases
 - **D**: Lint Rules — concrete, grep-detectable anti-patterns (max 3). Only if an actual mistake occurred that a grep rule could prevent. Applied inline when possible (step 5d); task creation is the fallback.
+- **E**: Debugging Velocity — only if the session involved fixing a bug or diagnosing unexpected behavior. Reflect on: what information was missing that delayed diagnosis; what tool, log, or trace would have surfaced the root cause immediately; whether a test would have caught this before it became a bug. If no bug was present, this category is empty. Findings must be concrete (tasks or skill/CLAUDE.md patches) — not generic advice like "add more logging."
 
 If a category has no findings, note that explicitly — an empty category is a positive signal.
 
@@ -109,7 +110,7 @@ tusk "UPDATE tasks SET description = $(tusk sql-quote "$AMENDED_DESC"), updated_
 
 ### 5b: Insert New Tasks
 
-**Category A findings:** Before inserting, follow step 5e to check for an inline skill patch. Only call `tusk task-insert` for a Category A finding here if step 5e was skipped, if no target file was identified, or if the user chose to defer (include the proposed diff in the description).
+**Category A and Category E findings:** Before inserting, follow step 5e to check for an inline skill patch. Only call `tusk task-insert` for a Category A or E finding here if step 5e was skipped, if no target file was identified, or if the user chose to defer (include the proposed diff in the description).
 
 ```bash
 tusk task-insert "<summary>" "<description>" --priority "<priority>" --domain "<domain>" --task-type "<task_type>" --assignee "<assignee>" --complexity "<complexity>" \
