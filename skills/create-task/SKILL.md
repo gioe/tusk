@@ -212,4 +212,3 @@ Then, **conditionally** show the updated backlog:
   ```bash
   tusk "SELECT COUNT(*) || ' open tasks in backlog' FROM tasks WHERE status = 'To Do'"
   ```
-

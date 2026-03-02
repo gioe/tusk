@@ -17,4 +17,3 @@ tusk dashboard
 ```
 
 Then confirm to the user that the dashboard has been generated and opened in their browser.
-
