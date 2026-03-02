@@ -109,6 +109,8 @@ tusk "UPDATE tasks SET description = $(tusk sql-quote "$AMENDED_DESC"), updated_
 
 ### 5b: Insert New Tasks
 
+**Category A findings:** Before inserting, follow step 5e to check for an inline skill patch. Only call `tusk task-insert` for a Category A finding here if step 5e was skipped, if no target file was identified, or if the user chose to defer (include the proposed diff in the description).
+
 ```bash
 tusk task-insert "<summary>" "<description>" --priority "<priority>" --domain "<domain>" --task-type "<task_type>" --assignee "<assignee>" --complexity "<complexity>" \
   --criteria "<criterion 1>" [--criteria "<criterion 2>" ...]
@@ -161,6 +163,39 @@ For each lint rule finding, attempt **inline application** first:
 For `<task_type>`: use the project's config `task_types` array (already fetched via `tusk setup` in Step 0). Pick the entry that best fits a maintenance/tooling task (e.g., `maintenance`, `chore`, `tech-debt`, `infra` — whatever is closest in your project's list). If no entry is a clear fit, omit `--task-type` entirely.
 
 Fill in `<pattern>` (grep regex), `<file_glob>` (e.g., `*.md` or `bin/tusk-*.py`), and `<message>` (human-readable warning) with the specific values from your finding.
+
+### 5e: Skill-Patch for Category A Findings (only if Category A findings exist)
+
+Before creating tasks for Category A (process improvement) findings, check if any can be applied as inline patches to an existing skill or CLAUDE.md. Run this step **before** 5b for Category A findings.
+
+For each approved Category A finding:
+
+1. **Identify a target file** — check whether the finding description mentions:
+   - A skill name matching a directory in `.claude/skills/` (list them with `ls .claude/skills/`)
+   - The string `CLAUDE.md`
+
+2. **If a target file is identified**:
+   a. Read the file (`Read .claude/skills/<name>/SKILL.md` or `Read CLAUDE.md`)
+   b. Produce a **concrete proposed edit** — the exact text to add, change, or remove. Show the specific diff, not a vague description.
+   c. Present the patch with three options:
+
+      > **Skill Patch Proposal** — [finding title]
+      > File: `.claude/skills/<name>/SKILL.md`
+      >
+      > ```diff
+      > - [existing text to replace]
+      > + [replacement text]
+      > ```
+      >
+      > **approve** — apply the edit now (no task created for this finding)
+      > **defer** — create a task with this diff included in the description (handled in 5b)
+      > **skip** — create a generic task via 5b as usual
+
+3. **If approved**: apply the edit in-session using the Edit tool. Do **not** create a task for this finding.
+
+4. **If deferred**: proceed to 5b for this finding, including the proposed diff verbatim in the task description.
+
+5. **If skipped, or if no target file was identified**: proceed to 5b normally.
 
 ## Step 6: Report Results
 

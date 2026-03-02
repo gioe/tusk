@@ -1,7 +1,7 @@
 ---
 name: retro
 description: Review the current session, surface process improvements and tangential issues, and create follow-up tasks
-allowed-tools: Bash, Read
+allowed-tools: Bash, Read, Edit
 ---
 
 # Retrospective Skill
@@ -59,12 +59,45 @@ If **all categories are empty**, report "Clean session — no findings" and stop
 
 3. Present findings and proposed tasks in a table. Wait for explicit user approval before inserting.
 
-4. Insert approved tasks:
+4. For **Category A** approved findings, follow **LR-2a** below before inserting tasks. For all other approved findings, insert tasks now:
    ```bash
    tusk task-insert "<summary>" "<description>" --priority "<priority>" --domain "<domain>" --task-type "<task_type>" --assignee "<assignee>" --complexity "<complexity>" \
      --criteria "<criterion 1>" [--criteria "<criterion 2>" ...]
    ```
    Always include at least one `--criteria` flag — derive 1–3 concrete acceptance criteria from the task description. Omit `--domain` or `--assignee` entirely if the value is NULL/empty. Exit code 1 means duplicate — skip. Skip subsumption and dependency proposals.
+
+### LR-2a: Skill-Patch for Category A Findings (only if Category A findings exist)
+
+Before creating tasks for Category A (process improvement) findings, check if any can be applied as inline patches to an existing skill or CLAUDE.md.
+
+For each approved Category A finding:
+
+1. **Identify a target file** — check whether the finding description mentions:
+   - A skill name matching a directory in `.claude/skills/` (list them with `ls .claude/skills/`)
+   - The string `CLAUDE.md`
+
+2. **If a target file is identified**:
+   a. Read the file (`Read .claude/skills/<name>/SKILL.md` or `Read CLAUDE.md`)
+   b. Produce a **concrete proposed edit** — the exact text to add, change, or remove. Show the specific diff, not a vague description.
+   c. Present the patch with three options:
+
+      > **Skill Patch Proposal** — [finding title]
+      > File: `.claude/skills/<name>/SKILL.md`
+      >
+      > ```diff
+      > - [existing text to replace]
+      > + [replacement text]
+      > ```
+      >
+      > **approve** — apply the edit now (no task created for this finding)
+      > **defer** — create a task with this diff included in the description
+      > **skip** — create a generic task as usual (or no task)
+
+3. **If approved**: apply the edit in-session using the Edit tool. Do **not** create a task for this finding.
+
+4. **If deferred**: include the proposed diff verbatim in the task description when calling `tusk task-insert`.
+
+5. **If skipped, or if no target file was identified**: proceed to normal task creation (step 4 above).
 
 ### LR-2b: Apply Lint Rules Inline (only if lint rule findings exist)
 

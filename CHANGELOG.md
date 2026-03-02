@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [323] - 2026-03-01
+
+- [TASK-465] Give retro a direct skill-patch pathway for Category A findings
+
 ## [322] - 2026-03-01
 
 - [TASK-464] Retro should apply lint rules inline instead of via tasks
