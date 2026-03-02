@@ -85,7 +85,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
    - Task assignee field (often indicates the right agent type)
    - Task description and requirements
 
-4. **Confirm failure (bug/test-fix tasks only)** — Run the failing tests *before* exploring any code when the task is about *fixing* an existing failure. This confirms the bug still exists and avoids wasted investigation.
+4. **Confirm failure** — Run the failing tests *before* exploring any code when the task is about *fixing* an existing failure. This confirms the bug still exists and avoids wasted investigation.
 
    **When to run this step:**
    - `task_type: bug` → always run
