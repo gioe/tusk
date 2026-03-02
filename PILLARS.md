@@ -14,7 +14,7 @@ This document defines the eight product pillars that guide tusk's design and dev
 | Opinionated | High | WSJF scoring, workflow gates, and convention enforcement are baked in |
 | Autonomous | Medium | `/loop` and `/chain` exist; reliability and interrupt handling still maturing |
 | Observable | Medium | Dashboard and cost tracking are strong; real-time visibility and alerting are sparse |
-| Self-Improving | Low | `/retro` exists; `tusk lint-rule add` persists grep rules to DB; skill-patch tasks are the secondary pathway; auto-generation of rules from retro output is absent |
+| Self-Improving | Low | `/retro` exists; `tusk lint-rule add` persists grep rules to DB; auto-generation from retro output is absent |
 | Efficient | Medium | Token audit and per-criterion cost tracking exist; active optimization guidance is sparse |
 
 ---
