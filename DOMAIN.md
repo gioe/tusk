@@ -276,9 +276,9 @@ Individual per-call rows recording one entry per tool invocation within a sessio
 
 ---
 
-### Convention
+### Convention (deprecated)
 
-A generalizable project heuristic written by `/retro` after each session. Replaces the append-only `tusk/conventions.md` file with a queryable, linkable DB table. Consumed by `tusk conventions` (print) and `tusk setup` (context for skills). Written by `tusk conventions add`.
+> **Deprecated.** The `tusk conventions` command has been removed. The write path (previously used by `/retro`) was replaced by `tusk lint-rule add` and task-based workflows (TASK-370). The table is retained for historical data but has no active write path or CLI surface. Use `tusk lint-rule` for grep-detectable conventions and `/create-task` for process improvements.
 
 | Attribute | Type | Constraints | Description |
 |-----------|------|-------------|-------------|

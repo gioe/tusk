@@ -28,7 +28,7 @@ Focus on `WARN`-level items (e.g., `SELECT *` pulling unnecessary columns). `INF
 
 ### Redundancy
 
-Look for `tusk setup` followed by `tusk config`/`tusk conventions` re-fetches in the same skill. Duplicate `tusk` commands across subcommand examples are expected and not actionable.
+Look for `tusk setup` followed by `tusk config` re-fetches in the same skill. Duplicate `tusk` commands across subcommand examples are expected and not actionable.
 
 ### Narrative Density
 

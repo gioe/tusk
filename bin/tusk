@@ -28,7 +28,6 @@
 #   tusk lint                   Run convention checks non-interactively
 #   tusk dag [--all]           Generate and open an HTML dependency DAG
 #   tusk dashboard             Generate and open an HTML dashboard
-#   tusk conventions           Print contents of conventions.md (or path with --path)
 #   tusk version               Print the installed tusk version
 #   tusk migrate               Apply pending schema migrations
 #   tusk regen-triggers        Drop and recreate validation triggers from config
@@ -416,76 +415,6 @@ cmd_validate() {
   echo "Config is valid ($(resolve_config))."
 }
 
-cmd_conventions() {
-  local subcommand="${1:-}"
-
-  if [[ "$subcommand" == "--path" ]]; then
-    echo "Warning: 'tusk conventions --path' is deprecated. conventions.md is no longer used; conventions are stored in the database. Use 'tusk conventions' to view them." >&2
-    return 1
-  fi
-
-  if [[ "$subcommand" == "add" ]]; then
-    shift
-    local text="" source_skill="" qualitative=0
-    while [[ $# -gt 0 ]]; do
-      case "$1" in
-        --qualitative) qualitative=1; shift ;;
-        --source) source_skill="$2"; shift 2 ;;
-        *)
-          if [[ -z "$text" ]]; then
-            text="$1"
-          fi
-          shift
-          ;;
-      esac
-    done
-    if [[ -z "$text" ]]; then
-      echo "Usage: tusk conventions add <text> [--qualitative] [--source <skill>]" >&2
-      exit 1
-    fi
-    if [[ "$qualitative" -eq 0 ]]; then
-      echo "Warning: 'tusk conventions add' is deprecated. Use 'tusk lint-rule add' to capture grep-detectable anti-patterns as lint rules instead. For qualitative conventions (not grep-detectable), use --qualitative to suppress this warning." >&2
-    fi
-    local quoted_text quoted_source
-    quoted_text="$(sql_quote "$text")"
-    if [[ -n "$source_skill" ]]; then
-      quoted_source="$(sql_quote "$source_skill")"
-    else
-      quoted_source="NULL"
-    fi
-    sqlite3 "$DB_PATH" "INSERT INTO conventions (text, source_skill, qualitative) VALUES ($quoted_text, $quoted_source, $qualitative);"
-    echo "Convention added."
-    return
-  fi
-
-  # Default: print all conventions from DB
-  python3 -c "
-import sqlite3, sys
-conn = sqlite3.connect(\"$DB_PATH\")
-try:
-    rows = conn.execute('SELECT id, text, source_skill, created_at, qualitative FROM conventions ORDER BY id').fetchall()
-except Exception as e:
-    print('Error: conventions table not found. Run tusk migrate.', file=sys.stderr)
-    sys.exit(1)
-finally:
-    conn.close()
-if not rows:
-    print('No conventions in database.')
-    sys.exit(0)
-for row in rows:
-    id_, text, source_skill, created_at, qualitative = row
-    date = (created_at or '')[:10]
-    source = source_skill or 'unknown'
-    qual_tag = ' [qualitative]' if qualitative else ''
-    lines = text.split('\n')
-    if lines and lines[0].startswith('## '):
-        output = lines[0] + '\n_Source: ' + source + ' — ' + date + qual_tag + '_\n' + '\n'.join(lines[1:])
-    else:
-        output = '_Source: ' + source + ' — ' + date + qual_tag + '_\n\n' + text
-    print(output)
-    print()
-"
-}
 
 cmd_init() {
   mkdir -p "$DB_DIR"
@@ -2560,7 +2489,6 @@ case "${1:-}" in
   generate-manifest) shift; exec python3 "$SCRIPT_DIR/tusk-generate-manifest.py" "$@" ;;
   pricing-update) shift; exec python3 "$SCRIPT_DIR/tusk-pricing-update.py" "$@" ;;
   wsjf) cmd_wsjf ;;
-  conventions) shift; cmd_conventions "$@" ;;
   shell)  cmd_shell ;;
   version) cmd_version ;;
   version-bump) cmd_version_bump ;;
@@ -2568,6 +2496,6 @@ case "${1:-}" in
   migrate) cmd_migrate ;;
   regen-triggers) cmd_regen_triggers ;;
   upgrade) shift; cmd_upgrade "$@" ;;
-  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|commit|lint|lint-rule|dupes|deps|blockers|review|criteria|dag|dashboard|wsjf|conventions|setup|autoclose|backlog-scan|token-audit|sync-skills|pricing-update|session-stats|session-recalc|session-close|skill-run|call-breakdown|task-select|task-start|task-done|task-insert|task-update|task-reopen|merge|progress|shell|version|version-bump|changelog-add|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
+  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|commit|lint|lint-rule|dupes|deps|blockers|review|criteria|dag|dashboard|wsjf|setup|autoclose|backlog-scan|token-audit|sync-skills|pricing-update|session-stats|session-recalc|session-close|skill-run|call-breakdown|task-select|task-start|task-done|task-insert|task-update|task-reopen|merge|progress|shell|version|version-bump|changelog-add|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac
