@@ -14,7 +14,7 @@ This document defines the eight product pillars that guide tusk's design and dev
 | Opinionated | High | WSJF scoring, workflow gates, and convention enforcement are baked in |
 | Autonomous | Medium | `/loop` and `/chain` exist; reliability and interrupt handling still maturing |
 | Observable | Medium | Dashboard and cost tracking are strong; real-time visibility and alerting are sparse |
-| Self-Improving | Low | `/retro` exists; `tusk lint` enforces conventions in commit flow; learning loop and convention propagation are nascent |
+| Self-Improving | Low | `/retro` exists; `tusk lint-rule add` persists grep rules to DB; skill-patch tasks are the secondary pathway; auto-generation of rules from retro output is absent |
 | Efficient | Medium | Token audit and per-criterion cost tracking exist; active optimization guidance is sparse |
 
 ---
@@ -137,16 +137,16 @@ This document defines the eight product pillars that guide tusk's design and dev
 
 ## 7. Self-Improving
 
-**Definition:** Tusk learns from completed work and refines its own processes over time. Post-session retrospectives surface patterns, anti-patterns, and process improvements. Generalizable conventions are written to `tusk/conventions.md` and enforced by `tusk lint` (run automatically in the commit flow). Token consumption patterns are audited to keep skills lean. The system can identify and close redundant tasks, normalize the backlog, and update its own configuration as the project evolves.
+**Definition:** Tusk learns from completed work and refines its own processes over time. Post-session retrospectives surface patterns, anti-patterns, and process improvements. Grep-detectable anti-patterns are persisted as lint rules via `tusk lint-rule add` (primary pathway) and enforced by `tusk lint` at commit time. Process improvements that require skill or doc edits are filed as tasks (secondary pathway) and worked through the normal backlog. Token consumption patterns are audited to keep skills lean. The system can identify and close redundant tasks, normalize the backlog, and update its own configuration as the project evolves.
 
 **Core claim:** Each session makes the next session faster, cheaper, and less error-prone — without requiring the team to manually update process docs.
 
-**Current maturity:** Low. `/retro` runs post-session reviews and writes conventions. `tusk lint` enforces those conventions via grep rules and runs automatically in the commit flow. `/token-audit` identifies bloated or redundant skill patterns. `/groom-backlog` auto-closes stale tasks and normalizes priorities. Gaps: conventions are rarely auto-surfaced in the critical path; lint rules are static (no auto-generation from `/retro` output); there is no mechanism for a convention to automatically update SKILL.md files; cost-per-session trend data exists but is not used to trigger process changes.
+**Current maturity:** Low. `/retro` runs post-session reviews and identifies patterns. `tusk lint-rule add` persists grep-detectable anti-patterns as DB-backed lint rules enforced at commit time. Skill and doc improvements are filed as tasks via `/create-task` and executed through the normal backlog. `/token-audit` identifies bloated or redundant skill patterns. `/groom-backlog` auto-closes stale tasks and normalizes priorities. Gaps: lint rules must be authored manually — there is no auto-generation from `/retro` output; skill-patch tasks are created but not prioritized automatically; cost-per-session trend data exists but is not used to trigger process changes.
 
 **Representative features:**
-- `/retro` skill — post-session retrospective with convention writing to `tusk/conventions.md`
-- `tusk lint` — grep-based convention enforcement (runs automatically in `tusk commit`)
-- `tusk conventions` — prints learned conventions file
+- `/retro` skill — post-session retrospective that identifies conventions and surfaces improvement tasks
+- `tusk lint-rule add/list/remove` — DB-backed lint rule management; the primary pathway for persisting grep-detectable anti-patterns as enforced rules
+- `tusk lint` — runs all lint rules (static + DB-backed) automatically in `tusk commit`
 - `/token-audit` — skill token consumption analysis with five diagnostic categories
 - `tusk-dupes.py` — heuristic duplicate detection with `difflib.SequenceMatcher`
 - `/groom-backlog` — auto-close, re-prioritize, and normalize backlog in one pass
