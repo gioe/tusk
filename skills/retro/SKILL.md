@@ -67,9 +67,9 @@ If **all categories are empty**, report "Clean session — no findings" and stop
    ```
    Always include at least one `--criteria` flag — derive 1–3 concrete acceptance criteria from the task description. Omit `--domain` or `--assignee` entirely if the value is NULL/empty. Exit code 1 means duplicate — skip. Skip subsumption and dependency proposals.
 
-### LR-2a: Skill-Patch for Category A Findings (only if Category A findings exist)
+### LR-2a: Skill-Patch for Category A and Category E Findings (only if Category A or Category E findings exist)
 
-Before creating tasks for Category A (process improvement) findings, check if any can be applied as inline patches to an existing skill or CLAUDE.md.
+Before creating tasks for Category A (process improvement) or Category E (debugging velocity) findings, check if any can be applied as inline patches to an existing skill or CLAUDE.md.
 
 For each approved Category A finding:
 

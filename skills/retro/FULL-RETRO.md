@@ -77,7 +77,7 @@ Brief (2-3 sentence) overview of what the session accomplished.
 1. **<title>** — <description>
    → Proposed: <summary> | <priority> | <task_type> | <domain>
 
-(Repeat for each category. Use the resolved category names — from FOCUS.md if present, or defaults A/B/C/D. Omit empty categories.)
+(Repeat for each category. Use the resolved category names — from FOCUS.md if present, or defaults A/B/C/D/E. Omit empty categories.)
 
 ### Duplicates Already Tracked (omit if none)
 | Finding | Matched Task | Similarity |
@@ -165,9 +165,9 @@ For `<task_type>`: use the project's config `task_types` array (already fetched 
 
 Fill in `<pattern>` (grep regex), `<file_glob>` (e.g., `*.md` or `bin/tusk-*.py`), and `<message>` (human-readable warning) with the specific values from your finding.
 
-### 5e: Skill-Patch for Category A Findings (only if Category A findings exist)
+### 5e: Skill-Patch for Category A and Category E Findings (only if Category A or Category E findings exist)
 
-Before creating tasks for Category A (process improvement) findings, check if any can be applied as inline patches to an existing skill or CLAUDE.md. Run this step **before** 5b for Category A findings.
+Before creating tasks for Category A (process improvement) or Category E (debugging velocity) findings, check if any can be applied as inline patches to an existing skill or CLAUDE.md. Run this step **before** 5b for Category A and Category E findings.
 
 For each approved Category A finding:
 
