@@ -188,12 +188,15 @@ These are valid issues but out of scope for the current work. For each `defer` c
 
 1. Run a heuristic dupe check first:
    ```bash
-   tusk dupes check "<summary from comment>"
+   tusk dupes check "<summary from comment>" --domain <same domain as current task>
    ```
-   Exit code 1 means a duplicate already exists — **skip task creation** and print a note (e.g., "Skipped deferred task — duplicate found: <summary>"). Mark the comment resolved as deferred anyway:
-   ```bash
-   tusk review resolve <comment_id> deferred
-   ```
+   Interpret the exit code:
+   - **Exit code 0** — no duplicate found; proceed to step 2.
+   - **Exit code 1** — duplicate already exists; **skip task creation** and print a note (e.g., "Skipped deferred task — duplicate found: <summary>"). Mark the comment resolved as deferred anyway:
+     ```bash
+     tusk review resolve <comment_id> deferred
+     ```
+   - **Any other exit code** — the dupe check itself failed (e.g., database error); **skip task creation**, print a warning (e.g., "Skipped deferred task — dupe check failed with exit code <N>: <summary>"), and mark the comment resolved as deferred.
 
 2. If exit code 0 (no duplicate), create the deferred task:
    ```bash
@@ -276,7 +279,7 @@ Pass:      <final_pass_number>
 
 must_fix:  <total_count> found, <fixed_count> fixed
 suggest:   <total_count> found, <fixed_count> fixed, <dismissed_count> dismissed
-defer:     <total_count> found, <deferred_count> tasks created
+defer:     <total_count> found, <created_count> tasks created, <skipped_count> skipped (duplicate)
 
 Verdict: APPROVED / CHANGES REMAINING
 ```
