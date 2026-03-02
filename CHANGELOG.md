@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [322] - 2026-03-01
+
+- [TASK-464] Retro should apply lint rules inline instead of via tasks
+
 ## [321] - 2026-03-01
 
 - [TASK-463] Add dupe check to review-commits defer path
