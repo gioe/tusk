@@ -130,6 +130,6 @@ cp .claude/skills/retro/FOCUS.md.example .claude/skills/retro/FOCUS.md
 # Edit FOCUS.md to define your custom categories
 ```
 
-A template is available at `<base_directory>/FOCUS.md.example` showing the default category format. Custom categories replace A–D. Include a **"Lint Rules"** section to retain lint-rule task creation.
+A template is available at `<base_directory>/FOCUS.md.example` showing the default category format. Custom categories replace A–D. Include a **"Lint Rules"** section to retain lint-rule handling.
 
 `FOCUS.md` is not part of the distributed skill and will not be overwritten by `tusk upgrade`.

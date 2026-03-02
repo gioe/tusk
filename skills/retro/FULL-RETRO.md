@@ -32,7 +32,7 @@ Otherwise organize into the default four categories:
 - **A**: Process improvements — skill/CLAUDE.md/tooling friction, confusing instructions, missing conventions
 - **B**: Tangential issues — out-of-scope bugs, tech debt, architectural concerns
 - **C**: Follow-up work — incomplete items, deferred decisions, edge cases
-- **D**: Lint Rules — concrete, grep-detectable anti-patterns (max 3). Only if an actual mistake occurred that a grep rule could prevent. Filed as tasks, not written directly.
+- **D**: Lint Rules — concrete, grep-detectable anti-patterns (max 3). Only if an actual mistake occurred that a grep rule could prevent. Applied inline when possible (step 5d); task creation is the fallback.
 
 If a category has no findings, note that explicitly — an empty category is a positive signal.
 
