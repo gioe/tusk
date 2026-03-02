@@ -63,7 +63,7 @@ bin/tusk regen-triggers
 bin/tusk upgrade
 ```
 
-Additional subcommands (`blockers`, `review`, `chain`, `loop`, `deps blocked/all`, `session-stats`, `session-close`, `session-recalc`, `skill-run`, `call-breakdown`, `token-audit`, `pricing-update`, `sync-skills`, `dashboard`, `conventions`) follow the same `bin/tusk <cmd> --help` pattern — see source or run `--help` for flags.
+Additional subcommands (`blockers`, `review`, `chain`, `loop`, `deps blocked/all`, `session-stats`, `session-close`, `session-recalc`, `skill-run`, `call-breakdown`, `token-audit`, `pricing-update`, `sync-skills`, `dashboard`) follow the same `bin/tusk <cmd> --help` pattern — see source or run `--help` for flags.
 
 There is no build step, test suite, or linter in this repository.
 
@@ -84,7 +84,7 @@ The config also includes a `review` block: `mode` (`"disabled"` or `"ai_only"`),
 - **`/tusk`** — Full dev workflow: pick task, implement, commit, review, done, retro
 - **`/groom-backlog`** — Auto-close expired tasks, dedup, re-prioritize backlog
 - **`/create-task`** — Decompose freeform text into structured tasks
-- **`/retro`** — Post-session retrospective; surfaces improvements and writes conventions
+- **`/retro`** — Post-session retrospective; surfaces improvements and proposes tasks or lint rules
 - **`/tusk-update`** — Update config post-install without losing data
 - **`/tusk-init`** — Interactive setup wizard
 - **`/dashboard`** — HTML task dashboard with per-task metrics

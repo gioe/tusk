@@ -415,7 +415,6 @@ cmd_validate() {
   echo "Config is valid ($(resolve_config))."
 }
 
-
 cmd_init() {
   mkdir -p "$DB_DIR"
 
