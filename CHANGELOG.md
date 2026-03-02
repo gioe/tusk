@@ -6,6 +6,11 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [327] - 2026-03-02
+
+- Fix `tusk commit` path-doubling when called from a subdirectory (cwd=repo_root for git add/commit)
+- Add `pathspec did not match any files` fallback guidance to /tusk SKILL.md
+
 ## [323] - 2026-03-01
 
 - [TASK-465] Give retro a direct skill-patch pathway for Category A findings

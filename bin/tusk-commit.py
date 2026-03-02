@@ -33,8 +33,8 @@ import sys
 TRAILER = "Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 
 
-def run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(args, capture_output=True, text=True, check=check)
+def run(args: list[str], check: bool = True, cwd: str | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run(args, capture_output=True, text=True, check=check, cwd=cwd)
 
 
 def load_test_command(config_path: str) -> str:
@@ -136,14 +136,16 @@ def main(argv: list[str]) -> int:
 
     # ── Step 3: Stage files ──────────────────────────────────────────
     # git add handles deletions of tracked files natively since Git 2.x — no git rm needed.
-    result = run(["git", "add"] + files, check=False)
+    # cwd=repo_root ensures file paths are always interpreted relative to the repo root,
+    # regardless of which directory tusk was invoked from.
+    result = run(["git", "add"] + files, check=False, cwd=repo_root)
     if result.returncode != 0:
         print(f"Error: git add failed:\n{result.stderr.strip()}", file=sys.stderr)
         return 3
 
     # ── Step 4: Commit ───────────────────────────────────────────────
     full_message = f"[TASK-{task_id}] {message}\n\n{TRAILER}"
-    result = run(["git", "commit", "-m", full_message], check=False)
+    result = run(["git", "commit", "-m", full_message], check=False, cwd=repo_root)
     if result.returncode != 0:
         print(f"Error: git commit failed:\n{result.stderr.strip()}", file=sys.stderr)
         return 3
