@@ -99,7 +99,7 @@ def format_duration(seconds) -> str:
 
 def format_status_duration(seconds) -> str:
     """Format seconds as time-in-status (e.g., '3d 4h', '2h 15m', '45m')."""
-    if seconds is None or seconds <= 0:
+    if seconds is None or seconds == 0:
         return "0m"
     days = int(seconds) // 86400
     hours = (int(seconds) % 86400) // 3600
