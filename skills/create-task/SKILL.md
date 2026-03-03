@@ -55,7 +55,7 @@ The key question: **Is this type the primary deliverable, or is it proof that an
 |-----------|---------------------------------------------|-------------------------------------------------------------|
 | **bug** | The deliverable is fixing a defect — "Fix login crash on empty password" | A regression must not recur — "Empty password no longer crashes" |
 | **feature** | The deliverable is new functionality | N/A — features are always tasks, never criteria |
-| **refactor** | The deliverable is restructuring code without changing behavior | N/A — refactoring is a task; individual cleanup steps are criteria |
+| **refactor** | The deliverable is restructuring code without changing behavior | N/A — refactoring is always a primary deliverable, never just verification |
 | **test** | Writing tests **is the goal** — "Write test suite for auth module" | Tests verify a feature is done — "All auth endpoints have passing tests" |
 | **docs** | Writing docs **is the goal** — "Write v2→v3 migration guide" | Docs confirm completion — "API endpoint is documented in README" |
 | **infrastructure** | The deliverable is tooling, CI, or infra changes | N/A — infra work is always a task |
