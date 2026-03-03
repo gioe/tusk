@@ -43,9 +43,24 @@ Break the input into discrete, actionable tasks. For each task, determine:
 | **description** | Expanded context from the input — acceptance criteria, technical notes, relevant quotes from the source text. |
 | **priority** | Infer from language cues: "critical"/"urgent"/"blocking" → `Highest`/`High`; "nice to have"/"eventually" → `Low`/`Lowest`; default to `Medium`. Must be one of the configured priorities. |
 | **domain** | Match to a configured domain based on the task's subject area. Leave NULL if no domains are configured or none fit. |
-| **task_type** | Categorize as one of the configured task types (bug, feature, refactor, etc.). Default to `feature` for new work, `bug` for fixes. |
+| **task_type** | Categorize as one of the configured task types (bug, feature, refactor, test, docs, infrastructure). Default to `feature` for new work, `bug` for fixes. For `test` and `docs`: use as `task_type` only when writing tests or docs **is the primary deliverable** — otherwise use acceptance criteria. See **Task Type Decision Guide** below. |
 | **assignee** | Match to a configured agent if the task clearly falls in their area. Leave NULL if unsure. |
 | **complexity** | Estimate effort: `XS` = partial session, `S` = 1 session, `M` = 2-3 sessions, `L` = 3-5 sessions, `XL` = 5+. Default to `M` if unclear. Must be one of the configured complexity values. |
+
+### Task Type Decision Guide
+
+The key question: **Is this type the primary deliverable, or is it proof that another deliverable is done?**
+
+| Task Type | Use as `task_type` when the work *is* this | Use as acceptance criterion when this *verifies* other work |
+|-----------|---------------------------------------------|-------------------------------------------------------------|
+| **bug** | The deliverable is fixing a defect — "Fix login crash on empty password" | A regression must not recur — "Empty password no longer crashes" |
+| **feature** | The deliverable is new functionality | N/A — features are always tasks, never criteria |
+| **refactor** | The deliverable is restructuring code without changing behavior | N/A — refactoring is a task; individual cleanup steps are criteria |
+| **test** | Writing tests **is the goal** — "Write test suite for auth module" | Tests verify a feature is done — "All auth endpoints have passing tests" |
+| **docs** | Writing docs **is the goal** — "Write v2→v3 migration guide" | Docs confirm completion — "API endpoint is documented in README" |
+| **infrastructure** | The deliverable is tooling, CI, or infra changes | N/A — infra work is always a task |
+
+**Key rule:** If removing the work would leave the *feature itself* incomplete → use as `task_type`. If removing it just removes *verification* of an already-complete feature → use as an acceptance criterion.
 
 ### Decomposition Guidelines
 
