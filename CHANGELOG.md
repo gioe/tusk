@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [330] - 2026-03-02
+
+- [TASK-470] Add task_type decision rules to /create-task skill
+
 ## [329] - 2026-03-02
 
 - [TASK-472] Add domain philosophy section to /tusk-init skill
