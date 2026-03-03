@@ -166,7 +166,7 @@ def generate_html(task_metrics: list[dict],
                 tool_stats=tool_stats_by_task.get(tid)
             )
     else:
-        task_rows = '<tr><td colspan="13" class="empty">No tasks found. Run <code>tusk init</code> and add some tasks.</td></tr>'
+        task_rows = '<tr><td colspan="12" class="empty">No tasks found. Run <code>tusk init</code> and add some tasks.</td></tr>'
 
     # Build criteria JSON for client-side rendering
     criteria_json: dict[int, dict] = {}

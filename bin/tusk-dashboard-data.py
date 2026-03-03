@@ -48,7 +48,24 @@ def fetch_task_metrics(conn: sqlite3.Connection) -> list[dict]:
                          FROM task_sessions s2
                          WHERE s2.task_id = tm.id AND s2.model IS NOT NULL
                          GROUP BY model
-                         ORDER BY last_used DESC)) as models
+                         ORDER BY last_used DESC)) as models,
+                  CASE
+                    WHEN tm.status = 'In Progress' THEN
+                      CAST((julianday('now') - julianday(COALESCE(
+                        (SELECT MIN(s3.started_at) FROM task_sessions s3 WHERE s3.task_id = tm.id),
+                        tm.created_at
+                      ))) * 86400 AS INTEGER)
+                    WHEN tm.status = 'To Do' THEN
+                      CAST((julianday('now') - julianday(tm.created_at)) * 86400 AS INTEGER)
+                    ELSE
+                      CAST((julianday(COALESCE(
+                        (SELECT MAX(s3.ended_at) FROM task_sessions s3 WHERE s3.task_id = tm.id),
+                        tm.updated_at
+                      )) - julianday(COALESCE(
+                        (SELECT MIN(s3.started_at) FROM task_sessions s3 WHERE s3.task_id = tm.id),
+                        tm.created_at
+                      ))) * 86400 AS INTEGER)
+                  END as duration_in_status_seconds
            FROM task_metrics tm
            ORDER BY tm.total_cost DESC, tm.id ASC"""
     ).fetchall()

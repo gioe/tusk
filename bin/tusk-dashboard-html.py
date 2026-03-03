@@ -97,6 +97,20 @@ def format_duration(seconds) -> str:
     return f"{minutes}m"
 
 
+def format_status_duration(seconds) -> str:
+    """Format seconds as time-in-status (e.g., '3d 4h', '2h 15m', '45m')."""
+    if seconds is None or seconds <= 0:
+        return "0m"
+    days = int(seconds) // 86400
+    hours = (int(seconds) % 86400) // 3600
+    minutes = (int(seconds) % 3600) // 60
+    if days > 0:
+        return f"{days}d {hours}h"
+    if hours > 0:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
+
+
 def _parse_dt(dt_str: str) -> datetime | None:
     """Parse a datetime string (assumed UTC) and return a UTC-aware datetime."""
     if not dt_str:
@@ -772,13 +786,14 @@ def generate_table_header() -> str:
     <th data-col="1" data-type="str">Task <span class="sort-arrow">\u25B2</span></th>
     <th data-col="2" data-type="num" style="text-align:right" class="sort-desc">Cost <span class="sort-arrow">\u25BC</span></th>
     <th data-col="3" data-type="str">Status <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="4" data-type="num">Size <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="5" data-type="num" style="text-align:right">WSJF <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="6" data-type="str">Model <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="7" data-type="num" style="text-align:right">Duration <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="8" data-type="num" style="text-align:right">Lines <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="9" data-type="num" style="text-align:right">Tokens In <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="10" data-type="num" style="text-align:right">Tokens Out <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="4" data-type="num" style="text-align:right">Duration <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="5" data-type="num">Size <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="6" data-type="num" style="text-align:right">WSJF <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="7" data-type="str">Model <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="8" data-type="num" style="text-align:right">Work Time <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="9" data-type="num" style="text-align:right">Lines <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="10" data-type="num" style="text-align:right">Tokens In <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="11" data-type="num" style="text-align:right">Tokens Out <span class="sort-arrow">\u25B2</span></th>
   </tr>
 </thead>"""
 
@@ -847,7 +862,7 @@ def generate_criteria_detail(tid: int, has_criteria: bool = True, tool_stats: li
 
     return (
         f'<tr class="criteria-row" data-parent="{tid}" style="display:none">\n'
-        f'  <td colspan="11">{inner}</td>\n'
+        f'  <td colspan="12">{inner}</td>\n'
         f'</tr>\n'
     )
 
@@ -877,6 +892,7 @@ def generate_task_row(t: dict, criteria_list: list[dict], task_deps: dict, summa
     session_count = t.get('session_count') or 0
     models_raw = t.get('models') or ''
     duration_seconds = t.get('total_duration_seconds') or 0
+    status_duration_seconds = t.get('duration_in_status_seconds') or 0
     lines_added = t.get('total_lines_added') or 0
     lines_removed = t.get('total_lines_removed') or 0
     total_lines = int(lines_added) + int(lines_removed)
@@ -892,6 +908,7 @@ def generate_task_row(t: dict, criteria_list: list[dict], task_deps: dict, summa
   <td class="col-summary">{summary_cell}</td>
   <td class="{cost_cls}" data-sort="{t['total_cost']}">{format_cost(t['total_cost'])}</td>
   <td class="col-status"><span class="status-badge status-{status_val.lower().replace(' ', '-')}">{status_val}</span></td>
+  <td class="col-status-duration" data-sort="{status_duration_seconds}" style="text-align:right">{format_status_duration(status_duration_seconds) if status_duration_seconds else '<span class="text-muted-dash">&mdash;</span>'}</td>
   <td class="col-complexity" data-sort="{complexity_sort}">{f'<span class="complexity-badge">{complexity_val}</span>' if complexity_val else ''}</td>
   <td class="col-wsjf" data-sort="{priority_score}">{priority_score}</td>
   <td class="col-model" data-sort="{esc(models_raw)}" title="{esc(models_raw)}">{esc(models_raw) if models_raw else '<span class="text-muted-dash">&mdash;</span>'}</td>
