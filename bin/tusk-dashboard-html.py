@@ -786,7 +786,7 @@ def generate_table_header() -> str:
     <th data-col="1" data-type="str">Task <span class="sort-arrow">\u25B2</span></th>
     <th data-col="2" data-type="num" style="text-align:right" class="sort-desc">Cost <span class="sort-arrow">\u25BC</span></th>
     <th data-col="3" data-type="str">Status <span class="sort-arrow">\u25B2</span></th>
-    <th data-col="4" data-type="num" style="text-align:right">Duration <span class="sort-arrow">\u25B2</span></th>
+    <th data-col="4" data-type="num" style="text-align:right" title="For Done tasks: wall-clock span from first session start to last session end (includes gaps between sessions). For active tasks: time elapsed since first started (In Progress) or created (To Do).">Duration <span class="sort-arrow">\u25B2</span></th>
     <th data-col="5" data-type="num">Size <span class="sort-arrow">\u25B2</span></th>
     <th data-col="6" data-type="num" style="text-align:right">WSJF <span class="sort-arrow">\u25B2</span></th>
     <th data-col="7" data-type="str">Model <span class="sort-arrow">\u25B2</span></th>
