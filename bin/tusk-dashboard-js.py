@@ -866,18 +866,15 @@ JS: str = """\
     // --- Hourly cost charts ---
     if (window.__tuskHourlyCost && window.__tuskHourlyCost.length === 24) {
       var rawHourly = window.__tuskHourlyCost;
-      // Offset rounded to nearest hour; sub-hour zones (e.g. UTC+5:30) may shift by up to 30 min,
-      // but SQL data is already bucketed by whole UTC hour so this is the data-granularity ceiling.
-      var offsetHours = Math.round((window.__tuskTzOffset || 0) / 60);
+      // Bucketing is done server-side (SQL applies utc_offset_minutes) so no JS shift needed.
       var hourLabels = [];
       var taskCosts = [];
       var skillCosts = [];
       for (var lh = 0; lh < 24; lh++) {
-        var utcH = (lh - offsetHours + 24) % 24;
         var label = lh === 0 ? '12am' : lh < 12 ? lh + 'am' : lh === 12 ? '12pm' : (lh - 12) + 'pm';
         hourLabels.push(label);
-        taskCosts.push(rawHourly[utcH].cost_tasks);
-        skillCosts.push(rawHourly[utcH].cost_skills);
+        taskCosts.push(rawHourly[lh].cost_tasks);
+        skillCosts.push(rawHourly[lh].cost_skills);
       }
       var hAccent = cssVar('--accent') || '#3b82f6';
       var hSkillAccent = cssVar('--success') || '#22c55e';
