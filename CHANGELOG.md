@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [338] - 2026-03-04
+
+- [TASK-485] Pass offset_minutes to fetch_dow_hour_heatmap for local-time DoW bucketing
+
 ## [337] - 2026-03-04
 
 - [TASK-483] Render 7x24 day-of-week hour activity heatmap in Cost tab

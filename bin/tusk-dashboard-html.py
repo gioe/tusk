@@ -812,7 +812,7 @@ def generate_dow_hour_heatmap_section() -> str:
   </div>
   <div id="dowHourHeatmapContainer" style="padding:0 var(--sp-4) var(--sp-2);"></div>
   <p style="padding:0 var(--sp-4) var(--sp-4);font-size:0.7rem;color:var(--text-muted);margin:0;">
-    Day labels are UTC; hour labels are local time (shifted by timezone offset).
+    Day and hour labels are local time.
   </p>
 </div>"""
 

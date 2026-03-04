@@ -931,10 +931,10 @@ JS: str = """\
       return;
     }
 
-    var offsetHours = Math.round((window.__tuskTzOffset || 0) / 60);
     var days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-    // Build 7x24 lookup: grid[dow][utcHour] = {cost, session_count}
+    // Build 7x24 lookup: grid[dow][localHour] = {cost, session_count}
+    // Bucketing is done server-side (SQL applies utc_offset_minutes) so no JS shift needed.
     var grid = [];
     for (var d = 0; d < 7; d++) {
       grid.push([]);
@@ -976,7 +976,7 @@ JS: str = """\
       wrap.appendChild(hdrCell);
     }
 
-    // Data rows
+    // Data rows: iterate local hours directly (no UTC shift needed)
     for (var d = 0; d < 7; d++) {
       var rowLabel = document.createElement('div');
       rowLabel.className = 'dow-heatmap-row-label';
@@ -984,8 +984,7 @@ JS: str = """\
       wrap.appendChild(rowLabel);
 
       for (var lh = 0; lh < 24; lh++) {
-        var utcH = (lh - offsetHours + 24) % 24;
-        var cellData = grid[d][utcH];
+        var cellData = grid[d][lh];
         var cell = document.createElement('div');
         var cls = heatClass(cellData.cost);
         cell.className = 'dow-heatmap-cell' + (cls ? ' ' + cls : '');
