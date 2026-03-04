@@ -233,3 +233,9 @@ your-project/
     ├── config.json                    # Your project's config
     └── tasks.db                       # The database
 ```
+
+## Reporting Issues
+
+Found a bug or have a feature request? Open an issue at https://github.com/gioe/tusker/issues.
+
+> **Note:** Do not patch `.claude/bin/` files directly. Those files are managed by tusk and will be overwritten the next time you run `tusk upgrade`. To contribute a fix, open an issue or submit a pull request to the source repository.
