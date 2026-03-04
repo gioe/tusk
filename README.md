@@ -13,11 +13,11 @@ A portable task management system for [Claude Code](https://claude.ai/claude-cod
 
 ```bash
 # Clone the repo somewhere on your machine
-git clone https://github.com/gioe/tusker.git
+git clone https://github.com/gioe/tusk.git
 
 # From your project root (must be a git repo)
 cd /path/to/your/project
-/path/to/tusker/install.sh
+/path/to/tusk/install.sh
 ```
 
 This will:
