@@ -26,6 +26,10 @@ tusk upgrade                # Upgrade from GitHub
 \```
 
 Never hardcode the DB path — always go through `tusk`.
+
+Do not modify `.claude/bin/` or `.claude/skills/` — changes are overwritten by `tusk upgrade`.
+
+Found a bug in tusk? Open an issue at https://github.com/gioe/tusker/issues
 ```
 
 ## Step 8: TODO Seeding Workflow
