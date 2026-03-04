@@ -377,7 +377,7 @@ def main():
         # Project-wide tool call stats (for Skills tab aggregate view)
         tool_call_global = fetch_tool_call_stats_global(conn)
         # Hourly and day-of-week/hour cost aggregations
-        hourly_cost = fetch_hourly_cost(conn)
+        hourly_cost = fetch_hourly_cost(conn, utc_offset_minutes)
         dow_hour_heatmap = fetch_dow_hour_heatmap(conn, utc_offset_minutes)
     finally:
         conn.close()

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [339] - 2026-03-04
+
+- [TASK-486] Apply offset_minutes to fetch_hourly_cost for server-side hour bucketing
+
 ## [338] - 2026-03-04
 
 - [TASK-485] Pass offset_minutes to fetch_dow_hour_heatmap for local-time DoW bucketing

@@ -342,18 +342,20 @@ def fetch_tool_call_stats_global(conn: sqlite3.Connection) -> list[dict]:
     return result
 
 
-def fetch_hourly_cost(conn: sqlite3.Connection) -> list[dict]:
-    """Fetch total cost per UTC hour from task_sessions and skill_runs.
+def fetch_hourly_cost(conn: sqlite3.Connection, offset_minutes: int = 0) -> list[dict]:
+    """Fetch total cost per local hour from task_sessions and skill_runs.
 
     Returns a 24-element list [{hour, cost_tasks, cost_skills}] zero-filled for
-    missing hours. Both sources use UTC hour buckets; JS applies the local offset
-    for display via window.__tuskTzOffset.
+    missing hours. Bucketing is done in SQL after applying offset_minutes so JS
+    needs no column shift.
     """
-    log.debug("Querying hourly cost data (UTC)")
+    log.debug("Querying hourly cost data (offset_minutes=%d)", offset_minutes)
+    sign = "+" if offset_minutes >= 0 else ""
+    offset_mod = f"{sign}{offset_minutes} minutes"
     hour_map = {h: {"hour": h, "cost_tasks": 0.0, "cost_skills": 0.0} for h in range(24)}
 
     task_rows = conn.execute(
-        """SELECT CAST(strftime('%H', started_at) AS INTEGER) as hour,
+        f"""SELECT CAST(strftime('%H', datetime(started_at, '{offset_mod}')) AS INTEGER) as hour,
                   SUM(COALESCE(cost_dollars, 0)) as cost
            FROM task_sessions
            WHERE cost_dollars > 0
@@ -364,7 +366,7 @@ def fetch_hourly_cost(conn: sqlite3.Connection) -> list[dict]:
 
     try:
         skill_rows = conn.execute(
-            """SELECT CAST(strftime('%H', started_at) AS INTEGER) as hour,
+            f"""SELECT CAST(strftime('%H', datetime(started_at, '{offset_mod}')) AS INTEGER) as hour,
                       SUM(COALESCE(cost_dollars, 0)) as cost
                FROM skill_runs
                WHERE cost_dollars > 0
