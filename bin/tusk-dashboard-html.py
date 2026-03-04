@@ -803,6 +803,20 @@ def generate_hourly_cost_section() -> str:
 </script>"""
 
 
+def generate_dow_hour_heatmap_section() -> str:
+    """Generate Day-of-Week × Hour heatmap panel (rendered by JS)."""
+    return """\
+<div class="panel" style="margin-bottom: var(--sp-6);">
+  <div class="section-header">
+    <span>Activity by Day &amp; Hour</span>
+  </div>
+  <div id="dowHourHeatmapContainer" style="padding:0 var(--sp-4) var(--sp-2);"></div>
+  <p style="padding:0 var(--sp-4) var(--sp-4);font-size:0.7rem;color:var(--text-muted);margin:0;">
+    Day labels are UTC; hour labels are local time (shifted by timezone offset).
+  </p>
+</div>"""
+
+
 def generate_filter_bar() -> str:
     """Generate the filter chips, dropdowns, search input, and filter badge."""
     return """\

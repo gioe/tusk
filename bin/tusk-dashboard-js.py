@@ -921,6 +921,83 @@ JS: str = """\
 
   initCharts();
 
+  // --- Day-of-week / hour heatmap ---
+  (function() {
+    var container = document.getElementById('dowHourHeatmapContainer');
+    if (!container) return;
+    var raw = window.__tuskDowHourHeatmap;
+    if (!raw || !raw.length) {
+      container.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;padding:0.5rem 0;">No activity data yet.</p>';
+      return;
+    }
+
+    var offsetHours = Math.round((window.__tuskTzOffset || 0) / 60);
+    var days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    // Build 7x24 lookup: grid[dow][utcHour] = {cost, session_count}
+    var grid = [];
+    for (var d = 0; d < 7; d++) {
+      grid.push([]);
+      for (var h = 0; h < 24; h++) {
+        grid[d].push({ cost: 0, session_count: 0 });
+      }
+    }
+    var maxCost = 0;
+    raw.forEach(function(row) {
+      grid[row.dow][row.hour] = { cost: row.cost, session_count: row.session_count };
+      if (row.cost > maxCost) maxCost = row.cost;
+    });
+
+    function heatClass(cost) {
+      if (maxCost <= 0 || cost <= 0) return '';
+      var ratio = cost / maxCost;
+      if (ratio < 0.10) return '';
+      if (ratio < 0.25) return 'cost-heat-1';
+      if (ratio < 0.45) return 'cost-heat-2';
+      if (ratio < 0.65) return 'cost-heat-3';
+      if (ratio < 0.85) return 'cost-heat-4';
+      return 'cost-heat-5';
+    }
+
+    var wrap = document.createElement('div');
+    wrap.className = 'dow-heatmap';
+
+    // Header row: empty corner + 24 hour labels (local time)
+    var corner = document.createElement('div');
+    corner.className = 'dow-heatmap-row-label';
+    wrap.appendChild(corner);
+    for (var lh = 0; lh < 24; lh++) {
+      var hdrCell = document.createElement('div');
+      hdrCell.className = 'dow-heatmap-col-header';
+      if (lh % 3 === 0) {
+        hdrCell.textContent = lh === 0 ? '12a' : lh < 12 ? lh + 'a' : lh === 12 ? '12p' : (lh - 12) + 'p';
+      }
+      wrap.appendChild(hdrCell);
+    }
+
+    // Data rows
+    for (var d = 0; d < 7; d++) {
+      var rowLabel = document.createElement('div');
+      rowLabel.className = 'dow-heatmap-row-label';
+      rowLabel.textContent = days[d];
+      wrap.appendChild(rowLabel);
+
+      for (var lh = 0; lh < 24; lh++) {
+        var utcH = (lh - offsetHours + 24) % 24;
+        var cellData = grid[d][utcH];
+        var cell = document.createElement('div');
+        var cls = heatClass(cellData.cost);
+        cell.className = 'dow-heatmap-cell' + (cls ? ' ' + cls : '');
+        if (cellData.cost > 0) {
+          cell.title = '$' + cellData.cost.toFixed(4) + ' \u00b7 ' + cellData.session_count + ' session' + (cellData.session_count !== 1 ? 's' : '');
+        }
+        wrap.appendChild(cell);
+      }
+    }
+
+    container.appendChild(wrap);
+  })();
+
   var costTabs = document.querySelectorAll('#costTrendTabs .cost-tab');
   costTabs.forEach(function(tab) {
     tab.addEventListener('click', function() {

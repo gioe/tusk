@@ -289,6 +289,39 @@ html[data-theme="dark"] .cost-heat-3 { background: rgba(248, 113, 113, 0.18); }
 html[data-theme="dark"] .cost-heat-4 { background: rgba(248, 113, 113, 0.24); }
 html[data-theme="dark"] .cost-heat-5 { background: rgba(248, 113, 113, 0.32); }
 
+/* Day-of-week / hour heatmap */
+.dow-heatmap {
+  display: grid;
+  grid-template-columns: 2.5rem repeat(24, 1fr);
+  gap: 2px;
+  padding: 0 var(--sp-4) var(--sp-4);
+}
+.dow-heatmap-row-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 4px;
+  white-space: nowrap;
+}
+.dow-heatmap-col-header {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  text-align: center;
+  padding-bottom: 2px;
+}
+.dow-heatmap-cell {
+  aspect-ratio: 1;
+  border-radius: 2px;
+  background: var(--border);
+  cursor: default;
+  min-height: 10px;
+}
+.dow-heatmap-cell:hover {
+  outline: 1px solid var(--accent);
+}
+
 /* Dependency badges */
 .dep-badges {
   display: flex;
