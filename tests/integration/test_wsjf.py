@@ -326,7 +326,10 @@ class TestDoneTasksExcluded:
         try:
             tid = insert_task(conn, "done task", priority="Highest", complexity="XS", status="Done")
             # Manually set a known stale score so we can confirm it's untouched
-            conn.execute("UPDATE tasks SET priority_score = 999 WHERE id = ?", (tid,))
+            conn.execute(
+            "UPDATE tasks SET priority_score = 999, closed_reason = 'completed' WHERE id = ?",
+            (tid,),
+        )
             conn.commit()
         finally:
             conn.close()
@@ -336,5 +339,22 @@ class TestDoneTasksExcluded:
         conn = sqlite3.connect(str(db_path))
         try:
             assert get_score(conn, tid) == 999
+        finally:
+            conn.close()
+
+    def test_in_progress_tasks_are_scored(self, db_path):
+        """Tasks with status='In Progress' ARE updated by wsjf (WHERE status <> 'Done')."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            tid = insert_task(conn, "active task", priority="Medium", complexity="M", status="In Progress")
+        finally:
+            conn.close()
+
+        run_wsjf(db_path)
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            # (60 + 10) / 3 = 23
+            assert get_score(conn, tid) == 23
         finally:
             conn.close()
