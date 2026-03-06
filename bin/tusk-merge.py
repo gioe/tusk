@@ -112,6 +112,10 @@ def main(argv: list[str]) -> int:
         print(f"Error: Invalid task ID: {argv[2]}", file=sys.stderr)
         return 1
 
+    # Locate the tusk binary (sibling of this script in the same bin/ directory)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    tusk_bin = os.path.join(script_dir, "tusk")
+
     # Parse remaining flags
     remaining = argv[3:]
     session_id = None
@@ -168,12 +172,47 @@ def main(argv: list[str]) -> int:
 
         if len(rows) == 0:
             if len(closed_rows) == 0:
-                print(
-                    f"Error: No open session found for task {task_id}. "
-                    "Start a session with `tusk task-start` or pass --session <id> explicitly.",
-                    file=sys.stderr,
-                )
-                return 1
+                # No sessions at all. If a feature branch exists, tasks.db was likely reverted
+                # by a git stash or checkout — create a synthetic session so merge can proceed.
+                branch_check, _ = find_task_branch(task_id)
+                if branch_check:
+                    print(
+                        f"Warning: No session found for task {task_id} — tasks.db may have been "
+                        "reverted by a git stash or checkout. Creating a synthetic session to "
+                        "allow merge to proceed.\n"
+                        "Tip: add the tusk database to your .gitignore (run `tusk path` to find "
+                        "the exact path) to prevent this in future.",
+                        file=sys.stderr,
+                    )
+                    result = run([tusk_bin, "task-start", str(task_id), "--force"], check=False)
+                    if result.returncode != 0:
+                        print(
+                            f"Error: Could not create synthetic session:\n{result.stderr.strip()}\n\n"
+                            "Manual recovery:\n"
+                            f"  git checkout <default_branch>\n"
+                            f"  git merge --ff-only feature/TASK-{task_id}-*\n"
+                            f"  git push\n"
+                            f"  tusk task-done {task_id} --reason completed",
+                            file=sys.stderr,
+                        )
+                        return 1
+                    try:
+                        start_data = json.loads(result.stdout)
+                        session_id = start_data["session_id"]
+                        print(f"Synthetic session {session_id} created.", file=sys.stderr)
+                    except (json.JSONDecodeError, KeyError) as e:
+                        print(
+                            f"Error: Could not parse session from task-start output: {e}",
+                            file=sys.stderr,
+                        )
+                        return 1
+                else:
+                    print(
+                        f"Error: No session found for task {task_id}. "
+                        "Start a session with `tusk task-start` or pass --session <id> explicitly.",
+                        file=sys.stderr,
+                    )
+                    return 1
             session_id = closed_rows[0][0]
             print(
                 f"Warning: No open session found for task {task_id}; "
@@ -200,10 +239,6 @@ def main(argv: list[str]) -> int:
     if use_pr and pr_number is None:
         print("Error: --pr-number <N> is required when using PR mode", file=sys.stderr)
         return 1
-
-    # Locate the tusk binary (sibling of this script in the same bin/ directory)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    tusk_bin = os.path.join(script_dir, "tusk")
 
     # Preflight checks — abort before touching session or task state
     # Step 1a: Detect feature branch
