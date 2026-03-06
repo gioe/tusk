@@ -2299,6 +2299,20 @@ with open(target_settings_path, 'w') as f:
   echo ""
   echo "Upgrade complete (version $remote_version)."
 
+  # ── Post-upgrade: ensure tusk/tasks.db is in .gitignore ──────────────
+  # Mirrors the logic in install.sh (added in TASK-492).
+  local gitignore_path="$REPO_ROOT/.gitignore"
+  local gitignore_entry="tusk/tasks.db"
+  if [[ -f "$gitignore_path" ]]; then
+    if ! grep -qxF "$gitignore_entry" "$gitignore_path"; then
+      echo "$gitignore_entry" >> "$gitignore_path"
+      echo "  Added $gitignore_entry to .gitignore (prevents DB revert by git stash/checkout)"
+    fi
+  else
+    echo "$gitignore_entry" > "$gitignore_path"
+    echo "  Created .gitignore with $gitignore_entry"
+  fi
+
   # Auto-commit upgraded files
   if [[ "$no_commit" == true ]]; then
     echo "  Skipping auto-commit (--no-commit flag set)."
