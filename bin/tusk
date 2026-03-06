@@ -899,7 +899,7 @@ cmd_query() {
       local _hint="" _subcmd_lc
       _subcmd_lc="$(echo "$_subcmd" | tr '[:upper:]' '[:lower:]')"
       local _candidate="task-$_subcmd_lc"
-      if grep -qE "^\s+${_candidate}\)" "$0" 2>/dev/null; then
+      if grep -qF "  ${_candidate})" "$0" 2>/dev/null; then
         if [[ ${#_rest[@]} -gt 0 ]]; then
           _hint=" Did you mean: tusk $_candidate ${_rest[*]}?"
         else
