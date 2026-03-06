@@ -19,7 +19,8 @@ bin/tusk setup          # config + backlog + conventions in one JSON call
 bin/tusk validate
 
 # Task lifecycle
-bin/tusk task-get <task_id>
+bin/tusk task-get <task_id>        # accepts integer ID or TASK-NNN prefix form
+bin/tusk task-list                 # list all tasks (not the built-in TaskList tool)
 bin/tusk task-select [--max-complexity XS|S|M|L|XL]
 bin/tusk task-insert "<summary>" "<description>" [--priority P] [--domain D] [--task-type T] [--assignee A] [--complexity C] [--criteria "..." ...] [--typed-criteria '{"text":"...","type":"...","spec":"..."}' ...] [--deferred] [--expires-in DAYS]
 bin/tusk task-start <task_id> [--force]
@@ -153,6 +154,7 @@ Commit the bump in the same branch as the feature. Also update `CHANGELOG.md` in
 
 ## Key Conventions
 
+- **Do NOT use Claude Code's built-in `TaskGet`/`TaskList` tools for tusk task lookup.** Those tools manage background agent subprocesses, not tusk tasks. Always use `bin/tusk task-get <id>` or `bin/tusk task-list` to look up tusk tasks. `tusk task-get` accepts both integer IDs (e.g. `506`) and the `TASK-NNN` display prefix form (e.g. `TASK-506`) — the DB stores integers, but both forms work.
 - **Prefer `/create-task` for all task creation.** It handles decomposition, deduplication, acceptance criteria generation, and dependency proposals in one workflow. Use `bin/tusk task-insert` directly only when scripting bulk inserts or operating in an automated context where the interactive review step is not applicable.
 - All DB access goes through `bin/tusk`, never raw `sqlite3`
 - Use `$(tusk sql-quote "...")` to safely escape user-provided text in SQL statements — never manually escape single quotes
