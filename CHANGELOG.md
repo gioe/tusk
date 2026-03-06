@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [347] - 2026-03-06
+
+- [TASK-492] Fix: tusk merge fails with 'No session found' when tasks.db is reverted by git
+
 ## [346] - 2026-03-06
 
 - [TASK-490] Log WAL checkpoint busy count in tusk merge for partial checkpoint visibility
