@@ -70,8 +70,7 @@ class TestTokenize:
     def test_compound_token_slash_preserved(self):
         # bin/tusk should remain as a single token (split on whitespace only)
         tokens = dupes.tokenize("update bin/tusk script")
-        assert "bin/tusk" in tokens
-        assert len(tokens) == 3
+        assert tokens == {"update", "bin/tusk", "script"}
 
     def test_compound_token_hyphen_preserved(self):
         tokens = dupes.tokenize("edit tusk-dupes.py")
@@ -161,8 +160,8 @@ class TestCombinedSimilarity:
 
     def test_known_near_duplicate_exceeds_threshold(self):
         # Strings that differ only by a stop-word: well above the 0.82 threshold.
-        a = "add unit tests for the similarity module"
-        b = "add unit tests for similarity module"
+        a = dupes.normalize_summary("add unit tests for the similarity module")
+        b = dupes.normalize_summary("add unit tests for similarity module")
         score = dupes.combined_similarity(a, b)
         assert score >= dupes.DEFAULT_CHECK_THRESHOLD, (
             f"Expected near-duplicate score >= {dupes.DEFAULT_CHECK_THRESHOLD}, got {score:.4f}"
@@ -170,8 +169,8 @@ class TestCombinedSimilarity:
 
     def test_clearly_different_pair_below_threshold(self):
         # Two completely unrelated tasks: should score well below 0.82.
-        a = "add unit tests for similarity functions"
-        b = "initialise database schema migration tables"
+        a = dupes.normalize_summary("add unit tests for similarity functions")
+        b = dupes.normalize_summary("initialise database schema migration tables")
         score = dupes.combined_similarity(a, b)
         assert score < dupes.DEFAULT_CHECK_THRESHOLD, (
             f"Expected non-duplicate score < {dupes.DEFAULT_CHECK_THRESHOLD}, got {score:.4f}"
@@ -185,3 +184,25 @@ class TestCombinedSimilarity:
         token_s = dupes.token_similarity(a, b)
         expected = dupes.CHAR_WEIGHT * char_s + dupes.TOKEN_WEIGHT * token_s
         assert dupes.combined_similarity(a, b) == pytest.approx(expected)
+
+
+# ── similarity (public entry point) ──────────────────────────────────
+
+
+class TestSimilarity:
+    def test_identical_raw_strings_return_one(self):
+        assert dupes.similarity("Fix Bug In Tusk", "Fix Bug In Tusk") == pytest.approx(1.0)
+
+    def test_strips_prefixes_before_comparing(self):
+        # [Deferred] prefix should be normalized away so score equals un-prefixed pair
+        score_with_prefix = dupes.similarity("[Deferred] add unit tests", "add unit tests")
+        score_without = dupes.similarity("add unit tests", "add unit tests")
+        assert score_with_prefix == pytest.approx(score_without)
+
+    def test_near_duplicate_raw_strings_exceed_threshold(self):
+        # End-to-end: raw strings go through normalize_summary then combined_similarity
+        score = dupes.similarity(
+            "add unit tests for the similarity module",
+            "add unit tests for similarity module",
+        )
+        assert score >= dupes.DEFAULT_CHECK_THRESHOLD
