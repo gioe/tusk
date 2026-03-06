@@ -319,6 +319,90 @@ class TestContingentOnlyPenalty:
 # Done tasks excluded
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# ELSE branch defaults (unknown priority / unknown complexity)
+# ---------------------------------------------------------------------------
+
+class TestElseBranchDefaults:
+    def _drop_validation_triggers(self, conn: sqlite3.Connection) -> None:
+        """Drop priority and complexity validation triggers so we can insert invalid values."""
+        for trigger in (
+            "validate_priority_insert",
+            "validate_priority_update",
+            "validate_complexity_insert",
+            "validate_complexity_update",
+        ):
+            conn.execute(f"DROP TRIGGER IF EXISTS {trigger}")
+        conn.commit()
+
+    def test_unknown_priority_defaults_to_40(self, db_path):
+        """An unrecognised priority value falls through to ELSE → base 40 (same as Low).
+
+        Formula: ROUND((40 + 10) / 3) = ROUND(16.67) = 17
+        Using complexity=M (weight=3) and is_deferred=0 (+10 bonus).
+        """
+        conn = sqlite3.connect(str(db_path))
+        try:
+            self._drop_validation_triggers(conn)
+            tid = insert_task(conn, "unknown priority task", priority="NonExistent", complexity="M")
+        finally:
+            conn.close()
+
+        run_wsjf(db_path)
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            assert get_score(conn, tid) == 17
+        finally:
+            conn.close()
+
+    def test_unknown_complexity_defaults_to_weight_3(self, db_path):
+        """An unrecognised complexity value falls through to ELSE → weight 3 (same as M).
+
+        Formula: ROUND((100 + 10) / 3) = ROUND(36.67) = 37
+        Using priority=Highest (100) and is_deferred=0 (+10 bonus).
+        Score would be 110 for XS, 55 for S, 22 for L, 14 for XL — 37 confirms weight=3.
+        """
+        conn = sqlite3.connect(str(db_path))
+        try:
+            self._drop_validation_triggers(conn)
+            tid = insert_task(conn, "unknown complexity task", priority="Highest", complexity="MEGA")
+        finally:
+            conn.close()
+
+        run_wsjf(db_path)
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            assert get_score(conn, tid) == 37
+        finally:
+            conn.close()
+
+    def test_unknown_priority_and_complexity_both_use_defaults(self, db_path):
+        """Both unknown priority (→40) and unknown complexity (→weight 3) apply together.
+
+        Formula: ROUND((40 + 10) / 3) = ROUND(16.67) = 17
+        """
+        conn = sqlite3.connect(str(db_path))
+        try:
+            self._drop_validation_triggers(conn)
+            tid = insert_task(conn, "double unknown task", priority="???", complexity="???")
+        finally:
+            conn.close()
+
+        run_wsjf(db_path)
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            assert get_score(conn, tid) == 17
+        finally:
+            conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Done tasks excluded
+# ---------------------------------------------------------------------------
+
 class TestDoneTasksExcluded:
     def test_done_tasks_are_not_updated(self, db_path):
         """Tasks with status='Done' are not updated by wsjf."""
