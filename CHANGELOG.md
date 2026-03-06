@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [343] - 2026-03-06
+
+- (no tasks specified)
+
 ## [342] - 2026-03-06
 
 - (no tasks specified)

@@ -2273,6 +2273,24 @@ with open(target_settings_path, 'w') as f:
     echo "  Updated .claude/tusk-manifest.json"
   fi
 
+  # Ensure all installed text files end with a trailing newline so pre-commit
+  # hooks (end-of-file-fixer, etc.) don't flag them in target projects.
+  local eof_fixed=0
+  for f in "$SCRIPT_DIR"/*.json "$SCRIPT_DIR"/*.py "$SCRIPT_DIR/tusk" \
+            "$REPO_ROOT"/.claude/skills/*/* \
+            "$REPO_ROOT"/scripts/*.py \
+            "$REPO_ROOT"/.claude/hooks/*; do
+    [[ -f "$f" ]] || continue
+    [[ -s "$f" ]] || continue
+    if [[ -n "$(tail -c1 "$f")" ]]; then
+      printf '\n' >> "$f"
+      eof_fixed=$((eof_fixed + 1))
+    fi
+  done
+  if [[ $eof_fixed -gt 0 ]]; then
+    echo "  Fixed missing trailing newline in $eof_fixed file(s)."
+  fi
+
   # Stamp VERSION last — only after all files are successfully written.
   # If upgrade is interrupted before this point, the next run will re-copy
   # everything instead of seeing "Already up to date" and skipping.
