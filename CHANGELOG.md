@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [346] - 2026-03-06
+
+- [TASK-490] Log WAL checkpoint busy count in tusk merge for partial checkpoint visibility
+
 ## [345] - 2026-03-06
 
 - [TASK-491] Fix tusk branch: auto-stash before checkout to handle unstaged changes
