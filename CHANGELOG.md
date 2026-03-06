@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [348] - 2026-03-06
+
+- [TASK-493] Add tasks.db .gitignore step to tusk upgrade for existing installs
+
 ## [347] - 2026-03-06
 
 - [TASK-492] Fix: tusk merge fails with 'No session found' when tasks.db is reverted by git
