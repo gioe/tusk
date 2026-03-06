@@ -213,12 +213,13 @@ def main(argv: list[str]) -> int:
                         file=sys.stderr,
                     )
                     return 1
-            session_id = closed_rows[0][0]
-            print(
-                f"Warning: No open session found for task {task_id}; "
-                f"falling back to last closed session {session_id}.",
-                file=sys.stderr,
-            )
+            else:
+                session_id = closed_rows[0][0]
+                print(
+                    f"Warning: No open session found for task {task_id}; "
+                    f"falling back to last closed session {session_id}.",
+                    file=sys.stderr,
+                )
         elif len(rows) > 1:
             lines = "\n".join(f"  session {r[0]}  (started {r[1]})" for r in rows)
             print(
