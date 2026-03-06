@@ -237,12 +237,35 @@ def main(argv: list[str]) -> int:
     print(f"Found branch: {branch_name}", file=sys.stderr)
 
     # Step 2: Close the session (captures git diff stats while on feature branch)
+    #
+    # Checkpoint the WAL first so that any uncommitted writes (e.g. from tusk task-start)
+    # are flushed to the main db file before session-close reads the session row.
+    # Without this, a git stash or branch switch that reverts tasks.db to a pre-WAL
+    # snapshot can silently drop the session row, causing "No session found" below.
+    print("Checkpointing WAL...", file=sys.stderr)
+    try:
+        with sqlite3.connect(_db_path) as _conn:
+            _conn.execute("PRAGMA wal_checkpoint(FULL)")
+    except sqlite3.Error as e:
+        # Non-fatal: warn and continue — session-close will surface any real issue.
+        print(f"Warning: WAL checkpoint failed: {e} — continuing.", file=sys.stderr)
+
     print(f"Closing session {session_id}...", file=sys.stderr)
     result = run([tusk_bin, "session-close", str(session_id)], check=False)
     session_was_closed = result.returncode == 0
     if result.returncode != 0:
         if "already closed" in result.stderr:
             print(f"Warning: session {session_id} is already closed — continuing.", file=sys.stderr)
+        elif "No session found" in result.stderr:
+            # The session row is missing despite the WAL checkpoint above — likely lost
+            # due to a git stash/checkout that reverted tasks.db before the WAL was
+            # checkpointed. Skip session-close and continue so the merge itself is not
+            # blocked by this transient data-loss scenario.
+            print(
+                f"Warning: session {session_id} not found in DB (may have been lost to a "
+                "WAL revert) — skipping session-close and continuing with merge.",
+                file=sys.stderr,
+            )
         else:
             print(f"Error: session-close failed:\n{result.stderr.strip()}", file=sys.stderr)
             return 2

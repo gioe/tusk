@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [344] - 2026-03-06
+
+- [TASK-489] Fix: tusk merge fails when tasks.db WAL has uncommitted session writes
+
 ## [343] - 2026-03-06
 
 - (no tasks specified)
