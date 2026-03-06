@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [340] - 2026-03-06
+
+- [TASK-487] Fix tusk branch auto-stash to exclude .claude/bin/ scripts
+
 ## [339] - 2026-03-04
 
 - [TASK-486] Apply offset_minutes to fetch_hourly_cost for server-side hour bucketing

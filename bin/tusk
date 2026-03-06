@@ -432,6 +432,31 @@ cmd_init() {
     echo "Created config at $PROJECT_CONFIG — edit to set your project's domains and agents."
   fi
 
+  # Ensure .gitignore covers tusk install paths so they are never accidentally
+  # stashed or committed. Appends only entries that are not already present.
+  local gitignore="$REPO_ROOT/.gitignore"
+  local -a tusk_ignores=(
+    ".claude/bin/"
+    ".claude/skills/"
+    ".claude/settings.json"
+    ".claude/tusk-manifest.json"
+    "tusk/tasks.db"
+    "tusk/tasks.db-*"
+  )
+  local added=0
+  for entry in "${tusk_ignores[@]}"; do
+    if ! grep -qxF "$entry" "$gitignore" 2>/dev/null; then
+      if [[ $added -eq 0 ]]; then
+        printf '\n# tusk install files\n' >> "$gitignore"
+      fi
+      printf '%s\n' "$entry" >> "$gitignore"
+      added=$((added + 1))
+    fi
+  done
+  if [[ $added -gt 0 ]]; then
+    echo "Updated .gitignore with $added tusk install path(s)."
+  fi
+
   # Validate config before proceeding
   validate_config
 
