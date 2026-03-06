@@ -245,7 +245,12 @@ def main(argv: list[str]) -> int:
     print("Checkpointing WAL...", file=sys.stderr)
     try:
         with sqlite3.connect(_db_path) as _conn:
-            _conn.execute("PRAGMA wal_checkpoint(FULL)")
+            row = _conn.execute("PRAGMA wal_checkpoint(FULL)").fetchone()
+            if row and row[0] > 0:
+                print(
+                    f"Warning: WAL checkpoint partially blocked (busy={row[0]}) — session row may still be at risk.",
+                    file=sys.stderr,
+                )
     except sqlite3.Error as e:
         # Non-fatal: warn and continue — session-close will surface any real issue.
         print(f"Warning: WAL checkpoint failed: {e} — continuing.", file=sys.stderr)
