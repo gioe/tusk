@@ -196,6 +196,27 @@ class TestTaskLifecycle:
         assert rc == 0
         assert result["task"]["closed_reason"] == "wont_do"
 
+    def test_completed_reason_blocked_when_criterion_lacks_commit_hash(self, db_path, config_path):
+        """CID 1535: completed closure is blocked (exit code 3) when a completed criterion has no commit_hash."""
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            task_id = insert_task(conn, "Completed no-hash task")
+            # Criterion is completed but has no commit_hash
+            insert_criterion(conn, task_id, "Done but uncommitted", is_completed=1, commit_hash=None)
+            conn.execute(
+                "UPDATE tasks SET status = 'In Progress' WHERE id = ?", (task_id,)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        rc, result, stderr = call_done(db_path, config_path, task_id, "completed")
+
+        assert rc == 3
+        assert result is None
+        assert "commit_hash" in stderr or "commit" in stderr.lower()
+
     def test_already_done_task_returns_exit_code_2(self, db_path, config_path):
         """CID 1528: calling task-done on an already-Done task returns exit code 2."""
         conn = sqlite3.connect(str(db_path))
