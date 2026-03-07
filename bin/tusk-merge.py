@@ -185,14 +185,6 @@ def _autodetect_session(
                 f"falling back to last closed session {session_id}.",
                 file=sys.stderr,
             )
-    elif len(rows) > 1:
-        lines = "\n".join(f"  session {r[0]}  (started {r[1]})" for r in rows)
-        print(
-            f"Error: Multiple open sessions found for task {task_id}:\n{lines}\n"
-            "Close all but one, or pass --session <id> explicitly.",
-            file=sys.stderr,
-        )
-        return None, 1
     else:
         session_id = rows[0][0]
         print(f"Auto-detected session {session_id} for task {task_id}.", file=sys.stderr)
