@@ -194,22 +194,6 @@ TUSK="$REPO_ROOT/.claude/bin/tusk"
 "$TUSK" init
 "$TUSK" migrate
 
-# ── 5b. Add tusk database to .gitignore ──────────────────────────────
-# Prevents git stash / checkout from reverting tasks.db and losing session rows.
-GITIGNORE_PATH="$REPO_ROOT/.gitignore"
-GITIGNORE_ENTRY="tusk/tasks.db"
-if [[ -f "$GITIGNORE_PATH" ]]; then
-  if ! grep -qxF "$GITIGNORE_ENTRY" "$GITIGNORE_PATH"; then
-    echo "$GITIGNORE_ENTRY" >> "$GITIGNORE_PATH"
-    echo "  Added $GITIGNORE_ENTRY to .gitignore (prevents DB revert by git stash/checkout)"
-  else
-    echo "  $GITIGNORE_ENTRY already in .gitignore"
-  fi
-else
-  echo "$GITIGNORE_ENTRY" > "$GITIGNORE_PATH"
-  echo "  Created .gitignore with $GITIGNORE_ENTRY"
-fi
-
 # ── 6. Print next steps ───────────────────────────────────────────────
 echo ""
 echo "════════════════════════════════════════════════════════════════"

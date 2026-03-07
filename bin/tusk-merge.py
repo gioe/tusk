@@ -277,11 +277,11 @@ def main(argv: list[str]) -> int:
             err = unstaged.stderr.strip() or staged.stderr.strip()
             print(f"Error: git diff failed:\n{err}", file=sys.stderr)
             return 1
-        dirty_files = [
+        dirty_files = list(dict.fromkeys(
             f
             for f in unstaged.stdout.splitlines() + staged.stdout.splitlines()
             if f and not f.startswith("tusk/tasks.db")
-        ]
+        ))
         if dirty_files:
             print(
                 "Error: Working tree has uncommitted changes — cannot proceed with merge.\n"

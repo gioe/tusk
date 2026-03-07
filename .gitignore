@@ -8,5 +8,3 @@ config.default.json.bak
 .claude/bin/
 .claude/settings.json
 .claude/tusk-manifest.json
-tusk/tasks.db
-tusk/tasks.db-*

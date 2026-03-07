@@ -10,6 +10,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 - [TASK-522] Fix: track tasks.db in git by removing it from auto-generated .gitignore
 
+  **Migration note for existing installs:** Prior versions added `tusk/tasks.db` and `tusk/tasks.db-*` to your project's `.gitignore` automatically. If you want the database tracked in git, remove those lines from your `.gitignore` and run `git add tusk/tasks.db && git commit -m "Track tusk database in git"`. If you prefer to keep the database local-only, no action is needed — the entries in your `.gitignore` will continue to suppress tracking.
+
 ## [363] - 2026-03-07
 
 - [TASK-518] Migrate lifecycle scripts to argparse
