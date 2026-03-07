@@ -105,7 +105,7 @@ Fill in these placeholders from the template:
 - `{review_id}` — the review ID for this reviewer
 - `{reviewer_name}` — the reviewer's `name` field, or "unassigned" if none
 - `{reviewer_focus}` — the reviewer's `description` field, or "General code review: correctness, clarity, and consistency." if none
-- `{diff_content}` — the full diff text
+- `{diff_content}` — the full diff text, verbatim from the `git diff` bash command output. Never retype or paraphrase the diff — copy it exactly as printed.
 - `{review_categories}` — comma-separated list from config (e.g., `must_fix, suggest, defer`)
 - `{review_severities}` — comma-separated list from config (e.g., `critical, major, minor`)
 
