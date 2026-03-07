@@ -127,7 +127,7 @@ def rule2_sql_not_equal(root):
 def rule3_hardcoded_db_path(root):
     """Hardcoded database path (tusk/tasks.db)."""
     violations = []
-    exempt = {"CLAUDE.md", "README.md", "install.sh", "bin/tusk", "bin/tusk-lint.py"}
+    exempt = {"CLAUDE.md", "README.md", "install.sh", "bin/tusk", "bin/tusk-lint.py", "bin/tusk-upgrade.py"}
     for rel, full in find_files(root, ["skills", "scripts", "bin"], [".md", ".sh", ".py"]):
         if is_self(rel) or any(rel == e or rel.endswith("/" + e) for e in exempt):
             continue
