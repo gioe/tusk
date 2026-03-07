@@ -32,6 +32,7 @@ def get_version(db_path: str) -> int:
 def set_version(db_path: str, version: int) -> None:
     conn = db_connect(db_path)
     conn.execute(f"PRAGMA user_version = {version}")
+    conn.commit()
     conn.close()
 
 
@@ -1014,9 +1015,9 @@ def migrate_32(db_path: str, config_path: str, script_dir: str) -> None:
 def migrate_33(db_path: str, config_path: str, script_dir: str) -> None:
     """Add qualitative boolean column to conventions table."""
     if not has_column(db_path, "conventions", "qualitative"):
-        conn = db_connect(db_path)
-        conn.execute("ALTER TABLE conventions ADD COLUMN qualitative INTEGER NOT NULL DEFAULT 0")
-        conn.close()
+        run_script(db_path, """
+            ALTER TABLE conventions ADD COLUMN qualitative INTEGER NOT NULL DEFAULT 0;
+        """)
     set_version(db_path, 33)
     print("  Migration 33: added qualitative column to conventions")
 
