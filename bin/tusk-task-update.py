@@ -29,6 +29,7 @@ Exit codes:
     2 — validation error or no flags provided
 """
 
+import argparse
 import importlib.util
 import json
 import os
@@ -65,65 +66,46 @@ def validate_enum(value, valid_values: list, field_name: str) -> str | None:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) < 3:
-        print(
-            "Usage: tusk task-update <task_id> [--priority P] [--domain D] "
-            "[--task-type T] [--assignee A] [--complexity C] "
-            "[--summary S] [--description D] [--deferred] [--no-deferred]",
-            file=sys.stderr,
-        )
-        return 2
-
     db_path = argv[0]
     config_path = argv[1]
+    parser = argparse.ArgumentParser(
+        prog="tusk task-update",
+        description="Update task fields with config validation",
+    )
+    parser.add_argument("task_id", type=int, help="Task ID")
+    parser.add_argument("--summary", default=None, help="Update summary")
+    parser.add_argument("--description", default=None, help="Update description")
+    parser.add_argument("--priority", default=None, help="Update priority")
+    parser.add_argument("--domain", default=None, help="Update domain")
+    parser.add_argument("--task-type", default=None, dest="task_type", help="Update task_type")
+    parser.add_argument("--assignee", default=None, help="Update assignee")
+    parser.add_argument("--complexity", default=None, help="Update complexity")
+    deferred_group = parser.add_mutually_exclusive_group()
+    deferred_group.add_argument("--deferred", action="store_true", default=False,
+                                help="Mark task deferred (+60d expiry, [Deferred] prefix)")
+    deferred_group.add_argument("--no-deferred", action="store_true", default=False, dest="no_deferred",
+                                help="Clear deferred flag and strip [Deferred] prefix")
+    args = parser.parse_args(argv[2:])
 
-    try:
-        task_id = int(argv[2])
-    except ValueError:
-        print(f"Error: Invalid task ID: {argv[2]}", file=sys.stderr)
-        return 2
+    task_id = args.task_id
 
-    # Parse flags
-    remaining = argv[3:]
+    # Build updates dict from explicitly-provided optional args
     updates: dict[str, Any] = {}
-    deferred = None  # None = not specified, True = --deferred, False = --no-deferred
+    for field in ("summary", "description", "priority", "domain", "task_type", "assignee", "complexity"):
+        val = getattr(args, field)
+        if val is not None:
+            updates[field] = val
 
-    flag_map = {
-        "--summary": "summary",
-        "--description": "description",
-        "--priority": "priority",
-        "--domain": "domain",
-        "--task-type": "task_type",
-        "--assignee": "assignee",
-        "--complexity": "complexity",
-    }
-
-    i = 0
-    while i < len(remaining):
-        arg = remaining[i]
-        if arg in flag_map:
-            if i + 1 >= len(remaining):
-                print(f"Error: {arg} requires a value", file=sys.stderr)
-                return 2
-            updates[flag_map[arg]] = remaining[i + 1]
-            i += 2
-        elif arg == "--deferred":
-            deferred = True
-            i += 1
-        elif arg == "--no-deferred":
-            deferred = False
-            i += 1
-        else:
-            print(f"Error: Unknown argument: {arg}", file=sys.stderr)
-            return 2
+    # Resolve deferred mode: True = --deferred, False = --no-deferred, None = not specified
+    if args.deferred:
+        deferred: bool | None = True
+    elif args.no_deferred:
+        deferred = False
+    else:
+        deferred = None
 
     if not updates and deferred is None:
-        print("Error: At least one field flag is required", file=sys.stderr)
-        return 2
-
-    if "--deferred" in remaining and "--no-deferred" in remaining:
-        print("Error: --deferred and --no-deferred are mutually exclusive", file=sys.stderr)
-        return 2
+        parser.error("at least one field flag is required")
 
     # Validate enum fields against config
     config = load_config(config_path)

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [363] - 2026-03-07
+
+- [TASK-518] Migrate lifecycle scripts to argparse
+
 ## [362] - 2026-03-07
 
 - [TASK-520] Migrate remaining tusk-*.py scripts to shared get_connection from tusk-db-lib

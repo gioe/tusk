@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """tusk task-reopen: Reset a stuck In Progress (or Done) task back to To Do."""
 
+import argparse
 import importlib.util
 import json
 import os
@@ -22,28 +23,17 @@ get_connection = _db_lib.get_connection
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) < 3:
-        print("Usage: tusk task-reopen <task_id> [--force]", file=sys.stderr)
-        return 1
-
     db_path = argv[0]
     # argv[1] is config_path (unused but kept for dispatch consistency)
-    try:
-        task_id = int(argv[2])
-    except (ValueError, IndexError):
-        print(f"Error: Invalid task ID: {argv[2]}", file=sys.stderr)
-        return 1
-
-    remaining = argv[3:]
-    force = False
-    i = 0
-    while i < len(remaining):
-        if remaining[i] == "--force":
-            force = True
-            i += 1
-        else:
-            print(f"Error: Unknown argument: {remaining[i]}", file=sys.stderr)
-            return 1
+    parser = argparse.ArgumentParser(
+        prog="tusk task-reopen",
+        description="Reset a task back to To Do",
+    )
+    parser.add_argument("task_id", type=int, help="Task ID")
+    parser.add_argument("--force", action="store_true", help="Confirm the reset")
+    args = parser.parse_args(argv[2:])
+    task_id = args.task_id
+    force = args.force
 
     if not force:
         print(

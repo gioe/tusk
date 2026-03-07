@@ -19,6 +19,7 @@ Performs all closure steps for a task:
   6. Return a JSON blob with task details, sessions closed, and unblocked tasks
 """
 
+import argparse
 import importlib.util
 import json
 import os
@@ -49,37 +50,19 @@ def load_closed_reasons(config_path: str) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) < 3:
-        print("Usage: tusk task-done <task_id> --reason <closed_reason> [--force]", file=sys.stderr)
-        return 1
-
     db_path = argv[0]
     config_path = argv[1]
-    try:
-        task_id = int(argv[2])
-    except ValueError:
-        print(f"Error: Invalid task ID: {argv[2]}", file=sys.stderr)
-        return 1
-
-    # Parse --reason and --force flags from remaining args
-    remaining = argv[3:]
-    reason = None
-    force = False
-    i = 0
-    while i < len(remaining):
-        if remaining[i] == "--reason" and i + 1 < len(remaining):
-            reason = remaining[i + 1]
-            i += 2
-        elif remaining[i] == "--force":
-            force = True
-            i += 1
-        else:
-            print(f"Error: Unknown argument: {remaining[i]}", file=sys.stderr)
-            return 1
-
-    if not reason:
-        print("Error: --reason is required", file=sys.stderr)
-        return 1
+    parser = argparse.ArgumentParser(
+        prog="tusk task-done",
+        description="Close a task with a reason",
+    )
+    parser.add_argument("task_id", type=int, help="Task ID")
+    parser.add_argument("--reason", required=True, help="Closed reason")
+    parser.add_argument("--force", action="store_true", help="Bypass uncompleted criteria check")
+    args = parser.parse_args(argv[2:])
+    task_id = args.task_id
+    reason = args.reason
+    force = args.force
 
     # Validate closed_reason against config
     valid_reasons = load_closed_reasons(config_path)

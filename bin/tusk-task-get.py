@@ -13,6 +13,7 @@ Returns JSON with task row, acceptance_criteria array, and task_progress array.
 Does not modify any state.
 """
 
+import argparse
 import importlib.util
 import json
 import os
@@ -32,22 +33,27 @@ _db_lib = _load_db_lib()
 get_connection = _db_lib.get_connection
 
 
-def main(argv: list[str]) -> int:
-    if len(argv) < 3:
-        print("Usage: tusk task-get <task_id>", file=sys.stderr)
-        return 1
-
-    db_path = argv[0]
-    raw_id = argv[2]
-
-    # Accept both plain integer and TASK-NNN form
-    if raw_id.upper().startswith("TASK-"):
-        raw_id = raw_id[5:]
+def _task_id_type(value: str) -> int:
+    """Accept plain integer or TASK-NNN form."""
+    v = value
+    if v.upper().startswith("TASK-"):
+        v = v[5:]
     try:
-        task_id = int(raw_id)
+        return int(v)
     except ValueError:
-        print(f"Error: Invalid task ID: {argv[2]}", file=sys.stderr)
-        return 1
+        raise argparse.ArgumentTypeError(f"Invalid task ID: {value}")
+
+
+def main(argv: list[str]) -> int:
+    db_path = argv[0]
+    # argv[1] is config_path (unused)
+    parser = argparse.ArgumentParser(
+        prog="tusk task-get",
+        description="Fetch a single task bundle",
+    )
+    parser.add_argument("task_id", type=_task_id_type, help="Task ID (integer or TASK-NNN form)")
+    args = parser.parse_args(argv[2:])
+    task_id = args.task_id
 
     conn = get_connection(db_path)
     try:
