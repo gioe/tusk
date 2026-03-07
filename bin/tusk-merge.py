@@ -276,8 +276,27 @@ def main(argv: list[str]) -> int:
             return 1
 
         if _row is None:
+            # Produce a specific warning: distinguish "not found", "closed", and "wrong task".
+            try:
+                _conn_detail = get_connection(_db_path)
+                try:
+                    _detail_row = _conn_detail.execute(
+                        "SELECT task_id, ended_at FROM task_sessions WHERE id = ?",
+                        (session_id,),
+                    ).fetchone()
+                finally:
+                    _conn_detail.close()
+            except sqlite3.Error:
+                _detail_row = None
+
+            if _detail_row is None:
+                _reason = f"Session {session_id} not found in database"
+            elif _detail_row[1] is not None:
+                _reason = f"Session {session_id} is already closed"
+            else:
+                _reason = f"Session {session_id} belongs to a different task"
             print(
-                f"Warning: Session {session_id} not found or already closed for task {task_id}; "
+                f"Warning: {_reason}; "
                 "falling back to auto-detecting an open session for the task.",
                 file=sys.stderr,
             )

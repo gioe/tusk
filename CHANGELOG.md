@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [367] - 2026-03-07
+
+- [TASK-524] Fix tusk merge: fall back to task's open session when --session ID not found
+
 ## [366] - 2026-03-07
 
 - [TASK-523] Fix tusk merge to handle untracked tasks.db blocking git checkout
