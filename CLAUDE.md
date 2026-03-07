@@ -67,7 +67,7 @@ bin/tusk upgrade [--no-commit] [--force]  # --no-commit: skip auto-commit; --for
 
 Additional subcommands (`blockers`, `review`, `chain`, `loop`, `deps blocked/all`, `session-stats`, `session-close`, `session-recalc`, `skill-run`, `call-breakdown`, `token-audit`, `pricing-update`, `sync-skills`, `dashboard`) follow the same `bin/tusk <cmd> --help` pattern — see source or run `--help` for flags.
 
-There is no build step or linter in this repository.
+There is no build step or external linter in this repository.
 
 ## Running the test suite
 
