@@ -176,8 +176,6 @@ update_gitignore() {
     ".claude/skills/"
     ".claude/settings.json"
     ".claude/tusk-manifest.json"
-    "tusk/tasks.db"
-    "tusk/tasks.db-*"
   )
   local added=0
   for entry in "${tusk_ignores[@]}"; do

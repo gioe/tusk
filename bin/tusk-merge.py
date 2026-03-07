@@ -267,15 +267,22 @@ def main(argv: list[str]) -> int:
     # Step 1b (local mode only): Abort if working tree is dirty
     # Only check for staged/unstaged changes to tracked files; untracked files are not
     # uncommitted changes and should not block a merge.
+    # tasks.db (and its WAL/SHM siblings) are excluded from this check because
+    # they are always modified during an active tusk session and are committed
+    # as part of normal task workflow — not manually staged before merge.
     if not use_pr:
-        unstaged = run(["git", "diff", "--quiet"], check=False)
-        staged = run(["git", "diff", "--cached", "--quiet"], check=False)
-        if unstaged.returncode not in (0, 1) or staged.returncode not in (0, 1):
-            # returncode > 1 means git itself failed
+        unstaged = run(["git", "diff", "--name-only"], check=False)
+        staged = run(["git", "diff", "--cached", "--name-only"], check=False)
+        if unstaged.returncode != 0 or staged.returncode != 0:
             err = unstaged.stderr.strip() or staged.stderr.strip()
             print(f"Error: git diff failed:\n{err}", file=sys.stderr)
             return 1
-        if unstaged.returncode != 0 or staged.returncode != 0:
+        dirty_files = [
+            f
+            for f in unstaged.stdout.splitlines() + staged.stdout.splitlines()
+            if f and not f.startswith("tusk/tasks.db")
+        ]
+        if dirty_files:
             print(
                 "Error: Working tree has uncommitted changes — cannot proceed with merge.\n"
                 "Please stash or commit your changes first:\n"
