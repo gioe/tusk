@@ -908,7 +908,7 @@ cmd_query() {
       else
         # Fuzzy-match against the full subcommand list via Python difflib.
         local _fuzzy_match
-        _fuzzy_match="$(python3 - "$_subcmd_lc" <<'PYEOF' 2>/dev/null
+        _fuzzy_match="$(python3 - "$_subcmd_lc" <<'PYEOF' 2>/dev/null  # suppress errors; no hint shown on failure
 import difflib, sys
 candidates = [
   'init','path','config','validate','sql-quote','branch','commit',
@@ -917,7 +917,7 @@ candidates = [
   'call-breakdown','session-close','task-get','task-select','task-start',
   'task-done','task-insert','task-update','task-reopen','task-list',
   'autoclose','backlog-scan','test-detect','loop','merge','progress',
-  'setup','token-audit','sync-skills','pricing-update','wsjf','shell',
+  'setup','token-audit','sync-skills','generate-manifest','pricing-update','wsjf','shell',
   'version','version-bump','changelog-add','migrate','regen-triggers','upgrade',
 ]
 matches = difflib.get_close_matches(sys.argv[1], candidates, n=1, cutoff=0.6)
