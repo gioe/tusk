@@ -72,8 +72,12 @@ There is no build step or external linter in this repository.
 ## Running the test suite
 
 ```bash
-python3 -m pytest tests/ -v
+python3 -m pytest tests/ -v          # run all tests
+python3 -m pytest tests/unit/ -v     # unit tests only (pure in-memory, no subprocess)
+python3 -m pytest tests/integration/ -v  # integration tests only (requires a working tusk installation)
 ```
+
+Integration tests spin up a real DB via `tusk init` — run `bin/tusk init` once before running them if you haven't already.
 
 Dev dependencies (pytest) are listed in `requirements-dev.txt`. Install with:
 
