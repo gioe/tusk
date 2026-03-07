@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [356] - 2026-03-06
+
+- [TASK-508] Extract cmd_migrate() to tusk-migrate.py
+
 ## [355] - 2026-03-06
 
 - [TASK-512] Fix lint rule 5 false positive on Python string literals containing 'Done'
