@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [366] - 2026-03-07
+
+- [TASK-523] Fix tusk merge to handle untracked tasks.db blocking git checkout
+
 ## [365] - 2026-03-07
 
 - Clarify review-commits SKILL.md: diff_content must be passed verbatim, not paraphrased

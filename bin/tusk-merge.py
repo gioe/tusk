@@ -355,13 +355,30 @@ def main(argv: list[str]) -> int:
         print(f"Merging {branch_name} into {default_branch} (ff-only)...", file=sys.stderr)
 
         # Step 3: Checkout default branch
+        # tasks.db (and WAL/SHM siblings) are gitignored and untracked, so git
+        # refuses to overwrite them during checkout.  Move them aside first, then
+        # restore after the checkout succeeds.
+        db_siblings = [_db_path, _db_path + "-wal", _db_path + "-shm"]
+        db_tmp = [p + ".merge-tmp" for p in db_siblings]
+        moved = []
+        for src, dst in zip(db_siblings, db_tmp):
+            if os.path.exists(src):
+                os.rename(src, dst)
+                moved.append((src, dst))
+
         result = run(["git", "checkout", default_branch], check=False)
         if result.returncode != 0:
+            for src, dst in moved:
+                os.rename(dst, src)
             print(
                 f"Error: git checkout {default_branch} failed:\n{result.stderr.strip()}",
                 file=sys.stderr,
             )
             return 2
+
+        # Restore db files after successful checkout
+        for src, dst in moved:
+            os.rename(dst, src)
 
         # Step 4: Pull latest
         result = run(["git", "pull", "origin", default_branch], check=False)
