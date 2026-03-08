@@ -299,3 +299,189 @@ class TestMergeRecoveryHint:
         assert "tusk task-update" in output, (
             f"Expected 'tusk task-update' in stderr but got:\n{output}"
         )
+
+
+# ---------------------------------------------------------------------------
+# _detect_id_gaps tests
+# ---------------------------------------------------------------------------
+
+
+class TestDetectIdGaps:
+
+    def test_no_gaps_when_contiguous(self, db_path, config_path):
+        """_detect_id_gaps returns [] when all IDs below task_id are present."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            id1 = _insert_task(conn)
+            id2 = _insert_task(conn)
+        finally:
+            conn.close()
+
+        # task being merged is id2; id1 exists immediately below — no gap
+        result = tusk_merge._detect_id_gaps(str(db_path), id2)
+        assert result == [], f"Expected no gaps but got: {result}"
+
+    def test_detects_missing_ids_in_range(self, db_path, config_path):
+        """_detect_id_gaps returns missing IDs between max existing and task_id."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            id1 = _insert_task(conn)
+        finally:
+            conn.close()
+
+        # Simulate gap: task_id is id1+3 but id1+1 and id1+2 were never committed
+        task_id = id1 + 3
+        result = tusk_merge._detect_id_gaps(str(db_path), task_id)
+        assert result == [id1 + 1, id1 + 2], (
+            f"Expected gap IDs {[id1 + 1, id1 + 2]} but got: {result}"
+        )
+
+    def test_returns_empty_when_no_tasks_below(self, db_path, config_path):
+        """_detect_id_gaps returns [] when task_id is the first task ever."""
+        # Use a task_id of 1; no tasks exist below it
+        result = tusk_merge._detect_id_gaps(str(db_path), 1)
+        assert result == []
+
+    def test_returns_empty_when_immediately_adjacent(self, db_path, config_path):
+        """_detect_id_gaps returns [] when max_below == task_id - 1 (no gap)."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            id1 = _insert_task(conn)
+        finally:
+            conn.close()
+
+        result = tusk_merge._detect_id_gaps(str(db_path), id1 + 1)
+        assert result == []
+
+
+class TestMergeWalGapWarning:
+    """Tests that main() warns about gap task IDs in the WAL recovery path."""
+
+    def _make_mock_run(self, task_id):
+        import subprocess
+
+        def _mock_run(args, check=True):
+            cmd = " ".join(args)
+            if "diff" in cmd and "--name-only" in cmd:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if "session-close" in cmd:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if any(k in cmd for k in ("checkout", "pull", "merge", "push", "branch -d")):
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if "task-done" in cmd:
+                return subprocess.CompletedProcess(
+                    args, 2, stdout="", stderr=f"Error: task {task_id} not found"
+                )
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        return _mock_run
+
+    def test_warns_about_gap_ids_when_present(self, db_path, config_path, monkeypatch):
+        """main() prints a gap warning listing missing IDs when gaps exist."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            base_id = _insert_task(conn)
+            # gap IDs: base_id+1 and base_id+2 are never inserted
+            task_id = base_id + 3
+            cur = conn.execute(
+                "INSERT INTO task_sessions (task_id, started_at) VALUES (?, datetime('now'))",
+                (task_id,),
+            )
+            conn.commit()
+            session_id = cur.lastrowid
+        finally:
+            conn.close()
+
+        monkeypatch.setattr(tusk_merge, "_checkpoint_wal", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None)
+        )
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "run", self._make_mock_run(task_id))
+
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            rc = tusk_merge.main(
+                [str(db_path), str(config_path), str(task_id), "--session", str(session_id)]
+            )
+
+        output = buf.getvalue()
+        assert rc == 0, f"Expected rc=0 but got {rc}. stderr:\n{output}"
+        assert "lost in the WAL revert" in output, f"Expected gap warning but got:\n{output}"
+        assert str(base_id + 1) in output, f"Expected gap ID {base_id + 1} in output"
+        assert str(base_id + 2) in output, f"Expected gap ID {base_id + 2} in output"
+
+    def test_no_gap_warning_when_contiguous(self, db_path, config_path, monkeypatch):
+        """main() does not print a gap warning when there are no gaps."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            base_id = _insert_task(conn)
+            task_id = base_id + 1  # immediately adjacent — no gap
+            cur = conn.execute(
+                "INSERT INTO task_sessions (task_id, started_at) VALUES (?, datetime('now'))",
+                (task_id,),
+            )
+            conn.commit()
+            session_id = cur.lastrowid
+        finally:
+            conn.close()
+
+        monkeypatch.setattr(tusk_merge, "_checkpoint_wal", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None)
+        )
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "run", self._make_mock_run(task_id))
+
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            rc = tusk_merge.main(
+                [str(db_path), str(config_path), str(task_id), "--session", str(session_id)]
+            )
+
+        output = buf.getvalue()
+        assert rc == 0
+        assert "lost in the WAL revert and cannot be recovered" not in output, (
+            f"Expected no gap warning for contiguous IDs but got:\n{output}"
+        )
+
+    def test_gap_ids_in_json_output(self, db_path, config_path, monkeypatch):
+        """main() includes gap_task_ids in the JSON output during WAL recovery."""
+        import json as _json
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            base_id = _insert_task(conn)
+            task_id = base_id + 2  # base_id+1 is the gap
+            cur = conn.execute(
+                "INSERT INTO task_sessions (task_id, started_at) VALUES (?, datetime('now'))",
+                (task_id,),
+            )
+            conn.commit()
+            session_id = cur.lastrowid
+        finally:
+            conn.close()
+
+        monkeypatch.setattr(tusk_merge, "_checkpoint_wal", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None)
+        )
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "run", self._make_mock_run(task_id))
+
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+
+        import contextlib
+
+        with contextlib.redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+            rc = tusk_merge.main(
+                [str(db_path), str(config_path), str(task_id), "--session", str(session_id)]
+            )
+
+        assert rc == 0
+        data = _json.loads(stdout_buf.getvalue())
+        assert "gap_task_ids" in data, f"Expected gap_task_ids in JSON but got: {data}"
+        assert data["gap_task_ids"] == [base_id + 1], (
+            f"Expected gap_task_ids=[{base_id + 1}] but got: {data['gap_task_ids']}"
+        )
