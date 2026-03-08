@@ -267,18 +267,22 @@ class TestMergeRecoveryHint:
 
         def _mock_run(args, check=True):
             dispatched.append(args)
-            cmd = " ".join(args)
+            subcmd = args[1] if len(args) > 1 else ""
             # Git dirty-tree check — report clean working tree.
-            if "diff" in cmd and "--name-only" in cmd:
+            if args[0] == "git" and subcmd == "diff" and "--name-only" in args:
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
             # session-close — succeed.
-            if "session-close" in cmd:
+            if subcmd == "session-close":
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
-            # Git operations (checkout, pull, merge, push, branch -d) — succeed.
-            if any(k in cmd for k in ("checkout", "pull", "merge", "push", "branch -d")):
+            # Git operations (checkout, pull, merge, push, branch -d/--delete) — succeed.
+            if args[0] == "git" and subcmd in ("checkout", "pull", "merge", "push"):
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[0] == "git" and subcmd == "branch" and (
+                "-d" in args or "--delete" in args
+            ):
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
             # task-done — simulate missing task row (WAL revert scenario).
-            if "task-done" in cmd:
+            if subcmd == "task-done":
                 return subprocess.CompletedProcess(
                     args, 2, stdout="", stderr=f"Error: task {task_id} not found"
                 )
@@ -376,14 +380,18 @@ class TestMergeWalGapWarning:
         import subprocess
 
         def _mock_run(args, check=True):
-            cmd = " ".join(args)
-            if "diff" in cmd and "--name-only" in cmd:
+            subcmd = args[1] if len(args) > 1 else ""
+            if args[0] == "git" and subcmd == "diff" and "--name-only" in args:
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
-            if "session-close" in cmd:
+            if subcmd == "session-close":
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
-            if any(k in cmd for k in ("checkout", "pull", "merge", "push", "branch -d")):
+            if args[0] == "git" and subcmd in ("checkout", "pull", "merge", "push"):
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
-            if "task-done" in cmd:
+            if args[0] == "git" and subcmd == "branch" and (
+                "-d" in args or "--delete" in args
+            ):
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if subcmd == "task-done":
                 return subprocess.CompletedProcess(
                     args, 2, stdout="", stderr=f"Error: task {task_id} not found"
                 )
