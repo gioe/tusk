@@ -110,7 +110,7 @@ Omit `--domain` and `--assignee` if NULL. Do not pass empty strings.
 
 **Exit code 2** — error. Report and stop.
 
-## Step 7: Begin Work
+## Step 7: Begin Work (Steps 1–11 Only)
 
 Immediately invoke the `/tusk` workflow for the newly created task. Follow the "Begin Work on a Task" instructions from the tusk skill:
 
@@ -120,16 +120,38 @@ Read file: <base_directory>/../tusk/SKILL.md
 
 Then execute those instructions starting at **"Begin Work on a Task (with task ID argument)"** using the `task_id` from Step 6. Do not wait for additional user confirmation — proceed directly into the development workflow.
 
-## Step 8: Close the GitHub Issue
+**IMPORTANT: Execute /tusk steps 1–11 only. Do NOT execute step 12 (merge/retro).** Stop after step 11 (`/review-commits` or the lint step) — this skill owns merge, issue close, and retro as steps 8–10 below.
 
-After the `/tusk` workflow completes and the task is marked `Done`, close the GitHub issue:
+Hold onto the `session_id` returned by `tusk task-start` in step 1 of the /tusk workflow — it is required in step 8 below.
+
+## Steps 8–10: Finalize (Run as an Unbroken Sequence — No User Confirmation Between Steps)
+
+### Step 8: Merge
+
+```bash
+tusk merge <task_id> --session <session_id>
+```
+
+Capture the JSON output. Extract:
+- `commit_sha` — the merge commit hash
+- `pr_url` — the pull request URL (if a PR was created), or `null`
+
+### Step 9: Close the GitHub Issue
 
 ```bash
 gh issue close <number> --repo <owner/repo> --comment "Resolved in <commit_sha> — <pr_url_or_branch>. Tracked as tusk task #<task_id>."
 ```
 
-Use the commit SHA and PR URL (or branch name) from the merge step of the `/tusk` workflow. If no PR was created, omit the PR reference and use the branch name instead.
+Use `commit_sha` and `pr_url` from Step 8. If `pr_url` is null, omit the PR reference and use the branch name instead.
 
 If the `gh` command fails (e.g. insufficient permissions), report the error and remind the user to close the issue manually:
 
 > Could not close issue #<N> automatically. Please close it at: https://github.com/<owner/repo>/issues/<N>
+
+### Step 10: Retro
+
+Invoke `/retro` immediately — do not ask "shall I run retro?". Read and follow:
+
+```
+Read file: <base_directory>/../retro/SKILL.md
+```
