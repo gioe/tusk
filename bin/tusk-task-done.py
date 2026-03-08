@@ -2,7 +2,7 @@
 """Consolidate task closure into a single CLI command.
 
 Called by the tusk wrapper:
-    tusk task-done <task_id> --reason <closed_reason> [--force]
+    tusk task-done <task_id> --reason <completed|expired|wont_do|duplicate> [--force]
 
 Arguments received from tusk:
     sys.argv[1] — DB path
@@ -52,12 +52,14 @@ def load_closed_reasons(config_path: str) -> list[str]:
 def main(argv: list[str]) -> int:
     db_path = argv[0]
     config_path = argv[1]
+    valid_reasons = load_closed_reasons(config_path)
+    reason_metavar = "|".join(valid_reasons) if valid_reasons else "completed|expired|wont_do|duplicate"
     parser = argparse.ArgumentParser(
         prog="tusk task-done",
         description="Close a task with a reason",
     )
     parser.add_argument("task_id", type=int, help="Task ID")
-    parser.add_argument("--reason", required=True, help="Closed reason")
+    parser.add_argument("--reason", required=True, metavar=reason_metavar, help="Closed reason")
     parser.add_argument("--force", action="store_true", help="Bypass uncompleted criteria check")
     args = parser.parse_args(argv[2:])
     task_id = args.task_id
@@ -65,7 +67,6 @@ def main(argv: list[str]) -> int:
     force = args.force
 
     # Validate closed_reason against config
-    valid_reasons = load_closed_reasons(config_path)
     if valid_reasons and reason not in valid_reasons:
         print(f"Error: Invalid closed_reason '{reason}'. Valid: {', '.join(valid_reasons)}", file=sys.stderr)
         return 1
@@ -183,6 +184,6 @@ def main(argv: list[str]) -> int:
 if __name__ == "__main__":
     if len(sys.argv) < 2 or not sys.argv[1].endswith(".db"):
         print("Error: This script must be invoked via the tusk wrapper.", file=sys.stderr)
-        print("Use: tusk task-done <id> --reason <reason>", file=sys.stderr)
+        print("Use: tusk task-done <id> --reason <completed|expired|wont_do|duplicate>", file=sys.stderr)
         sys.exit(1)
     sys.exit(main(sys.argv[1:]))

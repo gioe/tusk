@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [371] - 2026-03-07
+
+- [TASK-528] Enumerate valid --reason values in task-done usage string
+
 ## [370] - 2026-03-07
 
 - [TASK-527] Fix direct invocation guard for tusk-task-done.py

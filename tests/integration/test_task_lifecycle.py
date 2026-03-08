@@ -232,6 +232,19 @@ class TestTaskLifecycle:
         assert result is None
         assert "already Done" in stderr
 
+    def test_task_done_usage_enumerates_reason_values(self, db_path, config_path):
+        """CID 1646: task-done usage string shows valid --reason values, not a generic placeholder."""
+        err_buf = io.StringIO()
+        with redirect_stderr(err_buf):
+            with pytest.raises(SystemExit):
+                tusk_task_done.main([str(db_path), str(config_path)])
+        usage = err_buf.getvalue()
+        assert "completed" in usage
+        assert "expired" in usage
+        assert "wont_do" in usage
+        assert "duplicate" in usage
+        assert "<closed_reason>" not in usage
+
     def test_invalid_status_transition_rejected_by_trigger(self, db_path, config_path):
         """CID 1529: DB trigger blocks invalid transitions (e.g. In Progress -> To Do)."""
         conn = sqlite3.connect(str(db_path))
