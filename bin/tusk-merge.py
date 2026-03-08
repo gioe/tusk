@@ -574,7 +574,7 @@ def main(argv: list[str]) -> int:
                     f"Hint: Task {task_id} was recovered with placeholder metadata. "
                     "Update it with the correct values:\n"
                     f"  tusk task-update {task_id} --summary '...' --priority Medium "
-                    f"--domain '...' --task-type feature --complexity S",
+                    f"--domain '...' --task-type '...' --complexity '...'",
                     file=sys.stderr,
                 )
             print(json.dumps(synthetic, indent=2))
