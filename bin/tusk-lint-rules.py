@@ -127,4 +127,8 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) < 2 or not sys.argv[1].endswith(".db"):
+        print("Error: This script must be invoked via the tusk wrapper.", file=sys.stderr)
+        print("Use: tusk lint-rule {add|list|remove} ...", file=sys.stderr)
+        sys.exit(1)
     sys.exit(main(sys.argv))
