@@ -136,6 +136,38 @@ class TestCheckpointWal:
         assert "partially blocked" in output
         assert "2 attempts" in output
 
+    def test_partial_checkpoint_not_silent(self, db_path, config_path, monkeypatch):
+        """_checkpoint_wal does not return silently when busy=0 but log > checkpointed.
+
+        A partial checkpoint (busy=0, log=10, checkpointed=5) means SQLite finished
+        without busy readers but did not flush all pages — the function must retry
+        and ultimately warn rather than treat it as success.
+        """
+
+        class _PartialConn:
+            def execute(self, sql, *a, **kw):
+                class _Row:
+                    def fetchone(self_inner):
+                        return (0, 10, 5)  # busy=0, but log != checkpointed
+                return _Row()
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(tusk_merge, "get_connection", lambda p: _PartialConn())
+        monkeypatch.setattr(tusk_merge.time, "sleep", lambda s: None)
+
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            tusk_merge._checkpoint_wal(str(db_path), max_retries=2)
+
+        output = buf.getvalue()
+        assert "partially blocked" in output, (
+            "Expected a warning for partial checkpoint (busy=0, log=10, checkpointed=5) "
+            f"but got: {output!r}"
+        )
+        assert "2 attempts" in output
+
 
 # ---------------------------------------------------------------------------
 # _recover_missing_task tests
