@@ -342,6 +342,21 @@ class TestDetectIdGaps:
         result = tusk_merge._detect_id_gaps(str(db_path), 1)
         assert result == []
 
+    def test_returns_empty_for_task_id_1_with_higher_ids_present(self, db_path, config_path):
+        """_detect_id_gaps returns [] for task_id=1 even when higher-ID tasks exist.
+
+        MAX(id WHERE id < 1) is NULL regardless of what tasks exist above 1,
+        so the NULL guard on row[0] must trigger and return [] correctly.
+        """
+        conn = sqlite3.connect(str(db_path))
+        try:
+            _insert_task(conn)  # inserts a task with id > 1
+        finally:
+            conn.close()
+
+        result = tusk_merge._detect_id_gaps(str(db_path), 1)
+        assert result == [], f"Expected [] for task_id=1 with higher IDs present, got: {result}"
+
     def test_returns_empty_when_immediately_adjacent(self, db_path, config_path):
         """_detect_id_gaps returns [] when max_below == task_id - 1 (no gap)."""
         conn = sqlite3.connect(str(db_path))
@@ -407,7 +422,7 @@ class TestMergeWalGapWarning:
 
         output = buf.getvalue()
         assert rc == 0, f"Expected rc=0 but got {rc}. stderr:\n{output}"
-        assert "lost in the WAL revert" in output, f"Expected gap warning but got:\n{output}"
+        assert "lost in the WAL revert and cannot be recovered" in output, f"Expected gap warning but got:\n{output}"
         assert str(base_id + 1) in output, f"Expected gap ID {base_id + 1} in output"
         assert str(base_id + 2) in output, f"Expected gap ID {base_id + 2} in output"
 
@@ -444,6 +459,7 @@ class TestMergeWalGapWarning:
         assert "lost in the WAL revert and cannot be recovered" not in output, (
             f"Expected no gap warning for contiguous IDs but got:\n{output}"
         )
+
 
     def test_gap_ids_in_json_output(self, db_path, config_path, monkeypatch):
         """main() includes gap_task_ids in the JSON output during WAL recovery."""

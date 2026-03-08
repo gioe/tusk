@@ -170,16 +170,9 @@ def _detect_id_gaps(db_path: str, task_id: int) -> list[int]:
             max_below = row[0]
             if max_below >= task_id - 1:
                 return []  # no gap between max_below and task_id
-            candidate_ids = list(range(max_below + 1, task_id))
-            placeholders = ",".join("?" * len(candidate_ids))
-            existing = {
-                r[0]
-                for r in conn.execute(
-                    f"SELECT id FROM tasks WHERE id IN ({placeholders})",
-                    candidate_ids,
-                ).fetchall()
-            }
-            return [i for i in candidate_ids if i not in existing]
+            # All IDs in (max_below, task_id) are provably absent — max_below is
+            # the largest existing ID below task_id, so no task can fill the gap.
+            return list(range(max_below + 1, task_id))
         finally:
             conn.close()
     except sqlite3.Error:
@@ -617,9 +610,9 @@ def main(argv: list[str]) -> int:
                 )
             if gap_ids:
                 print(
-                    f"Warning: {len(gap_ids)} task(s) appear to have been lost in the WAL "
-                    f"revert and cannot be recovered: {gap_ids}\n"
-                    "These tasks were created after the last committed DB snapshot. "
+                    f"Warning: {len(gap_ids)} task(s) between the last committed snapshot "
+                    f"and TASK-{task_id} were lost in the WAL revert and cannot be "
+                    f"recovered (these are separate from the task being merged): {gap_ids}\n"
                     "Investigate your git history or task notes to reconstruct them.",
                     file=sys.stderr,
                 )
