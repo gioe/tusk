@@ -569,6 +569,14 @@ def main(argv: list[str]) -> int:
                     f"  tusk task-done <new_id> --reason completed --force",
                     file=sys.stderr,
                 )
+            else:
+                print(
+                    f"Hint: Task {task_id} was recovered with placeholder metadata. "
+                    "Update it with the correct values:\n"
+                    f"  tusk task-update {task_id} --summary '...' --priority Medium "
+                    f"--domain '...' --task-type feature --complexity S",
+                    file=sys.stderr,
+                )
             print(json.dumps(synthetic, indent=2))
             return 0
         print(f"Error: task-done failed:\n{result.stderr.strip()}", file=sys.stderr)
