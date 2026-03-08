@@ -15,12 +15,28 @@ import glob
 import json
 import os
 import shutil
+import ssl
 import subprocess
 import tarfile
 import tempfile
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+
+def _ssl_context() -> ssl.SSLContext:
+    """Return an SSL context with system/certifi certs, falling back to default."""
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        pass
+    ctx = ssl.create_default_context()
+    try:
+        ctx.load_verify_locations(capath="/etc/ssl/certs")
+    except (FileNotFoundError, ssl.SSLError):
+        pass
+    return ctx
 
 GITHUB_REPO = "gioe/tusk"
 API_TIMEOUT = 15   # seconds for GitHub API calls
@@ -32,7 +48,7 @@ DL_TIMEOUT = 60    # seconds for tarball download
 def fetch_bytes(url: str, timeout: int = API_TIMEOUT) -> bytes:
     req = Request(url, headers={"User-Agent": "tusk-upgrade"})
     try:
-        with urlopen(req, timeout=timeout) as resp:
+        with urlopen(req, timeout=timeout, context=_ssl_context()) as resp:
             return resp.read()
     except HTTPError as e:
         raise SystemExit(f"Error: HTTP {e.code} fetching {url}") from e
