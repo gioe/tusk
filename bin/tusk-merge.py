@@ -102,8 +102,8 @@ def _checkpoint_wal(db_path: str, max_retries: int = 3) -> None:
             print(f"Warning: WAL checkpoint failed: {e} — continuing.", file=sys.stderr)
             return
         last_row = row
-        if row is None or row[0] == 0:
-            return  # all pages flushed and WAL truncated
+        if row is None or (row[0] == 0 and row[1] == row[2]):
+            return  # all pages flushed and WAL truncated (busy=0 and log==checkpointed)
         if attempt < max_retries - 1:
             time.sleep(0.2)
     print(
@@ -127,6 +127,8 @@ def _recover_missing_task(db_path: str, task_id: int) -> bool:
     try:
         conn = get_connection(db_path)
         try:
+            # task_type, priority, and complexity are intentionally omitted —
+            # they are nullable in the schema and unknown after a WAL revert.
             conn.execute(
                 "INSERT INTO tasks (id, summary, status, closed_reason, priority_score)"
                 " VALUES (?, ?, 'Done', 'completed', 0)",
@@ -543,7 +545,7 @@ def main(argv: list[str]) -> int:
             check=False,
         )
     if result.returncode != 0:
-        if result.returncode == 2 and "not found" in result.stderr.lower():
+        if result.returncode == 2 and f"task {task_id} not found" in result.stderr.lower():
             # Task row missing — likely lost to a WAL revert that the checkpoint
             # above could not prevent (e.g. busy readers blocked full flush).
             # Re-insert as Done so the merge sequence can complete cleanly.
