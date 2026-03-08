@@ -15,7 +15,7 @@ print(data.get('tool_input', {}).get('command', ''))
 # Check if sqlite3 is invoked in command position (after start-of-line,
 # pipe, semicolon, &&, ||, or $() — not inside quoted strings.
 if echo "$command" | grep -qE '(^|[|;&]|&&|\|\||\$\()\s*sqlite3\b'; then
-  echo "Direct sqlite3 access to tusk/tasks.db is blocked." >&2
+  echo "Direct sqlite3 invocations are blocked." >&2
   echo "Use tusk CLI commands instead:" >&2
   echo "  tusk task-list" >&2
   echo "  tusk task-get <id>" >&2
