@@ -24,6 +24,7 @@ import importlib.util
 import json
 import os
 import sqlite3
+import subprocess
 import sys
 
 
@@ -37,6 +38,23 @@ def _load_db_lib():
 
 _db_lib = _load_db_lib()
 get_connection = _db_lib.get_connection
+
+
+def _find_task_commits(task_id: int) -> list[str]:
+    """Return commit hashes referencing [TASK-<task_id>] in git log."""
+    try:
+        pattern = f"\\[TASK-{task_id}\\]"
+        result = subprocess.run(
+            ["git", "log", "--format=%H", f"--grep={pattern}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip().splitlines()
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+    return []
 
 
 def load_closed_reasons(config_path: str) -> list[str]:
@@ -91,11 +109,26 @@ def main(argv: list[str]) -> int:
         ).fetchall()
 
         if open_criteria and not force:
-            print(f"Error: Task {task_id} has {len(open_criteria)} uncompleted acceptance criteria:", file=sys.stderr)
-            for row in open_criteria:
-                print(f"  [{row['id']}] {row['criterion']}", file=sys.stderr)
-            print("\nUse --force to close anyway.", file=sys.stderr)
-            return 3
+            task_commits = _find_task_commits(task_id)
+            if task_commits:
+                latest_hash = task_commits[0]
+                crit_ids = [row["id"] for row in open_criteria]
+                placeholders = ",".join("?" * len(crit_ids))
+                conn.execute(
+                    f"UPDATE acceptance_criteria "
+                    f"SET is_completed = 1, commit_hash = ?, committed_at = datetime('now'), "
+                    f"    updated_at = datetime('now') "
+                    f"WHERE id IN ({placeholders})",
+                    [latest_hash] + crit_ids,
+                )
+                conn.commit()
+                open_criteria = []
+            else:
+                print(f"Error: Task {task_id} has {len(open_criteria)} uncompleted acceptance criteria:", file=sys.stderr)
+                for row in open_criteria:
+                    print(f"  [{row['id']}] {row['criterion']}", file=sys.stderr)
+                print("\nUse --force to close anyway.", file=sys.stderr)
+                return 3
 
         # 2b. Check for completed criteria without a commit hash (only for completed tasks)
         # Skipped for wont_do/duplicate/expired — commit traceability only matters for completed work

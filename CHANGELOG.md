@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [372] - 2026-03-07
+
+- [TASK-530] Auto-mark acceptance criteria done when [TASK-N] commits are detected
+
 ## [371] - 2026-03-07
 
 - [TASK-528] Enumerate valid --reason values in task-done usage string

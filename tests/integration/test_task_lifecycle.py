@@ -12,6 +12,7 @@ import io
 import json
 import os
 import sqlite3
+import subprocess
 from contextlib import redirect_stderr, redirect_stdout
 
 import pytest
@@ -133,9 +134,9 @@ class TestTaskLifecycle:
         assert result["task"]["status"] == "Done"
         assert result["task"]["closed_reason"] == "completed"
 
-    def test_open_criteria_blocks_closure_exit_code_3(self, db_path, config_path):
+    def test_open_criteria_blocks_closure_exit_code_3(self, db_path, config_path, tmp_path, monkeypatch):
 
-        """CID 1525: closing with open criteria returns exit code 3 and stderr message."""
+        """CID 1525: closing with open criteria returns exit code 3 and stderr message when no task commits exist."""
         conn = sqlite3.connect(str(db_path))
         conn.execute("PRAGMA foreign_keys = ON")
         try:
@@ -148,6 +149,9 @@ class TestTaskLifecycle:
             conn.commit()
         finally:
             conn.close()
+
+        # Run from a directory with no git history so _find_task_commits returns []
+        monkeypatch.chdir(tmp_path)
 
         rc, result, stderr = call_done(db_path, config_path, task_id, "completed")
 
@@ -244,6 +248,50 @@ class TestTaskLifecycle:
         assert "wont_do" in usage
         assert "duplicate" in usage
         assert "<closed_reason>" not in usage
+
+    def test_auto_marks_criteria_done_when_task_commits_found(self, db_path, config_path, tmp_path, monkeypatch):
+        """CID 1654: open criteria are auto-marked done (with commit hash) when [TASK-N] commits exist."""
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            task_id = insert_task(conn, "Task with commits in git log")
+            cid = insert_criterion(conn, task_id, "Implement the feature")
+            conn.execute(
+                "UPDATE tasks SET status = 'In Progress' WHERE id = ?", (task_id,)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        # Set up a temp git repo with a commit referencing this task
+        git_dir = tmp_path / "git_repo"
+        git_dir.mkdir()
+        subprocess.run(["git", "init"], cwd=git_dir, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=git_dir, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=git_dir, check=True, capture_output=True)
+        (git_dir / "file.txt").write_text("work done")
+        subprocess.run(["git", "add", "."], cwd=git_dir, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", f"[TASK-{task_id}] Implement the feature"],
+            cwd=git_dir, check=True, capture_output=True,
+        )
+
+        monkeypatch.chdir(git_dir)
+        rc, result, _ = call_done(db_path, config_path, task_id, "completed")
+
+        assert rc == 0
+        assert result["task"]["status"] == "Done"
+
+        # Verify criterion was auto-marked done with the commit hash attached
+        conn = sqlite3.connect(str(db_path))
+        try:
+            crit = conn.execute(
+                "SELECT is_completed, commit_hash FROM acceptance_criteria WHERE id = ?", (cid,)
+            ).fetchone()
+            assert crit[0] == 1, "criterion should be completed"
+            assert crit[1] is not None, "commit_hash should be populated"
+        finally:
+            conn.close()
 
     def test_invalid_status_transition_rejected_by_trigger(self, db_path, config_path):
         """CID 1529: DB trigger blocks invalid transitions (e.g. In Progress -> To Do)."""
