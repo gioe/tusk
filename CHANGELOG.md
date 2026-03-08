@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [373] - 2026-03-07
+
+- [TASK-529] Fix NameError in tusk-branch.py direct invocation guard (os not imported)
+
 ## [372] - 2026-03-07
 
 - [TASK-530] Auto-mark acceptance criteria done when [TASK-N] commits are detected
