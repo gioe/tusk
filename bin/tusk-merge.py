@@ -36,6 +36,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import time
 
 
 def _load_db_lib():
@@ -79,6 +80,72 @@ def load_merge_mode(config_path: str) -> str:
         return config.get("merge", {}).get("mode", "local")
     except (FileNotFoundError, json.JSONDecodeError):
         return "local"
+
+
+def _checkpoint_wal(db_path: str, max_retries: int = 3) -> None:
+    """Checkpoint and truncate the WAL, retrying if busy readers block it.
+
+    Uses TRUNCATE mode (vs FULL) so the WAL file is zeroed out on success,
+    preventing stale WAL data from being rolled back during the file-move
+    sequence in git checkout.
+    """
+    print("Checkpointing WAL...", file=sys.stderr)
+    last_row = None
+    for attempt in range(max_retries):
+        try:
+            conn = get_connection(db_path)
+            try:
+                row = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+            finally:
+                conn.close()
+        except sqlite3.Error as e:
+            print(f"Warning: WAL checkpoint failed: {e} — continuing.", file=sys.stderr)
+            return
+        last_row = row
+        if row is None or row[0] == 0:
+            return  # all pages flushed and WAL truncated
+        if attempt < max_retries - 1:
+            time.sleep(0.2)
+    print(
+        f"Warning: WAL checkpoint partially blocked after {max_retries} attempts "
+        f"(busy={last_row[0]}, log={last_row[1]}, checkpointed={last_row[2]}) — "
+        "session or task records may still be at risk.",
+        file=sys.stderr,
+    )
+
+
+def _recover_missing_task(db_path: str, task_id: int) -> bool:
+    """Re-insert a minimal Done task record when the task row was lost to a WAL revert.
+
+    Returns True on success, False on failure.
+    """
+    print(
+        f"Warning: Task {task_id} not found in DB after merge — likely lost to a WAL revert. "
+        "Re-inserting as Done to preserve merge integrity.",
+        file=sys.stderr,
+    )
+    try:
+        conn = get_connection(db_path)
+        try:
+            conn.execute(
+                "INSERT INTO tasks (id, summary, status, closed_reason, priority_score)"
+                " VALUES (?, ?, 'Done', 'completed', 0)",
+                (task_id, f"[Recovered after WAL revert] TASK-{task_id}"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        print(
+            f"Recovered: Task {task_id} re-inserted as Done with closed_reason=completed.",
+            file=sys.stderr,
+        )
+        return True
+    except sqlite3.Error as e:
+        print(
+            f"Warning: Could not re-insert task {task_id} after WAL revert: {e}",
+            file=sys.stderr,
+        )
+        return False
 
 
 def find_task_branch(task_id: int) -> tuple[str | None, str | None]:
@@ -352,21 +419,7 @@ def main(argv: list[str]) -> int:
     # are flushed to the main db file before session-close reads the session row.
     # Without this, a git stash or branch switch that reverts tasks.db to a pre-WAL
     # snapshot can silently drop the session row, causing "No session found" below.
-    print("Checkpointing WAL...", file=sys.stderr)
-    try:
-        _conn = get_connection(_db_path)
-        try:
-            row = _conn.execute("PRAGMA wal_checkpoint(FULL)").fetchone()
-        finally:
-            _conn.close()
-        if row and row[0] > 0:
-            print(
-                f"Warning: WAL checkpoint partially blocked (busy={row[0]}, log={row[1]}, checkpointed={row[2]}) — session row may still be at risk.",
-                file=sys.stderr,
-            )
-    except sqlite3.Error as e:
-        # Non-fatal: warn and continue — session-close will surface any real issue.
-        print(f"Warning: WAL checkpoint failed: {e} — continuing.", file=sys.stderr)
+    _checkpoint_wal(_db_path)
 
     print(f"Closing session {session_id}...", file=sys.stderr)
     result = run([tusk_bin, "session-close", str(session_id)], check=False)
@@ -490,6 +543,32 @@ def main(argv: list[str]) -> int:
             check=False,
         )
     if result.returncode != 0:
+        if result.returncode == 2 and "not found" in result.stderr.lower():
+            # Task row missing — likely lost to a WAL revert that the checkpoint
+            # above could not prevent (e.g. busy readers blocked full flush).
+            # Re-insert as Done so the merge sequence can complete cleanly.
+            recovered = _recover_missing_task(_db_path, task_id)
+            synthetic = {
+                "task": {
+                    "id": task_id,
+                    "summary": f"[Recovered after WAL revert] TASK-{task_id}",
+                    "status": "Done",
+                    "closed_reason": "completed",
+                },
+                "sessions_closed": 1 if session_was_closed else 0,
+                "unblocked_tasks": [],
+                "wal_revert_recovery": recovered,
+            }
+            if not recovered:
+                print(
+                    f"Warning: Task {task_id} could not be recovered. The branch has been "
+                    "merged but the task record is permanently lost. Manually close it:\n"
+                    f"  tusk task-insert \"[Recovered] TASK-{task_id}\" \"\" --priority Medium\n"
+                    f"  tusk task-done <new_id> --reason completed --force",
+                    file=sys.stderr,
+                )
+            print(json.dumps(synthetic, indent=2))
+            return 0
         print(f"Error: task-done failed:\n{result.stderr.strip()}", file=sys.stderr)
         return 2
 
