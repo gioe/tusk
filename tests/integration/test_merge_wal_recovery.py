@@ -220,3 +220,82 @@ class TestRecoverMissingTask:
         output = buf.getvalue()
         assert "WAL revert" in output
         assert "Recovered" in output
+
+
+# ---------------------------------------------------------------------------
+# main() recovery hint tests
+# ---------------------------------------------------------------------------
+
+
+class TestMergeRecoveryHint:
+    """Tests that main() prints the recovery hint when task-done returns 'not found'
+    and _recover_missing_task successfully re-inserts the placeholder row."""
+
+    def test_hint_printed_when_recovery_succeeds(self, db_path, config_path, monkeypatch):
+        """main() emits 'Hint:' and 'tusk task-update' to stderr when task-done
+        reports the task as missing and recovery re-inserts it successfully."""
+        import subprocess
+
+        task_id = 7777
+
+        # Insert an open session for the task without a task row.
+        # SQLite does not enforce FK constraints by default, so this is valid.
+        conn = sqlite3.connect(str(db_path))
+        try:
+            cur = conn.execute(
+                "INSERT INTO task_sessions (task_id, started_at) VALUES (?, datetime('now'))",
+                (task_id,),
+            )
+            conn.commit()
+            session_id = cur.lastrowid
+        finally:
+            conn.close()
+
+        # Suppress _checkpoint_wal so it doesn't touch the live WAL during tests.
+        monkeypatch.setattr(tusk_merge, "_checkpoint_wal", lambda *a, **kw: None)
+
+        # Return a fake branch name so find_task_branch doesn't shell out.
+        monkeypatch.setattr(
+            tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None)
+        )
+
+        # Return "main" without touching git.
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+
+        # Capture which commands are dispatched.
+        dispatched = []
+
+        def _mock_run(args, check=True):
+            dispatched.append(args)
+            cmd = " ".join(args)
+            # Git dirty-tree check — report clean working tree.
+            if "diff" in cmd and "--name-only" in cmd:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            # session-close — succeed.
+            if "session-close" in cmd:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            # Git operations (checkout, pull, merge, push, branch -d) — succeed.
+            if any(k in cmd for k in ("checkout", "pull", "merge", "push", "branch -d")):
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            # task-done — simulate missing task row (WAL revert scenario).
+            if "task-done" in cmd:
+                return subprocess.CompletedProcess(
+                    args, 2, stdout="", stderr=f"Error: task {task_id} not found"
+                )
+            # Fallback — succeed silently for any unexpected call.
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(tusk_merge, "run", _mock_run)
+
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            rc = tusk_merge.main(
+                [str(db_path), str(config_path), str(task_id), "--session", str(session_id)]
+            )
+
+        output = buf.getvalue()
+        assert rc == 0, f"Expected return code 0 but got {rc}. stderr:\n{output}"
+        assert "Hint:" in output, f"Expected 'Hint:' in stderr but got:\n{output}"
+        assert "tusk task-update" in output, (
+            f"Expected 'tusk task-update' in stderr but got:\n{output}"
+        )
