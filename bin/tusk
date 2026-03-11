@@ -199,6 +199,7 @@ update_gitignore() {
   if grep -qxF "$deprecated" "$gitignore" 2>/dev/null; then
     local tmpfile
     tmpfile=$(mktemp)
+    trap "rm -f $tmpfile" RETURN
     grep -vxF "$deprecated" "$gitignore" > "$tmpfile" && mv "$tmpfile" "$gitignore"
     echo "  Removed deprecated .gitignore entry: $deprecated"
   fi
@@ -949,6 +950,6 @@ case "${1:-}" in
   update-gitignore) cmd_update_gitignore ;;
   regen-triggers) cmd_regen_triggers ;;
   upgrade) shift; cmd_upgrade "$@" ;;
-  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|commit|lint|lint-rule|dupes|deps|blockers|review|criteria|dag|dashboard|wsjf|setup|autoclose|backlog-scan|token-audit|sync-skills|pricing-update|session-stats|session-recalc|session-close|skill-run|call-breakdown|task-get|task-select|task-start|task-done|task-insert|task-update|task-reopen|task-list|merge|progress|shell|version|version-bump|changelog-add|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
+  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|commit|lint|lint-rule|dupes|deps|blockers|review|criteria|dag|dashboard|wsjf|setup|autoclose|backlog-scan|token-audit|sync-skills|pricing-update|session-stats|session-recalc|session-close|skill-run|call-breakdown|task-get|task-select|task-start|task-done|task-insert|task-update|task-reopen|task-list|merge|progress|shell|version|version-bump|changelog-add|migrate|update-gitignore|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac
