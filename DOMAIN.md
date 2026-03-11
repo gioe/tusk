@@ -4,6 +4,26 @@ This document codifies the entity/attribute model, allowed status transitions, i
 
 ---
 
+## Database Scope and Portability
+
+**The tusk database is single-node and local-only.** It is not designed to sync across machines.
+
+- **SQLite is inherently single-node.** The database file (`tusk/tasks.db`) lives on your local filesystem and is not shared across machines or team members.
+- **The DB is gitignored.** `tusk/tasks.db` (and `tusk/tasks.db-wal`, `tusk/tasks.db-shm`) are excluded from version control by design. Each developer has their own independent task database.
+- **There is no built-in sync or import path.** No replication, rsync, or cross-machine restore workflow is provided.
+
+**Workaround — export your tasks to SQL:**
+
+```bash
+sqlite3 tusk/tasks.db .dump > tasks.sql
+```
+
+This produces a portable SQL dump you can store, share, or use as a backup. There is currently no `tusk import` command; restoring from a dump requires running the SQL directly against a fresh database (e.g. `sqlite3 tusk/tasks.db < tasks.sql`). Prefer this only as a last resort — re-running `tusk init` and re-creating tasks is the supported recovery path.
+
+> **Note:** `tusk init` prints a reminder that the database is local-only and not synced across machines.
+
+---
+
 ## Entities
 
 ### Task
