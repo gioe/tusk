@@ -248,19 +248,16 @@ def update_gitignore(repo_root: str) -> None:
     ]
     # Remove deprecated wildcard entry added by older versions of tusk-upgrade.py
     deprecated = "tusk/tasks.db-*"
+    existing_lines: set = set()
     if os.path.exists(gitignore):
         with open(gitignore) as f:
             lines = f.readlines()
-        filtered = [l for l in lines if l.rstrip("\n") != deprecated]
+        filtered = [line for line in lines if line.rstrip("\r\n") != deprecated]
         if len(filtered) < len(lines):
             with open(gitignore, "w") as f:
                 f.writelines(filtered)
             print(f"  Removed deprecated .gitignore entry: {deprecated}")
-
-    existing_lines = set()
-    if os.path.exists(gitignore):
-        with open(gitignore) as f:
-            existing_lines = {line.rstrip("\n") for line in f}
+        existing_lines = {line.rstrip("\r\n") for line in filtered}
     added = 0
     for entry in tusk_ignores:
         if entry not in existing_lines:
