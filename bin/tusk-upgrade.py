@@ -235,43 +235,8 @@ def remove_deprecated_files(repo_root: str) -> None:
             print(f"  Removed deprecated file: {rel}")
 
 
-def update_gitignore(repo_root: str) -> None:
-    gitignore = os.path.join(repo_root, ".gitignore")
-    tusk_ignores = [
-        ".claude/bin/",
-        ".claude/skills/",
-        ".claude/settings.json",
-        ".claude/tusk-manifest.json",
-        "tusk/tasks.db",
-        "tusk/tasks.db-wal",
-        "tusk/tasks.db-shm",
-    ]
-    # Remove deprecated wildcard entry added by older versions of tusk-upgrade.py
-    deprecated = "tusk/tasks.db-*"
-    existing_lines: set = set()
-    if os.path.exists(gitignore):
-        with open(gitignore) as f:
-            lines = f.readlines()
-        filtered = [line for line in lines if line.rstrip("\r\n") != deprecated]
-        if len(filtered) < len(lines):
-            with open(gitignore, "w") as f:
-                f.writelines(filtered)
-            print(f"  Removed deprecated .gitignore entry: {deprecated}")
-        existing_lines = {line.rstrip("\r\n") for line in filtered}
-    added = 0
-    for entry in tusk_ignores:
-        if entry not in existing_lines:
-            if added == 0 and "# tusk install files" not in existing_lines:
-                with open(gitignore, "a") as f:
-                    f.write("\n# tusk install files\n")
-                existing_lines.add("# tusk install files")
-            with open(gitignore, "a") as f:
-                f.write(entry + "\n")
-            added += 1
-    if added > 0:
-        print(f"  Updated .gitignore with {added} tusk install path(s).")
-    else:
-        print("  .gitignore already up to date.")
+def update_gitignore(script_dir: str) -> None:
+    subprocess.run([os.path.join(script_dir, "tusk"), "update-gitignore"], check=True)
 
 
 def fix_trailing_newlines(script_dir: str, repo_root: str) -> None:
@@ -395,7 +360,7 @@ def main() -> None:
         subprocess.run([os.path.join(script_dir, "tusk"), "migrate"], check=True)
 
         remove_deprecated_files(repo_root)
-        update_gitignore(repo_root)
+        update_gitignore(script_dir)
 
         if os.path.isfile(new_manifest):
             shutil.copy2(new_manifest, old_manifest)

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [384] - 2026-03-11
+
+- [TASK-554] Consolidate update_gitignore into a shared helper to prevent future divergence
+
 ## [383] - 2026-03-11
 
 - [TASK-556] Add local-only reminder to tusk init output

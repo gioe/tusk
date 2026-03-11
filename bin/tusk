@@ -185,6 +185,7 @@ cmd_validate() {
 
 update_gitignore() {
   local gitignore="$REPO_ROOT/.gitignore"
+  local deprecated="tusk/tasks.db-*"
   local -a tusk_ignores=(
     ".claude/bin/"
     ".claude/skills/"
@@ -194,6 +195,13 @@ update_gitignore() {
     "tusk/tasks.db-wal"
     "tusk/tasks.db-shm"
   )
+  # Remove deprecated wildcard entry added by older versions of tusk-upgrade.py
+  if grep -qxF "$deprecated" "$gitignore" 2>/dev/null; then
+    local tmpfile
+    tmpfile=$(mktemp)
+    grep -vxF "$deprecated" "$gitignore" > "$tmpfile" && mv "$tmpfile" "$gitignore"
+    echo "  Removed deprecated .gitignore entry: $deprecated"
+  fi
   local added=0
   for entry in "${tusk_ignores[@]}"; do
     if ! grep -qxF "$entry" "$gitignore" 2>/dev/null; then
@@ -209,6 +217,10 @@ update_gitignore() {
   else
     echo "  .gitignore already up to date."
   fi
+}
+
+cmd_update_gitignore() {
+  update_gitignore
 }
 
 update_claude_md() {
@@ -934,6 +946,7 @@ case "${1:-}" in
   version-bump) cmd_version_bump ;;
   changelog-add) shift; exec python3 "$SCRIPT_DIR/tusk-changelog-add.py" "$REPO_ROOT" "$DB_PATH" "$@" ;;
   migrate) cmd_migrate ;;
+  update-gitignore) cmd_update_gitignore ;;
   regen-triggers) cmd_regen_triggers ;;
   upgrade) shift; cmd_upgrade "$@" ;;
   "")     echo "Usage: tusk {init|path|config|validate|sql-quote|commit|lint|lint-rule|dupes|deps|blockers|review|criteria|dag|dashboard|wsjf|setup|autoclose|backlog-scan|token-audit|sync-skills|pricing-update|session-stats|session-recalc|session-close|skill-run|call-breakdown|task-get|task-select|task-start|task-done|task-insert|task-update|task-reopen|task-list|merge|progress|shell|version|version-bump|changelog-add|migrate|upgrade|regen-triggers|\"SQL ...\"}" >&2; exit 1 ;;
