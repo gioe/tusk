@@ -13,12 +13,12 @@ require it).
 
 | File | Role |
 |------|------|
-| **tusk-db-lib.py** | Shared database and config utilities. Provides `get_connection()` (opens `tasks.db` with WAL mode and FK enforcement) and `load_config()`. Imported by almost every command script. |
+| **tusk-db-lib.py** | Shared database and config utilities. Provides `get_connection()` (opens `tasks.db` with FK enforcement via `PRAGMA foreign_keys = ON`) and `load_config()`. Imported by almost every command script. |
 | **tusk-pricing-lib.py** | Shared transcript-parsing and cost-computation utilities. Provides pricing data loading, model resolution, JSONL transcript iteration, and per-session token/cost aggregation. Imported by: `tusk-session-stats.py`, `tusk-criteria.py`, `tusk-session-recalc.py`, `tusk-call-breakdown.py`, `tusk-skill-run.py`, `tusk-dashboard-data.py`. |
 | **tusk-dashboard-data.py** | Data-access layer for the HTML dashboard. Provides `get_connection()` and all `fetch_*` functions that query the DB. Imported by `tusk-dashboard.py` and `tusk-dashboard-html.py`. |
-| **tusk-dashboard-html.py** | HTML-generation layer for the dashboard. Contains all templating functions: formatters, component generators, and section builders. Imported by `tusk-dashboard.py`. Depends on `tusk-dashboard-data.py`. |
-| **tusk-dashboard-css.py** | CSS stylesheet bundle for the dashboard, extracted from `tusk-dashboard.py` to reduce file size. Exposes a single `CSS` string constant. Imported by `tusk-dashboard.py`. |
-| **tusk-dashboard-js.py** | JavaScript bundle for the dashboard, extracted from `tusk-dashboard.py` to reduce file size. Exposes a single `JS` string constant. Imported by `tusk-dashboard.py`. |
+| **tusk-dashboard-html.py** | HTML-generation layer for the dashboard. Contains all templating functions: formatters, component generators, and section builders. Imported by `tusk-dashboard.py`. Depends on `tusk-dashboard-css.py` and `tusk-dashboard-js.py`. |
+| **tusk-dashboard-css.py** | CSS stylesheet bundle for the dashboard, extracted to reduce file size. Exposes a single `CSS` string constant. Imported by `tusk-dashboard-html.py`. |
+| **tusk-dashboard-js.py** | JavaScript bundle for the dashboard, extracted to reduce file size. Exposes a single `JS` string constant. Imported by `tusk-dashboard-html.py`. |
 
 ---
 
@@ -59,7 +59,7 @@ require it).
 |------|---------------|-------|--------|
 | **tusk-autoclose.py** | `tusk autoclose` | `tasks`, `task_sessions`, `task_dependencies` | `tasks` (expired/moot → Done), `task_sessions` (close open) |
 | **tusk-backlog-scan.py** | `tusk backlog-scan [--duplicates\|--unassigned\|--unsized\|--expired]` | `tasks` | nothing; returns JSON |
-| **tusk-blockers.py** | `tusk blockers add\|list\|resolve\|remove\|blocked\|all [flags]` | `tasks`, (blockers table) | blockers table |
+| **tusk-blockers.py** | `tusk blockers add\|list\|resolve\|remove\|blocked\|all [flags]` | `tasks`, `external_blockers` | `external_blockers` |
 | **tusk-dupes.py** | `tusk dupes check\|scan\|similar [flags]` | `tasks` | nothing; heuristic fuzzy-match, returns JSON |
 | **tusk-wsjf.py** | `tusk wsjf` | `tasks`, `task_dependencies` | `tasks` (`priority_score`) |
 | **tusk-chain.py** | `tusk chain scope\|frontier\|status <head_id…>` | `tasks`, `task_dependencies`, `v_chain_heads` | nothing; DFS sub-DAG traversal |
@@ -96,7 +96,7 @@ require it).
 
 | File | CLI command(s) | Reads | Writes |
 |------|---------------|-------|--------|
-| **tusk-dashboard.py** | `tusk dashboard` | `tasks.db` via `tusk-dashboard-data.py` | writes a static HTML file and opens it in the browser; depends on `tusk-dashboard-data.py`, `tusk-dashboard-html.py`, `tusk-dashboard-css.py`, `tusk-dashboard-js.py` |
+| **tusk-dashboard.py** | `tusk dashboard` | `tasks.db` via `tusk-dashboard-data.py` | writes a static HTML file and opens it in the browser; directly imports `tusk-dashboard-data.py` and `tusk-dashboard-html.py` (which in turn loads `tusk-dashboard-css.py` and `tusk-dashboard-js.py`) |
 
 ### Versioning & Distribution
 
