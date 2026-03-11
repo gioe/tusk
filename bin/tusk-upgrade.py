@@ -243,7 +243,8 @@ def update_gitignore(repo_root: str) -> None:
         ".claude/settings.json",
         ".claude/tusk-manifest.json",
         "tusk/tasks.db",
-        "tusk/tasks.db-*",
+        "tusk/tasks.db-wal",
+        "tusk/tasks.db-shm",
     ]
     existing_lines = set()
     if os.path.exists(gitignore):
