@@ -20,8 +20,6 @@ sqlite3 tusk/tasks.db .dump > tasks.sql
 
 This produces a portable SQL dump you can store, share, or use as a backup. There is currently no `tusk import` command; restoring from a dump requires running the SQL directly against a fresh database (e.g. `sqlite3 tusk/tasks.db < tasks.sql`). Prefer this only as a last resort — re-running `tusk init` and re-creating tasks is the supported recovery path.
 
-> **Note:** `tusk init` prints a reminder that the database is local-only and not synced across machines.
-
 ---
 
 ## Entities
