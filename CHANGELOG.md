@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [388] - 2026-03-12
+
+- [TASK-570] Flip tusk sync-skills precedence — internal overrides public
+
 ## [387] - 2026-03-11
 
 - [TASK-568] tusk merge auto-stash should pop by stash label not position
