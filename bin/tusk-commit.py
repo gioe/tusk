@@ -173,7 +173,8 @@ def main(argv: list[str]) -> int:
     ]
     if missing:
         for orig, resolved in missing:
-            if orig == resolved:
+            was_remapped = orig != resolved
+            if not was_remapped:
                 print(
                     f"Error: path not found: '{orig}'\n"
                     f"  Hint: paths must exist relative to the repo root ({repo_root})",
