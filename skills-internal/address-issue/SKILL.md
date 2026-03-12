@@ -86,9 +86,37 @@ Show the proposed task in compact format:
 
 Then ask:
 
-> Create this task? You can **confirm**, **edit** (e.g., "change priority to High"), or **cancel**.
+> Create this task? You can **confirm**, **edit** (e.g., "change priority to High"), **decline** (close the issue without creating a task), or **cancel**.
 
 Wait for explicit user approval before inserting.
+
+### Decline Path
+
+If the user types **decline** (optionally followed by a rationale, e.g., `decline out of scope`):
+
+1. If no rationale was given inline, prompt:
+   > Why are you declining this issue? Choose one or describe:
+   > - `out of scope`
+   > - `won't fix`
+   > - `already handled by TASK-<id>`
+   > - `duplicate of #<issue>`
+   > - `other: <free text>`
+
+   Wait for the user's response.
+
+2. Close the GitHub issue with the rationale as a comment:
+   ```bash
+   gh issue close <number> --repo <owner/repo> --comment "Declined: <rationale>"
+   ```
+
+3. If `gh` succeeds, end with a decision summary:
+   > **Declined** — Issue #<N> closed. Reason: <rationale>. No task created.
+
+4. If `gh` fails, report the error and show the manual close URL:
+   > Could not close issue #<N> automatically. Please close it at: https://github.com/<owner/repo>/issues/<N>
+   > Reason to use as a comment: "Declined: <rationale>"
+
+5. **Do NOT insert a task.** Stop — do not proceed to Step 6.
 
 ## Step 6: Deduplicate and Insert
 
