@@ -35,6 +35,8 @@ def _make_completed(returncode, stdout="", stderr=""):
 def _argv(tmp_path, files=None):
     config = tmp_path / "config.json"
     config.write_text("{}")
+    if files is None:
+        (tmp_path / "somefile.py").write_text("")
     return [str(tmp_path), str(config), "42", "my message"] + (files or ["somefile.py"])
 
 
@@ -157,3 +159,27 @@ class TestSubdirectoryPathResolution:
 
         assert rc == 0
         assert captured_add_args == [str(abs_file)]
+
+    def test_path_escaping_repo_root_emits_diagnostic(self, tmp_path, capsys):
+        """Path whose resolved absolute location is outside the repo root exits 3 with clear error."""
+        mod = _load_module()
+
+        # repo root is a subdirectory; caller CWD is its parent (outside repo root)
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        outside_cwd = tmp_path  # parent of repo — outside the repo
+
+        # A relative path that resolves to somewhere outside repo_root
+        argv = _argv(repo_root, files=["../outside.py"])
+
+        def fake_run(args, **kwargs):
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(outside_cwd)):
+            rc = mod.main(argv)
+
+        assert rc == 3
+        captured = capsys.readouterr()
+        assert "Error: path escapes the repo root" in captured.err
+        assert "../outside.py" in captured.err

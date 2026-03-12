@@ -142,19 +142,34 @@ def main(argv: list[str]) -> int:
     # than requiring repo-root-relative paths.  Absolute paths are passed through unchanged.
     caller_cwd = os.getcwd()
     resolved_files: list[str] = []
+    escape_errors: list[tuple[str, str]] = []
     for f in files:
         if os.path.isabs(f):
             resolved_files.append(f)
         else:
             abs_path = os.path.normpath(os.path.join(caller_cwd, f))
-            resolved_files.append(os.path.relpath(abs_path, repo_root))
+            rel = os.path.relpath(abs_path, repo_root)
+            if rel.startswith(".."):
+                escape_errors.append((f, abs_path))
+            resolved_files.append(rel)
+
+    if escape_errors:
+        for orig, abs_path in escape_errors:
+            print(
+                f"Error: path escapes the repo root: '{orig}'\n"
+                f"  Resolved to: '{abs_path}'\n"
+                f"  Repo root is: {repo_root}\n"
+                f"  Hint: paths must be inside the repo root",
+                file=sys.stderr,
+            )
+        return 3
 
     # Pre-flight: verify each resolved path exists so we can emit a useful diagnostic
     # before git produces a cryptic "pathspec did not match" error.
     missing = [
         (orig, resolved)
         for orig, resolved in zip(files, resolved_files)
-        if not os.path.isabs(resolved) and not os.path.exists(os.path.join(repo_root, resolved))
+        if not os.path.exists(resolved if os.path.isabs(resolved) else os.path.join(repo_root, resolved))
     ]
     if missing:
         for orig, resolved in missing:
