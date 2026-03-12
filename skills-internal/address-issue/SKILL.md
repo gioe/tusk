@@ -146,9 +146,11 @@ If the user types **defer**:
    ```bash
    gh issue comment <number> --repo <owner/repo> --body "Tracked as tusk task #<task_id>. No timeline yet — will be addressed in a future session."
    ```
+   If `gh` fails (e.g. insufficient permissions or locked issue), warn the user:
+   > Could not post comment on issue #<N>. Please add it manually: "Tracked as tusk task #<task_id>. No timeline yet — will be addressed in a future session."
 
 4. End with a decision summary:
-   > **Deferred** — tusk task #<task_id> created. Issue #<N> labeled and commented. No work started yet.
+   > **Deferred** — tusk task #<task_id> created. Issue #<N> commented (and labeled `accepted` if the label exists). No work started yet.
 
 5. **Do NOT proceed to Step 7.** Stop after the comment.
 
