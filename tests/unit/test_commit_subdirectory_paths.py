@@ -160,6 +160,33 @@ class TestSubdirectoryPathResolution:
         assert rc == 0
         assert captured_add_args == [str(abs_file)]
 
+    def test_absolute_path_outside_repo_root_fails_at_git_add(self, tmp_path, capsys):
+        """Absolute path that exists but is outside the repo root reaches git add, which rejects it."""
+        mod = _load_module()
+
+        # repo root is a subdirectory; the file lives outside it
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        outside_file = tmp_path / "outside.py"
+        outside_file.write_text("# outside")
+
+        argv = _argv(repo_root, files=[str(outside_file)])
+
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                # git rejects files outside the working tree
+                r = _make_completed(128, stderr="fatal: '/outside.py' is outside repository\n")
+                return r
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(repo_root)):
+            rc = mod.main(argv)
+
+        assert rc == 3
+        captured = capsys.readouterr()
+        assert "Error: git add failed" in captured.err
+
     def test_path_escaping_repo_root_emits_diagnostic(self, tmp_path, capsys):
         """Path whose resolved absolute location is outside the repo root exits 3 with clear error."""
         mod = _load_module()
