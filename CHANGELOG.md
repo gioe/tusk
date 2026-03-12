@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [387] - 2026-03-11
+
+- [TASK-568] tusk merge auto-stash should pop by stash label not position
+
 ## [386] - 2026-03-12
 
 - [TASK-567] tusk merge now auto-stashes uncommitted changes before merging and restores them after
