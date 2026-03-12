@@ -37,7 +37,7 @@ Otherwise organize into the default four categories:
 
 If a category has no findings, note that explicitly — an empty category is a positive signal.
 
-### 3d: Classify Each Finding
+### 3a: Classify Each Finding
 
 For each finding, determine whether it is a **tusk-issue** or a **project-issue**:
 
@@ -96,9 +96,9 @@ Brief (2-3 sentence) overview of what the session accomplished.
 | Finding | Merge Into | Reason | Proposed Amendment |
 |---------|-----------|--------|-------------------|
 
-### Proposed Tasks (new work only)
-| # | Summary | Priority | Domain | Type | Category |
-|---|---------|----------|--------|------|----------|
+### Proposed Actions (new work only)
+| # | Summary | Priority | Domain | Type | Category | Classification |
+|---|---------|----------|--------|------|----------|----------------|
 ```
 
 Then ask the user to **confirm**, **remove** specific numbers, **edit** a task, **reject subsumption**, **add** a finding, or **skip**. Wait for explicit approval before inserting.
@@ -119,7 +119,7 @@ tusk "UPDATE tasks SET description = $(tusk sql-quote "$AMENDED_DESC"), updated_
 
 ### 5b: Insert New Tasks / File Issues
 
-Route each approved finding based on its classification from Step 3d:
+Route each approved finding based on its classification from Step 3a:
 
 **tusk-issues** — file a GitHub issue via:
 ```bash
