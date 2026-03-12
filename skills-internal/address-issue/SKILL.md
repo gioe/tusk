@@ -68,6 +68,51 @@ Using the issue `title`, `body`, and `labels`, determine:
 
 Generate **3–7 acceptance criteria** from the issue body — concrete, testable conditions. For bug issues, always include a criterion that the failure case is resolved and a regression test criterion.
 
+## Step 4.5: Optional Codebase Investigation
+
+**Skip this step entirely if complexity is XS or S.** Only run for M, L, or XL complexity issues.
+
+After completing Step 4, offer the user a chance to investigate the codebase before presenting the task proposal:
+
+> Before presenting the proposal, should I investigate the codebase for context? This helps surface relevant files, existing patterns, and edge cases that could sharpen the acceptance criteria. (**yes** / **no**, default: no)
+
+Wait for the user's response. If the user says **no** (or does not respond within a reasonable window, or the context makes it clear they want to move quickly), skip directly to Step 5 with no changes.
+
+If the user says **yes**:
+
+1. **Run a read-only investigation.** Use only these tools: `Read`, `Grep`, `Glob`, and `Bash` (restricted to `tusk` CLI queries — no write commands, no `git commit`, no file edits). Explore:
+   - Files and functions directly related to the issue's subject area (search by keyword, class name, or config key mentioned in the issue body)
+   - Existing tests for the affected code paths
+   - Any conventions or patterns already established for similar features
+   - Whether a partial implementation already exists
+
+   Example queries:
+   ```bash
+   # Find files mentioning a keyword from the issue
+   # (use Grep tool, not bash grep)
+
+   # Check for existing tests in the relevant area
+   # (use Glob tool to locate test files)
+
+   # Query the tusk backlog for related tasks
+   tusk task-list --format json | python3 -c "import sys,json; tasks=json.load(sys.stdin); [print(t['id'], t['summary']) for t in tasks if '<keyword>' in t['summary'].lower()]"
+   ```
+
+2. **Summarize the findings** in a short block before proceeding:
+
+   > **Codebase Investigation Findings:**
+   > - <finding 1>
+   > - <finding 2>
+   > ...
+
+3. **Refine the task fields** from Step 4 based on what you found:
+   - Adjust `description` to reference specific files or functions that will need to change.
+   - Add, remove, or sharpen acceptance criteria to reflect actual code structure (e.g., replace a vague criterion with one that names the specific function or test file).
+   - Adjust `complexity` up or down if the codebase evidence warrants it.
+   - Do **not** change the `summary`, `priority`, or `domain` unless the investigation reveals a fundamental misclassification.
+
+Proceed to Step 5 with the updated task fields.
+
 ## Step 5: Present Proposed Task for Review
 
 Show the proposed task in compact format:
