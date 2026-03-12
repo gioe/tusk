@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [393] - 2026-03-12
+
+- [TASK-575] Add deferred-task support to /create-task
+
 ## [392] - 2026-03-12
 
 - [TASK-574] Add explicit warning to /tusk step 11 against bypassing /review-commits
