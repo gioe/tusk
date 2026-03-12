@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [389] - 2026-03-12
+
+- [TASK-569] Add tusk report-issue CLI subcommand
+
 ## [388] - 2026-03-12
 
 - [TASK-570] Flip tusk sync-skills precedence — internal overrides public
