@@ -754,6 +754,7 @@ cmd_version() {
 
 cmd_report_issue() {
   local title="" context="" observed="" steps="" expected=""
+  local usage="Usage: tusk report-issue --title <title> [--context <text>] [--observed <text>] [--steps <text>] [--expected <text>]"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -763,12 +764,12 @@ cmd_report_issue() {
       --steps)    steps="$2";    shift 2 ;;
       --expected) expected="$2"; shift 2 ;;
       --help|-h)
-        echo "Usage: tusk report-issue --title <title> [--context <text>] [--observed <text>] [--steps <text>] [--expected <text>]"
+        echo "$usage"
         exit 0
         ;;
       *)
         echo "Error: Unknown argument '$1'" >&2
-        echo "Usage: tusk report-issue --title <title> [--context <text>] [--observed <text>] [--steps <text>] [--expected <text>]" >&2
+        echo "$usage" >&2
         exit 1
         ;;
     esac
@@ -776,7 +777,7 @@ cmd_report_issue() {
 
   if [[ -z "$title" ]]; then
     echo "Error: --title is required" >&2
-    echo "Usage: tusk report-issue --title <title> [--context <text>] [--observed <text>] [--steps <text>] [--expected <text>]" >&2
+    echo "$usage" >&2
     exit 1
   fi
 
@@ -806,7 +807,7 @@ ${expected:-<!-- What did you expect to happen instead? -->}
 BODY
 )"
 
-  exec gh issue create --repo gioe/tusk --label instance-feedback --title "$title" --body "$body"
+  exec gh issue create --repo "$TUSK_GITHUB_REPO" --label instance-feedback --title "$title" --body "$body"
 }
 
 cmd_version_bump() {
