@@ -54,9 +54,35 @@ def run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(args, capture_output=True, text=True, check=check)
 
 
-def _try_pop_stash() -> None:
-    """Attempt to pop the auto-stash created before merging and report the outcome."""
-    pop = run(["git", "stash", "pop"], check=False)
+def _try_pop_stash(task_id: int) -> None:
+    """Attempt to pop the auto-stash created before merging and report the outcome.
+
+    Locates the stash entry by its label ('tusk-merge: auto-stash for TASK-N') and
+    pops it by explicit index so that stash entries pushed by hooks or other tools
+    between the auto-stash and the pop do not get accidentally restored.
+    """
+    label = f"tusk-merge: auto-stash for TASK-{task_id}"
+    stash_list = run(["git", "stash", "list"], check=False)
+    stash_index: int | None = None
+    if stash_list.returncode == 0:
+        for line in stash_list.stdout.splitlines():
+            # Lines look like: "stash@{N}: On branch: <message>"
+            if label in line and line.startswith("stash@{"):
+                try:
+                    stash_index = int(line.split("{")[1].split("}")[0])
+                except (IndexError, ValueError):
+                    pass
+                break
+
+    if stash_index is None:
+        print(
+            f"Warning: could not find auto-stash entry '{label}' — "
+            "run 'git stash list' and restore your changes manually.",
+            file=sys.stderr,
+        )
+        return
+
+    pop = run(["git", "stash", "pop", f"stash@{{{stash_index}}}"], check=False)
     if pop.returncode == 0:
         print(
             "Note: stash restored to working tree — you do not need to run git stash pop.",
@@ -64,7 +90,8 @@ def _try_pop_stash() -> None:
         )
     else:
         print(
-            "Note: git stash pop failed — run 'git stash pop' manually to restore your changes.",
+            f"Note: git stash pop stash@{{{stash_index}}} failed — "
+            "run 'git stash list' and restore your changes manually.",
             file=sys.stderr,
         )
         if pop.stderr.strip():
@@ -457,7 +484,7 @@ def main(argv: list[str]) -> int:
         else:
             print(f"Error: session-close failed:\n{result.stderr.strip()}", file=sys.stderr)
             if did_stash:
-                _try_pop_stash()
+                _try_pop_stash(task_id)
             return 2
 
     if use_pr:
@@ -498,7 +525,7 @@ def main(argv: list[str]) -> int:
                 file=sys.stderr,
             )
             if did_stash:
-                _try_pop_stash()
+                _try_pop_stash(task_id)
             return 2
 
         # Restore db files after successful checkout
@@ -512,7 +539,7 @@ def main(argv: list[str]) -> int:
             # Restore feature branch so user can investigate
             run(["git", "checkout", branch_name], check=False)
             if did_stash:
-                _try_pop_stash()
+                _try_pop_stash(task_id)
             return 2
 
         # Step 4 (cont): Fast-forward merge
@@ -528,7 +555,7 @@ def main(argv: list[str]) -> int:
             # Restore feature branch so user can investigate
             run(["git", "checkout", branch_name], check=False)
             if did_stash:
-                _try_pop_stash()
+                _try_pop_stash(task_id)
             return 2
 
         # Step 5: Push
@@ -546,7 +573,7 @@ def main(argv: list[str]) -> int:
                 # uncommitted changes land back on the feature branch, not on
                 # the default branch where the unmerged commit lives.
                 run(["git", "checkout", branch_name], check=False)
-                _try_pop_stash()
+                _try_pop_stash(task_id)
             return 2
 
         # Step 6: Delete feature branch
@@ -559,7 +586,7 @@ def main(argv: list[str]) -> int:
             )
 
         if did_stash:
-            _try_pop_stash()
+            _try_pop_stash(task_id)
 
     # Step 7: Close the task — run without --force first to surface any warnings
     print(f"Closing task {task_id}...", file=sys.stderr)
