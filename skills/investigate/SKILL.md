@@ -177,8 +177,6 @@ Follow its instructions from **Step 1**, using the Proposed Remediation section 
 
 ## Step 7.5: Offer Deferred Tasks for Out of Scope Items *(conditional)*
 
-> **Note:** Keep the `run_id` from Step 0 in context — you will need it in Step 8.
-
 **Skip this step if the report's Out of Scope section is empty or absent.**
 
 If Out of Scope items were identified, ask the user:
@@ -189,19 +187,15 @@ If Out of Scope items were identified, ask the user:
 
 Wait for the user's response. If they decline or don't select any items, proceed to Step 8 with `<D>` = 0.
 
-For each item the user approves, insert it as a deferred task:
+If the user approves any items, pass them to the `/create-task` workflow in deferred mode. Read the skill:
 
-```bash
-tusk task-insert "<summary>" "<description>" \
-  --priority "Low" \
-  --deferred
+```
+Read file: <base_directory>/../create-task/SKILL.md
 ```
 
-- Each deferred task gets `is_deferred=1`, a `[Deferred]` prefix in the summary, and `expires_at = now + 60 days`.
-- Assign `domain`, `task_type`, and `complexity` where inferrable from the item; omit flags if unclear.
-- Do **not** run `/create-task` — insert directly via `tusk task-insert --deferred`.
+Follow its instructions, passing the approved Out of Scope items as the input text with a `--deferred` flag (or an inline "add as deferred" intent phrase). `/create-task` handles decomposition review, acceptance criteria generation, duplicate detection, metadata assignment, and deferred insertion (`is_deferred=1`, `[Deferred]` prefix, `expires_at = now + 60 days`).
 
-Track how many deferred tasks were inserted (`<D>`) — you will need it in Step 8.
+Track the number of deferred tasks actually inserted (`<D>`) from the `/create-task` results — you will need it in Step 8.
 
 ## Step 8: Finish Cost Tracking
 
