@@ -67,6 +67,8 @@ def _try_pop_stash() -> None:
             "Note: git stash pop failed — run 'git stash pop' manually to restore your changes.",
             file=sys.stderr,
         )
+        if pop.stderr.strip():
+            print(pop.stderr.strip(), file=sys.stderr)
 
 
 def detect_default_branch() -> str:
@@ -415,6 +417,7 @@ def main(argv: list[str]) -> int:
             if f and not f.startswith("tusk/tasks.db")
         ))
         if dirty_files:
+            print("Stashing uncommitted changes before merging...", file=sys.stderr)
             stash = run(
                 ["git", "stash", "push", "-m", f"tusk-merge: auto-stash for TASK-{task_id}"]
                 + ["--"] + dirty_files,
@@ -423,7 +426,6 @@ def main(argv: list[str]) -> int:
             if stash.returncode != 0:
                 print(f"Error: git stash failed:\n{stash.stderr.strip()}", file=sys.stderr)
                 return 1
-            print("Stashing uncommitted changes before merging...", file=sys.stderr)
             did_stash = True
 
     print(f"Found branch: {branch_name}", file=sys.stderr)
@@ -540,6 +542,10 @@ def main(argv: list[str]) -> int:
                 file=sys.stderr,
             )
             if did_stash:
+                # Restore feature branch before popping stash so the user's
+                # uncommitted changes land back on the feature branch, not on
+                # the default branch where the unmerged commit lives.
+                run(["git", "checkout", branch_name], check=False)
                 _try_pop_stash()
             return 2
 
