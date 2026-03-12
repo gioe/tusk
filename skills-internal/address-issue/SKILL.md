@@ -10,13 +10,23 @@ Fetches a GitHub issue, converts it into a tusk task, and immediately begins wor
 
 ## Step 1: Parse the Issue Reference
 
-The user invokes this skill with an issue number or full URL. Examples:
+The user invokes this skill with an optional issue number or full URL. Examples:
 - `/address-issue 314`
 - `/address-issue https://github.com/gioe/tusk/issues/314`
+- `/address-issue` *(no argument — defaults to newest open issue)*
 
-Extract the issue number. If a full URL is given, parse the number from the path. If no argument was provided, ask:
+Extract the issue number:
+- If a full URL is given, parse the number from the path.
+- If only a number is given, use it directly.
+- If **no argument was provided**, fetch the newest open issue automatically:
+  ```bash
+  gh issue list --repo gioe/tusk --state open --limit 1 --json number,title
+  ```
+  If this returns an empty list, report:
+  > No open issues found in gioe/tusk.
 
-> Which GitHub issue should I address? Provide an issue number (e.g. `314`) or a full URL.
+  Then stop. Otherwise, use the returned `number` and display:
+  > No issue specified — defaulting to newest open issue: #<number> "<title>"
 
 ## Step 2: Fetch the Issue
 
