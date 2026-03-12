@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [386] - 2026-03-12
+
+- [TASK-567] tusk merge now auto-stashes uncommitted changes before merging and restores them after
+
 ## [385] - 2026-03-11
 
 - [TASK-565] Improve /investigate skill: add pillar-based decision criteria and remove count anchoring
