@@ -3,6 +3,8 @@
 
 Removes all existing symlinks in .claude/skills/, then creates one symlink
 per skill directory found in skills/ (public) and skills-internal/ (private).
+Internal skills take precedence: if the same skill name exists in both
+directories, the skills-internal/ version wins and a warning is printed.
 """
 
 import os
