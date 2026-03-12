@@ -238,4 +238,6 @@ your-project/
 
 Found a bug or have a feature request? Open an issue at https://github.com/gioe/tusk/issues.
 
+If you're reporting a problem from a project where tusk is installed (rather than from the tusk source repo itself), please use the **[Tusk instance feedback](https://github.com/gioe/tusk/issues/new?template=tusk-instance-feedback.md)** issue template. It prompts for your tusk version, project context, observed behavior, reproduction steps, and expected behavior — which helps diagnose issues across different installation environments.
+
 > **Note:** Do not patch `.claude/bin/` files directly. Those files are managed by tusk and will be overwritten the next time you run `tusk upgrade`. To contribute a fix, open an issue or submit a pull request to the source repository.
