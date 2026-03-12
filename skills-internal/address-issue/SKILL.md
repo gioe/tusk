@@ -265,9 +265,15 @@ gh issue close <number> --repo <owner/repo> --comment "Resolved in <commit_sha> 
 
 Use the `commit_sha` from Step 8. If a PR URL is available, include it; otherwise use the branch name.
 
-If the `gh` command fails (e.g. insufficient permissions), report the error and remind the user to close the issue manually:
-
-> Could not close issue #<N> automatically. Please close it at: https://github.com/<owner/repo>/issues/<N>
+If the `gh` command fails, inspect the error output:
+- If the output contains the phrase `already in a 'closed'` (e.g. `already in a 'closed' state`), post the resolution note as a standalone comment:
+  ```bash
+  gh issue comment <number> --repo <owner/repo> --body "Resolved in <commit_sha> — <pr_url_or_branch>. Tracked as tusk task #<task_id>."
+  ```
+  - If the comment succeeds, continue to Step 10 normally.
+  - If the comment also fails (e.g. issue is locked), fall through to the manual close URL below.
+- Otherwise (e.g. insufficient permissions), report the error and remind the user to close the issue manually:
+  > Could not close issue #<N> automatically. Please close it at: https://github.com/<owner/repo>/issues/<N>
 
 ### Step 10: Retro
 
