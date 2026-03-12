@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [398] - 2026-03-12
+
+- [TASK-581] Add escape-detection guard for absolute paths in tusk-commit.py
+
 ## [397] - 2026-03-12
 
 - [TASK-579] Fix tusk commit pathspec error when paths are relative to a subdirectory

@@ -145,6 +145,10 @@ def main(argv: list[str]) -> int:
     escape_errors: list[tuple[str, str]] = []
     for f in files:
         if os.path.isabs(f):
+            abs_path = os.path.normpath(f)
+            rel = os.path.relpath(abs_path, repo_root)
+            if rel.startswith(".."):
+                escape_errors.append((f, abs_path))
             resolved_files.append(f)
         else:
             abs_path = os.path.normpath(os.path.join(caller_cwd, f))
