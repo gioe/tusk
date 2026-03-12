@@ -47,6 +47,14 @@ tusk setup
 
 Parse the returned JSON. Hold `config` (domains, agents, task_types, priorities, complexity) and `backlog` (open tasks) in context. You'll need both during investigation — `backlog` lets you catch tasks that already cover the same ground, which is also a first-class reason to conclude "no action needed."
 
+If `PILLARS.md` exists in the project root, read it now:
+
+```
+Read file: <project_root>/PILLARS.md
+```
+
+Hold the pillar definitions in context — you will use them in Step 5 to evaluate whether proposed tasks align with the project's design values.
+
 ## Step 4: Investigate
 
 Use read-only tools to understand the problem. Shape the investigation around the problem statement — don't go wide for completeness, go deep where the problem points.
@@ -75,7 +83,25 @@ Use read-only tools to understand the problem. Shape the investigation around th
 
 Stop when you have a clear picture of the problem area — whether that leads to concrete remediation tasks or to the conclusion that no action is needed.
 
+**Exhaustiveness:** Report every distinct finding the evidence supports — do not force findings into clusters to reach a round number. The correct count may be 0, 1, 4, 7, or any other number. Artificial grouping hides signal; artificial splitting adds noise. Let the data determine the count.
+
 ## Step 5: Write the Investigation Report
+
+Before drafting the report, apply the **Decision Criteria** filter to each potential finding:
+
+### Decision Criteria
+
+A finding belongs in **Proposed Remediation** only if it passes all five filters. If it fails any filter, move it to **Out of Scope** and note which filter it failed and why.
+
+| Filter | Question to ask |
+|--------|-----------------|
+| **Pillar impact** | Does acting on this finding align with at least one project pillar (from PILLARS.md, if loaded)? Findings that conflict with core design values belong out of scope regardless of severity. |
+| **Root cause vs. symptom** | Is this the root cause, or a downstream symptom of another finding already in scope? Symptoms should reference their root-cause task rather than get their own. |
+| **Actionability** | Can a task be written with clear, verifiable acceptance criteria? Vague concerns without a concrete "done" condition belong in Open Questions, not Proposed Remediation. |
+| **Cost of inaction** | If left unfixed, does this finding cause measurable harm (data loss, user-facing breakage, security risk, compounding tech debt)? Low-stakes cosmetic issues that are "nice to fix" belong out of scope. |
+| **Backlog coverage** | Is an open backlog task already addressing this? If yes, note the existing task ID and exclude it from Proposed Remediation. |
+
+---
 
 Prepare the report before exiting plan mode. Format:
 
@@ -94,16 +120,18 @@ Detailed explanation. Include relevant code snippets inline (do not re-read file
 
 ### Proposed Remediation *(omit this section if investigation finds nothing actionable)*
 
-**Task 1: <imperative summary>** (Priority · Domain · Type · Complexity)
-> What needs to be done and why. Include 2–3 acceptance criteria ideas.
+> Zero tasks is a valid outcome. Only include tasks that passed all five Decision Criteria filters above.
 
-**Task 2: <imperative summary>** (Priority · Domain · Type · Complexity)
+**<imperative summary>** (Priority · Domain · Type · Complexity)
+> What needs to be done and why. Include acceptance criteria ideas.
+
+**<imperative summary>** (Priority · Domain · Type · Complexity)
 > ...
 
 *If no remediation is warranted, replace this section with a brief explanation of why no action is needed.*
 
 ### Out of Scope
-Related issues discovered that should not be part of this remediation. Candidates for separate tasks or future work.
+Related issues discovered that did not pass the Decision Criteria filters. Note which filter each failed. Candidates for separate tasks or future work.
 
 ### Open Questions
 Ambiguities or decisions that need input before work can begin. Omit this section if none.
@@ -114,7 +142,7 @@ Ambiguities or decisions that need input before work can begin. Omit this sectio
 Use `ExitPlanMode` to present the investigation report for user review. Set `allowedPrompts` to allow only task creation — no implementation:
 
 ```json
-[{"tool": "Bash", "prompt": "run tusk task-insert commands to create tasks if the user approves"}]
+[{"tool": "Bash", "prompt": "run /create-task to create tasks if the user approves"}]
 ```
 
 After presenting the report, explicitly ask the user:
