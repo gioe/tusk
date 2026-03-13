@@ -63,15 +63,15 @@ def _insert_session(conn: sqlite3.Connection, task_id: int, *, closed: bool = Fa
 
 
 # ---------------------------------------------------------------------------
-# _checkpoint_wal tests
+# checkpoint_wal tests
 # ---------------------------------------------------------------------------
 
 class TestCheckpointWal:
 
     def test_uses_truncate_mode(self, db_path, config_path):
-        """_checkpoint_wal issues PRAGMA wal_checkpoint(TRUNCATE), not FULL."""
+        """checkpoint_wal issues PRAGMA wal_checkpoint(TRUNCATE), not FULL."""
         issued_pragmas = []
-        original_get_connection = tusk_merge.get_connection
+        original_get_connection = tusk_merge._db_lib.get_connection
 
         class _TrackingConn:
             def __init__(self, inner):
@@ -87,13 +87,13 @@ class TestCheckpointWal:
         def _patched_get_connection(path):
             return _TrackingConn(original_get_connection(path))
 
-        tusk_merge.get_connection = _patched_get_connection
+        tusk_merge._db_lib.get_connection = _patched_get_connection
         try:
             buf = io.StringIO()
             with redirect_stderr(buf):
-                tusk_merge._checkpoint_wal(str(db_path))
+                tusk_merge.checkpoint_wal(str(db_path))
         finally:
-            tusk_merge.get_connection = original_get_connection
+            tusk_merge._db_lib.get_connection = original_get_connection
 
         assert any("TRUNCATE" in p for p in issued_pragmas), (
             f"Expected PRAGMA wal_checkpoint(TRUNCATE) but got: {issued_pragmas}"
@@ -103,15 +103,15 @@ class TestCheckpointWal:
         )
 
     def test_succeeds_on_clean_db(self, db_path, config_path):
-        """_checkpoint_wal completes without error on a freshly initialised DB."""
+        """checkpoint_wal completes without error on a freshly initialised DB."""
         buf = io.StringIO()
         with redirect_stderr(buf):
             # Should not raise; should print "Checkpointing WAL..."
-            tusk_merge._checkpoint_wal(str(db_path))
+            tusk_merge.checkpoint_wal(str(db_path))
         assert "Checkpointing WAL" in buf.getvalue()
 
     def test_prints_warning_when_blocked(self, db_path, config_path, monkeypatch):
-        """_checkpoint_wal warns when checkpoint is blocked after all retries."""
+        """checkpoint_wal warns when checkpoint is blocked after all retries."""
         # Simulate checkpoint always returning busy=1
         original_get_connection = tusk_merge.get_connection
 
@@ -125,19 +125,19 @@ class TestCheckpointWal:
             def close(self):
                 pass
 
-        monkeypatch.setattr(tusk_merge, "get_connection", lambda p: _BusyConn())
-        monkeypatch.setattr(tusk_merge.time, "sleep", lambda s: None)
+        monkeypatch.setattr(tusk_merge._db_lib, "get_connection", lambda p: _BusyConn())
+        monkeypatch.setattr(tusk_merge._db_lib.time, "sleep", lambda s: None)
 
         buf = io.StringIO()
         with redirect_stderr(buf):
-            tusk_merge._checkpoint_wal(str(db_path), max_retries=2)
+            tusk_merge.checkpoint_wal(str(db_path), max_retries=2)
 
         output = buf.getvalue()
         assert "partially blocked" in output
         assert "2 attempts" in output
 
     def test_partial_checkpoint_not_silent(self, db_path, config_path, monkeypatch):
-        """_checkpoint_wal does not return silently when busy=0 but log > checkpointed.
+        """checkpoint_wal does not return silently when busy=0 but log > checkpointed.
 
         A partial checkpoint (busy=0, log=10, checkpointed=5) means SQLite finished
         without busy readers but did not flush all pages — the function must retry
@@ -154,12 +154,12 @@ class TestCheckpointWal:
             def close(self):
                 pass
 
-        monkeypatch.setattr(tusk_merge, "get_connection", lambda p: _PartialConn())
-        monkeypatch.setattr(tusk_merge.time, "sleep", lambda s: None)
+        monkeypatch.setattr(tusk_merge._db_lib, "get_connection", lambda p: _PartialConn())
+        monkeypatch.setattr(tusk_merge._db_lib.time, "sleep", lambda s: None)
 
         buf = io.StringIO()
         with redirect_stderr(buf):
-            tusk_merge._checkpoint_wal(str(db_path), max_retries=2)
+            tusk_merge.checkpoint_wal(str(db_path), max_retries=2)
 
         output = buf.getvalue()
         assert "partially blocked" in output, (
@@ -251,8 +251,8 @@ class TestMergeRecoveryHint:
         finally:
             conn.close()
 
-        # Suppress _checkpoint_wal so it doesn't touch the live WAL during tests.
-        monkeypatch.setattr(tusk_merge, "_checkpoint_wal", lambda *a, **kw: None)
+        # Suppress checkpoint_wal so it doesn't touch the live WAL during tests.
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda *a, **kw: None)
 
         # Return a fake branch name so find_task_branch doesn't shell out.
         monkeypatch.setattr(
@@ -415,7 +415,7 @@ class TestMergeWalGapWarning:
         finally:
             conn.close()
 
-        monkeypatch.setattr(tusk_merge, "_checkpoint_wal", lambda *a, **kw: None)
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda *a, **kw: None)
         monkeypatch.setattr(
             tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None)
         )
@@ -449,7 +449,7 @@ class TestMergeWalGapWarning:
         finally:
             conn.close()
 
-        monkeypatch.setattr(tusk_merge, "_checkpoint_wal", lambda *a, **kw: None)
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda *a, **kw: None)
         monkeypatch.setattr(
             tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None)
         )
@@ -486,7 +486,7 @@ class TestMergeWalGapWarning:
         finally:
             conn.close()
 
-        monkeypatch.setattr(tusk_merge, "_checkpoint_wal", lambda *a, **kw: None)
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda *a, **kw: None)
         monkeypatch.setattr(
             tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None)
         )
