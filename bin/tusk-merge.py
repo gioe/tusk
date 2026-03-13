@@ -445,6 +445,8 @@ def main(argv: list[str]) -> int:
             err = unstaged.stderr.strip() or staged.stderr.strip()
             print(f"Error: git diff failed:\n{err}", file=sys.stderr)
             return 1
+        # Filter is used only to gate whether a stash is attempted at all —
+        # tasks.db is gitignored so git stash excludes it automatically.
         dirty_files = list(dict.fromkeys(
             f
             for f in unstaged.stdout.splitlines() + staged.stdout.splitlines()
