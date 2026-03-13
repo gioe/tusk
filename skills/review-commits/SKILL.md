@@ -39,13 +39,15 @@ git branch --show-current
 
 Parse the branch name for the pattern `TASK-<id>` (e.g., `feature/TASK-123-my-feature` → task ID 123). If no task ID can be found, ask the user to provide one.
 
-Verify the task exists:
+Verify the task exists and capture its domain:
 
 ```bash
-tusk -header -column "SELECT id, summary, status FROM tasks WHERE id = <task_id>"
+tusk -header -column "SELECT id, summary, status, domain FROM tasks WHERE id = <task_id>"
 ```
 
 If no row is returned, abort: "Task `<task_id>` not found."
+
+Store the task's `domain` value (may be NULL/empty — this is used to filter reviewers in Step 5).
 
 ## Step 3: Get the Git Diff
 
@@ -89,6 +91,22 @@ Read file: <base_directory>/REVIEWER-PROMPT.md
 ```
 
 Where `<base_directory>` is the skill base directory shown at the top of this file.
+
+**Filter reviewers by task domain before spawning:**
+
+Using the `reviewer name → review_id` mapping from Step 4 and the task domain from Step 2, determine which reviewers to spawn:
+
+- A reviewer with an **empty or absent `domains` array** → always spawn (general reviewer).
+- A reviewer with a **non-empty `domains` array** → spawn only if the task's domain appears in that array.
+- If the task has **no domain (NULL/empty)** → spawn only reviewers with an empty or absent `domains` array.
+
+For each review_id whose reviewer was filtered out by this logic, immediately auto-approve it without spawning an agent:
+
+```bash
+tusk review approve <review_id> --note "Skipped: reviewer domains [<reviewer_domains>] does not match task domain [<task_domain>]"
+```
+
+Proceed to spawn agents **only for the remaining (non-filtered) review_ids**.
 
 For each review_id, spawn a **background agent** using the Task tool. Issue **all Task tool calls in a single message** to run them in parallel:
 

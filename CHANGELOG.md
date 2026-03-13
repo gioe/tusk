@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [402] - 2026-03-13
+
+- [TASK-588] Filter review-commits reviewer spawning by reviewer domains field
+
 ## [401] - 2026-03-12
 
 - [TASK-584] Fix tusk merge git stash failure when modified files exist outside feature branch scope
