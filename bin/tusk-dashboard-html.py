@@ -359,12 +359,12 @@ def generate_css() -> str:
     return '<style>\n' + _load_dashboard_css_module().CSS + '\n</style>'
 
 
-def generate_header(now: str, tz_label: str = "") -> str:
+def generate_header(now: str, tz_label: str = "", project_name: str = "Tusk") -> str:
     """Generate the page header bar with theme toggle and tab navigation."""
     tz_suffix = f" ({esc(tz_label)})" if tz_label else ""
     return f"""\
 <div class="header">
-  <h1>Tusk &mdash; Task Metrics</h1>
+  <h1>{esc(project_name)} &mdash; Task Metrics</h1>
   <div style="display:flex;align-items:center;gap:var(--sp-3);">
     <span class="timestamp">Generated {esc(now)}{tz_suffix}</span>
     <button class="theme-toggle" id="themeToggle" title="Toggle dark mode" aria-label="Toggle dark mode">

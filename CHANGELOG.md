@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [400] - 2026-03-12
+
+- [TASK-583] Update dashboard header to use project name
+
 ## [399] - 2026-03-12
 
 - [TASK-582] Fix review-commits: reviewer agent should fetch git diff itself

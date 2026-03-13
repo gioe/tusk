@@ -125,7 +125,8 @@ def generate_html(task_metrics: list[dict],
                   tool_call_events_per_criterion: list[dict] = None,
                   utc_offset_minutes: int = 0,
                   hourly_cost: list[dict] = None,
-                  dow_hour_heatmap: list[dict] = None) -> str:
+                  dow_hour_heatmap: list[dict] = None,
+                  project_name: str = "Tusk") -> str:
     """Generate the full HTML dashboard by composing sub-functions."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     tz_label = _tz_label(utc_offset_minutes)
@@ -229,7 +230,7 @@ def generate_html(task_metrics: list[dict],
     )
 
     css = generate_css()
-    header = generate_header(now, tz_label)
+    header = generate_header(now, tz_label, project_name)
     footer = generate_footer(now, version)
     filter_bar = generate_filter_bar()
     table_header = generate_table_header()
@@ -257,7 +258,7 @@ def generate_html(task_metrics: list[dict],
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Tusk &mdash; Task Metrics</title>
+<title>{project_name} &mdash; Task Metrics</title>
 {theme_init}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
@@ -395,6 +396,10 @@ def main():
             break
     log.debug("Version: %s", version)
 
+    # Derive project name for use in HTML header and output filename
+    db_dir = os.path.dirname(db_path)
+    project_name = os.path.basename(os.path.dirname(db_dir))
+
     # Generate HTML
     html_content = generate_html(
         task_metrics, cost_trend, all_criteria,
@@ -407,12 +412,9 @@ def main():
         utc_offset_minutes=utc_offset_minutes,
         hourly_cost=hourly_cost,
         dow_hour_heatmap=dow_hour_heatmap,
+        project_name=project_name,
     )
     log.debug("Generated %d bytes of HTML", len(html_content))
-
-    # Write to tusk/<project>-dashboard.html (same dir as DB)
-    db_dir = os.path.dirname(db_path)
-    project_name = os.path.basename(os.path.dirname(db_dir))
     output_path = os.path.join(db_dir, f"{project_name}-dashboard.html")
     with open(output_path, "w") as f:
         f.write(html_content)
