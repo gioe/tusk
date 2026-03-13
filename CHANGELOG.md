@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [399] - 2026-03-12
+
+- [TASK-582] Fix review-commits: reviewer agent should fetch git diff itself
+
 ## [398] - 2026-03-12
 
 - [TASK-581] Add escape-detection guard for absolute paths in tusk-commit.py

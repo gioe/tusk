@@ -66,7 +66,7 @@ git diff HEAD~1..HEAD
 
 If the diff is still empty after the fallback (or if on a feature branch with no changes), report "No changes found compared to the base branch." and stop.
 
-Capture the diff content — it will be passed to each reviewer agent.
+Capture the diff only to check for emptiness and to generate the `--diff-summary` for `tusk review start`. **Do not pass the diff to reviewer agents** — they will fetch it themselves via `git diff` to avoid transcription errors.
 
 ## Step 4: Start Reviews
 
@@ -105,9 +105,10 @@ Fill in these placeholders from the template:
 - `{review_id}` — the review ID for this reviewer
 - `{reviewer_name}` — the reviewer's `name` field, or "unassigned" if none
 - `{reviewer_focus}` — the reviewer's `description` field, or "General code review: correctness, clarity, and consistency." if none
-- `{diff_content}` — the full diff text, verbatim from the `git diff` bash command output. Never retype or paraphrase the diff — copy it exactly as printed.
 - `{review_categories}` — comma-separated list from config (e.g., `must_fix, suggest, defer`)
 - `{review_severities}` — comma-separated list from config (e.g., `critical, major, minor`)
+
+**Do not pass the diff inline.** Each reviewer agent fetches the diff itself via `git diff` (see REVIEWER-PROMPT.md Step 1). This prevents transcription errors from the orchestrator-to-agent copy.
 
 After spawning, record a map of: review_id → agent task ID.
 
@@ -217,18 +218,12 @@ If any `must_fix` comments were fixed in Step 7, re-run the review to verify the
 
 Track current pass number (starts at 1). If `current_pass < max_passes`:
 
-1. Get the updated diff:
-   ```bash
-   git diff "${DEFAULT_BRANCH}...HEAD"
-   ```
-   If the diff is empty and on the default branch, fall back to `HEAD~1..HEAD` (same logic as Step 3).
-
-2. Start a new review pass:
+1. Start a new review pass:
    ```bash
    tusk review start <task_id> --pass-num <current_pass + 1> --diff-summary "Re-review pass <n>"
    ```
 
-3. Spawn reviewer agents again (Step 5) with the new review IDs and updated diff.
+2. Spawn reviewer agents again (Step 5) with the new review IDs. Reviewer agents fetch the diff themselves — no diff is passed inline.
 
 4. Monitor completion (Step 6) and process findings (Step 7).
 
