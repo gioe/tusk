@@ -40,6 +40,45 @@ def _argv(tmp_path, files=None):
     return [str(tmp_path), str(config), "42", "my message"] + (files or ["somefile.py"])
 
 
+class TestDoubledPrefixRegression:
+    """Regression: path prefix is not doubled when caller_cwd is a subdirectory
+    whose name matches the first component of the passed path (GitHub Issue #344)."""
+
+    def test_repo_root_relative_path_from_matching_subdir(self, tmp_path):
+        """tusk commit from inside svc/ with path svc/app/foo.py must not double-prefix."""
+        mod = _load_module()
+
+        # Repo layout: tmp_path/svc/app/foo.py
+        svc_dir = tmp_path / "svc"
+        app_dir = svc_dir / "app"
+        app_dir.mkdir(parents=True)
+        target = app_dir / "foo.py"
+        target.write_text("# foo")
+
+        # User is inside tmp_path/svc/ and passes the repo-root-relative path
+        argv = _argv(tmp_path, files=["svc/app/foo.py"])
+
+        captured_add_args = []
+
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                captured_add_args.extend(args[2:])
+                return _make_completed(0)
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="abc123\n")
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(0, stdout="[main abc123] commit")
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(svc_dir)):
+            rc = mod.main(argv)
+
+        assert rc == 0
+        assert len(captured_add_args) == 1
+        assert captured_add_args[0] == os.path.join("svc", "app", "foo.py")
+
+
 class TestSubdirectoryPathResolution:
     """Paths relative to a subdirectory CWD are resolved to repo-root-relative."""
 

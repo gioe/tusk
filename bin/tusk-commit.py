@@ -151,7 +151,19 @@ def main(argv: list[str]) -> int:
                 escape_errors.append((f, abs_path))
             resolved_files.append(abs_path)
         else:
-            abs_path = os.path.normpath(os.path.join(caller_cwd, f))
+            abs_path_cwd = os.path.normpath(os.path.join(caller_cwd, f))
+            abs_path_root = os.path.normpath(os.path.join(repo_root, f))
+            # Prefer CWD-relative if it exists (original monorepo use case).
+            # Fall back to repo-root-relative when the CWD-relative path is
+            # missing — this prevents the doubled-prefix failure that occurs
+            # when caller_cwd is a subdirectory whose name is also the first
+            # component of the file path (e.g., CWD=repo/svc/, path=svc/foo.py).
+            if os.path.exists(abs_path_cwd):
+                abs_path = abs_path_cwd
+            elif os.path.exists(abs_path_root):
+                abs_path = abs_path_root
+            else:
+                abs_path = abs_path_cwd  # let pre-flight emit the diagnostic
             rel = os.path.relpath(abs_path, repo_root)
             if rel.startswith(".."):
                 escape_errors.append((f, abs_path))

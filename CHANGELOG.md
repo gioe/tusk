@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [404] - 2026-03-13
+
+- [TASK-591] Fix tusk commit doubling path prefix when file path matches subdirectory name
+
 ## [403] - 2026-03-13
 
 - [TASK-589] Add --note flag to tusk review approve
