@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [406] - 2026-03-13
+
+- [TASK-593] Add pre-flight Bash check in review-commits Step 5 before spawning agents
+
 ## [405] - 2026-03-13
 
 - [TASK-592] Fix review-commits re-review agent failing without Bash permissions

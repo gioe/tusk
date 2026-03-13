@@ -84,7 +84,24 @@ Store the mapping: reviewer name → review_id.
 
 ## Step 5: Spawn Parallel Reviewer Agents
 
-Only when the diff is non-empty and reviews have been started in Step 4, read the reviewer prompt template:
+Only when the diff is non-empty and reviews have been started in Step 4, proceed with the steps below.
+
+### Step 5.1: Pre-flight Bash permission check
+
+**Before reading the reviewer prompt or making any Task tool calls**, warn the user:
+
+> **Bash tool required for reviewer agents.**
+> Reviewer agents run `git diff` and `tusk review` commands via Bash. If Bash is **not** auto-approved in this session, agents will spawn, stall waiting for permission, and then be silently treated as approved after the 30-second wait in Step 6 — producing no real review findings.
+>
+> Confirm that Bash is auto-approved in your session settings before continuing, or type **abort** to stop here.
+
+Wait for the user's response:
+- If the user says **abort** (or any clear refusal): stop the skill immediately. Do not proceed to spawn agents.
+- If the user confirms (or gives any non-abort response): continue to Step 5.2.
+
+### Step 5.2: Read reviewer prompt and spawn agents
+
+Read the reviewer prompt template:
 
 ```
 Read file: <base_directory>/REVIEWER-PROMPT.md
@@ -127,8 +144,6 @@ Fill in these placeholders from the template:
 - `{review_severities}` — comma-separated list from config (e.g., `critical, major, minor`)
 
 **Do not pass the diff inline.** Each reviewer agent fetches the diff itself via `git diff` (see REVIEWER-PROMPT.md Step 1). This prevents transcription errors from the orchestrator-to-agent copy.
-
-> **Bash permissions required:** Reviewer agents need Bash tool access to run `git diff` and `tusk review` commands. If Bash is not auto-approved in the session, agents will stall waiting for permission and appear stuck. Ensure Bash is auto-approved before spawning agents (or warn the user before proceeding).
 
 After spawning, record a map of: review_id → agent task ID.
 
