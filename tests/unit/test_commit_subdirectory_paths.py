@@ -78,6 +78,42 @@ class TestDoubledPrefixRegression:
         assert len(captured_add_args) == 1
         assert captured_add_args[0] == os.path.join("svc", "app", "foo.py")
 
+    def test_cwd_relative_preferred_when_both_exist(self, tmp_path):
+        """When both CWD-relative and repo-root-relative paths exist, CWD-relative wins."""
+        mod = _load_module()
+
+        # Repo layout: two files that could match:
+        #   tmp_path/svc/widget.py     (CWD-relative: caller is in svc/, passes widget.py)
+        #   tmp_path/widget.py         (repo-root-relative: same path relative to root)
+        svc_dir = tmp_path / "svc"
+        svc_dir.mkdir()
+        (svc_dir / "widget.py").write_text("# svc version")
+        (tmp_path / "widget.py").write_text("# root version")
+
+        argv = _argv(tmp_path, files=["widget.py"])
+
+        captured_add_args = []
+
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                captured_add_args.extend(args[2:])
+                return _make_completed(0)
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="abc123\n")
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(0, stdout="[main abc123] commit")
+            return _make_completed(0)
+
+        # Caller is inside svc/ — the CWD-relative path (svc/widget.py) should win
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(svc_dir)):
+            rc = mod.main(argv)
+
+        assert rc == 0
+        assert len(captured_add_args) == 1
+        # CWD-relative wins: svc/widget.py (repo-root-relative), not widget.py
+        assert captured_add_args[0] == "svc/widget.py"
+
 
 class TestSubdirectoryPathResolution:
     """Paths relative to a subdirectory CWD are resolved to repo-root-relative."""
