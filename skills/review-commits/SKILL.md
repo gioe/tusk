@@ -166,7 +166,11 @@ Wait for all reviewer agents to finish:
 
 3. For each pending review, check whether its agent has finished using `TaskOutput` with `block: false` and the agent task ID:
    - If **any agent is still running**, go back to step 1.
-   - If **all agents have completed** but some reviews are still `"pending"`, those agents finished without calling `tusk review approve` or `tusk review request-changes`. Log a warning for each stuck review — the most common cause is missing Bash tool permissions (the agent could not run `git diff` or `tusk review`). Continue as if those reviews returned no findings (treat as approved).
+   - If **all agents have completed** but some reviews are still `"pending"`, those agents finished without calling `tusk review approve` or `tusk review request-changes`. For each stuck review, log a warning and auto-approve it with a note:
+     ```bash
+     tusk review approve <review_id> --note "Auto-approved: reviewer agent completed without posting a decision (likely Bash tool not permitted in agent sandbox)"
+     ```
+     The most common cause is missing Bash tool permissions (the agent could not run `git diff` or `tusk review`). Continue as if those reviews returned no findings.
 
 ## Step 7: Process Findings
 

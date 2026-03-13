@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [408] - 2026-03-13
+
+- [TASK-596] Fix review-commits: auto-resolve stuck-pending reviews with tusk review approve
+
 ## [407] - 2026-03-13
 
 - [TASK-594] Fix: tusk review status reports open:1 when review has no comments
