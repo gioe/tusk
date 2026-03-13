@@ -121,12 +121,12 @@ Wait for user confirmation before proceeding to Step 5. If the bug is confirmed 
 
 ## Step 4.7: Model Recommendation
 
-Evaluate the issue against the following five factors, **in priority order**, to produce an **Address / Defer / Decline** verdict with a 1–2 sentence rationale.
+Evaluate the issue against the following five factors, **in priority order**, to produce an **Address / Defer / Decline** verdict with a 1–2 sentence rationale. A higher-priority factor overrides lower-priority bias when they conflict.
 
 | # | Factor | How to Evaluate |
 |---|--------|-----------------|
 | 1 | **Pillar alignment** | Does the issue align with the project's design values in `PILLARS.md`? If `PILLARS.md` does not exist, skip this factor. Strong misalignment → bias toward Decline. |
-| 2 | **Backlog coverage** | Is an open task already covering this issue (from the backlog fetched in Step 3)? If yes → **Decline** (duplicate). |
+| 2 | **Backlog coverage** | Is an open task already covering this issue (from the backlog fetched in Step 3)? If yes → **Decline** (duplicate). Include the covering task ID in the rationale so the user can evaluate the override. |
 | 3 | **Scope relevance** | Does the issue fit the project's stated purpose? Out-of-scope requests → bias toward Decline. |
 | 4 | **Severity / cost of inaction** | Does inaction risk data loss, user-facing breakage, or a security vulnerability? If yes → bias strongly toward **Address**. |
 | 5 | **Issue quality** | Is the report clear, reproducible, and actionable? Vague, unverifiable, or too abstract → bias toward Decline. |
@@ -167,7 +167,7 @@ Then ask, **bolding the option that matches the recommendation**:
   > Create this task? You can confirm (implement now), **defer** (add to backlog, no immediate work), edit (e.g., "change priority to High"), decline (close the issue without creating a task), or cancel.
 
 - If recommendation is **Decline**:
-  > Create this task? You can confirm (implement now), defer (add to backlog, no immediate work), edit (e.g., "change priority to High"), **decline** (close the issue without creating a task), or cancel.
+  > Create this task? You can proceed anyway (implement now), defer (add to backlog, no immediate work), edit (e.g., "change priority to High"), **decline** (close the issue without creating a task), or cancel.
 
 The user retains full veto power — any option may be chosen regardless of the recommendation.
 
