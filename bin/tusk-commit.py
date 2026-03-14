@@ -34,6 +34,23 @@ import sys
 TRAILER = "Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 
 
+def _escapes_root(real_abs: str, real_repo_root: str) -> bool:
+    """Return True if real_abs is not inside real_repo_root.
+
+    On macOS (case-insensitive APFS/HFS+), path components can differ in case
+    (e.g. /Users/foo/desktop vs /Users/foo/Desktop) while pointing to the same
+    inode.  os.path.realpath() does NOT canonicalize case on macOS — it only
+    resolves symlinks — so a plain os.path.relpath comparison produces false
+    positives when the stored repo root and the active CWD differ in case.
+    We fold case on Darwin before the comparison to match the filesystem's rules.
+    """
+    if sys.platform == "darwin":
+        rel = os.path.relpath(real_abs.lower(), real_repo_root.lower())
+    else:
+        rel = os.path.relpath(real_abs, real_repo_root)
+    return rel.startswith("..")
+
+
 def run(args: list[str], check: bool = True, cwd: str | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(args, capture_output=True, text=True, check=check, cwd=cwd)
 
@@ -129,8 +146,7 @@ def main(argv: list[str]) -> int:
         if os.path.isabs(f):
             abs_path = os.path.normpath(f)
             real_abs = os.path.realpath(abs_path)
-            rel = os.path.relpath(real_abs, real_repo_root)
-            if rel.startswith(".."):
+            if _escapes_root(real_abs, real_repo_root):
                 escape_errors.append((f, abs_path))
             resolved_files.append(abs_path)
         else:
@@ -153,8 +169,7 @@ def main(argv: list[str]) -> int:
             # ancestors to their canonical form and passes through any
             # non-existing tail unchanged (strict=False default behaviour).
             real_abs = os.path.realpath(abs_path)
-            rel = os.path.relpath(real_abs, real_repo_root)
-            if rel.startswith(".."):
+            if _escapes_root(real_abs, real_repo_root):
                 escape_errors.append((f, abs_path))
             resolved_files.append(os.path.relpath(abs_path, repo_root))
 

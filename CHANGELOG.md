@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [419] - 2026-03-14
+
+- [TASK-617] Fix tusk commit path-escape false positive when repo root and CWD differ only in case on macOS
+
 ## [418] - 2026-03-14
 
 - Harden macOS case-insensitive path escape check: remove os.path.exists guard on realpath calls so absolute paths with wrong-case components are normalised correctly; add regression test covering this scenario (GitHub Issue #355)

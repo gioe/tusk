@@ -9,6 +9,7 @@ GitHub Issue #336.
 import importlib.util
 import os
 import subprocess
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -332,7 +333,7 @@ class TestSubdirectoryPathResolution:
 
 
 class TestCaseInsensitiveFsRegression:
-    """Regression: macOS case-insensitive filesystem path mismatch must not trigger path-escapes error (GitHub Issue #354)."""
+    """Regression: macOS case-insensitive filesystem path mismatch must not trigger path-escapes error (GitHub Issues #354, #357)."""
 
     def test_commit_succeeds_when_repo_root_is_symlink_to_cwd(self, tmp_path, capsys):
         """tusk commit succeeds when repo_root is a symlink whose realpath differs from the passed root.
@@ -375,15 +376,23 @@ class TestCaseInsensitiveFsRegression:
         assert rc == 0, capsys.readouterr().err
         assert captured_add_args[0] == "--"
 
+    @pytest.mark.skipif(sys.platform != "darwin", reason="tests macOS case-insensitive FS logic")
     def test_commit_succeeds_when_repo_root_capitalization_differs(self, tmp_path, capsys):
-        """tusk commit succeeds when git's repo root path differs in case from the CWD (macOS scenario)."""
+        """tusk commit succeeds when git's repo root path differs in case from the CWD (macOS scenario).
+
+        On real macOS, os.path.realpath does NOT canonicalize case — it only resolves
+        symlinks.  The fix in _escapes_root() uses .lower() on both paths when
+        sys.platform == 'darwin' so that paths differing only in case are treated as
+        equivalent, without relying on realpath to normalize them.
+        """
         mod = _load_module()
 
         target_file = tmp_path / "file.py"
         target_file.write_text("# file")
 
-        # Simulate macOS: argv[0] (repo_root) is lowercase (as git may return it), but
-        # os.path.realpath canonicalises it back to the filesystem-canonical capitalisation.
+        # Simulate macOS: argv[0] (repo_root) is lowercase (as git may return it).
+        # Unlike the previous version of this test, we do NOT mock realpath to
+        # canonicalize case — real macOS realpath does not do that.
         lowercase_root = str(tmp_path).lower()
         argv = _argv(tmp_path, files=["file.py"])
         argv[0] = lowercase_root  # override repo_root with lowercase variant
@@ -400,17 +409,7 @@ class TestCaseInsensitiveFsRegression:
                 return _make_completed(0, stdout="[main abc123] commit")
             return _make_completed(0)
 
-        # Save real realpath before patching so the fake can delegate to it for non-root paths.
-        _real_realpath = os.path.realpath
-
-        def fake_realpath(p):
-            # Simulate macOS realpath: lowercase root → canonical-case root.
-            if p.lower() == str(tmp_path).lower() and not p.endswith(os.sep):
-                return str(tmp_path)
-            return _real_realpath(p)
-
         with patch("subprocess.run", side_effect=fake_run), \
-             patch("os.path.realpath", side_effect=fake_realpath), \
              patch("os.getcwd", return_value=str(tmp_path)):
             rc = mod.main(argv)
 
@@ -499,6 +498,56 @@ class TestCaseInsensitiveFsRegression:
         captured = capsys.readouterr()
         assert "Error: path escapes the repo root" in captured.err
         assert str(outside_file) in captured.err
+
+    @pytest.mark.skipif(sys.platform != "darwin", reason="tests macOS case-insensitive FS logic")
+    def test_commit_issue_357_cwd_uppercase_root_lowercase(self, tmp_path, capsys):
+        """Regression for GitHub Issue #357: tusk commit must not reject valid paths when the
+        stored repo root uses a different case than the CWD path (e.g. desktop vs Desktop).
+
+        Exact scenario from the report:
+          - repo_root stored as: /Users/mattgioe/desktop/projects/laughtrack  (lowercase d)
+          - caller CWD:          /Users/mattgioe/Desktop/projects/laughtrack/apps/web
+          - file passed:         apps/web/ui/components/modals/basic/index.tsx
+
+        On macOS, os.path.realpath does NOT canonicalize case, so the repo root stays
+        lowercase while real_abs resolves to the canonical-case path.  The escape check
+        must use case-insensitive comparison (_escapes_root) rather than relying on
+        realpath to normalize the case difference.
+        """
+        mod = _load_module()
+
+        # Set up a real subdirectory structure under tmp_path (canonical case).
+        subdir = tmp_path / "apps" / "web" / "ui"
+        subdir.mkdir(parents=True)
+        target_file = subdir / "index.tsx"
+        target_file.write_text("// component")
+
+        canonical_root = str(tmp_path)
+        lowercase_root = canonical_root.lower()
+
+        # argv[0] is the lowercase root (as git may return on macOS with case mismatch).
+        # CWD is the canonical-case subdirectory.
+        caller_cwd = str(tmp_path / "apps" / "web")
+        argv = _argv(tmp_path, files=["ui/index.tsx"])
+        argv[0] = lowercase_root
+
+        captured_add_args = []
+
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                captured_add_args.extend(args[2:])
+                return _make_completed(0)
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="abc123\n")
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(0, stdout="[main abc123] commit")
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=caller_cwd):
+            rc = mod.main(argv)
+
+        assert rc == 0, capsys.readouterr().err
 
 
 class TestMarkdownFileRegression:
