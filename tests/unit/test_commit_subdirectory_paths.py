@@ -75,8 +75,8 @@ class TestDoubledPrefixRegression:
             rc = mod.main(argv)
 
         assert rc == 0
-        assert len(captured_add_args) == 1
-        assert captured_add_args[0] == os.path.join("svc", "app", "foo.py")
+        assert captured_add_args[0] == "--"
+        assert captured_add_args[1] == os.path.join("svc", "app", "foo.py")
 
     def test_cwd_relative_preferred_when_both_exist(self, tmp_path):
         """When both CWD-relative and repo-root-relative paths exist, CWD-relative wins."""
@@ -110,9 +110,9 @@ class TestDoubledPrefixRegression:
             rc = mod.main(argv)
 
         assert rc == 0
-        assert len(captured_add_args) == 1
+        assert captured_add_args[0] == "--"
         # CWD-relative wins: svc/widget.py (repo-root-relative), not widget.py
-        assert captured_add_args[0] == "svc/widget.py"
+        assert captured_add_args[1] == "svc/widget.py"
 
 
 class TestSubdirectoryPathResolution:
@@ -151,8 +151,8 @@ class TestSubdirectoryPathResolution:
 
         assert rc == 0
         # Should have resolved to repo-root-relative: apps/scraper/tests/test_foo.py
-        assert len(captured_add_args) == 1
-        assert captured_add_args[0] == os.path.join("apps", "scraper", "tests", "test_foo.py")
+        assert captured_add_args[0] == "--"
+        assert captured_add_args[1] == os.path.join("apps", "scraper", "tests", "test_foo.py")
 
     def test_repo_root_relative_paths_unchanged(self, tmp_path):
         """Paths already relative to repo root (caller at repo root) pass through unchanged."""
@@ -182,7 +182,7 @@ class TestSubdirectoryPathResolution:
             rc = mod.main(argv)
 
         assert rc == 0
-        assert captured_add_args == ["src/foo.py"]
+        assert captured_add_args == ["--", "src/foo.py"]
 
     def test_missing_path_emits_clear_diagnostic(self, tmp_path, capsys):
         """When a resolved path does not exist, a clear diagnostic is printed and exit 3 returned."""
@@ -280,7 +280,7 @@ class TestSubdirectoryPathResolution:
             rc = mod.main(argv)
 
         assert rc == 0
-        assert captured_add_args == [str(abs_file)]
+        assert captured_add_args == ["--", str(abs_file)]
 
     def test_absolute_path_outside_repo_root_emits_diagnostic(self, tmp_path, capsys):
         """Absolute path outside the repo root emits the same 'path escapes' diagnostic as relative paths."""
@@ -329,3 +329,90 @@ class TestSubdirectoryPathResolution:
         captured = capsys.readouterr()
         assert "Error: path escapes the repo root" in captured.err
         assert "../outside.py" in captured.err
+
+
+class TestMarkdownFileRegression:
+    """Regression: .md files at repo-root-relative paths must be staged correctly (GitHub Issue #350)."""
+
+    def test_md_file_staged_with_separator(self, tmp_path):
+        """git add receives -- separator and repo-root-relative .md path."""
+        mod = _load_module()
+
+        doc_file = tmp_path / "apps" / "web" / "DEPLOYMENT.md"
+        doc_file.parent.mkdir(parents=True)
+        doc_file.write_text("# Deployment")
+
+        argv = _argv(tmp_path, files=["apps/web/DEPLOYMENT.md"])
+
+        captured_add_args = []
+
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                captured_add_args.extend(args[2:])
+                return _make_completed(0)
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="abc123\n")
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(0, stdout="[main abc123] commit")
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(tmp_path)):
+            rc = mod.main(argv)
+
+        assert rc == 0
+        assert captured_add_args[0] == "--"
+        assert captured_add_args[1] == os.path.join("apps", "web", "DEPLOYMENT.md")
+
+    def test_gitignore_rejection_emits_specific_hint(self, tmp_path, capsys):
+        """When git add fails with a gitignore message, tusk emits a hint about -f."""
+        mod = _load_module()
+
+        doc_file = tmp_path / "README.md"
+        doc_file.write_text("# Readme")
+
+        argv = _argv(tmp_path, files=["README.md"])
+
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                return _make_completed(
+                    1,
+                    stderr="The following paths are ignored by one of your .gitignore files:\nREADME.md",
+                )
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(tmp_path)):
+            rc = mod.main(argv)
+
+        assert rc == 3
+        captured = capsys.readouterr()
+        assert ".gitignore" in captured.err
+        assert "git add -f" in captured.err
+
+    def test_git_add_failure_prints_command_and_cwd(self, tmp_path, capsys):
+        """When git add fails, the exact command and cwd are printed for manual reproduction."""
+        mod = _load_module()
+
+        target = tmp_path / "apps" / "web" / "DEPLOYMENT.md"
+        target.parent.mkdir(parents=True)
+        target.write_text("# Deploy")
+
+        argv = _argv(tmp_path, files=["apps/web/DEPLOYMENT.md"])
+
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                return _make_completed(
+                    128,
+                    stderr="fatal: pathspec 'apps/web/DEPLOYMENT.md' did not match any files",
+                )
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(tmp_path)):
+            rc = mod.main(argv)
+
+        assert rc == 3
+        captured = capsys.readouterr()
+        assert str(tmp_path) in captured.err   # cwd printed
+        assert "git add" in captured.err        # command printed

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [415] - 2026-03-14
+
+- [TASK-610] Fix tusk commit exit code 3 (pathspec not found) for .md files
+
 ## [414] - 2026-03-14
 
 - [TASK-609] Fix review-commits Step 5.1 to address Bash permission non-inheritance in background subagents

@@ -208,9 +208,23 @@ def main(argv: list[str]) -> int:
     # ── Step 3: Stage files ──────────────────────────────────────────
     # File paths were already resolved and validated in Step 0.
     # git add handles deletions of tracked files natively since Git 2.x — no git rm needed.
-    result = run(["git", "add"] + resolved_files, check=False, cwd=repo_root)
+    # The -- separator prevents git from misinterpreting file paths as options.
+    result = run(["git", "add", "--"] + resolved_files, check=False, cwd=repo_root)
     if result.returncode != 0:
-        print(f"Error: git add failed:\n{result.stderr.strip()}", file=sys.stderr)
+        stderr_text = result.stderr.strip()
+        files_str = " ".join(resolved_files)
+        print(
+            f"Error: git add failed (cwd: {repo_root}):\n"
+            f"  Command: git add -- {files_str}\n"
+            f"  {stderr_text}",
+            file=sys.stderr,
+        )
+        if "ignored by" in stderr_text or ".gitignore" in stderr_text:
+            print(
+                "  Hint: one or more files are excluded by .gitignore — "
+                "use `git add -f <file>` to force-add, then commit manually.",
+                file=sys.stderr,
+            )
         return 3
 
     # ── Step 4: Commit ───────────────────────────────────────────────
