@@ -331,6 +331,117 @@ class TestSubdirectoryPathResolution:
         assert "../outside.py" in captured.err
 
 
+class TestCaseInsensitiveFsRegression:
+    """Regression: macOS case-insensitive filesystem path mismatch must not trigger path-escapes error (GitHub Issue #354)."""
+
+    def test_commit_succeeds_when_repo_root_is_symlink_to_cwd(self, tmp_path, capsys):
+        """tusk commit succeeds when repo_root is a symlink whose realpath differs from the passed root.
+
+        This exercises the same realpath-normalisation fix that resolves the macOS case-insensitive
+        path mismatch: without realpath, os.path.relpath(abs_path, repo_root) starts with '..'
+        even for valid paths.  Works on all platforms (symlinks are universally supported).
+        """
+        mod = _load_module()
+
+        real_root = tmp_path / "real_repo"
+        real_root.mkdir()
+        target_file = real_root / "file.py"
+        target_file.write_text("# file")
+
+        # sym_repo → real_repo; git may resolve to real_repo while CWD is under real_root.
+        sym_root = tmp_path / "sym_repo"
+        sym_root.symlink_to(real_root)
+
+        # repo_root is the symlink; CWD is the real directory.
+        argv = _argv(sym_root, files=["file.py"])
+
+        captured_add_args = []
+
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                captured_add_args.extend(args[2:])
+                return _make_completed(0)
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="abc123\n")
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(0, stdout="[main abc123] commit")
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(real_root)):
+            rc = mod.main(argv)
+
+        # The escape check must not trigger — rc 0 is the key assertion.
+        assert rc == 0, capsys.readouterr().err
+        assert captured_add_args[0] == "--"
+
+    def test_commit_succeeds_when_repo_root_capitalization_differs(self, tmp_path, capsys):
+        """tusk commit succeeds when git's repo root path differs in case from the CWD (macOS scenario)."""
+        mod = _load_module()
+
+        target_file = tmp_path / "file.py"
+        target_file.write_text("# file")
+
+        # Simulate macOS: argv[0] (repo_root) is lowercase (as git may return it), but
+        # os.path.realpath canonicalises it back to the filesystem-canonical capitalisation.
+        lowercase_root = str(tmp_path).lower()
+        argv = _argv(tmp_path, files=["file.py"])
+        argv[0] = lowercase_root  # override repo_root with lowercase variant
+
+        captured_add_args = []
+
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                captured_add_args.extend(args[2:])
+                return _make_completed(0)
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="abc123\n")
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(0, stdout="[main abc123] commit")
+            return _make_completed(0)
+
+        # Save real realpath before patching so the fake can delegate to it for non-root paths.
+        _real_realpath = os.path.realpath
+
+        def fake_realpath(p):
+            # Simulate macOS realpath: lowercase root → canonical-case root.
+            if p.lower() == str(tmp_path).lower() and not p.endswith(os.sep):
+                return str(tmp_path)
+            return _real_realpath(p)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.path.realpath", side_effect=fake_realpath), \
+             patch("os.getcwd", return_value=str(tmp_path)):
+            rc = mod.main(argv)
+
+        assert rc == 0, capsys.readouterr().err
+        assert captured_add_args[0] == "--"
+        assert "file.py" in captured_add_args[1]
+
+    def test_genuine_escape_still_rejected_after_realpath(self, tmp_path, capsys):
+        """Paths that genuinely escape the repo root are rejected even after realpath normalization."""
+        mod = _load_module()
+
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        outside_file = tmp_path / "outside.py"
+        outside_file.write_text("# outside")
+
+        argv = _argv(repo_root, files=[str(outside_file)])
+
+        def fake_run(args, **kwargs):
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(repo_root)):
+            rc = mod.main(argv)
+
+        assert rc == 3
+        captured = capsys.readouterr()
+        assert "Error: path escapes the repo root" in captured.err
+        assert str(outside_file) in captured.err
+
+
 class TestMarkdownFileRegression:
     """Regression: .md files at repo-root-relative paths must be staged correctly (GitHub Issue #350)."""
 
