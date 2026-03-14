@@ -97,11 +97,16 @@ def main():
             cost = lib.compute_cost(best_totals)
             model = best_totals["model"]
 
+            peak_context = best_totals.get("peak_context_tokens")
+            first_context = best_totals.get("first_context_tokens")
+            last_context = best_totals.get("last_context_tokens")
+
             conn.execute(
                 """UPDATE task_sessions
-                   SET tokens_in = ?, tokens_out = ?, cost_dollars = ?, model = ?
+                   SET tokens_in = ?, tokens_out = ?, cost_dollars = ?, model = ?,
+                       peak_context_tokens = ?, first_context_tokens = ?, last_context_tokens = ?
                    WHERE id = ?""",
-                (tokens_in, tokens_out, cost, model, session_id),
+                (tokens_in, tokens_out, cost, model, peak_context, first_context, last_context, session_id),
             )
             updated += 1
 
