@@ -592,13 +592,38 @@ GROUP BY week;
 """
 
 
+def _add_criteria_table(conn):
+    """Add acceptance_criteria table to an existing in-memory connection."""
+    conn.executescript(_CRITERIA_TABLE)
+    return conn
+
+
+def _add_dependencies_table(conn):
+    """Add task_dependencies table to an existing in-memory connection."""
+    conn.executescript(_DEPENDENCIES_TABLE)
+    return conn
+
+
+def _add_skill_runs_table(conn):
+    """Add skill_runs table to an existing in-memory connection."""
+    conn.executescript(_SKILL_RUNS_TABLE)
+    return conn
+
+
+def _add_velocity_view(conn):
+    """Add v_velocity view to an existing in-memory connection."""
+    conn.executescript(_VELOCITY_VIEW)
+    return conn
+
+
 def _make_conn_full():
     """In-memory connection with all tables including acceptance_criteria,
     task_dependencies, skill_runs, and the v_velocity view."""
     conn = _make_conn()
-    conn.executescript(
-        _CRITERIA_TABLE + _DEPENDENCIES_TABLE + _SKILL_RUNS_TABLE + _VELOCITY_VIEW
-    )
+    _add_criteria_table(conn)
+    _add_dependencies_table(conn)
+    _add_skill_runs_table(conn)
+    _add_velocity_view(conn)
     return conn
 
 
