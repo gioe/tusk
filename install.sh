@@ -98,7 +98,7 @@ exit 0
 HOOKEOF
 chmod +x "$REPO_ROOT/.claude/hooks/setup-path.sh"
 
-# ── 4b. Merge hook registrations into .claude/settings.json ──────────
+# ── 4b. Merge hooks and permissions.allow into .claude/settings.json ─
 python3 -c "
 import json, os
 
@@ -107,12 +107,15 @@ target_settings_path = os.path.join('$REPO_ROOT', '.claude', 'settings.json')
 
 # Skip merge if source settings.json is absent
 if not os.path.isfile(source_settings_path):
-    print('  Warning: source settings.json not found, skipping hook merge')
+    print('  Warning: source settings.json not found, skipping hooks and permissions merge')
     exit(0)
 
-# Read source hook registrations
+# Read source settings once
 with open(source_settings_path) as f:
-    source_hooks = json.load(f).get('hooks', {})
+    source_settings = json.load(f)
+
+source_hooks = source_settings.get('hooks', {})
+source_allow = source_settings.get('permissions', {}).get('allow', [])
 
 # Read existing target settings (or start fresh)
 if os.path.exists(target_settings_path):
@@ -121,9 +124,8 @@ if os.path.exists(target_settings_path):
 else:
     target_settings = {}
 
+# Merge hook registrations
 target_hooks = target_settings.setdefault('hooks', {})
-
-# For each event type, merge hook groups from source into target
 for event_type, source_groups in source_hooks.items():
     target_groups = target_hooks.setdefault(event_type, [])
 
@@ -148,40 +150,9 @@ for event_type, source_groups in source_hooks.items():
                 if cmd:
                     print(f'  Hook already registered: {cmd}')
 
-with open(target_settings_path, 'w') as f:
-    json.dump(target_settings, f, indent=2)
-    f.write('\n')
-"
-
-# ── 4b2. Merge permissions.allow into .claude/settings.json ──────────
-python3 -c "
-import json, os
-
-source_settings_path = os.path.join('$SCRIPT_DIR', '.claude', 'settings.json')
-target_settings_path = os.path.join('$REPO_ROOT', '.claude', 'settings.json')
-
-# Skip merge if source settings.json is absent
-if not os.path.isfile(source_settings_path):
-    print('  Warning: source settings.json not found, skipping permissions merge')
-    exit(0)
-
-# Read source permissions.allow entries
-with open(source_settings_path) as f:
-    source_allow = json.load(f).get('permissions', {}).get('allow', [])
-
-# Read existing target settings (or start fresh)
-if os.path.exists(target_settings_path):
-    with open(target_settings_path) as f:
-        target_settings = json.load(f)
-else:
-    target_settings = {}
-
+# Merge permissions.allow entries
 target_allow = target_settings.setdefault('permissions', {}).setdefault('allow', [])
-
-# Collect entries already present in target
 existing = set(target_allow)
-
-# Add missing entries from source
 for entry in source_allow:
     if entry not in existing:
         target_allow.append(entry)
@@ -190,6 +161,7 @@ for entry in source_allow:
     else:
         print(f'  Permission already present: {entry}')
 
+# Write target settings once
 with open(target_settings_path, 'w') as f:
     json.dump(target_settings, f, indent=2)
     f.write('\n')
