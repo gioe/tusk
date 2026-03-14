@@ -292,7 +292,8 @@ CREATE TABLE tasks (
     -- Timestamps are UTC (SQLite datetime('now') returns UTC)
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),
-    started_at TEXT
+    started_at TEXT,
+    closed_at TEXT
 );
 
 -- task_dependencies
@@ -425,14 +426,14 @@ GROUP BY t.id, t.summary;
 -- the first Monday appear as week 00. Consumers needing sorted output should add ORDER BY week.
 CREATE VIEW v_velocity AS
 SELECT
-    strftime('%Y-W%W', updated_at) AS week,
+    strftime('%Y-W%W', COALESCE(closed_at, updated_at)) AS week,
     COUNT(id) AS task_count,
     AVG(total_cost) AS avg_cost,
     AVG(total_tokens_in) AS avg_tokens_in,
     AVG(total_tokens_out) AS avg_tokens_out
 FROM task_metrics
 WHERE status = 'Done' AND closed_reason = 'completed'
-GROUP BY strftime('%Y-W%W', updated_at);
+GROUP BY strftime('%Y-W%W', COALESCE(closed_at, updated_at));
 SCHEMA
 
   # Enable WAL for concurrent read/write support
@@ -631,7 +632,7 @@ LINT_RULES_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 36;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 37;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."
