@@ -253,16 +253,16 @@ Track current pass number (starts at 1). If `current_pass < max_passes`:
 
 2. **Verify Bash access before spawning re-review agents.** Run:
    ```bash
-   tusk review status <task_id>
+   tusk version
    ```
    If this command fails with a permissions error (Bash not permitted), stop and surface:
    > Re-review aborted: Bash tool is not accessible in this session. Reviewer agents require these `permissions.allow` entries in `.claude/settings.json`: `Bash(git diff:*)`, `Bash(git remote:*)`, `Bash(git symbolic-ref:*)`, `Bash(git branch:*)`, `Bash(tusk review:*)`. Run `tusk upgrade` to apply them, then restart the session.
 
    Spawn reviewer agents only if the command succeeds. Re-review agents fetch the diff themselves — no diff is passed inline.
 
-4. Monitor completion (Step 6) and process findings (Step 7).
+3. Monitor completion (Step 6) and process findings (Step 7).
 
-5. Increment pass counter. If `current_pass >= max_passes` and there are still open `must_fix` items, **escalate to the user**:
+4. Increment pass counter. If `current_pass >= max_passes` and there are still open `must_fix` items, **escalate to the user**:
    > Max review passes (<max_passes>) reached. The following must_fix items remain unresolved:
    > <list each open must_fix comment>
    >
