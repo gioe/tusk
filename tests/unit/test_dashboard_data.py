@@ -655,6 +655,16 @@ class TestFetchAllCriteria:
         result = dashboard_data.fetch_all_criteria(conn)
         assert result == {}
 
+    def test_task_with_no_criteria_absent_from_result(self):
+        """A task with no acceptance_criteria rows does not appear as a key in the result."""
+        conn = _make_conn_full()
+        conn.execute("INSERT INTO tasks (id, summary) VALUES (?, ?)", (1, "task no criteria"))
+        conn.commit()
+
+        result = dashboard_data.fetch_all_criteria(conn)
+        assert 1 not in result
+        assert result == {}
+
     def test_is_completed_field_preserved(self):
         conn = _make_conn_full()
         conn.execute("INSERT INTO tasks (id, summary) VALUES (?, ?)", (1, "task"))
@@ -830,8 +840,8 @@ class TestFetchVelocity:
         """In Progress tasks do not appear in velocity (view filters status='Done')."""
         conn = _make_conn_full()
         conn.execute(
-            "INSERT INTO tasks (id, summary, status, closed_at) VALUES (?, ?, ?, ?)",
-            (1, "wip", "In Progress", "2026-01-01 00:00:00"),
+            "INSERT INTO tasks (id, summary, status) VALUES (?, ?, ?)",
+            (1, "wip", "In Progress"),
         )
         conn.commit()
 
@@ -1144,3 +1154,20 @@ class TestFetchCostTrendMonthly:
         conn = _make_conn()
         rows = dashboard_data.fetch_cost_trend_monthly(conn)
         assert rows == []
+
+    def test_offset_minutes_applied(self):
+        """offset_minutes shifts the month bucket (e.g. 23:00 UTC + 120 min → next day/month)."""
+        conn = _make_conn()
+        conn.execute("INSERT INTO tasks (id, summary) VALUES (?, ?)", (1, "task"))
+        # 23:00 UTC on the last day of January; with +120 min offset → 01:00 Feb 1
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, cost_dollars) VALUES (?, ?, ?)",
+            (1, "2026-01-31 23:00:00", 0.12),
+        )
+        conn.commit()
+
+        rows_utc = dashboard_data.fetch_cost_trend_monthly(conn, offset_minutes=0)
+        assert rows_utc[0]["month"] == "2026-01"
+
+        rows_shifted = dashboard_data.fetch_cost_trend_monthly(conn, offset_minutes=120)
+        assert rows_shifted[0]["month"] == "2026-02"
