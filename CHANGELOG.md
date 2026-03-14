@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [414] - 2026-03-14
+
+- [TASK-609] Fix review-commits Step 5.1 to address Bash permission non-inheritance in background subagents
+
 ## [413] - 2026-03-14
 
 - [TASK-608] Fix: validate file paths before lint/tests in tusk commit

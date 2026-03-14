@@ -86,9 +86,33 @@ Store the mapping: reviewer name → review_id.
 
 Only when the diff is non-empty and reviews have been started in Step 4, proceed with the steps below.
 
-### Step 5.1: Read reviewer prompt and spawn agents
+### Step 5.1: Choose review strategy and verify permissions
 
-> **Note:** Reviewer agents require Bash tool access to run `git diff` and `tusk review` commands. If Bash is not auto-approved in this session, agents will stall and be auto-approved after the 30-second wait in Step 6 (with a logged warning) — producing no real review findings. The `permissions.allow` block in the project's `.claude/settings.json` covers this automatically for most setups.
+> **Important:** Background reviewer agents run in an **isolated sandbox** and do **not** inherit the parent session's tool permissions. Approving Bash in this conversation does not grant Bash access to spawned agents. The `permissions.allow` block in `.claude/settings.json` is the only reliable way to grant tool access in agent sandboxes — it applies to all subagents spawned from this project, regardless of what is auto-approved in the current session.
+
+**For small or documentation-only diffs (fewer than ~200 lines changed, or only non-code files such as `.md`, `.json`, `.yaml`):** skip agent spawning and perform an inline review instead. Read the diff yourself, evaluate it against the reviewer focus areas, and record the result directly:
+
+```bash
+# Approve with no findings:
+tusk review approve <review_id> --note "Inline review: small/docs-only diff, no findings."
+# Or if changes are needed:
+tusk review request-changes <review_id>
+# Then add comments as needed:
+tusk review comment add <review_id> <category> <severity> "<file>:<line>" "<description>"
+```
+
+After recording the inline decision, skip directly to Step 6.
+
+**For all other diffs:** verify Bash is accessible before spawning reviewer agents. Run:
+
+```bash
+tusk version
+```
+
+If this command fails with a permissions error (Bash not permitted), stop and surface:
+> Agent review aborted: Bash is not accessible in agent sandboxes for this project. The `permissions.allow` block in `.claude/settings.json` must include the required entries: `Bash(git diff:*)`, `Bash(git remote:*)`, `Bash(git symbolic-ref:*)`, `Bash(git branch:*)`, `Bash(tusk review:*)`. Run `tusk upgrade` to apply them, then restart the session.
+
+Proceed to spawn agents only if `tusk version` succeeds.
 
 Read the reviewer prompt template:
 
