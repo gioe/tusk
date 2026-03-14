@@ -21,6 +21,26 @@ log = logging.getLogger(__name__)
 PRICING: dict = {}
 MODEL_ALIASES: dict = {}
 
+# Context window sizes (in tokens) for known models.
+CONTEXT_WINDOW: dict[str, int] = {
+    "claude-opus-4-6": 200_000,
+    "claude-opus-4-5": 200_000,
+    "claude-opus-4-1": 200_000,
+    "claude-opus-4": 200_000,
+    "claude-sonnet-4-6": 200_000,
+    "claude-sonnet-4-5": 200_000,
+    "claude-sonnet-4": 200_000,
+    "claude-haiku-4-5": 200_000,
+    "claude-haiku-3-5": 200_000,
+    "claude-haiku-3": 200_000,
+}
+CONTEXT_WINDOW_DEFAULT = 200_000
+
+
+def get_context_window(model: str) -> int:
+    """Return the context window size for *model*, falling back to CONTEXT_WINDOW_DEFAULT."""
+    return CONTEXT_WINDOW.get(model, CONTEXT_WINDOW_DEFAULT)
+
 
 def load_pricing() -> None:
     """Load model pricing and aliases from pricing.json.
@@ -225,6 +245,9 @@ def aggregate_session(
     model_counts: dict[str, int] = {}
     request_count = 0
     lines_read = 0
+    peak_context_tokens = 0
+    first_context_tokens: int | None = None
+    last_context_tokens: int | None = None
 
     with open(transcript_path) as f:
         for line in f:
@@ -270,26 +293,34 @@ def aggregate_session(
             if not usage:
                 continue
 
-            totals["input_tokens"] += usage.get("input_tokens", 0)
+            turn_input = usage.get("input_tokens", 0)
+            turn_cache_read = usage.get("cache_read_input_tokens", 0)
+            turn_cache_write = usage.get("cache_creation_input_tokens", 0)
+            turn_context = turn_input + turn_cache_read + turn_cache_write
+
+            totals["input_tokens"] += turn_input
             totals["output_tokens"] += usage.get("output_tokens", 0)
-            totals["cache_read_input_tokens"] += usage.get(
-                "cache_read_input_tokens", 0
-            )
+            totals["cache_read_input_tokens"] += turn_cache_read
+
+            if turn_context > peak_context_tokens:
+                peak_context_tokens = turn_context
+            if first_context_tokens is None:
+                first_context_tokens = turn_context
+            last_context_tokens = turn_context
 
             # Per-tier cache write tokens: prefer the nested cache_creation
             # object (ephemeral_5m_input_tokens / ephemeral_1h_input_tokens).
             # Fall back to assigning all cache_creation_input_tokens to the
             # 5m tier when the nested object is absent (older transcripts).
             cache_creation = usage.get("cache_creation")
-            cache_total = usage.get("cache_creation_input_tokens", 0)
             if isinstance(cache_creation, dict):
                 tokens_5m = cache_creation.get("ephemeral_5m_input_tokens", 0)
                 tokens_1h = cache_creation.get("ephemeral_1h_input_tokens", 0)
                 totals["cache_creation_5m_tokens"] += tokens_5m
                 totals["cache_creation_1h_tokens"] += tokens_1h
             else:
-                totals["cache_creation_5m_tokens"] += cache_total
-            totals["cache_creation_input_tokens"] += cache_total
+                totals["cache_creation_5m_tokens"] += turn_cache_write
+            totals["cache_creation_input_tokens"] += turn_cache_write
 
             # Track model usage
             model = message.get("model", "")
@@ -314,6 +345,9 @@ def aggregate_session(
         "model": dominant_model,
         "model_counts": model_counts,
         "request_count": request_count,
+        "peak_context_tokens": peak_context_tokens,
+        "first_context_tokens": first_context_tokens,
+        "last_context_tokens": last_context_tokens,
     }
 
 

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [422] - 2026-03-14
+
+- [TASK-613] Track per-turn context tokens and add CONTEXT_WINDOW lookup in tusk-pricing-lib.py
+
 ## [421] - 2026-03-14
 
 - [TASK-619] Document that macOS os.path.realpath does not canonicalize case in CLAUDE.md test conventions
