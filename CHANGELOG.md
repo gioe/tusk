@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [416] - 2026-03-14
+
+- [TASK-611] Fix tusk commit exit code 3 for .github/ paths
+
 ## [415] - 2026-03-14
 
 - [TASK-610] Fix tusk commit exit code 3 (pathspec not found) for .md files

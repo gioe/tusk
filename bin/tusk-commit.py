@@ -219,10 +219,33 @@ def main(argv: list[str]) -> int:
             f"  {stderr_text}",
             file=sys.stderr,
         )
-        if "ignored by" in stderr_text or ".gitignore" in stderr_text:
+        # Probe each file with git check-ignore -v to surface the specific
+        # gitignore rule (if any) blocking it — more actionable than checking
+        # for English substrings in git's locale-dependent error output.
+        ignored_files = []
+        for f in resolved_files:
+            ci = run(["git", "check-ignore", "-v", f], check=False, cwd=repo_root)
+            if ci.returncode == 0 and ci.stdout.strip():
+                ignored_files.append((f, ci.stdout.strip()))
+        if ignored_files:
+            for f, rule in ignored_files:
+                print(
+                    f"  Gitignore rule blocking '{f}':\n"
+                    f"    {rule}\n"
+                    f"  Hint: use `git add -f {f}` to force-add, then commit manually.",
+                    file=sys.stderr,
+                )
+        elif "ignored by" in stderr_text or ".gitignore" in stderr_text:
+            # Fallback: git reported gitignore but check-ignore didn't find the rule
             print(
                 "  Hint: one or more files are excluded by .gitignore — "
                 "use `git add -f <file>` to force-add, then commit manually.",
+                file=sys.stderr,
+            )
+        elif "sparse-checkout" in stderr_text:
+            print(
+                "  Hint: one or more files are outside the git sparse-checkout cone — "
+                "run `git sparse-checkout add <directory>` to include them.",
                 file=sys.stderr,
             )
         return 3
