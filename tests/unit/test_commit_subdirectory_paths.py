@@ -416,3 +416,130 @@ class TestMarkdownFileRegression:
         captured = capsys.readouterr()
         assert str(tmp_path) in captured.err   # cwd printed
         assert "git add" in captured.err        # command printed
+
+
+class TestDotDirectoryPathsRegression:
+    """Regression: .github/ and other dot-directory paths must be staged correctly (GitHub Issue #348)."""
+
+    def test_github_workflow_path_staged_with_separator(self, tmp_path):
+        """git add receives -- separator and repo-root-relative .github/workflows/*.yml path."""
+        mod = _load_module()
+
+        workflow_file = tmp_path / ".github" / "workflows" / "ci.yml"
+        workflow_file.parent.mkdir(parents=True)
+        workflow_file.write_text("name: CI")
+
+        argv = _argv(tmp_path, files=[".github/workflows/ci.yml"])
+
+        captured_add_args = []
+
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                captured_add_args.extend(args[2:])
+                return _make_completed(0)
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="abc123\n")
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(0, stdout="[main abc123] commit")
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(tmp_path)):
+            rc = mod.main(argv)
+
+        assert rc == 0
+        assert captured_add_args[0] == "--"
+        assert captured_add_args[1] == os.path.join(".github", "workflows", "ci.yml")
+
+    def test_circleci_path_staged_with_separator(self, tmp_path):
+        """git add receives -- separator and repo-root-relative .circleci/ path."""
+        mod = _load_module()
+
+        config_file = tmp_path / ".circleci" / "config.yml"
+        config_file.parent.mkdir(parents=True)
+        config_file.write_text("version: 2.1")
+
+        argv = _argv(tmp_path, files=[".circleci/config.yml"])
+
+        captured_add_args = []
+
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                captured_add_args.extend(args[2:])
+                return _make_completed(0)
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="abc123\n")
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(0, stdout="[main abc123] commit")
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(tmp_path)):
+            rc = mod.main(argv)
+
+        assert rc == 0
+        assert captured_add_args[0] == "--"
+        assert captured_add_args[1] == os.path.join(".circleci", "config.yml")
+
+    def test_gitignored_github_path_reveals_specific_rule(self, tmp_path, capsys):
+        """When a .github/ file is gitignored, git check-ignore -v identifies the matching rule."""
+        mod = _load_module()
+
+        workflow_file = tmp_path / ".github" / "workflows" / "ci.yml"
+        workflow_file.parent.mkdir(parents=True)
+        workflow_file.write_text("name: CI")
+
+        argv = _argv(tmp_path, files=[".github/workflows/ci.yml"])
+
+        gitignore_rule = ".gitignore:1:.github/\t.github/workflows/ci.yml"
+
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                return _make_completed(
+                    128,
+                    stderr="fatal: pathspec '.github/workflows/ci.yml' did not match any files",
+                )
+            if args[:3] == ["git", "check-ignore", "-v"]:
+                return _make_completed(0, stdout=gitignore_rule + "\n")
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(tmp_path)):
+            rc = mod.main(argv)
+
+        assert rc == 3
+        captured = capsys.readouterr()
+        assert ".gitignore:1:.github/" in captured.err
+        assert "git add -f" in captured.err
+
+    def test_sparse_checkout_error_shows_hint(self, tmp_path, capsys):
+        """When git add fails due to sparse-checkout, an actionable hint is shown."""
+        mod = _load_module()
+
+        workflow_file = tmp_path / ".github" / "workflows" / "ci.yml"
+        workflow_file.parent.mkdir(parents=True)
+        workflow_file.write_text("name: CI")
+
+        argv = _argv(tmp_path, files=[".github/workflows/ci.yml"])
+
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                return _make_completed(
+                    1,
+                    stderr=(
+                        "error: the following pathspecs are outside the sparse-checkout "
+                        "definition:\n  .github/workflows/ci.yml"
+                    ),
+                )
+            if args[:3] == ["git", "check-ignore", "-v"]:
+                return _make_completed(1)  # not gitignored
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(tmp_path)):
+            rc = mod.main(argv)
+
+        assert rc == 3
+        captured = capsys.readouterr()
+        assert "sparse-checkout" in captured.err
+        assert "git sparse-checkout add" in captured.err
