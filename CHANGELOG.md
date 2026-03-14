@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [411] - 2026-03-14
+
+- [TASK-603] Remove blocking confirmation gate from /review-commits Step 5.1
+
 ## [410] - 2026-03-13
 
 - [TASK-599] Add closed_at to tasks and fix v_velocity week bucketing
