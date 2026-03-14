@@ -157,9 +157,9 @@ Wait for all reviewer agents to finish:
    - If **any agent is still running**, go back to step 1.
    - If **all agents have completed** but some reviews are still `"pending"`, those agents finished without calling `tusk review approve` or `tusk review request-changes`. For each stuck review, log a warning and auto-approve it with a note:
      ```bash
-     tusk review approve <review_id> --note "Auto-approved: reviewer agent completed without posting a decision (likely Bash tool not permitted in agent sandbox)"
+     tusk review approve <review_id> --note "Auto-approved: reviewer agent completed without posting a decision. Most likely cause: Bash tool not permitted in agent sandbox. Required permissions.allow entries: Bash(git diff:*), Bash(git remote:*), Bash(git symbolic-ref:*), Bash(git branch:*), Bash(tusk review:*)"
      ```
-     The most common cause is missing Bash tool permissions (the agent could not run `git diff` or `tusk review`). Continue as if those reviews returned no findings.
+     The most common cause is missing Bash tool permissions (the agent could not run `git diff` or `tusk review`). Run `tusk upgrade` to propagate the required `permissions.allow` entries if they are missing from `.claude/settings.json`. Continue as if those reviews returned no findings.
 
 ## Step 7: Process Findings
 
@@ -251,7 +251,14 @@ Track current pass number (starts at 1). If `current_pass < max_passes`:
    tusk review start <task_id> --pass-num <current_pass + 1> --diff-summary "Re-review pass <n>"
    ```
 
-2. Spawn reviewer agents again (Step 5) with the new review IDs. Reviewer agents fetch the diff themselves — no diff is passed inline. Re-review agents require the same Bash tool permissions as first-pass agents — if Bash is not auto-approved, they will stall and be treated as stuck (see Step 6).
+2. **Verify Bash access before spawning re-review agents.** Run:
+   ```bash
+   tusk review status <task_id>
+   ```
+   If this command fails with a permissions error (Bash not permitted), stop and surface:
+   > Re-review aborted: Bash tool is not accessible in this session. Reviewer agents require these `permissions.allow` entries in `.claude/settings.json`: `Bash(git diff:*)`, `Bash(git remote:*)`, `Bash(git symbolic-ref:*)`, `Bash(git branch:*)`, `Bash(tusk review:*)`. Run `tusk upgrade` to apply them, then restart the session.
+
+   Spawn reviewer agents only if the command succeeds. Re-review agents fetch the diff themselves — no diff is passed inline.
 
 4. Monitor completion (Step 6) and process findings (Step 7).
 
