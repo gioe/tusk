@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [413] - 2026-03-14
+
+- [TASK-608] Fix: validate file paths before lint/tests in tusk commit
+
 ## [412] - 2026-03-14
 
 - [TASK-607] Fix re-review agents silently skipping when Bash permissions aren't propagated on upgrade

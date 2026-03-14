@@ -10,6 +10,7 @@ Arguments received from tusk:
     sys.argv[3:] — task_id, message, files, and optional --criteria / --skip-verify flags
 
 Steps:
+    0. Validate file paths — fail fast before lint/tests if any path is missing or escapes repo root
     1. Run tusk lint (advisory — output is printed but never blocks)
     2. Run test_command from config if set and --skip-verify not passed (hard-blocks on failure)
     3. Stage files: git add for all files (handles additions, modifications, and deletions)
@@ -112,30 +113,7 @@ def main(argv: list[str]) -> int:
         print("Error: Commit message must not be empty", file=sys.stderr)
         return 1
 
-    # ── Step 1: Run lint (advisory) ──────────────────────────────────
-    tusk_bin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
-    print("=== Running tusk lint (advisory) ===")
-    lint = subprocess.run([tusk_bin, "lint"], capture_output=False)
-    if lint.returncode != 0:
-        print("\nLint reported warnings (advisory only — continuing)\n")
-    else:
-        print()
-
-    # ── Step 2: Run test_command gate (hard-blocks on failure) ───────
-    test_cmd = load_test_command(config_path)
-    if test_cmd and not skip_verify:
-        print(f"=== Running test_command: {test_cmd} ===")
-        test = subprocess.run(test_cmd, shell=True, capture_output=False, cwd=repo_root)
-        if test.returncode != 0:
-            print(
-                f"\nError: test_command failed (exit {test.returncode}) — aborting commit",
-                file=sys.stderr,
-            )
-            return 2
-        print()
-
-    # ── Step 3: Stage files ──────────────────────────────────────────
-    # git add handles deletions of tracked files natively since Git 2.x — no git rm needed.
+    # ── Step 0: Validate file paths (fail fast before lint/tests) ────
     # Resolve relative paths against the caller's CWD before making them relative to
     # repo_root.  This lets users in a monorepo subdirectory pass paths that are relative
     # to their working directory (e.g. `tests/foo.py` from inside `apps/scraper/`) rather
@@ -205,6 +183,31 @@ def main(argv: list[str]) -> int:
                 )
         return 3
 
+    # ── Step 1: Run lint (advisory) ──────────────────────────────────
+    tusk_bin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
+    print("=== Running tusk lint (advisory) ===")
+    lint = subprocess.run([tusk_bin, "lint"], capture_output=False)
+    if lint.returncode != 0:
+        print("\nLint reported warnings (advisory only — continuing)\n")
+    else:
+        print()
+
+    # ── Step 2: Run test_command gate (hard-blocks on failure) ───────
+    test_cmd = load_test_command(config_path)
+    if test_cmd and not skip_verify:
+        print(f"=== Running test_command: {test_cmd} ===")
+        test = subprocess.run(test_cmd, shell=True, capture_output=False, cwd=repo_root)
+        if test.returncode != 0:
+            print(
+                f"\nError: test_command failed (exit {test.returncode}) — aborting commit",
+                file=sys.stderr,
+            )
+            return 2
+        print()
+
+    # ── Step 3: Stage files ──────────────────────────────────────────
+    # File paths were already resolved and validated in Step 0.
+    # git add handles deletions of tracked files natively since Git 2.x — no git rm needed.
     result = run(["git", "add"] + resolved_files, check=False, cwd=repo_root)
     if result.returncode != 0:
         print(f"Error: git add failed:\n{result.stderr.strip()}", file=sys.stderr)

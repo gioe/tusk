@@ -206,6 +206,53 @@ class TestSubdirectoryPathResolution:
         assert "Error: path not found" in captured.err
         assert "tests/nonexistent.py" in captured.err
 
+    def test_missing_path_errors_before_lint(self, tmp_path, capsys):
+        """Missing path exits with code 3 before lint or tests are invoked (fail-fast)."""
+        mod = _load_module()
+
+        # File does NOT exist
+        argv = _argv(tmp_path, files=["does_not_exist.py"])
+
+        lint_called = []
+
+        def fake_run(args, **kwargs):
+            if "lint" in args:
+                lint_called.append(args)
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(tmp_path)):
+            rc = mod.main(argv)
+
+        assert rc == 3
+        assert lint_called == [], "lint must not be invoked when a file path is invalid"
+        captured = capsys.readouterr()
+        assert "Error: path not found" in captured.err
+
+    def test_escape_errors_before_lint(self, tmp_path, capsys):
+        """Path-escapes-repo-root error exits with code 3 before lint is invoked (fail-fast)."""
+        mod = _load_module()
+
+        repo_root = tmp_path / "repo"
+        repo_root.mkdir()
+        argv = _argv(repo_root, files=["../outside.py"])
+
+        lint_called = []
+
+        def fake_run(args, **kwargs):
+            if "lint" in args:
+                lint_called.append(args)
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(tmp_path)):
+            rc = mod.main(argv)
+
+        assert rc == 3
+        assert lint_called == [], "lint must not be invoked when a path escapes the repo root"
+        captured = capsys.readouterr()
+        assert "Error: path escapes the repo root" in captured.err
+
     def test_absolute_paths_passed_through(self, tmp_path):
         """Absolute file paths are not modified."""
         mod = _load_module()
