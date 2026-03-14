@@ -10,7 +10,7 @@
 #   1. Copies bin/tusk + Python scripts → .claude/bin/
 #   2. Copies config, VERSION, pricing  → .claude/bin/
 #   3. Copies skills/*                  → .claude/skills/*
-#   4. Copies .claude/hooks/ scripts + merges registrations into settings.json
+#   4. Copies .claude/hooks/ scripts + merges hooks and permissions.allow into settings.json
 #   5. Runs tusk init + migrate
 #   6. Prints next steps
 
@@ -142,6 +142,43 @@ for event_type, source_groups in source_hooks.items():
             for cmd in group_commands:
                 if cmd:
                     print(f'  Hook already registered: {cmd}')
+
+with open(target_settings_path, 'w') as f:
+    json.dump(target_settings, f, indent=2)
+    f.write('\n')
+"
+
+# ── 4b2. Merge permissions.allow into .claude/settings.json ──────────
+python3 -c "
+import json, os
+
+source_settings_path = os.path.join('$SCRIPT_DIR', '.claude', 'settings.json')
+target_settings_path = os.path.join('$REPO_ROOT', '.claude', 'settings.json')
+
+# Read source permissions.allow entries
+with open(source_settings_path) as f:
+    source_allow = json.load(f).get('permissions', {}).get('allow', [])
+
+# Read existing target settings (or start fresh)
+if os.path.exists(target_settings_path):
+    with open(target_settings_path) as f:
+        target_settings = json.load(f)
+else:
+    target_settings = {}
+
+target_allow = target_settings.setdefault('permissions', {}).setdefault('allow', [])
+
+# Collect entries already present in target
+existing = set(target_allow)
+
+# Add missing entries from source
+for entry in source_allow:
+    if entry not in existing:
+        target_allow.append(entry)
+        existing.add(entry)
+        print(f'  Added permission: {entry}')
+    else:
+        print(f'  Permission already present: {entry}')
 
 with open(target_settings_path, 'w') as f:
     json.dump(target_settings, f, indent=2)
