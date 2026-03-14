@@ -105,6 +105,11 @@ import json, os
 source_settings_path = os.path.join('$SCRIPT_DIR', '.claude', 'settings.json')
 target_settings_path = os.path.join('$REPO_ROOT', '.claude', 'settings.json')
 
+# Skip merge if source settings.json is absent
+if not os.path.exists(source_settings_path):
+    print('  Warning: source settings.json not found, skipping hook merge')
+    exit(0)
+
 # Read source hook registrations
 with open(source_settings_path) as f:
     source_hooks = json.load(f).get('hooks', {})
@@ -154,6 +159,11 @@ import json, os
 
 source_settings_path = os.path.join('$SCRIPT_DIR', '.claude', 'settings.json')
 target_settings_path = os.path.join('$REPO_ROOT', '.claude', 'settings.json')
+
+# Skip merge if source settings.json is absent
+if not os.path.exists(source_settings_path):
+    print('  Warning: source settings.json not found, skipping permissions merge')
+    exit(0)
 
 # Read source permissions.allow entries
 with open(source_settings_path) as f:
