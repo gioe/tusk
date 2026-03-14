@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [410] - 2026-03-13
+
+- [TASK-599] Add closed_at to tasks and fix v_velocity week bucketing
+
 ## [409] - 2026-03-13
 
 - [TASK-597] Add started_at to tasks and fix duration_in_status_seconds fallback
