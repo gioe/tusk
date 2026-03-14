@@ -1,4 +1,13 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(git diff:*)",
+      "Bash(git remote:*)",
+      "Bash(git symbolic-ref:*)",
+      "Bash(git branch:*)",
+      "Bash(tusk review:*)"
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {
