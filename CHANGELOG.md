@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [440] - 2026-03-15
+
+- [TASK-635] Create tusk_loader.py to reduce _load_db_lib() boilerplate across 20+ scripts
+
 ## [438] - 2026-03-15
 
 - [TASK-637] Update tusk-db-lib.py module docstring to list validate_enum in public API
