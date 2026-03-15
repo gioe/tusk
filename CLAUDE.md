@@ -55,6 +55,7 @@ bin/tusk autoclose
 bin/tusk backlog-scan [--duplicates] [--unassigned] [--unsized] [--expired]   # → {duplicates:[...], unassigned:[...], unsized:[...], expired:[...]}
 bin/tusk test-detect               # → {"command": "<cmd>", "confidence": "high|medium|low|none"}
 bin/tusk git-default-branch        # → prints default branch name (e.g. "main"); symbolic-ref → gh fallback → "main"
+bin/tusk branch-parse [--branch <name>]  # → {"task_id": N}; parses task ID from current or named branch
 bin/tusk sql-quote "O'Reilly's book"   # → 'O''Reilly''s book'
 bin/tusk shell
 
