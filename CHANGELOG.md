@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [451] - 2026-03-15
+
+- [TASK-656] Normalize review-verdict display in /review-commits Step 10 summary
+
 ## [450] - 2026-03-15
 
 - [TASK-645] Add tusk review-verdict <task_id>

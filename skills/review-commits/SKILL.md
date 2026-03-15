@@ -364,7 +364,12 @@ Then print an overall summary. Retrieve the verdict:
 tusk review-verdict <task_id>
 ```
 
-Use the returned `verdict` and `open_must_fix` values in the summary:
+Use the returned `verdict` and `open_must_fix` values in the summary. Map the machine-readable verdict to a human-readable label before printing:
+
+| `verdict` value     | Display label      |
+|---------------------|--------------------|
+| `APPROVED`          | `APPROVED`         |
+| `CHANGES_REMAINING` | `CHANGES REMAINING`|
 
 ```
 Review complete for Task <task_id>: <task_summary>
@@ -376,5 +381,5 @@ must_fix:  <total_count> found, <fixed_count> fixed
 suggest:   <total_count> found, <fixed_count> fixed, <dismissed_count> dismissed
 defer:     <total_count> found, <created_count> tasks created, <skipped_count> skipped (duplicate)
 
-Verdict: <verdict from tusk review-verdict>
+Verdict: <display label>
 ```
