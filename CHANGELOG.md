@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [456] - 2026-03-15
+
+- [TASK-659] Document serialization format for {acceptance_criteria} and {task_progress} placeholders in chain AGENT-PROMPT.md
+
 ## [455] - 2026-03-15
 
 - [TASK-658] Update /chain AGENT-PROMPT.md to pass acceptance_criteria and task_progress from task-get-multi to spawned agents
