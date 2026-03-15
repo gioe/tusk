@@ -55,6 +55,10 @@ for pyfile in "$SCRIPT_DIR"/bin/tusk-*.py; do
   echo "  Installed .claude/bin/$basename_py"
 done
 
+# tusk_loader.py uses an underscore filename (importable without importlib) — copy explicitly.
+cp "$SCRIPT_DIR/bin/tusk_loader.py" "$REPO_ROOT/.claude/bin/tusk_loader.py"
+echo "  Installed .claude/bin/tusk_loader.py"
+
 # ── 2. Copy config, VERSION ─────────────────────────────────────────
 cp "$SCRIPT_DIR/config.default.json" "$REPO_ROOT/.claude/bin/config.default.json"
 echo "  Installed .claude/bin/config.default.json"

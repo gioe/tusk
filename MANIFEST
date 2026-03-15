@@ -44,6 +44,7 @@
   ".claude/bin/tusk-token-audit.py",
   ".claude/bin/tusk-upgrade.py",
   ".claude/bin/tusk-wsjf.py",
+  ".claude/bin/tusk_loader.py",
   ".claude/bin/config.default.json",
   ".claude/bin/VERSION",
   ".claude/bin/pricing.json",

@@ -14,6 +14,7 @@ Usage in any bin/tusk-*.py script:
 
 import importlib.util
 import os
+import sys
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -31,5 +32,6 @@ def load(name: str):
     path = os.path.join(_BIN_DIR, f"{name}.py")
     spec = importlib.util.spec_from_file_location(module_name, path)
     mod = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = mod
     spec.loader.exec_module(mod)
     return mod

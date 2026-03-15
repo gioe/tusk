@@ -45,6 +45,10 @@ def build_manifest(root):
             continue
         files.append(".claude/bin/" + os.path.basename(p))
 
+    # tusk_loader.py uses an underscore filename — not matched by the tusk-*.py glob above.
+    if os.path.isfile(os.path.join(root, "bin", "tusk_loader.py")):
+        files.append(".claude/bin/tusk_loader.py")
+
     for name in ["config.default.json", "VERSION", "pricing.json"]:
         files.append(".claude/bin/" + name)
 
