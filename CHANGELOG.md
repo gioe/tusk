@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [442] - 2026-03-15
+
+- [TASK-640] Expose tusk git-default-branch as standalone subcommand
+
 ## [441] - 2026-03-15
 
 - [TASK-639] [Deferred] Migrate tusk-dashboard.py and tusk-dashboard-html.py to use tusk_loader.load() for companion module imports

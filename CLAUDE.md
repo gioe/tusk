@@ -54,6 +54,7 @@ bin/tusk lint
 bin/tusk autoclose
 bin/tusk backlog-scan [--duplicates] [--unassigned] [--unsized] [--expired]   # → {duplicates:[...], unassigned:[...], unsized:[...], expired:[...]}
 bin/tusk test-detect               # → {"command": "<cmd>", "confidence": "high|medium|low|none"}
+bin/tusk git-default-branch        # → prints default branch name (e.g. "main"); symbolic-ref → gh fallback → "main"
 bin/tusk sql-quote "O'Reilly's book"   # → 'O''Reilly''s book'
 bin/tusk shell
 
@@ -195,6 +196,8 @@ Commit the bump in the same branch as the feature. Also update `CHANGELOG.md` in
 - When inserting a new step into an existing numbered/lettered sequence in a skill or doc file, scan adjacent headings to confirm the result is sequential (e.g., a new "Step 3a" inserted before "Step 3b", not "Step 3d").
 - **`tusk task-done` auto-marks open criteria when commits exist.** When called with `--reason completed` and open acceptance criteria remain, `tusk task-done` scans `git log` for `[TASK-N]` commits. If any are found, all open criteria are automatically marked done and the task closes without needing `--force`. This auto-mark path only applies to `completed`; the other close reasons (`wont_do`, `duplicate`, `expired`) are not affected — those still require `--force` if criteria are open.
 - **`tusk-session-stats.py` and `tusk-session-recalc.py` both call `update_session_stats()` from `tusk-pricing-lib.py`.** Session field writes (tokens, cost, model, context tokens, `context_window`) are centralized there. To change what fields are written, edit `update_session_stats()` — both scripts pick up the change automatically.
+- **Underscore-named bin/ files** (not matching `tusk-*.py`) must be explicitly added to three places: (1) the copy section in `install.sh`, (2) `build_manifest()` in `tusk-generate-manifest.py`, and (3) `rule18_manifest_drift()` in `tusk-lint.py`. Run `tusk generate-manifest` after adding them to regenerate MANIFEST. Rule 18 will catch any omission on the next `tusk lint` run.
+- **When using `tusk_loader.load()` for companion modules**, the `.py` filename must appear as a literal string somewhere in the calling file — rule 8 scans for literal filenames to determine if a script is referenced. Add a comment on the `import tusk_loader` line, e.g.: `import tusk_loader  # loads tusk-foo.py and tusk-bar.py`
 - **Source-repo-only lint rules must guard against target projects.** Any rule in `bin/tusk-lint.py` that is only meaningful inside the tusk source repo (e.g., checks on `bin/tusk`, `MANIFEST`, or other source-only files) must begin with:
   ```python
   if not os.path.isfile(os.path.join(root, "bin", "tusk")):
