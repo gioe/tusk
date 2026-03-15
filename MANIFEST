@@ -1,5 +1,6 @@
 [
   ".claude/bin/tusk",
+  ".claude/bin/tusk-audit.py",
   ".claude/bin/tusk-autoclose.py",
   ".claude/bin/tusk-backlog-scan.py",
   ".claude/bin/tusk-blockers.py",
