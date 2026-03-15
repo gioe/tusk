@@ -361,6 +361,33 @@ def cmd_status(args: argparse.Namespace, db_path: str) -> int:
     return 0
 
 
+def cmd_verdict(args: argparse.Namespace, db_path: str) -> int:
+    """Return JSON verdict for a task based on open must_fix review comments."""
+    conn = get_connection(db_path)
+    try:
+        task = conn.execute(
+            "SELECT id FROM tasks WHERE id = ?", (args.task_id,)
+        ).fetchone()
+        if not task:
+            print(f"Error: Task {args.task_id} not found", file=sys.stderr)
+            return 2
+
+        row = conn.execute(
+            "SELECT COUNT(*) as cnt"
+            " FROM review_comments rc"
+            " JOIN code_reviews cr ON cr.id = rc.review_id"
+            " WHERE cr.task_id = ? AND rc.category = 'must_fix' AND rc.resolution IS NULL",
+            (args.task_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    open_must_fix = row["cnt"] if row else 0
+    verdict = "APPROVED" if open_must_fix == 0 else "CHANGES_REMAINING"
+    print(json.dumps({"verdict": verdict, "open_must_fix": open_must_fix}))
+    return 0
+
+
 def cmd_summary(args: argparse.Namespace, db_path: str) -> int:
     """Output a summary of all findings for a review."""
     conn = get_connection(db_path)
@@ -499,6 +526,10 @@ def main():
     summary_p = subparsers.add_parser("summary", help="Print a human-readable summary of a review")
     summary_p.add_argument("review_id", type=int, help="Review ID")
 
+    # verdict
+    verdict_p = subparsers.add_parser("verdict", help="Return JSON verdict for a task (APPROVED or CHANGES_REMAINING)")
+    verdict_p.add_argument("task_id", type=int, help="Task ID")
+
     args = parser.parse_args(sys.argv[3:])
 
     if not args.command:
@@ -522,6 +553,8 @@ def main():
             sys.exit(cmd_status(args, db_path))
         elif args.command == "summary":
             sys.exit(cmd_summary(args, db_path))
+        elif args.command == "verdict":
+            sys.exit(cmd_verdict(args, db_path))
     except sqlite3.Error as e:
         print(f"Database error: {e}", file=sys.stderr)
         sys.exit(2)
