@@ -132,20 +132,8 @@ def main():
         cost = lib.compute_cost(totals)
         model = totals["model"]
 
-        peak_context = totals.get("peak_context_tokens")
-        first_context = totals.get("first_context_tokens")
-        last_context = totals.get("last_context_tokens")
-        context_window = lib.get_context_window(model) if model else None
-
         # Update DB
-        conn.execute(
-            """UPDATE task_sessions
-               SET tokens_in = ?, tokens_out = ?, cost_dollars = ?, model = ?,
-                   peak_context_tokens = ?, first_context_tokens = ?, last_context_tokens = ?,
-                   context_window = ?
-               WHERE id = ?""",
-            (tokens_in, tokens_out, cost, model, peak_context, first_context, last_context, context_window, session_id),
-        )
+        lib.update_session_stats(conn, session_id, totals)
         conn.commit()
 
         # Print summary

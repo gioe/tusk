@@ -494,6 +494,32 @@ def iter_tool_call_costs(
                 }
 
 
+def update_session_stats(conn: sqlite3.Connection, session_id: int, totals: dict) -> None:
+    """Write aggregated token/cost stats for a session to task_sessions.
+
+    Computes tokens_in, tokens_out, cost_dollars, model, and context token
+    fields from *totals* (as returned by aggregate_session()) and executes the
+    UPDATE.  Does not commit — the caller is responsible for committing.
+    """
+    tokens_in = compute_tokens_in(totals)
+    tokens_out = totals["output_tokens"]
+    cost = compute_cost(totals)
+    model = totals["model"]
+    peak_context = totals.get("peak_context_tokens")
+    first_context = totals.get("first_context_tokens")
+    last_context = totals.get("last_context_tokens")
+    context_window = get_context_window(model) if model else None
+
+    conn.execute(
+        """UPDATE task_sessions
+           SET tokens_in = ?, tokens_out = ?, cost_dollars = ?, model = ?,
+               peak_context_tokens = ?, first_context_tokens = ?, last_context_tokens = ?,
+               context_window = ?
+           WHERE id = ?""",
+        (tokens_in, tokens_out, cost, model, peak_context, first_context, last_context, context_window, session_id),
+    )
+
+
 def upsert_criterion_tool_stats(
     conn: sqlite3.Connection,
     criterion_id: int,

@@ -92,24 +92,7 @@ def main():
                 skipped += 1
                 continue
 
-            tokens_in = lib.compute_tokens_in(best_totals)
-            tokens_out = best_totals["output_tokens"]
-            cost = lib.compute_cost(best_totals)
-            model = best_totals["model"]
-
-            peak_context = best_totals.get("peak_context_tokens")
-            first_context = best_totals.get("first_context_tokens")
-            last_context = best_totals.get("last_context_tokens")
-            context_window = lib.get_context_window(model) if model else None
-
-            conn.execute(
-                """UPDATE task_sessions
-                   SET tokens_in = ?, tokens_out = ?, cost_dollars = ?, model = ?,
-                       peak_context_tokens = ?, first_context_tokens = ?, last_context_tokens = ?,
-                       context_window = ?
-                   WHERE id = ?""",
-                (tokens_in, tokens_out, cost, model, peak_context, first_context, last_context, context_window, session_id),
-            )
+            lib.update_session_stats(conn, session_id, best_totals)
             updated += 1
 
         conn.commit()
