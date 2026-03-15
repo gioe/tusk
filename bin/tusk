@@ -925,12 +925,7 @@ cmd_session_close() {
   # Auto-detect diff stats from git if not provided
   if [[ -z "$lines_added" || -z "$lines_removed" ]]; then
     local default_branch stats
-    default_branch="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')"
-    if [[ -z "$default_branch" ]]; then
-      git remote set-head origin --auto 2>/dev/null
-      default_branch="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')"
-    fi
-    default_branch="${default_branch:-main}"
+    default_branch="$(cmd_git_default_branch)"
 
     stats="$(git diff --shortstat "$default_branch"...HEAD 2>/dev/null || true)"
     if [[ -n "$stats" ]]; then
@@ -963,6 +958,16 @@ cmd_session_close() {
   fi
 }
 
+cmd_git_default_branch() {
+  local default_branch
+  git remote set-head origin --auto 2>/dev/null
+  default_branch="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')"
+  if [[ -z "$default_branch" ]]; then
+    default_branch="$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name' 2>/dev/null || true)"
+  fi
+  echo "${default_branch:-main}"
+}
+
 # ── Dispatch ─────────────────────────────────────────────────────────
 
 case "${1:-}" in
@@ -987,6 +992,7 @@ case "${1:-}" in
   skill-run) shift; exec python3 "$SCRIPT_DIR/tusk-skill-run.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   call-breakdown) shift; exec python3 "$SCRIPT_DIR/tusk-call-breakdown.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   session-close) shift; cmd_session_close "$@" ;;
+  git-default-branch) cmd_git_default_branch ;;
   task-get) shift; exec python3 "$SCRIPT_DIR/tusk-task-get.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   task-select) shift; exec python3 "$SCRIPT_DIR/tusk-task-select.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   task-start) shift; exec python3 "$SCRIPT_DIR/tusk-task-start.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
@@ -1016,6 +1022,6 @@ case "${1:-}" in
   update-gitignore) cmd_update_gitignore ;;
   regen-triggers) cmd_regen_triggers ;;
   upgrade) shift; cmd_upgrade "$@" ;;
-  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|commit|lint|lint-rule|dupes|deps|blockers|review|criteria|dag|dashboard|wsjf|setup|autoclose|backlog-scan|token-audit|sync-skills|pricing-update|session-stats|session-recalc|session-close|skill-run|call-breakdown|task-get|task-select|task-start|task-done|task-insert|task-update|task-reopen|task-list|merge|progress|shell|version|version-bump|changelog-add|migrate|update-gitignore|upgrade|regen-triggers|report-issue|\"SQL ...\"}" >&2; exit 1 ;;
+  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|commit|lint|lint-rule|dupes|deps|blockers|review|criteria|dag|dashboard|wsjf|setup|autoclose|backlog-scan|token-audit|sync-skills|pricing-update|session-stats|session-recalc|session-close|git-default-branch|skill-run|call-breakdown|task-get|task-select|task-start|task-done|task-insert|task-update|task-reopen|task-list|merge|progress|shell|version|version-bump|changelog-add|migrate|update-gitignore|upgrade|regen-triggers|report-issue|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac
