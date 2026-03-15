@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [455] - 2026-03-15
+
+- [TASK-658] Update /chain AGENT-PROMPT.md to pass acceptance_criteria and task_progress from task-get-multi to spawned agents
+
 ## [454] - 2026-03-15
 
 - [TASK-648] Add tusk task-get-multi <id> [<id>...]
