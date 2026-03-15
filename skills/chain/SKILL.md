@@ -73,10 +73,18 @@ Depth 2:
 Progress: <completed>/<total> tasks completed (<percent>%)
 ```
 
-**Early exits:**
-- If `total_tasks` equals the number of head tasks (heads only, no shared dependents): inform the user there is no chain downstream — suggest `/tusk <id>` for each head instead. Stop here.
-- If all tasks are already Done: inform the user the chain is already complete. Stop here.
-- If all head tasks are already Done but dependents remain: skip Step 3 and go directly to Step 4 (wave loop).
+**Scope validation:**
+
+```bash
+tusk chain validate-scope <head_task_id1> [<head_task_id2> ...]
+```
+
+Parse the returned JSON. It has two fields: `scope_type` and `skip_head_execution`:
+
+- **`no-downstream`**: inform the user there is no chain downstream — suggest `/tusk <id>` for each head instead. Stop here.
+- **`all-done`**: inform the user the chain is already complete. Stop here.
+- **`heads-done-only`** (`skip_head_execution: true`): all head tasks are already Done — skip Step 3 and go directly to Step 4 (wave loop).
+- **`active-chain`**: proceed normally to Step 3.
 
 ## Step 3: Execute the Head Task(s)
 
