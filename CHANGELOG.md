@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [426] - 2026-03-14
+
+- [TASK-621] Update CONTEXT_WINDOW for opus-4-6 and sonnet-4-6 to 1M tokens
+
 ## [425] - 2026-03-14
 
 - [TASK-616] Dashboard: compute and render context window % columns
