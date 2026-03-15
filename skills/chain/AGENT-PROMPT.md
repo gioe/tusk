@@ -9,6 +9,12 @@ Domain: {domain}
 Assignee: {assignee}
 Complexity: {complexity}
 
+Acceptance Criteria:
+{acceptance_criteria}
+
+Prior Progress:
+{task_progress}
+
 ---
 
 **Instructions — follow the /tusk workflow end-to-end:**
