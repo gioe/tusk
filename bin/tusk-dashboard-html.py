@@ -3,7 +3,7 @@
 Contains all HTML templating functions: formatters, component generators, and
 section builders. Imported by tusk-dashboard.py via importlib.
 
-Not a standalone CLI command — used as a library module.
+Not a standalone CLI command — imported by tusk-dashboard.py via tusk_loader.
 """
 
 import html
