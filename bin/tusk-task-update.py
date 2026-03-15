@@ -53,16 +53,7 @@ def _load_db_lib():
 _db_lib = _load_db_lib()
 get_connection = _db_lib.get_connection
 load_config = _db_lib.load_config
-
-
-def validate_enum(value, valid_values: list, field_name: str) -> str | None:
-    """Validate a value against a config list. Returns error message or None."""
-    if not valid_values:
-        return None  # empty list = no validation
-    if value not in valid_values:
-        joined = ", ".join(valid_values)
-        return f"Invalid {field_name} '{value}'. Valid: {joined}"
-    return None
+validate_enum = _db_lib.validate_enum
 
 
 def main(argv: list[str]) -> int:

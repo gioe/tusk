@@ -41,6 +41,16 @@ def load_config(config_path: str) -> dict:
         return json.load(f)
 
 
+def validate_enum(value, valid_values: list, field_name: str) -> str | None:
+    """Validate a value against a config list. Returns error message or None."""
+    if not valid_values:
+        return None  # empty list = no validation
+    if value not in valid_values:
+        joined = ", ".join(valid_values)
+        return f"Invalid {field_name} '{value}'. Valid: {joined}"
+    return None
+
+
 def checkpoint_wal(db_path: str, max_retries: int = 3) -> None:
     """Checkpoint and truncate the WAL, retrying if busy readers block it.
 
