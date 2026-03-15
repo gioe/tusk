@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [434] - 2026-03-15
+
+- [TASK-628] Harden tusk-commit pre-flight check to reject paths with '..' components
+
 ## [433] - 2026-03-15
 
 - [TASK-627] Fix tusk commit exit code 3 (pathspec error) for valid modified files on macOS when caller_cwd and repo_root differ in case

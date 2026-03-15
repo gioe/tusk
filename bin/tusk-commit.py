@@ -202,7 +202,14 @@ def main(argv: list[str]) -> int:
             real_abs = os.path.realpath(abs_path)
             if _escapes_root(real_abs, real_repo_root):
                 escape_errors.append((f, abs_path))
-            resolved_files.append(_make_relative(abs_path, repo_root))
+            resolved = _make_relative(abs_path, repo_root)
+            # If _make_relative produced '..' components (e.g. abs_path and repo_root
+            # differ due to a symlink), normalise using realpath-based relpath.
+            # _escapes_root already confirmed real_abs is inside real_repo_root, so
+            # os.path.relpath(real_abs, real_repo_root) is guaranteed to be clean.
+            if ".." in resolved.replace(os.sep, "/").split("/"):
+                resolved = os.path.relpath(real_abs, real_repo_root)
+            resolved_files.append(resolved)
 
     if escape_errors:
         for orig, abs_path in escape_errors:
@@ -211,6 +218,26 @@ def main(argv: list[str]) -> int:
                 f"  Resolved to: '{abs_path}'\n"
                 f"  Repo root is: {repo_root}\n"
                 f"  Hint: paths must be inside the repo root",
+                file=sys.stderr,
+            )
+        return 3
+
+    # Belt-and-suspenders: reject any resolved path that still contains '..' components.
+    # _make_relative() should never produce such paths, but if a future code path does,
+    # os.path.exists() would silently resolve through '..' and the error would surface
+    # later as a confusing 'git add failed' message.
+    dotdot_errors = [
+        (orig, resolved)
+        for orig, resolved in zip(files, resolved_files)
+        if not os.path.isabs(resolved)
+        and ".." in resolved.replace(os.sep, "/").split("/")
+    ]
+    if dotdot_errors:
+        for orig, resolved in dotdot_errors:
+            print(
+                f"Error: resolved path contains '..' components: '{orig}'\n"
+                f"  Resolved to: '{resolved}'\n"
+                f"  Hint: paths must not traverse outside the repo root",
                 file=sys.stderr,
             )
         return 3
