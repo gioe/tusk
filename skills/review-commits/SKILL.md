@@ -279,7 +279,25 @@ Track current pass number (starts at 1). If `current_pass < max_passes`:
    tusk review start <task_id> --pass-num <current_pass + 1> --diff-summary "Re-review pass <n>"
    ```
 
-2. **Verify Bash access before spawning re-review agents.** Run:
+2. **Check diff size before deciding review strategy.** Measure the current diff:
+   ```bash
+   git diff $(git merge-base HEAD origin/main)..HEAD --stat | tail -1
+   ```
+
+   **For small or documentation-only diffs (fewer than ~200 lines changed, or only non-code files such as `.md`, `.json`, `.yaml`):** skip agent spawning and perform an inline re-review instead. Read the diff yourself, evaluate it against the reviewer focus areas, and record the result directly:
+
+   ```bash
+   # Approve with no findings:
+   tusk review approve <review_id> --note "Inline re-review: small/docs-only diff, no findings."
+   # Or if changes are needed:
+   tusk review request-changes <review_id>
+   # Then add comments as needed:
+   tusk review comment add <review_id> <category> <severity> "<file>:<line>" "<description>"
+   ```
+
+   After recording the inline decision, skip directly to step 3 (process findings) without spawning agents.
+
+   **For all other diffs:** verify Bash is accessible before spawning re-review agents. Run:
    ```bash
    tusk version
    ```
