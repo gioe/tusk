@@ -1200,3 +1200,65 @@ class TestFetchCostTrendMonthly:
 
         rows_shifted = dashboard_data.fetch_cost_trend_monthly(conn, offset_minutes=120)
         assert rows_shifted[0]["month"] == "2026-02"
+
+
+# ---------------------------------------------------------------------------
+# Schema sync guard: _SCHEMA fixture vs bin/tusk CREATE TABLE task_sessions
+# ---------------------------------------------------------------------------
+
+def _extract_task_sessions_columns(sql_text):
+    """Return the set of column names defined in the CREATE TABLE task_sessions block."""
+    import re
+
+    match = re.search(
+        r"CREATE TABLE task_sessions\s*\((.*?)\)",
+        sql_text,
+        re.DOTALL | re.IGNORECASE,
+    )
+    if not match:
+        return set()
+
+    columns = set()
+    for line in match.group(1).splitlines():
+        line = line.strip().rstrip(",")
+        if not line:
+            continue
+        # Skip constraint/key lines
+        if re.match(r"(FOREIGN KEY|PRIMARY KEY|UNIQUE|CHECK|CONSTRAINT)\b", line, re.IGNORECASE):
+            continue
+        col_match = re.match(r"(\w+)", line)
+        if col_match:
+            columns.add(col_match.group(1).lower())
+    return columns
+
+
+class TestTaskSessionsSchemaSync:
+    """Guard against drift between _SCHEMA fixture and bin/tusk CREATE TABLE task_sessions."""
+
+    def test_fixture_matches_bin_tusk(self):
+        """Fail if any column is present in one definition but absent from the other.
+
+        This catches future migrations that add columns to task_sessions without
+        updating the _SCHEMA test fixture (the scenario that triggered TASK-636).
+        """
+        tusk_path = os.path.join(REPO_ROOT, "bin", "tusk")
+        with open(tusk_path) as f:
+            tusk_sql = f.read()
+
+        tusk_cols = _extract_task_sessions_columns(tusk_sql)
+        fixture_cols = _extract_task_sessions_columns(_SCHEMA)
+
+        assert tusk_cols, "Could not find CREATE TABLE task_sessions in bin/tusk"
+        assert fixture_cols, "Could not find CREATE TABLE task_sessions in _SCHEMA fixture"
+
+        missing_from_fixture = tusk_cols - fixture_cols
+        extra_in_fixture = fixture_cols - tusk_cols
+
+        assert not missing_from_fixture, (
+            f"task_sessions columns in bin/tusk missing from _SCHEMA fixture: {sorted(missing_from_fixture)}. "
+            "Update _SCHEMA in tests/unit/test_dashboard_data.py to match."
+        )
+        assert not extra_in_fixture, (
+            f"task_sessions columns in _SCHEMA fixture not in bin/tusk: {sorted(extra_in_fixture)}. "
+            "Update _SCHEMA in tests/unit/test_dashboard_data.py to match."
+        )
