@@ -13,24 +13,17 @@ Returns JSON for the top ready task, or exits with code 1 when none found.
 """
 
 import argparse
-import importlib.util
 import json
 import os
 import sqlite3
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tusk_loader
+
 COMPLEXITY_ORDER = ["XS", "S", "M", "L", "XL"]
 
-
-def _load_db_lib():
-    _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk-db-lib.py")
-    _s = importlib.util.spec_from_file_location("tusk_db_lib", _p)
-    _m = importlib.util.module_from_spec(_s)
-    _s.loader.exec_module(_m)
-    return _m
-
-
-_db_lib = _load_db_lib()
+_db_lib = tusk_loader.load("tusk-db-lib")
 get_connection = _db_lib.get_connection
 
 

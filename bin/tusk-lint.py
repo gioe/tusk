@@ -8,7 +8,6 @@ Checks the tusk codebase against Key Conventions from CLAUDE.md.
 Prints results grouped by rule and exits with status 1 if any violations found.
 """
 
-import importlib.util
 import json
 import os
 import re
@@ -16,6 +15,9 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tusk_loader
 
 
 def find_files(root, dirs, extensions):
@@ -688,14 +690,6 @@ def rule21_skills_trailing_newlines(root):
 
 # ── DB-backed rules ──────────────────────────────────────────────────
 
-def _load_db_lib():
-    _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk-db-lib.py")
-    _s = importlib.util.spec_from_file_location("tusk_db_lib", _p)
-    _m = importlib.util.module_from_spec(_s)
-    _s.loader.exec_module(_m)
-    return _m
-
-
 def _db_path_from_root(root):
     """Resolve the tusk DB path by calling 'tusk path'. Returns path str or None."""
     tusk_bin = os.path.join(root, "bin", "tusk")
@@ -718,7 +712,7 @@ def _load_lint_rules(root, is_blocking):
     if not db_path:
         return []
     try:
-        conn = _load_db_lib().get_connection(db_path)
+        conn = tusk_loader.load("tusk-db-lib").get_connection(db_path)
         try:
             rows = conn.execute(
                 "SELECT id, grep_pattern, file_glob, message FROM lint_rules"

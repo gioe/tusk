@@ -12,37 +12,18 @@ Arguments received from tusk:
 
 import argparse
 import glob as globmod
-import importlib.util
 import json
 import os
 import sqlite3
 import subprocess
 import sys
-from pathlib import Path
 from typing import Optional
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tusk_loader
 
-def _load_lib():
-    """Import tusk-pricing-lib.py (hyphenated filename requires importlib)."""
-    lib_path = Path(__file__).resolve().parent / "tusk-pricing-lib.py"
-    spec = importlib.util.spec_from_file_location("tusk_pricing_lib", lib_path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-lib = _load_lib()
-
-
-def _load_db_lib():
-    lib_path = Path(__file__).resolve().parent / "tusk-db-lib.py"
-    spec = importlib.util.spec_from_file_location("tusk_db_lib", lib_path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-_db_lib = _load_db_lib()
+lib = tusk_loader.load("tusk-pricing-lib")
+_db_lib = tusk_loader.load("tusk-db-lib")
 get_connection = _db_lib.get_connection
 load_config = _db_lib.load_config
 

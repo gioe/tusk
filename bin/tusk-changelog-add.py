@@ -14,23 +14,16 @@ Writes the new entry to CHANGELOG.md immediately after the ## [Unreleased]
 heading and outputs the inserted block text to stdout for LLM review.
 """
 
-import importlib.util
 import os
 import sqlite3
 import subprocess
 import sys
 from datetime import date
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tusk_loader
 
-def _load_db_lib():
-    _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk-db-lib.py")
-    _s = importlib.util.spec_from_file_location("tusk_db_lib", _p)
-    _m = importlib.util.module_from_spec(_s)
-    _s.loader.exec_module(_m)
-    return _m
-
-
-_db_lib = _load_db_lib()
+_db_lib = tusk_loader.load("tusk-db-lib")
 get_connection = _db_lib.get_connection
 
 

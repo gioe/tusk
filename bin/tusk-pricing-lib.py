@@ -3,6 +3,11 @@
 Provides pricing loading, model resolution, transcript parsing, token
 aggregation, and cost computation.  Imported by tusk-session-stats.py,
 tusk-criteria.py, tusk-session-recalc.py, and tusk-call-breakdown.py.
+
+Both this file and tusk-db-lib.py are loaded at runtime via tusk_loader:
+
+    lib = tusk_loader.load("tusk-pricing-lib")
+    _db_lib = tusk_loader.load("tusk-db-lib")
 """
 
 import json

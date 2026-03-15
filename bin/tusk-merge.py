@@ -30,22 +30,16 @@ Default behavior (merge.mode = local):
   Requires --pr-number.
 """
 
-import importlib.util
 import json
 import os
 import sqlite3
 import subprocess
 import sys
 
-def _load_db_lib():
-    _p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk-db-lib.py")
-    _s = importlib.util.spec_from_file_location("tusk_db_lib", _p)
-    _m = importlib.util.module_from_spec(_s)
-    _s.loader.exec_module(_m)
-    return _m
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tusk_loader
 
-
-_db_lib = _load_db_lib()
+_db_lib = tusk_loader.load("tusk-db-lib")
 get_connection = _db_lib.get_connection
 checkpoint_wal = _db_lib.checkpoint_wal
 
