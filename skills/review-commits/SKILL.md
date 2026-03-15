@@ -124,13 +124,15 @@ Where `<base_directory>` is the skill base directory shown at the top of this fi
 
 **Filter reviewers by task domain before spawning:**
 
-Using the `reviewer name → review_id` mapping from Step 4 and the task domain from Step 2, determine which reviewers to spawn:
+Run:
 
-- A reviewer with an **empty or absent `domains` array** → always spawn (general reviewer).
-- A reviewer with a **non-empty `domains` array** → spawn only if the task's domain appears in that array.
-- If the task has **no domain (NULL/empty)** → spawn only reviewers with an empty or absent `domains` array.
+```bash
+tusk filter-reviewers --task-id <task_id>
+```
 
-For each review_id whose reviewer was filtered out by this logic, immediately auto-approve it without spawning an agent, recording the reason with `--note`:
+This returns a JSON array of reviewer names that match the task's domain (e.g. `["general", "security"]`). Use it together with the `reviewer name → review_id` mapping from Step 4 to determine which review_ids to spawn agents for.
+
+For each review_id whose reviewer name is **not** in the returned array, immediately auto-approve it without spawning an agent, recording the reason with `--note`:
 
 ```bash
 tusk review approve <review_id> --note "Skipped: reviewer domains [<reviewer_domains>] does not match task domain [<task_domain>]"
