@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [445] - 2026-03-15
+
+- [TASK-641] Add tusk branch-parse [--branch <name>]
+
 ## [444] - 2026-03-15
 
 - [TASK-652] Update review-commits REVIEWER-PROMPT.md to use tusk git-default-branch

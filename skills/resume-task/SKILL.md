@@ -11,14 +11,11 @@ Recovers context after a session crash/timeout and continues the implementation 
 ## Step 1: Detect the Task ID
 
 ```bash
-BRANCH=$(git branch --show-current)
-TASK_ID=$(echo "$BRANCH" | sed -n 's|^feature/TASK-\([0-9]*\)-.*|\1|p')
-echo "Branch: $BRANCH"
-echo "Task ID: $TASK_ID"
+tusk branch-parse
 ```
 
-- Non-empty `TASK_ID` → proceed to Step 2
-- Branch doesn't match → check for user-provided argument (e.g., `/resume-task 42`)
+- Returns `{"task_id": N}` → use that ID and proceed to Step 2
+- Exits 1 (branch doesn't match) → check for user-provided argument (e.g., `/resume-task 42`)
 - Neither → ask: "Could not detect a task ID. Which task ID should I resume?"
 
 ## Step 2: Start the Task (Idempotent)

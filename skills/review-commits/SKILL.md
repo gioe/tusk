@@ -35,10 +35,10 @@ Parse the returned JSON. Extract:
 If a task ID was passed as an argument, use it. Otherwise, infer from the current branch:
 
 ```bash
-git branch --show-current
+tusk branch-parse
 ```
 
-Parse the branch name for the pattern `TASK-<id>` (e.g., `feature/TASK-123-my-feature` → task ID 123). If no task ID can be found, ask the user to provide one.
+Returns `{"task_id": N}` on success. If the command exits 1 (branch doesn't match pattern), ask the user to provide a task ID.
 
 Verify the task exists and capture its domain:
 
