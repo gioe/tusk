@@ -960,7 +960,7 @@ cmd_session_close() {
 
 cmd_git_default_branch() {
   local default_branch
-  git remote set-head origin --auto 2>/dev/null
+  git remote set-head origin --auto >/dev/null 2>&1
   default_branch="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')"
   if [[ -z "$default_branch" ]]; then
     default_branch="$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name' 2>/dev/null || true)"
