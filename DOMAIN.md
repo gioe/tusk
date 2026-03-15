@@ -172,6 +172,7 @@ A bounded work session on a task, tracking cost and metrics. A task can have mul
 | `peak_context_tokens` | INTEGER | nullable | Peak context window usage observed during the session |
 | `first_context_tokens` | INTEGER | nullable | Context window size at the start of the session |
 | `last_context_tokens` | INTEGER | nullable | Context window size at the end of the session |
+| `context_window` | INTEGER | nullable | Total context window capacity for the model used (e.g. 1000000 for claude-sonnet-4-6); used as denominator in ctx_pct calculations |
 
 **Invariant:** At most one open (unclosed) session per task is allowed. Enforced by a partial UNIQUE index: `UNIQUE INDEX idx_task_sessions_open ON task_sessions(task_id) WHERE ended_at IS NULL`. `tusk task-start` detects a concurrent-insert race via `IntegrityError` and reuses the winning session with a warning rather than failing.
 
