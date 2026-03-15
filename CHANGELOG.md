@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [450] - 2026-03-15
+
+- [TASK-645] Add tusk review-verdict <task_id>
+
 ## [449] - 2026-03-15
 
 - [TASK-655] Refactor tusk-filter-reviewers.py to use tusk-db-lib instead of raw sqlite3.connect
