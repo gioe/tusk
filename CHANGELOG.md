@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [430] - 2026-03-14
+
+- [TASK-625] Harden review-commits skill: resolve deferred task_type from config at runtime
+
 ## [429] - 2026-03-14
 
 - [TASK-624] Add inline step-to-exit-code flow comment to tusk-commit.py main()

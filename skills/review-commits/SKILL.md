@@ -28,6 +28,7 @@ Parse the returned JSON. Extract:
 - `review.reviewers` — list of reviewer objects (each with `name` and `description` fields). If empty, a single unassigned review will be used.
 - `review_categories` — valid comment categories (typically `["must_fix", "suggest", "defer"]`)
 - `review_severities` — valid severity levels (typically `["critical", "major", "minor"]`)
+- `task_types` — list of valid task type strings. Resolve the best type for deferred tasks now: prefer `"refactor"`, then `"chore"`, then the first entry that is not `"bug"`. Store as `DEFERRED_TASK_TYPE`. If the list is empty or every entry is `"bug"`, set `DEFERRED_TASK_TYPE = null`.
 
 ## Step 2: Detect Task ID
 
@@ -251,15 +252,18 @@ These are valid issues but out of scope for the current work. For each `defer` c
      ```
    - **Any other exit code** — the dupe check itself failed (e.g., database error); **skip task creation**, print a warning (e.g., "Skipped deferred task — dupe check failed with exit code <N>: <summary>"), and mark the comment resolved as deferred.
 
-2. If exit code 0 (no duplicate), create the deferred task:
-   ```bash
-   tusk task-insert "<summary from comment>" "<full comment text>" \
-     --priority Medium \
-     --domain <same domain as current task> \
-     --task-type refactor \
-     --deferred
-   ```
-   Then mark the comment resolved:
+2. If exit code 0 (no duplicate), create the deferred task. Use `DEFERRED_TASK_TYPE` resolved in Step 1:
+   - **If `DEFERRED_TASK_TYPE` is non-null**, include `--task-type <DEFERRED_TASK_TYPE>`:
+     ```bash
+     tusk task-insert "<summary from comment>" "<full comment text>" \
+       --priority Medium \
+       --domain <same domain as current task> \
+       --task-type <DEFERRED_TASK_TYPE> \
+       --deferred
+     ```
+   - **If `DEFERRED_TASK_TYPE` is null** (config has no suitable task type), skip task creation and print a warning: "Skipped deferred task — no suitable task_type in config (not 'bug'): <summary>".
+
+   In both cases, mark the comment resolved:
    ```bash
    tusk review resolve <comment_id> deferred
    ```
