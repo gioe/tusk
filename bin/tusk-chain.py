@@ -253,6 +253,50 @@ def cmd_frontier_check(conn: sqlite3.Connection, head_ids: list[int]):
     print(json.dumps({"status": status, "frontier": frontier}, indent=2))
 
 
+def cmd_validate_scope(conn: sqlite3.Connection, head_ids: list[int]):
+    """Return {scope_type, skip_head_execution} for /chain Step 2 early-exit detection.
+
+    scope_type values:
+      no-downstream   — only head tasks are in scope (no downstream dependents)
+      all-done        — every task in the chain is already Done
+      heads-done-only — all head tasks are Done but downstream tasks remain
+      active-chain    — normal case: head tasks are not all Done
+
+    skip_head_execution is True when heads are already Done (heads-done-only),
+    meaning Step 3 should be skipped and the wave loop can start immediately.
+    """
+    downstream = bfs_downstream_union(conn, head_ids)
+    task_ids = [tid for tid, _ in downstream]
+    head_set = set(head_ids)
+
+    # no-downstream: only the head tasks appear in scope
+    non_head_ids = [tid for tid in task_ids if tid not in head_set]
+    if not non_head_ids:
+        print(json.dumps({"scope_type": "no-downstream", "skip_head_execution": False}))
+        return
+
+    placeholders = ",".join("?" * len(task_ids))
+    rows = conn.execute(
+        f"SELECT id, status FROM tasks WHERE id IN ({placeholders})",
+        task_ids,
+    ).fetchall()
+
+    all_done = all(row["status"] == "Done" for row in rows)
+    heads_done = all(row["status"] == "Done" for row in rows if row["id"] in head_set)
+
+    if all_done:
+        scope_type = "all-done"
+        skip_head_execution = True
+    elif heads_done:
+        scope_type = "heads-done-only"
+        skip_head_execution = True
+    else:
+        scope_type = "active-chain"
+        skip_head_execution = False
+
+    print(json.dumps({"scope_type": scope_type, "skip_head_execution": skip_head_execution}))
+
+
 def cmd_status(conn: sqlite3.Connection, head_ids: list[int]):
     """Print a human-readable progress summary for the downstream sub-DAG."""
     downstream = bfs_downstream_union(conn, head_ids)
@@ -323,6 +367,8 @@ Examples:
   tusk chain frontier 42 43        # JSON: ready tasks in union of 42+43 sub-DAGs
   tusk chain frontier-check 42     # JSON: {status, frontier} for loop termination
   tusk chain frontier-check 42 43  # JSON: {status, frontier} for multi-head chain
+  tusk chain validate-scope 42     # JSON: {scope_type, skip_head_execution} for /chain Step 2
+  tusk chain validate-scope 42 43  # JSON: validate-scope for multi-head chain
   tusk chain status 42             # Human-readable progress summary
   tusk chain status 42 43          # Human-readable progress for multi-head chain
         """,
@@ -345,6 +391,13 @@ Examples:
         help="Return {status, frontier} JSON for loop-termination detection",
     )
     frontier_check_parser.add_argument("head_task_ids", type=int, nargs="+", help="Head task ID(s)")
+
+    # validate-scope command
+    validate_scope_parser = subparsers.add_parser(
+        "validate-scope",
+        help="Return {scope_type, skip_head_execution} JSON for /chain Step 2 early-exit detection",
+    )
+    validate_scope_parser.add_argument("head_task_ids", type=int, nargs="+", help="Head task ID(s)")
 
     # status command
     status_parser = subparsers.add_parser("status", help="Show progress summary")
@@ -380,6 +433,8 @@ Examples:
             cmd_frontier(conn, args.head_task_ids)
         elif args.command == "frontier-check":
             cmd_frontier_check(conn, args.head_task_ids)
+        elif args.command == "validate-scope":
+            cmd_validate_scope(conn, args.head_task_ids)
         elif args.command == "status":
             cmd_status(conn, args.head_task_ids)
     finally:
