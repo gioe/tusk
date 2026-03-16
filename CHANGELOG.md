@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [462] - 2026-03-15
+
+- [TASK-661] Compress duplicate blocks in review-commits/SKILL.md
+
 ## [461] - 2026-03-15
 
 - [TASK-660] Compress duplicate blocks in chain/SKILL.md

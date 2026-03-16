@@ -305,27 +305,7 @@ Otherwise, loop while `can_retry` is true:
    DEFAULT_BRANCH=$(tusk git-default-branch); git diff $(git merge-base HEAD origin/${DEFAULT_BRANCH})..HEAD --stat | tail -1
    ```
 
-   **For small or documentation-only diffs (fewer than ~200 lines changed, or only non-code files such as `.md`, `.json`, `.yaml`):** skip agent spawning and perform an inline re-review instead. Read the diff yourself, evaluate it against the reviewer focus areas, and record the result directly:
-
-   ```bash
-   # Approve with no findings:
-   tusk review approve <review_id> --note "Inline re-review: small/docs-only diff, no findings."
-   # Or if changes are needed:
-   tusk review request-changes <review_id>
-   # Then add comments as needed:
-   tusk review comment add <review_id> <category> <severity> "<file>:<line>" "<description>"
-   ```
-
-   After recording the inline decision, skip directly to step 3 (process findings) without spawning agents.
-
-   **For all other diffs:** verify Bash is accessible before spawning re-review agents. Run:
-   ```bash
-   tusk version
-   ```
-   If this command fails with a permissions error (Bash not permitted), stop and surface:
-   > Re-review aborted: Bash tool is not accessible in this session. Reviewer agents require these `permissions.allow` entries in `.claude/settings.json`: `Bash(git diff:*)`, `Bash(git remote:*)`, `Bash(git symbolic-ref:*)`, `Bash(git branch:*)`, `Bash(tusk review:*)`. Run `tusk upgrade` to apply them, then restart the session.
-
-   Spawn reviewer agents only if the command succeeds. Re-review agents fetch the diff themselves — no diff is passed inline.
+   Apply the same inline-review and permissions-check logic as Step 5.1 — small/docs-only diffs skip agent spawning and are reviewed inline; larger diffs verify Bash access via `tusk version` before spawning agents. Re-review agents fetch the diff themselves — no diff is passed inline.
 
 3. Monitor completion (Step 6) and process findings (Step 7).
 
