@@ -20,6 +20,7 @@
   ".claude/bin/tusk-deps.py",
   ".claude/bin/tusk-dupes.py",
   ".claude/bin/tusk-filter-reviewers.py",
+  ".claude/bin/tusk-init-scan-codebase.py",
   ".claude/bin/tusk-lint-rules.py",
   ".claude/bin/tusk-lint.py",
   ".claude/bin/tusk-loop.py",
