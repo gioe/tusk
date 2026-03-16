@@ -30,58 +30,13 @@ Hold onto the config values for Step 2.
 
 ### Step 2: Pre-Check Counts
 
-Run a **single query** to count findings per category. Build it by substituting config values into the template below.
+Run the built-in audit command to get counts for all six categories:
 
-**Config fitness sub-expression:** Build this dynamically from the config loaded in Step 1.
-
-For each **non-empty** config array, add a condition checking open tasks for non-matching values:
-
-- `domains` (if not `[]`): `(domain IS NOT NULL AND domain <> '' AND domain NOT IN ('d1','d2',...))`
-- `agents` keys (if not `{}`): `(assignee IS NOT NULL AND assignee <> '' AND assignee NOT IN ('a1','a2',...))`
-- `task_types`: `(task_type IS NOT NULL AND task_type NOT IN ('t1','t2',...))`
-
-Combine conditions with `OR` inside a subselect counting open tasks (`status <> 'Done'`). If **all** config arrays that could produce orphans are empty, use `0` as the config_fitness value.
-
-**Full pre-check template** (replace `{CONFIG_FITNESS_EXPR}` with the expression built above):
-
-```sql
-SELECT
-  {CONFIG_FITNESS_EXPR} as config_fitness,
-
-  (SELECT COUNT(*) FROM tasks WHERE
-    (status = 'Done' AND (closed_reason IS NULL OR closed_reason = ''))
-    OR (status = 'In Progress' AND id NOT IN (SELECT DISTINCT task_id FROM task_sessions))
-    OR (expires_at IS NOT NULL AND expires_at < datetime('now') AND status <> 'Done')
-    OR (description IS NULL OR description = '')
-    OR (complexity IS NULL OR complexity = '')
-  ) as task_hygiene,
-
-  (SELECT COUNT(DISTINCT d.task_id) FROM task_dependencies d
-    JOIN tasks dep ON d.task_id = dep.id
-    JOIN tasks blocker ON d.depends_on_id = blocker.id
-    WHERE dep.status <> 'Done'
-      AND blocker.status = 'Done'
-      AND blocker.closed_reason IN ('wont_do', 'duplicate')
-  ) as dependency_health,
-
-  (SELECT COUNT(*) FROM task_sessions WHERE ended_at IS NULL)
-  + (SELECT COUNT(*) FROM tasks WHERE status = 'Done'
-      AND id NOT IN (SELECT DISTINCT task_id FROM task_sessions))
-  as session_gaps,
-
-  (SELECT COUNT(*) FROM tasks WHERE status IN ('In Progress', 'Done')
-    AND id NOT IN (SELECT DISTINCT task_id FROM acceptance_criteria))
-  + (SELECT COUNT(*) FROM tasks WHERE status = 'Done'
-    AND id IN (SELECT task_id FROM acceptance_criteria WHERE is_completed = 0))
-  as criteria_gaps,
-
-  (SELECT COUNT(*) FROM tasks
-    WHERE status = 'To Do'
-    AND (priority_score IS NULL OR priority_score = 0))
-  as scoring_gaps;
+```bash
+tusk audit
 ```
 
-Run with `tusk -header -column "..."`.
+This returns JSON with `config_fitness`, `task_hygiene`, `dependency_health`, `session_gaps`, `criteria_gaps`, and `scoring_gaps` counts. All six keys are always present even when the count is zero.
 
 ### Step 3: Audit Report
 

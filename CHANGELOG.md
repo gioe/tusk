@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [457] - 2026-03-15
+
+- [TASK-647] Add tusk audit [--json]
+
 ## [456] - 2026-03-15
 
 - [TASK-659] Document serialization format for {acceptance_criteria} and {task_progress} placeholders in chain AGENT-PROMPT.md
