@@ -279,12 +279,16 @@ tusk init --force
 
 ## Step 8: Seed Tasks from TODOs (Optional)
 
-Grep (parallel): `TODO`, `FIXME`, `HACK`, `XXX`
+Run:
 
-Exclude: `node_modules/`, `.git/`, `vendor/`, `dist/`, `build/`, `tusk/`, `__pycache__/`, `.venv/`, `target/`
+```bash
+tusk init-scan-todos
+```
 
-- No TODOs → skip silently
-- TODOs found → read and follow Step 8 from:
+This scans the project root for `TODO`, `FIXME`, `HACK`, and `XXX` comments, excluding `node_modules/`, `.git/`, `vendor/`, `dist/`, `build/`, `tusk/`, `__pycache__/`, `.venv/`, and `target/`. It returns a JSON array where each item has `file`, `line`, `text`, `keyword`, `priority`, and `task_type`.
+
+- Empty array → skip silently
+- Items found → read and follow Step 8 from:
   ```
   Read file: <base_directory>/REFERENCE.md
   ```

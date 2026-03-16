@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [460] - 2026-03-15
+
+- [TASK-650] Add tusk init-scan-todos [--exclude dir,...]
+
 ## [459] - 2026-03-15
 
 - [TASK-649] Add tusk init-scan-codebase
