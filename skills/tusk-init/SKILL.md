@@ -115,6 +115,18 @@ Once you have a proposed domain and agent list, proceed to **Step 3** and **Step
 
 ## Step 3: Suggest and Confirm Domains
 
+Run the automated codebase scanner before presenting suggestions:
+
+```bash
+tusk init-scan-codebase
+```
+
+This returns JSON `{"manifests": [...], "detected_domains": [{"name": "...", "confidence": "high|medium|low", "signals": [...]}]}`.
+
+- Use `detected_domains` as the basis for domain suggestions — each entry already includes a `confidence` level and the `signals` that triggered it.
+- If `detected_domains` is empty (no codebase signals found), skip to **Step 2e** for the fresh-project interview instead of proceeding to domain confirmation.
+- If the command fails or is unavailable, fall back to the inline scanning approach described in Steps 2a–2d.
+
 Before presenting suggestions, frame the concept for the user:
 
 > **What makes a good domain?**
