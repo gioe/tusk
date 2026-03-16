@@ -26,7 +26,7 @@ Parse the JSON. Note which arrays are empty — empty means no validation is con
 - `domains` → `[]` means skip domain orphan checks
 - `agents` → `{}` means skip agent orphan checks
 
-Hold onto the config values for Step 2.
+Hold onto the config values for Phase 2 (recommendations).
 
 ### Step 2: Pre-Check Counts
 

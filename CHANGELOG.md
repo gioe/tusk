@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [458] - 2026-03-15
+
+- (no tasks specified)
+
 ## [457] - 2026-03-15
 
 - [TASK-647] Add tusk audit [--json]
