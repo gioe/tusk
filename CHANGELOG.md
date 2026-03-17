@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [476] - 2026-03-17
+
+- [TASK-675] Fix /review-commits re-review pass to explicitly run tusk version guard before spawning agents
+
 ## [475] - 2026-03-17
 
 - [TASK-674] Track tusk-lint.py hash at install/upgrade time to detect true local modifications

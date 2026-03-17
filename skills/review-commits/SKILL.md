@@ -305,7 +305,18 @@ Otherwise, loop while `can_retry` is true:
    DEFAULT_BRANCH=$(tusk git-default-branch); git diff $(git merge-base HEAD origin/${DEFAULT_BRANCH})..HEAD --stat | tail -1
    ```
 
-   Apply the same inline-review and permissions-check logic as Step 5.1 — small/docs-only diffs skip agent spawning and are reviewed inline; larger diffs verify Bash access via `tusk version` before spawning agents. Re-review agents fetch the diff themselves — no diff is passed inline.
+   **For small or documentation-only diffs (fewer than ~200 lines changed, or only non-code files):** skip agent spawning and perform an inline review. Read the diff yourself, evaluate it against reviewer focus areas, and record the result directly (approve or request-changes + add-comment). After recording the inline decision, skip to step 3.
+
+   **For all other diffs:** verify Bash is accessible before spawning re-review agents. Run:
+
+   ```bash
+   tusk version
+   ```
+
+   If this command fails with a permissions error (Bash not permitted), stop and surface:
+   > Re-review agent aborted: Bash is not accessible in agent sandboxes for this project. The `permissions.allow` block in `.claude/settings.json` must include the required entries: `Bash(git diff:*)`, `Bash(git remote:*)`, `Bash(git symbolic-ref:*)`, `Bash(git branch:*)`, `Bash(tusk review:*)`. Run `tusk upgrade` to apply them, then restart the session.
+
+   Proceed to spawn re-review agents only if `tusk version` succeeds. Re-review agents fetch the diff themselves — no diff is passed inline.
 
 3. Monitor completion (Step 6) and process findings (Step 7).
 
