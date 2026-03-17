@@ -55,6 +55,10 @@ for pyfile in "$SCRIPT_DIR"/bin/tusk-*.py; do
   echo "  Installed .claude/bin/$basename_py"
 done
 
+# Record the baseline hash of tusk-lint.py so upgrades can detect true local modifications.
+python3 -c "import hashlib, pathlib; p = pathlib.Path('$REPO_ROOT/.claude/bin/tusk-lint.py'); pathlib.Path('$REPO_ROOT/.claude/bin/tusk-lint.py.hash').write_text(hashlib.md5(p.read_bytes()).hexdigest() + '\n')"
+echo "  Recorded .claude/bin/tusk-lint.py.hash"
+
 # tusk_loader.py uses an underscore filename (importable without importlib) — copy explicitly.
 cp "$SCRIPT_DIR/bin/tusk_loader.py" "$REPO_ROOT/.claude/bin/tusk_loader.py"
 echo "  Installed .claude/bin/tusk_loader.py"

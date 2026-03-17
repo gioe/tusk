@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [475] - 2026-03-17
+
+- [TASK-674] Track tusk-lint.py hash at install/upgrade time to detect true local modifications
+
 ## [474] - 2026-03-17
 
 - [TASK-673] Wrap tusk-lint-extra.py load in try/except with clear error message

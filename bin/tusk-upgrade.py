@@ -109,14 +109,23 @@ def copy_bin_files(src: str, script_dir: str) -> None:
     os.replace(tusk_tmp, os.path.join(script_dir, "tusk"))
     for pyfile in Path(os.path.join(src, "bin")).glob("tusk-*.py"):
         dest = os.path.join(script_dir, pyfile.name)
-        if pyfile.name == "tusk-lint.py" and os.path.isfile(dest):
+        if pyfile.name == "tusk-lint.py":
             src_hash = hashlib.md5(pyfile.read_bytes()).hexdigest()
-            dest_hash = hashlib.md5(Path(dest).read_bytes()).hexdigest()
-            if src_hash != dest_hash:
-                print(f"  Warning: {dest} will be overwritten.")
-                print("  If you have project-specific lint rules in tusk-lint.py,")
-                print("  move them to tusk-lint-extra.py (never overwritten by upgrade).")
+            hash_sidecar = os.path.join(script_dir, "tusk-lint.py.hash")
+            if os.path.isfile(dest) and os.path.isfile(hash_sidecar):
+                # Only warn if the installed file has diverged from what tusk last wrote
+                # (i.e., a true local modification), not on every routine upgrade.
+                dest_hash = hashlib.md5(Path(dest).read_bytes()).hexdigest()
+                baseline_hash = Path(hash_sidecar).read_text().strip()
+                if dest_hash != baseline_hash:
+                    print(f"  Warning: {dest} has local modifications and will be overwritten.")
+                    print("  If you have project-specific lint rules in tusk-lint.py,")
+                    print("  move them to tusk-lint-extra.py (never overwritten by upgrade).")
+            # No sidecar: existing install without hash tracking — skip warning (graceful degradation).
         shutil.copy2(str(pyfile), script_dir)
+        if pyfile.name == "tusk-lint.py":
+            # Record what tusk just wrote so future upgrades can detect local modifications.
+            Path(hash_sidecar).write_text(src_hash + "\n")
     # tusk_loader.py uses an underscore filename — copy explicitly (missed by glob above).
     shutil.copy2(os.path.join(src, "bin", "tusk_loader.py"), script_dir)
     shutil.copy2(
