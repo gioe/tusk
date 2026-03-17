@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [474] - 2026-03-17
+
+- [TASK-673] Wrap tusk-lint-extra.py load in try/except with clear error message
+
 ## [473] - 2026-03-17
 
 - [TASK-672] Fix tusk upgrade to detect and preserve local tusk-lint.py customizations
