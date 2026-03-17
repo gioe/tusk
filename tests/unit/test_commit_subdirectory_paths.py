@@ -821,3 +821,130 @@ class TestDotDotPreflightRejection:
         assert rc == 3
         captured = capsys.readouterr()
         assert "../outside.py" in captured.err  # original path is surfaced
+
+
+class TestDeletedFilePathRegression:
+    """Regression for GitHub Issue #375: tusk commit must accept git-tracked deleted file paths.
+
+    The pre-flight validation previously used os.path.exists() alone, which returns False
+    for deleted files and caused exit code 3 ('path not found') even though git add handles
+    deletions natively.  The fix runs git ls-files to distinguish valid deletions (tracked
+    by git) from truly missing files (not on disk and not in the git index).
+    """
+
+    def test_deleted_git_tracked_file_proceeds(self, tmp_path):
+        """A file deleted from disk but tracked by git passes pre-flight and reaches git add."""
+        mod = _load_module()
+
+        # File does NOT exist on disk (simulates a deletion)
+        argv = _argv(tmp_path, files=["deleted_module.py"])
+
+        captured_add_args = []
+
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "ls-files"]:
+                # Report the file as git-tracked (it was deleted but git knows about it)
+                return _make_completed(0, stdout="deleted_module.py\n")
+            if args[:2] == ["git", "add"]:
+                captured_add_args.extend(args[2:])
+                return _make_completed(0)
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="abc123\n")
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(0, stdout="[main abc123] commit")
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(tmp_path)):
+            rc = mod.main(argv)
+
+        assert rc == 0
+        assert captured_add_args[0] == "--"
+        assert "deleted_module.py" in captured_add_args[1]
+
+    def test_deleted_untracked_file_still_errors(self, tmp_path, capsys):
+        """A file that is neither on disk nor tracked by git still produces exit code 3."""
+        mod = _load_module()
+
+        # File does NOT exist on disk and is NOT git-tracked
+        argv = _argv(tmp_path, files=["truly_missing.py"])
+
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "ls-files"]:
+                # Empty output: file is not tracked
+                return _make_completed(0, stdout="")
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(tmp_path)):
+            rc = mod.main(argv)
+
+        assert rc == 3
+        captured = capsys.readouterr()
+        assert "Error: path not found" in captured.err
+        assert "truly_missing.py" in captured.err
+
+    def test_mix_of_deleted_and_existing_files(self, tmp_path):
+        """A deleted (git-tracked) file and an existing modified file can be committed together."""
+        mod = _load_module()
+
+        # One file exists, one is deleted (not on disk but git-tracked)
+        existing = tmp_path / "kept.py"
+        existing.write_text("# kept")
+
+        argv = _argv(tmp_path, files=["deleted_module.py", "kept.py"])
+
+        captured_add_args = []
+
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "ls-files"]:
+                # Only the deleted file is reported as tracked
+                return _make_completed(0, stdout="deleted_module.py\n")
+            if args[:2] == ["git", "add"]:
+                captured_add_args.extend(args[2:])
+                return _make_completed(0)
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="abc123\n")
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(0, stdout="[main abc123] commit")
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(tmp_path)):
+            rc = mod.main(argv)
+
+        assert rc == 0
+        assert "--" in captured_add_args
+        staged = set(captured_add_args) - {"--"}
+        assert any("deleted_module.py" in p for p in staged)
+        assert any("kept.py" in p for p in staged)
+
+    def test_deleted_file_git_ls_files_not_called_when_all_exist(self, tmp_path):
+        """git ls-files is NOT called when all specified files exist on disk (no-op fast path)."""
+        mod = _load_module()
+
+        existing = tmp_path / "somefile.py"
+        existing.write_text("# exists")
+
+        argv = _argv(tmp_path, files=["somefile.py"])
+
+        ls_files_called = []
+
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "ls-files"]:
+                ls_files_called.append(args)
+                return _make_completed(0, stdout="somefile.py\n")
+            if args[:2] == ["git", "add"]:
+                return _make_completed(0)
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="abc123\n")
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(0, stdout="[main abc123] commit")
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(tmp_path)):
+            rc = mod.main(argv)
+
+        assert rc == 0
+        assert ls_files_called == [], "git ls-files must not run when all files exist on disk"

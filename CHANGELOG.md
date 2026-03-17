@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [478] - 2026-03-17
+
+- [TASK-679] Fix tusk commit to accept deleted file paths
+
 ## [477] - 2026-03-17
 
 - [TASK-676] Fix tusk commit pathspec error for files in symlinked directories

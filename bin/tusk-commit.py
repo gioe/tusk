@@ -251,11 +251,31 @@ def main(argv: list[str]) -> int:
 
     # Pre-flight: verify each resolved path exists so we can emit a useful diagnostic
     # before git produces a cryptic "pathspec did not match" error.
-    missing = [
+    # Exception: files absent from disk but still tracked by git are valid deletions —
+    # `git add` stages their removal natively and they must not be rejected as missing.
+    not_on_disk = [
         (orig, resolved)
         for orig, resolved in zip(files, resolved_files)
         if not os.path.exists(resolved if os.path.isabs(resolved) else os.path.join(repo_root, resolved))
     ]
+    missing = not_on_disk
+    if not_on_disk:
+        # Convert to repo-root-relative paths for `git ls-files` (which outputs relative paths).
+        rel_for_git = [
+            os.path.relpath(resolved, repo_root) if os.path.isabs(resolved) else resolved
+            for _, resolved in not_on_disk
+        ]
+        ls = run(
+            ["git", "ls-files", "--"] + rel_for_git,
+            check=False,
+            cwd=repo_root,
+        )
+        git_tracked = set(ls.stdout.splitlines())
+        missing = [
+            (orig, resolved)
+            for (orig, resolved), rel in zip(not_on_disk, rel_for_git)
+            if rel not in git_tracked
+        ]
     if missing:
         for orig, resolved in missing:
             was_remapped = orig != resolved
