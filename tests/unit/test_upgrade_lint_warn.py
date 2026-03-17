@@ -7,10 +7,8 @@ destroyed by upgrade.
 """
 
 import importlib.util
-import io
 import os
 from pathlib import Path
-from unittest.mock import patch
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 UPGRADE_SCRIPT = os.path.join(REPO_ROOT, "bin", "tusk-upgrade.py")
