@@ -916,10 +916,14 @@ RULES = [
 _extra_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk-lint-extra.py")
 if os.path.isfile(_extra_path):
     import importlib.util as _ilu
-    _spec = _ilu.spec_from_file_location("tusk_lint_extra", _extra_path)
-    _mod = _ilu.module_from_spec(_spec)
-    _spec.loader.exec_module(_mod)
-    RULES.extend(getattr(_mod, "EXTRA_RULES", []))
+    try:
+        _spec = _ilu.spec_from_file_location("tusk_lint_extra", _extra_path)
+        _mod = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        RULES.extend(getattr(_mod, "EXTRA_RULES", []))
+    except Exception as _e:
+        print(f"tusk-lint: warning: failed to load {_extra_path}: {_e}", file=sys.stderr)
+        print("tusk-lint: continuing without extra rules.", file=sys.stderr)
 
 
 def main():
