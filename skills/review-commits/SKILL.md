@@ -98,7 +98,7 @@ tusk review approve <review_id> --note "Inline review: small/docs-only diff, no 
 # Or if changes are needed:
 tusk review request-changes <review_id>
 # Then add comments as needed:
-tusk review comment add <review_id> <category> <severity> "<file>:<line>" "<description>"
+tusk review add-comment <review_id> "<description>" --file "<file>" --line-start <line> --category <category> --severity <severity>
 ```
 
 After recording the inline decision, skip directly to Step 6.

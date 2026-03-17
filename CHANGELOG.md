@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [472] - 2026-03-16
+
+- (no tasks specified)
+
 ## [471] - 2026-03-16
 
 - [TASK-671] Add pre-verification step to create-task for bug tasks claiming pre-existing test failures
