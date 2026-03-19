@@ -153,6 +153,35 @@ class TestTryPopStash:
         assert "auto-resolved" not in captured.err
         assert "run 'git stash list'" in captured.err
 
+    def test_manual_restore_warning_when_pop_fails_with_no_conflicts(self, capsys):
+        """Stash pop fails but diff --diff-filter=U returns empty list (e.g. dirty working tree).
+
+        No auto-resolve should occur; the manual-restore warning should be printed.
+        """
+        mod = _load_module()
+        calls = []
+
+        def fake_run(args, check=True):
+            calls.append(args)
+            if args[:2] == ["git", "stash"] and args[2] == "list":
+                return _cp(0, stdout=self._stash_list_output(0, 77))
+            if args[:2] == ["git", "stash"] and args[2] == "pop":
+                return _cp(1, stderr="error: Your local changes would be overwritten by merge")
+            if args[:2] == ["git", "diff"]:
+                return _cp(0, stdout="")
+            return _cp(0)
+
+        with patch.object(mod, "run", side_effect=fake_run):
+            mod._try_pop_stash(77)
+
+        captured = capsys.readouterr()
+        assert "run 'git stash list'" in captured.err
+        assert "restore your changes manually" in captured.err
+        # No auto-resolve: git checkout and git add must not have been called
+        assert not any(a[:2] == ["git", "checkout"] for a in calls)
+        assert not any(a[:2] == ["git", "add"] for a in calls)
+        assert not any(a[:3] == ["git", "stash", "drop"] for a in calls)
+
     def test_warns_when_stash_entry_not_found(self, capsys):
         mod = _load_module()
 
