@@ -226,7 +226,7 @@ class TestMergeRecoveryHint:
 
         # Return a fake branch name so find_task_branch doesn't shell out.
         monkeypatch.setattr(
-            tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None)
+            tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None, False)
         )
 
         # Return "main" without touching git.
@@ -387,7 +387,7 @@ class TestMergeWalGapWarning:
 
         monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda *a, **kw: None)
         monkeypatch.setattr(
-            tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None)
+            tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None, False)
         )
         monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
         monkeypatch.setattr(tusk_merge, "run", self._make_mock_run(task_id))
@@ -421,7 +421,7 @@ class TestMergeWalGapWarning:
 
         monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda *a, **kw: None)
         monkeypatch.setattr(
-            tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None)
+            tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None, False)
         )
         monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
         monkeypatch.setattr(tusk_merge, "run", self._make_mock_run(task_id))
@@ -458,7 +458,7 @@ class TestMergeWalGapWarning:
 
         monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda *a, **kw: None)
         monkeypatch.setattr(
-            tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None)
+            tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None, False)
         )
         monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
         monkeypatch.setattr(tusk_merge, "run", self._make_mock_run(task_id))

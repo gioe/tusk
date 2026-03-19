@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [482] - 2026-03-18
+
+- [TASK-683] Handle already-merged branch gracefully in tusk merge and /tusk step 12
+
 ## [481] - 2026-03-18
 
 - [TASK-681] Investigate reviewer false positives for moved/renamed code

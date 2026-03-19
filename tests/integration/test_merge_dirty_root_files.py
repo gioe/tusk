@@ -111,7 +111,7 @@ class TestMergeDirtyRootFiles:
 
         monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda *a, **kw: None)
         monkeypatch.setattr(
-            tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None)
+            tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None, False)
         )
         monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
         monkeypatch.setattr(tusk_merge, "run", mock_run)
@@ -143,7 +143,7 @@ class TestMergeDirtyRootFiles:
 
         monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda *a, **kw: None)
         monkeypatch.setattr(
-            tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None)
+            tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None, False)
         )
         monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
         monkeypatch.setattr(tusk_merge, "run", mock_run)
@@ -172,7 +172,7 @@ class TestMergeDirtyRootFiles:
 
         monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda *a, **kw: None)
         monkeypatch.setattr(
-            tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None)
+            tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None, False)
         )
         monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
         monkeypatch.setattr(tusk_merge, "run", mock_run)
@@ -216,7 +216,7 @@ class TestMergeDirtyRootFiles:
 
         monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda *a, **kw: None)
         monkeypatch.setattr(
-            tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None)
+            tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None, False)
         )
         monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
         monkeypatch.setattr(tusk_merge, "run", mock_run)
@@ -247,7 +247,7 @@ class TestMergeDirtyRootFiles:
 
         monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda *a, **kw: None)
         monkeypatch.setattr(
-            tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None)
+            tusk_merge, "find_task_branch", lambda tid: (f"feature/TASK-{tid}-test", None, False)
         )
         monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
         monkeypatch.setattr(tusk_merge, "run", mock_run)

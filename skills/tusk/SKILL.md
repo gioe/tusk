@@ -200,6 +200,10 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     ```
     `tusk merge` closes the session, merges the feature branch into the default branch, pushes, deletes the feature branch, and marks the task Done. It returns JSON including an `unblocked_tasks` array. If there are newly unblocked tasks, note them in the retro.
 
+    **Already-merged path:** If the feature branch was previously merged and deleted (e.g. via a PR that was merged in another session), `tusk merge` detects this automatically when you are on the default branch — it prints `Note: TASK-<id> — no feature branch found; already on '<branch>'. Branch was previously merged.`, closes the session, pushes, and marks the task Done without re-merging. If `tusk merge` exits 0 in this scenario, proceed to `/retro` as normal.
+
+    **Not-on-default fallback:** If `tusk merge` exits non-zero with `No branch found matching feature/TASK-<id>-*` and you are NOT on the default branch, switch to the default branch first (`git checkout <default_branch>`), then retry `tusk merge <id> --session <session_id>`.
+
     **PR mode:** If the project uses PR-based merges (`merge.mode = pr` in config, or when passing `--pr`), use:
     ```bash
     tusk merge <id> --session $SESSION_ID --pr --pr-number <N>

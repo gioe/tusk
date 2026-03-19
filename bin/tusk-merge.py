@@ -190,11 +190,16 @@ def _detect_id_gaps(db_path: str, task_id: int) -> list[int]:
         return []
 
 
-def find_task_branch(task_id: int) -> tuple[str | None, str | None]:
-    """Return (branch_name, error_message). branch_name is None on error."""
+def find_task_branch(task_id: int) -> tuple[str | None, str | None, bool]:
+    """Return (branch_name, error_message, pre_merged).
+
+    pre_merged is True when no feature branch exists but the user is already on
+    the default branch — indicating the branch was previously merged and deleted.
+    When pre_merged is True, branch_name and error_message are both None.
+    """
     result = run(["git", "branch", "--list", f"feature/TASK-{task_id}-*"], check=False)
     if result.returncode != 0:
-        return None, f"git branch --list failed: {result.stderr.strip()}"
+        return None, f"git branch --list failed: {result.stderr.strip()}", False
 
     branches = []
     for line in result.stdout.splitlines():
@@ -205,25 +210,19 @@ def find_task_branch(task_id: int) -> tuple[str | None, str | None]:
             branches.append(stripped)
 
     if len(branches) == 0:
-        # Check if user is on the default branch (worked on main directly)
+        # Check if user is on the default branch (branch was previously merged)
         current = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], check=False)
         default = detect_default_branch()
         if current.returncode == 0 and current.stdout.strip() == default:
-            return None, (
-                f"No feature branch found for TASK-{task_id} and you are on '{default}'.\n"
-                f"It looks like this task was implemented directly on '{default}'.\n"
-                f"To finalize manually:\n"
-                f"  git push origin {default}\n"
-                f"  tusk task-done {task_id} --reason completed"
-            )
-        return None, f"No branch found matching feature/TASK-{task_id}-*"
+            return None, None, True  # pre-merged: auto-complete path
+        return None, f"No branch found matching feature/TASK-{task_id}-*", False
     if len(branches) > 1:
         names = ", ".join(branches)
         return None, (
             f"Multiple branches found for TASK-{task_id}: {names}. "
             "Delete all but one before running tusk merge."
-        )
-    return branches[0], None
+        ), False
+    return branches[0], None, False
 
 
 def _autodetect_session(
@@ -259,7 +258,7 @@ def _autodetect_session(
         if len(closed_rows) == 0:
             # No sessions at all. If a feature branch exists, tasks.db was likely reverted
             # by a git stash or checkout — create a synthetic session so merge can proceed.
-            branch_check, _ = find_task_branch(task_id)
+            branch_check, _, _ = find_task_branch(task_id)
             if branch_check:
                 print(
                     f"Warning: No session found for task {task_id} — tasks.db may have been "
@@ -430,7 +429,61 @@ def main(argv: list[str]) -> int:
 
     # Preflight checks — abort before touching session or task state
     # Step 1a: Detect feature branch
-    branch_name, err = find_task_branch(task_id)
+    branch_name, err, pre_merged = find_task_branch(task_id)
+
+    if pre_merged:
+        # Fast-path: feature branch was already merged and deleted; user is on
+        # the default branch. Skip the normal merge and auto-complete finalization.
+        default_branch = detect_default_branch()
+        print(
+            f"Note: TASK-{task_id} — no feature branch found; already on '{default_branch}'.\n"
+            "Branch was previously merged. Auto-completing finalization...",
+            file=sys.stderr,
+        )
+        checkpoint_wal(_db_path)
+        print(f"Closing session {session_id}...", file=sys.stderr)
+        result = run([tusk_bin, "session-close", str(session_id)], check=False)
+        session_was_closed = result.returncode == 0
+        if result.returncode != 0:
+            if "already closed" in result.stderr or "No session found" in result.stderr:
+                print(f"Warning: {result.stderr.strip()}", file=sys.stderr)
+            else:
+                print(f"Error: session-close failed:\n{result.stderr.strip()}", file=sys.stderr)
+                return 2
+        # Push the default branch — may already be up to date if merged via PR
+        push = run(["git", "push", "origin", default_branch], check=False)
+        if push.returncode != 0:
+            print(
+                f"Warning: git push origin {default_branch} failed — "
+                f"branch may already be pushed:\n{push.stderr.strip()}",
+                file=sys.stderr,
+            )
+        print(f"Closing task {task_id}...", file=sys.stderr)
+        result = run(
+            [tusk_bin, "task-done", str(task_id), "--reason", "completed"],
+            check=False,
+        )
+        if result.returncode == 3:
+            if result.stderr.strip():
+                print(result.stderr.strip(), file=sys.stderr)
+            result = run(
+                [tusk_bin, "task-done", str(task_id), "--reason", "completed", "--force"],
+                check=False,
+            )
+        if result.returncode != 0:
+            print(f"Error: task-done failed:\n{result.stderr.strip()}", file=sys.stderr)
+            return 2
+        try:
+            task_done_result = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            if result.stdout.strip():
+                print(result.stdout.strip())
+            return 0
+        if session_was_closed:
+            task_done_result["sessions_closed"] = 1
+        print(json.dumps(task_done_result, indent=2))
+        return 0
+
     if err:
         print(f"Error: {err}", file=sys.stderr)
         return 1
