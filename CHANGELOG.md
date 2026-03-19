@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [485] - 2026-03-18
+
+- [TASK-686] Fix review-commits empty-diff fallback for already-merged feature branches
+
 ## [484] - 2026-03-18
 
 - [TASK-685] Fix review-commits Step 8 re-review diff stat when already on default branch
