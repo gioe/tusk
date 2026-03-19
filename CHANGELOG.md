@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [483] - 2026-03-18
+
+- [TASK-684] Fix review-commits fallback diff range when feature is already merged to main
+
 ## [482] - 2026-03-18
 
 - [TASK-683] Handle already-merged branch gracefully in tusk merge and /tusk step 12

@@ -60,13 +60,26 @@ CURRENT_BRANCH=$(git branch --show-current)
 git diff "${DEFAULT_BRANCH}...HEAD"
 ```
 
-If the diff is empty **and** `CURRENT_BRANCH == DEFAULT_BRANCH` (i.e., working directly on the default branch), fall back to the last commit:
+If the diff is empty **and** `CURRENT_BRANCH == DEFAULT_BRANCH` (i.e., working directly on the default branch), attempt to recover the correct range by scanning git log for `[TASK-<id>]` commits (where `<id>` is `TASK_ID` from Step 2):
 
 ```bash
-git diff HEAD~1..HEAD
+TASK_COMMITS=$(git log --format="%H" --grep="\[TASK-${TASK_ID}\]" -n 50)
 ```
 
-If the diff is still empty after the fallback (or if on a feature branch with no changes), report "No changes found compared to the base branch." and stop.
+If `TASK_COMMITS` is non-empty, construct the range from the oldest to the newest matching commit:
+
+```bash
+NEWEST_COMMIT=$(echo "$TASK_COMMITS" | head -1)
+OLDEST_COMMIT=$(echo "$TASK_COMMITS" | tail -1)
+git diff "${OLDEST_COMMIT}^..${NEWEST_COMMIT}"
+```
+
+Use this diff (and this range) going forward — including for the `--diff-summary` passed to `tusk review start` and for any re-review diff stat checks in Step 8.
+
+If `TASK_COMMITS` is empty (no `[TASK-<id>]` commits found in recent history), stop with:
+> No changes found — `[TASK-<task_id>]` commits not detected in recent git log. The diff range cannot be determined automatically. Confirm the correct commit range manually and re-run.
+
+If the diff is still empty after the TASK-commit recovery (or if on a feature branch with no changes), report "No changes found compared to the base branch." and stop.
 
 Capture the diff only to check for emptiness and to generate the `--diff-summary` for `tusk review start`. **Do not pass the diff to reviewer agents** — they will fetch it themselves via `git diff` to avoid transcription errors.
 

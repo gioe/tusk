@@ -79,13 +79,23 @@ CURRENT_BRANCH=$(git branch --show-current)
 git diff "${DEFAULT_BRANCH}...HEAD"
 ```
 
-If the result is empty and `CURRENT_BRANCH == DEFAULT_BRANCH`, fall back to:
+If the result is empty and `CURRENT_BRANCH == DEFAULT_BRANCH`, attempt to recover the correct range by scanning git log for `[TASK-{task_id}]` commits:
 
 ```bash
-git diff HEAD~1..HEAD
+TASK_COMMITS=$(git log --format="%H" --grep="\[TASK-{task_id}\]" -n 50)
 ```
 
-If the diff is still empty after the fallback, report "No changes found to review." and stop.
+If `TASK_COMMITS` is non-empty, construct the range from the oldest to the newest matching commit:
+
+```bash
+NEWEST_COMMIT=$(echo "$TASK_COMMITS" | head -1)
+OLDEST_COMMIT=$(echo "$TASK_COMMITS" | tail -1)
+git diff "${OLDEST_COMMIT}^..${NEWEST_COMMIT}"
+```
+
+If `TASK_COMMITS` is empty (no `[TASK-{task_id}]` commits found in recent history), report "No changes found to review — `[TASK-{task_id}]` commits not detected in recent git log." and stop.
+
+If the diff is still empty after the recovery attempt, report "No changes found to review." and stop.
 
 Read the entire diff carefully to understand what changed, which files were modified, and what task #{task_id} is trying to accomplish.
 
