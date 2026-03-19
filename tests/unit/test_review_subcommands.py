@@ -49,7 +49,7 @@ def _make_db():
 # Mirrors the queries in cmd_list()
 _REVIEWS_QUERY = (
     "SELECT id, reviewer, status, review_pass, created_at"
-    " FROM code_reviews WHERE task_id = ? ORDER BY id"
+    " FROM code_reviews WHERE task_id = ? AND status <> 'superseded' ORDER BY id"
 )
 _COMMENTS_QUERY_TMPL = (
     "SELECT id, review_id, file_path, line_start, category, severity, comment, resolution"
@@ -305,4 +305,126 @@ class TestCmdSummary:
         comments = conn.execute(_SUMMARY_COMMENTS_QUERY, (1,)).fetchall()
         assert len(comments) == 1
         assert comments[0]["line_end"] == 20
+        conn.close()
+
+
+# ─── cmd_start supersede logic ───────────────────────────────────────────────
+
+_SUPERSEDE_UPDATE = (
+    "UPDATE code_reviews SET status = 'superseded', updated_at = datetime('now')"
+    " WHERE task_id = ? AND status = 'pending'"
+)
+_INSERT_NEW_REVIEW = (
+    "INSERT INTO code_reviews (task_id, reviewer, status, review_pass)"
+    " VALUES (?, ?, 'pending', ?)"
+)
+
+
+class TestCmdStartSupersede:
+    def _db_with_stale_review(self):
+        conn = _make_db()
+        conn.execute("INSERT INTO tasks (id, summary) VALUES (1, 'my task')")
+        conn.execute(
+            "INSERT INTO code_reviews (id, task_id, reviewer, status, review_pass)"
+            " VALUES (1, 1, 'alice', 'pending', 1)"
+        )
+        conn.commit()
+        return conn
+
+    def test_prior_pending_review_is_superseded(self):
+        conn = self._db_with_stale_review()
+
+        # Simulate supersede step from cmd_start
+        conn.execute(_SUPERSEDE_UPDATE, (1,))
+        conn.commit()
+
+        row = conn.execute("SELECT status FROM code_reviews WHERE id = 1").fetchone()
+        assert row["status"] == "superseded"
+        conn.close()
+
+    def test_superseded_review_is_not_deleted(self):
+        conn = self._db_with_stale_review()
+
+        conn.execute(_SUPERSEDE_UPDATE, (1,))
+        conn.commit()
+
+        # Row still exists
+        row = conn.execute("SELECT id, status FROM code_reviews WHERE id = 1").fetchone()
+        assert row is not None
+        assert row["status"] == "superseded"
+        conn.close()
+
+    def test_new_review_created_after_supersede(self):
+        conn = self._db_with_stale_review()
+
+        conn.execute(_SUPERSEDE_UPDATE, (1,))
+        conn.commit()
+        conn.execute(_INSERT_NEW_REVIEW, (1, "alice", 2))
+        conn.commit()
+
+        reviews = conn.execute(
+            "SELECT id, status, review_pass FROM code_reviews WHERE task_id = 1 ORDER BY id"
+        ).fetchall()
+        assert len(reviews) == 2
+        assert reviews[0]["status"] == "superseded"
+        assert reviews[1]["status"] == "pending"
+        assert reviews[1]["review_pass"] == 2
+        conn.close()
+
+    def test_cmd_list_excludes_superseded(self):
+        conn = self._db_with_stale_review()
+
+        conn.execute(_SUPERSEDE_UPDATE, (1,))
+        conn.commit()
+        conn.execute(_INSERT_NEW_REVIEW, (1, "alice", 2))
+        conn.commit()
+
+        # cmd_list query filters out superseded
+        visible = conn.execute(_REVIEWS_QUERY, (1,)).fetchall()
+        assert len(visible) == 1
+        assert visible[0]["status"] == "pending"
+        assert visible[0]["review_pass"] == 2
+        conn.close()
+
+    def test_non_pending_reviews_not_superseded(self):
+        """Only pending reviews are superseded; approved/changes_requested are left alone."""
+        conn = _make_db()
+        conn.execute("INSERT INTO tasks (id, summary) VALUES (1, 'my task')")
+        conn.execute(
+            "INSERT INTO code_reviews (id, task_id, reviewer, status, review_pass)"
+            " VALUES (1, 1, 'alice', 'approved', 1)"
+        )
+        conn.commit()
+
+        conn.execute(_SUPERSEDE_UPDATE, (1,))
+        conn.commit()
+
+        row = conn.execute("SELECT status FROM code_reviews WHERE id = 1").fetchone()
+        assert row["status"] == "approved"  # unchanged
+        conn.close()
+
+    def test_must_fix_from_superseded_review_excluded_from_verdict(self):
+        """Open must_fix comments on superseded reviews must not block the verdict."""
+        conn = _make_db()
+        conn.execute("INSERT INTO tasks (id, summary) VALUES (1, 'my task')")
+        # A superseded review with an open must_fix
+        conn.execute(
+            "INSERT INTO code_reviews (id, task_id, reviewer, status, review_pass)"
+            " VALUES (1, 1, 'alice', 'superseded', 1)"
+        )
+        conn.execute(
+            "INSERT INTO review_comments (id, review_id, category, severity, comment, resolution)"
+            " VALUES (1, 1, 'must_fix', 'critical', 'old bug', NULL)"
+        )
+        conn.commit()
+
+        # verdict query excludes superseded reviews
+        row = conn.execute(
+            "SELECT COUNT(*) as cnt FROM review_comments rc"
+            " JOIN code_reviews cr ON cr.id = rc.review_id"
+            " WHERE cr.task_id = ? AND cr.status <> 'superseded'"
+            " AND rc.category = 'must_fix' AND rc.resolution IS NULL",
+            (1,),
+        ).fetchone()
+        assert row["cnt"] == 0
         conn.close()

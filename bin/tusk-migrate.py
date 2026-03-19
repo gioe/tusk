@@ -1187,6 +1187,49 @@ def migrate_40(db_path: str, config_path: str, script_dir: str) -> None:
     print("  Migration 40: added 'issue' to task_types config and regenerated validation trigger")
 
 
+def migrate_41(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add 'superseded' to code_reviews.status CHECK constraint via table recreation."""
+    if get_version(db_path) < 41:
+        run_script(db_path, """
+            BEGIN;
+
+            CREATE TABLE code_reviews_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                reviewer TEXT,
+                status TEXT DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'in_progress', 'approved', 'changes_requested', 'superseded')),
+                review_pass INTEGER DEFAULT 1,
+                diff_summary TEXT,
+                cost_dollars REAL,
+                tokens_in INTEGER,
+                tokens_out INTEGER,
+                agent_name TEXT,
+                note TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+            );
+
+            INSERT INTO code_reviews_new (id, task_id, reviewer, status, review_pass, diff_summary,
+                cost_dollars, tokens_in, tokens_out, agent_name, note, created_at, updated_at)
+            SELECT id, task_id, reviewer, status, review_pass, diff_summary,
+                cost_dollars, tokens_in, tokens_out, agent_name, note, created_at, updated_at
+            FROM code_reviews;
+
+            DROP TABLE code_reviews;
+            ALTER TABLE code_reviews_new RENAME TO code_reviews;
+
+            CREATE INDEX idx_code_reviews_task_id ON code_reviews(task_id);
+
+            PRAGMA user_version = 41;
+            COMMIT;
+        """)
+    else:
+        set_version(db_path, 41)
+    print("  Migration 41: added 'superseded' to code_reviews.status CHECK constraint")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -1230,6 +1273,7 @@ MIGRATIONS = [
     (38, migrate_38),
     (39, migrate_39),
     (40, migrate_40),
+    (41, migrate_41),
 ]
 
 

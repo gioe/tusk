@@ -511,7 +511,7 @@ CREATE TABLE code_reviews (
     task_id INTEGER NOT NULL,
     reviewer TEXT,
     status TEXT DEFAULT 'pending'
-        CHECK (status IN ('pending', 'in_progress', 'approved', 'changes_requested')),
+        CHECK (status IN ('pending', 'in_progress', 'approved', 'changes_requested', 'superseded')),
     review_pass INTEGER DEFAULT 1,
     diff_summary TEXT,
     cost_dollars REAL,
@@ -652,7 +652,7 @@ LINT_RULES_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 40;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 41;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."
