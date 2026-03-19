@@ -61,6 +61,13 @@ _GENERATED_LOCKFILES = frozenset([
     "composer.lock",
     "Gemfile.lock",
     "poetry.lock",
+    "flake.lock",
+    "mix.lock",
+    "go.sum",
+    "pubspec.lock",
+    "Pipfile.lock",
+    "pdm.lock",
+    "uv.lock",
 ])
 
 

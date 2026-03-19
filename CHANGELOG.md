@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [488] - 2026-03-19
+
+- [TASK-688] Expand _GENERATED_LOCKFILES to cover Nix, Elixir, Go, and other package managers
+
 ## [487] - 2026-03-19
 
 - [TASK-689] Verify git checkout/git add return codes in stash auto-resolve before dropping stash
