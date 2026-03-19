@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [492] - 2026-03-19
+
+- [TASK-695] Fix tusk review start to create one row per configured reviewer
+
 ## [491] - 2026-03-19
 
 - [TASK-693] Supersede stale pending reviews when starting a new review pass

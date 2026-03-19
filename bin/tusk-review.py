@@ -69,8 +69,17 @@ def cmd_start(args: argparse.Namespace, db_path: str, config_path: str) -> int:
         if args.reviewer:
             reviewers = [args.reviewer]
 
-        # If no reviewers configured and none specified, create one unassigned review
+        # If no reviewers configured and none specified, create one unassigned review.
+        # Emit a warning so misconfigured setups (e.g. reviewers added to config.default.json
+        # instead of tusk/config.json) are immediately visible rather than silently creating
+        # only one unassigned row. Root cause of issue #390.
         if not reviewers:
+            print(
+                f"Warning: no reviewers found in {config_path} — creating one unassigned review."
+                " If you expected multiple reviewers, verify that tusk/config.json contains"
+                " 'review.reviewers' entries.",
+                file=sys.stderr,
+            )
             reviewers = [None]
 
         created_ids = []
