@@ -157,6 +157,48 @@ class TestCommitFailureSkipVerifyHint:
         assert "--skip-verify" in captured.err
         assert "hook" in captured.err.lower()
 
+    def test_no_verify_passed_to_git_commit_when_skip_verify(self, tmp_path):
+        """--skip-verify appends --no-verify to the git commit call."""
+        mod = _load_module()
+        argv = _argv(tmp_path) + ["--skip-verify"]
+
+        captured_cmds = []
+
+        def fake_run(cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            if cmd[:2] == ["git", "commit"]:
+                return _make_completed(0, stdout="[branch abc123] msg")
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(tmp_path)):
+            mod.main(argv)
+
+        commit_call = next((c for c in captured_cmds if c[:2] == ["git", "commit"]), None)
+        assert commit_call is not None, "git commit was never called"
+        assert "--no-verify" in commit_call
+
+    def test_no_verify_absent_without_skip_verify(self, tmp_path):
+        """Without --skip-verify, --no-verify is NOT passed to git commit."""
+        mod = _load_module()
+        argv = _argv(tmp_path)
+
+        captured_cmds = []
+
+        def fake_run(cmd, **kwargs):
+            captured_cmds.append(list(cmd))
+            if cmd[:2] == ["git", "commit"]:
+                return _make_completed(0, stdout="[branch abc123] msg")
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(tmp_path)):
+            mod.main(argv)
+
+        commit_call = next((c for c in captured_cmds if c[:2] == ["git", "commit"]), None)
+        assert commit_call is not None, "git commit was never called"
+        assert "--no-verify" not in commit_call
+
     def test_hook_landing_still_exits_0(self, tmp_path):
         """Existing behavior: commit lands despite hook non-zero → still exits 0."""
         mod = _load_module()

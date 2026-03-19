@@ -394,7 +394,10 @@ def main(argv: list[str]) -> int:
     pre = run(["git", "rev-parse", "HEAD"], check=False, cwd=repo_root)
     pre_sha = pre.stdout.strip() if pre.returncode == 0 else None
 
-    result = run(["git", "commit", "-m", full_message], check=False, cwd=repo_root)
+    commit_cmd = ["git", "commit", "-m", full_message]
+    if skip_verify:
+        commit_cmd.append("--no-verify")
+    result = run(commit_cmd, check=False, cwd=repo_root)
 
     if result.returncode != 0:
         # Check whether the commit actually landed despite the non-zero exit.

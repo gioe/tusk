@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [494] - 2026-03-19
+
+- [TASK-697] Fix --skip-verify to pass --no-verify to git commit in tusk commit
+
 ## [493] - 2026-03-19
 
 - (no tasks specified)
