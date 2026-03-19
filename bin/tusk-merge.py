@@ -205,6 +205,17 @@ def find_task_branch(task_id: int) -> tuple[str | None, str | None]:
             branches.append(stripped)
 
     if len(branches) == 0:
+        # Check if user is on the default branch (worked on main directly)
+        current = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], check=False)
+        default = detect_default_branch()
+        if current.returncode == 0 and current.stdout.strip() == default:
+            return None, (
+                f"No feature branch found for TASK-{task_id} and you are on '{default}'.\n"
+                f"It looks like this task was implemented directly on '{default}'.\n"
+                f"To finalize manually:\n"
+                f"  git push origin {default}\n"
+                f"  tusk task-done {task_id} --reason completed"
+            )
         return None, f"No branch found matching feature/TASK-{task_id}-*"
     if len(branches) > 1:
         names = ", ".join(branches)

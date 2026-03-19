@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [480] - 2026-03-18
+
+- [TASK-682] tusk merge should give clearer error when task worked on main with no feature branch
+
 ## [479] - 2026-03-18
 
 - [TASK-680] Fix reviewer false positive: verify final file state before flagging must_fix
