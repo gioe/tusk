@@ -205,7 +205,7 @@ One reviewer's assessment of a task's PR, for one pass of the fix-and-re-review 
 | `id` | INTEGER | PK, autoincrement | |
 | `task_id` | INTEGER | FK → tasks(id) CASCADE | Reviewed task |
 | `reviewer` | TEXT | nullable | Reviewer name (from config) |
-| `status` | TEXT | CHECK IN (pending, in_progress, approved, changes_requested) | Review outcome |
+| `status` | TEXT | CHECK IN (pending, in_progress, approved, changes_requested, superseded) | Review outcome. `superseded` is set automatically by `tusk review start` when prior pending reviews exist for the same task — they are superseded before the new review begins. |
 | `review_pass` | INTEGER | default 1 | Which fix-and-re-review iteration (1 = first review) |
 | `diff_summary` | TEXT | nullable | Summary of the diff being reviewed |
 | `cost_dollars` | REAL | nullable | AI cost of this review pass |
