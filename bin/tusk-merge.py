@@ -2,12 +2,12 @@
 """Finalize a task: close session, merge branch, push, clean up, and close task.
 
 Called by the tusk wrapper:
-    tusk merge <task_id> [--session <session_id>] [--pr] [--pr-number N]
+    tusk merge <task_id> [--session <session_id>] [--pr] [--pr-number N] [--rebase]
 
 Arguments received from tusk:
     sys.argv[1] — DB path
     sys.argv[2] — config path
-    sys.argv[3:] — task_id [--session <session_id>] [--pr] [--pr-number N]
+    sys.argv[3:] — task_id [--session <session_id>] [--pr] [--pr-number N] [--rebase]
 
 If --session is omitted, the open session for the task is auto-detected:
   - Exactly one open session → use it
@@ -379,7 +379,7 @@ def _autodetect_session(
 def main(argv: list[str]) -> int:
     if len(argv) < 3:
         print(
-            "Usage: tusk merge <task_id> [--session <session_id>] [--pr] [--pr-number N]",
+            "Usage: tusk merge <task_id> [--session <session_id>] [--pr] [--pr-number N] [--rebase]",
             file=sys.stderr,
         )
         return 1
@@ -404,6 +404,7 @@ def main(argv: list[str]) -> int:
     session_id = None
     use_pr = False
     pr_number = None
+    use_rebase = False
 
     i = 0
     while i < len(remaining):
@@ -430,6 +431,9 @@ def main(argv: list[str]) -> int:
                 print(f"Error: Invalid PR number: {remaining[i + 1]}", file=sys.stderr)
                 return 1
             i += 2
+        elif remaining[i] == "--rebase":
+            use_rebase = True
+            i += 1
         else:
             print(f"Error: Unknown argument: {remaining[i]}", file=sys.stderr)
             return 1
@@ -673,14 +677,80 @@ def main(argv: list[str]) -> int:
                 _try_pop_stash(task_id)
             return 2
 
+        # Step 4 (optional --rebase): rebase feature branch onto default before ff-merge
+        if use_rebase:
+            print(f"Rebasing {branch_name} onto {default_branch}...", file=sys.stderr)
+            # Switch to feature branch — move db files aside first (same pattern as above)
+            for src, dst in zip(db_siblings, db_tmp):
+                if os.path.exists(src):
+                    os.rename(src, dst)
+            co_result = run(["git", "checkout", branch_name], check=False)
+            for src, dst in zip(db_siblings, db_tmp):
+                if os.path.exists(dst):
+                    os.rename(dst, src)
+            if co_result.returncode != 0:
+                print(
+                    f"Error: git checkout {branch_name} failed:\n{co_result.stderr.strip()}",
+                    file=sys.stderr,
+                )
+                run(["git", "checkout", default_branch], check=False)
+                if did_stash:
+                    _try_pop_stash(task_id)
+                return 2
+
+            rebase_result = run(["git", "rebase", default_branch], check=False)
+            if rebase_result.returncode != 0:
+                if rebase_result.stderr.strip():
+                    print(rebase_result.stderr.strip(), file=sys.stderr)
+                print(
+                    f"Error: git rebase {default_branch} failed — conflicts must be resolved manually.\n"
+                    "To resolve:\n"
+                    "  1. Fix the conflicting files\n"
+                    "  2. git add <resolved files>\n"
+                    "  3. git rebase --continue\n"
+                    f"  4. Repeat until rebase completes, then re-run: tusk merge {task_id}\n"
+                    "To abort and return to the pre-rebase state:\n"
+                    "  git rebase --abort",
+                    file=sys.stderr,
+                )
+                run(["git", "rebase", "--abort"], check=False)
+                for src, dst in zip(db_siblings, db_tmp):
+                    if os.path.exists(src):
+                        os.rename(src, dst)
+                run(["git", "checkout", default_branch], check=False)
+                for src, dst in zip(db_siblings, db_tmp):
+                    if os.path.exists(dst):
+                        os.rename(dst, src)
+                if did_stash:
+                    _try_pop_stash(task_id)
+                return 2
+
+            # Rebase succeeded — switch back to default branch for ff-only merge
+            for src, dst in zip(db_siblings, db_tmp):
+                if os.path.exists(src):
+                    os.rename(src, dst)
+            co_back = run(["git", "checkout", default_branch], check=False)
+            for src, dst in zip(db_siblings, db_tmp):
+                if os.path.exists(dst):
+                    os.rename(dst, src)
+            if co_back.returncode != 0:
+                print(
+                    f"Error: git checkout {default_branch} failed after rebase:\n{co_back.stderr.strip()}",
+                    file=sys.stderr,
+                )
+                if did_stash:
+                    _try_pop_stash(task_id)
+                return 2
+
         # Step 4 (cont): Fast-forward merge
         result = run(["git", "merge", "--ff-only", branch_name], check=False)
         if result.returncode != 0:
             print(
                 f"Error: git merge --ff-only {branch_name} failed:\n{result.stderr.strip()}\n"
-                "The feature branch cannot be fast-forward merged. "
-                "Rebase the branch onto the default branch first, "
-                "or use --pr mode for a squash merge.",
+                "The feature branch cannot be fast-forward merged. Run one of:\n"
+                f"  git rebase origin/{default_branch}  # rebase manually, then re-run: tusk merge {task_id}\n"
+                f"  tusk merge {task_id} --rebase        # auto-rebase before merging\n"
+                f"  tusk merge {task_id} --pr --pr-number <N>  # squash merge via PR",
                 file=sys.stderr,
             )
             # Restore feature branch so user can investigate
@@ -806,6 +876,6 @@ def main(argv: list[str]) -> int:
 if __name__ == "__main__":
     if len(sys.argv) < 2 or not sys.argv[1].endswith(".db"):
         print("Error: This script must be invoked via the tusk wrapper.", file=sys.stderr)
-        print("Use: tusk merge <task_id> [--session <session_id>] [--pr --pr-number <N>]", file=sys.stderr)
+        print("Use: tusk merge <task_id> [--session <session_id>] [--pr --pr-number <N>] [--rebase]", file=sys.stderr)
         sys.exit(1)
     sys.exit(main(sys.argv[1:]))

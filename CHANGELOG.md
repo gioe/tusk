@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [489] - 2026-03-19
+
+- [TASK-691] Add --rebase flag to tusk merge for diverged branches
+
 ## [488] - 2026-03-19
 
 - [TASK-688] Expand _GENERATED_LOCKFILES to cover Nix, Elixir, Go, and other package managers
