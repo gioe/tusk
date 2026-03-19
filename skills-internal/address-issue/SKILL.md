@@ -68,6 +68,21 @@ Using the issue `title`, `body`, and `labels`, determine:
 
 Generate **3–7 acceptance criteria** from the issue body — concrete, testable conditions. For bug issues, always include a criterion that the failure case is resolved and a regression test criterion.
 
+## Step 4.1: Extract Failing Test Criterion
+
+Scan the issue body for a `## Failing Test` section. If present:
+
+1. Extract the fenced code block immediately following that heading. Support both triple-backtick and single-backtick fences:
+   - Triple-backtick: content between ` ``` ` (optionally with a language tag on the opening fence) and the next ` ``` `
+   - Single-backtick: content between a single `` ` `` open and close on the same or adjacent lines
+   - Take the **first** fenced block found in the section; trim leading/trailing whitespace from the extracted content.
+
+2. Store the extracted content as `test_spec`. It will be passed to Step 6 as a `--typed-criteria` argument.
+
+3. **If no `## Failing Test` section is found**, set `test_spec = null`. No test criterion will be added in Step 6, and the absence will bias the Step 4.7 verdict toward Defer (see Factor 0 below).
+
+> **Note:** The test criterion is marked done by running `tusk criteria done <cid>`. Because `criterion_type=test`, tusk automatically executes `verification_spec` as a shell command and blocks closure if it exits nonzero. No manual check is required — the spec must pass on its own.
+
 ## Step 4.5: Optional Codebase Investigation
 
 **Skip this step entirely if complexity is XS or S.** Only run for M, L, or XL complexity issues.
@@ -121,10 +136,11 @@ Wait for user confirmation before proceeding to Step 5. If the bug is confirmed 
 
 ## Step 4.7: Model Recommendation
 
-Evaluate the issue against the following five factors, **in priority order**, to produce an **Address / Defer / Decline** verdict with a 1–2 sentence rationale. A higher-priority factor overrides lower-priority bias when they conflict.
+Evaluate the issue against the following six factors, **in priority order**, to produce an **Address / Defer / Decline** verdict with a 1–2 sentence rationale. A higher-priority factor overrides lower-priority bias when they conflict.
 
 | # | Factor | How to Evaluate |
 |---|--------|-----------------|
+| 0 | **Test presence** | Was a `## Failing Test` section found in the issue body (Step 4.1)? If **no** `## Failing Test` section is present → bias strongly toward **Defer** with rationale: "issue lacks a failing test — ask the reporter to add one before prioritizing." This is the highest-priority factor; a missing test overrides lower-factor signals toward Address. |
 | 1 | **Pillar alignment** | Does the issue align with the project's design values in `PILLARS.md`? If `PILLARS.md` does not exist, skip this factor. Strong misalignment → bias toward Decline. |
 | 2 | **Backlog coverage** | Is an open task already covering this issue (from the backlog fetched in Step 3)? If yes → **Decline** (duplicate). Include the covering task ID in the rationale so the user can evaluate the override. |
 | 3 | **Scope relevance** | Does the issue fit the project's stated purpose? Out-of-scope requests → bias toward Decline. |
@@ -258,6 +274,14 @@ tusk task-insert "<summary>" "<description>" \
 ```
 
 Omit `--domain` and `--assignee` if NULL. Do not pass empty strings.
+
+**If `test_spec` is set (from Step 4.1)**, append one additional `--typed-criteria` argument to the insert command:
+
+```bash
+  --typed-criteria '{"text":"Failing test passes","type":"test","spec":"<test_spec>"}'
+```
+
+Replace `<test_spec>` with the extracted command verbatim. This criterion will be validated by running the spec as a shell command when `tusk criteria done <cid>` is called — it blocks closure if the command exits nonzero.
 
 **Exit code 0** — success. Note the `task_id` from the JSON output.
 
