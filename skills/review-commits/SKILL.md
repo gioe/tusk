@@ -313,10 +313,15 @@ Otherwise, loop while `can_retry` is true:
    tusk review start <task_id> --pass-num <current_pass + 1> --diff-summary "Re-review pass <n>"
    ```
 
-2. **Check diff size before deciding review strategy.** Measure the current diff:
-   ```bash
-   DEFAULT_BRANCH=$(tusk git-default-branch); git diff $(git merge-base HEAD origin/${DEFAULT_BRANCH})..HEAD --stat | tail -1
-   ```
+2. **Check diff size before deciding review strategy.** Measure the current diff using the same range established in Step 3:
+   - If `CURRENT_BRANCH == DEFAULT_BRANCH` (on default branch), use the TASK-commit range from Step 3:
+     ```bash
+     git diff "${OLDEST_COMMIT}^..${NEWEST_COMMIT}" --stat | tail -1
+     ```
+   - Otherwise (feature branch), use the merge-base range:
+     ```bash
+     DEFAULT_BRANCH=$(tusk git-default-branch); git diff $(git merge-base HEAD origin/${DEFAULT_BRANCH})..HEAD --stat | tail -1
+     ```
 
    **For small or documentation-only diffs (fewer than ~200 lines changed, or only non-code files):** skip agent spawning and perform an inline review. Read the diff yourself, evaluate it against reviewer focus areas, and record the result directly (approve or request-changes + add-comment). After recording the inline decision, skip to step 3.
 

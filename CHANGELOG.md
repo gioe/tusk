@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [484] - 2026-03-18
+
+- [TASK-685] Fix review-commits Step 8 re-review diff stat when already on default branch
+
 ## [483] - 2026-03-18
 
 - [TASK-684] Fix review-commits fallback diff range when feature is already merged to main
