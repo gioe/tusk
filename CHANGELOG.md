@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [486] - 2026-03-19
+
+- [TASK-687] Fix tusk merge to auto-resolve generated lockfile conflicts on stash pop
+
 ## [485] - 2026-03-18
 
 - [TASK-686] Fix review-commits empty-diff fallback for already-merged feature branches
