@@ -205,6 +205,7 @@ Commit the bump in the same branch as the feature. Also update `CHANGELOG.md` in
 
 - **`docs/SCRIPTS.md`** — Reference for all `bin/tusk-*.py` helper scripts: purpose, inputs, outputs, and usage examples.
 - **`docs/tusk-flows.md`** — Visual and narrative description of the main tusk workflows (task lifecycle, session flow, merge flow).
+- **`docs/GLOSSARY.md`** — Canonical one-sentence definitions for key tusk terms (WSJF, deferred, contingent, compound blocking, chain head, closed_reason, criterion, v_ready_tasks, session, skill run).
 
 ## Key Conventions
 

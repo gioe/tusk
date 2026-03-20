@@ -1,0 +1,83 @@
+# Tusk Glossary
+
+Canonical definitions for terms used across tusk documentation and skills.
+
+---
+
+## chain head
+
+A task that is ready to start (no unmet `blocks`-type dependencies, no open external blockers) and has at least one unfinished downstream dependent — making it the logical entry point for a dependency sub-DAG that `/chain` can execute in parallel waves.
+
+→ See `v_chain_heads` definition in `bin/tusk` and [`DOMAIN.md`](../DOMAIN.md#views).
+
+---
+
+## closed_reason
+
+The required explanation for why a task moved to `Done`; must be one of: `completed`, `expired`, `wont_do`, or `duplicate`. Set via `tusk task-done <id> --reason <value>` and enforced by the `validate_closed_reason` DB trigger.
+
+→ See [`DOMAIN.md`](../DOMAIN.md#status-transitions) and the Config Validation table.
+
+---
+
+## compound blocking
+
+When a task is held back by more than one simultaneous blocker — e.g., both an unfinished `blocks`-type dependency **and** an unresolved external blocker — causing it to appear multiple times in `v_blocked_tasks` (once per blocking source). A task must clear all blocking sources before it becomes ready.
+
+→ See `v_blocked_tasks` view in `bin/tusk` and [`DOMAIN.md`](../DOMAIN.md#views).
+
+---
+
+## contingent
+
+A soft dependency (`relationship_type = 'contingent'`) between two tasks: the dependent task *can* proceed, but it is preferable to wait for the prerequisite. Unlike `blocks` dependencies, contingent dependencies do not prevent a task from appearing in `v_ready_tasks`. Tasks whose only dependencies are contingent receive a −10 WSJF penalty.
+
+→ See [`DOMAIN.md`](../DOMAIN.md#relationship-semantics-blocks-vs-contingent).
+
+---
+
+## criterion
+
+A single acceptance condition attached to a task, defining what must be true for the task to be considered done. Each criterion has a `criterion_type` (`manual`, `code`, `test`, or `file`) that determines how it is verified. Criteria are the implementation checklist in the `/tusk` workflow; they are marked done one-by-one as work progresses.
+
+→ See [`DOMAIN.md`](../DOMAIN.md#acceptance-criteria) and the `acceptance_criteria` table.
+
+---
+
+## deferred
+
+A task (or criterion) that has been intentionally postponed rather than completed in the current session. Deferred tasks have `is_deferred = 1`, a `[Deferred]` summary prefix, and a 60-day `expires_at`. Deferred tasks receive no `non_deferred_bonus` in WSJF scoring.
+
+→ See [`DOMAIN.md`](../DOMAIN.md#wsjf-priority-scoring) and `tusk task-insert --deferred`.
+
+---
+
+## session
+
+A bounded work unit on a task, tracking timestamps, token usage, and cost. One task can accumulate multiple sessions across days or agents. At most one session per task may be open at a time; `tusk task-start` opens a session and `tusk merge` closes it.
+
+→ See [`DOMAIN.md`](../DOMAIN.md#task-session) and [`docs/tusk-flows.md`](tusk-flows.md).
+
+---
+
+## skill run
+
+A recorded execution of a tusk skill (e.g., `/groom-backlog`), storing start/end time, token counts, estimated cost, and skill-specific metadata. Skill runs let you track the operational cost of maintenance operations over time.
+
+→ See [`DOMAIN.md`](../DOMAIN.md#skill-run) and `tusk skill-run start/finish`.
+
+---
+
+## v_ready_tasks
+
+The canonical view of tasks that are eligible to be worked on: status `To Do`, all `blocks`-type dependencies done, and no open external blockers. Contingent-only dependencies do not affect readiness. This view is the basis for `tusk task-select`, `/tusk`, and `/loop`.
+
+→ See [`DOMAIN.md`](../DOMAIN.md#views).
+
+---
+
+## WSJF
+
+Weighted Shortest Job First — the priority scoring formula tusk uses to rank tasks. Computed as `ROUND((base_priority + non_deferred_bonus + unblocks_bonus + contingent_adjustment) / complexity_weight)` and stored in `tasks.priority_score`. Recomputed on demand via `tusk wsjf`.
+
+→ See [`DOMAIN.md`](../DOMAIN.md#wsjf-priority-scoring).
