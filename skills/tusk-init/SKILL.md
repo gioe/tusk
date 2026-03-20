@@ -328,72 +328,54 @@ This scans the project root for `TODO`, `FIXME`, `HACK`, and `XXX` comments, exc
 
 ## Step 8.5: Seed Tasks from Project Lib Bootstraps (Optional)
 
-Check if `project_libs` is configured:
+Fetch bootstrap data for all configured project libs in one call:
 
 ```bash
-tusk config project_libs
+tusk init-fetch-bootstrap
 ```
 
-If the result is `null` or empty, skip this step silently.
-
-For each configured lib, fetch its `tusk-bootstrap.json` from GitHub using the pinned `ref` from the lib config:
-
-```bash
-gh api repos/<owner>/<repo>/contents/tusk-bootstrap.json?ref=<ref> --jq '.content' | base64 -d
-```
-
-Use the `repo` and `ref` fields from the lib config (e.g., `repo: "gioe/ios-libs"`, `ref: "main"`). If the file does not exist in the repo (404), skip that lib silently.
-
-A valid bootstrap file has this shape:
+This reads `project_libs` from config, fetches each lib's `tusk-bootstrap.json` from GitHub, validates required keys, and returns:
 
 ```json
 {
-  "version": "1",
-  "project_type": "<type>",
-  "tasks": [
-    {
-      "summary": "...",
-      "description": "...",
-      "priority": "Medium",
-      "task_type": "feature",
-      "complexity": "S",
-      "criteria": ["..."]
-    }
+  "libs": [
+    { "name": "ios_app", "repo": "gioe/ios-libs", "tasks": [...], "error": null },
+    { "name": "bad_lib", "repo": "owner/repo", "tasks": [], "error": "404: tusk-bootstrap.json not found" }
   ]
 }
 ```
 
-Required top-level keys: `version`, `project_type`, `tasks` (array). Each task must have: `summary`, `description`, `priority`, `task_type`, `complexity`, and `criteria` (non-empty array of strings).
+If `libs` is empty, skip this step silently.
 
-If the file is present and valid JSON with the required shape, present the task list to the user:
+For each lib entry:
 
-> **`<lib-name>` bootstrap tasks found** — `tusk-bootstrap.json` from `<owner>/<repo>` contains N tasks to help you set up <lib-name> integration:
->
-> 1. [summary] (task_type, complexity)
-> 2. ...
->
-> Seed all N tasks? (yes / no / pick)
+- If `error` is non-null, print a one-line warning and skip:
+  > Warning: could not fetch bootstrap for `<repo>` — <error>.
+- If `error` is null and `tasks` is non-empty, present the task list to the user:
 
-- **Yes** — insert all tasks with `tusk task-insert`
-- **No** — skip
-- **Pick** — list tasks individually; user selects which to insert
+  > **`<lib-name>` bootstrap tasks found** — `tusk-bootstrap.json` from `<owner>/<repo>` contains N tasks to help you set up <lib-name> integration:
+  >
+  > 1. [summary] (task_type, complexity)
+  > 2. ...
+  >
+  > Seed all N tasks? (yes / no / pick)
 
-Insert each selected task:
+  - **Yes** — insert all tasks with `tusk task-insert`
+  - **No** — skip
+  - **Pick** — list tasks individually; user selects which to insert
 
-```bash
-tusk task-insert "<summary>" "<description>" \
-  --priority <priority> \
-  --task-type <task_type> \
-  --complexity <complexity> \
-  --criteria "<criterion1>" \
-  --criteria "<criterion2>"
-```
+  Insert each selected task:
+
+  ```bash
+  tusk task-insert "<summary>" "<description>" \
+    --priority <priority> \
+    --task-type <task_type> \
+    --complexity <complexity> \
+    --criteria "<criterion1>" \
+    --criteria "<criterion2>"
+  ```
 
 Track bootstrap-seeded task count separately; roll it into the total count reported in Step 10.
-
-If `gh` is unavailable or returns a non-JSON error, print a one-line warning and continue:
-
-> Warning: could not fetch bootstrap for `<repo>` — skipping.
 
 ## Step 9: Seed Tasks from Project Description (Optional)
 
