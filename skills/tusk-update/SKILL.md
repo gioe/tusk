@@ -52,7 +52,7 @@ Configurable fields:
 | `review_categories` | Yes | Valid comment categories; empty array disables validation |
 | `review_severities` | Yes | Valid severity levels; empty array disables validation |
 | `project_type` | No | String key identifying the project type (e.g. `python_service`, `ios_app`); `null` if unset |
-| `project_libs.*.ref` | No | Pin a project lib's bootstrap ref to a tag or commit SHA (e.g. `project_libs.python_service.ref = "v1.2.3"`); defaults to `"main"` |
+| `project_libs.*.ref` | No | Pin a project lib's bootstrap ref to a tag or commit SHA (e.g. `project_libs.python_service.ref = "v1.2.3"`); defaults to `"main"`. Pinning to a tag or SHA freezes which bootstrap tasks are seeded, so updates to the library repo's main branch don't unintentionally add new tasks on the next `tusk-init`. |
 
 **Agents object shape:** Each key is an agent name used for task assignment; each value is a plain string describing what that agent handles. Example:
 

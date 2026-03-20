@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [504] - 2026-03-20
+
+- [TASK-717] Expand tusk-update SKILL.md explanation of project_libs.*.ref
+
 ## [503] - 2026-03-20
 
 - [TASK-712] Create tusk-bootstrap.json for gioe/ios-libs SPM bootstrap
