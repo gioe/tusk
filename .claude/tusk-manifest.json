@@ -23,6 +23,7 @@
   ".claude/bin/tusk-init-fetch-bootstrap.py",
   ".claude/bin/tusk-init-scan-codebase.py",
   ".claude/bin/tusk-init-scan-todos.py",
+  ".claude/bin/tusk-init-write-config.py",
   ".claude/bin/tusk-lint-rules.py",
   ".claude/bin/tusk-lint.py",
   ".claude/bin/tusk-loop.py",
