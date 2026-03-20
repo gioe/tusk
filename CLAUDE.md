@@ -201,6 +201,11 @@ echo 14 > VERSION   # increment by 1
 
 Commit the bump in the same branch as the feature. Also update `CHANGELOG.md` in the same commit under a new `## [<version>] - <YYYY-MM-DD>` heading. **One VERSION bump per PR.**
 
+## Reference Docs
+
+- **`docs/SCRIPTS.md`** — Reference for all `bin/tusk-*.py` helper scripts: purpose, inputs, outputs, and usage examples.
+- **`docs/tusk-flows.md`** — Visual and narrative description of the main tusk workflows (task lifecycle, session flow, merge flow).
+
 ## Key Conventions
 
 - **Do NOT use Claude Code's built-in `TaskGet`/`TaskList` tools for tusk task lookup.** Those tools manage background agent subprocesses, not tusk tasks. Always use `bin/tusk task-get <id>` or `bin/tusk task-list` to look up tusk tasks. `tusk task-get` accepts both integer IDs (e.g. `506`) and the `TASK-NNN` display prefix form (e.g. `TASK-506`) — the DB stores integers, but both forms work.
