@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [508] - 2026-03-20
+
+- [TASK-14] Add tusk init-fetch-bootstrap CLI command for project lib bootstrap fetching
+
 ## [507] - 2026-03-20
 
 - [TASK-13] Implement tusk scaffold-reviewer-prompts CLI command
