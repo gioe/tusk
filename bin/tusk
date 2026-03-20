@@ -752,7 +752,7 @@ candidates = [
   'review','deps','session-stats','session-recalc','skill-run',
   'call-breakdown','session-close','task-get','task-get-multi','task-select','task-start',
   'task-done','task-insert','task-update','task-reopen','task-list',
-  'audit','autoclose','backlog-scan','test-detect','init-scan-codebase','init-scan-todos','filter-reviewers','loop','merge','progress',
+  'audit','autoclose','backlog-scan','test-detect','init-scan-codebase','init-scan-todos','scaffold-reviewer-prompts','filter-reviewers','loop','merge','progress',
   'setup','token-audit','sync-skills','generate-manifest','pricing-update','wsjf','shell',
   'version','version-bump','changelog-add','migrate','regen-triggers','upgrade',
 ]
@@ -1064,6 +1064,7 @@ case "${1:-}" in
   test-detect) shift; exec python3 "$SCRIPT_DIR/tusk-test-detect.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   init-scan-codebase) shift; exec python3 "$SCRIPT_DIR/tusk-init-scan-codebase.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   init-scan-todos) shift; exec python3 "$SCRIPT_DIR/tusk-init-scan-todos.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  scaffold-reviewer-prompts) shift; exec python3 "$SCRIPT_DIR/tusk-scaffold-reviewer-prompts.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   filter-reviewers) shift; exec python3 "$SCRIPT_DIR/tusk-filter-reviewers.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   loop) shift; exec python3 "$SCRIPT_DIR/tusk-loop.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   merge) shift; exec python3 "$SCRIPT_DIR/tusk-merge.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
@@ -1083,6 +1084,6 @@ case "${1:-}" in
   update-gitignore) cmd_update_gitignore ;;
   regen-triggers) cmd_regen_triggers ;;
   upgrade) shift; cmd_upgrade "$@" ;;
-  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|commit|lint|lint-rule|dupes|deps|blockers|review|criteria|dag|dashboard|wsjf|audit|setup|autoclose|backlog-scan|init-scan-codebase|filter-reviewers|token-audit|sync-skills|pricing-update|session-stats|session-recalc|session-close|git-default-branch|branch-parse|skill-run|call-breakdown|task-get|task-get-multi|task-select|task-start|task-done|task-insert|task-update|task-reopen|task-list|merge|progress|shell|version|version-bump|changelog-add|migrate|update-gitignore|upgrade|regen-triggers|report-issue|\"SQL ...\"}" >&2; exit 1 ;;
+  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|commit|lint|lint-rule|dupes|deps|blockers|review|criteria|dag|dashboard|wsjf|audit|setup|autoclose|backlog-scan|init-scan-codebase|scaffold-reviewer-prompts|filter-reviewers|token-audit|sync-skills|pricing-update|session-stats|session-recalc|session-close|git-default-branch|branch-parse|skill-run|call-breakdown|task-get|task-get-multi|task-select|task-start|task-done|task-insert|task-update|task-reopen|task-list|merge|progress|shell|version|version-bump|changelog-add|migrate|update-gitignore|upgrade|regen-triggers|report-issue|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac
