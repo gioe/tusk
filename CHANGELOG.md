@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [509] - 2026-03-20
+
+- [TASK-15] Add tusk init-write-config CLI command for config merge and initialization
+
 ## [508] - 2026-03-20
 
 - [TASK-14] Add tusk init-fetch-bootstrap CLI command for project lib bootstrap fetching
