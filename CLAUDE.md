@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 tusker is a portable task management system for Claude Code projects. It provides a local SQLite database, a bash CLI (`bin/tusk`), Python utility scripts, and Claude Code skills to track, prioritize, and work through tasks autonomously.
 
-When proposing, evaluating, or reviewing features, consult `PILLARS.md` for design tradeoffs. The pillars define what tusk values and provide a shared vocabulary for resolving competing approaches.
+When proposing, evaluating, or reviewing features, consult `docs/PILLARS.md` for design tradeoffs. The pillars define what tusk values and provide a shared vocabulary for resolving competing approaches.
 
 ## Commands
 
@@ -148,7 +148,7 @@ Tusk ships two bootstrap files that provision tasks for adopting standalone exte
 
 ### Database Schema
 
-See `DOMAIN.md` for the full schema, views, invariants, and status-transition rules.
+See `docs/DOMAIN.md` for the full schema, views, invariants, and status-transition rules.
 
 Twelve tables: `tasks`, `task_dependencies`, `task_progress`, `task_sessions`, `acceptance_criteria`, `code_reviews`, `review_comments`, `skill_runs`, `tool_call_stats`, `tool_call_events`, `conventions`, `lint_rules`. Five views: `task_metrics`, `v_ready_tasks`, `v_chain_heads`, `v_blocked_tasks`, `v_criteria_coverage`.
 
@@ -166,16 +166,16 @@ Two independent version tracks:
 
 ### Migrations
 
-See `MIGRATIONS.md` for table-recreation and trigger-only migration templates, including the ordering rules and gotchas.
+See `docs/MIGRATIONS.md` for table-recreation and trigger-only migration templates, including the ordering rules and gotchas.
 
 **Checklist when adding migration N:**
 - Add the migration block inside `cmd_migrate()` in `bin/tusk`
 - Stamp `PRAGMA user_version = N` in `cmd_init()` (the standalone sqlite3 call near the end) so that fresh installs never need to run that migration
-- Update `DOMAIN.md` to reflect any schema, view, or trigger changes introduced by the migration
+- Update `docs/DOMAIN.md` to reflect any schema, view, or trigger changes introduced by the migration
 
 ## Creating a New Skill
 
-See `SKILLS.md` for directory structure, frontmatter format, body guidelines, companion files, and symlink mechanics.
+See `docs/SKILLS.md` for directory structure, frontmatter format, body guidelines, companion files, and symlink mechanics.
 
 **Public skill** (distributed to target projects):
 1. Create `skills/<name>/SKILL.md` with frontmatter + instructions
