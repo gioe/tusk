@@ -158,24 +158,15 @@ Present each as `- **name** — evidence found`. User confirms, adds, removes, o
 
 ## Step 3b: Scaffold Domain Reviewer Prompts
 
-After domains are confirmed in Step 3, generate a stub `REVIEWER-PROMPT-<domain>.md` file in `.claude/skills/review-commits/` for each confirmed domain.
+After domains are confirmed in Step 3, run:
 
-**Skip this step silently** if `.claude/skills/review-commits/` does not exist (review-commits skill not installed).
+```bash
+tusk scaffold-reviewer-prompts
+```
 
-For each confirmed domain:
+This creates a stub `REVIEWER-PROMPT-<domain>.md` in `.claude/skills/review-commits/` for each configured domain. Each stub prepends a domain-specific focus comment to the base `REVIEWER-PROMPT.md` content. Existing files are left untouched (idempotent). The command exits 0 silently if the `review-commits` skill directory does not exist.
 
-1. Check whether `.claude/skills/review-commits/REVIEWER-PROMPT-<domain>.md` already exists.
-2. If it **already exists**, leave it untouched (idempotent — never overwrite).
-3. If it **does not exist**:
-   a. Read `.claude/skills/review-commits/REVIEWER-PROMPT.md` to get the base content.
-   b. Prepend a domain-specific focus comment followed by a blank line:
-      ```
-      # Domain: <domain> — customize this prompt for <domain>-specific review concerns
-
-      ```
-   c. Write the full combined content to `.claude/skills/review-commits/REVIEWER-PROMPT-<domain>.md`.
-
-After processing all domains, print a one-line summary of how many files were created (skip if zero):
+If the returned JSON `created` array is non-empty, print a one-line summary:
 
 > Created N domain reviewer prompt(s): REVIEWER-PROMPT-api.md, REVIEWER-PROMPT-frontend.md, ...
 
