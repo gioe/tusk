@@ -53,6 +53,13 @@ Edit `tusk/config.json` after install:
   "agents": {
     "frontend-engineer": "React, CSS, and UI components",
     "backend-engineer": "API endpoints, database, and server logic"
+  },
+  "project_type": "ios",  // selects which project_libs entry is active
+  "project_libs": {
+    "ios": {
+      "repo": "org/ios-libs",
+      "ref": "abc1234"  // pinned commit or branch used when bootstrapping
+    }
   }
 }
 ```
@@ -61,6 +68,8 @@ Edit `tusk/config.json` after install:
 - **task_types**: Empty array means no task_type validation
 - **agents**: Used by `/groom-backlog` to auto-assign tasks; empty object skips assignment
 - **statuses**, **priorities**, **closed_reasons**: Changing these is possible but not recommended
+- **project_type**: Identifies which `project_libs` entry is active for this project
+- **project_libs**: Map of project type → `{repo, ref}` — used by `/tusk-init` to bootstrap shared library seeds from a pinned ref
 
 ## CLI Reference
 
