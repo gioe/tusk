@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [510] - 2026-03-20
+
+- [TASK-16] Add --project-libs flag to tusk init-write-config
+
 ## [509] - 2026-03-20
 
 - [TASK-15] Add tusk init-write-config CLI command for config merge and initialization
