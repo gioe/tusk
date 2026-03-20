@@ -125,10 +125,13 @@ read_config_key() {
 import json, sys
 with open(sys.argv[1]) as f:
     cfg = json.load(f)
-val = cfg.get(sys.argv[2])
-if val is None:
+key = sys.argv[2]
+if key not in cfg:
     sys.exit(1)
-if isinstance(val, list):
+val = cfg[key]
+if val is None:
+    print('null')
+elif isinstance(val, list):
     print('\n'.join(str(v) for v in val))
 elif isinstance(val, dict):
     print(json.dumps(val, indent=2))

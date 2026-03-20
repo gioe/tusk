@@ -26,5 +26,10 @@
   "merge": {
     "mode": "local"
   },
-  "test_command": ""
+  "test_command": "",
+  "project_type": null,
+  "project_libs": {
+    "python_service": { "repo": "gioe/python-libs", "ref": "main" },
+    "ios_app": { "repo": "gioe/ios-libs", "ref": "main" }
+  }
 }
