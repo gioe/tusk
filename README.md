@@ -269,6 +269,50 @@ your-project/
     └── tasks.db                       # The database
 ```
 
+## Troubleshooting
+
+### Skill not found after install
+
+If Claude Code reports an unknown skill (e.g., `/tusk` not recognized) immediately after running `install.sh`, the skill was installed mid-session and has not been discovered yet.
+
+**Resolution:** Start a new Claude Code session. Skills are discovered at session startup — a skill added after the session began will not be available until you restart.
+
+### Task stuck in the wrong state
+
+If a task is stuck `In Progress` when it should be `To Do`, or you need to force-close a task that has open criteria:
+
+```bash
+# Reopen an In Progress task back to To Do
+tusk task-reopen <task_id> --force
+
+# Force-close a task (e.g., wont_do) even if criteria are open
+tusk task-done <task_id> --reason wont_do --force
+```
+
+### Migration failure
+
+If `tusk migrate` fails or reports that schema changes cannot be applied, check for a version mismatch between the installed CLI and the database schema:
+
+```bash
+tusk version          # distribution version of the installed CLI
+tusk shell            # opens sqlite3 shell; then run: PRAGMA user_version;
+```
+
+If `user_version` is ahead of what the installed CLI knows about, you may have downgraded the CLI. Re-run `tusk upgrade` to restore the latest version, then retry `tusk migrate`.
+
+### Database corruption
+
+If the database is corrupted and `tusk` commands are failing with SQLite errors:
+
+> **Warning:** `tusk init --force` **destroys all existing task data**. Back up `tusk/tasks.db` before proceeding.
+
+```bash
+cp tusk/tasks.db tusk/tasks.db.bak   # back up first
+tusk init --force                     # recreate the database from scratch
+```
+
+After reinitializing, re-run `tusk migrate` to apply any pending schema migrations.
+
 ## Reporting Issues
 
 Found a bug or have a feature request? Open an issue at https://github.com/gioe/tusk/issues.
