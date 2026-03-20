@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [505] - 2026-03-20
+
+- [TASK-10] Move DOMAIN.md, MIGRATIONS.md, SKILLS.md, PILLARS.md to docs/
+
 ## [504] - 2026-03-20
 
 - [TASK-717] Expand tusk-update SKILL.md explanation of project_libs.*.ref
