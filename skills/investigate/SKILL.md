@@ -47,10 +47,10 @@ tusk setup
 
 Parse the returned JSON. Hold `config` (domains, agents, task_types, priorities, complexity) and `backlog` (open tasks) in context. You'll need both during investigation — `backlog` lets you catch tasks that already cover the same ground, which is also a first-class reason to conclude "no action needed."
 
-If `PILLARS.md` exists in the project root, read it now:
+If `docs/PILLARS.md` exists in the project root, read it now:
 
 ```
-Read file: <project_root>/PILLARS.md
+Read file: <project_root>/docs/PILLARS.md
 ```
 
 Hold the pillar definitions in context — you will use them in Step 5 to evaluate whether proposed tasks align with the project's design values.
