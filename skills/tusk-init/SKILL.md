@@ -156,6 +156,29 @@ Before presenting suggestions, frame the concept for the user:
 
 Present each as `- **name** — evidence found`. User confirms, adds, removes, or empties to disable validation.
 
+## Step 3b: Scaffold Domain Reviewer Prompts
+
+After domains are confirmed in Step 3, generate a stub `REVIEWER-PROMPT-<domain>.md` file in `.claude/skills/review-commits/` for each confirmed domain.
+
+**Skip this step silently** if `.claude/skills/review-commits/` does not exist (review-commits skill not installed).
+
+For each confirmed domain:
+
+1. Check whether `.claude/skills/review-commits/REVIEWER-PROMPT-<domain>.md` already exists.
+2. If it **already exists**, leave it untouched (idempotent — never overwrite).
+3. If it **does not exist**:
+   a. Read `.claude/skills/review-commits/REVIEWER-PROMPT.md` to get the base content.
+   b. Prepend a domain-specific focus comment followed by a blank line:
+      ```
+      # Domain: <domain> — customize this prompt for <domain>-specific review concerns
+
+      ```
+   c. Write the full combined content to `.claude/skills/review-commits/REVIEWER-PROMPT-<domain>.md`.
+
+After processing all domains, print a one-line summary of how many files were created (skip if zero):
+
+> Created N domain reviewer prompt(s): REVIEWER-PROMPT-api.md, REVIEWER-PROMPT-frontend.md, ...
+
 ## Step 4: Suggest and Confirm Agents
 
 Map confirmed domains to agents:
