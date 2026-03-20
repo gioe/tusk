@@ -108,23 +108,32 @@ The config also includes a `review` block: `mode` (`"disabled"` or `"ai_only"`),
 
 ### Project Bootstrap
 
-One config key controls automatic task seeding during `/tusk-init`:
+Two config keys control automatic task seeding during `/tusk-init`:
 
-- **`project_type`** — A string key identifying the project category (e.g. `ios_app`, `python_service`). Set by `/tusk-init` Step 2e based on the user's stated project type; `null` if unset or not a fresh-project init.
+- **`project_type`** — A string key identifying the project category (e.g. `ios_app`, `python_service`). Set by `/tusk-init` Step 2e based on the user's stated project type; `null` if unset or not a fresh-project init. Stored in `tusk/config.json` and can be updated post-install via `/tusk-update`.
+
+- **`project_libs`** — A map of lib names to `{ repo, ref }` objects. Set by `/tusk-init` during Step 6. When Step 8.5 runs, each configured lib is fetched from GitHub and its tasks are optionally seeded.
 
 ```json
 {
-  "project_type": "ios_app"
+  "project_type": "ios_app",
+  "project_libs": {
+    "ios_app": { "repo": "gioe/ios-libs", "ref": "main" }
+  }
 }
 ```
 
-When `/tusk-init` reaches **Step 8.5**, it looks for `.claude/bin/bootstrap/<project_type>.json`. If the file exists, it presents the listed tasks to the user for optional seeding. Bootstrap files ship with tusk under `bootstrap/` and are copied to `.claude/bin/bootstrap/` at install time. To add a new project type, add a JSON file to `bootstrap/` and bump VERSION.
+When `/tusk-init` reaches **Step 8.5**, it fetches `tusk-bootstrap.json` from each lib's GitHub repo using the pinned `ref`:
 
-`project_type` lives in `tusk/config.json` and can be updated post-install via `/tusk-update`.
+```bash
+gh api repos/<owner>/<repo>/contents/tusk-bootstrap.json?ref=<ref> --jq '.content' | base64 -d
+```
+
+If the file exists and is valid JSON (required keys: `version`, `project_type`, `tasks`), the task list is presented to the user for optional seeding. If the file doesn't exist (404) or `gh` is unavailable, that lib is silently skipped.
 
 #### Built-in project types and their library dependencies
 
-Tusk ships two bootstrap files that provision tasks for adopting standalone external library repos:
+Two external library repos ship their own `tusk-bootstrap.json` and are pre-configured in `project_libs` by `/tusk-init`:
 
 - **`ios_app`** — Seeds tasks for integrating [gioe/ios-libs](https://github.com/gioe/ios-libs), a standalone Swift Package Manager library repo providing SharedKit (UI design tokens and components) and APIClient (HTTP client). Tasks cover adding the SPM dependency, configuring design tokens, and wiring up APIClient with the project's OpenAPI spec.
 
