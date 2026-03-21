@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [511] - 2026-03-21
+
+- [TASK-17] Auto-populate project_libs from defaults when --project-type is a known type
+
 ## [510] - 2026-03-20
 
 - [TASK-16] Add --project-libs flag to tusk init-write-config
