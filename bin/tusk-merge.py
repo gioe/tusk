@@ -282,11 +282,38 @@ def find_task_branch(task_id: int) -> tuple[str | None, str | None, bool]:
             return None, None, True  # pre-merged: auto-complete path
         return None, f"No branch found matching feature/TASK-{task_id}-*", False
     if len(branches) > 1:
-        names = ", ".join(branches)
-        return None, (
-            f"Multiple branches found for TASK-{task_id}: {names}. "
-            "Delete all but one before running tusk merge."
-        ), False
+        # Pick the branch whose tip commit is most recent.
+        timestamps = {}
+        for b in branches:
+            ts_result = run(
+                ["git", "log", "-1", "--format=%ct", b], check=False
+            )
+            if ts_result.returncode == 0 and ts_result.stdout.strip().isdigit():
+                timestamps[b] = int(ts_result.stdout.strip())
+            else:
+                timestamps[b] = 0
+
+        max_ts = max(timestamps.values())
+        most_recent = [b for b, ts in timestamps.items() if ts == max_ts]
+
+        if len(most_recent) == 1:
+            selected = most_recent[0]
+            others = [b for b in branches if b != selected]
+            print(
+                f"Note: Multiple branches found for TASK-{task_id} "
+                f"({', '.join(branches)}). "
+                f"Selecting most-recent-commit branch: {selected}. "
+                f"Stale branch(es) not removed: {', '.join(others)}.",
+                file=sys.stderr,
+            )
+            return selected, None, False
+        else:
+            # Exact tie — prompt the user to choose.
+            names = ", ".join(branches)
+            return None, (
+                f"Multiple branches found for TASK-{task_id} with equal recency: {names}. "
+                "Delete all but one before running tusk merge."
+            ), False
     return branches[0], None, False
 
 
