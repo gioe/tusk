@@ -211,7 +211,7 @@ def run_verification(criterion_type: str, spec: str) -> dict:
         # Run spec as a shell command; pass means exit code 0
         try:
             result = subprocess.run(
-                spec, shell=True, capture_output=True, text=True, timeout=120,
+                spec, shell=True, capture_output=True, text=True, encoding="utf-8", timeout=120,
             )
             output = result.stdout.strip()
             if result.stderr.strip():

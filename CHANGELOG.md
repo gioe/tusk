@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [513] - 2026-03-23
+
+- [TASK-19] Fix tusk commit exiting 4 after successful commit containing emoji
+
 ## [512] - 2026-03-23
 
 - [TASK-18] Fix tusk commit to handle file paths with square brackets (zsh glob expansion)
