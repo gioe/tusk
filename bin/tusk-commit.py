@@ -391,12 +391,6 @@ def main(argv: list[str]) -> int:
 
         if stderr_text is not None:
             files_str = " ".join(resolved_files)
-            print(
-                f"Error: git add failed (cwd: {repo_root}):\n"
-                f"  Command: git add -- {files_str}\n"
-                f"  {stderr_text}",
-                file=sys.stderr,
-            )
             # Probe each file with git check-ignore -v to surface the specific
             # gitignore rule (if any) blocking it — more actionable than checking
             # for English substrings in git's locale-dependent error output.
@@ -405,27 +399,76 @@ def main(argv: list[str]) -> int:
                 ci = run(["git", "check-ignore", "-v", f], check=False, cwd=repo_root)
                 if ci.returncode == 0 and ci.stdout.strip():
                     ignored_files.append((f, ci.stdout.strip()))
+
             if ignored_files:
-                for f, rule in ignored_files:
+                # Auto-retry: directories like .claude/skills/ are gitignored but
+                # have force-tracked siblings already in the index — git add -f is
+                # the correct way to stage new files there (Issue #401).
+                ignored_paths = [f for f, _ in ignored_files]
+                non_ignored_paths = [f for f in resolved_files if f not in ignored_paths]
+                print(
+                    f"Note: {len(ignored_paths)} file(s) blocked by .gitignore — "
+                    "retrying with `git add -f` (force-add for gitignored paths)."
+                )
+                retry_ok = True
+                r_force = run(
+                    ["git", "add", "-f", "--"] + ignored_paths, check=False, cwd=repo_root
+                )
+                if r_force.returncode != 0:
+                    retry_ok = False
                     print(
-                        f"  Gitignore rule blocking '{f}':\n"
-                        f"    {rule}\n"
-                        f"  Hint: use `git add -f {f}` to force-add, then commit manually.",
+                        f"Error: git add -f also failed:\n  {r_force.stderr.strip()}",
                         file=sys.stderr,
                     )
-            elif "ignored by" in stderr_text or ".gitignore" in stderr_text:
-                # Fallback: git reported gitignore but check-ignore didn't find the rule
+                if retry_ok and non_ignored_paths:
+                    r_rest = run(
+                        ["git", "add", "--"] + non_ignored_paths, check=False, cwd=repo_root
+                    )
+                    if r_rest.returncode != 0:
+                        retry_ok = False
+                        print(
+                            f"Error: git add failed for non-ignored files:\n"
+                            f"  {r_rest.stderr.strip()}",
+                            file=sys.stderr,
+                        )
+                if retry_ok:
+                    stderr_text = None  # all files staged — fall through to commit
+                else:
+                    print(
+                        f"Error: git add failed (cwd: {repo_root}):\n"
+                        f"  Command: git add -- {files_str}\n"
+                        f"  {stderr_text}",
+                        file=sys.stderr,
+                    )
+                    for f, rule in ignored_files:
+                        print(
+                            f"  Gitignore rule blocking '{f}':\n"
+                            f"    {rule}\n"
+                            f"  Hint: use `git add -f {f}` to force-add, then commit manually.",
+                            file=sys.stderr,
+                        )
+            else:
                 print(
-                    "  Hint: one or more files are excluded by .gitignore — "
-                    "use `git add -f <file>` to force-add, then commit manually.",
+                    f"Error: git add failed (cwd: {repo_root}):\n"
+                    f"  Command: git add -- {files_str}\n"
+                    f"  {stderr_text}",
                     file=sys.stderr,
                 )
-            elif "sparse-checkout" in stderr_text:
-                print(
-                    "  Hint: one or more files are outside the git sparse-checkout cone — "
-                    "run `git sparse-checkout add <directory>` to include them.",
-                    file=sys.stderr,
-                )
+                if "ignored by" in stderr_text or ".gitignore" in stderr_text:
+                    # Fallback: git reported gitignore but check-ignore didn't find the rule
+                    print(
+                        "  Hint: one or more files are excluded by .gitignore — "
+                        "use `git add -f <file>` to force-add, then commit manually.",
+                        file=sys.stderr,
+                    )
+                elif "sparse-checkout" in stderr_text:
+                    print(
+                        "  Hint: one or more files are outside the git sparse-checkout cone — "
+                        "run `git sparse-checkout add <directory>` to include them.",
+                        file=sys.stderr,
+                    )
+
+        if stderr_text is not None:
             return 3
 
     # ── Step 4: Commit ───────────────────────────────────────────────
