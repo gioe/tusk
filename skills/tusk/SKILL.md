@@ -115,13 +115,15 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     1. Implement the changes that satisfy it
     2. Commit and mark the criterion done atomically using `tusk commit --criteria`:
        ```bash
-       tusk commit <id> "<message>" <file1> [file2 ...] --criteria <cid>
+       tusk commit <id> "<message>" "<file1>" ["<file2>" ...] --criteria <cid>
        ```
        This runs `tusk lint` (advisory — never blocks), stages the listed files, commits with the `[TASK-<id>] <message>` format and Co-Authored-By trailer, and marks the criterion done — all in one call. The criterion is bound to the new commit hash automatically.
 
+       **Always quote file paths** — zsh expands unquoted brackets (`[id]`, `[slug]`) as glob patterns before the shell passes arguments to `tusk commit`. Any path component containing `[`, `]`, `*`, `?`, or spaces must be wrapped in double quotes (e.g., `"apps/api/[id]/route.ts"`).
+
        **Grouping criteria:** 2–3 genuinely co-located criteria (e.g., a schema change and its migration) may share one commit — use one `--criteria` flag per ID:
        ```bash
-       tusk commit <id> "<message>" <file1> [file2 ...] --criteria <cid1> --criteria <cid2>
+       tusk commit <id> "<message>" "<file1>" ["<file2>" ...] --criteria <cid1> --criteria <cid2>
        ```
        Always include a brief rationale in the commit message when grouping. **Never** bundle all criteria onto a single end-of-task commit.
 
@@ -131,7 +133,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     ```
     If the error is a genuine pathspec mismatch (not an already-committed file), always pass file paths relative to the repo root (e.g., `ios/SomeFile.swift`, not `SomeFile.swift` from inside `ios/`). If the error persists, fall back to:
     ```bash
-    git add <file1> [file2 ...] && git commit -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
+    git add "<file1>" ["<file2>" ...] && git commit -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
     ```
     Then mark criteria done with `tusk criteria done <cid> --skip-verify` as usual.
 
