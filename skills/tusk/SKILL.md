@@ -127,6 +127,11 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
        ```
        Always include a brief rationale in the commit message when grouping. **Never** bundle all criteria onto a single end-of-task commit.
 
+    **If the task has no git-trackable file changes** (e.g., a venv install, a runtime config change, an OS-level operation), skip `tusk commit` entirely — it requires at least one file argument and will fail with exit code 1 (usage error) if none are provided. Mark criteria done directly:
+    ```bash
+    tusk criteria done <cid> --skip-verify
+    ```
+
     **If `tusk commit` fails with `pathspec did not match any files`** (exit code 3, git-add error), first check whether the file was already committed in a prior `tusk commit` call for this task (e.g., when all changes go into a single file committed with earlier criteria). In that case, `git add && git commit` would also fail — just mark the remaining criteria done directly:
     ```bash
     tusk criteria done <cid> --skip-verify
