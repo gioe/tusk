@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [516] - 2026-03-23
+
+- [TASK-22] Add infra-task skip-commit guidance to tusk skill step 7
+
 ## [515] - 2026-03-23
 
 - [TASK-21] tusk merge should select most-recent-commit branch when multiple branches match a task ID
