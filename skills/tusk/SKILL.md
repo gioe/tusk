@@ -80,6 +80,12 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
    ```
    This detects the default branch (remote HEAD → gh fallback → main), checks it out, pulls latest, and creates `feature/TASK-<id>-<slug>`. It prints the created branch name on success.
 
+   **Partial-criteria + no-commits diagnostic:** After creating or switching to the feature branch, if the `criteria` from step 1 show at least one completed criterion but `git log --oneline main..HEAD` returns no commits, prior work may be stranded on another branch. Before exploring the codebase, run:
+   ```bash
+   git log --all --oneline --grep="\[TASK-<id>\]"
+   ```
+   (Replace `<id>` with the actual task ID.) This searches all branches for commits referencing the task. If commits appear on another branch (e.g., a recycled or prior branch), that branch contains the prior work — switch to it or cherry-pick the relevant commits before proceeding to Explore. If no commits appear anywhere, the criteria completions were marked without corresponding code — proceed normally and implement from scratch.
+
 3. **Determine the best subagent(s)** based on:
    - Task domain
    - Task assignee field (often indicates the right agent type)
@@ -132,7 +138,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     tusk criteria done <cid> --skip-verify
     ```
 
-    **If `tusk commit` fails with `pathspec did not match any files`** (exit code 3, git-add error), first check whether the file was already committed in a prior `tusk commit` call for this task (e.g., when all changes go into a single file committed with earlier criteria). In that case, `git add && git commit` would also fail — just mark the remaining criteria done directly:
+    **If `tusk commit` fails with `pathspec did not match any files`** (exit code 3, git-add error), first check whether the file was already committed in a prior `tusk commit` call for this task (e.g., when all changes go into a single file committed with earlier criteria), or whether the file was removed via `git rm` (which stages the deletion — `tusk commit` then can't find the path to re-add). In either case, `git add && git commit` would also fail — just mark the remaining criteria done directly:
     ```bash
     tusk criteria done <cid> --skip-verify
     ```
