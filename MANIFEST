@@ -10,6 +10,7 @@
   ".claude/bin/tusk-changelog-add.py",
   ".claude/bin/tusk-commit.py",
   ".claude/bin/tusk-config-tools.py",
+  ".claude/bin/tusk-conventions.py",
   ".claude/bin/tusk-criteria.py",
   ".claude/bin/tusk-dashboard-css.py",
   ".claude/bin/tusk-dashboard-data.py",
