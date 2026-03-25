@@ -2,7 +2,7 @@
 """Manage project conventions.
 
 Called by the tusk wrapper:
-    tusk conventions add|list|remove ...
+    tusk conventions add|list|search|remove ...
 
 Arguments received from tusk:
     sys.argv[1] — DB path
@@ -29,8 +29,8 @@ def cmd_add(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn = get_connection(db_path)
     try:
         conn.execute(
-            "INSERT INTO conventions (text, source_skill) VALUES (?, ?)",
-            (args.text, args.skill),
+            "INSERT INTO conventions (text, source_skill, topics) VALUES (?, ?, ?)",
+            (args.text, args.skill, args.topics),
         )
         conn.commit()
         new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -43,10 +43,19 @@ def cmd_add(args: argparse.Namespace, db_path: str, config: dict) -> int:
 def cmd_list(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn = get_connection(db_path)
     try:
-        rows = conn.execute(
-            "SELECT id, text, source_skill, violation_count "
-            "FROM conventions ORDER BY id"
-        ).fetchall()
+        if args.topic:
+            rows = conn.execute(
+                "SELECT id, text, source_skill, violation_count, topics "
+                "FROM conventions "
+                "WHERE ',' || topics || ',' LIKE ? "
+                "ORDER BY id",
+                (f"%,{args.topic},%",),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, text, source_skill, violation_count, topics "
+                "FROM conventions ORDER BY id"
+            ).fetchall()
     finally:
         conn.close()
 
@@ -54,11 +63,40 @@ def cmd_list(args: argparse.Namespace, db_path: str, config: dict) -> int:
         print("No conventions defined. Use: tusk conventions add \"<text>\"")
         return 0
 
-    print(f"{'ID':<6} {'Skill':<18} {'Violations':<12} {'Text'}")
-    print("-" * 80)
+    print(f"{'ID':<6} {'Skill':<18} {'Violations':<12} {'Topics':<20} {'Text'}")
+    print("-" * 100)
     for r in rows:
         skill_str = r["source_skill"] or ""
-        print(f"{r['id']:<6} {skill_str:<18} {r['violation_count']:<12} {r['text']}")
+        topics_str = r["topics"] or ""
+        print(f"{r['id']:<6} {skill_str:<18} {r['violation_count']:<12} {topics_str:<20} {r['text']}")
+    print(f"\nTotal: {len(rows)}")
+    return 0
+
+
+def cmd_search(args: argparse.Namespace, db_path: str, config: dict) -> int:
+    term = f"%{args.term}%"
+    conn = get_connection(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT id, text, source_skill, violation_count, topics "
+            "FROM conventions "
+            "WHERE text LIKE ? OR topics LIKE ? "
+            "ORDER BY id",
+            (term, term),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        print(f"No conventions matching '{args.term}'.")
+        return 0
+
+    print(f"{'ID':<6} {'Skill':<18} {'Violations':<12} {'Topics':<20} {'Text'}")
+    print("-" * 100)
+    for r in rows:
+        skill_str = r["source_skill"] or ""
+        topics_str = r["topics"] or ""
+        print(f"{r['id']:<6} {skill_str:<18} {r['violation_count']:<12} {topics_str:<20} {r['text']}")
     print(f"\nTotal: {len(rows)}")
     return 0
 
@@ -85,7 +123,7 @@ def cmd_remove(args: argparse.Namespace, db_path: str, config: dict) -> int:
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: tusk conventions {add|list|remove} ...", file=sys.stderr)
+        print("Usage: tusk conventions {add|list|search|remove} ...", file=sys.stderr)
         sys.exit(1)
 
     db_path = sys.argv[1]
@@ -102,9 +140,15 @@ def main():
     add_p = subparsers.add_parser("add", help="Add a convention")
     add_p.add_argument("text", help="Convention text")
     add_p.add_argument("--skill", default=None, metavar="NAME", help="Source skill name (optional)")
+    add_p.add_argument("--topics", default=None, metavar="TOPICS", help="Comma-separated topic tags (e.g. 'zsh,cli,git')")
 
     # list
-    subparsers.add_parser("list", help="List all conventions")
+    list_p = subparsers.add_parser("list", help="List all conventions")
+    list_p.add_argument("--topic", default=None, metavar="TOPIC", help="Filter by topic tag")
+
+    # search
+    search_p = subparsers.add_parser("search", help="Search conventions by term (matches text and topics)")
+    search_p.add_argument("term", help="Search term (case-insensitive)")
 
     # remove
     remove_p = subparsers.add_parser("remove", help="Remove a convention by ID")
@@ -120,6 +164,7 @@ def main():
         handlers = {
             "add": cmd_add,
             "list": cmd_list,
+            "search": cmd_search,
             "remove": cmd_remove,
         }
         sys.exit(handlers[args.command](args, db_path, config))
