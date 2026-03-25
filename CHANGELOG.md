@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [527] - 2026-03-25
+
+- [TASK-37] Fix block-sql-neq hook false positive when not-equal operator appears in quoted string argument
+
 ## [526] - 2026-03-25
 
 - [TASK-36] Add tusk conventions update subcommand

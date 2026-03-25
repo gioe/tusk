@@ -5,11 +5,16 @@
 # Read JSON from stdin
 input=$(cat)
 
-# Extract the command from tool_input.command
+# Extract the command from tool_input.command, with single-quoted strings stripped.
+# Single-quoted content is shell-safe (no history expansion), so != inside single
+# quotes is a false positive — e.g. tusk conventions add 'use != for comparisons'.
 command=$(echo "$input" | python3 -c "
-import sys, json
+import sys, json, re
 data = json.load(sys.stdin)
-print(data.get('tool_input', {}).get('command', ''))
+cmd = data.get('tool_input', {}).get('command', '')
+# Remove single-quoted substrings — their contents cannot trigger history expansion
+cmd = re.sub(r\"'[^']*'\", '', cmd)
+print(cmd)
 " 2>/dev/null)
 
 # Quick exit: no != means nothing to check
