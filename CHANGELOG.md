@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [522] - 2026-03-25
+
+- [TASK-30] Add Step 1b to /tusk-update: migrate CLAUDE.md conventions to DB
+
 ## [520] - 2026-03-25
 
 - [TASK-28] Update /retro LR-2a: add conventions-first gate before CLAUDE.md patches
