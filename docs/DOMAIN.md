@@ -319,9 +319,9 @@ Individual per-call rows recording one entry per tool invocation within a sessio
 
 ---
 
-### Convention (deprecated)
+### Convention
 
-> **Deprecated.** The `tusk conventions` command has been removed. The write path (previously used by `/retro`) was replaced by `tusk lint-rule add` and task-based workflows (TASK-370). The table is retained for historical data but has no active write path or CLI surface. Use `tusk lint-rule` for grep-detectable conventions and `/create-task` for process improvements.
+A generalizable heuristic or rule captured for the project. Managed via `tusk conventions add|list|search|remove`. Use `--topics` to tag conventions for filtering and search.
 
 | Attribute | Type | Constraints | Description |
 |-----------|------|-------------|-------------|
@@ -331,6 +331,7 @@ Individual per-call rows recording one entry per tool invocation within a sessio
 | `lint_rule` | TEXT | nullable | Associated lint rule identifier, if any |
 | `violation_count` | INTEGER | NOT NULL, default 0 | Number of times this convention has been violated (for future lint integration) |
 | `qualitative` | INTEGER | NOT NULL, default 0 | Whether this convention is qualitative (not grep-detectable); set via `--qualitative` flag |
+| `topics` | TEXT | nullable | Comma-separated topic tags for filtering and search (e.g. `zsh,cli,git`) |
 | `created_at` | TEXT | default now | When the convention was written |
 
 ---
