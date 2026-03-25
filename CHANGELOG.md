@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [526] - 2026-03-25
+
+- [TASK-36] Add tusk conventions update subcommand
+
 ## [525] - 2026-03-25
 
 - [TASK-35] Backfill normalize whitespace in stored convention topics

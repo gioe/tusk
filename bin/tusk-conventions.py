@@ -2,7 +2,7 @@
 """Manage project conventions.
 
 Called by the tusk wrapper:
-    tusk conventions add|list|search|remove ...
+    tusk conventions add|list|search|remove|update ...
 
 Arguments received from tusk:
     sys.argv[1] — DB path
@@ -104,6 +104,41 @@ def cmd_search(args: argparse.Namespace, db_path: str, config: dict) -> int:
     return 0
 
 
+def cmd_update(args: argparse.Namespace, db_path: str, config: dict) -> int:
+    if args.text is None and args.topics is None:
+        print("Error: at least one of --text or --topics is required", file=sys.stderr)
+        return 1
+
+    conn = get_connection(db_path)
+    try:
+        row = conn.execute(
+            "SELECT id FROM conventions WHERE id = ?", (args.id,)
+        ).fetchone()
+        if not row:
+            print(f"Error: Convention #{args.id} not found", file=sys.stderr)
+            return 2
+
+        fields, values = [], []
+        if args.text is not None:
+            fields.append("text = ?")
+            values.append(args.text)
+        if args.topics is not None:
+            normalized = ",".join(t.strip() for t in args.topics.split(","))
+            fields.append("topics = ?")
+            values.append(normalized)
+
+        values.append(args.id)
+        conn.execute(
+            f"UPDATE conventions SET {', '.join(fields)} WHERE id = ?",
+            values,
+        )
+        conn.commit()
+        print(f"Updated convention #{args.id}")
+        return 0
+    finally:
+        conn.close()
+
+
 def cmd_remove(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn = get_connection(db_path)
     try:
@@ -126,7 +161,7 @@ def cmd_remove(args: argparse.Namespace, db_path: str, config: dict) -> int:
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: tusk conventions {add|list|search|remove} ...", file=sys.stderr)
+        print("Usage: tusk conventions {add|list|search|remove|update} ...", file=sys.stderr)
         sys.exit(1)
 
     db_path = sys.argv[1]
@@ -157,6 +192,12 @@ def main():
     remove_p = subparsers.add_parser("remove", help="Remove a convention by ID")
     remove_p.add_argument("id", type=int, help="Convention ID")
 
+    # update
+    update_p = subparsers.add_parser("update", help="Update an existing convention by ID")
+    update_p.add_argument("id", type=int, help="Convention ID")
+    update_p.add_argument("--text", default=None, metavar="TEXT", help="New convention text")
+    update_p.add_argument("--topics", default=None, metavar="TOPICS", help="New comma-separated topic tags (replaces existing topics)")
+
     args = parser.parse_args(sys.argv[3:])
 
     if not args.command:
@@ -169,6 +210,7 @@ def main():
             "list": cmd_list,
             "search": cmd_search,
             "remove": cmd_remove,
+            "update": cmd_update,
         }
         sys.exit(handlers[args.command](args, db_path, config))
     except sqlite3.Error as e:
