@@ -1,14 +1,14 @@
 """Unit tests for the block-sql-neq.sh PreToolUse hook.
 
-Verifies that the hook correctly distinguishes != inside a quoted string argument
-(safe, should allow) from != in an unquoted context (should block).
+Verifies that the hook correctly distinguishes SQL-executing subcommands
+(shell, sql-query) from metadata subcommands (commit, task-insert, etc.).
 
-Covers false-positive scenarios from GitHub Issues #411 (single-quoted args)
-and #415 (double-quoted args, e.g. commit messages and task summaries).
+Only SQL-executing subcommands are checked for !=; all others are
+unconditionally allowed regardless of quoting.
 
-Known tradeoff: stripping both quote types means != inside a double-quoted SQL
-argument (e.g. tusk shell "...!= ...") is a false negative. This is acceptable
-because SQL should use <> instead of != regardless.
+Covers false-positive scenarios from GitHub Issues #411 (single-quoted args),
+#415 (double-quoted commit messages), and #416 (double-quoted SQL is a false
+negative with the quote-stripping approach).
 """
 
 import json
@@ -70,3 +70,8 @@ class TestBlockSqlNeqHook:
         """Non-tusk commands with != are not blocked (only tusk SQL is guarded)."""
         result = _run_hook("echo 'value != other'")
         assert result.returncode == 0
+
+    def test_neq_double_quoted_sql_still_blocked(self):
+        """False-negative fix from issue #416: != inside a double-quoted SQL arg should be blocked."""
+        result = _run_hook('tusk shell "SELECT * FROM tasks WHERE priority != \'High\'"')
+        assert result.returncode == 2
