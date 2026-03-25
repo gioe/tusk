@@ -28,9 +28,12 @@ load_config = _db_lib.load_config
 def cmd_add(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn = get_connection(db_path)
     try:
+        topics = args.topics
+        if topics:
+            topics = ",".join(t.strip() for t in topics.split(","))
         conn.execute(
             "INSERT INTO conventions (text, source_skill, topics) VALUES (?, ?, ?)",
-            (args.text, args.skill, args.topics),
+            (args.text, args.skill, topics),
         )
         conn.commit()
         new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
