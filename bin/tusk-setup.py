@@ -40,7 +40,7 @@ def main(argv: list[str]) -> int:
         print(f"Error: Invalid JSON in config: {e}", file=sys.stderr)
         return 2
 
-    # Query backlog
+    # Query backlog and conventions
     try:
         conn = get_connection(db_path)
         try:
@@ -49,6 +49,11 @@ def main(argv: list[str]) -> int:
                 "FROM tasks WHERE status <> 'Done' ORDER BY priority_score DESC, id"
             ).fetchall()
             backlog = [dict(row) for row in rows]
+
+            conv_rows = conn.execute(
+                "SELECT text FROM conventions ORDER BY id"
+            ).fetchall()
+            conventions = [r["text"] for r in conv_rows]
         finally:
             conn.close()
     except sqlite3.Error as e:
@@ -58,6 +63,7 @@ def main(argv: list[str]) -> int:
     result = {
         "config": config,
         "backlog": backlog,
+        "conventions": conventions,
     }
     print(json.dumps(result, indent=2))
     return 0
