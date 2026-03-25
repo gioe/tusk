@@ -127,6 +127,18 @@ tusk report-issue --title "<finding title>" --context "<finding description>"
 ```
 Do **not** call `tusk task-insert` for tusk-issues. Track the count of issues filed for Step 6.
 
+**Include a `## Failing Test` section** in `--context` whenever a concrete test can be derived from the finding. This matters because `/address-issue` Factor 0 treats a missing failing test as the highest-priority signal to Defer — issues filed without one will be deprioritized automatically. Format:
+
+```
+<finding description>
+
+## Failing Test
+
+<shell command that currently fails or demonstrates the bug>
+```
+
+If no concrete test exists (e.g. a pure UX or documentation finding), omit the section rather than fabricating one.
+
 **If `tusk report-issue` exits non-zero** (e.g., `$TUSK_GITHUB_REPO` is unset or `gh` CLI is unavailable), fall back to inserting a tusk task instead:
 ```bash
 tusk task-insert "<finding title>" "<finding description> [Note: GitHub issue could not be filed — report-issue failed]" \
