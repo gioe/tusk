@@ -222,37 +222,4 @@ Commit the bump in the same branch as the feature. Also update `CHANGELOG.md` in
 
 ## Key Conventions
 
-- **Do NOT use Claude Code's built-in `TaskGet`/`TaskList` tools for tusk task lookup.** Those tools manage background agent subprocesses, not tusk tasks. Always use `bin/tusk task-get <id>` or `bin/tusk task-list` to look up tusk tasks. `tusk task-get` accepts both integer IDs (e.g. `506`) and the `TASK-NNN` display prefix form (e.g. `TASK-506`) — the DB stores integers, but both forms work.
-- **Prefer `/create-task` for all task creation.** It handles decomposition, deduplication, acceptance criteria generation, and dependency proposals in one workflow. Use `bin/tusk task-insert` directly only when scripting bulk inserts or operating in an automated context where the interactive review step is not applicable.
-- All DB access goes through `bin/tusk`, never raw `sqlite3`
-- Use `$(tusk sql-quote "...")` to safely escape user-provided text in SQL statements — never manually escape single quotes
-- Task workflow: `To Do` → `In Progress` → `Done` (must set `closed_reason` when marking Done). Direct close `To Do` → `Done` is also allowed. All other transitions are blocked by a DB trigger (`validate_status_transition`)
-- Valid `closed_reason` values: `completed`, `expired`, `wont_do`, `duplicate`
-- Priority scoring (WSJF): `ROUND((base_priority + source_bonus + unblocks_bonus) / complexity_weight)` where complexity_weight is XS=1, S=2, M=3, L=5, XL=8
-- Complexity uses t-shirt sizes: XS (~1 quick session), S (~1 full session), M (~1–2 sessions), L (~3–5 sessions), XL (~5+ sessions). L and XL tasks trigger a warning in `/tusk` before work begins
-- Deferred tasks from PR reviews get `[Deferred]` prefix and 60-day `expires_at`
-- Duplicate detection uses two layers: (1) **LLM semantic review** during task insertion; (2) **heuristic pre-filter** (`tusk dupes check`) before INSERT. Both layers are needed.
-- When a duplicate is discovered, close the lower-priority or newer task immediately with `closed_reason = 'duplicate'` — never defer duplicate closure to a follow-up task
-- Dependencies use DFS cycle detection in Python; SQLite CHECK prevents self-loops
-- In SQL passed through bash, use `<>` instead of `!=` for not-equal comparisons — `!=` can cause parse errors due to shell history expansion
-- In embedded Python (`python3 -c "..."`), avoid `', '.join(...)` or single-quoted strings directly inside f-string expressions — precompute the join result into a variable first
-- Skills are discovered at Claude Code session startup — after installing or adding a new skill, you must start a new session before invoking it with `/skill-name`
-- When inserting a new step into an existing numbered/lettered sequence in a skill or doc file, scan adjacent headings to confirm the result is sequential (e.g., a new "Step 3a" inserted before "Step 3b", not "Step 3d").
-- **Avoid vague cross-references in skill step bodies.** Phrases like "apply the same logic as Step X.Y" or "follow the same procedure as above" get skipped by agents in practice. Always spell out the relevant instructions inline, even if it means some duplication — explicit instructions are always followed; cross-references often are not.
-- **`tusk task-done` auto-marks open criteria when commits exist.** When called with `--reason completed` and open criteria remain, it scans `git log` for `[TASK-N]` commits; if any are found, all open criteria are marked done automatically. Other close reasons (`wont_do`, `duplicate`, `expired`) still require `--force` if criteria are open.
-- **`tusk-session-stats.py` and `tusk-session-recalc.py` both call `update_session_stats()` from `tusk-pricing-lib.py`.** To change what session fields are written (tokens, cost, model, context tokens, `context_window`), edit `update_session_stats()` — both scripts pick up the change automatically.
-- **Underscore-named bin/ files** (not matching `tusk-*.py`) must be explicitly added to three places: (1) the copy section in `install.sh`, (2) `build_manifest()` in `tusk-generate-manifest.py`, and (3) `rule18_manifest_drift()` in `tusk-lint.py`. Run `tusk generate-manifest` after adding them to regenerate MANIFEST.
-- **When using `tusk_loader.load()` for companion modules**, the `.py` filename must appear as a literal string somewhere in the calling file — rule 8 scans for literal filenames to determine if a script is referenced. Add a comment on the `import tusk_loader` line, e.g.: `import tusk_loader  # loads tusk-foo.py and tusk-bar.py`
-- **Source-repo-only lint rules must guard against target projects.** Any rule in `bin/tusk-lint.py` that is only meaningful inside the tusk source repo (e.g., checks on `bin/tusk`, `MANIFEST`, or other source-only files) must begin with:
-  ```python
-  if not os.path.isfile(os.path.join(root, "bin", "tusk")):
-      return []
-  ```
-  This mirrors `rule8`'s pattern and prevents the rule from firing as a spurious violation in target projects (where `REPO_ROOT` is the target project root, which has no `bin/tusk` shell script).
-- **Project-specific lint rules belong in `tusk-lint-extra.py`, not in `tusk-lint.py`.** `tusk upgrade` overwrites `tusk-lint.py`; any custom rules added directly to it will be silently destroyed. Instead, create `.claude/bin/tusk-lint-extra.py` (not in MANIFEST, never touched by upgrade) and define `EXTRA_RULES` as a list of `(display_name, check_function, advisory)` tuples — `tusk-lint.py` loads and appends them automatically. When `tusk upgrade` detects that the installed `tusk-lint.py` differs from the incoming version, it prints a warning pointing to this mechanism.
-- **Always pass `encoding="utf-8"` to `subprocess.run(text=True)` in `bin/tusk-*.py` scripts.** Omitting it causes `locale.getpreferredencoding()` to be used, which may return ASCII on non-UTF-8 systems and raises `UnicodeDecodeError` when subprocess output contains non-ASCII characters (e.g., emoji in git commit messages echoed back to stdout — see Issue #399).
-- **Always run `tusk branch` from the default branch (main/master).** Running it from a stale feature branch creates the new branch off the wrong base, causing missing files from later main commits.
-- **`tusk-commit.py` path resolution has three invariants that must all hold simultaneously** (Issues #363, #365, #628):
-  1. `repo_root` **must** be `realpath`'d — so that a symlinked repo root (e.g. `sym_repo → real_repo`) is resolved before the prefix comparison that determines whether a file is inside the repo. Without this, the prefix check fails for any file touched in a symlinked-root repo.
-  2. `abs_path` (the file being committed) **must NOT** be `realpath`'d — `git add` expects the path as the user spelled it (possibly containing symlink components). Resolving it would produce a path that `git` cannot map back to an index entry, causing `pathspec did not match any files`.
-  3. `_make_relative` uses **case-insensitive prefix stripping** to handle macOS case divergence (e.g. `/Repo` vs `/repo` for the same directory). This is intentional: on macOS `os.path.realpath` does *not* canonicalize case, so an explicit `lower()`-based comparison is required. Do not replace this with a `realpath`-on-both-sides approach — that would re-introduce the Issue #365 regression.
+Run `tusk conventions list` to see project conventions.
