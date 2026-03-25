@@ -1,0 +1,35 @@
+{
+  "domains": ["cli", "skills", "schema", "install", "docs", "dashboard"],
+  "task_types": ["bug", "feature", "refactor", "test", "docs", "infrastructure", "issue"],
+  "statuses": ["To Do", "In Progress", "Done"],
+  "priorities": ["Highest", "High", "Medium", "Low", "Lowest"],
+  "closed_reasons": ["completed", "expired", "wont_do", "duplicate"],
+  "complexity": ["XS", "S", "M", "L", "XL"],
+  "blocker_types": ["data", "approval", "infra", "external"],
+  "test_command": "python3 -m pytest tests/unit/ -q",
+  "agents": {},
+  "dupes": {
+    "strip_prefixes": ["Deferred", "Enhancement", "Optional"],
+    "check_threshold": 0.82,
+    "similar_threshold": 0.6
+  },
+  "review": {
+    "mode": "ai_only",
+    "max_passes": 2,
+    "reviewers": []
+  },
+  "review_categories": ["must_fix", "suggest", "defer"],
+  "review_severities": ["critical", "major", "minor"],
+  "issue_scoring": {
+    "factors": {
+      "test_present":   { "yes": 2, "no": -1 },
+      "pillar_aligned": { "yes": 2, "no": -3 },
+      "duplicate":      { "yes": -5, "no": 0 },
+      "in_scope":       { "yes": 1, "no": -3 },
+      "severity_high":  { "yes": 3, "no": 0 },
+      "issue_quality":  { "good": 1, "poor": -2 }
+    },
+    "thresholds": { "address": 4, "decline": 0 }
+  },
+  "project_type": null
+}

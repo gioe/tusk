@@ -31,7 +31,7 @@ def cmd_validate(config_path: str) -> int:
     errors = []
 
     # ── Check for unknown top-level keys ──
-    KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'complexity', 'blocker_types', 'criterion_types', 'agents', 'dupes', 'review', 'review_categories', 'review_severities', 'merge', 'test_command', 'domain_test_commands', 'project_type', 'project_libs'}
+    KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'complexity', 'blocker_types', 'criterion_types', 'agents', 'dupes', 'review', 'review_categories', 'review_severities', 'merge', 'test_command', 'domain_test_commands', 'project_type', 'project_libs', 'issue_scoring'}
     known_list = ', '.join(sorted(KNOWN_KEYS))
     unknown = set(cfg.keys()) - KNOWN_KEYS
     if unknown:

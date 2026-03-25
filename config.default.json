@@ -26,6 +26,17 @@
   "merge": {
     "mode": "local"
   },
+  "issue_scoring": {
+    "factors": {
+      "test_present":   { "yes": 2, "no": -1 },
+      "pillar_aligned": { "yes": 2, "no": -3 },
+      "duplicate":      { "yes": -5, "no": 0 },
+      "in_scope":       { "yes": 1, "no": -3 },
+      "severity_high":  { "yes": 3, "no": 0 },
+      "issue_quality":  { "good": 1, "poor": -2 }
+    },
+    "thresholds": { "address": 4, "decline": 0 }
+  },
   "test_command": "",
   "project_type": null,
   "project_libs": {
