@@ -222,4 +222,17 @@ Commit the bump in the same branch as the feature. Also update `CHANGELOG.md` in
 
 ## Key Conventions
 
-Run `tusk conventions list` to see project conventions.
+Fetch conventions on demand using a topic relevant to what you're about to do:
+
+```bash
+tusk conventions search <topic>
+```
+
+**When to search:**
+- Before writing a commit message → `tusk conventions search commit`
+- Before choosing a file location or module structure → `tusk conventions search structure`
+- Before editing or creating a skill → `tusk conventions search skill`
+- Before writing or modifying tests → `tusk conventions search testing`
+- Before adding a migration → `tusk conventions search migration`
+
+Use `tusk conventions list` (no filter) sparingly — only when you want a full overview of all conventions.
