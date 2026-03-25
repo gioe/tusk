@@ -44,7 +44,7 @@ def cmd_list(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn = get_connection(db_path)
     try:
         rows = conn.execute(
-            "SELECT id, text, source_skill, lint_rule, violation_count, qualitative, created_at "
+            "SELECT id, text, source_skill, violation_count "
             "FROM conventions ORDER BY id"
         ).fetchall()
     finally:
