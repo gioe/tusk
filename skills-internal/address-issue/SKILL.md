@@ -134,34 +134,48 @@ Before presenting the proposal, quickly scan the codebase to confirm the bug is 
 
 Wait for user confirmation before proceeding to Step 5. If the bug is confirmed still present, or if you cannot determine either way within 3 calls, proceed without comment.
 
-## Step 4.7: Model Recommendation
+## Step 4.7: Model Recommendation (Config-Driven Scoring)
 
-Evaluate the issue against the following six factors, **in priority order**, to produce an **Address / Defer / Decline** verdict with a 1–2 sentence rationale. A higher-priority factor overrides lower-priority bias when they conflict.
+Read `issue_scoring` from the config fetched in Step 3:
 
-| # | Factor | How to Evaluate |
-|---|--------|-----------------|
-| 0 | **Test presence** | Was a `## Failing Test` section found in the issue body (Step 4.1)? If **no** `## Failing Test` section is present → bias strongly toward **Defer** with rationale: "issue lacks a failing test — ask the reporter to add one before prioritizing." **Exception:** if Step 4.6 confirmed the bug is directly observable in source code (visible wrong logic, missing condition, hardcoded wrong value — no runtime execution required) **AND** Factor 4 is high (data loss, user-facing breakage, or security vulnerability), then Factor 4 overrides this Defer bias and the verdict should be **Address**. Without this exception, preserve the Defer bias. |
-| 1 | **Pillar alignment** | Does the issue align with the project's design values in `PILLARS.md`? If `PILLARS.md` does not exist, skip this factor. Strong misalignment → bias toward Decline. |
-| 2 | **Backlog coverage** | Is an open task already covering this issue (from the backlog fetched in Step 3)? If yes → **Decline** (duplicate). Include the covering task ID in the rationale so the user can evaluate the override. |
-| 3 | **Scope relevance** | Does the issue fit the project's stated purpose? Out-of-scope requests → bias toward Decline. |
-| 4 | **Severity / cost of inaction** | Does inaction risk data loss, user-facing breakage, or a security vulnerability? If yes → bias strongly toward **Address**. |
-| 5 | **Issue quality** | Is the report clear, reproducible, and actionable? Vague, unverifiable, or too abstract → bias toward Decline. |
+```
+scoring    = config["issue_scoring"]
+factors    = scoring["factors"]
+thresholds = scoring["thresholds"]
+```
 
-Assign one verdict:
-- **Address** — valid, in-scope, aligns with pillars, adds clear value
-- **Defer** — valid but low priority, nice-to-have, or blocked by higher-priority work
-- **Decline** — out of scope, won't fix, already handled, duplicate, or too low-impact
+Evaluate each factor and look up its score contribution from `factors`:
 
-Record the verdict and 1–2 sentence rationale for display in Step 5.
+| Factor key | Condition to evaluate | Value key |
+|---|---|---|
+| `test_present` | Was a `## Failing Test` section found in Step 4.1? | `"yes"` / `"no"` |
+| `pillar_aligned` | Does the issue align with `docs/PILLARS.md`? If the file doesn't exist, skip (contribution = 0). | `"yes"` / `"no"` |
+| `duplicate` | Is an open task already covering this issue (from Step 3 backlog)? Include the task ID in the rationale if yes. | `"yes"` / `"no"` |
+| `in_scope` | Does the issue fit the project's stated purpose? | `"yes"` / `"no"` |
+| `severity_high` | Does inaction risk data loss, user-facing breakage, or a security vulnerability? | `"yes"` / `"no"` |
+| `issue_quality` | Is the report clear, reproducible, and actionable? | `"good"` / `"poor"` |
+
+For each factor: `contribution = factors[factor_key][value_key]`
+
+Compute: `total = sum of all factor contributions`
+
+Assign verdict from thresholds:
+- `total >= thresholds["address"]` → **Address**
+- `total <= thresholds["decline"]` → **Decline**
+- Otherwise → **Defer**
+
+Record the verdict, per-factor contributions, total, and a 1–2 sentence rationale for display in Step 5.
 
 ## Step 5: Present Proposed Task for Review
 
-Open with a **Model Recommendation** block, then show the proposed task:
+Open with a **Model Recommendation** block (including the score breakdown from Step 4.7), then show the proposed task:
 
 ```markdown
 ### Model Recommendation
 
 > **Recommendation: <Address / Defer / Decline>** — <1–2 sentence rationale from Step 4.7>
+>
+> **Score:** test_present: <±N>, pillar_aligned: <±N>, duplicate: <±N>, in_scope: <±N>, severity_high: <±N>, issue_quality: <±N> → **total: <N>** (Address ≥ <thresholds.address>, Decline ≤ <thresholds.decline>)
 
 ## Proposed Task from Issue #<N>
 
