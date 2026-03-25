@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [524] - 2026-03-25
+
+- [TASK-34] Normalize topics on insert: strip whitespace from comma-separated tokens
+
 ## [523] - 2026-03-25
 
 - [TASK-31] Add topics column to conventions and tusk conventions search command
