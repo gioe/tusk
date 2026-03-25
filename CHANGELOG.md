@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [525] - 2026-03-25
+
+- [TASK-35] Backfill normalize whitespace in stored convention topics
+
 ## [524] - 2026-03-25
 
 - [TASK-34] Normalize topics on insert: strip whitespace from comma-separated tokens
