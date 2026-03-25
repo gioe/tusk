@@ -116,6 +116,9 @@ def rule2_sql_not_equal(root):
             continue
         if any(p in rel for p in exempt_patterns):
             continue
+        # Skip markdown files — they are documentation, not executable SQL-bearing code
+        if rel.endswith(".md"):
+            continue
         # Skip Python files — Python != is fine
         if rel.endswith(".py"):
             continue
