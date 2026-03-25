@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [518] - 2026-03-24
+
+- [TASK-25] Add REVIEWER-PROMPT domain files to MANIFEST
+
 ## [517] - 2026-03-24
 
 - [TASK-24] Add cross-branch commit search hint in /tusk when feature branch has no unique commits but criteria are partially done
