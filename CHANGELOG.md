@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [542] - 2026-03-26
+
+- [TASK-39] Extend prerequisite warning to tusk task-start
+
 ## [541] - 2026-03-26
 
 - [TASK-36] Fix: tusk-commit.py Step 4 git commit failure error messages not mirrored to stdout
