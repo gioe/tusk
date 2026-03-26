@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [536] - 2026-03-26
+
+- [TASK-49] Warn in Step 4.1 when extracted test_spec is self-contained and may not verify the actual fix
+
 ## [535] - 2026-03-26
 
 - [TASK-47] [Deferred] address-issue: validate extracted test_spec is a real failing test in Step 4.1
