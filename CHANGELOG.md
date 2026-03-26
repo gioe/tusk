@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [538] - 2026-03-26
+
+- [TASK-52] Document tusk commit exit code 4 in SKILL.md
+
 ## [537] - 2026-03-26
 
 - [TASK-51] address-issue skill: treat test_presence factor as N/A for non-bug task types
