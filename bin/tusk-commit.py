@@ -489,20 +489,18 @@ def main(argv: list[str]) -> int:
 
         if not commit_landed:
             error_text = result.stderr.strip()
-            print(f"Error: git commit failed:\n{error_text}", file=sys.stderr)
+            _print_error(f"Error: git commit failed:\n{error_text}")
             hook_keywords = ("lint-staged", "pre-commit", "husky", "hook")
             if any(kw in error_text.lower() for kw in hook_keywords):
-                print(
+                _print_error(
                     "  Hint: a pre-commit hook rejected the commit. "
                     "Run with --skip-verify to bypass hooks: "
-                    "tusk commit ... --skip-verify",
-                    file=sys.stderr,
+                    "tusk commit ... --skip-verify"
                 )
             else:
-                print(
+                _print_error(
                     "  Hint: if a pre-commit hook is causing this, "
-                    "try: tusk commit ... --skip-verify",
-                    file=sys.stderr,
+                    "try: tusk commit ... --skip-verify"
                 )
             return 3
 
