@@ -77,7 +77,26 @@ Scan the issue body for a `## Failing Test` section. If present:
    - Single-backtick: content between a single `` ` `` open and close on the same or adjacent lines
    - Take the **first** fenced block found in the section; trim leading/trailing whitespace from the extracted content.
 
-2. Store the extracted content as `test_spec`. It will be passed to Step 6 as a `--typed-criteria` argument.
+2. **Validate the extracted spec** — run it immediately and capture the exit code and stderr:
+   ```bash
+   bash -c '<test_spec>' 2>/tmp/tusk_test_spec_stderr.txt
+   SPEC_EXIT=$?
+   SPEC_STDERR=$(cat /tmp/tusk_test_spec_stderr.txt)
+   ```
+
+   Interpret the result:
+
+   - **Exit nonzero and no command error** — the spec fails as expected on the current codebase. Store as `test_spec` and proceed normally.
+
+   - **Exit 0** — the spec passes *before* any fix. This indicates a self-contained demonstration or already-resolved issue. Warn the implementer:
+     > **Warning:** The `## Failing Test` spec exits 0 on the current codebase — it may not be a real regression test. Discard it (treat as `test_spec=null`, Factor 0 Defer bias) or keep it with this warning attached?
+
+     Wait for confirmation:
+     - **Discard** → set `test_spec = null`; apply Factor 0 Defer bias (same as no `## Failing Test` section).
+     - **Keep** → store as `test_spec` with a `(warning: passed before fix)` note appended; proceed normally.
+
+   - **Command error** (exit code 126/127, or stderr contains "command not found", "not found", or "syntax error") — the spec is not a runnable shell command. Treat as `test_spec = null` and apply Factor 0 Defer bias. Inform the implementer:
+     > The `## Failing Test` spec produced a command error (`<first line of SPEC_STDERR>`). Treating as no failing test — Factor 0 Defer bias applied.
 
 3. **If no `## Failing Test` section is found**, set `test_spec = null`. No test criterion will be added in Step 6, and the absence will bias the Step 4.7 verdict toward Defer (see Factor 0 below).
 
