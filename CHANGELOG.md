@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [533] - 2026-03-26
+
+- [TASK-45] Fix merge_hook_registrations to normalize hook paths before dedup check
+
 ## [532] - 2026-03-25
 
 - [TASK-44] Rewrite /address-issue recommendation as config-driven scoring and distribute to all projects
