@@ -148,6 +148,8 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     ```
     Then mark criteria done with `tusk criteria done <cid> --skip-verify` as usual.
 
+    **If `tusk commit` exits 4 (advisory lint warnings)** — the commit **succeeded**. Exit code 4 means lint ran and emitted advisory-only warnings, but the commit was made. No fallback or retry is needed. Use `git log --oneline -1` to confirm the commit is present, then continue to the next criterion.
+
     **If `tusk commit` hard-fails because tests fail** (exit code 2 — `test_command` is set and returned non-zero), **first verify the failure is not pre-existing** before entering the diagnosis loop:
 
     **Pre-existing failure check** — run the tests against a clean stash:
