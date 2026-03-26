@@ -15,6 +15,7 @@ Returns JSON for the top ready task, or exits with code 1 when none found.
 import argparse
 import json
 import os
+import re
 import sqlite3
 import sys
 
@@ -87,6 +88,21 @@ ORDER BY priority_score DESC, id
 LIMIT 1
 """
         row = conn.execute(sql, params).fetchone()
+
+        warn_rows: list = []
+        if row is not None:
+            text = (row["description"] or "") + " " + (row["summary"] or "")
+            referenced_ids = list({
+                int(m.group(1))
+                for m in re.finditer(r'\bTASK-(\d+)\b', text, re.IGNORECASE)
+                if int(m.group(1)) != row["id"]
+            })
+            if referenced_ids:
+                placeholders = ",".join("?" * len(referenced_ids))
+                warn_rows = conn.execute(
+                    f"SELECT id, summary FROM tasks WHERE id IN ({placeholders}) AND status = 'To Do'",
+                    referenced_ids,
+                ).fetchall()
     finally:
         conn.close()
 
@@ -98,6 +114,11 @@ LIMIT 1
             msg += f" (excluding {len(exclude_ids)} task ID{'s' if len(exclude_ids) != 1 else ''})"
         print(msg, file=sys.stderr)
         return 1
+
+    if warn_rows:
+        print("Warning: selected task references unfinished prerequisite tasks:", file=sys.stderr)
+        for wr in warn_rows:
+            print(f"  TASK-{wr['id']}: {wr['summary']}", file=sys.stderr)
 
     result = {
         "id": row["id"],

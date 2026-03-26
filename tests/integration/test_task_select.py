@@ -9,7 +9,7 @@ import io
 import json
 import os
 import sqlite3
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 
 import pytest
 
@@ -36,14 +36,15 @@ def insert_task(
     complexity: str = "S",
     priority_score: int = 60,
     task_type: str = "feature",
+    description: str = "",
 ) -> int:
     """Insert a task row and return its id."""
     cur = conn.execute(
         """
-        INSERT INTO tasks (summary, status, priority, complexity, task_type, priority_score)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO tasks (summary, status, priority, complexity, task_type, priority_score, description)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (summary, status, priority, complexity, task_type, priority_score),
+        (summary, status, priority, complexity, task_type, priority_score, description),
     )
     conn.commit()
     return cur.lastrowid
@@ -69,6 +70,17 @@ def call_main(db_path, config_path, *extra_args) -> tuple[int, dict | None]:
     output = buf.getvalue().strip()
     result = json.loads(output) if output else None
     return rc, result
+
+
+def call_main_with_stderr(db_path, config_path, *extra_args) -> tuple[int, dict | None, str]:
+    """Call main() and return (exit_code, parsed_json_or_None, stderr_output)."""
+    stdout_buf = io.StringIO()
+    stderr_buf = io.StringIO()
+    with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+        rc = tusk_task_select.main([str(db_path), str(config_path), *extra_args])
+    output = stdout_buf.getvalue().strip()
+    result = json.loads(output) if output else None
+    return rc, result, stderr_buf.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -204,3 +216,63 @@ class TestTaskSelect:
         assert rc == 0
         assert result is not None
         assert result["summary"] == "Task C"
+
+    def test_warns_on_stderr_when_referenced_task_is_todo(self, db_path, config_path):
+        """CID 167/168/169: warning printed to stderr when description references a To Do task."""
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            prereq_id = insert_task(conn, "Prerequisite task", priority_score=30)
+            insert_task(
+                conn,
+                "Main task",
+                description=f"This task requires TASK-{prereq_id} to be completed first.",
+                priority_score=100,
+            )
+        finally:
+            conn.close()
+
+        rc, result, stderr = call_main_with_stderr(db_path, config_path)
+
+        assert rc == 0
+        assert result is not None
+        assert result["summary"] == "Main task"
+        assert "Warning" in stderr
+        assert f"TASK-{prereq_id}" in stderr
+        assert "Prerequisite task" in stderr
+
+    def test_no_warning_when_referenced_task_is_in_progress(self, db_path, config_path):
+        """CID 170: no warning when the referenced task is In Progress (not To Do)."""
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            prereq_id = insert_task(conn, "In-progress prereq", status="In Progress", priority_score=30)
+            insert_task(
+                conn,
+                "Main task",
+                description=f"Depends on TASK-{prereq_id}.",
+                priority_score=100,
+            )
+        finally:
+            conn.close()
+
+        rc, result, stderr = call_main_with_stderr(db_path, config_path)
+
+        assert rc == 0
+        assert result is not None
+        assert "Warning" not in stderr
+
+    def test_no_warning_when_no_task_references_in_description(self, db_path, config_path):
+        """CID 171: no warning when the selected task has no TASK-NNN references."""
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            insert_task(conn, "Standalone task", description="No references here.", priority_score=100)
+        finally:
+            conn.close()
+
+        rc, result, stderr = call_main_with_stderr(db_path, config_path)
+
+        assert rc == 0
+        assert result is not None
+        assert "Warning" not in stderr
