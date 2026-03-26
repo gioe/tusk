@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [539] - 2026-03-26
+
+- [TASK-35] Fix: tusk commit exit-code-3 failures not surfaced in background task output file
+
 ## [538] - 2026-03-26
 
 - [TASK-52] Document tusk commit exit code 4 in SKILL.md
