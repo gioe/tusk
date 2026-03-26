@@ -239,6 +239,20 @@ def merge_config_defaults(src: str, repo_root: str, script_dir: str) -> None:
         print(f"  Backfilled config keys: {', '.join(added)}")
 
 
+def _normalize_hook_cmd(cmd: str) -> str:
+    """Normalize a hook command path for dedup comparison.
+
+    Strips the $CLAUDE_PROJECT_DIR/ prefix (written by current install) and
+    leading ./ (written by older installs) so that both path forms compare equal.
+    """
+    prefix = "$CLAUDE_PROJECT_DIR/"
+    if cmd.startswith(prefix):
+        return cmd[len(prefix):]
+    if cmd.startswith("./"):
+        return cmd[2:]
+    return cmd
+
+
 def merge_hook_registrations(src: str, repo_root: str) -> None:
     source_settings_path = os.path.join(src, ".claude", "settings.json")
     target_settings_path = os.path.join(repo_root, ".claude", "settings.json")
@@ -273,10 +287,10 @@ def merge_hook_registrations(src: str, repo_root: str) -> None:
             for h in group.get("hooks", []):
                 cmd = h.get("command", "")
                 if cmd:
-                    existing_commands.add(cmd)
+                    existing_commands.add(_normalize_hook_cmd(cmd))
         for group in source_groups:
             group_commands = [h.get("command", "") for h in group.get("hooks", [])]
-            if not any(cmd in existing_commands for cmd in group_commands if cmd):
+            if not any(_normalize_hook_cmd(cmd) in existing_commands for cmd in group_commands if cmd):
                 target_groups.append(group)
                 for cmd in group_commands:
                     if cmd:
