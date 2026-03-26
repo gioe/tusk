@@ -91,16 +91,16 @@ Scan the issue body for a `## Failing Test` section. If present:
      > **Note:** Before storing, verify the spec actually calls into the project under test (e.g., runs a CLI command, imports a project module, or references a real project file). A spec that embeds its own logic — defining its own functions inline rather than calling the real implementation — may exit nonzero (demonstrating the bug) yet pass trivially once its inline logic is corrected, without ever exercising the actual fix. If the spec appears self-contained, surface this during Step 7 and ask the implementer to validate the criterion manually before marking it done.
 
    - **Exit 0** — the spec passes *before* any fix. This indicates a self-contained demonstration or already-resolved issue. Warn the implementer:
-     > **Warning:** The `## Failing Test` spec exits 0 on the current codebase — it may not be a real regression test. Discard it (treat as `test_spec=null`, Factor 0 Defer bias) or keep it with this warning attached?
+     > **Warning:** The `## Failing Test` spec exits 0 on the current codebase — it may not be a real regression test. Discard it (treat as `test_spec=null`, `test_present="no"`) or keep it with this warning attached?
 
      Wait for confirmation:
-     - **Discard** → set `test_spec = null`; apply Factor 0 Defer bias (same as no `## Failing Test` section).
+     - **Discard** → set `test_spec = null`; score `test_present` as `"no"` (contributes negatively for `bug`/`defect` types; N/A otherwise).
      - **Keep** → store as `test_spec` with a `(warning: passed before fix)` note appended; proceed normally.
 
-   - **Command error** (exit code 126/127, or stderr contains "command not found", "not found", or "syntax error") — the spec is not a runnable shell command. Treat as `test_spec = null` and apply Factor 0 Defer bias. Inform the implementer:
-     > The `## Failing Test` spec produced a command error (`<first line of SPEC_STDERR>`). Treating as no failing test — Factor 0 Defer bias applied.
+   - **Command error** (exit code 126/127, or stderr contains "command not found", "not found", or "syntax error") — the spec is not a runnable shell command. Treat as `test_spec = null` and score `test_present` as `"no"`. Inform the implementer:
+     > The `## Failing Test` spec produced a command error (`<first line of SPEC_STDERR>`). Treating as no failing test.
 
-3. **If no `## Failing Test` section is found**, set `test_spec = null`. No test criterion will be added in Step 6, and the absence will bias the Step 4.7 verdict toward Defer (see Factor 0 below).
+3. **If no `## Failing Test` section is found**, set `test_spec = null`. No test criterion will be added in Step 6. For `bug` and `defect` task types, the absence will bias the Step 4.7 verdict toward Defer via the `test_present` factor. For all other task types (`docs`, `feature`, `refactor`, etc.), the `test_present` factor is N/A — missing a failing test does not bias the verdict.
 
 > **Note:** The test criterion is marked done by running `tusk criteria done <cid>`. Because `criterion_type=test`, tusk automatically executes `verification_spec` as a shell command and blocks closure if it exits nonzero. No manual check is required — the spec must pass on its own.
 
@@ -169,7 +169,7 @@ Evaluate each factor and look up its score contribution from `factors`:
 
 | Factor key | Condition to evaluate | Value key |
 |---|---|---|
-| `test_present` | Was a `## Failing Test` section found in Step 4.1? | `"yes"` / `"no"` |
+| `test_present` | Was a `## Failing Test` section found in Step 4.1? **Only evaluate for `bug` and `defect` task types.** For all other task types (`docs`, `feature`, `refactor`, etc.), treat as N/A: contribution = 0 regardless of presence or absence. | `"yes"` / `"no"` |
 | `pillar_aligned` | Does the issue align with `docs/PILLARS.md`? If the file doesn't exist, skip (contribution = 0). | `"yes"` / `"no"` |
 | `duplicate` | Is an open task already covering this issue (from Step 3 backlog)? Include the task ID in the rationale if yes. | `"yes"` / `"no"` |
 | `in_scope` | Does the issue fit the project's stated purpose? | `"yes"` / `"no"` |

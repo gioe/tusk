@@ -37,16 +37,16 @@ class TestAddressIssueStep41ExitDetection:
         )
 
     def test_skill_applies_defer_bias_on_exit_0_discard(self):
-        """Discarding an exit-0 spec must apply Factor 0 Defer bias."""
+        """Discarding an exit-0 spec must score test_present as 'no'."""
         text = _skill_text()
-        # The exit-0 discard path and Factor 0 / Defer bias must be co-located
+        # The exit-0 discard path must score test_present as "no"
         section_match = re.search(
-            r"Exit 0.*?Factor 0 Defer bias",
+            r'Exit 0.*?test_present.*?"no"',
             text,
             re.DOTALL | re.IGNORECASE,
         )
         assert section_match is not None, (
-            "Step 4.1 must apply Factor 0 Defer bias when an exit-0 spec is discarded"
+            "Step 4.1 must score test_present as 'no' when an exit-0 spec is discarded"
         )
 
     def test_skill_treats_command_error_as_null(self):
@@ -55,14 +55,14 @@ class TestAddressIssueStep41ExitDetection:
         assert "126" in text or "127" in text or "command not found" in text.lower(), (
             "Step 4.1 must detect command-not-found / syntax-error exit codes"
         )
-        # The command-error path must also apply Defer bias
+        # The command-error path must score test_present as "no"
         section_match = re.search(
-            r"(126|127|command.?not.?found|syntax error).*?Factor 0 Defer bias",
+            r'(126|127|command.?not.?found|syntax error).*?test_present.*?"no"',
             text,
             re.DOTALL | re.IGNORECASE,
         )
         assert section_match is not None, (
-            "Step 4.1 must apply Factor 0 Defer bias on command errors"
+            "Step 4.1 must score test_present as 'no' on command errors"
         )
 
     def test_skill_proceeds_normally_on_nonzero_exit(self):
