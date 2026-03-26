@@ -73,6 +73,6 @@ body:
         # Good examples (runnable commands that exit nonzero on the unfixed codebase):
         python3 -m pytest tests/integration/test_task_lifecycle.py::test_task_start_sets_in_progress -v
         # or
-        bash -c 'tusk task-start 42 && echo FAIL || echo OK'
+        tusk task-start 42
     validations:
       required: true
