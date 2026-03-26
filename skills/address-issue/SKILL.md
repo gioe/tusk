@@ -88,6 +88,8 @@ Scan the issue body for a `## Failing Test` section. If present:
 
    - **Exit nonzero and no command error** — the spec fails as expected on the current codebase. Store as `test_spec` and proceed normally.
 
+     > **Note:** Before storing, verify the spec actually calls into the project under test (e.g., runs a CLI command, imports a project module, or references a real project file). A spec that embeds its own logic — defining its own functions inline rather than calling the real implementation — may exit nonzero (demonstrating the bug) yet pass trivially once its inline logic is corrected, without ever exercising the actual fix. If the spec appears self-contained, surface this during Step 7 and ask the implementer to validate the criterion manually before marking it done.
+
    - **Exit 0** — the spec passes *before* any fix. This indicates a self-contained demonstration or already-resolved issue. Warn the implementer:
      > **Warning:** The `## Failing Test` spec exits 0 on the current codebase — it may not be a real regression test. Discard it (treat as `test_spec=null`, Factor 0 Defer bias) or keep it with this warning attached?
 
