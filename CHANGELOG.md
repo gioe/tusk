@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [544] - 2026-03-27
+
+- [TASK-38] Fix Rule 23 to run in target projects
+
 ## [543] - 2026-03-26
 
 - [TASK-35] Fix tusk merge failure when pull.rebase=true
