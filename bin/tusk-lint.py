@@ -924,7 +924,7 @@ def rule19_tusk_manifest_json_sync(root):
 
 def rule23_claude_md_size(root):
     """CLAUDE.md exceeds CLAUDE_MD_LINE_LIMIT lines (advisory)."""
-    if not os.path.isfile(os.path.join(root, "bin", "tusk")):
+    if not os.path.isfile(os.path.join(root, "tusk", "config.json")):
         return []
     claude_md = os.path.join(root, "CLAUDE.md")
     if not os.path.isfile(claude_md):
