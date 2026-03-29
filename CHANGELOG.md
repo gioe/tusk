@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [548] - 2026-03-29
+
+- [TASK-41] Document exit code 3 formatter-rejection case in tusk commit skill
+
 ## [547] - 2026-03-27
 
 - [TASK-40] Create /investigate-directory skill
