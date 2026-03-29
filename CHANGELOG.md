@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [551] - 2026-03-29
+
+- [TASK-45] Update /investigate, /investigate-directory, /address-issue to query pillars from DB
+
 ## [550] - 2026-03-29
 
 - [TASK-44] Update /tusk-update to support pillars add/edit/remove
