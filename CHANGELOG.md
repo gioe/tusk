@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [550] - 2026-03-29
+
+- [TASK-44] Update /tusk-update to support pillars add/edit/remove
+
 ## [549] - 2026-03-29
 
 - [TASK-42] Add pillars table and tusk pillars CLI subcommands
