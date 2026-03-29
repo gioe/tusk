@@ -177,7 +177,11 @@ tusk pillars list
 >
 > Options: **add more** · **replace all** (clears existing and starts fresh) · **skip**
 
-- **add more** — proceed to the Pillar catalogue and Presentation sections below; insert only the new pillars the user confirms.
+- **add more** — proceed to the Pillar catalogue and Presentation sections below; insert only the new pillars the user confirms. **Before presenting the suggested list, filter out any pillar names already returned by `tusk pillars list`** — do not offer pillars that already exist. If all suggested pillars for the project_type are already present, skip presentation entirely and print:
+
+  > All suggested pillars are already configured. Run `tusk pillars add` any time to add custom ones.
+
+  Then proceed to Step 3b.
 - **replace all** — delete every existing pillar with `tusk pillars delete --all`, then proceed through the full Presentation flow as normal.
 - **skip** — print:
 
