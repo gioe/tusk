@@ -64,6 +64,46 @@ If the user approves, use the Edit tool to replace the section body with that on
 
 If the user declines migration or skips all bullets, leave `CLAUDE.md` unchanged.
 
+## Step 1c: Manage Pillars (optional)
+
+Check whether any pillars exist in the database:
+
+```bash
+tusk pillars list
+```
+
+**If the output is an empty array (`[]`):**
+
+Inform the user:
+
+> No pillars are configured yet. Run `/tusk-init` to seed pillars for this project.
+
+Skip the rest of this step.
+
+**If pillars exist**, display them in a concise table (name + claim), then offer the following options:
+
+> **Pillars** — would you like to make any changes?
+>
+> - **Add** — define a new pillar (prompts for name and one-sentence core claim)
+> - **Remove** — delete a pillar by name
+> - **Edit claim** — update the core claim of an existing pillar
+> - **Skip** — leave pillars unchanged
+
+Handle each choice using the corresponding CLI command (no file writing):
+
+```bash
+# Add a new pillar
+tusk pillars add --name "<name>" --claim "<core claim>"
+
+# Remove a pillar by name
+tusk pillars remove "<name>"
+
+# Update a pillar's core claim
+tusk pillars set-claim "<name>" "<new claim>"
+```
+
+Allow multiple edits in sequence (e.g., remove one pillar and add a new one). After each change, re-display the updated list with `tusk pillars list` so the user can confirm the result. When the user is done, proceed to Step 2.
+
 ## Step 2: Determine What to Change
 
 If the user specified what to change after `/tusk-update`, proceed with those changes. Otherwise, present the current config and ask what they'd like to update.
