@@ -162,7 +162,12 @@ After domains are confirmed, offer to seed design pillars — the core values th
 
 ### Pillar catalogue (keyed by project_type)
 
-Select the pre-populated set based on the `project_type` determined in Step 2e (or `null/other` if not set):
+Determine `project_type` by checking in order:
+1. **Existing config** — run `tusk config project_type`; if it returns a non-empty value, use it.
+2. **Step 2e interview result** — use the value derived during the fresh-project interview.
+3. **Fallback** — treat as `null/other` if neither source yields a value.
+
+Select the pre-populated set based on the resolved `project_type`:
 
 | project_type | Suggested pillars |
 |---|---|
