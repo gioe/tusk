@@ -160,6 +160,33 @@ Present each as `- **name** — evidence found`. User confirms, adds, removes, o
 
 After domains are confirmed, offer to seed design pillars — the core values that guide tradeoff decisions in this project.
 
+### Pre-check: existing pillars
+
+Before presenting the catalogue, run:
+
+```bash
+tusk pillars list
+```
+
+**If the returned array is non-empty**, do NOT present the default catalogue as if starting fresh. Instead, display the existing pillars:
+
+> **Design Pillars already configured:**
+>
+> 1. **Performance** — "The system responds quickly and uses resources efficiently"
+> 2. **Reliability** — ...
+>
+> Options: **add more** · **replace all** (clears existing and starts fresh) · **skip**
+
+- **add more** — proceed to the Pillar catalogue and Presentation sections below; insert only the new pillars the user confirms.
+- **replace all** — delete every existing pillar with `tusk pillars delete --all`, then proceed through the full Presentation flow as normal.
+- **skip** — print:
+
+  > Pillars already configured — skipping. Run `tusk pillars add` any time to add more.
+
+  and proceed to Step 3b.
+
+**If the returned array is empty**, proceed to the Pillar catalogue and Presentation sections below as normal.
+
 ### Pillar catalogue (keyed by project_type)
 
 Determine `project_type` by checking in order:
