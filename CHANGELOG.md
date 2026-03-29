@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [554] - 2026-03-29
+
+- [TASK-47] Add pre-check for existing pillars in Step 3.5 to prevent duplicate seeding on re-init
+
 ## [553] - 2026-03-29
 
 - [TASK-46] Clarify project_type source in Step 3.5 of tusk-init (read from config, not only Step 2e)
