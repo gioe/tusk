@@ -1,12 +1,12 @@
 ---
 name: investigate-directory
-description: Audit a directory's purpose and alignment with the tusk client project — reads contents, cross-references PILLARS.md and root CLAUDE.md, and gives an honest assessment
+description: Audit a directory's purpose and alignment with the tusk client project — reads contents, queries pillars from DB, cross-references root CLAUDE.md, and gives an honest assessment
 allowed-tools: Bash, Read, Glob, Grep
 ---
 
 # Investigate Directory Skill
 
-Reads a directory's full file tree, loads project context (PILLARS.md + root CLAUDE.md), and delivers an honest, unstructured assessment of whether the directory is serving its purpose relative to the tusk client project.
+Reads a directory's full file tree, loads project context (pillars from DB + root CLAUDE.md), and delivers an honest, unstructured assessment of whether the directory is serving its purpose relative to the tusk client project.
 
 **This skill is read-only — it never modifies files or creates tasks.**
 
@@ -44,9 +44,15 @@ Run these in parallel — hold all results in context for Step 4.
 tusk setup       # returns config JSON + open backlog
 ```
 
-Then read (if present):
-- `<project_root>/docs/PILLARS.md` — pillar definitions and maturity ratings
-- `<project_root>/CLAUDE.md` — project purpose, architecture, and key conventions
+Then fetch pillars and read project context in parallel:
+
+```bash
+tusk pillars list   # returns [{id, name, core_claim}] or [] if none defined
+```
+
+```
+Read file: <project_root>/CLAUDE.md   # project purpose, architecture, and key conventions
+```
 
 Also fetch any directory-related conventions:
 
@@ -54,7 +60,7 @@ Also fetch any directory-related conventions:
 tusk conventions search directory
 ```
 
-If PILLARS.md is absent, note it — the assessment will rely on CLAUDE.md and config alone.
+If the pillars array is empty, note it — the assessment will rely on CLAUDE.md and config alone.
 
 ## Step 3: Read the Target Directory
 
@@ -99,7 +105,7 @@ There is no required format — the output is intentionally unstructured. A good
 
 - **What this directory does** — a plain-language description drawn from Step 3
 - **Its relationship to the project** — how it fits into the overall architecture described in CLAUDE.md
-- **Which pillar(s) it serves** — from PILLARS.md (or note if pillars are absent)
+- **Which pillar(s) it serves** — from `tusk pillars list` (or note if pillars array was empty)
 - **An honest verdict** — one of:
   - *Serving its purpose well* — aligned, coherent, no significant gaps
   - *Needs work* — gaps, drift, or misalignment found; describe what

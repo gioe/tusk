@@ -47,13 +47,13 @@ tusk setup
 
 Parse the returned JSON. Hold `config` (domains, agents, task_types, priorities, complexity) and `backlog` (open tasks) in context. You'll need both during investigation — `backlog` lets you catch tasks that already cover the same ground, which is also a first-class reason to conclude "no action needed."
 
-If `docs/PILLARS.md` exists in the project root, read it now:
+Fetch project pillars from the DB:
 
-```
-Read file: <project_root>/docs/PILLARS.md
+```bash
+tusk pillars list
 ```
 
-Hold the pillar definitions in context — you will use them in Step 5 to evaluate whether proposed tasks align with the project's design values.
+This returns a JSON array `[{id, name, core_claim}]` (empty array `[]` if none are defined). Hold the pillar definitions in context — you will use them in Step 5 to evaluate whether proposed tasks align with the project's design values. If the array is empty, skip the pillar filter in Step 5.
 
 ## Step 4: Investigate
 
@@ -95,7 +95,7 @@ A finding belongs in **Proposed Remediation** only if it passes all six filters.
 
 | Filter | Question to ask |
 |--------|-----------------|
-| **Pillar impact** | Does acting on this finding align with at least one project pillar (from PILLARS.md, if loaded)? Findings that conflict with core design values belong out of scope regardless of severity. *(Skip this filter if PILLARS.md was not loaded — projects without one have no pillar constraints to check.)* |
+| **Pillar impact** | Does acting on this finding align with at least one project pillar (from `tusk pillars list`, loaded in Step 3)? Findings that conflict with core design values belong out of scope regardless of severity. *(Skip this filter if the pillars array was empty — projects without pillars have no pillar constraints to check.)* |
 | **Root cause vs. symptom** | Is this the root cause, or a downstream symptom of another finding already in scope? Symptoms should reference their root-cause task rather than get their own. |
 | **Actionability** | Can a task be written with clear, verifiable acceptance criteria? Vague concerns without a concrete "done" condition belong in Open Questions, not Proposed Remediation. |
 | **Cost of inaction** | If left unfixed, does this finding cause measurable harm (data loss, user-facing breakage, security risk, compounding tech debt)? Low-stakes cosmetic issues that are "nice to fix" belong out of scope. |

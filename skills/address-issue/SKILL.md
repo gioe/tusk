@@ -170,7 +170,7 @@ Evaluate each factor and look up its score contribution from `factors`:
 | Factor key | Condition to evaluate | Value key |
 |---|---|---|
 | `test_present` | Was a `## Failing Test` section found in Step 4.1? **Only evaluate for `bug` and `defect` task types.** For all other task types (`docs`, `feature`, `refactor`, etc.), treat as N/A: contribution = 0 regardless of presence or absence. | `"yes"` / `"no"` |
-| `pillar_aligned` | Does the issue align with `docs/PILLARS.md`? If the file doesn't exist, skip (contribution = 0). | `"yes"` / `"no"` |
+| `pillar_aligned` | Does the issue align with the project pillars (run `tusk pillars list` to fetch `[{id, name, core_claim}]`)? If the list is empty, skip (contribution = 0). | `"yes"` / `"no"` |
 | `duplicate` | Is an open task already covering this issue (from Step 3 backlog)? Include the task ID in the rationale if yes. | `"yes"` / `"no"` |
 | `in_scope` | Does the issue fit the project's stated purpose? | `"yes"` / `"no"` |
 | `severity_high` | Does inaction risk data loss, user-facing breakage, or a security vulnerability? | `"yes"` / `"no"` |
