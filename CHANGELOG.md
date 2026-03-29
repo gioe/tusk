@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [557] - 2026-03-29
+
+- [TASK-50] Clarify test_command handling when confidence is low/none in /tusk-update Step 2
+
 ## [556] - 2026-03-29
 
 - [TASK-49] Rewrite /tusk-update to use silent reconnaissance and opinionated recommendations
