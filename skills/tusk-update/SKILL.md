@@ -87,6 +87,8 @@ Analyze the findings from Step 1 and form a prioritized, numbered recommendation
 | N open tasks have no domain assigned and the user has requested adding a new domain | Reassign N unassigned tasks to `<new_domain>` | Keeps the backlog organized without manual follow-up |
 | User invoked `/tusk-update <description of changes>` | Include the user-requested changes as explicit recommendation items | User intent overrides auto-detection |
 
+> **Note on low/none confidence:** If `test-detect` returns `low` or `none` confidence, no `test_command` recommendation is generated — auto-detection could not identify the project's test tooling with sufficient certainty. To set or clear `test_command` in this case, describe the change explicitly when invoking the skill (e.g., `/tusk-update set test_command to pytest tests/`).
+
 **If the user specified changes** when invoking `/tusk-update` (e.g., `/tusk-update add a testing domain`), include those as top-priority items in the recommendation list alongside any auto-detected findings.
 
 **Present the full recommendation list** in one message. Format each item as:
