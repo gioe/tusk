@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [556] - 2026-03-29
+
+- [TASK-49] Rewrite /tusk-update to use silent reconnaissance and opinionated recommendations
+
 ## [555] - 2026-03-29
 
 - [TASK-48] Filter already-seeded pillars from 'add more' catalogue in Step 3.5

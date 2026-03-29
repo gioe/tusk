@@ -8,15 +8,15 @@ allowed-tools: Bash, Read, Write, Edit
 
 Updates the tusk configuration after initial setup. Modifies `tusk/config.json` and regenerates validation triggers **without destroying the database or existing tasks**.
 
-## Step 1: Load Current Config
+## Step 1: Silent Reconnaissance
 
-Read the current configuration and database state:
+Run all diagnostics without prompting the user. Collect everything needed to form recommendations in one pass.
+
+**1a. Current config and domain task counts:**
 
 ```bash
 tusk config
 ```
-
-Also check how many open tasks exist per domain (to inform safe removal):
 
 ```bash
 tusk -header -column "
@@ -28,87 +28,76 @@ ORDER BY task_count DESC
 "
 ```
 
-## Step 1b: Migrate CLAUDE.md Conventions (optional)
-
-Check whether `CLAUDE.md` exists in the repo root. If it doesn't, skip this step entirely.
+**1b. CLAUDE.md convention scan:**
 
 ```bash
 ls CLAUDE.md 2>/dev/null && echo "exists" || echo "not found"
 ```
 
-If it exists, scan for any section whose heading contains the word "convention" (case-insensitive). For each such section, extract the bullet points (lines beginning with `-` or `*`). If no matching section is found, or if the section contains only a pointer line (e.g., "Run `tusk conventions list`..."), skip this step — the migration is already done.
+If CLAUDE.md exists, scan for any section whose heading contains the word "convention" (case-insensitive). Extract bullet points (lines beginning with `-` or `*`). If no matching section is found, or if the section contains only a pointer line (e.g., "Run `tusk conventions list`..."), there is nothing to migrate.
 
-**Compare against existing conventions** to identify which bullets are new:
+**1c. Existing conventions:**
 
 ```bash
 tusk conventions list
 ```
 
-Present only the bullets that are not already in the DB. If all bullets are already present, skip to removing the section (see below).
+Compare against CLAUDE.md bullets to identify which bullets are not already in the DB. These are migration candidates.
 
-**Present migration candidates to the user.** For each unique bullet, show its text (truncated to ~120 chars) and ask: migrate all, pick specific ones, or skip.
-
-For each approved bullet, run:
-
-```bash
-tusk conventions add "<bullet text (with formatting stripped)>"
-```
-
-Strip markdown emphasis markers (`**`, `*`, backtick fences) from the text before inserting — plain text is stored in the DB.
-
-After migrating all approved bullets (or if all were already present), offer to replace the section in `CLAUDE.md` with a single pointer line:
-
-> Replace the "Key Conventions" section with: `Run \`tusk conventions list\` to see project conventions.`
-
-If the user approves, use the Edit tool to replace the section body with that one-liner. Leave the section heading in place.
-
-If the user declines migration or skips all bullets, leave `CLAUDE.md` unchanged.
-
-## Step 1c: Manage Pillars (optional)
-
-Check whether any pillars exist in the database:
+**1d. Pillars:**
 
 ```bash
 tusk pillars list
 ```
 
-**If the output is an empty array (`[]`):**
-
-Inform the user:
-
-> No pillars are configured yet. Run `/tusk-init` to seed pillars for this project.
-
-Skip the rest of this step.
-
-**If pillars exist**, display them in a concise table (name + claim), then offer the following options:
-
-> **Pillars** — would you like to make any changes?
->
-> - **Add** — define a new pillar (prompts for name and one-sentence core claim)
-> - **Remove** — delete a pillar by name
-> - **Edit claim** — update the core claim of an existing pillar
-> - **Skip** — leave pillars unchanged
-
-Handle each choice using the corresponding CLI command (no file writing):
+**1e. Test command detection:**
 
 ```bash
-# Add a new pillar
-tusk pillars add --name "<name>" --claim "<core claim>"
-
-# Remove a pillar by name
-tusk pillars remove "<name>"
-
-# Update a pillar's core claim
-tusk pillars set-claim "<name>" "<new claim>"
+tusk test-detect
 ```
 
-Allow multiple edits in sequence (e.g., remove one pillar and add a new one). After each change, re-display the updated list with `tusk pillars list` so the user can confirm the result. When the user is done, proceed to Step 2.
+This inspects the repo root for lockfiles and returns JSON `{"command": "<cmd>", "confidence": "high|medium|low|none"}`.
 
-## Step 2: Determine What to Change
+**1f. Unassigned tasks:**
 
-If the user specified what to change after `/tusk-update`, proceed with those changes. Otherwise, present the current config and ask what they'd like to update.
+```bash
+tusk -header -column "
+SELECT id, summary, task_type, priority
+FROM tasks
+WHERE status <> 'Done'
+AND (domain IS NULL OR domain = '')
+ORDER BY priority_score DESC, id
+"
+```
 
-Configurable fields:
+Hold all findings in memory. Do not output anything to the user yet.
+
+## Step 2: Recommendations
+
+Analyze the findings from Step 1 and form a prioritized, numbered recommendation list. Each entry must include what was found, what action would be taken, and why.
+
+**Findings that trigger a recommendation:**
+
+| Finding | Recommendation | Justification |
+|---------|---------------|---------------|
+| CLAUDE.md convention bullets not in DB | Migrate all bullets and replace section with pointer line | DB-stored conventions are queryable by topic; CLAUDE.md bullets are not |
+| `test_command` is empty and `test-detect` returned a high/medium-confidence command | Set `test_command` to the detected command | Enables pre-commit test gate |
+| `test_command` is set but differs from auto-detected command (high confidence) | Update `test_command` to the detected command | Detected command better matches current project tooling |
+| Pillars list is empty | Note: no pillars configured; suggest running `/tusk-init` to seed them | Pillars provide design vocabulary for task evaluation |
+| N open tasks have no domain assigned and the user has requested adding a new domain | Reassign N unassigned tasks to `<new_domain>` | Keeps the backlog organized without manual follow-up |
+| User invoked `/tusk-update <description of changes>` | Include the user-requested changes as explicit recommendation items | User intent overrides auto-detection |
+
+**If the user specified changes** when invoking `/tusk-update` (e.g., `/tusk-update add a testing domain`), include those as top-priority items in the recommendation list alongside any auto-detected findings.
+
+**Present the full recommendation list** in one message. Format each item as:
+
+```
+[N] <Action>
+    Finding: <what was found>
+    Why: <justification>
+```
+
+After the list, include the configurable fields reference table so the user knows what is changeable:
 
 | Field | Requires Trigger Regen | Notes |
 |-------|----------------------|-------|
@@ -128,7 +117,7 @@ Configurable fields:
 | `review_categories` | Yes | Valid comment categories; empty array disables validation |
 | `review_severities` | Yes | Valid severity levels; empty array disables validation |
 | `project_type` | No | String key identifying the project type (e.g. `python_service`, `ios_app`); `null` if unset |
-| `project_libs.*.ref` | No | Pin a project lib's bootstrap ref to a tag or commit SHA (e.g. `project_libs.python_service.ref = "v1.2.3"`); defaults to `"main"`. Pinning to a tag or SHA freezes which bootstrap tasks are seeded, so updates to the library repo's main branch don't unintentionally add new tasks on the next `tusk-init`. |
+| `project_libs.*.ref` | No | Pin a project lib's bootstrap ref to a tag or commit SHA; defaults to `"main"` |
 
 **Agents object shape:** Each key is an agent name used for task assignment; each value is a plain string describing what that agent handles. Example:
 
@@ -141,43 +130,11 @@ Configurable fields:
 }
 ```
 
-This is the same shape `tusk-init` generates and what `tusk config` outputs. The object is **not DB-validated** — no triggers enforce agent names. It exists so `/tusk` can suggest the right agent when picking a task. An empty object (`{}`) disables agent filtering.
+Then ask a single approval question:
 
-## Step 2b: Update test_command (if requested)
+> Which of these would you like to apply? Enter numbers (e.g. `1,3`), `all`, `none`, or describe additional changes:
 
-If the user explicitly asks to update `test_command`, run this step.
-
-Read the current value:
-
-```bash
-tusk config test_command
-```
-
-Then run the automated detector:
-
-```bash
-tusk test-detect
-```
-
-This inspects the repo root for lockfiles and returns JSON `{"command": "<cmd>", "confidence": "high|medium|low|none"}`.
-
-- If `confidence` is `"none"` or `command` is `null`, no framework was detected (suggestion = `"none detected"`).
-- Otherwise, use `command` as the suggestion.
-- If the command fails or is unavailable, fall back to asking the user directly.
-
-Present the current value and suggestion together:
-
-> Current `test_command`: **`<current value>`** *(empty = no gate)*
->
-> Auto-detected: **`<suggested_command>`** *(or "none detected")*
->
-> Options:
-> - **Keep current** — no change
-> - **Use detected** — set to `<suggested_command>` *(only shown when a suggestion was found AND it differs from the current value)*
-> - **Override** — enter a custom command
-> - **Clear** — remove the gate (set to empty string)
-
-Store the confirmed value. If the user chose "Keep current", skip the write for this field. Otherwise include it when writing config in Step 5.
+**If there are no recommendations and the user requested no changes:** Report "Config looks healthy — no recommendations." and exit. Do not proceed further.
 
 ## Step 3: Safety Checks for Removals
 
@@ -227,33 +184,25 @@ Read the current config file, apply changes, and write it back:
 
 Use the Read tool to load `tusk/config.json`, then use the Edit tool to update it with the new values. Preserve all fields — only modify the ones the user requested.
 
-## Step 5b: Offer Task Reassignment for New Domains
-
-**Only run this step if one or more domains were added in this update.**
-
-After writing the config, check whether any open tasks have no domain assigned — these are natural candidates for the new domain:
+**Convention migration (if approved in Step 2):** For each approved convention bullet, run:
 
 ```bash
-tusk -header -column "
-SELECT id, summary, task_type, priority
-FROM tasks
-WHERE status <> 'Done'
-AND (domain IS NULL OR domain = '')
-ORDER BY priority_score DESC, id
-"
+tusk conventions add "<bullet text (with formatting stripped)>"
 ```
 
-If the query returns **no rows**, skip this step silently.
+Strip markdown emphasis markers (`**`, `*`, backtick fences) from the text before inserting — plain text is stored in the DB.
 
-If rows are returned, display them and prompt the user:
+Then replace the conventions section in `CLAUDE.md` with a single pointer line using the Edit tool:
 
-> **N open task(s) have no domain assigned. Would you like to reassign any to `<new_domain>`?**
->
-> - **Reassign all** — set `domain = '<new_domain>'` for every listed task
-> - **Pick specific tasks** — user provides a comma-separated list of IDs
-> - **Skip** — leave domain assignments unchanged
+> Replace the "Key Conventions" section body with: `Run \`tusk conventions list\` to see project conventions.`
 
-If the user chooses **Reassign all**:
+Leave the section heading in place.
+
+## Step 5b: Execute Task Reassignment (if approved)
+
+**Only run this step if a domain reassignment was approved in Step 2.**
+
+Execute the reassignment without additional prompting. If the user approved reassigning all unassigned tasks to a new domain:
 
 ```bash
 DOMAIN=$(tusk sql-quote "<new_domain>")
@@ -261,7 +210,7 @@ tusk "UPDATE tasks SET domain = $DOMAIN, updated_at = datetime('now') WHERE stat
 tusk "SELECT changes() AS rows_updated"
 ```
 
-If the user picks **specific IDs** (e.g., 12, 15, 18):
+If the user approved reassigning specific task IDs (e.g., 12, 15, 18):
 
 ```bash
 DOMAIN=$(tusk sql-quote "<new_domain>")
@@ -269,11 +218,9 @@ tusk "UPDATE tasks SET domain = $DOMAIN, updated_at = datetime('now') WHERE id I
 tusk "SELECT changes() AS rows_updated"
 ```
 
-Report the `rows_updated` count to the user, then proceed to Step 6.
+Report the `rows_updated` count and proceed to Step 6.
 
-If the user chooses **Skip**, proceed to Step 6 without any changes. This is always safe — triggers are not affected by unassigned domains.
-
-If multiple domains were added in this update, repeat this step for each new domain (showing a header like `--- Reassignment for domain: <new_domain> (1 of 2) ---`) before proceeding to Step 6.
+If multiple domains were added, execute reassignment for each new domain in sequence.
 
 ## Step 6: Regenerate Triggers (if needed)
 
