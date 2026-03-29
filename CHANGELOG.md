@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [555] - 2026-03-29
+
+- [TASK-48] Filter already-seeded pillars from 'add more' catalogue in Step 3.5
+
 ## [554] - 2026-03-29
 
 - [TASK-47] Add pre-check for existing pillars in Step 3.5 to prevent duplicate seeding on re-init
