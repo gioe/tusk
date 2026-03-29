@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [552] - 2026-03-29
+
+- [TASK-43] Update /tusk-init to seed pillars table (Step 3.5)
+
 ## [551] - 2026-03-29
 
 - [TASK-45] Update /investigate, /investigate-directory, /address-issue to query pillars from DB
