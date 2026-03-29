@@ -1255,6 +1255,24 @@ def migrate_43(db_path: str, config_path: str, script_dir: str) -> None:
     print("  Migration 43: backfill normalize whitespace in convention topics")
 
 
+def migrate_44(db_path: str, config_path: str, script_dir: str) -> None:
+    if not has_table(db_path, "pillars"):
+        run_script(db_path, """
+            BEGIN;
+            CREATE TABLE pillars (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                core_claim TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+            PRAGMA user_version = 44;
+            COMMIT;
+        """)
+    else:
+        set_version(db_path, 44)
+    print("  Migration 44: added 'pillars' table")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -1301,6 +1319,7 @@ MIGRATIONS = [
     (41, migrate_41),
     (42, migrate_42),
     (43, migrate_43),
+    (44, migrate_44),
 ]
 
 
