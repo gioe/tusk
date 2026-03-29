@@ -352,6 +352,19 @@ A DB-backed grep rule that `tusk lint` runs alongside its hardcoded rules. Rules
 
 ---
 
+### Pillar
+
+A named design principle with a one-sentence core claim. Managed via `tusk pillars list|add|remove|set-claim`. Provides a queryable store for the values defined in `docs/PILLARS.md`.
+
+| Attribute | Type | Constraints | Description |
+|-----------|------|-------------|-------------|
+| `id` | INTEGER | PK, autoincrement | Stable identifier |
+| `name` | TEXT | NOT NULL, UNIQUE | Short pillar name (e.g. `portability`) |
+| `core_claim` | TEXT | NOT NULL | One-sentence statement of what the pillar values |
+| `created_at` | TEXT | default now | When the pillar was added |
+
+---
+
 ## Status Transitions
 
 Task `status` follows a one-way lifecycle. The `validate_status_transition` trigger (in `bin/tusk`, recreated by `tusk regen-triggers`) enforces this graph:
