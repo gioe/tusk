@@ -15,6 +15,7 @@ import glob
 import hashlib
 import json
 import os
+import re
 import shutil
 import ssl
 import subprocess
@@ -248,7 +249,6 @@ def _normalize_hook_cmd(cmd: str) -> str:
         bash -c 'R=$(git rev-parse ...); exec "$R/.claude/hooks/foo.sh"'
     extracts the .claude/hooks/<name> portion so it compares equal to the plain-path form.
     """
-    import re
     prefix = "$CLAUDE_PROJECT_DIR/"
     if cmd.startswith(prefix):
         return cmd[len(prefix):]
