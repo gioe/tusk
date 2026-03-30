@@ -244,12 +244,19 @@ def _normalize_hook_cmd(cmd: str) -> str:
 
     Strips the $CLAUDE_PROJECT_DIR/ prefix (written by current install) and
     leading ./ (written by older installs) so that both path forms compare equal.
+    Also handles the git-root-resolved wrapper form written by some older installs:
+        bash -c 'R=$(git rev-parse ...); exec "$R/.claude/hooks/foo.sh"'
+    extracts the .claude/hooks/<name> portion so it compares equal to the plain-path form.
     """
+    import re
     prefix = "$CLAUDE_PROJECT_DIR/"
     if cmd.startswith(prefix):
         return cmd[len(prefix):]
     if cmd.startswith("./"):
         return cmd[2:]
+    m = re.search(r'exec "\$R/(.claude/hooks/[^"\']+)"', cmd)
+    if m:
+        return m.group(1)
     return cmd
 
 

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [559] - 2026-03-30
+
+- [TASK-52] Fix tusk upgrade duplicating hook entries for git-root-resolved hook commands
+
 ## [558] - 2026-03-29
 
 - [TASK-51] Clarify primary and secondary functions in /investigate-directory skill

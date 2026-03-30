@@ -48,6 +48,16 @@ class TestNormalizeHookCmd:
         mod = _load_module()
         assert mod._normalize_hook_cmd("") == ""
 
+    def test_strips_git_root_resolved_wrapper(self):
+        mod = _load_module()
+        cmd = "bash -c 'R=$(git rev-parse --show-toplevel 2>/dev/null); [ -z \"$R\" ] && exit 0; exec \"$R/.claude/hooks/block-raw-sqlite.sh\"'"
+        assert mod._normalize_hook_cmd(cmd) == ".claude/hooks/block-raw-sqlite.sh"
+
+    def test_strips_git_root_resolved_wrapper_different_hook(self):
+        mod = _load_module()
+        cmd = "bash -c 'R=$(git rev-parse --show-toplevel 2>/dev/null); [ -z \"$R\" ] && exit 0; exec \"$R/.claude/hooks/auto-lint.sh\"'"
+        assert mod._normalize_hook_cmd(cmd) == ".claude/hooks/auto-lint.sh"
+
 
 class TestMergeHookDedup:
     def test_relative_path_not_duplicated_by_prefixed_source(self, tmp_path):
@@ -164,6 +174,43 @@ class TestMergeHookDedup:
         captured = capsys.readouterr()
         assert "Hook already registered: .claude/hooks/block-raw-sqlite.sh" in captured.out
         assert "$CLAUDE_PROJECT_DIR" not in captured.out
+
+    def test_git_root_resolved_hook_not_duplicated_by_plain_source(self, tmp_path):
+        """Existing git-root-resolved hook is not duplicated when source uses plain path."""
+        mod = _load_module()
+        src_claude = tmp_path / "src" / ".claude"
+        src_claude.mkdir(parents=True)
+        tgt_claude = tmp_path / "tgt" / ".claude"
+        tgt_claude.mkdir(parents=True)
+
+        git_root_cmd = (
+            "bash -c 'R=$(git rev-parse --show-toplevel 2>/dev/null); "
+            "[ -z \"$R\" ] && exit 0; exec \"$R/.claude/hooks/block-raw-sqlite.sh\"'"
+        )
+        _write_settings(src_claude / "settings.json", {
+            "hooks": {
+                "PreToolUse": [
+                    {"matcher": "Bash", "hooks": [
+                        {"type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-raw-sqlite.sh"}
+                    ]}
+                ]
+            }
+        })
+        _write_settings(tgt_claude / "settings.json", {
+            "hooks": {
+                "PreToolUse": [
+                    {"matcher": "Bash", "hooks": [
+                        {"type": "command", "command": git_root_cmd}
+                    ]}
+                ]
+            }
+        })
+
+        mod.merge_hook_registrations(str(tmp_path / "src"), str(tmp_path / "tgt"))
+
+        result = _read_settings(tgt_claude / "settings.json")
+        groups = result["hooks"]["PreToolUse"]
+        assert len(groups) == 1, f"Expected 1 hook group, got {len(groups)} — git-root hook was duplicated"
 
     def test_genuinely_new_hook_is_added(self, tmp_path):
         """A new hook that is not present in target is still added."""
