@@ -1075,6 +1075,7 @@ case "${1:-}" in
   autoclose) shift; exec python3 "$SCRIPT_DIR/tusk-autoclose.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   backlog-scan) shift; exec python3 "$SCRIPT_DIR/tusk-backlog-scan.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   test-detect) shift; exec python3 "$SCRIPT_DIR/tusk-test-detect.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  add-lib) shift; exec python3 "$SCRIPT_DIR/tusk-add-lib.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   init-scan-codebase) shift; exec python3 "$SCRIPT_DIR/tusk-init-scan-codebase.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   init-scan-todos) shift; exec python3 "$SCRIPT_DIR/tusk-init-scan-todos.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   init-fetch-bootstrap) shift; exec python3 "$SCRIPT_DIR/tusk-init-fetch-bootstrap.py" "$DB_PATH" "$(resolve_config)" "$@" ;;

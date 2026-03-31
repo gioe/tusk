@@ -1,5 +1,6 @@
 [
   ".claude/bin/tusk",
+  ".claude/bin/tusk-add-lib.py",
   ".claude/bin/tusk-audit.py",
   ".claude/bin/tusk-autoclose.py",
   ".claude/bin/tusk-backlog-scan.py",
@@ -11,7 +12,6 @@
   ".claude/bin/tusk-commit.py",
   ".claude/bin/tusk-config-tools.py",
   ".claude/bin/tusk-conventions.py",
-  ".claude/bin/tusk-pillars.py",
   ".claude/bin/tusk-criteria.py",
   ".claude/bin/tusk-dashboard-css.py",
   ".claude/bin/tusk-dashboard-data.py",
@@ -31,6 +31,7 @@
   ".claude/bin/tusk-loop.py",
   ".claude/bin/tusk-merge.py",
   ".claude/bin/tusk-migrate.py",
+  ".claude/bin/tusk-pillars.py",
   ".claude/bin/tusk-pricing-lib.py",
   ".claude/bin/tusk-pricing-update.py",
   ".claude/bin/tusk-progress.py",
