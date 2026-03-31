@@ -161,6 +161,28 @@ This step is required for `must_fix` only. `suggest` and `defer` findings do not
 
 **Example (moved code):** The diff removes `def validate_user(...)` from `auth/utils.py` and adds it to `auth/validators.py`. A reviewer considers flagging a security issue in `validate_user`. Step 2.5 runs `git show HEAD:auth/utils.py | grep "validate_user"` — absent. The cross-file search `git diff ... | grep "^+" | grep "validate_user"` returns hits under `+++ b/auth/validators.py`. The reviewer confirms the pattern is present in `auth/validators.py` and updates the finding to reference that file, rather than discarding it.
 
+### Step 2.6: Verification Constraints — What You Must NOT Do
+
+**Never run the full test suite.** Test suites routinely take minutes to complete. Any Bash call that runs longer than ~30 seconds will return "Command running in background" with no output — triggering a retry loop that can last 10+ minutes. There is no circumstance in which running the full test suite is the correct action during a code review.
+
+**Warning:** If a pytest command takes longer than 5 seconds to return output, it is almost certainly wrong. Stop immediately and replace it with a `git show HEAD:<file> | grep <pattern>` check.
+
+**For collection-error verification only**, you may run:
+
+```bash
+pytest --collect-only -q
+```
+
+This completes in under 1 second and confirms whether test files are importable. It does **not** run any tests.
+
+**All other final-state verification must use `git show` only:**
+
+```bash
+git show HEAD:<file_path> | grep -n "<pattern>"
+```
+
+No other verification method (running tests, executing scripts, importing modules) is permitted. If you cannot verify a finding using `git show` + `grep`, downgrade it from `must_fix` to `suggest` or `defer`.
+
 ### Step 3: Record Your Findings
 
 For each issue found, add a comment using the tusk CLI:
