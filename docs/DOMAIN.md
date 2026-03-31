@@ -540,3 +540,50 @@ Non-enum config keys that control runtime behavior (not column validation). All 
 **`project_type` + `project_libs` relationship:** `project_type` is the lookup key into `project_libs`. When `/tusk-init` reaches the bootstrap step, it reads `project_libs[project_type]` to find the `repo` and `ref`, then fetches `tusk-bootstrap.json` from that repo at the pinned ref and seeds the listed tasks. If `project_type` is `null` or has no matching entry in `project_libs`, bootstrap seeding is skipped entirely. Pinning `ref` to a tag or commit SHA freezes which tasks get seeded, preventing unintended additions if the library repo's default branch changes later.
 
 **`tusk-bootstrap.json` task format:** Each task object requires `summary`, `description`, `priority`, `task_type`, `complexity`, and `criteria` (non-empty array of strings). An optional `migration_hints` field (array of strings) may also be present. When a task is seeded via `/tusk-init` Step 8.5, each `migration_hints` entry is injected as an additional acceptance criterion prefixed with `[Migration]` (e.g., `"[Migration] Remove any ad-hoc logging.basicConfig() calls"`). Tasks without `migration_hints` (or with an empty array) are seeded identically to the current behavior.
+
+**`tusk-bootstrap.json` contributor guide — adding `migration_hints`:**
+
+`migration_hints` is intended for cleanup steps that a consuming project must perform *after* integrating the library — things that cannot be automated or verified by the library itself because they depend on the consuming project's existing code. Common examples: removing patterns the library replaces, ensuring conflicting packages are uninstalled, or verifying that old config files are deleted.
+
+Each hint should be a self-contained imperative sentence that can stand alone as an acceptance criterion. It will appear verbatim (preceded by `[Migration]`) in the consuming project's task list, so write it as if briefing an engineer who has just added your library and needs a final checklist item.
+
+**Text format guidelines:**
+- Start with an action verb: *Remove*, *Delete*, *Verify*, *Ensure*, *Migrate*, *Update*
+- Be specific enough to check: name the file, config key, or pattern to look for
+- Keep each hint to one logical action — split compound actions into separate strings
+- Avoid references to your library's own internals that the consuming project won't recognise
+
+**Minimal `tusk-bootstrap.json` example with `migration_hints`:**
+
+```json
+{
+  "version": 1,
+  "project_type": "python_service",
+  "tasks": [
+    {
+      "summary": "Install gioe-libs and configure structured logging",
+      "description": "Add the gioe-libs package and replace ad-hoc logging setup with gioe_libs.aiq_logging.",
+      "priority": "High",
+      "task_type": "feature",
+      "complexity": "S",
+      "criteria": [
+        "gioe-libs is listed in requirements.txt or pyproject.toml",
+        "All modules call logging.getLogger(__name__) rather than basicConfig()"
+      ],
+      "migration_hints": [
+        "Remove any top-level logging.basicConfig() calls — aiq_logging configures the root logger automatically",
+        "Delete any manually created log handlers attached to the root logger before this integration"
+      ]
+    }
+  ]
+}
+```
+
+The two `migration_hints` entries above will be seeded as additional acceptance criteria:
+
+```
+[Migration] Remove any top-level logging.basicConfig() calls — aiq_logging configures the root logger automatically
+[Migration] Delete any manually created log handlers attached to the root logger before this integration
+```
+
+These appear alongside the task's normal criteria in `tusk criteria list` and are treated identically — they must be checked off before the task can be marked done.
