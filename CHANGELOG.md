@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [561] - 2026-03-31
+
+- [TASK-54] Add tusk add-lib CLI command and wire it into /tusk-update
+
 ## [560] - 2026-03-31
 
 - [TASK-55] Add migration_hints support to tusk-bootstrap.json format

@@ -302,7 +302,67 @@ Report success to the user only if Part A rejected the invalid value, Part B acc
 
 **Never call `tusk init --force`** — this destroys the database. Use `tusk regen-triggers` instead.
 
-## Step 8: Final Validation
+## Step 8: Add a Project Lib (optional)
+
+If the user wants to add a project lib that is not yet in `project_libs`, or if Step 1 reveals unconfigured built-in libs, run this step.
+
+**8a. Identify unconfigured built-in libs:**
+
+Built-in libs are defined in `config.default.json` under `project_libs`. Check which ones are not yet configured in the project's `tusk/config.json`:
+
+```bash
+tusk config project_libs
+```
+
+Compare against the built-in keys (`ios_app`, `python_service`). Any key absent from the project config is an unconfigured built-in.
+
+**8b. Present and confirm:**
+
+List unconfigured libs to the user. Example:
+
+> The following built-in libs are available but not yet configured:
+> - `ios_app` (gioe/ios-libs) — SharedKit UI design tokens, APIClient HTTP client
+> - `python_service` (gioe/python-libs) — structured logging, OpenTelemetry/Sentry observability
+>
+> Would you like to add any of these? You can also provide a custom `--repo owner/repo`.
+
+Wait for the user to select one or more libs (or decline).
+
+**8c. Add the lib and seed bootstrap tasks:**
+
+For each selected lib, call:
+
+```bash
+tusk add-lib --lib <name>
+# or for a custom lib:
+tusk add-lib --lib <name> --repo <owner/repo> [--ref <branch|tag|sha>]
+```
+
+This writes the lib to `project_libs` in `tusk/config.json` (no DB reinit) and fetches the bootstrap task list.
+
+Parse the JSON output. If `error` is non-null, report it and skip seeding. Otherwise, present the fetched tasks to the user using the same pattern as `/tusk-init` Step 8.5:
+
+> **Available bootstrap tasks for `<lib>`:**
+> 1. `<summary>` (complexity: XS, priority: High)
+> 2. `<summary>` (complexity: S, priority: Medium)
+> ...
+>
+> Seed all tasks? Enter numbers (e.g. `1,3`), `all`, or `none`:
+
+For each confirmed task, insert it:
+
+```bash
+tusk task-insert "<summary>" "<description>" \
+  --priority <priority> \
+  --task-type <task_type> \
+  --complexity <complexity> \
+  --domain <appropriate_domain> \
+  $(for criterion in <criteria_array>; do echo "--criteria \"$criterion\""; done)
+```
+
+Report the created task IDs to the user.
+
+## Step 9: Final Validation
 
 Run `tusk validate` as the canonical final check after all writes and trigger regens:
 
