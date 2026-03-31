@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [562] - 2026-03-31
+
+- [TASK-53] Add hook deduplication cleanup pass to tusk upgrade for already-duplicated entries
+
 ## [561] - 2026-03-31
 
 - [TASK-54] Add tusk add-lib CLI command and wire it into /tusk-update
