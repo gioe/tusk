@@ -460,6 +460,21 @@ For each lib entry:
     --criteria "<criterion2>"
   ```
 
+  If the task has a `migration_hints` array, append each hint as an additional `--criteria` argument prefixed with `[Migration]`:
+
+  ```bash
+  tusk task-insert "<summary>" "<description>" \
+    --priority <priority> \
+    --task-type <task_type> \
+    --complexity <complexity> \
+    --criteria "<criterion1>" \
+    --criteria "<criterion2>" \
+    --criteria "[Migration] <hint1>" \
+    --criteria "[Migration] <hint2>"
+  ```
+
+  Tasks without a `migration_hints` field (or with an empty array) are seeded exactly as before — no `[Migration]` criteria are added.
+
 Track bootstrap-seeded task count separately; roll it into the total count reported in Step 10.
 
 ## Step 9: Seed Tasks from Project Description (Optional)
