@@ -186,6 +186,14 @@ After spawning, record a map of: review_id → agent task ID.
 
 Wait for all reviewer agents to finish:
 
+**Setup before entering the loop:**
+
+Initialize a stall counter for each spawned review_id:
+```
+stall_counts = { <review_id>: 0, ... }   # one entry per spawned agent
+STALL_THRESHOLD = 5                       # iterations (~2.5 min at 30 s/iter)
+```
+
 **Monitoring loop:**
 
 1. Wait 30 seconds:
@@ -200,12 +208,23 @@ Wait for all reviewer agents to finish:
    Parse the JSON. Reviews with `status = "pending"` are still in progress. If all reviews have `status` of `"approved"` or `"changes_requested"`, exit the loop.
 
 3. For each pending review, check whether its agent has finished using `TaskOutput` with `block: false` and the agent task ID:
-   - If **any agent is still running**, go back to step 1.
-   - If **all agents have completed** but some reviews are still `"pending"`, those agents finished without calling `tusk review approve` or `tusk review request-changes`. For each stuck review, log a warning and auto-approve it with a note:
+
+   **Agent still running:**
+   - Increment `stall_counts[review_id]` by 1.
+   - If `stall_counts[review_id] >= STALL_THRESHOLD`, the agent has been running for too long without posting a verdict. Auto-approve it immediately with a stall warning note and remove it from the pending set:
      ```bash
-     tusk review approve <review_id> --note "Auto-approved: reviewer agent completed without posting a decision. Most likely cause: Bash tool not permitted in agent sandbox. Required permissions.allow entries: Bash(git diff:*), Bash(git remote:*), Bash(git symbolic-ref:*), Bash(git branch:*), Bash(tusk review:*)"
+     tusk review approve <review_id> --note "Auto-approved (stall): reviewer agent has been running for ≥5 monitoring iterations (~2.5 min) without posting a verdict. The agent may be looping or running a long-running command such as a full test suite. Check REVIEWER-PROMPT.md Step 2.6 constraints. To prevent stalls, ensure the agent sandbox has the required permissions.allow entries: Bash(git diff:*), Bash(git remote:*), Bash(git symbolic-ref:*), Bash(git branch:*), Bash(tusk review:*)"
+     ```
+     Continue as if this review returned no findings.
+
+   **Agent has completed** (TaskOutput shows the agent is done) but the review is still `"pending"`:
+   - The agent finished without calling `tusk review approve` or `tusk review request-changes`. Log a warning and auto-approve it with a note:
+     ```bash
+     tusk review approve <review_id> --note "Auto-approved (no verdict): reviewer agent completed without posting a decision. Most likely cause: Bash tool not permitted in agent sandbox. Required permissions.allow entries: Bash(git diff:*), Bash(git remote:*), Bash(git symbolic-ref:*), Bash(git branch:*), Bash(tusk review:*)"
      ```
      The most common cause is missing Bash tool permissions (the agent could not run `git diff` or `tusk review`). Run `tusk upgrade` to propagate the required `permissions.allow` entries if they are missing from `.claude/settings.json`. Continue as if those reviews returned no findings.
+
+4. If any agents remain running (and have not yet been stall-auto-approved), go back to step 1.
 
 ## Step 7: Process Findings
 
