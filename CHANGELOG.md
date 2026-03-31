@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [564] - 2026-03-31
+
+- [TASK-59] Add stall detection to /review-commits orchestrator for looping reviewer agents
+
 ## [563] - 2026-03-31
 
 - [TASK-58] Prevent reviewer agents from running full test suite during /review-commits
