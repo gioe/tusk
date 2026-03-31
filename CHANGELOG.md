@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [560] - 2026-03-31
+
+- [TASK-55] Add migration_hints support to tusk-bootstrap.json format
+
 ## [559] - 2026-03-30
 
 - [TASK-52] Fix tusk upgrade duplicating hook entries for git-root-resolved hook commands
