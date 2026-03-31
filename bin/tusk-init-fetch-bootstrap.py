@@ -98,6 +98,12 @@ def _validate(data: dict) -> str | None:
         criteria = task.get("criteria")
         if not isinstance(criteria, list) or len(criteria) == 0:
             return f"tasks[{i}].criteria must be a non-empty array"
+        migration_hints = task.get("migration_hints")
+        if migration_hints is not None and (
+            not isinstance(migration_hints, list)
+            or any(not isinstance(h, str) for h in migration_hints)
+        ):
+            return f"tasks[{i}].migration_hints must be an array of strings"
 
     return None
 
