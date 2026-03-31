@@ -212,6 +212,32 @@ class TestMergeHookDedup:
         groups = result["hooks"]["PreToolUse"]
         assert len(groups) == 1, f"Expected 1 hook group, got {len(groups)} — git-root hook was duplicated"
 
+    def test_preexisting_duplicates_in_target_are_cleaned_up(self, tmp_path):
+        """Pre-existing duplicate hook groups in target settings.json are removed by the dedup pass."""
+        mod = _load_module()
+        src_claude = tmp_path / "src" / ".claude"
+        src_claude.mkdir(parents=True)
+        tgt_claude = tmp_path / "tgt" / ".claude"
+        tgt_claude.mkdir(parents=True)
+
+        hook_group = {"matcher": "Bash", "hooks": [
+            {"type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-raw-sqlite.sh"}
+        ]}
+        # Target already has the same hook group duplicated (simulating Issue #435)
+        _write_settings(tgt_claude / "settings.json", {
+            "hooks": {"PreToolUse": [hook_group, hook_group]}
+        })
+        # Source also carries the same hook — should not add a third copy
+        _write_settings(src_claude / "settings.json", {
+            "hooks": {"PreToolUse": [hook_group]}
+        })
+
+        mod.merge_hook_registrations(str(tmp_path / "src"), str(tmp_path / "tgt"))
+
+        result = _read_settings(tgt_claude / "settings.json")
+        groups = result["hooks"]["PreToolUse"]
+        assert len(groups) == 1, f"Expected 1 hook group after dedup, got {len(groups)}"
+
     def test_genuinely_new_hook_is_added(self, tmp_path):
         """A new hook that is not present in target is still added."""
         mod = _load_module()
