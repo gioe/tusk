@@ -715,7 +715,7 @@ def main(argv: list[str]) -> int:
         # the feature branch is diverged and cannot be fast-forwarded — skip the
         # rebase/ff-merge steps and proceed directly to push + cleanup.
         _log_check = run(
-            ["git", "log", default_branch, "--oneline", f"--grep=[TASK-{task_id}]"],
+            ["git", "log", default_branch, "--oneline", f"--grep=\\[TASK-{task_id}\\]"],
             check=False,
         )
         task_on_default = (

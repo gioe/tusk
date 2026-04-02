@@ -62,8 +62,8 @@ def _make_run(
         # git pull (called as ["git", "-c", "pull.rebase=false", "pull", ...])
         if "pull" in args and "origin" in args:
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
-        # git log --grep=[TASK-N] check
-        if args[:2] == ["git", "log"] and any(f"--grep=[TASK-{task_id}]" in a for a in args):
+        # git log --grep=\[TASK-N\] check (brackets escaped to avoid regex char-class)
+        if args[:2] == ["git", "log"] and any(f"--grep=\\[TASK-{task_id}\\]" in a for a in args):
             if task_on_default:
                 return subprocess.CompletedProcess(
                     args, 0,
