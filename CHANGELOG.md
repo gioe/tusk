@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [570] - 2026-04-02
+
+- [TASK-68] Warn when stash-restored changes may belong to a different task in tusk branch
+
 ## [569] - 2026-04-01
 
 - [TASK-66] Fix /review-commits Step 5.1 to verify agent sandbox permissions in settings.json before spawning reviewers
