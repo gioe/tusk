@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [567] - 2026-04-01
+
+- [TASK-62] Expand check-deliverables path regex to support arbitrary deliverable locations
+
 ## [566] - 2026-04-01
 
 - [TASK-61] Fix partial-criteria diagnostic to check gitignored deliverables via CLI
