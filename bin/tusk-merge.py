@@ -736,6 +736,33 @@ def main(argv: list[str]) -> int:
                 file=sys.stderr,
             )
 
+        # Secondary check: use git cherry to detect commits that were cherry-picked
+        # onto the default branch (same patch content, different hash). The log-scoped
+        # check above finds the feature branch's own [TASK-N] commit and sets
+        # task_on_default=False, but if that commit was cherry-picked to default the
+        # ff-only merge will fail. git cherry compares by patch ID, so cherry-picked
+        # equivalents appear as '-' lines. If every exclusive commit on the feature
+        # branch is already applied (all '-', no '+'), the branch is safe to discard.
+        if not task_on_default:
+            _cherry_check = run(
+                ["git", "cherry", default_branch, branch_name],
+                check=False,
+            )
+            if _cherry_check.returncode == 0:
+                _cherry_lines = [
+                    line for line in _cherry_check.stdout.splitlines() if line.strip()
+                ]
+                if _cherry_lines and not any(
+                    line.startswith("+ ") for line in _cherry_lines
+                ):
+                    task_on_default = True
+                    print(
+                        f"Note: TASK-{task_id} — all feature branch commits already "
+                        f"applied to {default_branch} via cherry-pick. "
+                        "Skipping ff-only merge.",
+                        file=sys.stderr,
+                    )
+
         # Step 4 (optional --rebase): rebase feature branch onto default before ff-merge
         if not task_on_default and use_rebase:
             print(f"Rebasing {branch_name} onto {default_branch}...", file=sys.stderr)
