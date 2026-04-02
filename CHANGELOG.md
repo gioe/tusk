@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [574] - 2026-04-02
+
+- [TASK-72] Document --rebase as first fallback for ff-only merge failures in /tusk step 12
+
 ## [573] - 2026-04-02
 
 - [TASK-70] Fix .gitignore to allow committing .claude/skills changes in target projects
