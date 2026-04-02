@@ -89,12 +89,12 @@ def _make_run(
             if cherry_pick_diverged:
                 return subprocess.CompletedProcess(
                     args, 0,
-                    stdout=f"- abc1234abc1234abc1234abc1234abc1234abc1234\n",
+                    stdout="- abc1234abc1234abc1234abc1234abc1234abc1234\n",
                     stderr="",
                 )
             return subprocess.CompletedProcess(
                 args, 0,
-                stdout=f"+ abc1234abc1234abc1234abc1234abc1234abc1234\n",
+                stdout="+ abc1234abc1234abc1234abc1234abc1234abc1234\n",
                 stderr="",
             )
         if args[:3] == ["git", "merge", "--ff-only"]:

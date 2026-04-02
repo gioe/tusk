@@ -748,6 +748,13 @@ def main(argv: list[str]) -> int:
                 ["git", "cherry", default_branch, branch_name],
                 check=False,
             )
+            if _cherry_check.returncode != 0:
+                print(
+                    f"Warning: git cherry {default_branch} {branch_name} failed — "
+                    "cherry-pick detection skipped. The ff-only merge will proceed "
+                    "and may fail if the branch was cherry-picked.",
+                    file=sys.stderr,
+                )
             if _cherry_check.returncode == 0:
                 _cherry_lines = [
                     line for line in _cherry_check.stdout.splitlines() if line.strip()
