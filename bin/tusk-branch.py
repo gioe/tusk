@@ -68,10 +68,23 @@ def _try_pop_stash(current_branch: str | None = None) -> None:
     )
     pop = run(["git", "stash", "pop"], check=False)
     if pop.returncode == 0:
-        print(
-            f"Note: stash restored to working tree — you do not need to run git stash pop.{branch_note}",
-            file=sys.stderr,
-        )
+        status = run(["git", "status", "--porcelain"], check=False)
+        restored_files = []
+        if status.returncode == 0:
+            for line in status.stdout.splitlines():
+                if line.strip():
+                    restored_files.append(line[3:].strip())
+        if restored_files:
+            file_list = "\n  ".join(restored_files)
+            print(
+                f"Warning: stash restored to working tree — these changes may belong to a different task.{branch_note}\n  {file_list}",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"Note: stash restored to working tree — you do not need to run git stash pop.{branch_note}",
+                file=sys.stderr,
+            )
     else:
         print(
             f"Note: git stash pop failed — run 'git stash pop' manually to restore your changes.{branch_note}",
