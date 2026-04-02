@@ -45,7 +45,9 @@ get_connection = _db_lib.get_connection
 # (suggesting a filename with an extension).
 _PATH_RE = re.compile(
     r'(?:^|[\s\'"`(,])('
-    r'(?:\./|\.\./|\.claude/|\.claude\\|bin/|skills[-_]?internal/|skills/|tests?/|docs?/|src/)'
+    r'(?:\./|\.\./|\.claude/|\.claude\\|bin/|skills[-_]?internal/|skills/|tests?/|docs?/|src/'
+    r'|(?!\w+://)\w[\w._-]*/'  # any directory prefix that is not a URL protocol
+    r')'
     r'[\w./_-]+'
     r')',
     re.MULTILINE,
@@ -60,7 +62,7 @@ def _extract_paths(text: str) -> list:
     for m in _PATH_RE.finditer(text):
         p = m.group(1).strip().rstrip('.,;:\'"`)')
         # Require an extension so we don't chase bare directory names
-        if p and '.' in os.path.basename(p):
+        if p and '.' in os.path.basename(p) and '://' not in p:
             paths.append(p)
     return paths
 
