@@ -237,6 +237,12 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
     **Already-merged path:** If the feature branch was previously merged and deleted (e.g. via a PR that was merged in another session), `tusk merge` detects this automatically when you are on the default branch — it prints `Note: TASK-<id> — no feature branch found; already on '<branch>'. Branch was previously merged.`, closes the session, pushes, and marks the task Done without re-merging. If `tusk merge` exits 0 in this scenario, proceed to `/retro` as normal.
 
+    **Diverged branch — rebase fallback:** If `tusk merge` exits non-zero because the feature branch has diverged from the default branch (fast-forward-only merge not possible), run:
+    ```bash
+    tusk merge <id> --session $SESSION_ID --rebase
+    ```
+    `--rebase` rebases the feature branch onto the default branch before merging. If the rebase produces conflicts, resolve them (`git rebase --continue`) and retry.
+
     **Not-on-default fallback:** If `tusk merge` exits non-zero with `No branch found matching feature/TASK-<id>-*` and you are NOT on the default branch, switch to the default branch first (`git checkout <default_branch>`), then retry `tusk merge <id> --session <session_id>`.
 
     **PR mode:** If the project uses PR-based merges (`merge.mode = pr` in config, or when passing `--pr`), use:
