@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [573] - 2026-04-02
+
+- [TASK-70] Fix .gitignore to allow committing .claude/skills changes in target projects
+
 ## [572] - 2026-04-02
 
 - [TASK-69] Improve tusk upgrade permissions warning to list entries without a JSON example block
