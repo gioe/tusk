@@ -529,8 +529,7 @@ def main() -> None:
         for entry in missing:
             print(f'    "{entry}"')
         print()
-        print("  Add them under permissions.allow in .claude/settings.json, e.g.:")
-        print('    "permissions": { "allow": [' + ", ".join(f'"{e}"' for e in missing) + "] }")
+        print("  Add these entries to the permissions.allow array in .claude/settings.json.")
 
     # Auto-commit
     if args.no_commit:
