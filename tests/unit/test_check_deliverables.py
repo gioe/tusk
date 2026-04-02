@@ -110,9 +110,9 @@ class TestExtractPaths:
         assert not any("://" in p for p in paths)
 
     def test_extracts_nested_arbitrary_path(self):
-        text = "Edit src/bar/baz.py to fix the issue"
+        text = "Edit custom/app/settings.py to fix the issue"
         paths = mod._extract_paths(text)
-        assert "src/bar/baz.py" in paths
+        assert "custom/app/settings.py" in paths
 
     def test_deduplication_in_find_existing_files(self, tmp_path):
         """Same path mentioned twice should appear once in candidates."""
