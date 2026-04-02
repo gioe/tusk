@@ -59,8 +59,15 @@ def _make_base_run(
             return subprocess.CompletedProcess(args, 0, stdout="No local changes to save", stderr="")
         if args[:2] == ["git", "checkout"] and len(args) == 3:
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
-        if args[:3] == ["git", "pull", "origin"]:
+        if args[:3] == ["git", "pull", "origin"] or ("pull" in args and "origin" in args):
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        # Branch-scoped stale-commit detection: git log <branch> --not <default> --grep=\[TASK-N\]
+        # Return the feature branch's own task commit (non-empty) so task_on_default=False
+        # and the rebase/ff-merge path is not skipped.
+        if args[:2] == ["git", "log"] and any(f"--grep=\\[TASK-{task_id}\\]" in a for a in args):
+            return subprocess.CompletedProcess(
+                args, 0, stdout=f"abc1234 [TASK-{task_id}] implement fix\n", stderr=""
+            )
         if args[:3] == ["git", "rebase", default_branch]:
             return subprocess.CompletedProcess(args, rebase_rc, stdout="", stderr="CONFLICT (content)" if rebase_rc != 0 else "")
         if args[:3] == ["git", "rebase", "--abort"]:
@@ -249,10 +256,17 @@ class TestFfOnlyErrorMessage:
         def _mock_run(args, check=True):
             if args[:2] == ["git", "diff"] and "--name-only" in args:
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:2] == ["git", "stash", "push"]:
+                return subprocess.CompletedProcess(args, 0, stdout="No local changes to save", stderr="")
             if args[:2] == ["git", "checkout"]:
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
-            if args[:3] == ["git", "pull", "origin"]:
+            if "pull" in args and "origin" in args:
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            # Branch-scoped log: return non-empty so task_on_default=False and ff-merge is attempted
+            if args[:2] == ["git", "log"] and any("--grep=" in a for a in args):
+                return subprocess.CompletedProcess(
+                    args, 0, stdout=f"abc1234 [TASK-{task_id}] implement fix\n", stderr=""
+                )
             if args[:3] == ["git", "merge", "--ff-only"]:
                 return subprocess.CompletedProcess(args, 1, stdout="", stderr="fatal: Not possible to fast-forward")
             if "session-close" in args:

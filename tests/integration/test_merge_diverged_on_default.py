@@ -45,8 +45,11 @@ def _make_run(
 ):
     """Return a mock run() for the local-merge path.
 
-    task_on_default: when True, git log --grep returns the task commit,
-    simulating the "committed directly on default" scenario.
+    task_on_default: when True, the branch-scoped git log --grep returns empty
+    output (no exclusive [TASK-N] commits on the feature branch), simulating the
+    "task commit already applied directly on default branch" scenario.
+    When False, the branch-scoped log returns the feature branch's own task commit,
+    meaning the task's changes are still on the feature branch and need merging.
     """
     calls = record_calls if record_calls is not None else []
 
@@ -62,15 +65,17 @@ def _make_run(
         # git pull (called as ["git", "-c", "pull.rebase=false", "pull", ...])
         if "pull" in args and "origin" in args:
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
-        # git log --grep=\[TASK-N\] check (brackets escaped to avoid regex char-class)
+        # Branch-scoped git log: git log <branch> --not <default> --grep=\[TASK-N\]
+        # task_on_default=True  → empty output  (no exclusive branch commits → task already on default)
+        # task_on_default=False → non-empty output (feature branch has its own task commit)
         if args[:2] == ["git", "log"] and any(f"--grep=\\[TASK-{task_id}\\]" in a for a in args):
             if task_on_default:
-                return subprocess.CompletedProcess(
-                    args, 0,
-                    stdout=f"abc1234 [TASK-{task_id}] fix applied directly on main\n",
-                    stderr="",
-                )
-            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(
+                args, 0,
+                stdout=f"abc1234 [TASK-{task_id}] implement fix\n",
+                stderr="",
+            )
         if args[:3] == ["git", "merge", "--ff-only"]:
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
         if args[:2] == ["git", "push"]:
@@ -282,7 +287,7 @@ class TestNormalPathUnaffected:
         monkeypatch.setattr(tusk_merge, "find_task_branch", lambda tid: (branch, None, False))
         monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
         monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
-        # task_on_default=False → git log returns empty output → normal ff-merge path
+        # task_on_default=False → branch-scoped log returns non-empty → feature branch has its own commit → normal ff-merge path
         mock_run, _ = _make_run(branch, task_id=task_id, task_on_default=False, record_calls=record)
         monkeypatch.setattr(tusk_merge, "run", mock_run)
 
@@ -330,3 +335,132 @@ class TestNormalPathUnaffected:
         assert not force_delete_calls, (
             f"Expected git branch -D NOT to be called on normal path, got: {force_delete_calls}"
         )
+
+
+class TestRecycledTaskId:
+    """Regression: recycled task ID with a prior [TASK-N] commit on main must not skip ff-merge."""
+
+    def _make_run_with_prior_epoch_commit(
+        self,
+        branch_name: str,
+        task_id: int,
+        default_branch: str = "main",
+        record_calls: list | None = None,
+    ):
+        """Mock run() where main has an old [TASK-N] commit from a prior DB epoch.
+
+        The branch-scoped log (git log <branch> --not <default> --grep) returns the
+        feature branch's own task commit (non-empty), while a naïve git log on the
+        default branch would also match the old epoch commit.
+        """
+        calls = record_calls if record_calls is not None else []
+
+        def _run(args, check=True):
+            calls.append(list(args))
+
+            if args[:2] == ["git", "diff"] and "--name-only" in args:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:3] == ["git", "stash", "push"]:
+                return subprocess.CompletedProcess(args, 0, stdout="No local changes to save", stderr="")
+            if args[:2] == ["git", "checkout"] and len(args) == 3:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if "pull" in args and "origin" in args:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            # Branch-scoped log: returns feature branch's own task commit (non-empty).
+            # This means task_on_default=False → ff-merge proceeds normally.
+            if args[:2] == ["git", "log"] and any(f"--grep=\\[TASK-{task_id}\\]" in a for a in args):
+                return subprocess.CompletedProcess(
+                    args, 0,
+                    stdout=f"84cfeaa [TASK-{task_id}] implement the new fix\n",
+                    stderr="",
+                )
+            if args[:3] == ["git", "merge", "--ff-only"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:2] == ["git", "push"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:3] in (["git", "branch", "-d"], ["git", "branch", "-D"]):
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if "session-close" in args:
+                return subprocess.CompletedProcess(args, 0, stdout="{}", stderr="")
+            if "task-done" in args:
+                result_json = json.dumps({
+                    "task": {"id": task_id, "status": "Done", "closed_reason": "completed"},
+                    "sessions_closed": 0,
+                    "unblocked_tasks": [],
+                })
+                return subprocess.CompletedProcess(args, 0, stdout=result_json, stderr="")
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        return _run, calls
+
+    def test_ff_merge_not_skipped_due_to_prior_epoch_commit(self, db_path, config_path, monkeypatch):
+        """Recycled task ID: prior [TASK-N] commit on main must not cause ff-merge to be skipped."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        branch = f"feature/TASK-{task_id}-new-fix"
+        record = []
+
+        monkeypatch.setattr(tusk_merge, "find_task_branch", lambda tid: (branch, None, False))
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        mock_run, _ = self._make_run_with_prior_epoch_commit(
+            branch, task_id=task_id, record_calls=record
+        )
+        monkeypatch.setattr(tusk_merge, "run", mock_run)
+
+        stderr_buf = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(stderr_buf):
+            rc = tusk_merge.main(
+                [str(db_path), str(config_path), str(task_id), "--session", str(session_id)]
+            )
+
+        assert rc == 0, f"Expected exit 0\nstderr: {stderr_buf.getvalue()}"
+
+        ff_calls = [c for c in record if c[:3] == ["git", "merge", "--ff-only"]]
+        assert ff_calls, (
+            "Expected git merge --ff-only to be called — prior epoch commit on main "
+            "must not trigger the skip path"
+        )
+
+        assert "Skipping ff-only merge" not in stderr_buf.getvalue(), (
+            "Expected NO 'Skipping ff-only merge' note — recycled ID commit on main "
+            "must not be mistaken for the current task's commit"
+        )
+
+    def test_feature_branch_commit_not_lost(self, db_path, config_path, monkeypatch):
+        """Recycled task ID: the feature branch's own commit must not be lost."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        branch = f"feature/TASK-{task_id}-new-fix"
+        record = []
+
+        monkeypatch.setattr(tusk_merge, "find_task_branch", lambda tid: (branch, None, False))
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        mock_run, _ = self._make_run_with_prior_epoch_commit(
+            branch, task_id=task_id, record_calls=record
+        )
+        monkeypatch.setattr(tusk_merge, "run", mock_run)
+
+        stdout_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(io.StringIO()):
+            tusk_merge.main(
+                [str(db_path), str(config_path), str(task_id), "--session", str(session_id)]
+            )
+
+        # Task must be marked Done via the normal ff-merge path (not silently lost)
+        task_done_calls = [c for c in record if "task-done" in c]
+        assert task_done_calls, "Expected task-done to be called — commit must not be silently lost"
+
+        result = json.loads(stdout_buf.getvalue())
+        assert result["task"]["status"] == "Done"

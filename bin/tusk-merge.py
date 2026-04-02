@@ -714,12 +714,20 @@ def main(argv: list[str]) -> int:
         # (e.g. a rebase conflict resolved by re-applying the fix on main). When true,
         # the feature branch is diverged and cannot be fast-forwarded — skip the
         # rebase/ff-merge steps and proceed directly to push + cleanup.
+        #
+        # Scoped to commits reachable from the feature branch but NOT from the default
+        # branch (<branch> --not <default>). This prevents false-positives when task IDs
+        # are recycled after a DB reset: an old [TASK-N] commit on the default branch
+        # would be matched by a naïve `git log <default> --grep` but is irrelevant to the
+        # current feature branch. If the feature branch has no exclusive [TASK-N] commits
+        # (empty result), the task's changes must already be on the default branch.
         _log_check = run(
-            ["git", "log", default_branch, "--oneline", f"--grep=\\[TASK-{task_id}\\]"],
+            ["git", "log", branch_name, "--not", default_branch, "--oneline",
+             f"--grep=\\[TASK-{task_id}\\]"],
             check=False,
         )
         task_on_default = (
-            _log_check.returncode == 0 and bool(_log_check.stdout.strip())
+            _log_check.returncode == 0 and not bool(_log_check.stdout.strip())
         )
         if task_on_default:
             print(
