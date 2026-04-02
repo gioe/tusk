@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [571] - 2026-04-02
+
+- [TASK-67] Add post-upgrade reminder to verify settings.json permissions.allow entries for review-commits
+
 ## [570] - 2026-04-02
 
 - [TASK-68] Warn when stash-restored changes may belong to a different task in tusk branch
