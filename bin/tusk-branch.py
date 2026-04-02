@@ -178,19 +178,80 @@ def main(argv: list[str]) -> int:
         return 2
     elif existing_branches:
         existing_branch = existing_branches[0]
-        print(
-            f"Warning: branch '{existing_branch}' already exists for TASK-{task_id}. "
-            f"Switching to it instead of creating a new branch. "
-            f"If you want a fresh branch, delete it first: git branch -D {existing_branch}",
-            file=sys.stderr,
+
+        # Check whether the existing branch tip is already an ancestor of the
+        # default branch (i.e. it was previously merged).  If so, switching to
+        # it would land the user on a stale branch whose content is identical
+        # to the default branch, causing confusing stash-pop conflicts.
+        tip = run(["git", "rev-parse", existing_branch], check=False)
+        is_merged = (
+            tip.returncode == 0
+            and run(
+                ["git", "merge-base", "--is-ancestor", tip.stdout.strip(), default_branch],
+                check=False,
+            ).returncode == 0
         )
-        result = run(["git", "checkout", existing_branch], check=False)
-        if result.returncode != 0:
-            print(f"Error: git checkout {existing_branch} failed:\n{result.stderr.strip()}", file=sys.stderr)
-            if dirty:
-                _try_pop_stash(current_branch=default_branch)
-            return 2
-        branch_name = existing_branch
+
+        if is_merged:
+            print(
+                f"Warning: branch '{existing_branch}' for TASK-{task_id} appears to be already "
+                f"merged into '{default_branch}'.",
+                file=sys.stderr,
+            )
+            if sys.stdin.isatty():
+                print(
+                    f"Delete it and create a fresh '{branch_name}'? [y/N] ",
+                    end="",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                answer = sys.stdin.readline().strip().lower()
+            else:
+                answer = "n"
+
+            if answer != "y":
+                print(
+                    f"Aborting — stale branch '{existing_branch}' left intact. "
+                    f"Delete it manually with: git branch -D {existing_branch}",
+                    file=sys.stderr,
+                )
+                if dirty:
+                    _try_pop_stash(current_branch=default_branch)
+                return 2
+
+            delete_result = run(["git", "branch", "-D", existing_branch], check=False)
+            if delete_result.returncode != 0:
+                print(
+                    f"Error: could not delete '{existing_branch}':\n{delete_result.stderr.strip()}",
+                    file=sys.stderr,
+                )
+                if dirty:
+                    _try_pop_stash(current_branch=default_branch)
+                return 2
+
+            result = run(["git", "checkout", "-b", branch_name], check=False)
+            if result.returncode != 0:
+                print(
+                    f"Error: git checkout -b {branch_name} failed:\n{result.stderr.strip()}",
+                    file=sys.stderr,
+                )
+                if dirty:
+                    _try_pop_stash(current_branch=default_branch)
+                return 2
+        else:
+            print(
+                f"Warning: branch '{existing_branch}' already exists for TASK-{task_id}. "
+                f"Switching to it instead of creating a new branch. "
+                f"If you want a fresh branch, delete it first: git branch -D {existing_branch}",
+                file=sys.stderr,
+            )
+            result = run(["git", "checkout", existing_branch], check=False)
+            if result.returncode != 0:
+                print(f"Error: git checkout {existing_branch} failed:\n{result.stderr.strip()}", file=sys.stderr)
+                if dirty:
+                    _try_pop_stash(current_branch=default_branch)
+                return 2
+            branch_name = existing_branch
     else:
         result = run(["git", "checkout", "-b", branch_name], check=False)
         if result.returncode != 0:
