@@ -313,6 +313,7 @@ These are valid issues but out of scope for the current work. For each `defer` c
        --priority Medium \
        --domain <same domain as current task> \
        --task-type <DEFERRED_TASK_TYPE> \
+       --criteria "Address deferred finding: <summary from comment>" \
        --deferred
      ```
    - **If `DEFERRED_TASK_TYPE` is null** (config has no suitable task type), skip task creation and print a warning: "Skipped deferred task — no suitable task_type in config (not 'bug'): <summary>".
