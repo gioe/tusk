@@ -80,11 +80,14 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
    ```
    This detects the default branch (remote HEAD → gh fallback → main), checks it out, pulls latest, and creates `feature/TASK-<id>-<slug>`. It prints the created branch name on success.
 
-   **Partial-criteria + no-commits diagnostic:** After creating or switching to the feature branch, if the `criteria` from step 1 show at least one completed criterion but `git log --oneline $(tusk git-default-branch)..HEAD` returns no commits, prior work may be stranded on another branch. Before exploring the codebase, run:
+   **Partial-criteria + no-commits diagnostic:** After creating or switching to the feature branch, if the `criteria` from step 1 show at least one completed criterion but `git log --oneline $(tusk git-default-branch)..HEAD` returns no commits, prior work may be stranded on another branch or the deliverable may already exist in a gitignored directory (e.g., `.claude/skills/`). Before exploring the codebase, run:
    ```bash
-   git log --all --oneline --grep="\[TASK-<id>\]"
+   tusk check-deliverables <id>
    ```
-   (Replace `<id>` with the actual task ID.) This searches all branches for commits referencing the task. If commits appear on another branch (e.g., a recycled or prior branch), that branch contains the prior work — switch to it or cherry-pick the relevant commits before proceeding to Explore. If no commits appear anywhere, the criteria completions were marked without corresponding code — proceed normally and implement from scratch.
+   (Replace `<id>` with the actual task ID.) This command checks all branches for commits referencing the task and, if none are found, scans the task description and criteria for referenced file paths and tests whether they exist on disk. Act on the `recommendation` field:
+   - **`"commits_found"`** — commits exist on another branch. Switch to it or cherry-pick the relevant commits before proceeding to Explore.
+   - **`"mark_done"`** — no commits, but deliverable files listed in `files` already exist on disk. Mark all criteria done with `--skip-verify` and proceed directly to step 9 (commit + merge) without reimplementing.
+   - **`"implement_fresh"`** — no commits and no deliverable files found. The criteria completions were marked without corresponding code — proceed normally and implement from scratch.
 
 3. **Determine the best subagent(s)** based on:
    - Task domain

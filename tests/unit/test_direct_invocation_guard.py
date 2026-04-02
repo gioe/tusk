@@ -19,6 +19,7 @@ BIN = os.path.join(REPO_ROOT, "bin")
 DB_PATH_SCRIPTS = [
     ("tusk-autoclose.py", "tusk autoclose"),
     ("tusk-backlog-scan.py", "tusk backlog-scan"),
+    ("tusk-check-deliverables.py", "tusk check-deliverables"),
     ("tusk-lint-rules.py", "tusk lint-rule"),
     ("tusk-merge.py", "tusk merge"),
     ("tusk-progress.py", "tusk progress"),

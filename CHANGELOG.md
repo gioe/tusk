@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [566] - 2026-04-01
+
+- [TASK-61] Fix partial-criteria diagnostic to check gitignored deliverables via CLI
+
 ## [565] - 2026-04-01
 
 - [TASK-60] Extend Category E retro to surface issues made relevant by a fix

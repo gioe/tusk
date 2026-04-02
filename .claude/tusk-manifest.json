@@ -9,6 +9,7 @@
   ".claude/bin/tusk-call-breakdown.py",
   ".claude/bin/tusk-chain.py",
   ".claude/bin/tusk-changelog-add.py",
+  ".claude/bin/tusk-check-deliverables.py",
   ".claude/bin/tusk-commit.py",
   ".claude/bin/tusk-config-tools.py",
   ".claude/bin/tusk-conventions.py",
