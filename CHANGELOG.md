@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [572] - 2026-04-02
+
+- [TASK-69] Improve tusk upgrade permissions warning to list entries without a JSON example block
+
 ## [571] - 2026-04-02
 
 - [TASK-67] Add post-upgrade reminder to verify settings.json permissions.allow entries for review-commits
