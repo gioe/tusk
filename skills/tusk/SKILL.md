@@ -80,7 +80,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
    ```
    This detects the default branch (remote HEAD → gh fallback → main), checks it out, pulls latest, and creates `feature/TASK-<id>-<slug>`. It prints the created branch name on success.
 
-   **Partial-criteria + no-commits diagnostic:** After creating or switching to the feature branch, if the `criteria` from step 1 show at least one completed criterion but `git log --oneline $(tusk git-default-branch)..HEAD` returns no commits, prior work may be stranded on another branch or the deliverable may already exist in a gitignored directory (e.g., `.claude/skills/`). Before exploring the codebase, run:
+   **Deliverable check:** If `deliverable_check_needed` from step 1 is `true`, run:
    ```bash
    tusk check-deliverables <id>
    ```
