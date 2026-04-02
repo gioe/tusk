@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [565] - 2026-04-01
+
+- [TASK-60] Extend Category E retro to surface issues made relevant by a fix
+
 ## [564] - 2026-03-31
 
 - [TASK-59] Add stall detection to /review-commits orchestrator for looping reviewer agents
