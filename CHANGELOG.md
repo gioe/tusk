@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [578] - 2026-04-02
+
+- [TASK-76] Handle cherry-pick-diverged feature branch gracefully in tusk merge
+
 ## [577] - 2026-04-02
 
 - [TASK-75] Fix tusk merge stale-commit detection when task IDs are recycled
