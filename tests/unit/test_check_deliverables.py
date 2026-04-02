@@ -99,6 +99,21 @@ class TestExtractPaths:
     def test_returns_empty_for_none(self):
         assert mod._extract_paths(None) == []
 
+    def test_extracts_arbitrary_path_outside_known_prefixes(self):
+        text = "See config/foo.yml for settings"
+        paths = mod._extract_paths(text)
+        assert "config/foo.yml" in paths
+
+    def test_does_not_extract_urls(self):
+        text = "See https://example.com/foo.yml for docs"
+        paths = mod._extract_paths(text)
+        assert not any("://" in p for p in paths)
+
+    def test_extracts_nested_arbitrary_path(self):
+        text = "Edit src/bar/baz.py to fix the issue"
+        paths = mod._extract_paths(text)
+        assert "src/bar/baz.py" in paths
+
     def test_deduplication_in_find_existing_files(self, tmp_path):
         """Same path mentioned twice should appear once in candidates."""
         # Create the file so it passes the existence check
