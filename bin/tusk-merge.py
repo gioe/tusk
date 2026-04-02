@@ -710,8 +710,26 @@ def main(argv: list[str]) -> int:
                 _try_pop_stash(task_id)
             return 2
 
+        # Detect if the task commit was already applied directly on the default branch
+        # (e.g. a rebase conflict resolved by re-applying the fix on main). When true,
+        # the feature branch is diverged and cannot be fast-forwarded — skip the
+        # rebase/ff-merge steps and proceed directly to push + cleanup.
+        _log_check = run(
+            ["git", "log", default_branch, "--oneline", f"--grep=[TASK-{task_id}]"],
+            check=False,
+        )
+        task_on_default = (
+            _log_check.returncode == 0 and bool(_log_check.stdout.strip())
+        )
+        if task_on_default:
+            print(
+                f"Note: TASK-{task_id} commit already on {default_branch} — "
+                "feature branch is diverged. Skipping ff-only merge.",
+                file=sys.stderr,
+            )
+
         # Step 4 (optional --rebase): rebase feature branch onto default before ff-merge
-        if use_rebase:
+        if not task_on_default and use_rebase:
             print(f"Rebasing {branch_name} onto {default_branch}...", file=sys.stderr)
             # Switch to feature branch — move db files aside first (same pattern as above)
             for src, dst in zip(db_siblings, db_tmp):
@@ -775,47 +793,57 @@ def main(argv: list[str]) -> int:
                     _try_pop_stash(task_id)
                 return 2
 
-        # Step 4 (cont): Fast-forward merge
-        result = run(["git", "merge", "--ff-only", branch_name], check=False)
-        if result.returncode != 0:
-            print(
-                f"Error: git merge --ff-only {branch_name} failed:\n{result.stderr.strip()}\n"
-                "The feature branch cannot be fast-forward merged. Run one of:\n"
-                f"  git rebase origin/{default_branch}  # rebase manually, then re-run: tusk merge {task_id}\n"
-                f"  tusk merge {task_id} --rebase        # auto-rebase before merging\n"
-                f"  tusk merge {task_id} --pr --pr-number <N>  # squash merge via PR",
-                file=sys.stderr,
-            )
-            # Restore feature branch so user can investigate
-            run(["git", "checkout", branch_name], check=False)
-            if did_stash:
-                _try_pop_stash(task_id)
-            return 2
+        # Step 4 (cont): Fast-forward merge (skipped when task commit already on default)
+        if not task_on_default:
+            result = run(["git", "merge", "--ff-only", branch_name], check=False)
+            if result.returncode != 0:
+                print(
+                    f"Error: git merge --ff-only {branch_name} failed:\n{result.stderr.strip()}\n"
+                    "The feature branch cannot be fast-forward merged. Run one of:\n"
+                    f"  git rebase origin/{default_branch}  # rebase manually, then re-run: tusk merge {task_id}\n"
+                    f"  tusk merge {task_id} --rebase        # auto-rebase before merging\n"
+                    f"  tusk merge {task_id} --pr --pr-number <N>  # squash merge via PR",
+                    file=sys.stderr,
+                )
+                # Restore feature branch so user can investigate
+                run(["git", "checkout", branch_name], check=False)
+                if did_stash:
+                    _try_pop_stash(task_id)
+                return 2
 
         # Step 5: Push
         result = run(["git", "push", "origin", default_branch], check=False)
         if result.returncode != 0:
-            print(
-                f"Error: git push failed:\n{result.stderr.strip()}\n"
-                f"The branch has been merged locally but not pushed.\n"
-                f"  Retry: git push origin {default_branch}\n"
-                f"  Undo:  git reset --hard HEAD~1 && git checkout {branch_name}",
-                file=sys.stderr,
-            )
-            if did_stash:
-                # Restore feature branch before popping stash so the user's
-                # uncommitted changes land back on the feature branch, not on
-                # the default branch where the unmerged commit lives.
-                run(["git", "checkout", branch_name], check=False)
-                _try_pop_stash(task_id)
+            if task_on_default:
+                print(
+                    f"Error: git push failed:\n{result.stderr.strip()}\n"
+                    f"  Retry: git push origin {default_branch}",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"Error: git push failed:\n{result.stderr.strip()}\n"
+                    f"The branch has been merged locally but not pushed.\n"
+                    f"  Retry: git push origin {default_branch}\n"
+                    f"  Undo:  git reset --hard HEAD~1 && git checkout {branch_name}",
+                    file=sys.stderr,
+                )
+                if did_stash:
+                    # Restore feature branch before popping stash so the user's
+                    # uncommitted changes land back on the feature branch, not on
+                    # the default branch where the unmerged commit lives.
+                    run(["git", "checkout", branch_name], check=False)
+                    _try_pop_stash(task_id)
             return 2
 
         # Step 6: Delete feature branch
-        result = run(["git", "branch", "-d", branch_name], check=False)
+        # Use -D (force) when the branch was not merged via git merge (task_on_default path).
+        branch_delete_flag = "-D" if task_on_default else "-d"
+        result = run(["git", "branch", branch_delete_flag, branch_name], check=False)
         if result.returncode != 0:
-            # Non-fatal: branch is already merged, warn and continue
+            # Non-fatal: branch is already gone or merge state mismatch, warn and continue
             print(
-                f"Warning: git branch -d {branch_name} failed:\n{result.stderr.strip()}",
+                f"Warning: git branch {branch_delete_flag} {branch_name} failed:\n{result.stderr.strip()}",
                 file=sys.stderr,
             )
 
