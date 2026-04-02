@@ -203,11 +203,14 @@ def main(argv: list[str]) -> int:
                 for wr in warn_rows:
                     print(f"  TASK-{wr['id']}: {wr['summary']}", file=sys.stderr)
 
+        deliverable_check_needed = any(c["is_completed"] for c in criteria_list)
+
         result = {
             "task": task_dict,
             "progress": progress_list,
             "criteria": criteria_list,
             "session_id": session_id,
+            "deliverable_check_needed": deliverable_check_needed,
         }
 
         print(json.dumps(result, indent=2))
