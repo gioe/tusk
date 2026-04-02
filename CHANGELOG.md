@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [577] - 2026-04-02
+
+- [TASK-75] Fix tusk merge stale-commit detection when task IDs are recycled
+
 ## [576] - 2026-04-02
 
 - [TASK-73] Fix tusk merge to handle diverged feature branch when task commit is already on default branch
