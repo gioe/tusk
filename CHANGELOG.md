@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [569] - 2026-04-01
+
+- [TASK-66] Fix /review-commits Step 5.1 to verify agent sandbox permissions in settings.json before spawning reviewers
+
 ## [568] - 2026-04-01
 
 - [TASK-64] tusk branch: detect stale merged branches and offer to recreate
