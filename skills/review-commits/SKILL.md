@@ -123,16 +123,30 @@ tusk review add-comment <review_id> "<description>" --file "<file>" --line-start
 
 After recording the inline decision, skip directly to Step 6.
 
-**For all other diffs:** verify Bash is accessible before spawning reviewer agents. Run:
+**For all other diffs:** verify the required agent sandbox permissions are configured before spawning reviewer agents. Run:
 
 ```bash
-tusk version
+python3 -c "
+import json, sys
+try:
+    d = json.load(open('.claude/settings.json'))
+    allow = d.get('permissions', {}).get('allow', [])
+    required = ['Bash(git diff:*)', 'Bash(git remote:*)', 'Bash(git symbolic-ref:*)', 'Bash(git branch:*)', 'Bash(tusk review:*)']
+    missing = [r for r in required if r not in allow]
+    if missing:
+        print('MISSING: ' + ', '.join(missing))
+        sys.exit(1)
+    print('OK')
+except FileNotFoundError:
+    print('MISSING: .claude/settings.json not found — no permissions.allow configured')
+    sys.exit(1)
+"
 ```
 
-If this command fails with a permissions error (Bash not permitted), stop and surface:
-> Agent review aborted: Bash is not accessible in agent sandboxes for this project. The `permissions.allow` block in `.claude/settings.json` must include the required entries: `Bash(git diff:*)`, `Bash(git remote:*)`, `Bash(git symbolic-ref:*)`, `Bash(git branch:*)`, `Bash(tusk review:*)`. Run `tusk upgrade` to apply them, then restart the session.
+If this command prints `MISSING:` or exits nonzero, stop and surface:
+> Agent review aborted: The following required `permissions.allow` entries are missing from `.claude/settings.json`: `<missing entries listed in the MISSING: output>`. Add them manually or run `tusk upgrade` to apply them, then restart the session.
 
-Proceed to spawn agents only if `tusk version` succeeds.
+Proceed to spawn agents only if the check prints `OK`.
 
 Read the reviewer prompt template:
 
@@ -351,16 +365,30 @@ Otherwise, loop while `can_retry` is true:
 
    **For small or documentation-only diffs (fewer than ~200 lines changed, or only non-code files):** skip agent spawning and perform an inline review. Read the diff yourself, evaluate it against reviewer focus areas, and record the result directly (approve or request-changes + add-comment). After recording the inline decision, skip to step 3.
 
-   **For all other diffs:** verify Bash is accessible before spawning re-review agents. Run:
+   **For all other diffs:** verify the required agent sandbox permissions are configured before spawning re-review agents. Run:
 
    ```bash
-   tusk version
+   python3 -c "
+   import json, sys
+   try:
+       d = json.load(open('.claude/settings.json'))
+       allow = d.get('permissions', {}).get('allow', [])
+       required = ['Bash(git diff:*)', 'Bash(git remote:*)', 'Bash(git symbolic-ref:*)', 'Bash(git branch:*)', 'Bash(tusk review:*)']
+       missing = [r for r in required if r not in allow]
+       if missing:
+           print('MISSING: ' + ', '.join(missing))
+           sys.exit(1)
+       print('OK')
+   except FileNotFoundError:
+       print('MISSING: .claude/settings.json not found — no permissions.allow configured')
+       sys.exit(1)
+   "
    ```
 
-   If this command fails with a permissions error (Bash not permitted), stop and surface:
-   > Re-review agent aborted: Bash is not accessible in agent sandboxes for this project. The `permissions.allow` block in `.claude/settings.json` must include the required entries: `Bash(git diff:*)`, `Bash(git remote:*)`, `Bash(git symbolic-ref:*)`, `Bash(git branch:*)`, `Bash(tusk review:*)`. Run `tusk upgrade` to apply them, then restart the session.
+   If this command prints `MISSING:` or exits nonzero, stop and surface:
+   > Re-review agent aborted: The following required `permissions.allow` entries are missing from `.claude/settings.json`: `<missing entries listed in the MISSING: output>`. Add them manually or run `tusk upgrade` to apply them, then restart the session.
 
-   Proceed to spawn re-review agents only if `tusk version` succeeds. Re-review agents fetch the diff themselves — no diff is passed inline.
+   Proceed to spawn re-review agents only if the check prints `OK`. Re-review agents fetch the diff themselves — no diff is passed inline.
 
 3. Monitor completion (Step 6) and process findings (Step 7).
 
