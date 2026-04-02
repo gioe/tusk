@@ -408,9 +408,8 @@ def main(argv: list[str]) -> int:
                     ignored_files.append((f, ci.stdout.strip()))
 
             if ignored_files:
-                # Auto-retry: directories like .claude/skills/ are gitignored but
-                # have force-tracked siblings already in the index — git add -f is
-                # the correct way to stage new files there (Issue #401).
+                # Auto-retry: if a file is blocked by .gitignore, retry with
+                # git add -f as a best-effort fallback (Issue #401).
                 ignored_paths = [f for f, _ in ignored_files]
                 non_ignored_paths = [f for f in resolved_files if f not in ignored_paths]
                 print(

@@ -204,24 +204,31 @@ cmd_validate() {
 
 update_gitignore() {
   local gitignore="$REPO_ROOT/.gitignore"
-  local deprecated="tusk/tasks.db-*"
+  # Entries that were previously added by tusk but should now be removed.
+  # .claude/skills/ was removed so that skill file edits made during /tusk
+  # or /retro sessions can be committed and tracked in git.
+  local -a deprecated_ignores=(
+    "tusk/tasks.db-*"
+    ".claude/skills/"
+  )
   local -a tusk_ignores=(
     ".claude/bin/"
-    ".claude/skills/"
     ".claude/settings.json"
     ".claude/tusk-manifest.json"
     "tusk/tasks.db"
     "tusk/tasks.db-wal"
     "tusk/tasks.db-shm"
   )
-  # Remove deprecated wildcard entry added by older versions of tusk-upgrade.py
-  if grep -qxF "$deprecated" "$gitignore" 2>/dev/null; then
-    local tmpfile
-    tmpfile=$(mktemp)
-    trap "rm -f $tmpfile" RETURN
-    grep -vxF "$deprecated" "$gitignore" > "$tmpfile" && mv "$tmpfile" "$gitignore"
-    echo "  Removed deprecated .gitignore entry: $deprecated"
-  fi
+  # Remove deprecated entries added by older versions of tusk
+  for deprecated in "${deprecated_ignores[@]}"; do
+    if grep -qxF "$deprecated" "$gitignore" 2>/dev/null; then
+      local tmpfile
+      tmpfile=$(mktemp)
+      trap "rm -f $tmpfile" RETURN
+      grep -vxF "$deprecated" "$gitignore" > "$tmpfile" && mv "$tmpfile" "$gitignore"
+      echo "  Removed deprecated .gitignore entry: $deprecated"
+    fi
+  done
   local added=0
   for entry in "${tusk_ignores[@]}"; do
     if ! grep -qxF "$entry" "$gitignore" 2>/dev/null; then

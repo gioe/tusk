@@ -4,6 +4,9 @@ tusk/tasks.db-wal
 tusk/tasks.db-shm
 .DS_Store
 __pycache__/
+# Source repo only: .claude/skills/ contains symlinks created by tusk sync-skills
+# and should not be committed here. In target (installed) projects, .claude/skills/
+# is NOT gitignored so that skill file edits can be committed — see update_gitignore().
 .claude/skills/
 config.default.json.bak
 
