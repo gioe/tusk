@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [576] - 2026-04-02
+
+- [TASK-73] Fix tusk merge to handle diverged feature branch when task commit is already on default branch
+
 ## [575] - 2026-04-02
 
 - [TASK-71] Move partial-criteria detection into tusk task-start CLI output
