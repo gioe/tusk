@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [568] - 2026-04-01
+
+- [TASK-64] tusk branch: detect stale merged branches and offer to recreate
+
 ## [567] - 2026-04-01
 
 - [TASK-62] Expand check-deliverables path regex to support arbitrary deliverable locations
