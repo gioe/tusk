@@ -348,6 +348,29 @@ def merge_hook_registrations(src: str, repo_root: str) -> None:
         f.write("\n")
 
 
+REQUIRED_REVIEW_COMMITS_PERMISSIONS = [
+    "Bash(git diff:*)",
+    "Bash(git remote:*)",
+    "Bash(git symbolic-ref:*)",
+    "Bash(git branch:*)",
+    "Bash(tusk review:*)",
+]
+
+
+def check_review_commits_permissions(repo_root: str) -> list[str]:
+    """Return any required permissions.allow entries missing from .claude/settings.json."""
+    settings_path = os.path.join(repo_root, ".claude", "settings.json")
+    if not os.path.isfile(settings_path):
+        return list(REQUIRED_REVIEW_COMMITS_PERMISSIONS)
+    try:
+        with open(settings_path) as f:
+            settings = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return list(REQUIRED_REVIEW_COMMITS_PERMISSIONS)
+    existing = set(settings.get("permissions", {}).get("allow", []))
+    return [e for e in REQUIRED_REVIEW_COMMITS_PERMISSIONS if e not in existing]
+
+
 def remove_deprecated_files(repo_root: str) -> None:
     for rel in ["tusk/conventions.md", "tusk/dashboard.html", "tusk/tusk.db"]:
         full = os.path.join(repo_root, rel)
@@ -495,6 +518,19 @@ def main() -> None:
 
     print()
     print(f"Upgrade complete (version {remote_version}).")
+
+    # Check that required permissions.allow entries for review-commits are present
+    missing = check_review_commits_permissions(repo_root)
+    if missing:
+        print()
+        print("  Warning: The following permissions.allow entries are missing from")
+        print("  .claude/settings.json and are required for /review-commits to work:")
+        print()
+        for entry in missing:
+            print(f'    "{entry}"')
+        print()
+        print("  Add them under permissions.allow in .claude/settings.json, e.g.:")
+        print('    "permissions": { "allow": [' + ", ".join(f'"{e}"' for e in missing) + "] }")
 
     # Auto-commit
     if args.no_commit:

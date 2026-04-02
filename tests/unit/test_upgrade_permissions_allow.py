@@ -128,3 +128,54 @@ class TestMergePermissionsAllow:
 
         result = _read_settings(tgt_claude / "settings.json")
         assert "Bash(git diff:*)" in result["permissions"]["allow"]
+
+
+class TestCheckReviewCommitsPermissions:
+    def test_returns_empty_when_all_present(self, tmp_path):
+        """No missing entries when all required permissions are already in settings.json."""
+        mod = _load_module()
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        _write_settings(claude_dir / "settings.json", {
+            "permissions": {"allow": list(mod.REQUIRED_REVIEW_COMMITS_PERMISSIONS)}
+        })
+        missing = mod.check_review_commits_permissions(str(tmp_path))
+        assert missing == []
+
+    def test_returns_missing_entries(self, tmp_path):
+        """Returns only the entries that are absent from settings.json."""
+        mod = _load_module()
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        _write_settings(claude_dir / "settings.json", {
+            "permissions": {"allow": ["Bash(git diff:*)"]}
+        })
+        missing = mod.check_review_commits_permissions(str(tmp_path))
+        assert "Bash(git diff:*)" not in missing
+        assert "Bash(tusk review:*)" in missing
+        assert "Bash(git remote:*)" in missing
+
+    def test_returns_all_when_no_settings_file(self, tmp_path):
+        """All required entries reported missing when settings.json does not exist."""
+        mod = _load_module()
+        (tmp_path / ".claude").mkdir()
+        missing = mod.check_review_commits_permissions(str(tmp_path))
+        assert set(missing) == set(mod.REQUIRED_REVIEW_COMMITS_PERMISSIONS)
+
+    def test_returns_all_when_settings_malformed(self, tmp_path):
+        """All required entries reported missing when settings.json is not valid JSON."""
+        mod = _load_module()
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "settings.json").write_text("not valid json")
+        missing = mod.check_review_commits_permissions(str(tmp_path))
+        assert set(missing) == set(mod.REQUIRED_REVIEW_COMMITS_PERMISSIONS)
+
+    def test_returns_all_when_no_permissions_block(self, tmp_path):
+        """All required entries reported missing when permissions block is absent."""
+        mod = _load_module()
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        _write_settings(claude_dir / "settings.json", {"hooks": {}})
+        missing = mod.check_review_commits_permissions(str(tmp_path))
+        assert set(missing) == set(mod.REQUIRED_REVIEW_COMMITS_PERMISSIONS)
