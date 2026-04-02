@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [575] - 2026-04-02
+
+- [TASK-71] Move partial-criteria detection into tusk task-start CLI output
+
 ## [574] - 2026-04-02
 
 - [TASK-72] Document --rebase as first fallback for ff-only merge failures in /tusk step 12
