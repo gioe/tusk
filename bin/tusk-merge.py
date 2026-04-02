@@ -820,6 +820,8 @@ def main(argv: list[str]) -> int:
                     f"  Retry: git push origin {default_branch}",
                     file=sys.stderr,
                 )
+                if did_stash:
+                    _try_pop_stash(task_id)
             else:
                 print(
                     f"Error: git push failed:\n{result.stderr.strip()}\n"
