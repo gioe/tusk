@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [580] - 2026-04-03
+
+- [TASK-78] Add conventions-preflight.sh PreToolUse hook to inject relevant conventions before Edit|Write
+
 ## [579] - 2026-04-03
 
 - [TASK-77] Add tusk conventions inject subcommand
