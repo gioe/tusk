@@ -139,6 +139,77 @@ def cmd_update(args: argparse.Namespace, db_path: str, config: dict) -> int:
         conn.close()
 
 
+def derive_topics(path: str) -> list[str]:
+    """Derive convention topic terms from a file path.
+
+    Heuristics (applied in order, multiple can match):
+      - path contains a 'skills' component → 'skill'
+      - filename ends with '.md'           → 'docs'
+      - path contains a 'bin' component AND filename matches 'tusk-*.py' → 'cli', 'python'
+      - path contains a 'tests' component OR filename starts with 'test_' → 'testing'
+      - filename ends with '.py'           → 'python'
+    """
+    topics: set[str] = set()
+    parts = path.replace("\\", "/").split("/")
+    filename = parts[-1] if parts else ""
+
+    if "skills" in parts:
+        topics.add("skill")
+
+    if filename.endswith(".md"):
+        topics.add("docs")
+
+    if "bin" in parts and filename.startswith("tusk-") and filename.endswith(".py"):
+        topics.add("cli")
+        topics.add("python")
+
+    if "tests" in parts or filename.startswith("test_"):
+        topics.add("testing")
+
+    if filename.endswith(".py"):
+        topics.add("python")
+
+    return sorted(topics)
+
+
+def cmd_inject(args: argparse.Namespace, db_path: str, config: dict) -> int:
+    topics = derive_topics(args.path)
+    if not topics:
+        return 0
+
+    conn = get_connection(db_path)
+    try:
+        seen_ids: set[int] = set()
+        rows = []
+        for topic in topics:
+            term = f"%{topic}%"
+            for row in conn.execute(
+                "SELECT id, text, source_skill, violation_count, topics "
+                "FROM conventions "
+                "WHERE text LIKE ? OR topics LIKE ? "
+                "ORDER BY id",
+                (term, term),
+            ).fetchall():
+                if row["id"] not in seen_ids:
+                    seen_ids.add(row["id"])
+                    rows.append(row)
+    finally:
+        conn.close()
+
+    if not rows:
+        return 0
+
+    rows.sort(key=lambda r: r["id"])
+    print(f"{'ID':<6} {'Skill':<18} {'Violations':<12} {'Topics':<20} {'Text'}")
+    print("-" * 100)
+    for r in rows:
+        skill_str = r["source_skill"] or ""
+        topics_str = r["topics"] or ""
+        print(f"{r['id']:<6} {skill_str:<18} {r['violation_count']:<12} {topics_str:<20} {r['text']}")
+    print(f"\nTotal: {len(rows)}")
+    return 0
+
+
 def cmd_remove(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn = get_connection(db_path)
     try:
@@ -161,7 +232,7 @@ def cmd_remove(args: argparse.Namespace, db_path: str, config: dict) -> int:
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: tusk conventions {add|list|search|remove|update} ...", file=sys.stderr)
+        print("Usage: tusk conventions {add|list|search|remove|update|inject} ...", file=sys.stderr)
         sys.exit(1)
 
     db_path = sys.argv[1]
@@ -198,6 +269,13 @@ def main():
     update_p.add_argument("--text", default=None, metavar="TEXT", help="New convention text")
     update_p.add_argument("--topics", default=None, metavar="TOPICS", help="New comma-separated topic tags (replaces existing topics)")
 
+    # inject
+    inject_p = subparsers.add_parser(
+        "inject",
+        help="Print conventions relevant to a file path (derived from path heuristics)",
+    )
+    inject_p.add_argument("path", help="File path to derive topics from")
+
     args = parser.parse_args(sys.argv[3:])
 
     if not args.command:
@@ -211,6 +289,7 @@ def main():
             "search": cmd_search,
             "remove": cmd_remove,
             "update": cmd_update,
+            "inject": cmd_inject,
         }
         sys.exit(handlers[args.command](args, db_path, config))
     except sqlite3.Error as e:
