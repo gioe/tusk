@@ -99,6 +99,7 @@
   ".claude/hooks/branch-naming.sh",
   ".claude/hooks/check-criteria-on-stop.sh",
   ".claude/hooks/commit-msg-format.sh",
+  ".claude/hooks/conventions-preflight.sh",
   ".claude/hooks/dupe-gate.sh",
   ".claude/hooks/inject-task-context.sh",
   ".claude/hooks/setup-path.sh",

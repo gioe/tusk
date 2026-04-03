@@ -82,6 +82,15 @@
             "command": ".claude/hooks/version-bump-check.sh"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/conventions-preflight.sh"
+          }
+        ]
       }
     ],
     "PostToolUse": [
