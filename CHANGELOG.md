@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [579] - 2026-04-03
+
+- [TASK-77] Add tusk conventions inject subcommand
+
 ## [578] - 2026-04-02
 
 - [TASK-76] Handle cherry-pick-diverged feature branch gracefully in tusk merge
