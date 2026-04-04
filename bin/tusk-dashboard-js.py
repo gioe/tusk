@@ -678,6 +678,7 @@ JS: str = """\
   var costSkillTrendChart = null;
   var hourlyCostTaskChart = null;
   var hourlyCostSkillChart = null;
+  var costScatterChart = null;
   var currentPeriod = 'weekly';
 
   function initCharts() {
@@ -917,6 +918,125 @@ JS: str = """\
   }
 
   initCharts();
+
+  // --- Cost scatter plot by model ---
+  (function() {
+    var scatterCanvas = document.getElementById('costScatterChart');
+    if (!scatterCanvas || typeof Chart === 'undefined') return;
+    var raw = window.__tuskCostScatter;
+    if (!raw || !raw.length) {
+      scatterCanvas.parentNode.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;padding:0.5rem 0;">No session cost data yet.</p>';
+      return;
+    }
+
+    var style = getComputedStyle(document.documentElement);
+    function cssVar(name) { return style.getPropertyValue(name).trim(); }
+    var textMuted = cssVar('--text-muted') || '#94a3b8';
+    var border = cssVar('--border') || '#e2e8f0';
+    var palette = [
+      cssVar('--accent') || '#3b82f6',
+      cssVar('--warning') || '#f59e0b',
+      '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'
+    ];
+
+    function buildDatasets(axisMode) {
+      var groups = {};
+      raw.forEach(function(r) {
+        if (!groups[r.model]) groups[r.model] = [];
+        var x;
+        if (axisMode === 'date') {
+          x = new Date(r.started_at).getTime();
+        } else if (axisMode === 'duration') {
+          x = r.duration;
+        } else {
+          x = r.total_tokens;
+        }
+        groups[r.model].push({
+          x: x, y: r.cost,
+          model: r.model, task_id: r.task_id,
+          total_tokens: r.total_tokens, duration: r.duration,
+          started_at: r.started_at, complexity: r.complexity,
+          domain: r.domain
+        });
+      });
+      var models = Object.keys(groups).sort();
+      return models.map(function(m, i) {
+        var color = palette[i % palette.length];
+        return {
+          label: m,
+          data: groups[m],
+          backgroundColor: color + 'B3',
+          borderColor: color,
+          pointRadius: 4,
+          pointHoverRadius: 7,
+          pointBorderWidth: 1
+        };
+      });
+    }
+
+    function xScaleConfig(axisMode) {
+      if (axisMode === 'date') {
+        return {
+          type: 'time',
+          time: { unit: 'day', tooltipFormat: 'MMM d, yyyy' },
+          title: { display: true, text: 'Date', color: textMuted },
+          ticks: { color: textMuted, font: { size: 11 } },
+          grid: { color: border, borderDash: [3, 3] }
+        };
+      }
+      var label = axisMode === 'duration' ? 'Duration (seconds)' : 'Total Tokens';
+      return {
+        title: { display: true, text: label, color: textMuted },
+        ticks: {
+          color: textMuted, font: { size: 11 },
+          callback: function(v) {
+            if (axisMode === 'duration') return v >= 3600 ? (v / 3600).toFixed(1) + 'h' : v >= 60 ? Math.round(v / 60) + 'm' : v + 's';
+            return v >= 1000000 ? (v / 1000000).toFixed(1) + 'M' : v >= 1000 ? (v / 1000).toFixed(0) + 'K' : v;
+          }
+        },
+        grid: { color: border, borderDash: [3, 3] }
+      };
+    }
+
+    function renderScatter(axisMode) {
+      if (costScatterChart) { costScatterChart.destroy(); costScatterChart = null; }
+      costScatterChart = new Chart(scatterCanvas, {
+        type: 'scatter',
+        data: { datasets: buildDatasets(axisMode) },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            tooltip: {
+              callbacks: {
+                label: function(ctx) {
+                  var pt = ctx.raw;
+                  return pt.model + ' — $' + pt.y.toFixed(4)
+                    + ' (' + pt.total_tokens.toLocaleString() + ' tok, Task #' + pt.task_id + ')';
+                }
+              }
+            },
+            legend: { labels: { color: textMuted, usePointStyle: true, padding: 16 } }
+          },
+          scales: {
+            x: xScaleConfig(axisMode),
+            y: {
+              title: { display: true, text: 'Cost ($)', color: textMuted },
+              ticks: {
+                color: textMuted,
+                font: { size: 11 },
+                callback: function(v) { return '$' + v.toFixed(2); }
+              },
+              grid: { color: border, borderDash: [3, 3] }
+            }
+          }
+        }
+      });
+    }
+
+    renderScatter('tokens');
+    window.__tuskRebuildScatter = renderScatter;
+  })();
 
   // --- Day-of-week / hour heatmap ---
   (function() {

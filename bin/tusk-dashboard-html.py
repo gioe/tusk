@@ -791,6 +791,44 @@ def generate_hourly_cost_section() -> str:
 </script>"""
 
 
+def generate_cost_scatter_section() -> str:
+    """Generate Cost by Model scatter plot panel with X-axis toggle."""
+    return """\
+<div class="panel" style="margin-bottom: var(--sp-6);">
+  <div class="section-header" style="display:flex;align-items:center;justify-content:space-between;">
+    <span>Cost by Model</span>
+    <div class="cost-trend-controls">
+      <span class="cost-toggle-label">X-Axis</span>
+      <div class="cost-trend-tabs" id="scatterXTabs">
+        <button class="cost-tab active" data-axis="tokens">Tokens</button>
+        <button class="cost-tab" data-axis="date">Date</button>
+        <button class="cost-tab" data-axis="duration">Duration</button>
+      </div>
+    </div>
+  </div>
+  <div style="padding:0 var(--sp-4) var(--sp-4);">
+    <canvas id="costScatterChart" height="280" style="max-width:100%;width:100%;"></canvas>
+  </div>
+  <p style="padding:0 var(--sp-4) var(--sp-4);font-size:0.7rem;color:var(--text-muted);margin:0;">
+    Each point is a session. Hover for details. Color = model.
+  </p>
+</div>
+<script>
+(function() {
+  var axisBtns = document.querySelectorAll('#scatterXTabs .cost-tab');
+  axisBtns.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      axisBtns.forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      if (window.__tuskRebuildScatter) {
+        window.__tuskRebuildScatter(btn.getAttribute('data-axis'));
+      }
+    });
+  });
+})();
+</script>"""
+
+
 def generate_dow_hour_heatmap_section() -> str:
     """Generate Day-of-Week × Hour heatmap panel (rendered by JS)."""
     return """\
