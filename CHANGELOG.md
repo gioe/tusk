@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [581] - 2026-04-04
+
+- [TASK-81] Add cost-by-model scatterplot to dashboard Cost tab
+
 ## [580] - 2026-04-03
 
 - [TASK-78] Add conventions-preflight.sh PreToolUse hook to inject relevant conventions before Edit|Write
