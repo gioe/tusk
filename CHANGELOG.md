@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [584] - 2026-04-04
+
+- [TASK-84] Handle missing git remote gracefully in tusk branch/merge
+
 ## [583] - 2026-04-04
 
 - [TASK-83] Add HTML comment delimiter support to TODO scanner
