@@ -55,6 +55,7 @@ fetch_cost_trend_daily = _data.fetch_cost_trend_daily
 fetch_cost_trend_monthly = _data.fetch_cost_trend_monthly
 fetch_hourly_cost = _data.fetch_hourly_cost
 fetch_dow_hour_heatmap = _data.fetch_dow_hour_heatmap
+fetch_cost_scatter_data = _data.fetch_cost_scatter_data
 # HTML generation layer
 generate_css = _html.generate_css
 generate_header = _html.generate_header
@@ -64,6 +65,7 @@ generate_skill_runs_section = _html.generate_skill_runs_section
 generate_cost_trend_section = _html.generate_cost_trend_section
 generate_hourly_cost_section = _html.generate_hourly_cost_section
 generate_dow_hour_heatmap_section = _html.generate_dow_hour_heatmap_section
+generate_cost_scatter_section = _html.generate_cost_scatter_section
 generate_filter_bar = _html.generate_filter_bar
 generate_table_header = _html.generate_table_header
 generate_pagination = _html.generate_pagination
@@ -96,6 +98,7 @@ def generate_html(task_metrics: list[dict],
                   utc_offset_minutes: int = 0,
                   hourly_cost: list[dict] = None,
                   dow_hour_heatmap: list[dict] = None,
+                  cost_scatter_data: list[dict] = None,
                   project_name: str = "Tusk") -> str:
     """Generate the full HTML dashboard by composing sub-functions."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -178,6 +181,7 @@ def generate_html(task_metrics: list[dict],
 
     hourly_cost_json = json.dumps(hourly_cost or []).replace("</", "<\\/")
     dow_hour_heatmap_json = json.dumps(dow_hour_heatmap or []).replace("</", "<\\/")
+    cost_scatter_json = json.dumps(cost_scatter_data or []).replace("</", "<\\/")
 
     # All Runs table → Skills tab
     skill_runs_html = generate_skill_runs_section(skill_runs or [], tool_stats_by_run)
@@ -191,7 +195,10 @@ def generate_html(task_metrics: list[dict],
     # Hour of day cost bar chart (→ Cost tab, after trend)
     hourly_cost_html = generate_hourly_cost_section()
 
-    # Day-of-week × hour heatmap (→ Cost tab, after hourly chart)
+    # Cost scatter plot (→ Cost tab, between hourly and heatmap)
+    cost_scatter_html = generate_cost_scatter_section()
+
+    # Day-of-week × hour heatmap (→ Cost tab, after scatter)
     dow_hour_heatmap_html = generate_dow_hour_heatmap_section()
 
     # DAG section
@@ -277,6 +284,7 @@ def generate_html(task_metrics: list[dict],
   <div class="container">
     {cost_trend_html}
     {hourly_cost_html}
+    {cost_scatter_html}
     {dow_hour_heatmap_html}
   </div>
 </div>
@@ -287,6 +295,7 @@ def generate_html(task_metrics: list[dict],
 <script>window.__tuskTzOffset = {utc_offset_minutes};</script>
 <script>window.__tuskHourlyCost = {hourly_cost_json};</script>
 <script>window.__tuskDowHourHeatmap = {dow_hour_heatmap_json};</script>
+<script>window.__tuskCostScatter = {cost_scatter_json};</script>
 {js}
 
 </body>
@@ -350,6 +359,7 @@ def main():
         # Hourly and day-of-week/hour cost aggregations
         hourly_cost = fetch_hourly_cost(conn, utc_offset_minutes)
         dow_hour_heatmap = fetch_dow_hour_heatmap(conn, utc_offset_minutes)
+        cost_scatter_data = fetch_cost_scatter_data(conn, utc_offset_minutes)
     finally:
         conn.close()
 
@@ -382,6 +392,7 @@ def main():
         utc_offset_minutes=utc_offset_minutes,
         hourly_cost=hourly_cost,
         dow_hour_heatmap=dow_hour_heatmap,
+        cost_scatter_data=cost_scatter_data,
         project_name=project_name,
     )
     log.debug("Generated %d bytes of HTML", len(html_content))

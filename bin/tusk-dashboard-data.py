@@ -396,6 +396,38 @@ def fetch_hourly_cost(conn: sqlite3.Connection, offset_minutes: int = 0) -> list
     return result
 
 
+def fetch_cost_scatter_data(conn: sqlite3.Connection, offset_minutes: int = 0) -> list[dict]:
+    """Fetch per-session scatter data for cost-by-model visualization.
+
+    Returns one row per session with model, cost, tokens, duration, and task
+    metadata (complexity, domain, task_type) for filtering.
+    """
+    log.debug("Querying cost scatter data (offset_minutes=%d)", offset_minutes)
+    sign = "+" if offset_minutes >= 0 else ""
+    offset_mod = f"{sign}{offset_minutes} minutes"
+    rows = conn.execute(
+        f"""SELECT s.id as session_id,
+                  s.task_id,
+                  COALESCE(s.model, 'unknown') as model,
+                  COALESCE(s.cost_dollars, 0) as cost,
+                  COALESCE(s.tokens_in, 0) as tokens_in,
+                  COALESCE(s.tokens_out, 0) as tokens_out,
+                  COALESCE(s.tokens_in, 0) + COALESCE(s.tokens_out, 0) as total_tokens,
+                  COALESCE(s.duration_seconds, 0) as duration,
+                  datetime(s.started_at, '{offset_mod}') as started_at,
+                  t.complexity,
+                  t.domain,
+                  t.task_type
+           FROM task_sessions s
+           LEFT JOIN tasks t ON s.task_id = t.id
+           WHERE s.cost_dollars > 0
+           ORDER BY s.started_at"""
+    ).fetchall()
+    result = [dict(r) for r in rows]
+    log.debug("Fetched %d cost scatter rows", len(result))
+    return result
+
+
 def fetch_dow_hour_heatmap(conn: sqlite3.Connection, offset_minutes: int = 0) -> list[dict]:
     """Fetch day-of-week + hour cost heatmap from task_sessions (local-time buckets).
 
