@@ -33,6 +33,12 @@ def run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(args, capture_output=True, text=True, check=check)
 
 
+def _has_remote(name: str = "origin") -> bool:
+    """Return True if the named git remote exists."""
+    result = run(["git", "remote", "get-url", name], check=False)
+    return result.returncode == 0
+
+
 def detect_default_branch() -> str:
     """Detect the repo's default branch via remote HEAD, gh fallback, then 'main'."""
     # Try remote HEAD
@@ -160,12 +166,19 @@ def main(argv: list[str]) -> int:
             _try_pop_stash()
         return 2
 
-    result = run(["git", "pull", "origin", default_branch], check=False)
-    if result.returncode != 0:
-        print(f"Error: git pull origin {default_branch} failed:\n{result.stderr.strip()}", file=sys.stderr)
-        if dirty:
-            _try_pop_stash(current_branch=default_branch)
-        return 2
+    if _has_remote():
+        result = run(["git", "pull", "origin", default_branch], check=False)
+        if result.returncode != 0:
+            print(f"Error: git pull origin {default_branch} failed:\n{result.stderr.strip()}", file=sys.stderr)
+            if dirty:
+                _try_pop_stash(current_branch=default_branch)
+            return 2
+    else:
+        print(
+            "Warning: no git remote 'origin' configured — skipping pull. "
+            "Branching from local HEAD.",
+            file=sys.stderr,
+        )
 
     # Create feature branch — check if one already exists for this task
     branch_name = f"feature/TASK-{task_id}-{slug}"

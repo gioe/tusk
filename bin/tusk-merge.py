@@ -163,6 +163,12 @@ def _try_pop_stash(task_id: int) -> None:
         print(pop.stderr.strip(), file=sys.stderr)
 
 
+def _has_remote(name: str = "origin") -> bool:
+    """Return True if the named git remote exists."""
+    result = run(["git", "remote", "get-url", name], check=False)
+    return result.returncode == 0
+
+
 def detect_default_branch() -> str:
     """Detect the repo's default branch via remote HEAD, gh fallback, then 'main'."""
     run(["git", "remote", "set-head", "origin", "--auto"], check=False)
@@ -553,11 +559,17 @@ def main(argv: list[str]) -> int:
                 print(f"Error: session-close failed:\n{result.stderr.strip()}", file=sys.stderr)
                 return 2
         # Push the default branch — may already be up to date if merged via PR
-        push = run(["git", "push", "origin", default_branch], check=False)
-        if push.returncode != 0:
+        if _has_remote():
+            push = run(["git", "push", "origin", default_branch], check=False)
+            if push.returncode != 0:
+                print(
+                    f"Warning: git push origin {default_branch} failed — "
+                    f"branch may already be pushed:\n{push.stderr.strip()}",
+                    file=sys.stderr,
+                )
+        else:
             print(
-                f"Warning: git push origin {default_branch} failed — "
-                f"branch may already be pushed:\n{push.stderr.strip()}",
+                "Warning: no git remote 'origin' configured — skipping push.",
                 file=sys.stderr,
             )
         print(f"Closing task {task_id}...", file=sys.stderr)
@@ -700,15 +712,23 @@ def main(argv: list[str]) -> int:
         for src, dst in moved:
             os.rename(dst, src)
 
-        # Step 4: Pull latest
-        result = run(["git", "-c", "pull.rebase=false", "pull", "origin", default_branch], check=False)
-        if result.returncode != 0:
-            print(f"Error: git pull failed:\n{result.stderr.strip()}", file=sys.stderr)
-            # Restore feature branch so user can investigate
-            run(["git", "checkout", branch_name], check=False)
-            if did_stash:
-                _try_pop_stash(task_id)
-            return 2
+        # Step 4: Pull latest (skip when no remote is configured)
+        has_origin = _has_remote()
+        if has_origin:
+            result = run(["git", "-c", "pull.rebase=false", "pull", "origin", default_branch], check=False)
+            if result.returncode != 0:
+                print(f"Error: git pull failed:\n{result.stderr.strip()}", file=sys.stderr)
+                # Restore feature branch so user can investigate
+                run(["git", "checkout", branch_name], check=False)
+                if did_stash:
+                    _try_pop_stash(task_id)
+                return 2
+        else:
+            print(
+                "Warning: no git remote 'origin' configured — skipping pull. "
+                "Merging from local state.",
+                file=sys.stderr,
+            )
 
         # Detect if the task commit was already applied directly on the default branch
         # (e.g. a rebase conflict resolved by re-applying the fix on main). When true,
@@ -853,32 +873,38 @@ def main(argv: list[str]) -> int:
                     _try_pop_stash(task_id)
                 return 2
 
-        # Step 5: Push
-        result = run(["git", "push", "origin", default_branch], check=False)
-        if result.returncode != 0:
-            if task_on_default:
-                print(
-                    f"Error: git push failed:\n{result.stderr.strip()}\n"
-                    f"  Retry: git push origin {default_branch}",
-                    file=sys.stderr,
-                )
-                if did_stash:
-                    _try_pop_stash(task_id)
-            else:
-                print(
-                    f"Error: git push failed:\n{result.stderr.strip()}\n"
-                    f"The branch has been merged locally but not pushed.\n"
-                    f"  Retry: git push origin {default_branch}\n"
-                    f"  Undo:  git reset --hard HEAD~1 && git checkout {branch_name}",
-                    file=sys.stderr,
-                )
-                if did_stash:
-                    # Restore feature branch before popping stash so the user's
-                    # uncommitted changes land back on the feature branch, not on
-                    # the default branch where the unmerged commit lives.
-                    run(["git", "checkout", branch_name], check=False)
-                    _try_pop_stash(task_id)
-            return 2
+        # Step 5: Push (skip when no remote is configured)
+        if has_origin:
+            result = run(["git", "push", "origin", default_branch], check=False)
+            if result.returncode != 0:
+                if task_on_default:
+                    print(
+                        f"Error: git push failed:\n{result.stderr.strip()}\n"
+                        f"  Retry: git push origin {default_branch}",
+                        file=sys.stderr,
+                    )
+                    if did_stash:
+                        _try_pop_stash(task_id)
+                else:
+                    print(
+                        f"Error: git push failed:\n{result.stderr.strip()}\n"
+                        f"The branch has been merged locally but not pushed.\n"
+                        f"  Retry: git push origin {default_branch}\n"
+                        f"  Undo:  git reset --hard HEAD~1 && git checkout {branch_name}",
+                        file=sys.stderr,
+                    )
+                    if did_stash:
+                        # Restore feature branch before popping stash so the user's
+                        # uncommitted changes land back on the feature branch, not on
+                        # the default branch where the unmerged commit lives.
+                        run(["git", "checkout", branch_name], check=False)
+                        _try_pop_stash(task_id)
+                return 2
+        else:
+            print(
+                "Warning: no git remote 'origin' configured — skipping push.",
+                file=sys.stderr,
+            )
 
         # Step 6: Delete feature branch
         # Use -D (force) when the branch was not merged via git merge (task_on_default path).
