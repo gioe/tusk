@@ -49,7 +49,7 @@ DEFAULT_EXCLUDE_DIRS = {
 # only by whitespace and optional comment chars.  This prevents matching "todo"
 # in prose like "use the todo list" or identifiers like "TodoWrite".
 _PATTERN = re.compile(
-    r"^[ \t]*(?://|/\*+|#+|\*+)?[ \t]*(TODO|FIXME|HACK|XXX)(?![a-zA-Z0-9_])[:\s]*(.+)?",
+    r"^[ \t]*(?://|/\*+|#+|\*+|<!--)?[ \t]*(TODO|FIXME|HACK|XXX)(?![a-zA-Z0-9_])[:\s]*(.+)?",
     re.IGNORECASE,
 )
 
@@ -135,7 +135,7 @@ def _scan_file(filepath: str, relpath: str) -> list:
                     raw_text = (m.group(2) or "").strip()
                     # Strip leading punctuation/whitespace and trailing comment closers
                     raw_text = re.sub(r"^[:\-–—\s]+", "", raw_text).strip()
-                    raw_text = re.sub(r"\s*\*+/\s*$", "", raw_text).strip()
+                    raw_text = re.sub(r"\s*(?:\*+/|--+>)\s*$", "", raw_text).strip()
                     if not raw_text or _is_false_positive(line, m.start(), raw_text):
                         continue
                     priority, task_type = _KEYWORD_MAP.get(keyword, ("Medium", "feature"))
