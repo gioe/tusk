@@ -977,10 +977,14 @@ JS: str = """\
     function xScaleConfig(axisMode) {
       if (axisMode === 'date') {
         return {
-          type: 'time',
-          time: { unit: 'day', tooltipFormat: 'MMM d, yyyy' },
           title: { display: true, text: 'Date', color: textMuted },
-          ticks: { color: textMuted, font: { size: 11 } },
+          ticks: {
+            color: textMuted, font: { size: 11 }, maxTicksLimit: 10,
+            callback: function(v) {
+              var d = new Date(v);
+              return (d.getMonth() + 1) + '/' + d.getDate();
+            }
+          },
           grid: { color: border, borderDash: [3, 3] }
         };
       }
@@ -1011,8 +1015,9 @@ JS: str = """\
               callbacks: {
                 label: function(ctx) {
                   var pt = ctx.raw;
-                  return pt.model + ' — $' + pt.y.toFixed(4)
-                    + ' (' + pt.total_tokens.toLocaleString() + ' tok, Task #' + pt.task_id + ')';
+                  var detail = pt.total_tokens.toLocaleString() + ' tok, Task #' + pt.task_id;
+                  if (pt.started_at) detail += ', ' + pt.started_at.slice(0, 10);
+                  return pt.model + ' — $' + pt.y.toFixed(4) + ' (' + detail + ')';
                 }
               }
             },
