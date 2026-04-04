@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [582] - 2026-04-04
+
+- [TASK-82] Fix TODO scanner false positives from string literals and identifiers
+
 ## [581] - 2026-04-04
 
 - [TASK-81] Add cost-by-model scatterplot to dashboard Cost tab
