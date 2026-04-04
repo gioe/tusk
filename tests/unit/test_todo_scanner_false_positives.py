@@ -178,3 +178,41 @@ class TestValidTodos:
     def test_double_hash(self):
         results = _scan_lines(["## TODO: Double hash comment style is valid"])
         assert len(results) == 1
+
+
+# ── HTML comment delimiter ──────────────────────────────────────────
+
+
+class TestHtmlComments:
+    def test_html_comment_todo(self):
+        results = _scan_lines(["<!-- TODO: Replace placeholder with real content -->"])
+        assert len(results) == 1
+        assert results[0]["text"] == "Replace placeholder with real content"
+        assert results[0]["keyword"] == "TODO"
+
+    def test_html_comment_fixme(self):
+        results = _scan_lines(["<!-- FIXME: Broken layout on mobile devices -->"])
+        assert len(results) == 1
+        assert results[0]["keyword"] == "FIXME"
+        assert results[0]["priority"] == "High"
+
+    def test_html_comment_hack(self):
+        results = _scan_lines(["<!-- HACK: Workaround for Safari flexbox bug -->"])
+        assert len(results) == 1
+        assert results[0]["keyword"] == "HACK"
+
+    def test_html_comment_indented(self):
+        results = _scan_lines(["    <!-- TODO: Add aria labels to navigation -->"])
+        assert len(results) == 1
+        assert results[0]["text"] == "Add aria labels to navigation"
+
+    def test_html_comment_no_closing_arrow(self):
+        """HTML comment without closing --> on same line."""
+        results = _scan_lines(["<!-- TODO: Multi-line comment starts here"])
+        assert len(results) == 1
+        assert results[0]["text"] == "Multi-line comment starts here"
+
+    def test_html_comment_strips_closing_arrow(self):
+        """Trailing --> should be stripped from the text."""
+        results = _scan_lines(["<!-- TODO: Fix broken links -->"])
+        assert results[0]["text"] == "Fix broken links"
