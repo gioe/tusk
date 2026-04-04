@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [583] - 2026-04-04
+
+- [TASK-83] Add HTML comment delimiter support to TODO scanner
+
 ## [582] - 2026-04-04
 
 - [TASK-82] Fix TODO scanner false positives from string literals and identifiers
