@@ -44,11 +44,31 @@ DEFAULT_EXCLUDE_DIRS = {
     ".mypy_cache", ".pytest_cache", "coverage",
 }
 
-# Compiled pattern: matches any keyword followed by optional colon/space
+# Compiled pattern: matches keyword in a comment-marker context.  The keyword
+# must appear after a comment delimiter (// # /* *) or at line start, preceded
+# only by whitespace and optional comment chars.  This prevents matching "todo"
+# in prose like "use the todo list" or identifiers like "TodoWrite".
 _PATTERN = re.compile(
-    r"\b(TODO|FIXME|HACK|XXX)\b[:\s]*(.+)?",
+    r"^[ \t]*(?://|/\*+|#+|\*+)?[ \t]*(TODO|FIXME|HACK|XXX)(?![a-zA-Z0-9_])[:\s]*(.+)?",
     re.IGNORECASE,
 )
+
+# Developer-tag pattern: "(name):" or "(name-with-dashes):" immediately after
+# keyword, indicating an internal team note rather than an actionable TODO.
+_DEV_TAG = re.compile(r"^\([\w.-]+\)\s*:")
+
+# Code-fragment pattern: text that looks like a path suffix, closing bracket,
+# or other non-natural-language fragment.
+_CODE_FRAGMENT = re.compile(
+    r"^[)\]}>.,;:!?/\\]+$"           # pure punctuation/brackets
+    r"|^/[\w./-]+$"                   # bare path like /types.js
+    r"|^[\w./-]*\.[a-z]{1,4}$",      # file extension like types.js
+    re.IGNORECASE,
+)
+
+# Minimum summary requirements
+_MIN_SUMMARY_CHARS = 10
+_MIN_SUMMARY_WORDS = 2
 
 # Binary-file sniff: if any of the first 8 KB contains a null byte, skip.
 _BINARY_CHUNK = 8192
@@ -67,6 +87,40 @@ def _is_binary(path: str) -> bool:
         return True
 
 
+def _is_in_string_literal(line: str, match_start: int) -> bool:
+    """Return True if match_start falls inside a quoted string literal."""
+    in_single = False
+    in_double = False
+    in_backtick = False
+    for i, ch in enumerate(line):
+        if i == match_start:
+            return in_single or in_double or in_backtick
+        if ch == "'" and not in_double and not in_backtick:
+            in_single = not in_single
+        elif ch == '"' and not in_single and not in_backtick:
+            in_double = not in_double
+        elif ch == '`' and not in_single and not in_double:
+            in_backtick = not in_backtick
+    return False
+
+
+def _is_false_positive(line: str, match_start: int, raw_text: str) -> bool:
+    """Return True if the match should be filtered out as a false positive."""
+    # 1. Inside a string literal
+    if _is_in_string_literal(line, match_start):
+        return True
+    # 2. Developer name tag like (inigo): or (xaa-ga):
+    if _DEV_TAG.match(raw_text):
+        return True
+    # 3. Too short or too few words
+    if len(raw_text) < _MIN_SUMMARY_CHARS or len(raw_text.split()) < _MIN_SUMMARY_WORDS:
+        return True
+    # 4. Looks like a code fragment
+    if _CODE_FRAGMENT.match(raw_text):
+        return True
+    return False
+
+
 def _scan_file(filepath: str, relpath: str) -> list:
     """Return list of match dicts for a single file."""
     if _is_binary(filepath):
@@ -79,13 +133,16 @@ def _scan_file(filepath: str, relpath: str) -> list:
                 if m:
                     keyword = m.group(1).upper()
                     raw_text = (m.group(2) or "").strip()
-                    # Strip leading punctuation/whitespace from text
+                    # Strip leading punctuation/whitespace and trailing comment closers
                     raw_text = re.sub(r"^[:\-–—\s]+", "", raw_text).strip()
+                    raw_text = re.sub(r"\s*\*+/\s*$", "", raw_text).strip()
+                    if not raw_text or _is_false_positive(line, m.start(), raw_text):
+                        continue
                     priority, task_type = _KEYWORD_MAP.get(keyword, ("Medium", "feature"))
                     results.append({
                         "file": relpath,
                         "line": lineno,
-                        "text": raw_text or keyword,
+                        "text": raw_text,
                         "keyword": keyword,
                         "priority": priority,
                         "task_type": task_type,
