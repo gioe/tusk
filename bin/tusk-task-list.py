@@ -63,6 +63,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--status", default=None, help="Filter by status")
     parser.add_argument("--domain", default=None, help="Filter by domain")
     parser.add_argument("--assignee", default=None, help="Filter by assignee")
+    parser.add_argument("--workflow", default=None, help="Filter by workflow")
     parser.add_argument("--format", choices=["text", "json"], default="text", dest="fmt")
     parser.add_argument("--all", action="store_true", dest="all_tasks",
                         help="Include Done tasks (default excludes Done)")
@@ -99,6 +100,10 @@ def main(argv: list[str]) -> int:
     if args.assignee is not None:
         conditions.append("assignee = ?")
         params.append(args.assignee)
+
+    if args.workflow is not None:
+        conditions.append("workflow = ?")
+        params.append(args.workflow)
 
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     sql = f"""
