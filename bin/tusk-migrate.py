@@ -1273,6 +1273,19 @@ def migrate_44(db_path: str, config_path: str, script_dir: str) -> None:
     print("  Migration 44: added 'pillars' table")
 
 
+def migrate_45(db_path: str, config_path: str, script_dir: str) -> None:
+    if not has_column(db_path, "tasks", "workflow"):
+        run_script(db_path, """
+            BEGIN;
+            ALTER TABLE tasks ADD COLUMN workflow TEXT;
+            PRAGMA user_version = 45;
+            COMMIT;
+        """)
+    else:
+        set_version(db_path, 45)
+    print("  Migration 45: added 'workflow' column to tasks table")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -1320,6 +1333,7 @@ MIGRATIONS = [
     (42, migrate_42),
     (43, migrate_43),
     (44, migrate_44),
+    (45, migrate_45),
 ]
 
 

@@ -31,7 +31,7 @@ def cmd_validate(config_path: str) -> int:
     errors = []
 
     # ── Check for unknown top-level keys ──
-    KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'complexity', 'blocker_types', 'criterion_types', 'agents', 'dupes', 'review', 'review_categories', 'review_severities', 'merge', 'test_command', 'domain_test_commands', 'project_type', 'project_libs', 'issue_scoring'}
+    KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'complexity', 'blocker_types', 'criterion_types', 'workflows', 'agents', 'dupes', 'review', 'review_categories', 'review_severities', 'merge', 'test_command', 'domain_test_commands', 'project_type', 'project_libs', 'issue_scoring'}
     known_list = ', '.join(sorted(KNOWN_KEYS))
     unknown = set(cfg.keys()) - KNOWN_KEYS
     if unknown:
@@ -50,6 +50,7 @@ def cmd_validate(config_path: str) -> int:
         'criterion_types':   {'required': False},
         'review_categories': {'required': False},
         'review_severities': {'required': False},
+        'workflows':         {'required': False},
     }
     for field, opts in LIST_FIELDS.items():
         if field not in cfg:
@@ -226,6 +227,10 @@ BEGIN SELECT RAISE(ABORT, 'Invalid {column}. Must be one of: {label}'); END;
     blocker_types = cfg.get('blocker_types', [])
     if blocker_types:
         print(trigger_sql('blocker_type', blocker_types, 'external_blockers'))
+
+    workflows = cfg.get('workflows', [])
+    if workflows:
+        print(trigger_sql('workflow', workflows))
 
     criterion_types = cfg.get('criterion_types', [])
     if criterion_types:
