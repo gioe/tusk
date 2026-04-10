@@ -339,48 +339,103 @@ def cmd_list(args: argparse.Namespace, db_path: str, config: dict) -> int:
     return 0
 
 
+def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
+                  suppress_shared_commit: bool, commit_hash: Optional[str],
+                  committed_at: Optional[str]) -> int:
+    """Mark a single criterion as done. Returns 0 on success, 1 on verification failure, 2 on not-found."""
+    row = conn.execute(
+        "SELECT id, task_id, criterion, is_completed, criterion_type, verification_spec "
+        "FROM acceptance_criteria WHERE id = ?",
+        (criterion_id,),
+    ).fetchone()
+    if not row:
+        print(f"Error: Criterion {criterion_id} not found", file=sys.stderr)
+        return 2
+
+    if row["is_completed"]:
+        print(f"Criterion #{criterion_id} is already completed")
+        return 0
+
+    criterion_type = row["criterion_type"] or "manual"
+    spec = row["verification_spec"]
+
+    # Run verification for non-manual types (unless --skip-verify)
+    verification_result = None
+    if criterion_type != "manual" and spec and not skip_verify:
+        result = run_verification(criterion_type, spec)
+        verification_result = json.dumps(result)
+
+        if not result["passed"]:
+            # Store the failed result
+            conn.execute(
+                "UPDATE acceptance_criteria SET verification_result = ?, "
+                "updated_at = datetime('now') WHERE id = ?",
+                (verification_result, criterion_id),
+            )
+            conn.commit()
+
+            print(f"Verification FAILED for criterion #{criterion_id} ({criterion_type}):",
+                  file=sys.stderr)
+            if result["output"]:
+                print(result["output"], file=sys.stderr)
+            print("Use --skip-verify to bypass verification.", file=sys.stderr)
+            return 1
+
+    # Warn if another completed criterion on this task already has this commit hash.
+    # Suppress when flag is set (batch/allow-shared-commit).
+    if commit_hash is not None and not suppress_shared_commit:
+        dup = conn.execute(
+            "SELECT id FROM acceptance_criteria "
+            "WHERE task_id = ? AND id <> ? AND commit_hash = ? AND is_completed = 1 "
+            "LIMIT 1",
+            (row["task_id"], criterion_id, commit_hash),
+        ).fetchone()
+        if dup:
+            print(
+                f"Warning: Criterion #{criterion_id} shares commit {commit_hash} "
+                f"with criterion #{dup['id']}.\n"
+                f"If these criteria were completed together intentionally (e.g. tightly coupled changes), "
+                f"this is fine — pass --allow-shared-commit to suppress this warning.\n"
+                f"If this is a big-bang commit covering unrelated changes, consider splitting: "
+                f"one commit per criterion improves cost attribution and reviewability.",
+                file=sys.stderr,
+            )
+
+    conn.execute(
+        "UPDATE acceptance_criteria SET is_completed = 1, "
+        "completed_at = strftime('%Y-%m-%d %H:%M:%f', 'now'), "
+        "commit_hash = ?, committed_at = ?, "
+        "verification_result = ?, updated_at = datetime('now') WHERE id = ?",
+        (commit_hash, committed_at, verification_result, criterion_id),
+    )
+    conn.commit()
+
+    # Best-effort cost capture — pass completed_at to bound the transcript window
+    crit_ts = conn.execute(
+        "SELECT completed_at FROM acceptance_criteria WHERE id = ?",
+        (criterion_id,),
+    ).fetchone()
+    completed_at_dt = (
+        lib.parse_sqlite_timestamp(crit_ts["completed_at"])
+        if crit_ts and crit_ts["completed_at"]
+        else None
+    )
+    capture_criterion_cost(conn, criterion_id, row["task_id"], completed_at_dt)
+    conn.commit()
+
+    verified_msg = ""
+    if criterion_type != "manual" and not skip_verify:
+        verified_msg = " (verification passed)"
+    elif criterion_type != "manual" and skip_verify:
+        verified_msg = " (verification skipped)"
+    print(f"Criterion #{criterion_id} marked done{verified_msg}: {row['criterion']}")
+    return 0
+
+
 def cmd_done(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn = get_connection(db_path)
     try:
-        row = conn.execute(
-            "SELECT id, task_id, criterion, is_completed, criterion_type, verification_spec "
-            "FROM acceptance_criteria WHERE id = ?",
-            (args.criterion_id,),
-        ).fetchone()
-        if not row:
-            print(f"Error: Criterion {args.criterion_id} not found", file=sys.stderr)
-            return 2
-
-        if row["is_completed"]:
-            print(f"Criterion #{args.criterion_id} is already completed")
-            return 0
-
-        criterion_type = row["criterion_type"] or "manual"
-        spec = row["verification_spec"]
-
-        # Run verification for non-manual types (unless --skip-verify)
-        verification_result = None
-        if criterion_type != "manual" and spec and not args.skip_verify:
-            result = run_verification(criterion_type, spec)
-            verification_result = json.dumps(result)
-
-            if not result["passed"]:
-                # Store the failed result
-                conn.execute(
-                    "UPDATE acceptance_criteria SET verification_result = ?, "
-                    "updated_at = datetime('now') WHERE id = ?",
-                    (verification_result, args.criterion_id),
-                )
-                conn.commit()
-
-                print(f"Verification FAILED for criterion #{args.criterion_id} ({criterion_type}):",
-                      file=sys.stderr)
-                if result["output"]:
-                    print(result["output"], file=sys.stderr)
-                print("Use --skip-verify to bypass verification.", file=sys.stderr)
-                return 1
-
-        # Best-effort: capture current git HEAD short hash and commit timestamp
+        # Best-effort: capture current git HEAD short hash and commit timestamp (once for all)
         commit_hash = None
         committed_at = None
         try:
@@ -396,55 +451,18 @@ def cmd_done(args: argparse.Namespace, db_path: str, config: dict) -> int:
         except Exception:
             pass  # Non-git environment — leave as NULL
 
-        # Warn if another completed criterion on this task already has this commit hash.
-        # Suppress when --allow-shared-commit or --batch is set (batch = intentional multi-criteria commit).
-        if commit_hash is not None and not getattr(args, "allow_shared_commit", False) and not getattr(args, "batch", False):
-            dup = conn.execute(
-                "SELECT id FROM acceptance_criteria "
-                "WHERE task_id = ? AND id <> ? AND commit_hash = ? AND is_completed = 1 "
-                "LIMIT 1",
-                (row["task_id"], args.criterion_id, commit_hash),
-            ).fetchone()
-            if dup:
-                print(
-                    f"Warning: Criterion #{args.criterion_id} shares commit {commit_hash} "
-                    f"with criterion #{dup['id']}.\n"
-                    f"If these criteria were completed together intentionally (e.g. tightly coupled changes), "
-                    f"this is fine — pass --allow-shared-commit to suppress this warning.\n"
-                    f"If this is a big-bang commit covering unrelated changes, consider splitting: "
-                    f"one commit per criterion improves cost attribution and reviewability.",
-                    file=sys.stderr,
-                )
+        criterion_ids = args.criterion_ids
+        allow_shared = getattr(args, "allow_shared_commit", False)
+        batch = getattr(args, "batch", False)
 
-        conn.execute(
-            "UPDATE acceptance_criteria SET is_completed = 1, "
-            "completed_at = strftime('%Y-%m-%d %H:%M:%f', 'now'), "
-            "commit_hash = ?, committed_at = ?, "
-            "verification_result = ?, updated_at = datetime('now') WHERE id = ?",
-            (commit_hash, committed_at, verification_result, args.criterion_id),
-        )
-        conn.commit()
-
-        # Best-effort cost capture — pass completed_at to bound the transcript window
-        crit_ts = conn.execute(
-            "SELECT completed_at FROM acceptance_criteria WHERE id = ?",
-            (args.criterion_id,),
-        ).fetchone()
-        completed_at_dt = (
-            lib.parse_sqlite_timestamp(crit_ts["completed_at"])
-            if crit_ts and crit_ts["completed_at"]
-            else None
-        )
-        capture_criterion_cost(conn, args.criterion_id, row["task_id"], completed_at_dt)
-        conn.commit()
-
-        verified_msg = ""
-        if criterion_type != "manual" and not args.skip_verify:
-            verified_msg = " (verification passed)"
-        elif criterion_type != "manual" and args.skip_verify:
-            verified_msg = " (verification skipped)"
-        print(f"Criterion #{args.criterion_id} marked done{verified_msg}: {row['criterion']}")
-        return 0
+        worst_exit = 0
+        for i, cid in enumerate(criterion_ids):
+            # For bulk mode (multiple IDs), imply --batch for 2nd+ criterion
+            suppress = allow_shared or batch or (i > 0 and len(criterion_ids) > 1)
+            rc = _done_single(conn, cid, args.skip_verify, suppress, commit_hash, committed_at)
+            if rc > worst_exit:
+                worst_exit = rc
+        return worst_exit
     finally:
         conn.close()
 
@@ -583,8 +601,8 @@ def main():
     list_p.add_argument("task_id", type=int, help="Task ID")
 
     # done
-    done_p = subparsers.add_parser("done", help="Mark a criterion as completed")
-    done_p.add_argument("criterion_id", type=int, help="Criterion ID")
+    done_p = subparsers.add_parser("done", help="Mark one or more criteria as completed")
+    done_p.add_argument("criterion_ids", type=int, nargs="+", help="One or more criterion IDs")
     done_p.add_argument(
         "--skip-verify", action="store_true",
         help="Skip automated verification for non-manual criteria",
