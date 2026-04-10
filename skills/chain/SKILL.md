@@ -110,6 +110,7 @@ This returns a JSON array of full task objects (same fields as `tusk task-get`).
   ```
   If the array is empty, write `None`.
 - `{task_progress}` — use the `next_steps` string from the most recent progress entry (index 0 of the `task_progress` array). If the array is empty or `next_steps` is blank, write `None`.
+- `{workflow}` — the task's `workflow` field value. If null, write `None`.
 
 Spawn **parallel background agents** (one per head task):
 

@@ -8,6 +8,7 @@ Description:
 Domain: {domain}
 Assignee: {assignee}
 Complexity: {complexity}
+Workflow: {workflow}
 
 Acceptance Criteria:
 {acceptance_criteria}
@@ -24,6 +25,8 @@ Prior Progress:
    tusk task-start {id} --force
    ```
    The `--force` flag ensures the workflow proceeds even if the task has no acceptance criteria (emits a warning rather than hard-failing). This returns JSON with task details, prior progress, criteria, and a session_id. Hold onto the session_id. The `criteria` array contains acceptance criteria — work through them in order and mark each done as you complete it.
+
+   **Workflow routing:** If the task's `workflow` field is non-null, read `.claude/skills/<workflow>/SKILL.md`. If that file exists, follow its instructions instead of the remaining steps below (pass the task ID and session_id). If the file does not exist, continue with the default workflow.
 
 2. **Create a git branch** from the default branch:
    ```
