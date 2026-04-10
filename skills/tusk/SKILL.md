@@ -74,6 +74,12 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
    Hold onto `session_id` from the JSON — it will be passed to `tusk merge` in step 12 to close the session. **Do not pass it to `tusk task-done`; use `tusk merge` for the full finalization sequence.**
 
+1b. **Workflow routing** — If the task's `workflow` field (from the `task` object in step 1) is non-null, the task uses a custom workflow instead of the default development cycle. Look up the corresponding skill:
+   ```
+   Read file: .claude/skills/<workflow>/SKILL.md
+   ```
+   If the file exists, **stop following the steps below** and follow that skill's instructions instead, passing the task ID and session_id from step 1. If the file does not exist, log a warning ("Workflow '<workflow>' not found — falling back to default development cycle") and continue with step 2.
+
 2. **Create a new git branch IMMEDIATELY** (skip if resuming and branch already exists):
    ```bash
    tusk branch <id> <brief-description-slug>
