@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [585] - 2026-04-10
+
+- [TASK-86] Add first-class workflow routing to tasks
+
 ## [584] - 2026-04-04
 
 - [TASK-84] Handle missing git remote gracefully in tusk branch/merge
