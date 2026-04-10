@@ -43,6 +43,7 @@ The core unit of work. Every piece of planned work is a task.
 | `closed_reason` | TEXT | validated; required when status=Done | Why the task was closed |
 | `complexity` | TEXT | validated if config non-empty | T-shirt size estimate (XS, S, M, L, XL) |
 | `is_deferred` | INTEGER | CHECK IN (0, 1); NOT NULL DEFAULT 0 | 1 if this is a deferred task (set by `tusk task-insert --deferred` or when summary starts with `[Deferred]`) |
+| `workflow` | TEXT | nullable; validated if config non-empty | Custom workflow skill name; when set, `/tusk` and `/chain` route to `.claude/skills/<workflow>/SKILL.md` instead of the default dev cycle |
 | `created_at` | TEXT | default now | Creation timestamp |
 | `updated_at` | TEXT | default now | Last-modified timestamp |
 | `started_at` | TEXT | nullable | When the task first moved to In Progress; set by `tusk task-start`, backfilled from `MIN(task_sessions.started_at)` by migration 36 |

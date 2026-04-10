@@ -20,12 +20,12 @@ bin/tusk validate
 
 # Task lifecycle
 bin/tusk task-get <task_id>        # accepts integer ID or TASK-NNN prefix form
-bin/tusk task-list [--status <s>] [--domain <d>] [--assignee <a>] [--format text|json] [--all]  # list tasks (not the built-in TaskList tool)
+bin/tusk task-list [--status <s>] [--domain <d>] [--assignee <a>] [--workflow <w>] [--format text|json] [--all]  # list tasks (not the built-in TaskList tool)
 bin/tusk task-select [--max-complexity XS|S|M|L|XL]
-bin/tusk task-insert "<summary>" "<description>" [--priority P] [--domain D] [--task-type T] [--assignee A] [--complexity C] [--criteria "..." ...] [--typed-criteria '{"text":"...","type":"...","spec":"..."}' ...] [--deferred] [--expires-in DAYS]
+bin/tusk task-insert "<summary>" "<description>" [--priority P] [--domain D] [--task-type T] [--assignee A] [--complexity C] [--workflow W] [--criteria "..." ...] [--typed-criteria '{"text":"...","type":"...","spec":"..."}' ...] [--deferred] [--expires-in DAYS]
 bin/tusk task-start <task_id> [--force]
 bin/tusk task-done <task_id> --reason completed|expired|wont_do|duplicate [--force]
-bin/tusk task-update <task_id> [--priority P] [--domain D] [--task-type T] [--assignee A] [--complexity C] [--summary S] [--description D]
+bin/tusk task-update <task_id> [--priority P] [--domain D] [--task-type T] [--assignee A] [--complexity C] [--workflow W] [--summary S] [--description D]
 bin/tusk task-reopen <task_id> --force
 
 # Dev workflow
