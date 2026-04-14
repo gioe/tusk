@@ -27,6 +27,7 @@ Exit codes:
 
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -128,16 +129,20 @@ def main(argv: list[str]) -> int:
     config_path = argv[1]
     remaining = argv[2:]
 
-    # Parse --criteria and --skip-verify flags out of remaining args; collect everything else positionally
+    # Parse flags out of remaining args; collect everything else positionally.
+    # Recognised flags: --criteria <id>..., --skip-verify, -m <msg>
+    # The bare "--" token is silently dropped (AI callers sometimes insert it as
+    # a separator between files and message).
     criteria_ids: list[str] = []
     skip_verify: bool = False
+    flag_message: str | None = None
     positional: list[str] = []
     i = 0
     while i < len(remaining):
         if remaining[i] == "--criteria":
             i += 1
             collected = 0
-            while i < len(remaining) and not remaining[i].startswith("--"):
+            while i < len(remaining) and not remaining[i].startswith("--") and remaining[i] != "-m":
                 criteria_ids.append(remaining[i])
                 i += 1
                 collected += 1
@@ -147,20 +152,46 @@ def main(argv: list[str]) -> int:
         elif remaining[i] == "--skip-verify":
             skip_verify = True
             i += 1
+        elif remaining[i] == "-m":
+            i += 1
+            if i >= len(remaining):
+                print("Error: -m requires a message argument", file=sys.stderr)
+                return 1
+            flag_message = remaining[i]
+            i += 1
+        elif remaining[i] == "--":
+            # Silently ignore bare -- separators
+            i += 1
         else:
             positional.append(remaining[i])
             i += 1
 
-    if len(positional) < 3:
-        print(
-            "Usage: tusk commit <task_id> \"<message>\" <file1> [file2 ...] [--criteria <id>] ... [--skip-verify]",
-            file=sys.stderr,
-        )
-        return 1
-
-    task_id_str = positional[0]
-    message = positional[1]
-    files = positional[2:]
+    # Determine task_id, message, and files from the positional args.
+    # Two invocation forms are supported:
+    #   1. Positional:  <task_id> "<message>" <files...>       (original form)
+    #   2. Flag:        <task_id> <files...> -m "<message>"    (git-like form)
+    if flag_message is not None:
+        # -m was used: positional = [task_id, files...]
+        if len(positional) < 2:
+            print(
+                "Usage: tusk commit <task_id> <file1> [file2 ...] -m \"<message>\" [--criteria <id>] ... [--skip-verify]",
+                file=sys.stderr,
+            )
+            return 1
+        task_id_str = positional[0]
+        message = flag_message
+        files = positional[1:]
+    else:
+        # Original positional form: task_id message files...
+        if len(positional) < 3:
+            print(
+                "Usage: tusk commit <task_id> \"<message>\" <file1> [file2 ...] [--criteria <id>] ... [--skip-verify]",
+                file=sys.stderr,
+            )
+            return 1
+        task_id_str = positional[0]
+        message = positional[1]
+        files = positional[2:]
 
     # Validate task_id is an integer
     try:
@@ -176,6 +207,10 @@ def main(argv: list[str]) -> int:
         except ValueError:
             print(f"Error: Invalid criterion ID: {cid}", file=sys.stderr)
             return 1
+
+    # Strip duplicate [TASK-N] prefix — AI callers sometimes include it in the
+    # message even though tusk commit prepends it automatically.
+    message = re.sub(r"^\[TASK-\d+\]\s*", "", message)
 
     if not message.strip():
         print("Error: Commit message must not be empty", file=sys.stderr)
