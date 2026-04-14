@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [586] - 2026-04-13
+
+- [TASK-87] Support -m flag and -- separator in tusk commit argument parser
+
 ## [585] - 2026-04-10
 
 - [TASK-86] Add first-class workflow routing to tasks
