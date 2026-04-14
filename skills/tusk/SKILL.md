@@ -132,7 +132,11 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
        ```bash
        tusk commit <id> "<message>" "<file1>" ["<file2>" ...] --criteria <cid>
        ```
-       This runs `tusk lint` (advisory — never blocks), stages the listed files, commits with the `[TASK-<id>] <message>` format and Co-Authored-By trailer, and marks the criterion done — all in one call. The criterion is bound to the new commit hash automatically.
+       An alternative `-m` flag form is also supported (useful when file paths come first):
+       ```bash
+       tusk commit <id> "<file1>" ["<file2>" ...] -m "<message>" --criteria <cid>
+       ```
+       This runs `tusk lint` (advisory — never blocks), stages the listed files, commits with the `[TASK-<id>] <message>` format and Co-Authored-By trailer, and marks the criterion done — all in one call. The criterion is bound to the new commit hash automatically. Duplicate `[TASK-N]` prefixes in the message are stripped automatically, and bare `--` separators are silently ignored.
 
        **Always quote file paths** — zsh expands unquoted brackets (`[id]`, `[slug]`) as glob patterns before the shell passes arguments to `tusk commit`. Any path component containing `[`, `]`, `*`, `?`, or spaces must be wrapped in double quotes (e.g., `"apps/api/[id]/route.ts"`).
 

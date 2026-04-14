@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 """Lint, stage, and commit in one atomic operation.
 
-Called by the tusk wrapper:
+Called by the tusk wrapper (three equivalent forms):
     tusk commit <task_id> "<message>" <file1> [file2 ...] [--criteria <id>] ... [--skip-verify]
+    tusk commit <task_id> <file1> [file2 ...] -m "<message>" [--criteria <id>] ... [--skip-verify]
+    tusk commit <task_id> <file1> [file2 ...] -- -m "<message>" [--criteria <id>] ... [--skip-verify]
+
+The -m flag extracts the message; bare -- separators are silently ignored.
+A [TASK-N] prefix in the message is stripped automatically to prevent duplication.
 
 Arguments received from tusk:
     sys.argv[1] — repo root
     sys.argv[2] — config path
-    sys.argv[3:] — task_id, message, files, and optional --criteria / --skip-verify flags
+    sys.argv[3:] — task_id, message, files, and optional flags (-m, --criteria, --skip-verify)
 
 Steps:
     0. Validate file paths — fail fast before lint/tests if any path is missing or escapes repo root
@@ -580,6 +585,6 @@ def main(argv: list[str]) -> int:
 if __name__ == "__main__":
     if len(sys.argv) < 2 or not os.path.isdir(sys.argv[1]):
         print("Error: This script must be invoked via the tusk wrapper.", file=sys.stderr)
-        print("Use: tusk commit <task_id> \"<message>\" <file1> [file2 ...]", file=sys.stderr)
+        print("Use: tusk commit <task_id> \"<message>\" <file1> [file2 ...] or: tusk commit <task_id> <file1> [file2 ...] -m \"<message>\"", file=sys.stderr)
         sys.exit(1)
     sys.exit(main(sys.argv[1:]))

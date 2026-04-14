@@ -31,7 +31,9 @@ bin/tusk task-reopen <task_id> --force
 # Dev workflow
 bin/tusk branch <task_id> <slug>
 bin/tusk commit <task_id> "<message>" "<file1>" ["<file2>" ...] [--criteria <id>] ... [--skip-verify]
-# Note: tusk commit prepends [TASK-N] to <message> automatically — do not include it yourself
+bin/tusk commit <task_id> "<file1>" ["<file2>" ...] -m "<message>" [--criteria <id>] ... [--skip-verify]
+# Note: tusk commit prepends [TASK-N] to <message> automatically; duplicate [TASK-N] prefixes are stripped
+# Note: bare -- separators are silently ignored (AI callers sometimes insert them)
 # Note: always quote file paths — zsh expands unquoted [brackets] as glob patterns before tusk receives them
 bin/tusk merge <task_id> [--session <session_id>] [--pr --pr-number <N>]
 bin/tusk progress <task_id> [--next-steps "..."]
