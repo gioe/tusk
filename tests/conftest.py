@@ -28,20 +28,21 @@ def config_path():
 
 
 @pytest.fixture()
-def db_path(tmp_path, config_path):
+def db_path(tmp_path, config_path, monkeypatch):
     """Initialise a fresh tusk SQLite DB in tmp_path via `bin/tusk init`.
 
-    Uses the TUSK_DB env-var override so the live tusk/tasks.db is never
-    touched.  Returns the resolved Path to the initialised database file.
+    Pins TUSK_DB in the test's environment via monkeypatch so that *any*
+    subprocess a test (or its code-under-test) spawns inherits the override
+    and hits this isolated DB. Without this, helpers like tusk-abandon and
+    tusk-merge — which shell out to `tusk session-close` / `tusk task-done`
+    — silently hit the repo's live tusk/tasks.db and produce opaque
+    "Session N already closed" / "Task N already Done" failures that
+    reference IDs from the live DB. See TASK-53.
     """
     db_file = tmp_path / "tasks.db"
-    env = {
-        **os.environ,
-        "TUSK_DB": str(db_file),
-    }
+    monkeypatch.setenv("TUSK_DB", str(db_file))
     result = subprocess.run(
         [TUSK_BIN, "init", "--force", "--skip-gitignore"],
-        env=env,
         capture_output=True,
         text=True,
     )
