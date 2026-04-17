@@ -163,11 +163,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     ```
     Then mark criteria done with `tusk criteria done <cid> --skip-verify` as usual.
 
-    **Exit code 3 also occurs when a formatter (e.g. `black`, `prettier`) modifies a staged file during the pre-commit hook's stash/unstash cycle.** In this case the commit is rejected because the working tree now differs from the staged snapshot after the hook runs. To resolve, stage the reformatted file and retry:
-    ```bash
-    git add "<file>" && tusk commit <task_id> "<message>" "<file>"
-    ```
-    If you cannot or do not want to stage the reformatted output, bypass the hook entirely:
+    **If a pre-commit auto-formatter (e.g. `black`, `ruff --fix`, `prettier`, `gofmt`) rewrites a staged file in-place**, `tusk commit` detects the index/working-tree divergence, re-stages the reformatted content, and retries the commit exactly once — no manual intervention required. If the retry also fails (the formatter produces unstable output on every run), bypass hooks with:
     ```bash
     tusk commit <task_id> "<message>" "<file>" --skip-verify
     ```

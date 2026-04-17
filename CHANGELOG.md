@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [593] - 2026-04-17
+
+- (no tasks specified)
+
 ## [592] - 2026-04-17
 
 - [TASK-93] Fix: tusk commit fails when pre-commit hook auto-reformats staged files
