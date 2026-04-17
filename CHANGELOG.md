@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [616] - 2026-04-17
+
+- [TASK-44] The `inject-task-context.sh` SessionStart hook now emits a compact one-line JSON summary (`{"in_progress":[{"id":N,"c":"...","s":"..."}]}`) instead of a multi-line `=== Active Tasks ===` block — shrinks to ≤200 bytes for the ≤3-in-progress case. When more than 3 tasks are in progress the output truncates to `{"in_progress_count":N,"top":{...}}` with only the highest-priority task, so the payload no longer balloons on busy backlogs. Set `TUSK_NO_SESSION_CONTEXT=1` to silence the hook entirely. The zero-in-progress silent-exit case is unchanged.
+
 ## [615] - 2026-04-17
 
 - [TASK-52] Gate 'Criterion #N marked done' print in tusk-criteria.py on stdout-is-TTY
