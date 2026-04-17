@@ -100,6 +100,9 @@ maybe_warn_cross_repo_drift() {
   [[ -n "${TUSK_PROJECT:-}" ]] && return 0
   [[ -n "${TUSK_DB:-}" ]] && return 0
   [[ -n "${TUSK_QUIET:-}" ]] && return 0
+  # Default-quiet when stderr isn't a TTY (agent callers, piped/captured
+  # stderr, CI). TUSK_FORCE_WARN=1 restores the warning in those contexts.
+  [[ -z "${TUSK_FORCE_WARN:-}" && ! -t 2 ]] && return 0
   [[ ! -s "$ACTIVE_PROJECTS_FILE" ]] && return 0
   local current_real others=() pinned seen=""
   current_real="$(cd "$CWD_REPO_ROOT" 2>/dev/null && pwd -P)" || return 0

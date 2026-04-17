@@ -56,10 +56,26 @@ def test_drift_warning_fires_from_consumer_repo(two_repos):
     assert r.returncode == 0, r.stderr
 
     # From the consumer repo, running any tusk command must surface the warning.
-    r = _run([TUSK_BIN, "path"], cwd=consumer, env=env)
+    # subprocess.run captures stderr (non-TTY), so TUSK_FORCE_WARN=1 is required
+    # to exercise the fire path — without it the default-quiet TTY check suppresses.
+    env_force = {**env, "TUSK_FORCE_WARN": "1"}
+    r = _run([TUSK_BIN, "path"], cwd=consumer, env=env_force)
     assert r.returncode == 0
     assert "active session" in r.stderr.lower()
     assert str(origin.resolve()) in r.stderr or os.path.realpath(str(origin)) in r.stderr
+
+
+def test_drift_warning_silent_when_stderr_not_tty(two_repos):
+    """Default-quiet: without TUSK_FORCE_WARN, non-TTY stderr suppresses the warning."""
+    origin, consumer, state_dir, env = two_repos
+
+    _run([TUSK_BIN, "active-project", "add", str(origin)], cwd=origin, env=env)
+
+    # No TUSK_FORCE_WARN, no TUSK_QUIET, no pin — subprocess captures stderr.
+    r = _run([TUSK_BIN, "path"], cwd=consumer, env=env)
+    assert r.returncode == 0
+    assert "warning" not in r.stderr.lower()
+    assert "active session" not in r.stderr.lower()
 
 
 def test_drift_warning_silenced_by_tusk_project_pin(two_repos):
