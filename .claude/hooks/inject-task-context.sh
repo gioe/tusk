@@ -45,7 +45,10 @@ def _entry(r, max_s):
         "s": _trunc(r["summary"], max_s),
     }
 
-out = {"in_progress": [_entry(r, 32) for r in rows]}
+if len(rows) > 3:
+    out = {"in_progress_count": len(rows), "top": _entry(rows[0], 60)}
+else:
+    out = {"in_progress": [_entry(r, 32) for r in rows]}
 print(json.dumps(out, separators=(",", ":")))
 PYEOF
 
