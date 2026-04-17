@@ -45,7 +45,8 @@ def make_db(task_count=1, criteria_specs=None):
         "  verification_result TEXT,"
         "  commit_hash TEXT, committed_at TEXT,"
         "  completed_at TEXT, updated_at TEXT,"
-        "  cost_dollars REAL, tokens_in INTEGER, tokens_out INTEGER"
+        "  cost_dollars REAL, tokens_in INTEGER, tokens_out INTEGER,"
+        "  skip_note TEXT"
         ")"
     )
     conn.execute(
@@ -306,9 +307,9 @@ class TestCmdDoneBulk:
         calls = []
         orig_done_single = criteria_mod._done_single
 
-        def spy_done_single(conn, cid, skip_verify, suppress, commit_hash, committed_at):
+        def spy_done_single(conn, cid, skip_verify, suppress, commit_hash, committed_at, **kwargs):
             calls.append({"cid": cid, "suppress": suppress})
-            return orig_done_single(conn, cid, skip_verify, suppress, commit_hash, committed_at)
+            return orig_done_single(conn, cid, skip_verify, suppress, commit_hash, committed_at, **kwargs)
 
         out = io.StringIO()
         with redirect_stdout(out), \

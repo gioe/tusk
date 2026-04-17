@@ -341,7 +341,7 @@ def cmd_list(args: argparse.Namespace, db_path: str, config: dict) -> int:
 
 def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
                   suppress_shared_commit: bool, commit_hash: Optional[str],
-                  committed_at: Optional[str]) -> int:
+                  committed_at: Optional[str], note: Optional[str] = None) -> int:
     """Mark a single criterion as done. Returns 0 on success, 1 on verification failure, 2 on not-found."""
     row = conn.execute(
         "SELECT id, task_id, criterion, is_completed, criterion_type, verification_spec "
@@ -405,8 +405,9 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
         "UPDATE acceptance_criteria SET is_completed = 1, "
         "completed_at = strftime('%Y-%m-%d %H:%M:%f', 'now'), "
         "commit_hash = ?, committed_at = ?, "
-        "verification_result = ?, updated_at = datetime('now') WHERE id = ?",
-        (commit_hash, committed_at, verification_result, criterion_id),
+        "verification_result = ?, skip_note = ?, "
+        "updated_at = datetime('now') WHERE id = ?",
+        (commit_hash, committed_at, verification_result, note, criterion_id),
     )
     conn.commit()
 
@@ -454,12 +455,13 @@ def cmd_done(args: argparse.Namespace, db_path: str, config: dict) -> int:
         criterion_ids = args.criterion_ids
         allow_shared = getattr(args, "allow_shared_commit", False)
         batch = getattr(args, "batch", False)
+        note = getattr(args, "note", None)
 
         worst_exit = 0
         for i, cid in enumerate(criterion_ids):
             # For bulk mode (multiple IDs), imply --batch for 2nd+ criterion
             suppress = allow_shared or batch or (i > 0 and len(criterion_ids) > 1)
-            rc = _done_single(conn, cid, args.skip_verify, suppress, commit_hash, committed_at)
+            rc = _done_single(conn, cid, args.skip_verify, suppress, commit_hash, committed_at, note=note)
             if rc > worst_exit:
                 worst_exit = rc
         return worst_exit
@@ -615,6 +617,10 @@ def main():
         "--batch", action="store_true",
         help="Suppress shared-commit warning for criteria after the first in a multi-criteria tusk commit invocation",
     )
+    done_p.add_argument(
+        "--note",
+        help="Rationale to attach to the criterion (requires --skip-verify)",
+    )
 
     # skip
     skip_p = subparsers.add_parser("skip", help="Mark a criterion as deferred to chain orchestrator")
@@ -641,6 +647,9 @@ def main():
     if not args.command:
         parser.print_help()
         sys.exit(1)
+
+    if args.command == "done" and getattr(args, "note", None) and not args.skip_verify:
+        done_p.error("--note requires --skip-verify")
 
     try:
         handlers = {
