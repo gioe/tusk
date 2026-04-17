@@ -36,9 +36,33 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 
 TRAILER = "Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
+
+# Prefix for the single-line final status summary emitted as the last line of
+# stdout.  Kept tagged (rather than pure JSON) so it is findable with
+# `tail -1 | grep TUSK_COMMIT_RESULT` even if something else writes to stdout
+# after this script would otherwise exit.  See GitHub Issue #450.
+SUMMARY_PREFIX = "TUSK_COMMIT_RESULT:"
+
+
+def _emit_final_summary(exit_code: int, state: dict) -> None:
+    """Emit a single-line JSON summary as the last line of stdout.
+
+    The summary is the only contract for background-task callers (e.g. Claude
+    Code's truncated read-back) — it must be findable via `tail -1` regardless
+    of what test or lint output came before it.
+    """
+    payload = {
+        "status": "success" if exit_code == 0 else "failure",
+        "exit_code": exit_code,
+        "commit": state.get("sha"),
+        "task": state.get("task_id"),
+    }
+    sys.stderr.flush()
+    print(f"{SUMMARY_PREFIX} {json.dumps(payload, separators=(',', ':'))}", flush=True)
 
 
 def _make_relative(abs_path: str, repo_root: str) -> str:
@@ -160,9 +184,25 @@ def load_test_command_timeout(config_path: str) -> tuple[int, str]:
 
 
 def main(argv: list[str]) -> int:
+    """Entry point — wraps _run_commit so a final summary line is always emitted.
+
+    The summary (see _emit_final_summary) is the single contract for
+    background-task callers that truncate stdout; it must be the last line of
+    stdout for every exit path, including argument-validation failures.
+    """
+    state: dict = {"sha": None, "task_id": None}
+    exit_code = 1
+    try:
+        exit_code = _run_commit(argv, state)
+        return exit_code
+    finally:
+        _emit_final_summary(exit_code, state)
+
+
+def _run_commit(argv: list[str], state: dict) -> int:
     if len(argv) < 4:
         print(
-            "Usage: tusk commit <task_id> \"<message>\" <file1> [file2 ...] [--criteria <id>] ... [--skip-verify]",
+            "Usage: tusk commit <task_id> \"<message>\" <file1> [file2 ...] [--criteria <id>] ... [--skip-verify] [--verbose]",
             file=sys.stderr,
         )
         return 1
@@ -177,6 +217,7 @@ def main(argv: list[str]) -> int:
     # a separator between files and message).
     criteria_ids: list[str] = []
     skip_verify: bool = False
+    verbose: bool = False
     flag_message: str | None = None
     positional: list[str] = []
     i = 0
@@ -193,6 +234,9 @@ def main(argv: list[str]) -> int:
                 return 1
         elif remaining[i] == "--skip-verify":
             skip_verify = True
+            i += 1
+        elif remaining[i] == "--verbose":
+            verbose = True
             i += 1
         elif remaining[i] == "-m":
             i += 1
@@ -241,6 +285,7 @@ def main(argv: list[str]) -> int:
     except ValueError:
         print(f"Error: Invalid task ID: {task_id_str}", file=sys.stderr)
         return 1
+    state["task_id"] = task_id
 
     # Validate criteria IDs are integers
     for cid in criteria_ids:
@@ -434,17 +479,34 @@ def main(argv: list[str]) -> int:
     test_cmd = load_test_command(config_path, task_domain)
     if test_cmd and not skip_verify:
         timeout_sec, timeout_source = load_test_command_timeout(config_path)
-        print(f"=== Running test_command: {test_cmd} (timeout {timeout_sec}s) ===")
-        sys.stdout.flush()
+        # Only announce the command up-front in verbose mode.  In quiet mode
+        # (the default) we keep stdout short so background-task callers can find
+        # the final summary line with `tail -1` instead of scrolling through
+        # 300KB of pytest output.
+        if verbose:
+            print(f"=== Running test_command: {test_cmd} (timeout {timeout_sec}s) ===")
+            sys.stdout.flush()
+        started = time.monotonic()
         try:
             test = subprocess.run(
                 test_cmd,
                 shell=True,
-                capture_output=False,
+                capture_output=not verbose,
+                text=True,
                 cwd=repo_root,
                 timeout=timeout_sec,
             )
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
+            # When capture_output=True, TimeoutExpired carries whatever was
+            # collected on stdout/stderr before the child was killed — dump it
+            # first so the user can see which test hung.
+            if not verbose:
+                if getattr(exc, "stdout", None):
+                    sys.stdout.write(exc.stdout if isinstance(exc.stdout, str) else exc.stdout.decode("utf-8", "replace"))
+                    sys.stdout.flush()
+                if getattr(exc, "stderr", None):
+                    sys.stderr.write(exc.stderr if isinstance(exc.stderr, str) else exc.stderr.decode("utf-8", "replace"))
+                    sys.stderr.flush()
             source_hint = {
                 "env": "TUSK_TEST_COMMAND_TIMEOUT env var",
                 "config": 'config key "test_command_timeout_sec"',
@@ -459,13 +521,25 @@ def main(argv: list[str]) -> int:
                 f"if it hangs waiting for input (e.g. interactive mode), switch to a non-interactive form."
             )
             return 5
+        elapsed = time.monotonic() - started
         if test.returncode != 0:
+            # Dump the captured output so the failure is diagnosable even in
+            # quiet mode.  In verbose mode the output already streamed live, so
+            # there is nothing to dump.
+            if not verbose:
+                if test.stdout:
+                    sys.stdout.write(test.stdout)
+                    sys.stdout.flush()
+                if test.stderr:
+                    sys.stderr.write(test.stderr)
+                    sys.stderr.flush()
             print(
-                f"\nError: test_command failed (exit {test.returncode}) — aborting commit",
+                f"\nError: test_command failed (exit {test.returncode}, {elapsed:.1f}s) — aborting commit",
                 file=sys.stderr,
             )
             return 2
-        print()
+        print(f"tests passed ({elapsed:.1f}s)")
+        sys.stdout.flush()
 
     # ── Step 2.5: Stage unstaged deletions of tracked files ─────────
     # GitHub Issue #474: when tracked files are removed via `rm`/`rm -rf`
@@ -683,6 +757,13 @@ def main(argv: list[str]) -> int:
 
     if result.stdout.strip():
         print(result.stdout.strip())
+
+    # Capture the landed commit SHA for the final summary line.  We re-query
+    # rather than reusing post_sha from the rescue path because the common
+    # fast-path (commit succeeds on the first try) never sets post_sha.
+    head = run(["git", "rev-parse", "--short=12", "HEAD"], check=False, cwd=repo_root)
+    if head.returncode == 0 and head.stdout.strip():
+        state["sha"] = head.stdout.strip()
 
     # ── Step 5: Mark criteria done (captures new HEAD automatically) ─
     # When multiple criteria are batched in one commit call, suppress the
