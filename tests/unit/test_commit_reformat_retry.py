@@ -50,23 +50,32 @@ class TestAutoFormatterRetry:
         mod = _load_module()
         argv = _argv(tmp_path)
 
-        side_effects = [
-            _make_completed(0),                              # lint
-            _make_completed(0, stdout=""),                   # ls-files --deleted (none)
-            _make_completed(0),                              # git add (initial)
-            _make_completed(0, stdout="aaa111\n"),           # pre HEAD
-            _make_completed(
-                1,
-                stderr="black reformatted somefile.py\npre-commit hook failed",
-            ),                                               # git commit — hook rewrote file
-            _make_completed(0, stdout="aaa111\n"),           # post HEAD — unchanged
-            _make_completed(0, stdout="somefile.py\n"),      # git diff --name-only — reformatted
-            _make_completed(0),                              # git add (re-stage)
-            _make_completed(0, stdout="[branch bbb222] msg"),# git commit (retry) — success
-            _make_completed(0, stdout="bbb222\n"),           # post HEAD (retry) — new SHA
-        ]
+        # Initial commit fails with hook-reformat error; retry after re-stage
+        # succeeds.  HEAD: pre=aaa111, post-initial=aaa111 (unchanged → triggers
+        # retry), post-retry=bbb222 (advanced → commit landed).
+        commit_attempts = [0]
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "commit"]:
+                commit_attempts[0] += 1
+                if commit_attempts[0] == 1:
+                    return _make_completed(
+                        1,
+                        stderr=(
+                            "black reformatted somefile.py\npre-commit hook failed"
+                        ),
+                    )
+                return _make_completed(0, stdout="[branch bbb222] msg")
+            if args[:2] == ["git", "rev-parse"]:
+                # Pre + post-initial both report unchanged HEAD; only the
+                # post-retry rev-parse runs after a successful commit.
+                sha = "bbb222\n" if commit_attempts[0] >= 2 else "aaa111\n"
+                return _make_completed(0, stdout=sha)
+            if args[:3] == ["git", "diff", "--name-only"]:
+                return _make_completed(0, stdout="somefile.py\n")
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(tmp_path)):
             rc = mod.main(argv)
 
@@ -81,20 +90,22 @@ class TestAutoFormatterRetry:
         mod = _load_module()
         argv = _argv(tmp_path)
 
-        side_effects = [
-            _make_completed(0),                              # lint
-            _make_completed(0, stdout=""),                   # ls-files --deleted (none)
-            _make_completed(0),                              # git add (initial)
-            _make_completed(0, stdout="aaa111\n"),           # pre HEAD
-            _make_completed(1, stderr="pre-commit hook failed"),
-            _make_completed(0, stdout="aaa111\n"),           # post HEAD — unchanged
-            _make_completed(0, stdout="somefile.py\n"),      # git diff — reformatted
-            _make_completed(0),                              # git add (re-stage)
-            _make_completed(1, stderr="pre-commit hook failed again"),
-            _make_completed(0, stdout="aaa111\n"),           # post HEAD (retry) — still unchanged
-        ]
+        commit_attempts = [0]
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "commit"]:
+                commit_attempts[0] += 1
+                if commit_attempts[0] == 1:
+                    return _make_completed(1, stderr="pre-commit hook failed")
+                return _make_completed(1, stderr="pre-commit hook failed again")
+            if args[:2] == ["git", "rev-parse"]:
+                # HEAD never advances — every rev-parse returns aaa111.
+                return _make_completed(0, stdout="aaa111\n")
+            if args[:3] == ["git", "diff", "--name-only"]:
+                return _make_completed(0, stdout="somefile.py\n")
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(tmp_path)):
             rc = mod.main(argv)
 
@@ -104,48 +115,65 @@ class TestAutoFormatterRetry:
         assert "auto-formatter hook may have rewritten" in captured.err
 
     def test_no_retry_with_skip_verify(self, tmp_path, capsys):
-        """--skip-verify bypasses the retry path entirely (StopIteration proves no extra calls)."""
+        """--skip-verify bypasses the retry path entirely."""
         mod = _load_module()
         argv = _argv(tmp_path, extra=["--skip-verify"])
 
-        side_effects = [
-            _make_completed(0),                              # lint
-            _make_completed(0, stdout=""),                   # ls-files --deleted (none)
-            _make_completed(0),                              # git add
-            _make_completed(0, stdout="aaa111\n"),           # pre HEAD
-            _make_completed(1, stderr="something failed"),
-            _make_completed(0, stdout="aaa111\n"),           # post HEAD — unchanged
-            # If retry path were reached, we'd need a git diff side_effect here.
-            # Omitting it asserts the code path is not taken.
-        ]
+        commit_attempts = []
+        diff_calls = []
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "commit"]:
+                commit_attempts.append(args)
+                return _make_completed(1, stderr="something failed")
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="aaa111\n")  # HEAD never advances
+            if args[:3] == ["git", "diff", "--name-only"]:
+                diff_calls.append(args)
+                return _make_completed(0, stdout="somefile.py\n")
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(tmp_path)):
             rc = mod.main(argv)
 
         assert rc == 3
         captured = capsys.readouterr()
         assert "re-staging reformatted content" not in (captured.out + captured.err)
+        # The retry path runs `git diff --name-only` and a second `git commit`.
+        # With --skip-verify, neither should fire.
+        assert diff_calls == [], (
+            "git diff must not be invoked when --skip-verify bypasses the retry path"
+        )
+        assert len(commit_attempts) == 1, (
+            "git commit must only be attempted once when --skip-verify is set"
+        )
 
     def test_no_retry_when_no_reformatted_files(self, tmp_path, capsys):
         """Commit fails but no files were modified by the hook → skip retry, return 3."""
         mod = _load_module()
         argv = _argv(tmp_path)
 
-        side_effects = [
-            _make_completed(0),                              # lint
-            _make_completed(0, stdout=""),                   # ls-files --deleted (none)
-            _make_completed(0),                              # git add
-            _make_completed(0, stdout="aaa111\n"),           # pre HEAD
-            _make_completed(1, stderr="some hook error"),
-            _make_completed(0, stdout="aaa111\n"),           # post HEAD — unchanged
-            _make_completed(0, stdout=""),                   # git diff — no reformatted files
-        ]
+        commit_attempts = []
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "commit"]:
+                commit_attempts.append(args)
+                return _make_completed(1, stderr="some hook error")
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="aaa111\n")  # HEAD never advances
+            if args[:3] == ["git", "diff", "--name-only"]:
+                return _make_completed(0, stdout="")  # no reformatted files
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(tmp_path)):
             rc = mod.main(argv)
 
         assert rc == 3
         captured = capsys.readouterr()
         assert "re-staging reformatted content" not in (captured.out + captured.err)
+        # diff returned no reformatted files → no retry of git commit.
+        assert len(commit_attempts) == 1, (
+            "git commit must only be attempted once when no files were reformatted"
+        )
