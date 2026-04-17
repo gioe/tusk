@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [606] - 2026-04-17
+
+- `bin/tusk` snapshots `tusk/tasks.db` to `tusk/backups/tasks.db.<ts>` (via SQLite `VACUUM INTO`) before every mutating subcommand, rotating to the newest 20 snapshots (`TUSK_BACKUP_RETENTION` to override, `TUSK_NO_BACKUP=1` to opt out). Nested tusk-in-tusk calls share the top-level snapshot via `TUSK_NESTED_CALL`. Defense against silent DB clobbers (e.g. `git stash pop` of a pre-`rm --cached` stash). `tusk init` now adds `tusk/backups/` to `.gitignore`.
+
 ## [605] - 2026-04-17
 
 - [TASK-105] `tusk task-done`/`tusk merge` open-criteria error now prefixes an X/Y done count and an explicit note that listed IDs are distinct from any just-completed criteria — makes it obvious when N "still open" criteria are a different set from N just marked done (GitHub Issue #463)

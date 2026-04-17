@@ -269,6 +269,7 @@ update_gitignore() {
     "tusk/tasks.db"
     "tusk/tasks.db-wal"
     "tusk/tasks.db-shm"
+    "tusk/backups/"
   )
   # Remove deprecated entries added by older versions of tusk
   for deprecated in "${deprecated_ignores[@]}"; do
@@ -1140,6 +1141,63 @@ cmd_branch_parse() {
   fi
   echo "{\"task_id\": $task_id}"
 }
+
+# ── DB snapshot defense ──────────────────────────────────────────────
+# Before any mutating subcommand, snapshot tusk/tasks.db into tusk/backups/
+# via the SQLite .backup API (WAL-safe). Retention keeps the newest
+# TUSK_BACKUP_RETENTION snapshots (default 20). Read-only subcommands skip
+# the snapshot. Opt out entirely with TUSK_NO_BACKUP=1.
+#
+# Why: an external clobber of tusk/tasks.db (git stash pop of an old stash
+# that predated `git rm --cached`, git checkout across the un-track commit,
+# rm, etc.) would otherwise be silent and unrecoverable. A rolling backup
+# means the most a client can lose is the last tusk command's mutation.
+
+BACKUP_DIR="$DB_DIR/backups"
+TUSK_BACKUP_RETENTION_DEFAULT=20
+
+is_readonly_subcmd() {
+  # Subcommands that never mutate tusk/tasks.db. Everything else triggers
+  # a snapshot. When in doubt, omit from this list — a redundant backup is
+  # cheaper than a missed one.
+  case "${1:-}" in
+    ""|path|config|validate|sql-quote|version|version-bump|\
+    git-default-branch|branch-parse|report-issue|\
+    sync-skills|generate-manifest|pricing-update|token-audit|\
+    task-get|task-get-multi|task-list|task-select|setup|\
+    backlog-scan|blockers|check-deliverables|test-detect|\
+    init-fetch-bootstrap|init-scan-codebase|init-scan-todos)
+      return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+snapshot_db() {
+  [[ "${TUSK_NO_BACKUP:-}" == "1" ]] && return 0
+  [[ -f "$DB_PATH" ]] || return 0
+  mkdir -p "$BACKUP_DIR" 2>/dev/null || return 0
+  local ts out retention
+  # PID suffix so two snapshots in the same second don't collide —
+  # VACUUM INTO errors if the destination already exists.
+  ts="$(date +%Y%m%d%H%M%S).$$"
+  out="$BACKUP_DIR/tasks.db.$ts"
+  # VACUUM INTO writes a single consolidated file with no WAL/SHM sidecars.
+  # Best-effort: a snapshot failure must never block the user's command.
+  sqlite3 "$DB_PATH" "VACUUM INTO '$out'" 2>/dev/null || return 0
+  retention="${TUSK_BACKUP_RETENTION:-$TUSK_BACKUP_RETENTION_DEFAULT}"
+  # Keep newest N; drop the rest. `ls -1t` is sorted newest-first.
+  # shellcheck disable=SC2012
+  ls -1t "$BACKUP_DIR"/tasks.db.* 2>/dev/null | tail -n +$((retention + 1)) \
+    | while IFS= read -r old; do rm -f "$old"; done
+  return 0
+}
+
+if [[ -z "${TUSK_NESTED_CALL:-}" ]] && ! is_readonly_subcmd "${1:-}"; then
+  snapshot_db
+fi
+# Any nested `tusk` invoked by a Python child inherits this and skips the
+# snapshot — one snapshot per user-initiated command is the right mental model.
+export TUSK_NESTED_CALL=1
 
 # ── Dispatch ─────────────────────────────────────────────────────────
 
