@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [602] - 2026-04-17
+
+- [TASK-102] Refactor: extract shared unreachable-remote detection helpers (`_is_remote_unreachable`, `_UNREACHABLE_REMOTE_PATTERNS`, `_UNREACHABLE_REMOTE_REGEX`) from `bin/tusk-branch.py` and `bin/tusk-merge.py` into a new `bin/tusk-git-helpers.py` loaded via `tusk_loader` to prevent drift. No behavioral change.
+
 ## [601] - 2026-04-17
 
 - [TASK-101] Fix: `tusk merge` push step now falls back to a warning when `origin` is unreachable (DNS failure, connection refused, 404, dead host), letting the merge complete locally. Follow-up to TASK-100; other push failures (non-fast-forward, permission denied) still hard-fail.
