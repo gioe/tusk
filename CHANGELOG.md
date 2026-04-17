@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [612] - 2026-04-17
+
+- [TASK-42] Trim tusk chain status human-table output; compact JSON by default
+
 ## [611] - 2026-04-17
 
 - [TASK-48] The cross-repo CWD-mismatch warning in `bin/tusk` (the "active session(s) pinned to other project(s)" block) is now default-quiet when stderr is not a TTY — agent callers like Claude Code, piped stderr, and CI runs no longer add ~300 bytes of warning text to every tusk invocation in multi-project setups. Human-TTY runs still see the warning. `TUSK_QUIET=1` continues to force silence in any context; `TUSK_FORCE_WARN=1` is the new escape hatch for restoring the warning in non-TTY contexts (used by the drift regression tests).
