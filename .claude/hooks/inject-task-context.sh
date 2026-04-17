@@ -1,5 +1,8 @@
 #!/bin/bash
 # SessionStart hook: emits a compact one-line JSON summary of in-progress tasks.
+# Set TUSK_NO_SESSION_CONTEXT=1 to disable injection entirely.
+
+[ "$TUSK_NO_SESSION_CONTEXT" = "1" ] && exit 0
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
