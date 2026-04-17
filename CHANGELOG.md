@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [603] - 2026-04-17
+
+- [TASK-103] `tusk upgrade` and `install.sh` now self-heal the `/review-commits` reviewer-agent sandbox permissions: the five required `permissions.allow` entries (`Bash(git diff:*)`, `Bash(git remote:*)`, `Bash(git symbolic-ref:*)`, `Bash(git branch:*)`, `Bash(tusk review:*)`) are auto-added to `.claude/settings.json` — creating the file if missing, merging into existing user entries without reordering, and leaving complete files byte-identical. (GitHub Issue #467)
+
 ## [602] - 2026-04-17
 
 - [TASK-102] Refactor: extract shared unreachable-remote detection helpers (`_is_remote_unreachable`, `_UNREACHABLE_REMOTE_PATTERNS`, `_UNREACHABLE_REMOTE_REGEX`) from `bin/tusk-branch.py` and `bin/tusk-merge.py` into a new `bin/tusk-git-helpers.py` loaded via `tusk_loader` to prevent drift. No behavioral change.
