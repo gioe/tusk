@@ -19,6 +19,7 @@ Steps:
 """
 
 import os
+import re
 import subprocess
 import sys
 
@@ -37,6 +38,36 @@ def _has_remote(name: str = "origin") -> bool:
     """Return True if the named git remote exists."""
     result = run(["git", "remote", "get-url", name], check=False)
     return result.returncode == 0
+
+
+_UNREACHABLE_REMOTE_PATTERNS = (
+    "unable to access",
+    "could not resolve host",
+    "could not read from remote repository",
+    "connection refused",
+    "connection timed out",
+    "operation timed out",
+    "network is unreachable",
+    "repository not found",
+    "does not appear to be a git repository",
+    "temporary failure in name resolution",
+    "name or service not known",
+    "no route to host",
+)
+
+# git sometimes inlines the failing URL: `fatal: repository 'https://…' not found`.
+_UNREACHABLE_REMOTE_REGEX = re.compile(r"repository '[^']*' not found", re.IGNORECASE)
+
+
+def _is_remote_unreachable(stderr: str) -> bool:
+    """Return True if *stderr* indicates the remote is unreachable rather than
+    a local merge problem. Used to distinguish network/DNS/404 failures (where
+    we can safely fall back to local HEAD) from divergent-history or merge
+    conflicts (where we must hard-fail)."""
+    lower = stderr.lower()
+    if any(pat in lower for pat in _UNREACHABLE_REMOTE_PATTERNS):
+        return True
+    return bool(_UNREACHABLE_REMOTE_REGEX.search(stderr))
 
 
 def detect_default_branch() -> str:
@@ -169,10 +200,17 @@ def main(argv: list[str]) -> int:
     if _has_remote():
         result = run(["git", "pull", "origin", default_branch], check=False)
         if result.returncode != 0:
-            print(f"Error: git pull origin {default_branch} failed:\n{result.stderr.strip()}", file=sys.stderr)
-            if dirty:
-                _try_pop_stash(current_branch=default_branch)
-            return 2
+            if _is_remote_unreachable(result.stderr):
+                print(
+                    f"Warning: could not reach origin — skipping pull. "
+                    f"Branching from local '{default_branch}'.\n  {result.stderr.strip()}",
+                    file=sys.stderr,
+                )
+            else:
+                print(f"Error: git pull origin {default_branch} failed:\n{result.stderr.strip()}", file=sys.stderr)
+                if dirty:
+                    _try_pop_stash(current_branch=default_branch)
+                return 2
     else:
         print(
             "Warning: no git remote 'origin' configured — skipping pull. "

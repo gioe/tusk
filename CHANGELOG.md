@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [599] - 2026-04-17
+
+- [TASK-99] Fix: `tusk branch` now falls back to a local-HEAD branch when `origin` is unreachable (DNS failure, connection refused, 404, dead host) instead of exiting 2. Genuine pull failures (merge conflicts, divergent histories) still hard-fail. (GitHub Issue #473)
+
 ## [598] - 2026-04-17
 
 - /review-commits: skip the `tusk filter-reviewers` step entirely when `review.reviewers` is empty (only an unassigned review exists) — previously the literal reading of the filter contract auto-approved that single review
