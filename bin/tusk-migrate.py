@@ -1286,6 +1286,17 @@ def migrate_45(db_path: str, config_path: str, script_dir: str) -> None:
     print("  Migration 45: added 'workflow' column to tasks table")
 
 
+def migrate_46(db_path: str, config_path: str, script_dir: str) -> None:
+    if not has_column(db_path, "acceptance_criteria", "skip_note"):
+        run_script(db_path, """
+            ALTER TABLE acceptance_criteria ADD COLUMN skip_note TEXT;
+            PRAGMA user_version = 46;
+        """)
+    else:
+        set_version(db_path, 46)
+    print("  Migration 46: added 'skip_note' column to acceptance_criteria")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -1334,6 +1345,7 @@ MIGRATIONS = [
     (43, migrate_43),
     (44, migrate_44),
     (45, migrate_45),
+    (46, migrate_46),
 ]
 
 
