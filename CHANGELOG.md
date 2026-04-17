@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [589] - 2026-04-17
+
+- [TASK-90] Migrate tusk-lint rules 5/9/10 from subprocess to direct DB access
+
 ## [588] - 2026-04-17
 
 - [TASK-89] Scope tusk-lint rule 6 to tasks closed in the last 30 days so retroactive historical violations no longer hang `tusk commit` (fixes #480)
