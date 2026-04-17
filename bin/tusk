@@ -43,6 +43,7 @@
 #
 # The DB path is defined here. Everything else reads it from this script.
 # Override with TUSK_DB env var: TUSK_DB=/tmp/test.db tusk migrate
+# Pin active project with TUSK_PROJECT env var: TUSK_PROJECT=/path/to/repo tusk ...
 
 set -euo pipefail
 
@@ -61,7 +62,16 @@ find_repo_root() {
   echo "$PWD"
 }
 
-REPO_ROOT="$(find_repo_root)"
+CWD_REPO_ROOT="$(find_repo_root)"
+if [[ -n "${TUSK_PROJECT:-}" ]]; then
+  if [[ ! -d "$TUSK_PROJECT" ]]; then
+    echo "Error: TUSK_PROJECT=$TUSK_PROJECT is not a directory" >&2
+    exit 2
+  fi
+  REPO_ROOT="$(cd "$TUSK_PROJECT" && pwd -P)"
+else
+  REPO_ROOT="$CWD_REPO_ROOT"
+fi
 if [[ -n "${TUSK_DB:-}" ]]; then
   DB_PATH="$TUSK_DB"
   DB_DIR="$(dirname "$DB_PATH")"
@@ -70,6 +80,41 @@ else
   DB_PATH="$DB_DIR/tasks.db"
 fi
 PROJECT_CONFIG="$REPO_ROOT/tusk/config.json"
+
+# ── Active-projects registry ─────────────────────────────────────────
+# Tracks projects with open sessions so tusk can warn when the CWD resolves
+# to a different repo (silent cross-repo DB rerouting, issue #464).
+TUSK_STATE_DIR="${TUSK_STATE_DIR:-$HOME/.tusk}"
+ACTIVE_PROJECTS_FILE="$TUSK_STATE_DIR/active-projects"
+export TUSK_STATE_DIR
+export TUSK_ACTIVE_PROJECTS_FILE="$ACTIVE_PROJECTS_FILE"
+export TUSK_REPO_ROOT="$REPO_ROOT"
+
+# Warn when a pinned project differs from the CWD-resolved repo, and neither
+# TUSK_PROJECT nor TUSK_DB is set (explicit pins suppress the warning).
+maybe_warn_cross_repo_drift() {
+  [[ -n "${TUSK_PROJECT:-}" ]] && return 0
+  [[ -n "${TUSK_DB:-}" ]] && return 0
+  [[ -n "${TUSK_QUIET:-}" ]] && return 0
+  [[ ! -s "$ACTIVE_PROJECTS_FILE" ]] && return 0
+  local current_real others=() pinned pinned_real
+  current_real="$(cd "$CWD_REPO_ROOT" 2>/dev/null && pwd -P)" || return 0
+  while IFS= read -r pinned; do
+    [[ -z "$pinned" ]] && continue
+    [[ ! -d "$pinned" ]] && continue
+    pinned_real="$(cd "$pinned" 2>/dev/null && pwd -P)" || continue
+    [[ "$pinned_real" != "$current_real" ]] && others+=("$pinned_real")
+  done < "$ACTIVE_PROJECTS_FILE"
+  if [[ ${#others[@]} -gt 0 ]]; then
+    {
+      echo "tusk: warning — active session(s) pinned to other project(s):"
+      for p in "${others[@]}"; do echo "  - $p"; done
+      echo "  CWD resolves to: $current_real"
+      echo "  Set TUSK_PROJECT=<path> to pin this invocation, or cd back. (TUSK_QUIET=1 to silence)"
+    } >&2
+  fi
+}
+maybe_warn_cross_repo_drift
 # Default config: check sibling (installed) then parent dir (source repo)
 if [[ -f "$SCRIPT_DIR/config.default.json" ]]; then
   DEFAULT_CONFIG="$SCRIPT_DIR/config.default.json"
@@ -898,6 +943,43 @@ cmd_upgrade() {
 
 # ── Session Close ────────────────────────────────────────────────────
 
+cmd_active_project() {
+  local subcmd="${1:-}"
+  local path_arg="${2:-$REPO_ROOT}"
+  case "$subcmd" in
+    add)
+      mkdir -p "$TUSK_STATE_DIR"
+      local canon
+      canon="$(cd "$path_arg" 2>/dev/null && pwd -P)" || { echo "Error: $path_arg not a directory" >&2; exit 1; }
+      touch "$ACTIVE_PROJECTS_FILE"
+      grep -Fx -- "$canon" "$ACTIVE_PROJECTS_FILE" >/dev/null 2>&1 && return 0
+      echo "$canon" >> "$ACTIVE_PROJECTS_FILE"
+      ;;
+    remove)
+      [[ ! -f "$ACTIVE_PROJECTS_FILE" ]] && return 0
+      local canon
+      canon="$(cd "$path_arg" 2>/dev/null && pwd -P)" || canon="$path_arg"
+      local tmp="$ACTIVE_PROJECTS_FILE.tmp.$$"
+      grep -Fxv -- "$canon" "$ACTIVE_PROJECTS_FILE" > "$tmp" || true
+      if [[ -s "$tmp" ]]; then
+        mv "$tmp" "$ACTIVE_PROJECTS_FILE"
+      else
+        rm -f "$tmp" "$ACTIVE_PROJECTS_FILE"
+      fi
+      ;;
+    list)
+      [[ -s "$ACTIVE_PROJECTS_FILE" ]] && cat "$ACTIVE_PROJECTS_FILE"
+      ;;
+    path)
+      echo "$ACTIVE_PROJECTS_FILE"
+      ;;
+    *)
+      echo "Usage: tusk active-project {add|remove|list|path} [path]" >&2
+      exit 1
+      ;;
+  esac
+}
+
 cmd_session_close() {
   local session_id="" task_id="" lines_added="" lines_removed="" skip_stats=false
 
@@ -951,6 +1033,11 @@ cmd_session_close() {
     "
 
     echo "Closed $count open session(s) for task $task_id (lines: +$lines_added/-$lines_removed)"
+    local remaining
+    remaining="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM task_sessions WHERE ended_at IS NULL" 2>/dev/null || echo 0)"
+    if [[ "$remaining" = "0" && -d "$REPO_ROOT" ]]; then
+      cmd_active_project remove "$REPO_ROOT" 2>/dev/null || true
+    fi
     return 0
   fi
 
@@ -1008,6 +1095,13 @@ cmd_session_close() {
     python3 "$SCRIPT_DIR/tusk-session-stats.py" "$DB_PATH" "$(resolve_config)" "$session_id" \
       || echo "Warning: could not collect session stats; continuing" >&2
     python3 "$SCRIPT_DIR/tusk-call-breakdown.py" "$DB_PATH" "$(resolve_config)" --session "$session_id" --write-only || true
+  fi
+
+  # Deregister REPO_ROOT if no open sessions remain (cross-repo drift tracking)
+  local remaining
+  remaining="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM task_sessions WHERE ended_at IS NULL" 2>/dev/null || echo 0)"
+  if [[ "$remaining" = "0" && -d "$REPO_ROOT" ]]; then
+    cmd_active_project remove "$REPO_ROOT" 2>/dev/null || true
   fi
 }
 
@@ -1069,6 +1163,7 @@ case "${1:-}" in
   skill-run) shift; exec python3 "$SCRIPT_DIR/tusk-skill-run.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   call-breakdown) shift; exec python3 "$SCRIPT_DIR/tusk-call-breakdown.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   session-close) shift; cmd_session_close "$@" ;;
+  active-project) shift; cmd_active_project "$@" ;;
   git-default-branch) cmd_git_default_branch ;;
   branch-parse) shift; cmd_branch_parse "$@" ;;
   task-get) shift; exec python3 "$SCRIPT_DIR/tusk-task-get.py" "$DB_PATH" "$(resolve_config)" "$@" ;;

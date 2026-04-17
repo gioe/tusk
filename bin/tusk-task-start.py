@@ -34,6 +34,36 @@ _db_lib = tusk_loader.load("tusk-db-lib")
 get_connection = _db_lib.get_connection
 
 
+def _register_active_project() -> None:
+    """Append the active REPO_ROOT to the active-projects registry.
+
+    Skipped when TUSK_DB is set (explicit DB override is not tied to a repo root)
+    or when the necessary env vars are missing (e.g., running outside the tusk
+    wrapper).
+    """
+    if os.environ.get("TUSK_DB"):
+        return
+    registry = os.environ.get("TUSK_ACTIVE_PROJECTS_FILE")
+    repo_root = os.environ.get("TUSK_REPO_ROOT")
+    if not registry or not repo_root:
+        return
+    try:
+        canon = os.path.realpath(repo_root)
+        if not os.path.isdir(canon):
+            return
+        os.makedirs(os.path.dirname(registry), exist_ok=True)
+        existing: list[str] = []
+        if os.path.exists(registry):
+            with open(registry, encoding="utf-8") as f:
+                existing = [line.rstrip("\n") for line in f if line.strip()]
+        if canon in existing:
+            return
+        with open(registry, "a", encoding="utf-8") as f:
+            f.write(canon + "\n")
+    except OSError:
+        pass
+
+
 def main(argv: list[str]) -> int:
     db_path = argv[0]
     # argv[1] is config_path (unused but kept for dispatch consistency)
@@ -212,6 +242,8 @@ def main(argv: list[str]) -> int:
             "session_id": session_id,
             "deliverable_check_needed": deliverable_check_needed,
         }
+
+        _register_active_project()
 
         print(json.dumps(result, indent=2))
         return 0
