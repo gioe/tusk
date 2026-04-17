@@ -179,3 +179,94 @@ class TestCheckReviewCommitsPermissions:
         _write_settings(claude_dir / "settings.json", {"hooks": {}})
         missing = mod.check_review_commits_permissions(str(tmp_path))
         assert set(missing) == set(mod.REQUIRED_REVIEW_COMMITS_PERMISSIONS)
+
+
+class TestEnsureReviewCommitsPermissions:
+    def test_missing_file_created_with_all_entries(self, tmp_path):
+        """When .claude/settings.json is absent, it's created with all required entries."""
+        mod = _load_module()
+        (tmp_path / ".claude").mkdir()
+        settings_path = tmp_path / ".claude" / "settings.json"
+        assert not settings_path.exists()
+
+        added = mod.ensure_review_commits_permissions(str(tmp_path))
+
+        assert set(added) == set(mod.REQUIRED_REVIEW_COMMITS_PERMISSIONS)
+        assert settings_path.exists()
+        result = _read_settings(settings_path)
+        assert result["permissions"]["allow"] == list(mod.REQUIRED_REVIEW_COMMITS_PERMISSIONS)
+
+    def test_partial_file_merged_preserving_existing(self, tmp_path):
+        """Existing user entries are preserved; only missing required entries are appended."""
+        mod = _load_module()
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        settings_path = claude_dir / "settings.json"
+        _write_settings(settings_path, {
+            "permissions": {"allow": ["Bash(git status:*)", "Bash(git diff:*)"]},
+            "hooks": {"SessionStart": []},
+        })
+
+        added = mod.ensure_review_commits_permissions(str(tmp_path))
+
+        # Only the four not-yet-present entries are added
+        assert "Bash(git diff:*)" not in added
+        assert set(added) == set(mod.REQUIRED_REVIEW_COMMITS_PERMISSIONS) - {"Bash(git diff:*)"}
+
+        result = _read_settings(settings_path)
+        allow = result["permissions"]["allow"]
+        # Existing user entries preserved in their original order and position
+        assert allow[0] == "Bash(git status:*)"
+        assert allow[1] == "Bash(git diff:*)"
+        # All required entries now present
+        assert set(mod.REQUIRED_REVIEW_COMMITS_PERMISSIONS).issubset(set(allow))
+        # Other keys (hooks) untouched
+        assert result["hooks"] == {"SessionStart": []}
+
+    def test_complete_file_is_byte_identical_noop(self, tmp_path):
+        """When all required entries are already present, the file is left byte-identical."""
+        mod = _load_module()
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        settings_path = claude_dir / "settings.json"
+        # Write with unusual formatting to prove no rewrite occurs
+        raw = '{"permissions":{"allow":["Bash(git diff:*)","Bash(git remote:*)","Bash(git symbolic-ref:*)","Bash(git branch:*)","Bash(tusk review:*)","Bash(ls:*)"]}}'
+        settings_path.write_text(raw)
+        before_bytes = settings_path.read_bytes()
+        before_mtime = settings_path.stat().st_mtime_ns
+
+        added = mod.ensure_review_commits_permissions(str(tmp_path))
+
+        assert added == []
+        after_bytes = settings_path.read_bytes()
+        after_mtime = settings_path.stat().st_mtime_ns
+        assert before_bytes == after_bytes, "file contents must be byte-identical"
+        assert before_mtime == after_mtime, "file must not have been rewritten"
+
+    def test_malformed_settings_reset_and_populated(self, tmp_path):
+        """Malformed JSON is replaced with a fresh valid settings object containing required entries."""
+        mod = _load_module()
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        settings_path = claude_dir / "settings.json"
+        settings_path.write_text("not valid json")
+
+        added = mod.ensure_review_commits_permissions(str(tmp_path))
+
+        assert set(added) == set(mod.REQUIRED_REVIEW_COMMITS_PERMISSIONS)
+        result = _read_settings(settings_path)
+        assert result["permissions"]["allow"] == list(mod.REQUIRED_REVIEW_COMMITS_PERMISSIONS)
+
+    def test_permissions_allow_non_list_replaced(self, tmp_path):
+        """A non-list permissions.allow (e.g., null, dict) is replaced with a list of required entries."""
+        mod = _load_module()
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        settings_path = claude_dir / "settings.json"
+        _write_settings(settings_path, {"permissions": {"allow": None}})
+
+        added = mod.ensure_review_commits_permissions(str(tmp_path))
+
+        assert set(added) == set(mod.REQUIRED_REVIEW_COMMITS_PERMISSIONS)
+        result = _read_settings(settings_path)
+        assert result["permissions"]["allow"] == list(mod.REQUIRED_REVIEW_COMMITS_PERMISSIONS)
