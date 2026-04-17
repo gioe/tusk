@@ -277,46 +277,46 @@ def rule6_done_incomplete_criteria(root):
 
 def rule9_deferred_missing_expiry(root):
     """Deferred tasks (is_deferred=1) with no expires_at set."""
-    violations = []
-    tusk_bin = os.path.join(root, "bin", "tusk")
-    if not os.path.isfile(tusk_bin):
-        tusk_bin = "tusk"
+    db_path = _db_path_from_root(root)
+    if not db_path:
+        return []
     try:
-        result = subprocess.run(
-            [tusk_bin, "-header", "-column",
-             "SELECT id, summary FROM tasks "
-             "WHERE is_deferred = 1 AND expires_at IS NULL AND status <> 'Done'"],
-            capture_output=True, text=True, timeout=5,
-        )
-        for line in result.stdout.strip().splitlines():
-            line = line.strip()
-            if line and not line.startswith("id") and not line.startswith("--"):
-                violations.append(f"  {line}")
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass  # Skip rule if tusk CLI is unavailable
-    return violations
+        conn = tusk_loader.load("tusk-db-lib").get_connection(db_path)
+        try:
+            rows = conn.execute(
+                "SELECT id, summary FROM tasks"
+                " WHERE is_deferred = 1 AND expires_at IS NULL AND status <> 'Done'"
+                " ORDER BY id"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+        finally:
+            conn.close()
+    except Exception:
+        return []
+    return [f"  TASK-{row[0]}  {row[1]}" for row in rows]
 
 
 def rule10_criteria_type_mismatch(root):
     """acceptance_criteria with verification_spec set but criterion_type='manual'."""
-    violations = []
-    tusk_bin = os.path.join(root, "bin", "tusk")
-    if not os.path.isfile(tusk_bin):
-        tusk_bin = "tusk"
+    db_path = _db_path_from_root(root)
+    if not db_path:
+        return []
     try:
-        result = subprocess.run(
-            [tusk_bin, "-header", "-column",
-             "SELECT ac.id, ac.task_id, ac.criterion FROM acceptance_criteria ac "
-             "WHERE ac.verification_spec IS NOT NULL AND ac.criterion_type = 'manual'"],
-            capture_output=True, text=True, timeout=5,
-        )
-        for line in result.stdout.strip().splitlines():
-            line = line.strip()
-            if line and not line.startswith("id") and not line.startswith("--"):
-                violations.append(f"  {line}")
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass  # Skip rule if tusk CLI is unavailable
-    return violations
+        conn = tusk_loader.load("tusk-db-lib").get_connection(db_path)
+        try:
+            rows = conn.execute(
+                "SELECT ac.id, ac.task_id, ac.criterion FROM acceptance_criteria ac"
+                " WHERE ac.verification_spec IS NOT NULL AND ac.criterion_type = 'manual'"
+                " ORDER BY ac.id"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+        finally:
+            conn.close()
+    except Exception:
+        return []
+    return [f"  criterion {row[0]} (task {row[1]}): {row[2]}" for row in rows]
 
 
 def rule8_orphaned_python_scripts(root):
