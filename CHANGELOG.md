@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [591] - 2026-04-17
+
+- [TASK-92] Fix: review-commits Step 9 stages unrelated files with git add -A
+
 ## [590] - 2026-04-17
 
 - [TASK-91] Migrate tusk-lint rules 14/15 from subprocess to direct DB access

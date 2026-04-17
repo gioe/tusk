@@ -248,7 +248,13 @@ After all reviewer agents complete, fetch the full review results for each revie
 tusk review list <task_id>
 ```
 
-Gather all open (unresolved) comments across all reviews. Group them by category:
+Gather all open (unresolved) comments across all reviews. Before processing any comments, initialize a bash array to track every file you touch during review fixes — Step 9 uses this list to stage only the files you actually modified:
+
+```bash
+REVIEW_FIX_FILES=()
+```
+
+Group the open comments by category:
 
 ### must_fix comments
 
@@ -257,7 +263,11 @@ These are blocking issues that must be resolved before the work can be merged.
 For each open `must_fix` comment:
 1. Read the comment details (file path, line numbers, comment text, severity).
 2. Implement the fix directly in the codebase.
-3. After fixing, mark the comment resolved:
+3. Record every file you modified while addressing this comment — usually the comment's own `file_path`, plus any additional files the fix required (new tests, helper extraction, etc.):
+   ```bash
+   REVIEW_FIX_FILES+=("<file_path>")
+   ```
+4. After fixing, mark the comment resolved:
    ```bash
    tusk review resolve <comment_id> fixed
    ```
@@ -283,7 +293,7 @@ Task tool call:
 
 These are optional improvements. For each `suggest` comment, **decide autonomously** whether to fix or dismiss — do not ask the user:
 
-- **Fix**: implement the suggestion and run `tusk review resolve <comment_id> fixed`
+- **Fix**: implement the suggestion, append every file you modified to `REVIEW_FIX_FILES` (`REVIEW_FIX_FILES+=("<file_path>")`), then run `tusk review resolve <comment_id> fixed`
   - Apply when the fix is small, clearly correct, and within the current task's scope
 - **Dismiss**: run `tusk review resolve <comment_id> dismissed`
   - Apply when the suggestion is out of scope, low-value, or would require significant rework
@@ -411,15 +421,32 @@ git diff --stat
 git diff --cached --stat
 ```
 
-If either command shows output (unstaged or staged changes exist), commit them:
+If both commands show no output, the working tree is clean — skip this step.
+
+Otherwise, commit **only** the files you tracked in `REVIEW_FIX_FILES` during Steps 7 and 8. **Never use `git add -A` or `git add .`** — those stage every dirty or untracked file in the working tree, including unrelated changes from other sessions (a real incident on TASK-1423 produced a 460-file commit that had to be reverted twice).
 
 ```bash
-git add -A
+# Deduplicate the tracked file list
+mapfile -t REVIEW_FIX_FILES < <(printf '%s\n' "${REVIEW_FIX_FILES[@]}" | sort -u)
+
+# Abort if no files were tracked but a diff exists — investigate manually
+if [ ${#REVIEW_FIX_FILES[@]} -eq 0 ]; then
+  echo "ERROR: uncommitted changes exist but REVIEW_FIX_FILES is empty. Review the diff above and stage files explicitly by name." >&2
+  exit 1
+fi
+
+# Stage only the tracked files
+git add -- "${REVIEW_FIX_FILES[@]}"
 git commit -m "[TASK-<task_id>] Apply review fixes"
 git push
 ```
 
-If the working tree is already clean (no output from either diff command), skip this step.
+**Reconciling the diff:** After staging, re-run `git diff --stat` to confirm the remaining unstaged changes are files you deliberately did not touch during review (e.g., scratch work from another session). If `git diff --stat` reports a file you *did* modify but that is missing from `REVIEW_FIX_FILES`, add it explicitly by name rather than falling back to `git add -A`:
+
+```bash
+git add -- "<path-you-modified>"
+git commit --amend --no-edit
+```
 
 ## Step 10: Final Summary
 
