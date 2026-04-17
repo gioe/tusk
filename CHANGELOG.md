@@ -8,7 +8,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [593] - 2026-04-17
 
-- (no tasks specified)
+- [TASK-93] Remove obsolete stash/unstash workaround from /tusk SKILL.md (retro follow-up)
 
 ## [592] - 2026-04-17
 
