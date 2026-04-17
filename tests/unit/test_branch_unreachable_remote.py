@@ -13,13 +13,28 @@ from unittest.mock import MagicMock, patch
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BRANCH_SCRIPT = os.path.join(REPO_ROOT, "bin", "tusk-branch.py")
+GIT_HELPERS_SCRIPT = os.path.join(REPO_ROOT, "bin", "tusk-git-helpers.py")
+
+
+def _load_real_git_helpers():
+    spec = importlib.util.spec_from_file_location("tusk_git_helpers", GIT_HELPERS_SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def _load_module():
     tusk_loader_mock = MagicMock()
     db_lib_mock = MagicMock()
     db_lib_mock.checkpoint_wal = MagicMock()
-    tusk_loader_mock.load.return_value = db_lib_mock
+    real_git_helpers = _load_real_git_helpers()
+
+    def _load(name):
+        if name == "tusk-git-helpers":
+            return real_git_helpers
+        return db_lib_mock
+
+    tusk_loader_mock.load.side_effect = _load
     with patch.dict("sys.modules", {"tusk_loader": tusk_loader_mock}):
         spec = importlib.util.spec_from_file_location("tusk_branch", BRANCH_SCRIPT)
         mod = importlib.util.module_from_spec(spec)
