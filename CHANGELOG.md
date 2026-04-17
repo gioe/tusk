@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [598] - 2026-04-17
+
+- /review-commits: skip the `tusk filter-reviewers` step entirely when `review.reviewers` is empty (only an unassigned review exists) — previously the literal reading of the filter contract auto-approved that single review
+
 ## [597] - 2026-04-17
 
 - [TASK-98] /address-issue Step 4.1 now falls back to plain text under `## Failing Test` when no code fence is present (strips `#` comment lines, applies same sandbox validation)

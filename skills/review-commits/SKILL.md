@@ -158,6 +158,8 @@ Where `<base_directory>` is the skill base directory shown at the top of this fi
 
 **Filter reviewers by task domain before spawning:**
 
+If `review.reviewers` is empty in config (i.e. there is only one unassigned review created in Step 4), **skip this filter step entirely** and proceed to the spawn block below for that review. The filter applies only when multiple configured reviewers exist and need to be narrowed by domain.
+
 Run:
 
 ```bash
