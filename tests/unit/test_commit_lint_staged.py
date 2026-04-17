@@ -216,7 +216,9 @@ class TestCommitFailureSkipVerifyHint:
         mod = _load_module()
         argv = _argv(tmp_path)
 
-        head_shas = iter(["aaa111\n", "bbb222\n"])  # HEAD changed → commit landed
+        # rev-parse HEAD is called: (1) pre-commit, (2) post-commit rescue check,
+        # (3) final summary SHA capture.  All three entries needed.
+        head_shas = iter(["aaa111\n", "bbb222\n", "bbb222\n"])
 
         def fake_run(args, **kwargs):
             if args[:2] == ["git", "rev-parse"]:

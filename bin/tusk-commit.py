@@ -2,9 +2,9 @@
 """Lint, stage, and commit in one atomic operation.
 
 Called by the tusk wrapper (three equivalent forms):
-    tusk commit <task_id> "<message>" <file1> [file2 ...] [--criteria <id>] ... [--skip-verify]
-    tusk commit <task_id> <file1> [file2 ...] -m "<message>" [--criteria <id>] ... [--skip-verify]
-    tusk commit <task_id> <file1> [file2 ...] -- -m "<message>" [--criteria <id>] ... [--skip-verify]
+    tusk commit <task_id> "<message>" <file1> [file2 ...] [--criteria <id>] ... [--skip-verify] [--verbose]
+    tusk commit <task_id> <file1> [file2 ...] -m "<message>" [--criteria <id>] ... [--skip-verify] [--verbose]
+    tusk commit <task_id> <file1> [file2 ...] -- -m "<message>" [--criteria <id>] ... [--skip-verify] [--verbose]
 
 The -m flag extracts the message; bare -- separators are silently ignored.
 A [TASK-N] prefix in the message is stripped automatically to prevent duplication.
@@ -12,7 +12,7 @@ A [TASK-N] prefix in the message is stripped automatically to prevent duplicatio
 Arguments received from tusk:
     sys.argv[1] — repo root
     sys.argv[2] — config path
-    sys.argv[3:] — task_id, message, files, and optional flags (-m, --criteria, --skip-verify)
+    sys.argv[3:] — task_id, message, files, and optional flags (-m, --criteria, --skip-verify, --verbose)
 
 Steps:
     0. Validate file paths — fail fast before lint/tests if any path is missing or escapes repo root
@@ -21,6 +21,17 @@ Steps:
     3. Stage files: git add for all files (handles additions, modifications, and deletions)
     4. git commit with [TASK-<id>] <message> format and Co-Authored-By trailer
     5. For each criterion ID passed via --criteria, call tusk criteria done <id> (captures HEAD automatically)
+
+Output contract (GitHub Issue #450):
+    - test_command output is captured by default (not streamed) so background-task
+      callers can read the final status without scrolling past 300KB of pytest output.
+      Pass --verbose to stream test output live (useful for interactive debugging).
+    - On test failure or timeout in quiet mode, the captured stdout/stderr is dumped
+      before the error message so the failure is diagnosable.
+    - On test success in quiet mode, a one-line "tests passed (<elapsed>s)" marker is emitted.
+    - The last line of stdout is ALWAYS a single-line summary prefixed with
+      "TUSK_COMMIT_RESULT: " followed by JSON: {status, exit_code, commit, task}.
+      This line is findable via `tail -1` for every exit path.
 
 Exit codes:
     0 — success

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [608] - 2026-04-17
+
+- [TASK-38] `tusk commit` now captures `test_command` stdout/stderr by default instead of streaming, so the final status line is findable via `tail -1` from background-task readers that truncate large pytest output. On failure or timeout the captured output is dumped before the error message so the failure remains diagnosable; on success a one-line `tests passed (Xs)` marker is printed. Every exit path emits a single-line `TUSK_COMMIT_RESULT: {...}` JSON summary as the last line of stdout (status, exit_code, commit SHA, task ID). Pass `--verbose` to restore live streaming for interactive debugging. GitHub Issue #450.
+
 ## [607] - 2026-04-17
 
 - [TASK-37] Fix: `tusk commit` no longer stalls indefinitely between the lint report and the test_command phase. `bin/tusk-commit.py` now flushes stdout and prints phase banners (`Running tusk lint`, `Running test_command: <cmd> (timeout Ns)`, `Staging N file(s)`, `Creating commit`) so progress is visible under block-buffered stdout (no-TTY contexts like Claude Code background agents). The `test_command` subprocess enforces a configurable timeout — default 120s, overridable via `test_command_timeout_sec` in `tusk/config.json` or the `TUSK_TEST_COMMAND_TIMEOUT` env var — and aborts with new exit code 5 (plus an actionable message naming the timeout source and observed duration) instead of hanging forever on interactive test runners. GitHub Issue #483.

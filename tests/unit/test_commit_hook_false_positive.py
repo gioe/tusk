@@ -52,7 +52,9 @@ class TestHookFalsePositive:
 
         # Pre-commit HEAD = aaa111; post-commit HEAD = bbb222 (commit landed
         # despite git commit's non-zero exit from a hook warning).
-        head_shas = iter(["aaa111\n", "bbb222\n"])
+        # rev-parse HEAD is called: (1) pre-commit, (2) post-commit rescue check,
+        # (3) final summary SHA capture.  All three entries needed.
+        head_shas = iter(["aaa111\n", "bbb222\n", "bbb222\n"])
         make_completed = self._make_completed
 
         def fake_run(args, **kwargs):
@@ -101,7 +103,9 @@ class TestHookFalsePositive:
         mod = _load_module()
         argv = _argv(tmp_path)
 
-        head_shas = iter(["aaa111\n", "bbb222\n"])
+        # rev-parse HEAD is called: (1) pre-commit, (2) post-commit rescue check,
+        # (3) final summary SHA capture.  All three entries needed.
+        head_shas = iter(["aaa111\n", "bbb222\n", "bbb222\n"])
         make_completed = self._make_completed
 
         def fake_run(args, **kwargs):
@@ -127,7 +131,9 @@ class TestHookFalsePositive:
         argv = _argv(tmp_path)
 
         hook_warning = "lint-staged could not find any staged files."
-        head_shas = iter(["aaa111\n", "bbb222\n"])
+        # rev-parse HEAD is called: (1) pre-commit, (2) post-commit rescue check,
+        # (3) final summary SHA capture.  All three entries needed.
+        head_shas = iter(["aaa111\n", "bbb222\n", "bbb222\n"])
         make_completed = self._make_completed
 
         def fake_run(args, **kwargs):
