@@ -783,9 +783,11 @@ def _run_commit(argv: list[str], state: dict) -> int:
     # When multiple criteria are batched in one commit call, suppress the
     # shared-commit warning for criteria[1:] — the user intentionally grouped them.
     criteria_failed = False
+    announce_criteria = verbose or sys.stderr.isatty()
     for idx, cid in enumerate(criteria_ids):
-        print(f"\n=== Marking criterion {cid} done ===")
-        sys.stdout.flush()
+        if announce_criteria:
+            print(f"\n=== Marking criterion {cid} done ===")
+            sys.stdout.flush()
         cmd = [tusk_bin, "criteria", "done", cid]
         if skip_verify:
             cmd.append("--skip-verify")
