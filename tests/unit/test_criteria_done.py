@@ -96,7 +96,7 @@ class TestDoneSingle:
         assert rc == 0
         row = conn.execute("SELECT is_completed FROM acceptance_criteria WHERE id = 1").fetchone()
         assert row["is_completed"] == 1
-        assert "marked done" in out.getvalue()
+        assert out.getvalue() == ""
 
     def test_not_found_returns_2(self):
         conn = make_db()
@@ -149,7 +149,14 @@ class TestDoneSingle:
                                            suppress_shared_commit=True,
                                            commit_hash=None, committed_at=None)
         assert rc == 0
-        assert "verification skipped" in out.getvalue()
+        # Criterion is marked done despite the verification spec being "false" —
+        # skip_verify bypasses verification entirely. Non-TTY stdout suppresses
+        # the "verification skipped" line; DB state is the source of truth.
+        row = conn.execute(
+            "SELECT is_completed, verification_result FROM acceptance_criteria WHERE id = 1"
+        ).fetchone()
+        assert row["is_completed"] == 1
+        assert row["verification_result"] is None
 
     def test_shared_commit_warning_when_not_suppressed(self):
         conn = make_db(criteria_specs=[
@@ -222,10 +229,7 @@ class TestCmdDoneBulk:
              patch("subprocess.check_output", side_effect=Exception("no git")):
             rc = criteria_mod.cmd_done(args, ":memory:", {})
         assert rc == 0
-        output = out.getvalue()
-        assert "Criterion #1 marked done" in output
-        assert "Criterion #2 marked done" in output
-        assert "Criterion #3 marked done" in output
+        assert out.getvalue() == ""
 
     def test_bulk_partial_failure(self):
         """Second criterion fails verification; first and third still marked done."""
@@ -251,9 +255,8 @@ class TestCmdDoneBulk:
             rc = criteria_mod.cmd_done(args, ":memory:", {})
 
         assert rc == 1  # Non-zero because criterion 2 failed
-        assert "Criterion #1 marked done" in out.getvalue()
+        assert out.getvalue() == ""
         assert "FAILED" in err.getvalue() and "#2" in err.getvalue()
-        assert "Criterion #3 marked done" in out.getvalue()
 
     def test_bulk_partial_failure_db_state(self):
         """Verify DB state: passed criteria done, failed one not done (via _done_single)."""
@@ -299,7 +302,7 @@ class TestCmdDoneBulk:
             rc = criteria_mod.cmd_done(args, ":memory:", {})
         assert rc == 0
         assert "already completed" in out.getvalue()
-        assert "Criterion #2 marked done" in out.getvalue()
+        # Non-TTY stdout suppresses "Criterion #N marked done" lines.
 
     def test_bulk_implies_batch_for_second_plus(self):
         """In bulk mode, 2nd+ criteria suppress shared-commit warning automatically."""
@@ -336,7 +339,7 @@ class TestCmdDoneBulk:
              patch("subprocess.check_output", side_effect=Exception("no git")):
             rc = criteria_mod.cmd_done(args, ":memory:", {})
         assert rc == 0
-        assert "Criterion #1 marked done" in out.getvalue()
+        assert out.getvalue() == ""
 
     def test_not_found_in_bulk_still_processes_others(self):
         """A not-found ID returns 2 but other criteria are still processed."""
@@ -351,8 +354,7 @@ class TestCmdDoneBulk:
             rc = criteria_mod.cmd_done(args, ":memory:", {})
         assert rc == 2  # Worst exit code
         assert "999 not found" in err.getvalue()
-        assert "Criterion #1 marked done" in out.getvalue()
-        assert "Criterion #2 marked done" in out.getvalue()
+        assert out.getvalue() == ""
 
 
 # ── Skip-note tests ──────────────────────────────────────────────────

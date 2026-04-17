@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [615] - 2026-04-17
+
+- [TASK-52] Gate 'Criterion #N marked done' print in tusk-criteria.py on stdout-is-TTY
+
 ## [614] - 2026-04-17
 
 - [TASK-51] Fix: `tusk init --force` on an existing DB no longer hangs when stdin is non-interactive. The "Continue? [y/N]" prompt is now skipped when stdin is not a TTY (`[[ -t 0 ]]` guard), in addition to the existing `--yes` bypass. Interactive terminals still get the confirmation prompt. Fixes `tests/integration/test_init_claude_md.py::test_claude_md_idempotent` which previously hung on the captured prompt under pytest.

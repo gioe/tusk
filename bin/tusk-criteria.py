@@ -432,7 +432,8 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
         verified_msg = " (verification passed)"
     elif criterion_type != "manual" and skip_verify:
         verified_msg = " (verification skipped)"
-    print(f"Criterion #{criterion_id} marked done{verified_msg}: {row['criterion']}")
+    if sys.stdout.isatty():
+        print(f"Criterion #{criterion_id} marked done{verified_msg}: {row['criterion']}")
     return 0
 
 
