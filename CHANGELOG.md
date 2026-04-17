@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [605] - 2026-04-17
+
+- [TASK-105] `tusk task-done`/`tusk merge` open-criteria error now prefixes an X/Y done count and an explicit note that listed IDs are distinct from any just-completed criteria — makes it obvious when N "still open" criteria are a different set from N just marked done (GitHub Issue #463)
+
 ## [604] - 2026-04-17
 
 - [TASK-104] Fix: tusk CLI silently uses wrong DB when CWD changes to consumer repo (GitHub Issue #464)
