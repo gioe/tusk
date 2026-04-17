@@ -74,16 +74,26 @@ class TestLintStagedSubdirIssue360:
             "apps/web/ui/components/cards/show/index.tsx",
         ]
 
-        side_effects = [
-            _make_completed(0),  # tusk lint
-            _make_completed(0, stdout=""),  # ls-files --deleted (none)
-            _make_completed(128, stderr="fatal: pathspec 'apps/web/ui/components/cards/show/index.tsx' did not match any files"),  # git add
-            _make_completed(0, stdout="apps/web/ui/components/cards/show/index.tsx\n"),  # git ls-files --cached
-            _make_completed(0, stdout="abc123\n"),  # git rev-parse HEAD (pre)
-            _make_completed(0, stdout="[main abc123] fix card layout"),  # git commit
-        ]
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                return _make_completed(
+                    128,
+                    stderr=(
+                        "fatal: pathspec 'apps/web/ui/components/cards/show/"
+                        "index.tsx' did not match any files"
+                    ),
+                )
+            if args[:3] == ["git", "ls-files", "--cached"]:
+                return _make_completed(
+                    0, stdout="apps/web/ui/components/cards/show/index.tsx\n"
+                )
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="abc123\n")
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(0, stdout="[main abc123] fix card layout")
+            return _make_completed(0)
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(subdir)):
             rc = mod.main(argv)
 
@@ -112,29 +122,31 @@ class TestLintStagedSubdirIssue360:
             "apps/web/ui/components/cards/popular/index.tsx",
         ]
 
-        # git add fails for both; both are in the cache
-        side_effects = [
-            _make_completed(0),  # lint
-            _make_completed(0, stdout=""),  # ls-files --deleted (none)
-            _make_completed(
-                128,
-                stderr=(
-                    "fatal: pathspec 'apps/web/ui/components/cards/show/index.tsx' "
-                    "did not match any files"
-                ),
-            ),  # git add
-            _make_completed(
-                0,
-                stdout=(
-                    "apps/web/ui/components/cards/show/index.tsx\n"
-                    "apps/web/ui/components/cards/popular/index.tsx\n"
-                ),
-            ),  # git ls-files --cached
-            _make_completed(0, stdout="abc123\n"),  # pre HEAD
-            _make_completed(0, stdout="[main abc123] fix cards"),  # git commit
-        ]
+        # git add fails for both; both are in the cache.
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                return _make_completed(
+                    128,
+                    stderr=(
+                        "fatal: pathspec 'apps/web/ui/components/cards/show/"
+                        "index.tsx' did not match any files"
+                    ),
+                )
+            if args[:3] == ["git", "ls-files", "--cached"]:
+                return _make_completed(
+                    0,
+                    stdout=(
+                        "apps/web/ui/components/cards/show/index.tsx\n"
+                        "apps/web/ui/components/cards/popular/index.tsx\n"
+                    ),
+                )
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="abc123\n")
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(0, stdout="[main abc123] fix cards")
+            return _make_completed(0)
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(subdir)):
             rc = mod.main(argv)
 
@@ -165,23 +177,23 @@ class TestLintStagedSubdirIssue360:
             "apps/web/ui/components/cards/popular/index.tsx",
         ]
 
-        # git add fails; only the first file is in the cache (partial lint-staged run)
-        side_effects = [
-            _make_completed(0),  # lint
-            _make_completed(0, stdout=""),  # ls-files --deleted (none)
-            _make_completed(
-                128,
-                stderr="fatal: pathspec 'apps/web/...' did not match any files",
-            ),  # git add
-            _make_completed(
-                0,
-                stdout="apps/web/ui/components/cards/show/index.tsx\n",  # only one cached
-            ),  # git ls-files --cached
-            _make_completed(1),  # git check-ignore (file 1)
-            _make_completed(1),  # git check-ignore (file 2)
-        ]
+        # git add fails; only the first file is in the cache (partial lint-staged run).
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                return _make_completed(
+                    128,
+                    stderr="fatal: pathspec 'apps/web/...' did not match any files",
+                )
+            if args[:3] == ["git", "ls-files", "--cached"]:
+                return _make_completed(
+                    0,
+                    stdout="apps/web/ui/components/cards/show/index.tsx\n",  # only one
+                )
+            if args[:3] == ["git", "check-ignore", "-v"]:
+                return _make_completed(1)  # not ignored
+            return _make_completed(0)
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(subdir)):
             rc = mod.main(argv)
 
@@ -298,19 +310,24 @@ class TestFileStatesFromSubdir:
 
         argv = self._make_argv(tmp_path, subdir, ["apps/web/ui/index.tsx"])
 
-        side_effects = [
-            _make_completed(0),  # lint
-            _make_completed(0, stdout=""),  # ls-files --deleted (none)
-            _make_completed(
-                128,
-                stderr="fatal: pathspec 'apps/web/ui/index.tsx' did not match any files",
-            ),  # git add — pathspec error despite file being staged
-            _make_completed(0, stdout="apps/web/ui/index.tsx\n"),  # ls-files --cached — file IS there
-            _make_completed(0, stdout="abc123\n"),  # pre HEAD
-            _make_completed(0, stdout="[main abc123] fix"),  # git commit
-        ]
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                return _make_completed(
+                    128,
+                    stderr=(
+                        "fatal: pathspec 'apps/web/ui/index.tsx' "
+                        "did not match any files"
+                    ),
+                )
+            if args[:3] == ["git", "ls-files", "--cached"]:
+                return _make_completed(0, stdout="apps/web/ui/index.tsx\n")
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="abc123\n")
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(0, stdout="[main abc123] fix")
+            return _make_completed(0)
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(subdir)):
             rc = mod.main(argv)
 
