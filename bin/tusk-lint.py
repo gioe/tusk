@@ -518,27 +518,26 @@ def rule12_python_syntax(root):
 
 def rule14_deferred_prefix_mismatch(root):
     """Open tasks where is_deferred flag and [Deferred] summary prefix disagree."""
-    violations = []
-    tusk_bin = os.path.join(root, "bin", "tusk")
-    if not os.path.isfile(tusk_bin):
-        tusk_bin = "tusk"
+    db_path = _db_path_from_root(root)
+    if not db_path:
+        return []
     try:
-        result = subprocess.run(
-            [tusk_bin, "-header", "-column",
-             "SELECT id, is_deferred, summary FROM tasks "
-             "WHERE status <> 'Done' AND ("
-             "  (summary LIKE '[Deferred]%' AND is_deferred = 0) OR "
-             "  (summary NOT LIKE '[Deferred]%' AND is_deferred = 1)"
-             ")"],
-            capture_output=True, text=True, timeout=5,
-        )
-        for line in result.stdout.strip().splitlines():
-            line = line.strip()
-            if line and not line.startswith("id") and not line.startswith("--"):
-                violations.append(f"  {line}")
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass  # Skip rule if tusk CLI is unavailable
-    return violations
+        conn = tusk_loader.load("tusk-db-lib").get_connection(db_path)
+        try:
+            rows = conn.execute(
+                "SELECT id, is_deferred, summary FROM tasks "
+                "WHERE status <> 'Done' AND ("
+                "  (summary LIKE '[Deferred]%' AND is_deferred = 0) OR "
+                "  (summary NOT LIKE '[Deferred]%' AND is_deferred = 1)"
+                ") ORDER BY id"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+        finally:
+            conn.close()
+    except Exception:
+        return []
+    return [f"  TASK-{row[0]}  is_deferred={row[1]}  {row[2]}" for row in rows]
 
 
 def rule15_big_bang_commits(root):
@@ -548,31 +547,31 @@ def rule15_big_bang_commits(root):
     Partial grouping (some criteria on one hash, others on another) is NOT flagged.
     Tasks with zero or one eligible criterion are NOT flagged.
     """
-    violations = []
-    tusk_bin = os.path.join(root, "bin", "tusk")
-    if not os.path.isfile(tusk_bin):
-        tusk_bin = "tusk"
+    db_path = _db_path_from_root(root)
+    if not db_path:
+        return []
     try:
-        result = subprocess.run(
-            [tusk_bin, "-header", "-column",
-             "SELECT t.id, MIN(t.summary) AS summary, COUNT(ac.id) AS criteria_count "
-             "FROM tasks t "
-             "JOIN acceptance_criteria ac ON ac.task_id = t.id "
-             "WHERE t.status = 'In Progress' "
-             "  AND ac.is_completed = 1 "
-             "  AND ac.is_deferred = 0 "
-             "  AND ac.commit_hash IS NOT NULL "
-             "GROUP BY t.id "
-             "HAVING COUNT(ac.id) > 1 AND COUNT(DISTINCT ac.commit_hash) = 1"],
-            capture_output=True, text=True, timeout=5,
-        )
-        for line in result.stdout.strip().splitlines():
-            line = line.strip()
-            if line and not line.startswith("id") and not line.startswith("--"):
-                violations.append(f"  {line}")
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass  # Skip rule if tusk CLI is unavailable
-    return violations
+        conn = tusk_loader.load("tusk-db-lib").get_connection(db_path)
+        try:
+            rows = conn.execute(
+                "SELECT t.id, MIN(t.summary) AS summary, COUNT(ac.id) AS criteria_count "
+                "FROM tasks t "
+                "JOIN acceptance_criteria ac ON ac.task_id = t.id "
+                "WHERE t.status = 'In Progress' "
+                "  AND ac.is_completed = 1 "
+                "  AND ac.is_deferred = 0 "
+                "  AND ac.commit_hash IS NOT NULL "
+                "GROUP BY t.id "
+                "HAVING COUNT(ac.id) > 1 AND COUNT(DISTINCT ac.commit_hash) = 1 "
+                "ORDER BY t.id"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+        finally:
+            conn.close()
+    except Exception:
+        return []
+    return [f"  TASK-{row[0]}  {row[1]}  (criteria on one commit: {row[2]})" for row in rows]
 
 
 def _version_bump_check(root, path_re, label):
