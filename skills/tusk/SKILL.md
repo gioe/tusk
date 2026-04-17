@@ -263,6 +263,12 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     ```
     This squash-merges via `gh pr merge` instead of a local fast-forward.
 
+    **No-commit closure (`wont_do` / `duplicate`):** If the task should be closed *without* shipping any code — an evaluation/spike whose answer is "don't do it", or a task that turns out to be a duplicate — use `tusk abandon` instead of `tusk merge`:
+    ```bash
+    tusk abandon <id> --reason wont_do|duplicate --session $SESSION_ID [--note "<rationale>"]
+    ```
+    `tusk abandon` switches off the feature branch, deletes it (force), closes the session, and marks the task Done with the given `closed_reason` in one call. **Refuses** if the feature branch has commits not on the default branch — in that case use `tusk merge` to ship the work, or delete the branch manually if you really want to discard it. The optional `--note` records the decision rationale on `task_progress` so the audit trail survives. After `tusk abandon` exits 0, run `/retro` exactly as you would after `tusk merge`.
+
     Then run `/retro` immediately — do not ask "shall I run retro?". Invoke it to review the session, surface process improvements, and create follow-up tasks.
 
 ### Other Subcommands
