@@ -160,6 +160,43 @@ class TestTaskLifecycle:
         assert "not yet marked done" in stderr
         assert "--force" in stderr
 
+    def test_open_criteria_error_lists_only_uncompleted_ids(self, db_path, config_path, tmp_path, monkeypatch):
+        """Regression for GitHub Issue #463: the task-done open-criteria error must
+        list only the criteria still open — not any criteria already marked done —
+        and must surface the X/Y done count so the two sets are unambiguous."""
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            task_id = insert_task(conn, "Task with mix of done and open criteria")
+            done_cid_1 = insert_criterion(conn, task_id, "Done one", is_completed=1, commit_hash="deadbee")
+            done_cid_2 = insert_criterion(conn, task_id, "Done two", is_completed=1, commit_hash="deadbee")
+            open_cid_1 = insert_criterion(conn, task_id, "Open one")
+            open_cid_2 = insert_criterion(conn, task_id, "Open two")
+            conn.execute(
+                "UPDATE tasks SET status = 'In Progress' WHERE id = ?", (task_id,)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        monkeypatch.chdir(tmp_path)
+
+        rc, result, stderr = call_done(db_path, config_path, task_id, "completed")
+
+        assert rc == 3
+        assert result is None
+        # Error must reference the open IDs and their criterion text
+        assert f"[{open_cid_1}] Open one" in stderr
+        assert f"[{open_cid_2}] Open two" in stderr
+        # Must NOT reference the already-completed criteria anywhere in the error
+        assert f"[{done_cid_1}]" not in stderr
+        assert f"[{done_cid_2}]" not in stderr
+        assert "Done one" not in stderr
+        assert "Done two" not in stderr
+        # X/Y count makes the disambiguation explicit
+        assert "2/4 criteria done" in stderr
+        assert "2 not yet marked done" in stderr
+
     def test_force_flag_closes_task_with_open_criteria(self, db_path, config_path):
         """CID 1526: --force closes task even with open criteria."""
         conn = sqlite3.connect(str(db_path))
