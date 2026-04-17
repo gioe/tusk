@@ -157,7 +157,7 @@ class TestTaskLifecycle:
 
         assert rc == 3
         assert result is None
-        assert "uncompleted acceptance criteria" in stderr
+        assert "not yet marked done" in stderr
         assert "--force" in stderr
 
     def test_force_flag_closes_task_with_open_criteria(self, db_path, config_path):
@@ -325,7 +325,7 @@ class TestTaskLifecycle:
 
         # wont_do is still blocked by open criteria (no auto-mark) — use --force to override
         assert rc == 3
-        assert "uncompleted acceptance criteria" in stderr
+        assert "not yet marked done" in stderr
 
         # Criterion must remain uncompleted — auto-mark never fires for wont_do
         conn = sqlite3.connect(str(db_path))

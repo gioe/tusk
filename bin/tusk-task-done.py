@@ -92,6 +92,37 @@ def main(argv: list[str]) -> int:
             (task_id,),
         ).fetchall()
 
+        def _print_open_criteria_error() -> None:
+            # Task-level counts so the user can tell "these IDs were never marked done"
+            # apart from "these IDs are the ones I just completed" — the two sets are
+            # disjoint by construction (open_criteria excludes is_completed = 1).
+            stats = conn.execute(
+                "SELECT "
+                " COALESCE(SUM(CASE WHEN is_completed = 1 THEN 1 ELSE 0 END), 0) AS completed, "
+                " COALESCE(SUM(CASE WHEN is_deferred = 1 THEN 1 ELSE 0 END), 0) AS deferred, "
+                " COUNT(*) AS total "
+                "FROM acceptance_criteria WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            completed = stats["completed"] if stats else 0
+            deferred = stats["deferred"] if stats else 0
+            total = stats["total"] if stats else len(open_criteria)
+            deferred_note = f", {deferred} deferred" if deferred else ""
+            print(
+                f"Error: Task {task_id}: {completed}/{total} criteria done{deferred_note}. "
+                f"{len(open_criteria)} not yet marked done:",
+                file=sys.stderr,
+            )
+            for row in open_criteria:
+                print(f"  [{row['id']}] {row['criterion']}", file=sys.stderr)
+            print(
+                "\nThese IDs are the criteria that are still open — distinct from any "
+                "criteria already marked done on this task. Mark them done with "
+                "`tusk criteria done <id>`, skip with `tusk criteria skip <id> --reason <reason>`, "
+                "or re-run with --force to close anyway.",
+                file=sys.stderr,
+            )
+
         # Auto-mark only applies to 'completed' closures — wont_do/duplicate/expired
         # tasks may have open criteria intentionally left incomplete.
         if open_criteria and not force and reason == "completed":
@@ -111,16 +142,10 @@ def main(argv: list[str]) -> int:
                 )
                 open_criteria = []
             else:
-                print(f"Error: Task {task_id} has {len(open_criteria)} uncompleted acceptance criteria:", file=sys.stderr)
-                for row in open_criteria:
-                    print(f"  [{row['id']}] {row['criterion']}", file=sys.stderr)
-                print("\nUse --force to close anyway.", file=sys.stderr)
+                _print_open_criteria_error()
                 return 3
         elif open_criteria and not force:
-            print(f"Error: Task {task_id} has {len(open_criteria)} uncompleted acceptance criteria:", file=sys.stderr)
-            for row in open_criteria:
-                print(f"  [{row['id']}] {row['criterion']}", file=sys.stderr)
-            print("\nUse --force to close anyway.", file=sys.stderr)
+            _print_open_criteria_error()
             return 3
 
         # 2b. Check for completed criteria without a commit hash (only for completed tasks)
