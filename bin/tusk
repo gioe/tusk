@@ -333,7 +333,7 @@ cmd_init() {
     echo "Database already exists at $DB_PATH"
     echo "Use 'tusk init --force' to recreate (existing data will be lost)."
     [[ $force -eq 1 ]] || exit 0
-    if [[ $yes -eq 0 ]]; then
+    if [[ $yes -eq 0 && -t 0 ]]; then
       echo "WARNING: This will permanently destroy all existing task data."
       printf "Continue? [y/N] "
       read -r reply
