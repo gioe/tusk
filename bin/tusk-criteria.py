@@ -293,7 +293,8 @@ def cmd_list(args: argparse.Namespace, db_path: str, config: dict) -> int:
         rows = conn.execute(
             "SELECT id, criterion, source, is_completed, is_deferred, deferred_reason, "
             "cost_dollars, tokens_in, tokens_out, "
-            "criterion_type, verification_spec, commit_hash, committed_at, created_at "
+            "criterion_type, verification_spec, commit_hash, committed_at, "
+            "skip_note, created_at "
             "FROM acceptance_criteria WHERE task_id = ? ORDER BY id",
             (args.task_id,),
         ).fetchall()
@@ -326,6 +327,8 @@ def cmd_list(args: argparse.Namespace, db_path: str, config: dict) -> int:
         criterion_text = r["criterion"]
         if r["is_deferred"] and r["deferred_reason"]:
             criterion_text += f" [deferred: {r['deferred_reason']}]"
+        if r["is_completed"] and r["skip_note"]:
+            criterion_text += f" [skip: {r['skip_note']}]"
         print(f"{r['id']:<6} {marker:<6} {ctype:<8} {r['source']:<14} {cost_str:<10} {commit_str:<10} {committed_str:<22} {criterion_text}")
 
     done = sum(1 for r in rows if r["is_completed"])
