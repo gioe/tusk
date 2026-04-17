@@ -131,7 +131,7 @@ class TestTimeoutPath:
         real_run = subprocess.run
 
         def fake_run(args, *a, **kw):
-            if isinstance(args, list) and args and args[-1] == "lint":
+            if isinstance(args, list) and args and "lint" in args:
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
             if kw.get("shell") and args == "sleep 30":
                 raise subprocess.TimeoutExpired(cmd=args, timeout=1)
@@ -169,7 +169,7 @@ class TestTimeoutPath:
         real_run = subprocess.run
 
         def fake_run(args, *a, **kw):
-            if isinstance(args, list) and args and args[-1] == "lint":
+            if isinstance(args, list) and args and "lint" in args:
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
             if kw.get("shell") and args == "sleep 30":
                 raise subprocess.TimeoutExpired(cmd=args, timeout=1)

@@ -2,9 +2,9 @@
 """Lint, stage, and commit in one atomic operation.
 
 Called by the tusk wrapper (three equivalent forms):
-    tusk commit <task_id> "<message>" <file1> [file2 ...] [--criteria <id>] ... [--skip-verify] [--verbose]
-    tusk commit <task_id> <file1> [file2 ...] -m "<message>" [--criteria <id>] ... [--skip-verify] [--verbose]
-    tusk commit <task_id> <file1> [file2 ...] -- -m "<message>" [--criteria <id>] ... [--skip-verify] [--verbose]
+    tusk commit <task_id> "<message>" <file1> [file2 ...] [--criteria <id>] ... [--skip-verify] [--skip-lint] [--verbose]
+    tusk commit <task_id> <file1> [file2 ...] -m "<message>" [--criteria <id>] ... [--skip-verify] [--skip-lint] [--verbose]
+    tusk commit <task_id> <file1> [file2 ...] -- -m "<message>" [--criteria <id>] ... [--skip-verify] [--skip-lint] [--verbose]
 
 The -m flag extracts the message; bare -- separators are silently ignored.
 A [TASK-N] prefix in the message is stripped automatically to prevent duplication.
@@ -12,11 +12,13 @@ A [TASK-N] prefix in the message is stripped automatically to prevent duplicatio
 Arguments received from tusk:
     sys.argv[1] — repo root
     sys.argv[2] — config path
-    sys.argv[3:] — task_id, message, files, and optional flags (-m, --criteria, --skip-verify, --verbose)
+    sys.argv[3:] — task_id, message, files, and optional flags
+                   (-m, --criteria, --skip-verify, --skip-lint, --verbose)
 
 Steps:
     0. Validate file paths — fail fast before lint/tests if any path is missing or escapes repo root
-    1. Run tusk lint (advisory — output is printed but never blocks)
+    1. Run tusk lint --quiet — aborts on any non-advisory violation (exit 6).
+       Advisory-only rules warn but never block. Bypass with --skip-lint or --skip-verify.
     2. Run test_command gate: use domain_test_commands[task.domain] if present, else test_command (hard-blocks on failure)
     3. Stage files: git add for all files (handles additions, modifications, and deletions)
     4. git commit with [TASK-<id>] <message> format and Co-Authored-By trailer
@@ -29,6 +31,9 @@ Output contract (GitHub Issue #450):
     - On test failure or timeout in quiet mode, the captured stdout/stderr is dumped
       before the error message so the failure is diagnosable.
     - On test success in quiet mode, a one-line "tests passed (<elapsed>s)" marker is emitted.
+    - Lint output is run with --quiet: only rules with violations print. Passing rules
+      are suppressed entirely. A one-line advisory summary prints when only advisory
+      rules fired.
     - The last line of stdout is ALWAYS a single-line summary prefixed with
       "TUSK_COMMIT_RESULT: " followed by JSON: {status, exit_code, commit, task}.
       This line is findable via `tail -1` for every exit path.
@@ -40,6 +45,8 @@ Exit codes:
     3 — git add or git commit failed
     4 — one or more criteria could not be marked done (commit itself succeeded)
     5 — test_command exceeded its configured timeout (see test_command_timeout_sec)
+    6 — tusk lint reported a non-advisory violation (nothing was staged or committed).
+        Fix the violations, or bypass with --skip-lint / --skip-verify.
 """
 
 import json
@@ -230,6 +237,7 @@ def _run_commit(argv: list[str], state: dict) -> int:
     # a separator between files and message).
     criteria_ids: list[str] = []
     skip_verify: bool = False
+    skip_lint: bool = False
     verbose: bool = False
     flag_message: str | None = None
     positional: list[str] = []
@@ -247,6 +255,9 @@ def _run_commit(argv: list[str], state: dict) -> int:
                 return 1
         elif remaining[i] == "--skip-verify":
             skip_verify = True
+            i += 1
+        elif remaining[i] == "--skip-lint":
+            skip_lint = True
             i += 1
         elif remaining[i] == "--verbose":
             verbose = True
@@ -331,7 +342,8 @@ def _run_commit(argv: list[str], state: dict) -> int:
 
     # ── Step → exit-code map (quick reference for diagnosis) ─────────
     #   Step 0  (path validation)   → exit 3  (escapes root or path not found)
-    #   Step 1  (lint)              → advisory only; never exits
+    #   Step 1  (lint)              → exit 6  (non-advisory lint violation;
+    #                                          bypass with --skip-lint / --skip-verify)
     #   Step 2  (test_command gate) → exit 2  (test_command failed)
     #   Step 3  (git add)           → exit 3  (git add failed)
     #   Step 4  (git commit)        → exit 3  (git commit failed)
@@ -475,17 +487,35 @@ def _run_commit(argv: list[str], state: dict) -> int:
                 )
         return 3
 
-    # ── Step 1: Run lint (advisory) ──────────────────────────────────
+    # ── Step 1: Run lint (blocks on non-advisory violations) ─────────
+    # `tusk lint --quiet` prints ONLY rules with violations — passing rules
+    # are suppressed so a clean repo produces no lint output at all during
+    # commit.  Non-advisory violations exit 1; we translate that to exit 6
+    # to give the aborted-by-lint case its own distinct code, separate from
+    # tests (2), git (3), criteria (4), and timeout (5).
+    # Advisory-only warnings (Rules 13, 14, 15, 17, 20, 22, 23) print their
+    # findings but leave lint's exit status at 0, so they never block here.
     tusk_bin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
-    if announce_status:
-        print("=== Running tusk lint (advisory) ===")
+    if skip_verify or skip_lint:
+        if announce_status:
+            reason = "--skip-lint" if skip_lint else "--skip-verify"
+            print(f"=== Skipping tusk lint ({reason}) ===")
+            sys.stdout.flush()
+    else:
+        if announce_status:
+            print("=== Running tusk lint ===")
+            sys.stdout.flush()
+        lint = subprocess.run([tusk_bin, "lint", "--quiet"], capture_output=False)
+        if lint.returncode != 0:
+            _print_error(
+                "\nError: tusk lint reported non-advisory violations — aborting commit.\n"
+                "  Fix the violations above, or bypass with --skip-lint "
+                "(lint only) or --skip-verify (lint, tests, and pre-commit hooks)."
+            )
+            return 6
+        if announce_status:
+            print()
         sys.stdout.flush()
-    lint = subprocess.run([tusk_bin, "lint"], capture_output=False)
-    if lint.returncode != 0 and announce_status:
-        print("\nLint reported warnings (advisory only — continuing)\n")
-    elif announce_status:
-        print()
-    sys.stdout.flush()
 
     # ── Step 2: Run test_command gate (hard-blocks on failure) ───────
     # Only query the task's domain when domain_test_commands is configured —

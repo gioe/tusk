@@ -70,7 +70,7 @@ class TestSummaryLineEmission:
         real_run = subprocess.run
 
         def fake_run(args, *a, **kw):
-            if isinstance(args, list) and args and args[-1] == "lint":
+            if isinstance(args, list) and args and "lint" in args:
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
             if kw.get("shell") and args == "echo pytest-noise":
                 return subprocess.CompletedProcess(args, 0, stdout="noise\n", stderr="")
@@ -98,7 +98,7 @@ class TestSummaryLineEmission:
         real_run = subprocess.run
 
         def fake_run(args, *a, **kw):
-            if isinstance(args, list) and args and args[-1] == "lint":
+            if isinstance(args, list) and args and "lint" in args:
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
             if kw.get("shell") and args == "false":
                 return subprocess.CompletedProcess(
@@ -131,7 +131,7 @@ class TestSummaryLineEmission:
         real_run = subprocess.run
 
         def fake_run(args, *a, **kw):
-            if isinstance(args, list) and args and args[-1] == "lint":
+            if isinstance(args, list) and args and "lint" in args:
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
             if kw.get("shell") and args == "sleep 30":
                 raise subprocess.TimeoutExpired(cmd=args, timeout=1)
@@ -160,7 +160,7 @@ class TestSummaryLineEmission:
 
         def fake_run(args, *a, **kw):
             # Simulate lint passing.
-            if isinstance(args, list) and args and args[-1] == "lint":
+            if isinstance(args, list) and args and "lint" in args:
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
             # Simulate the test_command passing.
             if kw.get("shell") and args == "true":
@@ -218,7 +218,7 @@ class TestCapturedOutputBehavior:
         real_run = subprocess.run
 
         def fake_run(args, *a, **kw):
-            if isinstance(args, list) and args and args[-1] == "lint":
+            if isinstance(args, list) and args and "lint" in args:
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
             if kw.get("shell") and args == "echo noise":
                 observed["capture_output"] = kw.get("capture_output")
@@ -246,7 +246,7 @@ class TestCapturedOutputBehavior:
         real_run = subprocess.run
 
         def fake_run(args, *a, **kw):
-            if isinstance(args, list) and args and args[-1] == "lint":
+            if isinstance(args, list) and args and "lint" in args:
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
             if kw.get("shell") and args == "echo noise":
                 observed["capture_output"] = kw.get("capture_output")
@@ -273,7 +273,7 @@ class TestCapturedOutputBehavior:
         real_run = subprocess.run
 
         def fake_run(args, *a, **kw):
-            if isinstance(args, list) and args and args[-1] == "lint":
+            if isinstance(args, list) and args and "lint" in args:
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
             if kw.get("shell") and args == "fake_pytest":
                 return subprocess.CompletedProcess(
@@ -309,7 +309,7 @@ class TestCapturedOutputBehavior:
         real_run = subprocess.run
 
         def fake_run(args, *a, **kw):
-            if isinstance(args, list) and args and args[-1] == "lint":
+            if isinstance(args, list) and args and "lint" in args:
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
             if kw.get("shell") and args == "hang":
                 raise subprocess.TimeoutExpired(
@@ -344,7 +344,7 @@ class TestCapturedOutputBehavior:
         real_run = subprocess.run
 
         def fake_run(args, *a, **kw):
-            if isinstance(args, list) and args and args[-1] == "lint":
+            if isinstance(args, list) and args and "lint" in args:
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
             if kw.get("shell") and args == "true":
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
@@ -371,7 +371,7 @@ class TestCapturedOutputBehavior:
         real_run = subprocess.run
 
         def fake_run(args, *a, **kw):
-            if isinstance(args, list) and args and args[-1] == "lint":
+            if isinstance(args, list) and args and "lint" in args:
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
             if kw.get("shell") and args == "echo x":
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")

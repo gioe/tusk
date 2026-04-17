@@ -1007,7 +1007,7 @@ if os.path.isfile(_extra_path):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: tusk-lint.py <repo_root>", file=sys.stderr)
+        print("Usage: tusk-lint.py <repo_root> [--quiet]", file=sys.stderr)
         sys.exit(2)
 
     root = sys.argv[1]
@@ -1015,32 +1015,46 @@ def main():
         print(f"Error: {root} is not a directory", file=sys.stderr)
         sys.exit(2)
 
+    # --quiet suppresses per-rule PASS lines and the report header — only rules
+    # with violations are shown. Used by `tusk commit` to avoid flooding commit
+    # output with 20+ PASS lines when nothing is wrong.
+    quiet = "--quiet" in sys.argv[2:]
+
     total_violations = 0
     rules_with_violations = 0
+    total_advisory_violations = 0
 
-    print("=== Lint Conventions Report ===")
-    print()
+    if not quiet:
+        print("=== Lint Conventions Report ===")
+        print()
 
     for name, check_fn, advisory in RULES:
         violations = check_fn(root)
-        print(name)
         if violations:
             if not advisory:
                 total_violations += len(violations)
                 rules_with_violations += 1
+            else:
+                total_advisory_violations += len(violations)
             label = "WARN [ADVISORY]" if advisory else "WARN"
+            print(name)
             print(f"  {label} — {len(violations)} violation{'s' if len(violations) != 1 else ''}")
             for v in violations:
                 print(v)
-        else:
+            print()
+        elif not quiet:
+            print(name)
             print("  PASS — no violations")
-        print()
+            print()
 
     if total_violations:
         print(f"=== Summary: {total_violations} violation{'s' if total_violations != 1 else ''} across {rules_with_violations} rule{'s' if rules_with_violations != 1 else ''} ===")
         sys.exit(1)
     else:
-        print("=== Summary: no violations ===")
+        if quiet and total_advisory_violations:
+            print(f"=== Summary: no blocking violations ({total_advisory_violations} advisory) ===")
+        elif not quiet:
+            print("=== Summary: no violations ===")
         sys.exit(0)
 
 
