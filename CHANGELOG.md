@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [617] - 2026-04-17
+
+- [TASK-49] Add `tusk abandon <id> --reason wont_do|duplicate [--session <id>] [--note "..."]` — the no-commit symmetric of `tusk merge` for closing evaluation/spike tasks whose decision is "don't do it" or for retiring duplicates. Switches off the feature branch, force-deletes it, closes the open session, and marks the task Done in one call, emitting JSON in the same shape as `tusk merge`. **Refuses (exit code 2)** if the feature branch has commits not on the default branch, with an error pointing at `tusk merge` so you cannot accidentally discard work. Optional `--note` is recorded on `task_progress` so the rationale survives. The `/tusk` skill's step 12 documents the new path; previously this required a manual three-step `git checkout` / `git branch -D` / `tusk task-done --reason wont_do` sequence.
+
 ## [616] - 2026-04-17
 
 - [TASK-44] The `inject-task-context.sh` SessionStart hook now emits a compact one-line JSON summary (`{"in_progress":[{"id":N,"c":"...","s":"..."}]}`) instead of a multi-line `=== Active Tasks ===` block — shrinks to ≤200 bytes for the ≤3-in-progress case. When more than 3 tasks are in progress the output truncates to `{"in_progress_count":N,"top":{...}}` with only the highest-priority task, so the payload no longer balloons on busy backlogs. Set `TUSK_NO_SESSION_CONTEXT=1` to silence the hook entirely. The zero-in-progress silent-exit case is unchanged.
