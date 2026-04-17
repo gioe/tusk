@@ -72,10 +72,12 @@ Generate **3–7 acceptance criteria** from the issue body — concrete, testabl
 
 Scan the issue body for a `## Failing Test` section. If present:
 
-1. Extract the fenced code block immediately following that heading. Support both triple-backtick and single-backtick fences:
+1. Extract the test spec from that section. Prefer a fenced code block immediately following the heading; support both triple-backtick and single-backtick fences:
    - Triple-backtick: content between ` ``` ` (optionally with a language tag on the opening fence) and the next ` ``` `
    - Single-backtick: content between a single `` ` `` open and close on the same or adjacent lines
    - Take the **first** fenced block found in the section; trim leading/trailing whitespace from the extracted content.
+
+   **Plain-text fallback — if no fenced block is found in the section**, treat the plain text between the `## Failing Test` heading and the next heading (or end of body) as the spec. Drop lines whose first non-whitespace character is `#` (shell-style comments), then trim leading/trailing whitespace from the remainder. If the result is non-empty, use it as `<test_spec>` for the validation below — the sandbox flow in item 2 applies identically whether the spec came from a fenced block or the plain-text fallback. If the stripped result is empty, treat the section as missing and fall through to item 3.
 
 2. **Validate the extracted spec** — the spec is arbitrary shell code from a GitHub issue body and must be treated as untrusted. Show it to the user for approval, then run it in a sandbox so it cannot reach the host tusk repo (which is one `tusk`/`git` walk-up away), read environment secrets, or invoke project-installed tools.
 

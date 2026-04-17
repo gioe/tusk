@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [597] - 2026-04-17
+
+- [TASK-98] /address-issue Step 4.1 now falls back to plain text under `## Failing Test` when no code fence is present (strips `#` comment lines, applies same sandbox validation)
+
 ## [596] - 2026-04-17
 
 - [TASK-96] Fix: tusk commit now auto-stages unstaged deletions of tracked files (rm/rm -rf) so they land in the same commit as the explicitly-listed paths (GitHub Issue #474)
