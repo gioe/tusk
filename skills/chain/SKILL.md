@@ -183,9 +183,9 @@ Parse the returned JSON. It has two fields:
 - **`complete`**: all tasks in the subgraph are Done — **break** out of the wave loop and go to Step 5.
 - **`stuck`**: tasks remain but no ready tasks exist in the frontier. Display the chain status for context:
   ```bash
-  tusk chain status <head_task_id1> [<head_task_id2> ...]
+  tusk chain status <head_task_id1> [<head_task_id2> ...] --format text
   ```
-  Show the output to the user and ask how to proceed.
+  The default output is compact JSON; `--format text` renders the human-readable multi-line table. Show the output to the user and ask how to proceed.
 - **`continue`**: the `frontier` array contains at least one ready task — proceed to Step 4c.
 
 ### 4c. Spawn Parallel Agents
@@ -282,10 +282,10 @@ Where `<base_directory>` is the skill base directory shown at the top of this fi
 Display the completed chain status:
 
 ```bash
-tusk chain status <head_task_id1> [<head_task_id2> ...]
+tusk chain status <head_task_id1> [<head_task_id2> ...] --format text
 ```
 
-Summarize:
+The default output is compact JSON; `--format text` is used here for the human-readable final report. Summarize:
 - Total tasks completed in the chain
 - Any tasks that did not complete (and current status)
 - Chain execution is finished
