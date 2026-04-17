@@ -53,9 +53,11 @@ import time
 TRAILER = "Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 
 # Prefix for the single-line final status summary emitted as the last line of
-# stdout.  Kept tagged (rather than pure JSON) so it is findable with
-# `tail -1 | grep TUSK_COMMIT_RESULT` even if something else writes to stdout
-# after this script would otherwise exit.  See GitHub Issue #450.
+# stdout.  The summary is always the last line, so `tail -1` alone is enough
+# for well-behaved captures; the tag prefix is for the messy case where a
+# background harness interleaves stdout/stderr in one file and the line's
+# position is no longer guaranteed — `grep TUSK_COMMIT_RESULT` recovers it.
+# See GitHub Issue #450.
 SUMMARY_PREFIX = "TUSK_COMMIT_RESULT:"
 
 
@@ -510,13 +512,14 @@ def _run_commit(argv: list[str], state: dict) -> int:
         except subprocess.TimeoutExpired as exc:
             # When capture_output=True, TimeoutExpired carries whatever was
             # collected on stdout/stderr before the child was killed — dump it
-            # first so the user can see which test hung.
+            # first so the user can see which test hung.  text=True above means
+            # exc.stdout/exc.stderr are already str (or None).
             if not verbose:
-                if getattr(exc, "stdout", None):
-                    sys.stdout.write(exc.stdout if isinstance(exc.stdout, str) else exc.stdout.decode("utf-8", "replace"))
+                if exc.stdout:
+                    sys.stdout.write(exc.stdout)
                     sys.stdout.flush()
-                if getattr(exc, "stderr", None):
-                    sys.stderr.write(exc.stderr if isinstance(exc.stderr, str) else exc.stderr.decode("utf-8", "replace"))
+                if exc.stderr:
+                    sys.stderr.write(exc.stderr)
                     sys.stderr.flush()
             source_hint = {
                 "env": "TUSK_TEST_COMMAND_TIMEOUT env var",

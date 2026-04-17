@@ -150,6 +150,45 @@ class TestSummaryLineEmission:
         assert payload["exit_code"] == 5
         assert payload["commit"] is None
 
+    def test_summary_on_criterion_failure_includes_sha(self, tmp_path, monkeypatch, capsys):
+        """Criterion-done failure (exit 4) still reports the commit SHA since the commit landed."""
+        mod = _load_module()
+        repo, target = _make_repo(tmp_path)
+        cfg = _write_config(tmp_path, {"test_command": "true"})
+
+        real_run = subprocess.run
+
+        def fake_run(args, *a, **kw):
+            # Simulate lint passing.
+            if isinstance(args, list) and args and args[-1] == "lint":
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            # Simulate the test_command passing.
+            if kw.get("shell") and args == "true":
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            # Simulate "tusk criteria done" failing so we exit 4 after the
+            # commit has already landed.
+            if isinstance(args, list) and len(args) >= 3 and args[-3:-1] == ["criteria", "done"]:
+                return subprocess.CompletedProcess(args, 1, stdout="", stderr="")
+            return real_run(args, *a, **kw)
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+        monkeypatch.delenv("TUSK_TEST_COMMAND_TIMEOUT", raising=False)
+
+        argv = [str(repo), cfg, "999", "msg", str(target), "--criteria", "42"]
+        rc = mod.main(argv)
+        out = capsys.readouterr().out
+
+        assert rc == 4
+        payload = _parse_summary(out)
+        assert payload["status"] == "failure"
+        assert payload["exit_code"] == 4
+        # The commit DID land before the criteria step failed — the summary
+        # must still report the SHA so callers can recover the commit.
+        assert payload["commit"], (
+            "criterion-failure path must preserve the landed commit SHA"
+        )
+        assert re.fullmatch(r"[0-9a-f]{12}", payload["commit"])
+
     def test_summary_on_argv_error(self, tmp_path, capsys):
         """Even an early-exit usage error must still print the summary line."""
         mod = _load_module()
@@ -256,6 +295,45 @@ class TestCapturedOutputBehavior:
         assert "FAILED tests/test_broken.py::test_it" in captured.out
         # Captured stderr from the failing test must also be surfaced.
         assert "AssertionError: 1 != 2" in captured.err
+
+    def test_timeout_dumps_partial_output(self, tmp_path, monkeypatch, capsys):
+        """When test_command times out in quiet mode, partial stdout/stderr from the
+        dying child must be surfaced so the user can see which test was hung."""
+        mod = _load_module()
+        repo, target = _make_repo(tmp_path)
+        cfg = _write_config(tmp_path, {
+            "test_command": "hang",
+            "test_command_timeout_sec": 1,
+        })
+
+        real_run = subprocess.run
+
+        def fake_run(args, *a, **kw):
+            if isinstance(args, list) and args and args[-1] == "lint":
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if kw.get("shell") and args == "hang":
+                raise subprocess.TimeoutExpired(
+                    cmd=args,
+                    timeout=1,
+                    output="test_slow_thing started...\n",
+                    stderr="warning from pytest\n",
+                )
+            return real_run(args, *a, **kw)
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+        monkeypatch.delenv("TUSK_TEST_COMMAND_TIMEOUT", raising=False)
+
+        argv = [str(repo), cfg, "999", "msg", str(target)]
+        rc = mod.main(argv)
+        captured = capsys.readouterr()
+
+        assert rc == 5
+        assert "test_slow_thing started" in captured.out, (
+            "partial child stdout must be surfaced on timeout"
+        )
+        assert "warning from pytest" in captured.err, (
+            "partial child stderr must be surfaced on timeout"
+        )
 
     def test_success_emits_brief_status_line(self, tmp_path, monkeypatch, capsys):
         """On test success, a one-line 'tests passed (Xs)' marker appears before the summary."""
