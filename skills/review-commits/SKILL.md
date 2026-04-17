@@ -126,32 +126,11 @@ After recording the inline decision, skip directly to Step 6.
 **For all other diffs:** verify the required agent sandbox permissions are configured before spawning reviewer agents. Run:
 
 ```bash
-python3 -c "
-import json, subprocess, sys
-required = ['Bash(git diff:*)', 'Bash(git remote:*)', 'Bash(git symbolic-ref:*)', 'Bash(git branch:*)', 'Bash(tusk review:*)']
-try:
-    d = json.load(open('.claude/settings.json'))
-except FileNotFoundError:
-    r = subprocess.run(['git', 'show', 'HEAD:.claude/settings.json'], capture_output=True, text=True)
-    if r.returncode != 0:
-        print('MISSING: .claude/settings.json not found on disk or in HEAD — no permissions.allow configured')
-        sys.exit(1)
-    try:
-        d = json.loads(r.stdout)
-    except json.JSONDecodeError:
-        print('MISSING: .claude/settings.json in HEAD is not valid JSON')
-        sys.exit(1)
-allow = d.get('permissions', {}).get('allow', [])
-missing = [x for x in required if x not in allow]
-if missing:
-    print('MISSING: ' + ', '.join(missing))
-    sys.exit(1)
-print('OK')
-"
+REVIEW_PERM_CHECK=$(tusk review-check-perms) || { echo "Agent review aborted: $REVIEW_PERM_CHECK"; exit 1; }
 ```
 
-If this command prints `MISSING:` or exits nonzero, stop and surface:
-> Agent review aborted: The following required `permissions.allow` entries are missing from `.claude/settings.json`: `<missing entries listed in the MISSING: output>`. Add them manually or run `tusk upgrade` to apply them, then restart the session.
+On success the command prints `OK` and exits 0. On failure it prints a single `MISSING: …` line (either `not found on disk or in HEAD` or a comma-separated list of missing `permissions.allow` entries) and exits 1. When the check fails, surface to the user:
+> Agent review aborted: `<captured MISSING: line>`. Add the missing entries to `.claude/settings.json` manually or run `tusk upgrade` to apply them, then restart the session.
 
 Proceed to spawn agents only if the check prints `OK`.
 
@@ -388,32 +367,11 @@ Otherwise, loop while `can_retry` is true:
    **For all other diffs:** verify the required agent sandbox permissions are configured before spawning re-review agents. Run:
 
    ```bash
-   python3 -c "
-   import json, subprocess, sys
-   required = ['Bash(git diff:*)', 'Bash(git remote:*)', 'Bash(git symbolic-ref:*)', 'Bash(git branch:*)', 'Bash(tusk review:*)']
-   try:
-       d = json.load(open('.claude/settings.json'))
-   except FileNotFoundError:
-       r = subprocess.run(['git', 'show', 'HEAD:.claude/settings.json'], capture_output=True, text=True)
-       if r.returncode != 0:
-           print('MISSING: .claude/settings.json not found on disk or in HEAD — no permissions.allow configured')
-           sys.exit(1)
-       try:
-           d = json.loads(r.stdout)
-       except json.JSONDecodeError:
-           print('MISSING: .claude/settings.json in HEAD is not valid JSON')
-           sys.exit(1)
-   allow = d.get('permissions', {}).get('allow', [])
-   missing = [x for x in required if x not in allow]
-   if missing:
-       print('MISSING: ' + ', '.join(missing))
-       sys.exit(1)
-   print('OK')
-   "
+   REVIEW_PERM_CHECK=$(tusk review-check-perms) || { echo "Re-review agent aborted: $REVIEW_PERM_CHECK"; exit 1; }
    ```
 
-   If this command prints `MISSING:` or exits nonzero, stop and surface:
-   > Re-review agent aborted: The following required `permissions.allow` entries are missing from `.claude/settings.json`: `<missing entries listed in the MISSING: output>`. Add them manually or run `tusk upgrade` to apply them, then restart the session.
+   On failure the command prints a single `MISSING: …` line and exits 1. When the check fails, surface to the user:
+   > Re-review agent aborted: `<captured MISSING: line>`. Add the missing entries to `.claude/settings.json` manually or run `tusk upgrade` to apply them, then restart the session.
 
    Proceed to spawn re-review agents only if the check prints `OK`. Re-review agents fetch the diff themselves — no diff is passed inline.
 
