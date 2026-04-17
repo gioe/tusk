@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [604] - 2026-04-17
+
+- [TASK-104] Fix: tusk CLI silently uses wrong DB when CWD changes to consumer repo
+
 ## [603] - 2026-04-17
 
 - [TASK-103] `tusk upgrade` and `install.sh` now self-heal the `/review-commits` reviewer-agent sandbox permissions: the five required `permissions.allow` entries (`Bash(git diff:*)`, `Bash(git remote:*)`, `Bash(git symbolic-ref:*)`, `Bash(git branch:*)`, `Bash(tusk review:*)`) are auto-added to `.claude/settings.json` — creating the file if missing, merging into existing user entries without reordering, and leaving complete files byte-identical. (GitHub Issue #467)
