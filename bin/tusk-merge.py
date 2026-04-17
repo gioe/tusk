@@ -910,11 +910,18 @@ def main(argv: list[str]) -> int:
                     _try_pop_stash(task_id)
                 return 2
 
-        # Step 5: Push (skip when no remote is configured)
+        # Step 5: Push (skip when no remote is configured or unreachable)
         if has_origin:
             result = run(["git", "push", "origin", default_branch], check=False)
             if result.returncode != 0:
-                if task_on_default:
+                if _is_remote_unreachable(result.stderr):
+                    print(
+                        f"Warning: could not reach origin — skipping push. "
+                        f"The merge is complete locally on '{default_branch}'.\n  {result.stderr.strip()}\n"
+                        f"  Retry later: git push origin {default_branch}",
+                        file=sys.stderr,
+                    )
+                elif task_on_default:
                     print(
                         f"Error: git push failed:\n{result.stderr.strip()}\n"
                         f"  Retry: git push origin {default_branch}",
@@ -922,6 +929,7 @@ def main(argv: list[str]) -> int:
                     )
                     if did_stash:
                         _try_pop_stash(task_id)
+                    return 2
                 else:
                     print(
                         f"Error: git push failed:\n{result.stderr.strip()}\n"
@@ -936,7 +944,7 @@ def main(argv: list[str]) -> int:
                         # the default branch where the unmerged commit lives.
                         run(["git", "checkout", branch_name], check=False)
                         _try_pop_stash(task_id)
-                return 2
+                    return 2
         else:
             print(
                 "Warning: no git remote 'origin' configured — skipping push.",
