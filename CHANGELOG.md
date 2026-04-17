@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [607] - 2026-04-17
+
+- [TASK-37] Fix: `tusk commit` no longer stalls indefinitely between the lint report and the test_command phase. `bin/tusk-commit.py` now flushes stdout and prints phase banners (`Running tusk lint`, `Running test_command: <cmd> (timeout Ns)`, `Staging N file(s)`, `Creating commit`) so progress is visible under block-buffered stdout (no-TTY contexts like Claude Code background agents). The `test_command` subprocess enforces a configurable timeout — default 120s, overridable via `test_command_timeout_sec` in `tusk/config.json` or the `TUSK_TEST_COMMAND_TIMEOUT` env var — and aborts with new exit code 5 (plus an actionable message naming the timeout source and observed duration) instead of hanging forever on interactive test runners. GitHub Issue #483.
+
 ## [606] - 2026-04-17
 
 - `bin/tusk` snapshots `tusk/tasks.db` to `tusk/backups/tasks.db.<ts>` (via SQLite `VACUUM INTO`) before every mutating subcommand, rotating to the newest 20 snapshots (`TUSK_BACKUP_RETENTION` to override, `TUSK_NO_BACKUP=1` to opt out). Nested tusk-in-tusk calls share the top-level snapshot via `TUSK_NESTED_CALL`. Defense against silent DB clobbers (e.g. `git stash pop` of a pre-`rm --cached` stash). `tusk init` now adds `tusk/backups/` to `.gitignore`.
