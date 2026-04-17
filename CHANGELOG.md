@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [596] - 2026-04-17
+
+- [TASK-96] Fix: tusk commit now auto-stages unstaged deletions of tracked files (rm/rm -rf) so they land in the same commit as the explicitly-listed paths (GitHub Issue #474)
+
 ## [595] - 2026-04-17
 
 - [TASK-95] Document symlink pathspec gotcha in /tusk SKILL.md commit troubleshooting
