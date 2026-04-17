@@ -48,22 +48,21 @@ class TestAlreadyStagedNoOp:
         mod = _load_module()
         argv = _argv(tmp_path)
 
-        # Call order:
-        # 1. tusk lint          → exit 0
-        # 2. git add            → exit 128 "pathspec did not match"
-        # 3. git ls-files       → "somefile.py" (all files cached)
-        # 4. git rev-parse HEAD (pre)  → sha_before
-        # 5. git commit         → exit 0
-        side_effects = [
-            _make_completed(0),                             # lint
-            _make_completed(0, stdout=""),                  # ls-files --deleted (none)
-            _make_completed(128, stderr="fatal: pathspec 'somefile.py' did not match any files"),
-            _make_completed(0, stdout="somefile.py\n"),     # ls-files --cached
-            _make_completed(0, stdout="aaa111\n"),          # pre HEAD
-            _make_completed(0, stdout="[main aaa111] msg"), # git commit
-        ]
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                return _make_completed(
+                    128,
+                    stderr="fatal: pathspec 'somefile.py' did not match any files",
+                )
+            if args[:3] == ["git", "ls-files", "--cached"]:
+                return _make_completed(0, stdout="somefile.py\n")
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="aaa111\n")
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(0, stdout="[main aaa111] msg")
+            return _make_completed(0)
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(tmp_path)):
             rc = mod.main(argv)
 
@@ -74,16 +73,21 @@ class TestAlreadyStagedNoOp:
         mod = _load_module()
         argv = _argv(tmp_path)
 
-        side_effects = [
-            _make_completed(0),
-            _make_completed(0, stdout=""),                  # ls-files --deleted (none)
-            _make_completed(128, stderr="fatal: pathspec 'somefile.py' did not match any files"),
-            _make_completed(0, stdout="somefile.py\n"),
-            _make_completed(0, stdout="aaa111\n"),
-            _make_completed(0, stdout="[main aaa111] msg"),
-        ]
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                return _make_completed(
+                    128,
+                    stderr="fatal: pathspec 'somefile.py' did not match any files",
+                )
+            if args[:3] == ["git", "ls-files", "--cached"]:
+                return _make_completed(0, stdout="somefile.py\n")
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="aaa111\n")
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(0, stdout="[main aaa111] msg")
+            return _make_completed(0)
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(tmp_path)):
             mod.main(argv)
 
@@ -97,15 +101,19 @@ class TestAlreadyStagedNoOp:
         mod = _load_module()
         argv = _argv(tmp_path)
 
-        side_effects = [
-            _make_completed(0),                             # lint
-            _make_completed(0, stdout=""),                  # ls-files --deleted (none)
-            _make_completed(128, stderr="fatal: pathspec 'somefile.py' did not match any files"),
-            _make_completed(0, stdout=""),                  # ls-files — file not in index
-            _make_completed(1),                             # git check-ignore (not ignored)
-        ]
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                return _make_completed(
+                    128,
+                    stderr="fatal: pathspec 'somefile.py' did not match any files",
+                )
+            if args[:3] == ["git", "ls-files", "--cached"]:
+                return _make_completed(0, stdout="")  # file not in index
+            if args[:3] == ["git", "check-ignore", "-v"]:
+                return _make_completed(1)  # not ignored
+            return _make_completed(0)
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(tmp_path)):
             rc = mod.main(argv)
 
@@ -122,17 +130,15 @@ class TestCommitFailureSkipVerifyHint:
         mod = _load_module()
         argv = _argv(tmp_path)
 
-        side_effects = [
-            _make_completed(0),                     # lint
-            _make_completed(0, stdout=""),          # ls-files --deleted (none)
-            _make_completed(0),                     # git add
-            _make_completed(0, stdout="aaa111\n"),  # pre HEAD
-            _make_completed(1, stderr="error: something went wrong"),
-            _make_completed(0, stdout="aaa111\n"),  # post HEAD — same (commit didn't land)
-            _make_completed(0, stdout=""),          # git diff — no reformatted files, skip retry
-        ]
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="aaa111\n")  # HEAD never advances
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(1, stderr="error: something went wrong")
+            # git diff returns empty → no reformatted files, skip Issue #477 retry.
+            return _make_completed(0)
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(tmp_path)):
             rc = mod.main(argv)
 
@@ -145,17 +151,16 @@ class TestCommitFailureSkipVerifyHint:
         mod = _load_module()
         argv = _argv(tmp_path)
 
-        side_effects = [
-            _make_completed(0),
-            _make_completed(0, stdout=""),          # ls-files --deleted (none)
-            _make_completed(0),
-            _make_completed(0, stdout="aaa111\n"),
-            _make_completed(1, stderr="lint-staged: Prevented an empty git commit!"),
-            _make_completed(0, stdout="aaa111\n"),
-            _make_completed(0, stdout=""),          # git diff — no reformatted files, skip retry
-        ]
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="aaa111\n")  # HEAD never advances
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(
+                    1, stderr="lint-staged: Prevented an empty git commit!"
+                )
+            return _make_completed(0)
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(tmp_path)):
             rc = mod.main(argv)
 
@@ -211,16 +216,18 @@ class TestCommitFailureSkipVerifyHint:
         mod = _load_module()
         argv = _argv(tmp_path)
 
-        side_effects = [
-            _make_completed(0),
-            _make_completed(0, stdout=""),          # ls-files --deleted (none)
-            _make_completed(0),
-            _make_completed(0, stdout="aaa111\n"),
-            _make_completed(1, stderr="lint-staged could not find any staged files."),
-            _make_completed(0, stdout="bbb222\n"),  # HEAD changed — commit landed
-        ]
+        head_shas = iter(["aaa111\n", "bbb222\n"])  # HEAD changed → commit landed
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout=next(head_shas))
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(
+                    1, stderr="lint-staged could not find any staged files."
+                )
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(tmp_path)):
             rc = mod.main(argv)
 
