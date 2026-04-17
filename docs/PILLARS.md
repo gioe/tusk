@@ -15,7 +15,7 @@ This document defines the eight product pillars that guide tusk's design and dev
 | Autonomous | Medium | `/loop` and `/chain` exist; reliability and interrupt handling still maturing |
 | Observable | Medium | Dashboard and cost tracking are strong; real-time visibility and alerting are sparse |
 | Self-Improving | Low | `/retro` exists; `tusk lint-rule add` persists grep rules to DB; auto-generation from retro output is absent |
-| Efficient | Medium | Token audit and per-criterion cost tracking exist; active optimization guidance is sparse |
+| Efficient | Medium | Token audit, per-criterion cost tracking, and conditional companion loading exist; CLI output, hook output, and always-on context blocks have no size budgets or enforcement |
 
 ---
 
