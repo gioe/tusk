@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [588] - 2026-04-17
+
+- [TASK-89] Scope tusk-lint rule 6 to tasks closed in the last 30 days so retroactive historical violations no longer hang `tusk commit` (fixes #480)
+
 ## [587] - 2026-04-17
 
 - [TASK-88] Add --note flag to tusk criteria done for skip-verify rationale
