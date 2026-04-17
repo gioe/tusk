@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [609] - 2026-04-17
+
+- [TASK-36] Fix: `/review-commits` permission check in Step 5.1 and Step 13 now falls back to `git show HEAD:.claude/settings.json` when the on-disk file is absent (e.g., after `tusk branch` stashes uncommitted changes). Previously a `FileNotFoundError` aborted the review agents and forced inline review even for diffs above the 200-line threshold, despite the required permissions being committed to git. A non-zero `git show` exit (file not in HEAD) still prints `MISSING:` and exits 1, preserving the original escalation path. GitHub Issue #451.
+
 ## [608] - 2026-04-17
 
 - [TASK-38] `tusk commit` now captures `test_command` stdout/stderr by default instead of streaming, so the final status line is findable via `tail -1` from background-task readers that truncate large pytest output. On failure or timeout the captured output is dumped before the error message so the failure remains diagnosable; on success a one-line `tests passed (Xs)` marker is printed. Every exit path emits a single-line `TUSK_COMMIT_RESULT: {...}` JSON summary as the last line of stdout (status, exit_code, commit SHA, task ID). Pass `--verbose` to restore live streaming for interactive debugging. GitHub Issue #450.
