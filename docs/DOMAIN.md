@@ -97,6 +97,7 @@ A verifiable condition that must be satisfied before a task is considered done. 
 | `committed_at` | TEXT | nullable | When that commit was made |
 | `is_deferred` | INTEGER | CHECK IN (0, 1); default 0 | Criterion deferred to a downstream chain task |
 | `deferred_reason` | TEXT | nullable | Why it was deferred |
+| `skip_note` | TEXT | nullable | Rationale recorded when closed via `tusk criteria done --skip-verify --note "…"` |
 | `created_at` | TEXT | default now | |
 | `updated_at` | TEXT | default now | |
 

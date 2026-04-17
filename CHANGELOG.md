@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [587] - 2026-04-17
+
+- [TASK-88] Add --note flag to tusk criteria done for skip-verify rationale
+
 ## [586] - 2026-04-13
 
 - [TASK-87] Support -m flag and -- separator in tusk commit argument parser

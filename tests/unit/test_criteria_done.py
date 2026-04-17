@@ -44,7 +44,7 @@ def make_db(task_count=1, criteria_specs=None):
         "  criterion_type TEXT DEFAULT 'manual', verification_spec TEXT,"
         "  verification_result TEXT,"
         "  commit_hash TEXT, committed_at TEXT,"
-        "  completed_at TEXT, updated_at TEXT,"
+        "  completed_at TEXT, updated_at TEXT, created_at TEXT,"
         "  cost_dollars REAL, tokens_in INTEGER, tokens_out INTEGER,"
         "  skip_note TEXT"
         ")"
@@ -202,12 +202,13 @@ class TestCmdDoneBulk:
     For tests that need DB-level assertions, we test _done_single directly.
     """
 
-    def _make_args(self, ids, skip_verify=False, batch=False, allow_shared=False):
+    def _make_args(self, ids, skip_verify=False, batch=False, allow_shared=False, note=None):
         return argparse.Namespace(
             criterion_ids=ids,
             skip_verify=skip_verify,
             batch=batch,
             allow_shared_commit=allow_shared,
+            note=note,
         )
 
     def test_bulk_happy_path(self):
@@ -352,3 +353,82 @@ class TestCmdDoneBulk:
         assert "999 not found" in err.getvalue()
         assert "Criterion #1 marked done" in out.getvalue()
         assert "Criterion #2 marked done" in out.getvalue()
+
+
+# ── Skip-note tests ──────────────────────────────────────────────────
+
+
+class TestSkipNote:
+    """Tests for the --note flag / skip_note column behavior."""
+
+    def test_note_persisted_when_skip_verify(self):
+        """Passing a note via _done_single stores it in skip_note."""
+        conn = make_db()
+        out = io.StringIO()
+        with redirect_stdout(out), \
+             patch.object(criteria_mod, "capture_criterion_cost"):
+            rc = criteria_mod._done_single(
+                conn, 1, skip_verify=True, suppress_shared_commit=True,
+                commit_hash=None, committed_at=None,
+                note="false premise — no PG enum exists in this repo",
+            )
+        assert rc == 0
+        row = conn.execute(
+            "SELECT is_completed, skip_note FROM acceptance_criteria WHERE id = 1"
+        ).fetchone()
+        assert row["is_completed"] == 1
+        assert row["skip_note"] == "false premise — no PG enum exists in this repo"
+
+    def test_no_note_leaves_skip_note_null(self):
+        """Calling _done_single without a note leaves skip_note NULL."""
+        conn = make_db()
+        with patch.object(criteria_mod, "capture_criterion_cost"):
+            criteria_mod._done_single(
+                conn, 1, skip_verify=False, suppress_shared_commit=True,
+                commit_hash=None, committed_at=None,
+            )
+        row = conn.execute(
+            "SELECT skip_note FROM acceptance_criteria WHERE id = 1"
+        ).fetchone()
+        assert row["skip_note"] is None
+
+    def test_note_without_skip_verify_rejected_at_parser(self):
+        """main() exits non-zero when --note is passed without --skip-verify."""
+        import tempfile
+        # Create a minimal config file for main() to load
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False
+        ) as cfg:
+            cfg.write("{}")
+            cfg_path = cfg.name
+
+        err = io.StringIO()
+        with patch.object(
+            criteria_mod.sys, "argv",
+            ["tusk-criteria", ":memory:", cfg_path,
+             "done", "1", "--note", "why"],
+        ), redirect_stderr(err):
+            with pytest.raises(SystemExit) as exc:
+                criteria_mod.main()
+        assert exc.value.code != 0
+        assert "--note requires --skip-verify" in err.getvalue()
+
+    def test_list_shows_skip_note(self):
+        """cmd_list surfaces skip_note inline when set on a completed criterion."""
+        conn = make_db()
+        # Mark criterion 1 done with a skip note
+        with patch.object(criteria_mod, "capture_criterion_cost"):
+            criteria_mod._done_single(
+                conn, 1, skip_verify=True, suppress_shared_commit=True,
+                commit_hash=None, committed_at=None,
+                note="legacy code path — refactor tracked in TASK-999",
+            )
+
+        out = io.StringIO()
+        args = argparse.Namespace(task_id=1)
+        with redirect_stdout(out), \
+             patch.object(criteria_mod, "get_connection", return_value=conn):
+            rc = criteria_mod.cmd_list(args, ":memory:", {})
+        assert rc == 0
+        output = out.getvalue()
+        assert "[skip: legacy code path — refactor tracked in TASK-999]" in output
