@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [610] - 2026-04-17
+
+- [TASK-39] `tusk review-check-perms` encapsulates the `/review-commits` permission check (read `.claude/settings.json` on disk → fall back to `git show HEAD:.claude/settings.json` → verify the five required `permissions.allow` entries). `skills/review-commits/SKILL.md` Step 5.1 and Step 8 now call this helper (`REVIEW_PERM_CHECK=$(tusk review-check-perms) || { echo "Agent review aborted: $REVIEW_PERM_CHECK"; exit 1; }`) instead of duplicating an inline `python3 -c` snippet in both places. Future changes to the required-permissions list, the fallback strategy, or the MISSING: error format live in one file (`bin/tusk-review-check-perms.py`).
+
 ## [609] - 2026-04-17
 
 - [TASK-36] Fix: `/review-commits` permission check in Step 5.1 and Step 13 now falls back to `git show HEAD:.claude/settings.json` when the on-disk file is absent (e.g., after `tusk branch` stashes uncommitted changes). Previously a `FileNotFoundError` aborted the review agents and forced inline review even for diffs above the 200-line threshold, despite the required permissions being committed to git. A non-zero `git show` exit (file not in HEAD) still prints `MISSING:` and exits 1, preserving the original escalation path. GitHub Issue #451.
