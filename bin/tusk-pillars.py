@@ -85,7 +85,8 @@ def cmd_set_claim(args: argparse.Namespace, db_path: str, config: dict) -> int:
         if cursor.rowcount == 0:
             print(f"Error: pillar '{args.name}' not found", file=sys.stderr)
             return 1
-        print(f"Updated claim for pillar '{args.name}'")
+        if sys.stdout.isatty():
+            print(f"Updated claim for pillar '{args.name}'")
         return 0
     finally:
         conn.close()
