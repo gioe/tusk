@@ -8,7 +8,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [604] - 2026-04-17
 
-- [TASK-104] Fix: tusk CLI silently uses wrong DB when CWD changes to consumer repo
+- [TASK-104] Fix: tusk CLI silently uses wrong DB when CWD changes to consumer repo (GitHub Issue #464)
 
 ## [603] - 2026-04-17
 

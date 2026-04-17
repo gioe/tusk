@@ -19,6 +19,7 @@
 #   tusk session-recalc        Re-run session-stats for all sessions (backfill corrected costs)
 #   tusk session-close <id>    Close a session (duration, diff stats, token stats)
 #   tusk session-close --task-id <id>  Bulk-close all open sessions for a task
+#   tusk active-project {add|remove|list|path} [path]  Manage the cross-repo drift-warning registry
 #   tusk criteria add <id> "text" [--source ...] [--type ...] [--spec ...]  Add a criterion
 #   tusk criteria list <id>      List criteria for a task
 #   tusk criteria done <cid> [<cid> ...] [--skip-verify]  Mark one or more criteria as completed
@@ -92,18 +93,23 @@ export TUSK_REPO_ROOT="$REPO_ROOT"
 
 # Warn when a pinned project differs from the CWD-resolved repo, and neither
 # TUSK_PROJECT nor TUSK_DB is set (explicit pins suppress the warning).
+# Paths in the registry are stored canonically at write time, so no per-entry
+# canonicalization is needed here. Dedup on read so a benign add-add race
+# between concurrent /chain wavelets cannot double-print.
 maybe_warn_cross_repo_drift() {
   [[ -n "${TUSK_PROJECT:-}" ]] && return 0
   [[ -n "${TUSK_DB:-}" ]] && return 0
   [[ -n "${TUSK_QUIET:-}" ]] && return 0
   [[ ! -s "$ACTIVE_PROJECTS_FILE" ]] && return 0
-  local current_real others=() pinned pinned_real
+  local current_real others=() pinned seen=""
   current_real="$(cd "$CWD_REPO_ROOT" 2>/dev/null && pwd -P)" || return 0
   while IFS= read -r pinned; do
     [[ -z "$pinned" ]] && continue
+    [[ "$pinned" = "$current_real" ]] && continue
+    case ":$seen:" in *":$pinned:"*) continue ;; esac
+    seen="$seen:$pinned"
     [[ ! -d "$pinned" ]] && continue
-    pinned_real="$(cd "$pinned" 2>/dev/null && pwd -P)" || continue
-    [[ "$pinned_real" != "$current_real" ]] && others+=("$pinned_real")
+    others+=("$pinned")
   done < "$ACTIVE_PROJECTS_FILE"
   if [[ ${#others[@]} -gt 0 ]]; then
     {
@@ -1100,7 +1106,7 @@ cmd_session_close() {
   # Deregister REPO_ROOT if no open sessions remain (cross-repo drift tracking)
   local remaining
   remaining="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM task_sessions WHERE ended_at IS NULL" 2>/dev/null || echo 0)"
-  if [[ "$remaining" = "0" && -d "$REPO_ROOT" ]]; then
+  if [[ "$remaining" = "0" && -d "$REPO_ROOT" && -z "${TUSK_DB:-}" ]]; then
     cmd_active_project remove "$REPO_ROOT" 2>/dev/null || true
   fi
 }

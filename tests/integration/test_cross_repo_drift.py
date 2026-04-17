@@ -34,11 +34,17 @@ def two_repos(tmp_path):
     consumer = _make_git_repo(tmp_path / "consumer")
     state_dir = tmp_path / "state"
     state_dir.mkdir()
+    # Inherit the full parent env (LANG, USER, etc.) so subprocesses stay
+    # portable on stricter environments; override only what the test needs.
     env = {
-        "PATH": os.environ["PATH"],
+        **os.environ,
         "HOME": str(tmp_path),
         "TUSK_STATE_DIR": str(state_dir),
     }
+    # Ensure no stray pin from the parent shell bleeds into the tests.
+    env.pop("TUSK_PROJECT", None)
+    env.pop("TUSK_DB", None)
+    env.pop("TUSK_QUIET", None)
     return origin, consumer, state_dir, env
 
 
