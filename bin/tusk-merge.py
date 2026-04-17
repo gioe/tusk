@@ -742,17 +742,24 @@ def main(argv: list[str]) -> int:
         for src, dst in moved:
             os.rename(dst, src)
 
-        # Step 4: Pull latest (skip when no remote is configured)
+        # Step 4: Pull latest (skip when no remote is configured or unreachable)
         has_origin = _has_remote()
         if has_origin:
             result = run(["git", "-c", "pull.rebase=false", "pull", "origin", default_branch], check=False)
             if result.returncode != 0:
-                print(f"Error: git pull failed:\n{result.stderr.strip()}", file=sys.stderr)
-                # Restore feature branch so user can investigate
-                run(["git", "checkout", branch_name], check=False)
-                if did_stash:
-                    _try_pop_stash(task_id)
-                return 2
+                if _is_remote_unreachable(result.stderr):
+                    print(
+                        f"Warning: could not reach origin — skipping pull. "
+                        f"Merging from local '{default_branch}'.\n  {result.stderr.strip()}",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(f"Error: git pull failed:\n{result.stderr.strip()}", file=sys.stderr)
+                    # Restore feature branch so user can investigate
+                    run(["git", "checkout", branch_name], check=False)
+                    if did_stash:
+                        _try_pop_stash(task_id)
+                    return 2
         else:
             print(
                 "Warning: no git remote 'origin' configured — skipping pull. "
