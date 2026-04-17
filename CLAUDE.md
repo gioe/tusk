@@ -112,7 +112,7 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 - **`TUSK_PROJECT=<path>`** — pins `REPO_ROOT` (and therefore `DB_PATH`, `config.json`, etc.) to the given path regardless of CWD. Use this when working in a consumer repo while operating on the originating project's tusk DB.
 - **`TUSK_DB=<path>`** — pins only the DB path (unchanged escape hatch used by migrations and tests).
 
-When neither override is set and an active session exists for a different project (tracked in `$TUSK_STATE_DIR/active-projects`, default `~/.tusk/active-projects`), tusk emits a stderr warning listing the pinned projects and the mismatched CWD. `task-start` registers the current `REPO_ROOT`; `session-close` (and the bulk `--task-id` path) deregister it when no open sessions remain. Set `TUSK_QUIET=1` to silence the warning for a single invocation.
+When neither override is set and an active session exists for a different project (tracked in `$TUSK_STATE_DIR/active-projects`, default `~/.tusk/active-projects`), tusk emits a stderr warning listing the pinned projects and the mismatched CWD — but only when stderr is a TTY. Agent callers (Claude Code), piped stderr, and CI runs are silent by default, since their captured stderr lands back in LLM context and clutters it without a human to read it. `task-start` registers the current `REPO_ROOT`; `session-close` (and the bulk `--task-id` path) deregister it when no open sessions remain. `TUSK_QUIET=1` forces silence in any context; `TUSK_FORCE_WARN=1` restores the warning when stderr isn't a TTY (used by the drift regression tests).
 
 ### Config-Driven Validation
 

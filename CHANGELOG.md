@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [611] - 2026-04-17
+
+- [TASK-48] The cross-repo CWD-mismatch warning in `bin/tusk` (the "active session(s) pinned to other project(s)" block) is now default-quiet when stderr is not a TTY — agent callers like Claude Code, piped stderr, and CI runs no longer add ~300 bytes of warning text to every tusk invocation in multi-project setups. Human-TTY runs still see the warning. `TUSK_QUIET=1` continues to force silence in any context; `TUSK_FORCE_WARN=1` is the new escape hatch for restoring the warning in non-TTY contexts (used by the drift regression tests).
+
 ## [610] - 2026-04-17
 
 - [TASK-39] `tusk review-check-perms` encapsulates the `/review-commits` permission check (read `.claude/settings.json` on disk → fall back to `git show HEAD:.claude/settings.json` → verify the five required `permissions.allow` entries). `skills/review-commits/SKILL.md` Step 5.1 and Step 8 now call this helper (`REVIEW_PERM_CHECK=$(tusk review-check-perms) || { echo "Agent review aborted: $REVIEW_PERM_CHECK"; exit 1; }`) instead of duplicating an inline `python3 -c` snippet in both places. Future changes to the required-permissions list, the fallback strategy, or the MISSING: error format live in one file (`bin/tusk-review-check-perms.py`).
