@@ -56,6 +56,7 @@ class TestAlreadyStagedNoOp:
         # 5. git commit         → exit 0
         side_effects = [
             _make_completed(0),                             # lint
+            _make_completed(0, stdout=""),                  # ls-files --deleted (none)
             _make_completed(128, stderr="fatal: pathspec 'somefile.py' did not match any files"),
             _make_completed(0, stdout="somefile.py\n"),     # ls-files --cached
             _make_completed(0, stdout="aaa111\n"),          # pre HEAD
@@ -75,6 +76,7 @@ class TestAlreadyStagedNoOp:
 
         side_effects = [
             _make_completed(0),
+            _make_completed(0, stdout=""),                  # ls-files --deleted (none)
             _make_completed(128, stderr="fatal: pathspec 'somefile.py' did not match any files"),
             _make_completed(0, stdout="somefile.py\n"),
             _make_completed(0, stdout="aaa111\n"),
@@ -97,6 +99,7 @@ class TestAlreadyStagedNoOp:
 
         side_effects = [
             _make_completed(0),                             # lint
+            _make_completed(0, stdout=""),                  # ls-files --deleted (none)
             _make_completed(128, stderr="fatal: pathspec 'somefile.py' did not match any files"),
             _make_completed(0, stdout=""),                  # ls-files — file not in index
             _make_completed(1),                             # git check-ignore (not ignored)
@@ -121,6 +124,7 @@ class TestCommitFailureSkipVerifyHint:
 
         side_effects = [
             _make_completed(0),                     # lint
+            _make_completed(0, stdout=""),          # ls-files --deleted (none)
             _make_completed(0),                     # git add
             _make_completed(0, stdout="aaa111\n"),  # pre HEAD
             _make_completed(1, stderr="error: something went wrong"),
@@ -143,6 +147,7 @@ class TestCommitFailureSkipVerifyHint:
 
         side_effects = [
             _make_completed(0),
+            _make_completed(0, stdout=""),          # ls-files --deleted (none)
             _make_completed(0),
             _make_completed(0, stdout="aaa111\n"),
             _make_completed(1, stderr="lint-staged: Prevented an empty git commit!"),
@@ -208,6 +213,7 @@ class TestCommitFailureSkipVerifyHint:
 
         side_effects = [
             _make_completed(0),
+            _make_completed(0, stdout=""),          # ls-files --deleted (none)
             _make_completed(0),
             _make_completed(0, stdout="aaa111\n"),
             _make_completed(1, stderr="lint-staged could not find any staged files."),

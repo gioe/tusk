@@ -66,6 +66,7 @@ class TestGitignoreForceAdd:
 
         side_effects = [
             _make_completed(0),                           # tusk lint
+            _make_completed(0, stdout=""),                # ls-files --deleted (none)
             _make_completed(1, stderr=gitignore_stderr),  # git add (fails — gitignored)
             _make_completed(0, stdout=gitignore_rule),    # git check-ignore -v (confirms rule)
             _make_completed(0),                           # git add -f (retry succeeds)
@@ -104,6 +105,7 @@ class TestGitignoreForceAdd:
 
         side_effects = [
             _make_completed(0),                              # tusk lint
+            _make_completed(0, stdout=""),                   # ls-files --deleted (none)
             _make_completed(1, stderr=gitignore_stderr),     # git add (fails)
             _make_completed(0, stdout=gitignore_rule),       # git check-ignore -v
             _make_completed(1, stderr="error: permission denied"),  # git add -f (also fails)
@@ -132,6 +134,7 @@ class TestGitignoreForceAdd:
         # git add fails for a non-gitignore reason; check-ignore returns exit 1 (not ignored)
         side_effects = [
             _make_completed(0),                                   # tusk lint
+            _make_completed(0, stdout=""),                        # ls-files --deleted (none)
             _make_completed(1, stderr="error: sparse checkout"),  # git add (non-gitignore fail)
             _make_completed(1),                                   # git check-ignore (not ignored)
         ]

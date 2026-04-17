@@ -76,6 +76,7 @@ class TestLintStagedSubdirIssue360:
 
         side_effects = [
             _make_completed(0),  # tusk lint
+            _make_completed(0, stdout=""),  # ls-files --deleted (none)
             _make_completed(128, stderr="fatal: pathspec 'apps/web/ui/components/cards/show/index.tsx' did not match any files"),  # git add
             _make_completed(0, stdout="apps/web/ui/components/cards/show/index.tsx\n"),  # git ls-files --cached
             _make_completed(0, stdout="abc123\n"),  # git rev-parse HEAD (pre)
@@ -114,6 +115,7 @@ class TestLintStagedSubdirIssue360:
         # git add fails for both; both are in the cache
         side_effects = [
             _make_completed(0),  # lint
+            _make_completed(0, stdout=""),  # ls-files --deleted (none)
             _make_completed(
                 128,
                 stderr=(
@@ -166,6 +168,7 @@ class TestLintStagedSubdirIssue360:
         # git add fails; only the first file is in the cache (partial lint-staged run)
         side_effects = [
             _make_completed(0),  # lint
+            _make_completed(0, stdout=""),  # ls-files --deleted (none)
             _make_completed(
                 128,
                 stderr="fatal: pathspec 'apps/web/...' did not match any files",
@@ -297,6 +300,7 @@ class TestFileStatesFromSubdir:
 
         side_effects = [
             _make_completed(0),  # lint
+            _make_completed(0, stdout=""),  # ls-files --deleted (none)
             _make_completed(
                 128,
                 stderr="fatal: pathspec 'apps/web/ui/index.tsx' did not match any files",

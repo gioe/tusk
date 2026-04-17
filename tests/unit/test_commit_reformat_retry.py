@@ -52,6 +52,7 @@ class TestAutoFormatterRetry:
 
         side_effects = [
             _make_completed(0),                              # lint
+            _make_completed(0, stdout=""),                   # ls-files --deleted (none)
             _make_completed(0),                              # git add (initial)
             _make_completed(0, stdout="aaa111\n"),           # pre HEAD
             _make_completed(
@@ -82,6 +83,7 @@ class TestAutoFormatterRetry:
 
         side_effects = [
             _make_completed(0),                              # lint
+            _make_completed(0, stdout=""),                   # ls-files --deleted (none)
             _make_completed(0),                              # git add (initial)
             _make_completed(0, stdout="aaa111\n"),           # pre HEAD
             _make_completed(1, stderr="pre-commit hook failed"),
@@ -108,6 +110,7 @@ class TestAutoFormatterRetry:
 
         side_effects = [
             _make_completed(0),                              # lint
+            _make_completed(0, stdout=""),                   # ls-files --deleted (none)
             _make_completed(0),                              # git add
             _make_completed(0, stdout="aaa111\n"),           # pre HEAD
             _make_completed(1, stderr="something failed"),
@@ -131,6 +134,7 @@ class TestAutoFormatterRetry:
 
         side_effects = [
             _make_completed(0),                              # lint
+            _make_completed(0, stdout=""),                   # ls-files --deleted (none)
             _make_completed(0),                              # git add
             _make_completed(0, stdout="aaa111\n"),           # pre HEAD
             _make_completed(1, stderr="some hook error"),

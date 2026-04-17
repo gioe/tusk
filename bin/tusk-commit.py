@@ -404,6 +404,36 @@ def main(argv: list[str]) -> int:
             return 2
         print()
 
+    # ── Step 2.5: Stage unstaged deletions of tracked files ─────────
+    # GitHub Issue #474: when tracked files are removed via `rm`/`rm -rf`
+    # rather than `git rm`, they remain in the index with a "deleted from
+    # working tree" marker until the next `git add` sees them.  Scan for
+    # these now and append to resolved_files so the Step 3 git add call
+    # captures both the explicit paths and the implicit deletions in a
+    # single commit — otherwise the deletions surface as unstaged changes
+    # after commit and require a manual `git rm && git commit` follow-up.
+    deleted = run(["git", "ls-files", "--deleted", "-z"], check=False, cwd=repo_root)
+    if deleted.returncode == 0 and deleted.stdout:
+        # resolved_files holds either absolute paths or repo-root-relative
+        # paths; git ls-files emits repo-root-relative paths.  Normalize
+        # before deduping so a user-supplied deleted path (which TASK-679
+        # allows through pre-flight) is not staged twice.
+        already_listed = {
+            os.path.relpath(f, repo_root) if os.path.isabs(f) else f
+            for f in resolved_files
+        }
+        extra_deletions = [
+            d for d in deleted.stdout.split("\0") if d and d not in already_listed
+        ]
+        if extra_deletions:
+            print(
+                f"Note: auto-staging {len(extra_deletions)} unstaged "
+                "deletion(s) of tracked file(s) (from rm/rm -rf):"
+            )
+            for d in extra_deletions:
+                print(f"  - {d}")
+            resolved_files = resolved_files + extra_deletions
+
     # ── Step 3: Stage files ──────────────────────────────────────────
     # File paths were already resolved and validated in Step 0.
     # git add handles deletions of tracked files natively since Git 2.x — no git rm needed.

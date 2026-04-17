@@ -64,6 +64,7 @@ class TestEmojiCommitMessage:
         # 5. tusk criteria done → exit 0
         side_effects = [
             _make_completed(0),                          # lint
+            _make_completed(0, stdout=""),               # ls-files --deleted (none)
             _make_completed(0),                          # git add
             _make_completed(0, stdout="abc111\n"),       # pre HEAD
             _make_completed(0, stdout="[main abc111] [TASK-399] ✅ fix the thing\n 1 file changed"),
@@ -90,6 +91,7 @@ class TestEmojiCommitMessage:
 
         side_effects = [
             _make_completed(0),                          # lint
+            _make_completed(0, stdout=""),               # ls-files --deleted (none)
             _make_completed(0),                          # git add
             _make_completed(0, stdout="abc222\n"),       # pre HEAD
             _make_completed(0, stdout="[main abc222] [TASK-399] ⚠️ handle edge case\n"),

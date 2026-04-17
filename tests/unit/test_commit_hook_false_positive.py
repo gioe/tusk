@@ -58,6 +58,7 @@ class TestHookFalsePositive:
         # 5. git rev-parse HEAD (post) → sha_after  (HEAD changed!)
         side_effects = [
             self._make_completed(0),                    # lint
+            self._make_completed(0, stdout=""),         # ls-files --deleted (none)
             self._make_completed(0),                    # git add
             self._make_completed(0, stdout="aaa111\n"), # pre HEAD
             self._make_completed(1, stderr="lint-staged could not find any staged files."),
@@ -77,6 +78,7 @@ class TestHookFalsePositive:
 
         side_effects = [
             self._make_completed(0),                    # lint
+            self._make_completed(0, stdout=""),         # ls-files --deleted (none)
             self._make_completed(0),                    # git add
             self._make_completed(0, stdout="aaa111\n"), # pre HEAD
             self._make_completed(1, stderr="error: pre-commit hook rejected the commit"),
@@ -99,6 +101,7 @@ class TestHookFalsePositive:
 
         side_effects = [
             self._make_completed(0),
+            self._make_completed(0, stdout=""),         # ls-files --deleted (none)
             self._make_completed(0),
             self._make_completed(0, stdout="aaa111\n"),
             self._make_completed(1, stderr="lint-staged could not find any staged files."),
@@ -121,6 +124,7 @@ class TestHookFalsePositive:
         hook_warning = "lint-staged could not find any staged files."
         side_effects = [
             self._make_completed(0),
+            self._make_completed(0, stdout=""),         # ls-files --deleted (none)
             self._make_completed(0),
             self._make_completed(0, stdout="aaa111\n"),
             self._make_completed(1, stderr=hook_warning),
