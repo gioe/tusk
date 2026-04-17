@@ -56,22 +56,18 @@ class TestEmojiCommitMessage:
         argv = [str(tmp_path), str(config), "399", "✅ fix the thing", "fix.py",
                 "--criteria", "42"]
 
-        # Call sequence:
-        # 1. tusk lint          → exit 0
-        # 2. git add            → exit 0
-        # 3. git rev-parse HEAD (pre)  → sha_before
-        # 4. git commit         → exit 0, stdout echoes emoji commit message
-        # 5. tusk criteria done → exit 0
-        side_effects = [
-            _make_completed(0),                          # lint
-            _make_completed(0, stdout=""),               # ls-files --deleted (none)
-            _make_completed(0),                          # git add
-            _make_completed(0, stdout="abc111\n"),       # pre HEAD
-            _make_completed(0, stdout="[main abc111] [TASK-399] ✅ fix the thing\n 1 file changed"),
-            _make_completed(0),                          # tusk criteria done
-        ]
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="abc111\n")
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(
+                    0,
+                    stdout="[main abc111] [TASK-399] ✅ fix the thing\n 1 file changed",
+                )
+            # lint, git ls-files --deleted, git add, tusk criteria done → default success
+            return _make_completed(0)
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(tmp_path)):
             rc = mod.main(argv)
 
@@ -89,15 +85,16 @@ class TestEmojiCommitMessage:
 
         argv = [str(tmp_path), str(config), "399", "⚠️ handle edge case", "fix.py"]
 
-        side_effects = [
-            _make_completed(0),                          # lint
-            _make_completed(0, stdout=""),               # ls-files --deleted (none)
-            _make_completed(0),                          # git add
-            _make_completed(0, stdout="abc222\n"),       # pre HEAD
-            _make_completed(0, stdout="[main abc222] [TASK-399] ⚠️ handle edge case\n"),
-        ]
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="abc222\n")
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(
+                    0, stdout="[main abc222] [TASK-399] ⚠️ handle edge case\n"
+                )
+            return _make_completed(0)
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(tmp_path)):
             rc = mod.main(argv)
 
