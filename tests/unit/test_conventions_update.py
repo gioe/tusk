@@ -91,7 +91,9 @@ class TestCmdUpdate:
         args = SimpleNamespace(id=1, text="updated text", topics=None)
         rc, out, _ = capture(conventions.cmd_update, args, conn)
         assert rc == 0
-        assert "Updated convention #1" in out
+        # Non-TTY stdout (StringIO) suppresses the "Updated convention #N" line;
+        # skills rely on exit code, not human-readable output.
+        assert out == ""
         row = conn.execute("SELECT text, topics FROM conventions WHERE id=1").fetchone()
         assert row["text"] == "updated text"
         assert row["topics"] == "cli,git"  # unchanged

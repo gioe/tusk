@@ -133,7 +133,8 @@ def cmd_update(args: argparse.Namespace, db_path: str, config: dict) -> int:
             values,
         )
         conn.commit()
-        print(f"Updated convention #{args.id}")
+        if sys.stdout.isatty():
+            print(f"Updated convention #{args.id}")
         return 0
     finally:
         conn.close()
