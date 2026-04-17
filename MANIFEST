@@ -23,6 +23,7 @@
   ".claude/bin/tusk-deps.py",
   ".claude/bin/tusk-dupes.py",
   ".claude/bin/tusk-filter-reviewers.py",
+  ".claude/bin/tusk-git-helpers.py",
   ".claude/bin/tusk-init-fetch-bootstrap.py",
   ".claude/bin/tusk-init-scan-codebase.py",
   ".claude/bin/tusk-init-scan-todos.py",

@@ -32,21 +32,31 @@ Default behavior (merge.mode = local):
 
 import json
 import os
-import re
 import sqlite3
 import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader
+import tusk_loader  # loads tusk-db-lib.py and tusk-git-helpers.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 get_connection = _db_lib.get_connection
 checkpoint_wal = _db_lib.checkpoint_wal
 
+_git_helpers = tusk_loader.load("tusk-git-helpers")
+_is_remote_unreachable = _git_helpers._is_remote_unreachable
+_UNREACHABLE_REMOTE_PATTERNS = _git_helpers._UNREACHABLE_REMOTE_PATTERNS
+_UNREACHABLE_REMOTE_REGEX = _git_helpers._UNREACHABLE_REMOTE_REGEX
+
 
 def run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(args, capture_output=True, text=True, check=check)
+
+
+def _has_remote(name: str = "origin") -> bool:
+    """Return True if the named git remote exists."""
+    result = run(["git", "remote", "get-url", name], check=False)
+    return result.returncode == 0
 
 
 # Generated lockfiles whose conflicts are always safe to auto-resolve by preferring
@@ -162,41 +172,6 @@ def _try_pop_stash(task_id: int) -> None:
     )
     if pop.stderr.strip():
         print(pop.stderr.strip(), file=sys.stderr)
-
-
-def _has_remote(name: str = "origin") -> bool:
-    """Return True if the named git remote exists."""
-    result = run(["git", "remote", "get-url", name], check=False)
-    return result.returncode == 0
-
-
-_UNREACHABLE_REMOTE_PATTERNS = (
-    "unable to access",
-    "could not resolve host",
-    "could not read from remote repository",
-    "connection refused",
-    "connection timed out",
-    "operation timed out",
-    "network is unreachable",
-    "repository not found",
-    "does not appear to be a git repository",
-    "temporary failure in name resolution",
-    "name or service not known",
-    "no route to host",
-)
-
-_UNREACHABLE_REMOTE_REGEX = re.compile(r"repository '[^']*' not found", re.IGNORECASE)
-
-
-def _is_remote_unreachable(stderr: str) -> bool:
-    """Return True if *stderr* indicates the remote is unreachable rather than
-    a local merge problem. Used to distinguish network/DNS/404 failures (where
-    we can safely fall back to local state) from divergent-history or merge
-    conflicts (where we must hard-fail)."""
-    lower = stderr.lower()
-    if any(pat in lower for pat in _UNREACHABLE_REMOTE_PATTERNS):
-        return True
-    return bool(_UNREACHABLE_REMOTE_REGEX.search(stderr))
 
 
 def detect_default_branch() -> str:
