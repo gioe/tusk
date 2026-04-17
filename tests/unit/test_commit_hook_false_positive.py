@@ -50,22 +50,21 @@ class TestHookFalsePositive:
         mod = _load_module()
         argv = _argv(tmp_path)
 
-        # Map each subprocess.run call to its expected return value in order:
-        # 1. tusk lint          → exit 0
-        # 2. git add            → exit 0
-        # 3. git rev-parse HEAD (pre)  → sha_before
-        # 4. git commit         → exit 1 (hook warning)
-        # 5. git rev-parse HEAD (post) → sha_after  (HEAD changed!)
-        side_effects = [
-            self._make_completed(0),                    # lint
-            self._make_completed(0, stdout=""),         # ls-files --deleted (none)
-            self._make_completed(0),                    # git add
-            self._make_completed(0, stdout="aaa111\n"), # pre HEAD
-            self._make_completed(1, stderr="lint-staged could not find any staged files."),
-            self._make_completed(0, stdout="bbb222\n"), # post HEAD — different!
-        ]
+        # Pre-commit HEAD = aaa111; post-commit HEAD = bbb222 (commit landed
+        # despite git commit's non-zero exit from a hook warning).
+        head_shas = iter(["aaa111\n", "bbb222\n"])
+        make_completed = self._make_completed
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "rev-parse"]:
+                return make_completed(0, stdout=next(head_shas))
+            if args[:2] == ["git", "commit"]:
+                return make_completed(
+                    1, stderr="lint-staged could not find any staged files."
+                )
+            return make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(tmp_path)):
             rc = mod.main(argv)
 
@@ -76,17 +75,20 @@ class TestHookFalsePositive:
         mod = _load_module()
         argv = _argv(tmp_path)
 
-        side_effects = [
-            self._make_completed(0),                    # lint
-            self._make_completed(0, stdout=""),         # ls-files --deleted (none)
-            self._make_completed(0),                    # git add
-            self._make_completed(0, stdout="aaa111\n"), # pre HEAD
-            self._make_completed(1, stderr="error: pre-commit hook rejected the commit"),
-            self._make_completed(0, stdout="aaa111\n"), # post HEAD — SAME (commit didn't land)
-            self._make_completed(0, stdout=""),         # git diff — no reformatted files, skip retry
-        ]
+        # HEAD stays at aaa111 across pre/post — commit did not land.
+        make_completed = self._make_completed
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "rev-parse"]:
+                return make_completed(0, stdout="aaa111\n")
+            if args[:2] == ["git", "commit"]:
+                return make_completed(
+                    1, stderr="error: pre-commit hook rejected the commit"
+                )
+            # git diff returns empty → no reformatted files, skip Issue #477 retry.
+            return make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(tmp_path)):
             rc = mod.main(argv)
 
@@ -99,16 +101,19 @@ class TestHookFalsePositive:
         mod = _load_module()
         argv = _argv(tmp_path)
 
-        side_effects = [
-            self._make_completed(0),
-            self._make_completed(0, stdout=""),         # ls-files --deleted (none)
-            self._make_completed(0),
-            self._make_completed(0, stdout="aaa111\n"),
-            self._make_completed(1, stderr="lint-staged could not find any staged files."),
-            self._make_completed(0, stdout="bbb222\n"),
-        ]
+        head_shas = iter(["aaa111\n", "bbb222\n"])
+        make_completed = self._make_completed
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "rev-parse"]:
+                return make_completed(0, stdout=next(head_shas))
+            if args[:2] == ["git", "commit"]:
+                return make_completed(
+                    1, stderr="lint-staged could not find any staged files."
+                )
+            return make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(tmp_path)):
             mod.main(argv)
 
@@ -122,16 +127,17 @@ class TestHookFalsePositive:
         argv = _argv(tmp_path)
 
         hook_warning = "lint-staged could not find any staged files."
-        side_effects = [
-            self._make_completed(0),
-            self._make_completed(0, stdout=""),         # ls-files --deleted (none)
-            self._make_completed(0),
-            self._make_completed(0, stdout="aaa111\n"),
-            self._make_completed(1, stderr=hook_warning),
-            self._make_completed(0, stdout="bbb222\n"),
-        ]
+        head_shas = iter(["aaa111\n", "bbb222\n"])
+        make_completed = self._make_completed
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "rev-parse"]:
+                return make_completed(0, stdout=next(head_shas))
+            if args[:2] == ["git", "commit"]:
+                return make_completed(1, stderr=hook_warning)
+            return make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(tmp_path)):
             mod.main(argv)
 
