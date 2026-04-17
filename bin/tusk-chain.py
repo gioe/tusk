@@ -297,8 +297,13 @@ def cmd_validate_scope(conn: sqlite3.Connection, head_ids: list[int]):
     print(json.dumps({"scope_type": scope_type, "skip_head_execution": skip_head_execution}))
 
 
-def cmd_status(conn: sqlite3.Connection, head_ids: list[int]):
-    """Print a human-readable progress summary for the downstream sub-DAG."""
+def cmd_status(conn: sqlite3.Connection, head_ids: list[int], fmt: str = "json"):
+    """Print a progress summary for the downstream sub-DAG.
+
+    Default output is a single-line compact JSON object so orchestrators and
+    loop callers can keep this out of context. Pass fmt="text" for the
+    human-readable multi-line table used for interactive debugging.
+    """
     downstream = bfs_downstream_union(conn, head_ids)
     task_ids = [tid for tid, _ in downstream]
 
@@ -308,10 +313,11 @@ def cmd_status(conn: sqlite3.Connection, head_ids: list[int]):
         task_ids,
     ).fetchall()
 
+    head_set = set(head_ids)
     head_summaries: dict[int, str] = {}
     by_status: dict[str, list] = {"Done": [], "In Progress": [], "To Do": []}
     for row in rows:
-        if row["id"] in set(head_ids):
+        if row["id"] in head_set:
             head_summaries[row["id"]] = row["summary"]
         status = row["status"]
         if status in by_status:
@@ -322,6 +328,22 @@ def cmd_status(conn: sqlite3.Connection, head_ids: list[int]):
     in_progress = len(by_status["In Progress"])
     todo = len(by_status["To Do"])
     pct = round(done / total * 100) if total > 0 else 0
+
+    if fmt == "json":
+        payload = {
+            "heads": [{"id": hid, "summary": head_summaries.get(hid, "")} for hid in head_ids],
+            "totals": {
+                "total": total,
+                "done": done,
+                "in_progress": in_progress,
+                "todo": todo,
+                "pct": pct,
+            },
+            "in_progress": [{"id": r["id"], "summary": r["summary"]} for r in by_status["In Progress"]],
+            "todo": [{"id": r["id"], "summary": r["summary"]} for r in by_status["To Do"]],
+        }
+        print(json.dumps(payload, separators=(",", ":")))
+        return
 
     if len(head_ids) == 1:
         hid = head_ids[0]
@@ -369,8 +391,9 @@ Examples:
   tusk chain frontier-check 42 43  # JSON: {status, frontier} for multi-head chain
   tusk chain validate-scope 42     # JSON: {scope_type, skip_head_execution} for /chain Step 2
   tusk chain validate-scope 42 43  # JSON: validate-scope for multi-head chain
-  tusk chain status 42             # Human-readable progress summary
-  tusk chain status 42 43          # Human-readable progress for multi-head chain
+  tusk chain status 42             # JSON: {heads, totals, in_progress, todo} (default)
+  tusk chain status 42 --format text  # Human-readable multi-line progress table
+  tusk chain status 42 43          # JSON progress summary for multi-head chain
         """,
     )
     parser.add_argument("--debug", action="store_true", help="Enable verbose debug output")
@@ -402,6 +425,12 @@ Examples:
     # status command
     status_parser = subparsers.add_parser("status", help="Show progress summary")
     status_parser.add_argument("head_task_ids", type=int, nargs="+", help="Head task ID(s)")
+    status_parser.add_argument(
+        "--format",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json — single-line compact object for orchestrators; text — multi-line human table)",
+    )
 
     args = parser.parse_args(sys.argv[3:])
 
@@ -436,7 +465,7 @@ Examples:
         elif args.command == "validate-scope":
             cmd_validate_scope(conn, args.head_task_ids)
         elif args.command == "status":
-            cmd_status(conn, args.head_task_ids)
+            cmd_status(conn, args.head_task_ids, fmt=args.format)
     finally:
         conn.close()
 
