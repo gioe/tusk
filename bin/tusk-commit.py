@@ -526,6 +526,37 @@ def main(argv: list[str]) -> int:
         post_sha = post.stdout.strip() if post.returncode == 0 else None
         commit_landed = post_sha and post_sha != pre_sha
 
+        # Issue #477: an auto-formatter pre-commit hook (black, ruff --fix,
+        # prettier, gofmt) may have rewritten tracked files in-place, leaving
+        # the working tree ahead of the index so `git commit` aborted with
+        # nothing new staged. Detect this by diffing the index against the
+        # working tree for the files we staged; if any diverged, re-stage the
+        # reformatted content and retry the commit exactly once.
+        if not commit_landed and not skip_verify:
+            diff_result = run(
+                ["git", "diff", "--name-only", "--"] + resolved_files,
+                check=False,
+                cwd=repo_root,
+            )
+            reformatted = (
+                [f for f in diff_result.stdout.splitlines() if f.strip()]
+                if diff_result.returncode == 0
+                else []
+            )
+            if reformatted:
+                print(
+                    f"Note: {len(reformatted)} file(s) modified by pre-commit hook "
+                    "after staging — re-staging reformatted content and retrying commit once."
+                )
+                readd = run(
+                    ["git", "add", "--"] + resolved_files, check=False, cwd=repo_root
+                )
+                if readd.returncode == 0:
+                    result = run(commit_cmd, check=False, cwd=repo_root)
+                    post = run(["git", "rev-parse", "HEAD"], check=False, cwd=repo_root)
+                    post_sha = post.stdout.strip() if post.returncode == 0 else None
+                    commit_landed = post_sha and post_sha != pre_sha
+
         if not commit_landed:
             error_text = result.stderr.strip()
             _print_error(f"Error: git commit failed:\n{error_text}")
@@ -533,7 +564,9 @@ def main(argv: list[str]) -> int:
             if any(kw in error_text.lower() for kw in hook_keywords):
                 _print_error(
                     "  Hint: a pre-commit hook rejected the commit. "
-                    "Run with --skip-verify to bypass hooks: "
+                    "An auto-formatter hook may have rewritten the file — "
+                    "re-stage the reformatted content and retry, "
+                    "or run with --skip-verify to bypass hooks: "
                     "tusk commit ... --skip-verify"
                 )
             else:
@@ -543,11 +576,13 @@ def main(argv: list[str]) -> int:
                 )
             return 3
 
-        # Commit landed but a hook emitted a non-zero exit (e.g. lint-staged
-        # "no staged files" warning). Surface it as a note, not a fatal error.
-        warning = result.stderr.strip()
-        if warning:
-            print(f"Note: git hook warning (commit landed successfully):\n{warning}")
+        # Commit landed but the last attempt emitted a non-zero exit (e.g.
+        # lint-staged "no staged files" warning). Surface it as a note, not
+        # a fatal error.
+        if result.returncode != 0:
+            warning = result.stderr.strip()
+            if warning:
+                print(f"Note: git hook warning (commit landed successfully):\n{warning}")
 
     if result.stdout.strip():
         print(result.stdout.strip())

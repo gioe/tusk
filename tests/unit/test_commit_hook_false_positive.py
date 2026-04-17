@@ -81,6 +81,7 @@ class TestHookFalsePositive:
             self._make_completed(0, stdout="aaa111\n"), # pre HEAD
             self._make_completed(1, stderr="error: pre-commit hook rejected the commit"),
             self._make_completed(0, stdout="aaa111\n"), # post HEAD — SAME (commit didn't land)
+            self._make_completed(0, stdout=""),         # git diff — no reformatted files, skip retry
         ]
 
         with patch("subprocess.run", side_effect=side_effects), \

@@ -125,6 +125,7 @@ class TestCommitFailureSkipVerifyHint:
             _make_completed(0, stdout="aaa111\n"),  # pre HEAD
             _make_completed(1, stderr="error: something went wrong"),
             _make_completed(0, stdout="aaa111\n"),  # post HEAD — same (commit didn't land)
+            _make_completed(0, stdout=""),          # git diff — no reformatted files, skip retry
         ]
 
         with patch("subprocess.run", side_effect=side_effects), \
@@ -146,6 +147,7 @@ class TestCommitFailureSkipVerifyHint:
             _make_completed(0, stdout="aaa111\n"),
             _make_completed(1, stderr="lint-staged: Prevented an empty git commit!"),
             _make_completed(0, stdout="aaa111\n"),
+            _make_completed(0, stdout=""),          # git diff — no reformatted files, skip retry
         ]
 
         with patch("subprocess.run", side_effect=side_effects), \
