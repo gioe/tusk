@@ -10,7 +10,11 @@ Read order:
 Outputs (single line to stdout) + exit code:
     - MISSING: .claude/settings.json not found on disk or in HEAD — no permissions.allow configured
         → exit 1
+    - MISSING: .claude/settings.json on disk is not valid JSON
+        → exit 1
     - MISSING: .claude/settings.json in HEAD is not valid JSON
+        → exit 1
+    - MISSING: permissions.allow is not a list — no permissions.allow configured
         → exit 1
     - MISSING: <entry>, <entry>, ...
         → exit 1
@@ -76,7 +80,14 @@ def check(repo_root: str) -> int:
     if settings is None:
         return 1
 
-    allow = settings.get("permissions", {}).get("allow", [])
+    perms = settings.get("permissions", {})
+    if not isinstance(perms, dict):
+        print("MISSING: permissions is not an object — no permissions.allow configured")
+        return 1
+    allow = perms.get("allow", [])
+    if not isinstance(allow, list):
+        print("MISSING: permissions.allow is not a list — no permissions.allow configured")
+        return 1
     missing = [p for p in REQUIRED_PERMISSIONS if p not in allow]
     if missing:
         print("MISSING: " + ", ".join(missing))

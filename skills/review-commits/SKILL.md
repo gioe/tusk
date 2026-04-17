@@ -129,8 +129,8 @@ After recording the inline decision, skip directly to Step 6.
 REVIEW_PERM_CHECK=$(tusk review-check-perms) || { echo "Agent review aborted: $REVIEW_PERM_CHECK"; exit 1; }
 ```
 
-On success the command prints `OK` and exits 0. On failure it prints a single `MISSING: …` line (either `not found on disk or in HEAD` or a comma-separated list of missing `permissions.allow` entries) and exits 1. When the check fails, surface to the user:
-> Agent review aborted: `<captured MISSING: line>`. Add the missing entries to `.claude/settings.json` manually or run `tusk upgrade` to apply them, then restart the session.
+On success the command prints `OK` and exits 0. On failure it prints a single `MISSING: …` line (either `not found on disk or in HEAD`, a JSON/shape error, or a comma-separated list of missing `permissions.allow` entries) and exits 1. When the check fails, surface to the user:
+> Agent review aborted: `<captured MISSING: line>`. Create `.claude/settings.json` or add the missing entries manually, or run `tusk upgrade` to apply them, then restart the session.
 
 Proceed to spawn agents only if the check prints `OK`.
 
@@ -371,7 +371,7 @@ Otherwise, loop while `can_retry` is true:
    ```
 
    On failure the command prints a single `MISSING: …` line and exits 1. When the check fails, surface to the user:
-   > Re-review agent aborted: `<captured MISSING: line>`. Add the missing entries to `.claude/settings.json` manually or run `tusk upgrade` to apply them, then restart the session.
+   > Re-review agent aborted: `<captured MISSING: line>`. Create `.claude/settings.json` or add the missing entries manually, or run `tusk upgrade` to apply them, then restart the session.
 
    Proceed to spawn re-review agents only if the check prints `OK`. Re-review agents fetch the diff themselves — no diff is passed inline.
 

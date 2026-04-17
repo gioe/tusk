@@ -1,10 +1,12 @@
 """Unit tests for tusk-review-check-perms.py.
 
-Covers the three exit paths:
+Exit paths covered:
 - on-disk settings.json with all required permissions → OK, exit 0
 - on-disk settings.json missing some entries → MISSING: <entries>, exit 1
 - no on-disk settings.json and `git show HEAD:.claude/settings.json` returns non-zero → MISSING: not found, exit 1
 - on-disk settings.json absent but HEAD copy is valid → OK, exit 0
+- on-disk settings.json is not valid JSON → MISSING: not valid JSON, exit 1
+- permissions or permissions.allow is not of the expected shape → MISSING: …, exit 1
 """
 
 import importlib.util
@@ -97,6 +99,24 @@ def test_invalid_json_on_disk(tmp_path):
     rc, out = _run_check(repo)
     assert rc == 1
     assert "not valid JSON" in out
+
+
+def test_permissions_not_a_dict(tmp_path):
+    """permissions is a string, not an object — should not raise AttributeError."""
+    repo = _make_repo(tmp_path, json.dumps({"permissions": "whatever"}))
+    rc, out = _run_check(repo)
+    assert rc == 1
+    assert out.startswith("MISSING: ")
+    assert "permissions" in out
+
+
+def test_permissions_allow_not_a_list(tmp_path):
+    """permissions.allow is a dict instead of a list — should not raise TypeError."""
+    repo = _make_repo(tmp_path, json.dumps({"permissions": {"allow": {"a": 1}}}))
+    rc, out = _run_check(repo)
+    assert rc == 1
+    assert out.startswith("MISSING: ")
+    assert "allow" in out
 
 
 if __name__ == "__main__":
