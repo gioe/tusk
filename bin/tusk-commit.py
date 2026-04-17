@@ -28,6 +28,7 @@ Exit codes:
     2 — test_command failed (nothing was staged or committed)
     3 — git add or git commit failed
     4 — one or more criteria could not be marked done (commit itself succeeded)
+    5 — test_command exceeded its configured timeout (see test_command_timeout_sec)
 """
 
 import json
@@ -375,11 +376,13 @@ def main(argv: list[str]) -> int:
     # ── Step 1: Run lint (advisory) ──────────────────────────────────
     tusk_bin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
     print("=== Running tusk lint (advisory) ===")
+    sys.stdout.flush()
     lint = subprocess.run([tusk_bin, "lint"], capture_output=False)
     if lint.returncode != 0:
         print("\nLint reported warnings (advisory only — continuing)\n")
     else:
         print()
+    sys.stdout.flush()
 
     # ── Step 2: Run test_command gate (hard-blocks on failure) ───────
     # Only query the task's domain when domain_test_commands is configured —
@@ -395,6 +398,7 @@ def main(argv: list[str]) -> int:
     test_cmd = load_test_command(config_path, task_domain)
     if test_cmd and not skip_verify:
         print(f"=== Running test_command: {test_cmd} ===")
+        sys.stdout.flush()
         test = subprocess.run(test_cmd, shell=True, capture_output=False, cwd=repo_root)
         if test.returncode != 0:
             print(
@@ -438,6 +442,8 @@ def main(argv: list[str]) -> int:
     # File paths were already resolved and validated in Step 0.
     # git add handles deletions of tracked files natively since Git 2.x — no git rm needed.
     # The -- separator prevents git from misinterpreting file paths as options.
+    print(f"=== Staging {len(resolved_files)} file(s) ===")
+    sys.stdout.flush()
     result = run(["git", "add", "--"] + resolved_files, check=False, cwd=repo_root)
     if result.returncode != 0:
         stderr_text = result.stderr.strip()
@@ -539,6 +545,8 @@ def main(argv: list[str]) -> int:
             return 3
 
     # ── Step 4: Commit ───────────────────────────────────────────────
+    print("=== Creating commit ===")
+    sys.stdout.flush()
     full_message = f"[TASK-{task_id}] {message}\n\n{TRAILER}"
     # Capture HEAD before committing so we can verify whether the commit
     # landed even when a hook (e.g. husky + lint-staged) exits non-zero.
@@ -623,6 +631,7 @@ def main(argv: list[str]) -> int:
     criteria_failed = False
     for idx, cid in enumerate(criteria_ids):
         print(f"\n=== Marking criterion {cid} done ===")
+        sys.stdout.flush()
         cmd = [tusk_bin, "criteria", "done", cid]
         if skip_verify:
             cmd.append("--skip-verify")
