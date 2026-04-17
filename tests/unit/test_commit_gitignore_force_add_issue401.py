@@ -64,17 +64,23 @@ class TestGitignoreForceAdd:
         )
         gitignore_rule = f".gitignore:1:.claude/\t{rel_path}"
 
-        side_effects = [
-            _make_completed(0),                           # tusk lint
-            _make_completed(0, stdout=""),                # ls-files --deleted (none)
-            _make_completed(1, stderr=gitignore_stderr),  # git add (fails — gitignored)
-            _make_completed(0, stdout=gitignore_rule),    # git check-ignore -v (confirms rule)
-            _make_completed(0),                           # git add -f (retry succeeds)
-            _make_completed(0, stdout="abc401\n"),        # git rev-parse HEAD (pre)
-            _make_completed(0, stdout="[main abc401] [TASK-401] add new-skill skill file\n"),
-        ]
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                # Initial add (no -f) fails; force-add (-f) succeeds.
+                if "-f" in args:
+                    return _make_completed(0)
+                return _make_completed(1, stderr=gitignore_stderr)
+            if args[:3] == ["git", "check-ignore", "-v"]:
+                return _make_completed(0, stdout=gitignore_rule)
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="abc401\n")
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(
+                    0, stdout="[main abc401] [TASK-401] add new-skill skill file\n"
+                )
+            return _make_completed(0)
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(tmp_path)):
             rc = mod.main(argv)
 
@@ -103,15 +109,17 @@ class TestGitignoreForceAdd:
         )
         gitignore_rule = f".gitignore:1:.claude/\t{rel_path}"
 
-        side_effects = [
-            _make_completed(0),                              # tusk lint
-            _make_completed(0, stdout=""),                   # ls-files --deleted (none)
-            _make_completed(1, stderr=gitignore_stderr),     # git add (fails)
-            _make_completed(0, stdout=gitignore_rule),       # git check-ignore -v
-            _make_completed(1, stderr="error: permission denied"),  # git add -f (also fails)
-        ]
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                # Both initial add and -f retry fail.
+                if "-f" in args:
+                    return _make_completed(1, stderr="error: permission denied")
+                return _make_completed(1, stderr=gitignore_stderr)
+            if args[:3] == ["git", "check-ignore", "-v"]:
+                return _make_completed(0, stdout=gitignore_rule)
+            return _make_completed(0)
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(tmp_path)):
             rc = mod.main(argv)
 
@@ -131,15 +139,14 @@ class TestGitignoreForceAdd:
 
         argv = [str(tmp_path), str(config), "401", "fix something", "fix.py"]
 
-        # git add fails for a non-gitignore reason; check-ignore returns exit 1 (not ignored)
-        side_effects = [
-            _make_completed(0),                                   # tusk lint
-            _make_completed(0, stdout=""),                        # ls-files --deleted (none)
-            _make_completed(1, stderr="error: sparse checkout"),  # git add (non-gitignore fail)
-            _make_completed(1),                                   # git check-ignore (not ignored)
-        ]
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "add"]:
+                return _make_completed(1, stderr="error: sparse checkout")
+            if args[:3] == ["git", "check-ignore", "-v"]:
+                return _make_completed(1)  # not ignored
+            return _make_completed(0)
 
-        with patch("subprocess.run", side_effect=side_effects), \
+        with patch("subprocess.run", side_effect=fake_run), \
              patch("os.getcwd", return_value=str(tmp_path)):
             rc = mod.main(argv)
 
