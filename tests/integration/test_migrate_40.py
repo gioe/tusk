@@ -111,7 +111,12 @@ class TestMigrate40StaleConfig:
 
     def test_idempotent_when_already_at_v40(self, db_path, stale_config):
         """migrate_40 is a no-op (aside from version stamp) when DB is already at v40."""
-        # db_path is initialised at current schema version (40).
+        # db_path initialises at the current schema version, which advances past 40
+        # as new migrations land. Rewind to 40 so the idempotency check is meaningful.
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA user_version = 40")
+        conn.commit()
+        conn.close()
         assert tusk_migrate.get_version(str(db_path)) == 40
 
         tusk_migrate.migrate_40(str(db_path), stale_config, SCRIPT_DIR)
