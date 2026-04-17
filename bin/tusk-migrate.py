@@ -17,6 +17,16 @@ import subprocess
 import sys
 
 
+def _progress(msg: str) -> None:
+    """Print a per-migration progress line only when stdout is interactive.
+
+    Non-TTY callers (skills, CI, piped stdout) suppress the noise; the final
+    summary line at the end of main() always prints regardless.
+    """
+    if sys.stdout.isatty():
+        print(msg)
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def db_connect(db_path: str) -> sqlite3.Connection:
@@ -103,7 +113,7 @@ def migrate_1(db_path: str, config_path: str, script_dir: str) -> None:
             ALTER TABLE task_sessions ADD COLUMN model TEXT;
             PRAGMA user_version = 1;
         """)
-        print("  Migration 1: added 'model' column to task_sessions")
+        _progress("  Migration 1: added 'model' column to task_sessions")
     else:
         set_version(db_path, 1)
 
@@ -125,7 +135,7 @@ def migrate_2(db_path: str, config_path: str, script_dir: str) -> None:
             CREATE INDEX idx_task_progress_task_id ON task_progress(task_id);
             PRAGMA user_version = 2;
         """)
-        print("  Migration 2: created 'task_progress' table")
+        _progress("  Migration 2: created 'task_progress' table")
     else:
         set_version(db_path, 2)
 
@@ -139,7 +149,7 @@ def migrate_3(db_path: str, config_path: str, script_dir: str) -> None:
                 CHECK (relationship_type IN ('blocks', 'contingent'));
             PRAGMA user_version = 3;
         """)
-        print("  Migration 3: added 'relationship_type' column to task_dependencies")
+        _progress("  Migration 3: added 'relationship_type' column to task_dependencies")
     else:
         set_version(db_path, 3)
 
@@ -163,7 +173,7 @@ def migrate_4(db_path: str, config_path: str, script_dir: str) -> None:
             CREATE INDEX idx_acceptance_criteria_task_id ON acceptance_criteria(task_id);
             PRAGMA user_version = 4;
         """)
-        print("  Migration 4: created 'acceptance_criteria' table")
+        _progress("  Migration 4: created 'acceptance_criteria' table")
     else:
         set_version(db_path, 4)
 
@@ -189,7 +199,7 @@ def migrate_5(db_path: str, config_path: str, script_dir: str) -> None:
             PRAGMA user_version = 5;
         """)
         regen_triggers(db_path, config_path, script_dir)
-        print("  Migration 5: added 'complexity' column to tasks")
+        _progress("  Migration 5: added 'complexity' column to tasks")
     else:
         set_version(db_path, 5)
 
@@ -213,7 +223,7 @@ def migrate_6(db_path: str, config_path: str, script_dir: str) -> None:
             PRAGMA user_version = 6;
         """)
         regen_triggers(db_path, config_path, script_dir)
-        print("  Migration 6: created 'external_blockers' table")
+        _progress("  Migration 6: created 'external_blockers' table")
     else:
         set_version(db_path, 6)
 
@@ -228,7 +238,7 @@ def migrate_7(db_path: str, config_path: str, script_dir: str) -> None:
             ALTER TABLE acceptance_criteria ADD COLUMN tokens_out INTEGER;
             PRAGMA user_version = 7;
         """)
-        print("  Migration 7: added cost tracking columns to acceptance_criteria")
+        _progress("  Migration 7: added cost tracking columns to acceptance_criteria")
     else:
         set_version(db_path, 7)
 
@@ -243,7 +253,7 @@ def migrate_8(db_path: str, config_path: str, script_dir: str) -> None:
             PRAGMA user_version = 8;
         """)
         regen_triggers(db_path, config_path, script_dir)
-        print("  Migration 8: added typed criteria columns to acceptance_criteria")
+        _progress("  Migration 8: added typed criteria columns to acceptance_criteria")
     else:
         set_version(db_path, 8)
 
@@ -255,7 +265,7 @@ def migrate_9(db_path: str, config_path: str, script_dir: str) -> None:
             ALTER TABLE acceptance_criteria ADD COLUMN commit_hash TEXT;
             PRAGMA user_version = 9;
         """)
-        print("  Migration 9: added commit_hash column to acceptance_criteria")
+        _progress("  Migration 9: added commit_hash column to acceptance_criteria")
     else:
         set_version(db_path, 9)
 
@@ -267,7 +277,7 @@ def migrate_10(db_path: str, config_path: str, script_dir: str) -> None:
             ALTER TABLE acceptance_criteria ADD COLUMN committed_at TEXT;
             PRAGMA user_version = 10;
         """)
-        print("  Migration 10: added committed_at column to acceptance_criteria")
+        _progress("  Migration 10: added committed_at column to acceptance_criteria")
     else:
         set_version(db_path, 10)
 
@@ -315,7 +325,7 @@ def migrate_11(db_path: str, config_path: str, script_dir: str) -> None:
             PRAGMA user_version = 11;
         """)
         regen_triggers(db_path, config_path, script_dir)
-        print("  Migration 11: created 'code_reviews' and 'review_comments' tables")
+        _progress("  Migration 11: created 'code_reviews' and 'review_comments' tables")
     else:
         set_version(db_path, 11)
 
@@ -328,7 +338,7 @@ def migrate_12(db_path: str, config_path: str, script_dir: str) -> None:
             ALTER TABLE acceptance_criteria ADD COLUMN deferred_reason TEXT;
             PRAGMA user_version = 12;
         """)
-        print("  Migration 12: added is_deferred and deferred_reason columns to acceptance_criteria")
+        _progress("  Migration 12: added is_deferred and deferred_reason columns to acceptance_criteria")
     else:
         set_version(db_path, 12)
 
@@ -341,7 +351,7 @@ def migrate_13(db_path: str, config_path: str, script_dir: str) -> None:
         run_script(db_path, drop_sql + "\n" + triggers_sql + "\nPRAGMA user_version = 13;")
     else:
         set_version(db_path, 13)
-    print("  Migration 13: added status transition validation trigger")
+    _progress("  Migration 13: added status transition validation trigger")
 
 
 def migrate_14(db_path: str, config_path: str, script_dir: str) -> None:
@@ -362,7 +372,7 @@ def migrate_14(db_path: str, config_path: str, script_dir: str) -> None:
           );
         PRAGMA user_version = 14;
     """)
-    print("  Migration 14: created v_ready_tasks view")
+    _progress("  Migration 14: created v_ready_tasks view")
 
 
 def migrate_15(db_path: str, config_path: str, script_dir: str) -> None:
@@ -417,7 +427,7 @@ def migrate_15(db_path: str, config_path: str, script_dir: str) -> None:
 
         PRAGMA user_version = 15;
     """)
-    print("  Migration 15: added v_chain_heads, v_blocked_tasks, v_criteria_coverage views")
+    _progress("  Migration 15: added v_chain_heads, v_blocked_tasks, v_criteria_coverage views")
 
 
 def migrate_16(db_path: str, config_path: str, script_dir: str) -> None:
@@ -441,7 +451,7 @@ def migrate_16(db_path: str, config_path: str, script_dir: str) -> None:
 
         PRAGMA user_version = 16;
     """)
-    print("  Migration 16: fixed v_ready_tasks to only filter 'blocks'-type deps (not contingent)")
+    _progress("  Migration 16: fixed v_ready_tasks to only filter 'blocks'-type deps (not contingent)")
 
 
 def migrate_17(db_path: str, config_path: str, script_dir: str) -> None:
@@ -489,7 +499,7 @@ def migrate_17(db_path: str, config_path: str, script_dir: str) -> None:
 
         PRAGMA user_version = 17;
     """)
-    print("  Migration 17: fixed v_chain_heads and v_blocked_tasks to only filter 'blocks'-type deps (not contingent)")
+    _progress("  Migration 17: fixed v_chain_heads and v_blocked_tasks to only filter 'blocks'-type deps (not contingent)")
 
 
 def migrate_18(db_path: str, config_path: str, script_dir: str) -> None:
@@ -509,7 +519,7 @@ def migrate_18(db_path: str, config_path: str, script_dir: str) -> None:
         CREATE INDEX IF NOT EXISTS idx_skill_runs_skill_name ON skill_runs(skill_name);
         PRAGMA user_version = 18;
     """)
-    print("  Migration 18: added skill_runs table for per-skill cost tracking")
+    _progress("  Migration 18: added skill_runs table for per-skill cost tracking")
 
 
 def migrate_19(db_path: str, config_path: str, script_dir: str) -> None:
@@ -533,7 +543,7 @@ def migrate_19(db_path: str, config_path: str, script_dir: str) -> None:
         CREATE INDEX IF NOT EXISTS idx_tool_call_stats_task_id ON tool_call_stats(task_id);
         PRAGMA user_version = 19;
     """)
-    print("  Migration 19: added tool_call_stats table for per-tool-call cost aggregates")
+    _progress("  Migration 19: added tool_call_stats table for per-tool-call cost aggregates")
 
 
 def migrate_20(db_path: str, config_path: str, script_dir: str) -> None:
@@ -574,7 +584,7 @@ def migrate_20(db_path: str, config_path: str, script_dir: str) -> None:
 
         COMMIT;
     """)
-    print("  Migration 20: added skill_run_id FK to tool_call_stats, made session_id nullable")
+    _progress("  Migration 20: added skill_run_id FK to tool_call_stats, made session_id nullable")
 
 
 def migrate_21(db_path: str, config_path: str, script_dir: str) -> None:
@@ -616,7 +626,7 @@ def migrate_21(db_path: str, config_path: str, script_dir: str) -> None:
 
         COMMIT;
     """)
-    print("  Migration 21: added CHECK(session_id IS NOT NULL OR skill_run_id IS NOT NULL) to tool_call_stats")
+    _progress("  Migration 21: added CHECK(session_id IS NOT NULL OR skill_run_id IS NOT NULL) to tool_call_stats")
 
 
 def migrate_22(db_path: str, config_path: str, script_dir: str) -> None:
@@ -662,7 +672,7 @@ def migrate_22(db_path: str, config_path: str, script_dir: str) -> None:
 
         COMMIT;
     """)
-    print("  Migration 22: added criterion_id FK to tool_call_stats for per-criterion tool-cost drilldown")
+    _progress("  Migration 22: added criterion_id FK to tool_call_stats for per-criterion tool-cost drilldown")
 
 
 def migrate_23(db_path: str, config_path: str, script_dir: str) -> None:
@@ -671,7 +681,7 @@ def migrate_23(db_path: str, config_path: str, script_dir: str) -> None:
         ALTER TABLE tool_call_stats ADD COLUMN tokens_in INTEGER NOT NULL DEFAULT 0;
         PRAGMA user_version = 23;
     """)
-    print("  Migration 23: added tokens_in column to tool_call_stats")
+    _progress("  Migration 23: added tokens_in column to tool_call_stats")
 
 
 def migrate_24(db_path: str, config_path: str, script_dir: str) -> None:
@@ -689,7 +699,7 @@ def migrate_24(db_path: str, config_path: str, script_dir: str) -> None:
         GROUP BY strftime('%Y-W%W', updated_at);
         PRAGMA user_version = 24;
     """)
-    print("  Migration 24: added v_velocity view for throughput and cost-per-task metrics")
+    _progress("  Migration 24: added v_velocity view for throughput and cost-per-task metrics")
 
 
 def migrate_25(db_path: str, config_path: str, script_dir: str) -> None:
@@ -823,7 +833,7 @@ def migrate_25(db_path: str, config_path: str, script_dir: str) -> None:
     """)
 
     regen_triggers(db_path, config_path, script_dir)
-    print("  Migration 25: dropped github_pr column from tasks table")
+    _progress("  Migration 25: dropped github_pr column from tasks table")
 
 
 def migrate_26(db_path: str, config_path: str, script_dir: str) -> None:
@@ -833,7 +843,7 @@ def migrate_26(db_path: str, config_path: str, script_dir: str) -> None:
         ALTER TABLE code_reviews ADD COLUMN agent_name TEXT;
         PRAGMA user_version = 26;
     """)
-    print("  Migration 26: added agent_name column to task_sessions and code_reviews")
+    _progress("  Migration 26: added agent_name column to task_sessions and code_reviews")
 
 
 def migrate_27(db_path: str, config_path: str, script_dir: str) -> None:
@@ -849,7 +859,7 @@ def migrate_27(db_path: str, config_path: str, script_dir: str) -> None:
 
         PRAGMA user_version = 27;
     """)
-    print("  Migration 27: added partial UNIQUE index on task_sessions(task_id) WHERE ended_at IS NULL")
+    _progress("  Migration 27: added partial UNIQUE index on task_sessions(task_id) WHERE ended_at IS NULL")
 
 
 def migrate_28(db_path: str, config_path: str, script_dir: str) -> None:
@@ -859,7 +869,7 @@ def migrate_28(db_path: str, config_path: str, script_dir: str) -> None:
         UPDATE tasks SET is_deferred = 1 WHERE summary LIKE '[Deferred]%';
         PRAGMA user_version = 28;
     """)
-    print("  Migration 28: added is_deferred column to tasks and backfilled from [Deferred] prefix")
+    _progress("  Migration 28: added is_deferred column to tasks and backfilled from [Deferred] prefix")
 
 
 def migrate_29(db_path: str, config_path: str, script_dir: str) -> None:
@@ -884,7 +894,7 @@ def migrate_29(db_path: str, config_path: str, script_dir: str) -> None:
         existing = conn.execute("SELECT COUNT(*) FROM conventions").fetchone()[0]
         if existing > 0:
             conn.close()
-            print(f"  Skipped import: {existing} convention(s) already in DB")
+            _progress(f"  Skipped import: {existing} convention(s) already in DB")
         else:
             try:
                 with open(conventions_md) as f:
@@ -904,7 +914,7 @@ def migrate_29(db_path: str, config_path: str, script_dir: str) -> None:
                     )
                     count += 1
                 conn.commit()
-                print(f"  Imported {count} convention(s) from conventions.md")
+                _progress(f"  Imported {count} convention(s) from conventions.md")
             except Exception as e:
                 conn.rollback()
                 print(f"  Warning: conventions.md import failed: {e}", file=sys.stderr)
@@ -912,7 +922,7 @@ def migrate_29(db_path: str, config_path: str, script_dir: str) -> None:
             finally:
                 conn.close()
 
-    print("  Migration 29: added conventions table")
+    _progress("  Migration 29: added conventions table")
 
 
 def migrate_30(db_path: str, config_path: str, script_dir: str) -> None:
@@ -959,7 +969,7 @@ def migrate_30(db_path: str, config_path: str, script_dir: str) -> None:
     """)
 
     regen_triggers(db_path, config_path, script_dir)
-    print("  Migration 30: dropped pending from review_comments.resolution; NULL is now the unresolved sentinel")
+    _progress("  Migration 30: dropped pending from review_comments.resolution; NULL is now the unresolved sentinel")
 
 
 def migrate_31(db_path: str, config_path: str, script_dir: str) -> None:
@@ -980,7 +990,7 @@ def migrate_31(db_path: str, config_path: str, script_dir: str) -> None:
         """)
     else:
         set_version(db_path, 31)
-    print("  Migration 31: added lint_rules table")
+    _progress("  Migration 31: added lint_rules table")
 
 
 def migrate_32(db_path: str, config_path: str, script_dir: str) -> None:
@@ -1010,7 +1020,7 @@ def migrate_32(db_path: str, config_path: str, script_dir: str) -> None:
         """)
     else:
         set_version(db_path, 32)
-    print("  Migration 32: added tool_call_events table")
+    _progress("  Migration 32: added tool_call_events table")
 
 
 def migrate_33(db_path: str, config_path: str, script_dir: str) -> None:
@@ -1020,7 +1030,7 @@ def migrate_33(db_path: str, config_path: str, script_dir: str) -> None:
             ALTER TABLE conventions ADD COLUMN qualitative INTEGER NOT NULL DEFAULT 0;
         """)
     set_version(db_path, 33)
-    print("  Migration 33: added qualitative column to conventions")
+    _progress("  Migration 33: added qualitative column to conventions")
 
 
 def migrate_34(db_path: str, config_path: str, script_dir: str) -> None:
@@ -1067,7 +1077,7 @@ def migrate_34(db_path: str, config_path: str, script_dir: str) -> None:
         """)
     else:
         set_version(db_path, 34)
-    print("  Migration 34: added skill_run_id column to tool_call_events")
+    _progress("  Migration 34: added skill_run_id column to tool_call_events")
 
 
 def migrate_35(db_path: str, config_path: str, script_dir: str) -> None:
@@ -1078,7 +1088,7 @@ def migrate_35(db_path: str, config_path: str, script_dir: str) -> None:
         """)
     else:
         set_version(db_path, 35)
-    print("  Migration 35: added note column to code_reviews")
+    _progress("  Migration 35: added note column to code_reviews")
 
 
 def migrate_36(db_path: str, config_path: str, script_dir: str) -> None:
@@ -1103,7 +1113,7 @@ def migrate_36(db_path: str, config_path: str, script_dir: str) -> None:
         """)
     else:
         set_version(db_path, 36)
-    print("  Migration 36: added started_at column to tasks, backfilled from task_sessions")
+    _progress("  Migration 36: added started_at column to tasks, backfilled from task_sessions")
 
 
 def migrate_37(db_path: str, config_path: str, script_dir: str) -> None:
@@ -1134,7 +1144,7 @@ def migrate_37(db_path: str, config_path: str, script_dir: str) -> None:
         """)
     else:
         set_version(db_path, 37)
-    print("  Migration 37: added closed_at column to tasks, backfilled from updated_at for Done tasks, updated v_velocity")
+    _progress("  Migration 37: added closed_at column to tasks, backfilled from updated_at for Done tasks, updated v_velocity")
 
 
 def migrate_38(db_path: str, config_path: str, script_dir: str) -> None:
@@ -1148,7 +1158,7 @@ def migrate_38(db_path: str, config_path: str, script_dir: str) -> None:
         """)
     else:
         set_version(db_path, 38)
-    print("  Migration 38: added peak_context_tokens, first_context_tokens, last_context_tokens columns to task_sessions")
+    _progress("  Migration 38: added peak_context_tokens, first_context_tokens, last_context_tokens columns to task_sessions")
 
 
 def migrate_39(db_path: str, config_path: str, script_dir: str) -> None:
@@ -1166,7 +1176,7 @@ def migrate_39(db_path: str, config_path: str, script_dir: str) -> None:
         """)
     else:
         set_version(db_path, 39)
-    print("  Migration 39: added context_window column to task_sessions and back-filled from model")
+    _progress("  Migration 39: added context_window column to task_sessions and back-filled from model")
 
 
 def migrate_40(db_path: str, config_path: str, script_dir: str) -> None:
@@ -1184,7 +1194,7 @@ def migrate_40(db_path: str, config_path: str, script_dir: str) -> None:
         set_version(db_path, 40)
     else:
         set_version(db_path, 40)
-    print("  Migration 40: added 'issue' to task_types config and regenerated validation trigger")
+    _progress("  Migration 40: added 'issue' to task_types config and regenerated validation trigger")
 
 
 def migrate_41(db_path: str, config_path: str, script_dir: str) -> None:
@@ -1227,7 +1237,7 @@ def migrate_41(db_path: str, config_path: str, script_dir: str) -> None:
         """)
     else:
         set_version(db_path, 41)
-    print("  Migration 41: added 'superseded' to code_reviews.status CHECK constraint")
+    _progress("  Migration 41: added 'superseded' to code_reviews.status CHECK constraint")
 
 
 def migrate_42(db_path: str, config_path: str, script_dir: str) -> None:
@@ -1240,7 +1250,7 @@ def migrate_42(db_path: str, config_path: str, script_dir: str) -> None:
         """)
     else:
         set_version(db_path, 42)
-    print("  Migration 42: added 'topics' column to conventions table")
+    _progress("  Migration 42: added 'topics' column to conventions table")
 
 
 def migrate_43(db_path: str, config_path: str, script_dir: str) -> None:
@@ -1252,7 +1262,7 @@ def migrate_43(db_path: str, config_path: str, script_dir: str) -> None:
         PRAGMA user_version = 43;
         COMMIT;
     """)
-    print("  Migration 43: backfill normalize whitespace in convention topics")
+    _progress("  Migration 43: backfill normalize whitespace in convention topics")
 
 
 def migrate_44(db_path: str, config_path: str, script_dir: str) -> None:
@@ -1270,7 +1280,7 @@ def migrate_44(db_path: str, config_path: str, script_dir: str) -> None:
         """)
     else:
         set_version(db_path, 44)
-    print("  Migration 44: added 'pillars' table")
+    _progress("  Migration 44: added 'pillars' table")
 
 
 def migrate_45(db_path: str, config_path: str, script_dir: str) -> None:
@@ -1283,7 +1293,7 @@ def migrate_45(db_path: str, config_path: str, script_dir: str) -> None:
         """)
     else:
         set_version(db_path, 45)
-    print("  Migration 45: added 'workflow' column to tasks table")
+    _progress("  Migration 45: added 'workflow' column to tasks table")
 
 
 def migrate_46(db_path: str, config_path: str, script_dir: str) -> None:
@@ -1294,7 +1304,7 @@ def migrate_46(db_path: str, config_path: str, script_dir: str) -> None:
         """)
     else:
         set_version(db_path, 46)
-    print("  Migration 46: added 'skip_note' column to acceptance_criteria")
+    _progress("  Migration 46: added 'skip_note' column to acceptance_criteria")
 
 
 # ── Migration registry ────────────────────────────────────────────────────────
