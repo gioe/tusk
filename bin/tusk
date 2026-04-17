@@ -827,7 +827,7 @@ candidates = [
   'review','deps','session-stats','session-recalc','skill-run',
   'call-breakdown','session-close','task-get','task-get-multi','task-select','task-start',
   'task-done','task-insert','task-update','task-reopen','task-list',
-  'audit','autoclose','backlog-scan','test-detect','init-scan-codebase','init-scan-todos','scaffold-reviewer-prompts','filter-reviewers','review-check-perms','loop','merge','progress',
+  'audit','autoclose','backlog-scan','test-detect','test-precheck','init-scan-codebase','init-scan-todos','scaffold-reviewer-prompts','filter-reviewers','review-check-perms','loop','merge','progress',
   'setup','token-audit','sync-skills','generate-manifest','pricing-update','wsjf','shell',
   'version','version-bump','changelog-add','migrate','regen-triggers','upgrade',
 ]
@@ -1168,7 +1168,7 @@ is_readonly_subcmd() {
     git-default-branch|branch-parse|report-issue|\
     sync-skills|generate-manifest|pricing-update|token-audit|\
     task-get|task-get-multi|task-list|task-select|setup|\
-    backlog-scan|blockers|check-deliverables|test-detect|review-check-perms|\
+    backlog-scan|blockers|check-deliverables|test-detect|test-precheck|review-check-perms|\
     init-fetch-bootstrap|init-scan-codebase|init-scan-todos)
       return 0 ;;
     *) return 1 ;;
@@ -1247,6 +1247,7 @@ case "${1:-}" in
   backlog-scan) shift; exec python3 "$SCRIPT_DIR/tusk-backlog-scan.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   check-deliverables) shift; exec python3 "$SCRIPT_DIR/tusk-check-deliverables.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   test-detect) shift; exec python3 "$SCRIPT_DIR/tusk-test-detect.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  test-precheck) shift; exec python3 "$SCRIPT_DIR/tusk-test-precheck.py" "$REPO_ROOT" "$(resolve_config)" "$@" ;;
   add-lib) shift; exec python3 "$SCRIPT_DIR/tusk-add-lib.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   init-scan-codebase) shift; exec python3 "$SCRIPT_DIR/tusk-init-scan-codebase.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   init-scan-todos) shift; exec python3 "$SCRIPT_DIR/tusk-init-scan-todos.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
