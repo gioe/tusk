@@ -228,30 +228,51 @@ def rule5_done_without_closed_reason(root):
     return violations
 
 
+# Rule 6 only flags Done tasks closed within this window. Older tasks are
+# skipped so retroactively-added criteria on long-closed work don't swamp
+# the output — on backlogs with 100+ historical tasks from before criteria
+# enforcement, the unscoped query could produce enough output to hang
+# `tusk commit` in its lint phase for minutes at a time.
+RULE6_RECENT_DAYS = 30
+
+
 def rule6_done_incomplete_criteria(root):
-    """Tasks marked Done with incomplete acceptance criteria."""
-    violations = []
-    tusk_bin = os.path.join(root, "bin", "tusk")
-    if not os.path.isfile(tusk_bin):
-        # Installed projects: tusk is on PATH via .claude/bin/
-        tusk_bin = "tusk"
+    """Done tasks closed in the last 30 days with incomplete acceptance criteria.
+
+    Scoped to recently-closed tasks so retroactive criteria added to historical
+    Done tasks (closed before criteria enforcement) are not reported.  See
+    RULE6_RECENT_DAYS above for rationale.
+    """
+    db_path = _db_path_from_root(root)
+    if not db_path:
+        return []
+
+    cutoff = f"-{RULE6_RECENT_DAYS} days"
     try:
-        result = subprocess.run(
-            [tusk_bin, "-header", "-column",
-             "SELECT t.id, t.summary, COUNT(ac.id) AS incomplete "
-             "FROM tasks t "
-             "JOIN acceptance_criteria ac ON ac.task_id = t.id "
-             "WHERE t.status = 'Done' AND ac.is_completed = 0 AND ac.is_deferred = 0 "
-             "GROUP BY t.id"],
-            capture_output=True, text=True, timeout=5,
-        )
-        for line in result.stdout.strip().splitlines():
-            line = line.strip()
-            if line and not line.startswith("id") and not line.startswith("--"):
-                violations.append(f"  {line}")
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass  # Skip rule if tusk CLI is unavailable
-    return violations
+        conn = tusk_loader.load("tusk-db-lib").get_connection(db_path)
+        try:
+            rows = conn.execute(
+                "SELECT t.id, t.summary, COUNT(ac.id) AS incomplete "
+                "FROM tasks t "
+                "JOIN acceptance_criteria ac ON ac.task_id = t.id "
+                "WHERE t.status = 'Done' "
+                "  AND ac.is_completed = 0 AND ac.is_deferred = 0 "
+                "  AND COALESCE(t.closed_at, t.updated_at) >= date('now', ?) "
+                "GROUP BY t.id "
+                "ORDER BY t.id",
+                (cutoff,),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+        finally:
+            conn.close()
+    except Exception:
+        return []
+
+    return [
+        f"  TASK-{row[0]}  {row[1]}  (incomplete criteria: {row[2]})"
+        for row in rows
+    ]
 
 
 def rule9_deferred_missing_expiry(root):
