@@ -425,27 +425,33 @@ If both commands show no output, the working tree is clean — skip this step.
 
 Otherwise, commit **only** the files you tracked in `REVIEW_FIX_FILES` during Steps 7 and 8. **Never use `git add -A` or `git add .`** — those stage every dirty or untracked file in the working tree, including unrelated changes from other sessions (a real incident on TASK-1423 produced a 460-file commit that had to be reverted twice).
 
+First, deduplicate the tracked list and reconcile it against the actual diff **before** staging or committing:
+
 ```bash
 # Deduplicate the tracked file list
-mapfile -t REVIEW_FIX_FILES < <(printf '%s\n' "${REVIEW_FIX_FILES[@]}" | sort -u)
+REVIEW_FIX_FILES=($(printf '%s\n' "${REVIEW_FIX_FILES[@]}" | sort -u))
 
 # Abort if no files were tracked but a diff exists — investigate manually
 if [ ${#REVIEW_FIX_FILES[@]} -eq 0 ]; then
   echo "ERROR: uncommitted changes exist but REVIEW_FIX_FILES is empty. Review the diff above and stage files explicitly by name." >&2
   exit 1
 fi
+```
 
-# Stage only the tracked files
+Now re-run `git diff --stat` and `git diff --cached --stat` and compare the listed paths to `REVIEW_FIX_FILES`. If any path you *did* modify during review is missing from the array, append it explicitly by name (never fall back to `git add -A`):
+
+```bash
+REVIEW_FIX_FILES+=("<path-you-modified>")
+```
+
+Conversely, any remaining unstaged paths that are **not** in `REVIEW_FIX_FILES` must be scratch work from other sessions — leave them alone.
+
+Once the list is reconciled, stage, commit, and push in a single pass:
+
+```bash
 git add -- "${REVIEW_FIX_FILES[@]}"
 git commit -m "[TASK-<task_id>] Apply review fixes"
 git push
-```
-
-**Reconciling the diff:** After staging, re-run `git diff --stat` to confirm the remaining unstaged changes are files you deliberately did not touch during review (e.g., scratch work from another session). If `git diff --stat` reports a file you *did* modify but that is missing from `REVIEW_FIX_FILES`, add it explicitly by name rather than falling back to `git add -A`:
-
-```bash
-git add -- "<path-you-modified>"
-git commit --amend --no-edit
 ```
 
 ## Step 10: Final Summary
