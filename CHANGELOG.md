@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [614] - 2026-04-17
+
+- [TASK-51] Fix: `tusk init --force` on an existing DB no longer hangs when stdin is non-interactive. The "Continue? [y/N]" prompt is now skipped when stdin is not a TTY (`[[ -t 0 ]]` guard), in addition to the existing `--yes` bypass. Interactive terminals still get the confirmation prompt. Fixes `tests/integration/test_init_claude_md.py::test_claude_md_idempotent` which previously hung on the captured prompt under pytest.
+
 ## [613] - 2026-04-17
 
 - [TASK-43] Silence happy-path status-line prints on mutating commands so skill callers (non-TTY stderr/stdout) only see the structured result. `tusk conventions update` and `tusk pillars update` no longer emit "Updated …" success lines unless stdout is a TTY. `tusk migrate` per-migration progress prints (`  Migration N: …`, `  Skipped import: …`, `  Imported N convention(s) …`) are now gated through a new `_progress()` helper that checks stdout-is-TTY; the final "Schema is up to date / Migrated …" summary still prints unconditionally. `tusk commit` gates its status banners (`tusk commit: starting TASK-N`, `=== Running tusk lint (advisory) ===`, `=== Staging N file(s) ===`, `=== Creating commit ===`, `=== Marking criterion N done ===`, and the trailing "Lint reported warnings" announcement) behind a new `announce_status = verbose or sys.stderr.isatty()` flag — pass `--verbose` to restore the banners interactively. The `tests passed (Xs)` brief marker, the lint report body, and `TUSK_COMMIT_RESULT: …` line continue to print on every exit path.
