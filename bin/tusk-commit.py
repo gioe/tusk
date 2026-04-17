@@ -123,6 +123,42 @@ def load_test_command(config_path: str, domain: str = "") -> str:
         return ""
 
 
+DEFAULT_TEST_COMMAND_TIMEOUT_SEC = 120
+
+
+def load_test_command_timeout(config_path: str) -> tuple[int, str]:
+    """Return (timeout_seconds, source) for the test_command subprocess.
+
+    Resolution order:
+      1. TUSK_TEST_COMMAND_TIMEOUT env var (must parse as a positive int)
+      2. config["test_command_timeout_sec"] (must parse as a positive int)
+      3. DEFAULT_TEST_COMMAND_TIMEOUT_SEC (120)
+
+    source is one of: "env", "config", "default".  Invalid values at any layer
+    fall through to the next layer — the timeout is advisory infrastructure,
+    not worth aborting the commit over a bad config value.
+    """
+    env_val = os.environ.get("TUSK_TEST_COMMAND_TIMEOUT")
+    if env_val is not None:
+        try:
+            n = int(env_val)
+            if n > 0:
+                return n, "env"
+        except ValueError:
+            pass
+    try:
+        with open(config_path) as f:
+            config = json.load(f)
+        cfg_val = config.get("test_command_timeout_sec")
+        if cfg_val is not None:
+            n = int(cfg_val)
+            if n > 0:
+                return n, "config"
+    except (OSError, ValueError, json.JSONDecodeError):
+        pass
+    return DEFAULT_TEST_COMMAND_TIMEOUT_SEC, "default"
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 4:
         print(
@@ -397,9 +433,32 @@ def main(argv: list[str]) -> int:
         pass
     test_cmd = load_test_command(config_path, task_domain)
     if test_cmd and not skip_verify:
-        print(f"=== Running test_command: {test_cmd} ===")
+        timeout_sec, timeout_source = load_test_command_timeout(config_path)
+        print(f"=== Running test_command: {test_cmd} (timeout {timeout_sec}s) ===")
         sys.stdout.flush()
-        test = subprocess.run(test_cmd, shell=True, capture_output=False, cwd=repo_root)
+        try:
+            test = subprocess.run(
+                test_cmd,
+                shell=True,
+                capture_output=False,
+                cwd=repo_root,
+                timeout=timeout_sec,
+            )
+        except subprocess.TimeoutExpired:
+            source_hint = {
+                "env": "TUSK_TEST_COMMAND_TIMEOUT env var",
+                "config": 'config key "test_command_timeout_sec"',
+                "default": 'default (override with "test_command_timeout_sec" in tusk/config.json '
+                           'or TUSK_TEST_COMMAND_TIMEOUT env var)',
+            }[timeout_source]
+            _print_error(
+                f"\nError: test_command timed out after {timeout_sec}s — aborting commit\n"
+                f"  Command: {test_cmd}\n"
+                f"  Timeout source: {source_hint}\n"
+                f"  Hint: if the command needs more time, raise the limit; "
+                f"if it hangs waiting for input (e.g. interactive mode), switch to a non-interactive form."
+            )
+            return 5
         if test.returncode != 0:
             print(
                 f"\nError: test_command failed (exit {test.returncode}) — aborting commit",

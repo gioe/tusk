@@ -39,6 +39,7 @@
     "thresholds": { "address": 4, "decline": 0 }
   },
   "test_command": "",
+  "test_command_timeout_sec": 120,
   "project_type": null,
   "project_libs": {
     "python_service": { "repo": "gioe/python-libs", "ref": "main" },

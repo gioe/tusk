@@ -31,7 +31,7 @@ def cmd_validate(config_path: str) -> int:
     errors = []
 
     # ── Check for unknown top-level keys ──
-    KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'complexity', 'blocker_types', 'criterion_types', 'workflows', 'agents', 'dupes', 'review', 'review_categories', 'review_severities', 'merge', 'test_command', 'domain_test_commands', 'project_type', 'project_libs', 'issue_scoring'}
+    KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'complexity', 'blocker_types', 'criterion_types', 'workflows', 'agents', 'dupes', 'review', 'review_categories', 'review_severities', 'merge', 'test_command', 'test_command_timeout_sec', 'domain_test_commands', 'project_type', 'project_libs', 'issue_scoring'}
     known_list = ', '.join(sorted(KNOWN_KEYS))
     unknown = set(cfg.keys()) - KNOWN_KEYS
     if unknown:
@@ -173,6 +173,15 @@ def cmd_validate(config_path: str) -> int:
         tc = cfg['test_command']
         if tc is not None and not isinstance(tc, str):
             errors.append(f'"test_command" must be a string (got {type(tc).__name__}: {tc!r}).')
+
+    # ── Validate test_command_timeout_sec (optional positive integer) ──
+    if 'test_command_timeout_sec' in cfg:
+        tt = cfg['test_command_timeout_sec']
+        if not isinstance(tt, int) or isinstance(tt, bool) or tt <= 0:
+            errors.append(
+                f'"test_command_timeout_sec" must be a positive integer '
+                f'(got {type(tt).__name__}: {tt!r}).'
+            )
 
     # ── Report ──
     if errors:
