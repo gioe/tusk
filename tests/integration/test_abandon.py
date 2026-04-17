@@ -71,12 +71,6 @@ class TestAbandonHappyPath:
         finally:
             conn.close()
 
-        # tusk-abandon shells out to `tusk session-close` and `tusk task-done`;
-        # without TUSK_DB they would hit the repo's live tasks.db. Pin them
-        # to the test DB so the subprocess calls operate on the same data
-        # the test fixture set up.
-        monkeypatch.setenv("TUSK_DB", str(db_path))
-
         # No feature branch exists; treat as nothing-to-clean-up so the test
         # doesn't depend on git state inside the test repo.
         monkeypatch.setattr(
@@ -123,7 +117,6 @@ class TestAbandonHappyPath:
         finally:
             conn.close()
 
-        monkeypatch.setenv("TUSK_DB", str(db_path))
         monkeypatch.setattr(
             tusk_abandon,
             "find_task_branch",

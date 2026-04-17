@@ -32,11 +32,13 @@ TUSK_BIN = os.path.join(REPO_ROOT, "bin", "tusk")
 # ---------------------------------------------------------------------------
 
 def run_wsjf(db_path) -> None:
-    """Call `bin/tusk wsjf` against the given database."""
-    env = {**os.environ, "TUSK_DB": str(db_path)}
+    """Call `bin/tusk wsjf` against the given database.
+
+    TUSK_DB is pinned by the db_path fixture via monkeypatch, so subprocess
+    calls inherit it without the caller threading env overrides.
+    """
     result = subprocess.run(
         [TUSK_BIN, "wsjf"],
-        env=env,
         capture_output=True,
         text=True,
     )
