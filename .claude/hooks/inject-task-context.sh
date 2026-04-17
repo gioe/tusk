@@ -1,6 +1,5 @@
 #!/bin/bash
-# SessionStart hook: outputs a summary of in-progress tasks and their latest
-# progress checkpoint so Claude starts every session aware of what is in flight.
+# SessionStart hook: emits a compact one-line JSON summary of in-progress tasks.
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
@@ -14,15 +13,11 @@ else
   exit 0
 fi
 
-# Query in-progress tasks joined with their latest progress checkpoint
 result=$("$TUSK" -json "
-SELECT t.id, t.summary, t.complexity,
-       p.commit_hash, p.next_steps, p.created_at AS progress_at
+SELECT t.id, t.summary, t.complexity
 FROM tasks t
-LEFT JOIN task_progress p ON p.task_id = t.id
-  AND p.id = (SELECT MAX(p2.id) FROM task_progress p2 WHERE p2.task_id = t.id)
 WHERE t.status = 'In Progress'
-ORDER BY t.id;
+ORDER BY t.priority_score DESC, t.id;
 " 2>/dev/null)
 
 # No in-progress tasks → silent exit
@@ -30,7 +25,6 @@ if [ -z "$result" ] || [ "$result" = "[]" ]; then
   exit 0
 fi
 
-# Format a concise summary
 ROWS="$result" python3 << 'PYEOF'
 import os, json, sys
 
@@ -38,22 +32,21 @@ rows = json.loads(os.environ.get("ROWS", "[]"))
 if not rows:
     sys.exit(0)
 
-lines = ["=== Active Tasks ===", ""]
-for r in rows:
-    tid = r["id"]
-    summary = r["summary"]
-    complexity = r.get("complexity") or "?"
-    commit = r.get("commit_hash") or None
-    next_steps = r.get("next_steps") or None
+def _trunc(s, n):
+    s = s or ""
+    if len(s) <= n:
+        return s
+    return s[: n - 3].rstrip() + "..."
 
-    lines.append(f"TASK-{tid} [{complexity}]: {summary}")
-    if commit:
-        lines.append(f"  Last commit: {commit[:8]}")
-    if next_steps:
-        lines.append(f"  Next steps: {next_steps}")
-    lines.append("")
+def _entry(r, max_s):
+    return {
+        "id": r["id"],
+        "c": r.get("complexity") or "?",
+        "s": _trunc(r["summary"], max_s),
+    }
 
-print("\n".join(lines))
+out = {"in_progress": [_entry(r, 32) for r in rows]}
+print(json.dumps(out, separators=(",", ":")))
 PYEOF
 
 exit 0
