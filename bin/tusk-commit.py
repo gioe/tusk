@@ -316,10 +316,18 @@ def _run_commit(argv: list[str], state: dict) -> int:
         print("Error: Commit message must not be empty", file=sys.stderr)
         return 1
 
+    # ── Announce status lines? ───────────────────────────────────────
+    # Status banners ("starting TASK-N", "=== Running tusk lint ===",
+    # "=== Staging ===", "=== Creating commit ===", "=== Marking criterion ===")
+    # are noise for skill callers (non-TTY stderr) that only parse the final
+    # TUSK_COMMIT_RESULT line. Gate them on --verbose or an interactive stderr.
+    announce_status = verbose or sys.stderr.isatty()
+
     # ── Startup sentinel ─────────────────────────────────────────────
     # Written to stdout immediately so that background-task output-file
     # capture has a non-empty file even when the process exits early.
-    print(f"tusk commit: starting TASK-{task_id}", flush=True)
+    if announce_status:
+        print(f"tusk commit: starting TASK-{task_id}", flush=True)
 
     # ── Step → exit-code map (quick reference for diagnosis) ─────────
     #   Step 0  (path validation)   → exit 3  (escapes root or path not found)
@@ -469,12 +477,13 @@ def _run_commit(argv: list[str], state: dict) -> int:
 
     # ── Step 1: Run lint (advisory) ──────────────────────────────────
     tusk_bin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
-    print("=== Running tusk lint (advisory) ===")
-    sys.stdout.flush()
+    if announce_status:
+        print("=== Running tusk lint (advisory) ===")
+        sys.stdout.flush()
     lint = subprocess.run([tusk_bin, "lint"], capture_output=False)
-    if lint.returncode != 0:
+    if lint.returncode != 0 and announce_status:
         print("\nLint reported warnings (advisory only — continuing)\n")
-    else:
+    elif announce_status:
         print()
     sys.stdout.flush()
 
@@ -589,8 +598,9 @@ def _run_commit(argv: list[str], state: dict) -> int:
     # File paths were already resolved and validated in Step 0.
     # git add handles deletions of tracked files natively since Git 2.x — no git rm needed.
     # The -- separator prevents git from misinterpreting file paths as options.
-    print(f"=== Staging {len(resolved_files)} file(s) ===")
-    sys.stdout.flush()
+    if announce_status:
+        print(f"=== Staging {len(resolved_files)} file(s) ===")
+        sys.stdout.flush()
     result = run(["git", "add", "--"] + resolved_files, check=False, cwd=repo_root)
     if result.returncode != 0:
         stderr_text = result.stderr.strip()
@@ -692,8 +702,9 @@ def _run_commit(argv: list[str], state: dict) -> int:
             return 3
 
     # ── Step 4: Commit ───────────────────────────────────────────────
-    print("=== Creating commit ===")
-    sys.stdout.flush()
+    if announce_status:
+        print("=== Creating commit ===")
+        sys.stdout.flush()
     full_message = f"[TASK-{task_id}] {message}\n\n{TRAILER}"
     # Capture HEAD before committing so we can verify whether the commit
     # landed even when a hook (e.g. husky + lint-staged) exits non-zero.
@@ -783,9 +794,8 @@ def _run_commit(argv: list[str], state: dict) -> int:
     # When multiple criteria are batched in one commit call, suppress the
     # shared-commit warning for criteria[1:] — the user intentionally grouped them.
     criteria_failed = False
-    announce_criteria = verbose or sys.stderr.isatty()
     for idx, cid in enumerate(criteria_ids):
-        if announce_criteria:
+        if announce_status:
             print(f"\n=== Marking criterion {cid} done ===")
             sys.stdout.flush()
         cmd = [tusk_bin, "criteria", "done", cid]
