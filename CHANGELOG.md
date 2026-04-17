@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [618] - 2026-04-17
+
+- [TASK-54] `tusk commit` now aborts with a dedicated exit code **6** when `tusk lint` reports a non-advisory violation. Advisory-only rules (Rule 13 VERSION bump, Rule 15 big-bang commits, Rule 17 DB-backed advisory, Rules 20/22/23, etc.) continue to warn but never block. Two escape hatches bypass the gate: `--skip-lint` (lint only) and the existing `--skip-verify` (which now also skips lint in addition to tests and pre-commit hooks). Lint output during commit is run with a new `tusk lint --quiet` mode that suppresses per-rule `PASS` lines — only rules with violations print, so a clean commit produces no lint output at all. The `/tusk` skill docs now describe the exit-6 path and its bypass; the stale "exit 4 = advisory lint" note is removed. Integration coverage in `tests/integration/test_commit_lint_gate.py` exercises the blocking path, both bypass flags, quiet output, and the advisory-doesn't-block regression.
+
 ## [617] - 2026-04-17
 
 - [TASK-49] Add `tusk abandon <id> --reason wont_do|duplicate [--session <id>] [--note "..."]` — the no-commit symmetric of `tusk merge` for closing evaluation/spike tasks whose decision is "don't do it" or for retiring duplicates. Switches off the feature branch, force-deletes it, closes the open session, and marks the task Done in one call, emitting JSON in the same shape as `tusk merge`. **Refuses (exit code 2)** if the feature branch has commits not on the default branch, with an error pointing at `tusk merge` so you cannot accidentally discard work. Optional `--note` is recorded on `task_progress` so the rationale survives. The `/tusk` skill's step 12 documents the new path; previously this required a manual three-step `git checkout` / `git branch -D` / `tusk task-done --reason wont_do` sequence.
