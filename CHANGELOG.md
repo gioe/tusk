@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [595] - 2026-04-17
+
+- [TASK-95] Document symlink pathspec gotcha in /tusk SKILL.md commit troubleshooting
+
 ## [594] - 2026-04-17
 
 - [TASK-94] Sandbox /address-issue Step 4.1 failing-test spec validation
