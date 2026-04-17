@@ -527,7 +527,7 @@ def cmd_reset(args: argparse.Namespace, db_path: str, config: dict) -> int:
             "UPDATE acceptance_criteria SET is_completed = 0, completed_at = NULL, "
             "cost_dollars = NULL, tokens_in = NULL, tokens_out = NULL, "
             "verification_result = NULL, commit_hash = NULL, committed_at = NULL, "
-            "is_deferred = 0, deferred_reason = NULL, "
+            "is_deferred = 0, deferred_reason = NULL, skip_note = NULL, "
             "updated_at = datetime('now') WHERE id = ?",
             (args.criterion_id,),
         )
