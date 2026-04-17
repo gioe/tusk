@@ -371,6 +371,49 @@ def check_review_commits_permissions(repo_root: str) -> list[str]:
     return [e for e in REQUIRED_REVIEW_COMMITS_PERMISSIONS if e not in existing]
 
 
+def ensure_review_commits_permissions(repo_root: str) -> list[str]:
+    """Ensure REQUIRED_REVIEW_COMMITS_PERMISSIONS are present in .claude/settings.json.
+
+    Creates the file (and any missing structure) if absent. Returns the list of
+    entries that were added. If all required entries are already present, the
+    file is left byte-identical (no-op write).
+    """
+    claude_dir = os.path.join(repo_root, ".claude")
+    settings_path = os.path.join(claude_dir, "settings.json")
+
+    if os.path.isfile(settings_path):
+        try:
+            with open(settings_path) as f:
+                settings = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            settings = {}
+    else:
+        settings = {}
+
+    permissions = settings.setdefault("permissions", {})
+    allow = permissions.get("allow")
+    if not isinstance(allow, list):
+        allow = []
+        permissions["allow"] = allow
+
+    existing = set(allow)
+    added: list[str] = []
+    for entry in REQUIRED_REVIEW_COMMITS_PERMISSIONS:
+        if entry not in existing:
+            allow.append(entry)
+            existing.add(entry)
+            added.append(entry)
+
+    if not added and os.path.isfile(settings_path):
+        return []
+
+    os.makedirs(claude_dir, exist_ok=True)
+    with open(settings_path, "w") as f:
+        json.dump(settings, f, indent=2)
+        f.write("\n")
+    return added
+
+
 def remove_deprecated_files(repo_root: str) -> None:
     for rel in ["tusk/conventions.md", "tusk/dashboard.html", "tusk/tusk.db"]:
         full = os.path.join(repo_root, rel)
@@ -499,6 +542,9 @@ def main() -> None:
         copy_hooks(src, repo_root)
         override_setup_path(repo_root)
         merge_hook_registrations(src, repo_root)
+        added_perms = ensure_review_commits_permissions(repo_root)
+        for entry in added_perms:
+            print(f"  Added required permission: {entry}")
         merge_config_defaults(src, repo_root, script_dir)
 
         # Run migrations using the newly installed binary
@@ -519,11 +565,14 @@ def main() -> None:
     print()
     print(f"Upgrade complete (version {remote_version}).")
 
-    # Check that required permissions.allow entries for review-commits are present
+    # Safety net: ensure_review_commits_permissions should have added any missing
+    # entries during the upgrade. If anything is still missing here, the write
+    # likely failed (e.g. read-only filesystem) — surface a warning rather than
+    # silently letting /review-commits break.
     missing = check_review_commits_permissions(repo_root)
     if missing:
         print()
-        print("  Warning: The following permissions.allow entries are missing from")
+        print("  Warning: The following permissions.allow entries are still missing from")
         print("  .claude/settings.json and are required for /review-commits to work:")
         print()
         for entry in missing:
