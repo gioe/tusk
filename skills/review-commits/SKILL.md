@@ -127,19 +127,26 @@ After recording the inline decision, skip directly to Step 6.
 
 ```bash
 python3 -c "
-import json, sys
+import json, subprocess, sys
+required = ['Bash(git diff:*)', 'Bash(git remote:*)', 'Bash(git symbolic-ref:*)', 'Bash(git branch:*)', 'Bash(tusk review:*)']
 try:
     d = json.load(open('.claude/settings.json'))
-    allow = d.get('permissions', {}).get('allow', [])
-    required = ['Bash(git diff:*)', 'Bash(git remote:*)', 'Bash(git symbolic-ref:*)', 'Bash(git branch:*)', 'Bash(tusk review:*)']
-    missing = [r for r in required if r not in allow]
-    if missing:
-        print('MISSING: ' + ', '.join(missing))
-        sys.exit(1)
-    print('OK')
 except FileNotFoundError:
-    print('MISSING: .claude/settings.json not found — no permissions.allow configured')
+    r = subprocess.run(['git', 'show', 'HEAD:.claude/settings.json'], capture_output=True, text=True)
+    if r.returncode != 0:
+        print('MISSING: .claude/settings.json not found on disk or in HEAD — no permissions.allow configured')
+        sys.exit(1)
+    try:
+        d = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        print('MISSING: .claude/settings.json in HEAD is not valid JSON')
+        sys.exit(1)
+allow = d.get('permissions', {}).get('allow', [])
+missing = [x for x in required if x not in allow]
+if missing:
+    print('MISSING: ' + ', '.join(missing))
     sys.exit(1)
+print('OK')
 "
 ```
 
@@ -382,19 +389,26 @@ Otherwise, loop while `can_retry` is true:
 
    ```bash
    python3 -c "
-   import json, sys
+   import json, subprocess, sys
+   required = ['Bash(git diff:*)', 'Bash(git remote:*)', 'Bash(git symbolic-ref:*)', 'Bash(git branch:*)', 'Bash(tusk review:*)']
    try:
        d = json.load(open('.claude/settings.json'))
-       allow = d.get('permissions', {}).get('allow', [])
-       required = ['Bash(git diff:*)', 'Bash(git remote:*)', 'Bash(git symbolic-ref:*)', 'Bash(git branch:*)', 'Bash(tusk review:*)']
-       missing = [r for r in required if r not in allow]
-       if missing:
-           print('MISSING: ' + ', '.join(missing))
-           sys.exit(1)
-       print('OK')
    except FileNotFoundError:
-       print('MISSING: .claude/settings.json not found — no permissions.allow configured')
+       r = subprocess.run(['git', 'show', 'HEAD:.claude/settings.json'], capture_output=True, text=True)
+       if r.returncode != 0:
+           print('MISSING: .claude/settings.json not found on disk or in HEAD — no permissions.allow configured')
+           sys.exit(1)
+       try:
+           d = json.loads(r.stdout)
+       except json.JSONDecodeError:
+           print('MISSING: .claude/settings.json in HEAD is not valid JSON')
+           sys.exit(1)
+   allow = d.get('permissions', {}).get('allow', [])
+   missing = [x for x in required if x not in allow]
+   if missing:
+       print('MISSING: ' + ', '.join(missing))
        sys.exit(1)
+   print('OK')
    "
    ```
 
