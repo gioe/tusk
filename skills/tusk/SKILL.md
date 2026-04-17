@@ -188,19 +188,23 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
     **If `tusk commit` hard-fails because tests fail** (exit code 2 — `test_command` is set and returned non-zero), **first verify the failure is not pre-existing** before entering the diagnosis loop:
 
-    **Pre-existing failure check** — run the tests against a clean stash:
+    **Pre-existing failure check** — run the tests against HEAD with any local changes safely set aside:
     ```bash
-    git stash && <test_command>; git stash pop
+    tusk test-precheck
     ```
-    Use `tusk test-detect` to retrieve `<test_command>` if you don't already have it.
+    Or pass an explicit command when the config-resolved one isn't what you want to check against:
+    ```bash
+    tusk test-precheck --command "<test_command>"
+    ```
+    `tusk test-precheck` resolves the test command from `--command`, then `config.test_command`, then `tusk test-detect`. When the working tree is dirty it stashes local changes under a *uniquely-named* entry, runs the test against HEAD, and pops *that entry by reference* — never by top-of-stack. When the working tree is clean it runs the test directly without touching `git stash` at all. Output is JSON: `{pre_existing, exit_code, test_command, stashed}`. Do **not** fall back to the raw `git stash && … ; git stash pop` snippet — when the tree is clean, the empty `git stash` becomes a no-op and `git stash pop` will pop a stale foreign entry and silently trash unrelated state.
 
-    - **If tests fail on the clean stash** — the failure is pre-existing and unrelated to your changes. **Skip the diagnosis loop entirely.** Do not attempt to fix tests in files you did not modify during this session. Fall back immediately to:
+    - **If `pre_existing` is `true`** — the failure is pre-existing and unrelated to your changes. **Skip the diagnosis loop entirely.** Do not attempt to fix tests in files you did not modify during this session. Fall back immediately to:
       ```bash
       git add <file1> [file2 ...] && git commit -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
       ```
       Then mark criteria done with `tusk criteria done <cid> --skip-verify`.
 
-    - **If tests pass on the clean stash** — your changes introduced the failure. Proceed with the diagnosis loop below. Do **not** modify any code until you've completed steps 1–2:
+    - **If `pre_existing` is `false`** — your changes introduced the failure. Proceed with the diagnosis loop below. Do **not** modify any code until you've completed steps 1–2:
     1. **Read the full test output** — scroll through the entire failure log. Do not make any code changes until you understand what failed and why.
     2. **Trace the root cause** — open the relevant source files and identify the exact lines responsible for the failure.
     3. **Implement a fix** — make the minimal change required to address the root cause.
