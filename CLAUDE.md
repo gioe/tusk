@@ -107,6 +107,13 @@ On macOS, `os.path.realpath` resolves symlinks but **does not** canonicalize let
 
 The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/tusk/tasks.db`. Everything references `bin/tusk` — skills call it for SQL, Python scripts call `subprocess.check_output(["tusk", "path"])` to resolve the DB path. Never hardcode the database path.
 
+**Cross-repo CWD pinning.** `bin/tusk` resolves `REPO_ROOT` by walking up from `$PWD` to the nearest `.git`. Changing CWD to a different git repo (e.g., a consumer project during a cross-repo task) would otherwise silently reroute every tusk command to that repo's database. Two env-var overrides guard against this:
+
+- **`TUSK_PROJECT=<path>`** — pins `REPO_ROOT` (and therefore `DB_PATH`, `config.json`, etc.) to the given path regardless of CWD. Use this when working in a consumer repo while operating on the originating project's tusk DB.
+- **`TUSK_DB=<path>`** — pins only the DB path (unchanged escape hatch used by migrations and tests).
+
+When neither override is set and an active session exists for a different project (tracked in `$TUSK_STATE_DIR/active-projects`, default `~/.tusk/active-projects`), tusk emits a stderr warning listing the pinned projects and the mismatched CWD. `task-start` registers the current `REPO_ROOT`; `session-close` (and the bulk `--task-id` path) deregister it when no open sessions remain. Set `TUSK_QUIET=1` to silence the warning for a single invocation.
+
 ### Config-Driven Validation
 
 `config.default.json` defines domains, task_types, statuses, priorities, closed_reasons, complexity, criterion_types, and agents. On `tusk init`, SQLite validation triggers are **auto-generated** from the config via an embedded Python snippet in `bin/tusk`. Empty arrays (e.g., `"domains": []`) disable validation for that column. After editing config post-install, run `tusk regen-triggers` to update triggers without destroying the database (unlike `tusk init --force` which recreates the DB).
