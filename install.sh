@@ -169,6 +169,22 @@ for entry in source_allow:
     else:
         print(f'  Permission already present: {entry}')
 
+# Ensure review-commits required entries are present even if source settings.json
+# omits them or is absent. Keeps install.sh in sync with tusk-upgrade.py's
+# ensure_review_commits_permissions() — keep both lists aligned when editing.
+required_review_perms = [
+    'Bash(git diff:*)',
+    'Bash(git remote:*)',
+    'Bash(git symbolic-ref:*)',
+    'Bash(git branch:*)',
+    'Bash(tusk review:*)',
+]
+for entry in required_review_perms:
+    if entry not in existing:
+        target_allow.append(entry)
+        existing.add(entry)
+        print(f'  Added required permission: {entry}')
+
 # Write target settings once
 with open(target_settings_path, 'w') as f:
     json.dump(target_settings, f, indent=2)
