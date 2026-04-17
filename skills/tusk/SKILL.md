@@ -180,7 +180,11 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     ```
     Then mark criteria done with `tusk criteria done <cid> --skip-verify`.
 
-    **If `tusk commit` exits 4 (advisory lint warnings)** — the commit **succeeded**. Exit code 4 means lint ran and emitted advisory-only warnings, but the commit was made. No fallback or retry is needed. Use `git log --oneline -1` to confirm the commit is present, then continue to the next criterion.
+    **If `tusk commit` exits 6 (blocking lint violation)** — the commit did NOT land. A non-advisory lint rule fired (Rule 1 raw sqlite3, Rule 3 hardcoded DB path, Rule 11 bad SKILL.md frontmatter, Rule 16 DB-backed blocking rules, Rules 18/19 MANIFEST drift, Rule 21 multi-trailing-newlines, etc.). The violating rule's output is printed verbatim — fix it, then retry `tusk commit`. Advisory-only rules (Rule 13 VERSION bump missing, Rule 15 big-bang commits, Rule 17 DB-backed advisory, etc.) still print WARN lines but do NOT exit non-zero and do NOT block. If the violation is a known false positive or pre-existing state you can't resolve in this commit, bypass with `--skip-lint` (lint only) or widen to `--skip-verify` (lint, tests, and pre-commit hooks):
+    ```bash
+    tusk commit <id> "<message>" "<file>" --skip-lint --criteria <cid>
+    ```
+    Lint output during commit is now filtered: only rules with violations print — passing rules are suppressed. If the last lint pass was clean, you won't see any lint output at all.
 
     **If `tusk commit` hard-fails because tests fail** (exit code 2 — `test_command` is set and returned non-zero), **first verify the failure is not pre-existing** before entering the diagnosis loop:
 
