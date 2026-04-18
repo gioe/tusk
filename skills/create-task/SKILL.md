@@ -112,6 +112,29 @@ If triggered:
 
      Wait for the user's response. If they say no or cancel, stop. If they confirm, proceed to Step 4 with the original task fields unchanged.
 
+## Step 3.6: Detect Fix / Follow-up Linkage
+
+Before presenting the task list, scan each proposed task's **summary and description** for phrasing that signals it is a follow-up, rework, or fix of an earlier task:
+
+- `fixes TASK-N`
+- `follow-up from TASK-N` / `follow up from TASK-N`
+- `retro follow-up from TASK-N`
+
+Case-insensitive. When a match is found:
+
+1. **Parse `N`** out of the phrase.
+2. **Verify `N` exists** — check the backlog array from Step 2 first; if not present, run `tusk task-get N` to confirm it exists as a Done task. If `N` doesn't resolve to a real task, drop the linkage silently and continue (the phrasing was likely informal).
+3. **Reject self-reference** — if `N` equals the proposed task's own future id (can't be known yet; use summary cross-check: if the input explicitly ties `N` to the same task being created, skip).
+4. **Record `fixes_task_id = N`** on that task's metadata for use by Step 5.
+
+**Ambiguity prompt** — if a single task's text mentions **two or more different** `TASK-N` identifiers via the above phrasing, do not auto-pick. Surface the ambiguity before Step 4:
+
+> **Follow-up linkage ambiguous for task #<i>**: the description mentions both `TASK-<a>` and `TASK-<b>` as sources. Which one should this task link to? (Answer with the id, or say "none" to skip.)
+
+Apply the user's answer to that task's `fixes_task_id` and continue.
+
+**Borderline phrasing** — mere mentions like "see TASK-N" or "related to TASK-N" (without `fixes`, `follow-up from`, or `retro follow-up from`) do **not** qualify. Leave `fixes_task_id` unset in those cases.
+
 ## Step 4: Present Task List for Review
 
 ### Single-task fast path
@@ -207,6 +230,18 @@ tusk task-insert "<summary>" "<description>" \
   --criteria "<criterion 1>" \
   --criteria "<criterion 2>" \
   --criteria "<criterion 3>"
+```
+
+If the task was linked to a source task in Step 3.6, append `--fixes-task-id <N>` so the follow-up relationship is persisted to `tasks.fixes_task_id`:
+
+```bash
+tusk task-insert "<summary>" "<description>" \
+  --priority "<priority>" \
+  --domain "<domain>" \
+  --task-type "<task_type>" \
+  --complexity "<complexity>" \
+  --criteria "<criterion 1>" \
+  --fixes-task-id <N>
 ```
 
 When **deferred mode = on**, append `--deferred` to every `tusk task-insert` call. This flag applies uniformly to all tasks in the batch — it cannot be set per-task mid-flow:
