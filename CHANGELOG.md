@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [620] - 2026-04-17
+
+- [TASK-41] Default to compact JSON across bin/tusk-*.py; add --pretty opt-in
+
 ## [619] - 2026-04-17
 
 - [TASK-55] Add tusk test-precheck CLI to safely check whether a test failure is pre-existing
