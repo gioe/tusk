@@ -487,6 +487,37 @@ Task A **contingently blocks** Task B means: B can theoretically proceed, but it
 
 ---
 
+## Data Access Layer
+
+`bin/tusk-dashboard-data.py` wraps the read-only queries that back the HTML dashboard (`tusk dashboard`). Most fetchers return plain lists of row dicts, but `fetch_model_performance` has a non-trivial return contract worth pinning here.
+
+### `fetch_model_performance(conn, offset_minutes=0) → dict`
+
+Backs the Models dashboard tab. Returns a four-key dict:
+
+| Key | Shape | Grouping |
+|-----|-------|----------|
+| `models` | `list[dict]`, sorted by `task_cost + skill_cost` desc | One row per model. Merges `task_sessions` and `skill_runs` sub-aggregates so the Tasks/Skills/Both client-side toggle can recombine them. |
+| `complexity_matrix` | `list[dict]` | One row per `(model, complexity)` bucket. Derived from `task_sessions ⨝ tasks` and filtered to `tasks.complexity IS NOT NULL` — `skill_runs` have no task linkage, hence no complexity. |
+| `timeseries_tasks` | `list[dict]` | One row per `(day, model)` from `task_sessions`, bucketed by local date. |
+| `timeseries_skills` | `list[dict]` | One row per `(day, model)` from `skill_runs`, bucketed by local date. Same shape as `timeseries_tasks`; `total_lines` is always `0` (skill_runs track no line counts). Empty list when the `skill_runs` table is absent on pre-migration DBs. |
+
+`offset_minutes` shifts the `date()` bucket used by the two timeseries keys into the client's local timezone so the line chart aligns with the other time-series panels. It does not affect `models` or `complexity_matrix`.
+
+**NULL vs zero `request_count`.** `task_request_count` / `skill_request_count` (in `models`), `avg_turns` (in `complexity_matrix`), and `request_count` (in both timeseries) are `None` — not `0` — when every contributing row has a NULL `request_count` (rows written before migration 49 added the column). The Models tab renders these as `—` so "unknown turns" stays visually distinct from a genuine zero.
+
+### Model name normalization
+
+Both `fetch_model_performance` and `fetch_cost_scatter_data` collapse NULL and empty-string `model` values into a single `'unknown'` bucket using:
+
+```sql
+COALESCE(NULLIF(model, ''), 'unknown')
+```
+
+Session-close paths have historically stamped both sentinels, and displaying two separate "unknown model" rows would be confusing. Any future data-access layer query that groups or displays by `task_sessions.model` or `skill_runs.model` should apply the same expression so the UI stays consistent.
+
+---
+
 ## WSJF Priority Scoring
 
 `priority_score` is the sort key for `v_ready_tasks`. Recomputed by `tusk wsjf`.
