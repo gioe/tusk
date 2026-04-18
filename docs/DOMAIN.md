@@ -270,6 +270,7 @@ A record of a single execution of a tusk skill, capturing start/end timestamps, 
 | `model` | TEXT | nullable | Dominant model used during the run |
 | `metadata` | TEXT | nullable | JSON blob with skill-specific stats (e.g. tasks_done, tasks_deleted) |
 | `request_count` | INTEGER | nullable | Deduplicated Claude API request count for the run (distinct requestIds in the transcript time window); populated by `tusk skill-run finish`, zeroed by `tusk skill-run cancel` |
+| `task_id` | INTEGER | FK → tasks(id) ON DELETE SET NULL; nullable | Originating task for task-scoped skills (e.g. `/review-commits`); set from `--task-id <id>` on `tusk skill-run start`. NULL for standalone skills like `/groom-backlog` and `/tusk-insights` that don't run against a specific task |
 
 ---
 
