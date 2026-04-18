@@ -839,6 +839,25 @@ def generate_models_section(model_performance: dict | None) -> str:
         "timeseries_tasks": data.get("timeseries_tasks") or [],
         "timeseries_skills": data.get("timeseries_skills") or [],
     }
+
+    has_resolved_signal = False
+    for m in payload["models"]:
+        name = (m.get("model") or "").strip()
+        if not name or name == "unknown":
+            continue
+        if (m.get("task_session_count") or 0) or (m.get("skill_run_count") or 0):
+            has_resolved_signal = True
+            break
+    if not has_resolved_signal:
+        return """\
+<div class="panel">
+  <div class="section-header"><span>Models</span></div>
+  <div style="padding: var(--sp-4);">
+    <p class="empty">No model data yet &mdash; close a session to populate.</p>
+  </div>
+</div>
+"""
+
     payload_json = json.dumps(payload).replace("</", "<\\/")
 
     panel_html = """\

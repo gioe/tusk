@@ -886,6 +886,30 @@ class TestFetchModelPerformance:
         result = dashboard_data.fetch_model_performance(conn)
         assert [m["model"] for m in result["models"]] == ["unknown"]
 
+    def test_empty_string_model_merges_with_unknown(self):
+        """Sessions with model='' and model=NULL must land in the same 'unknown' bucket."""
+        conn = _make_conn_full()
+        conn.execute("INSERT INTO tasks (id, summary) VALUES (?, ?)", (1, "t1"))
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, cost_dollars, model) VALUES (?, ?, ?, ?)",
+            (1, "2026-04-01 10:00:00", 0.10, ""),
+        )
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, cost_dollars, model) VALUES (?, ?, ?, ?)",
+            (1, "2026-04-01 11:00:00", 0.20, None),
+        )
+        conn.execute(
+            "INSERT INTO skill_runs (skill_name, started_at, cost_dollars, model) VALUES (?, ?, ?, ?)",
+            ("/tusk", "2026-04-01 12:00:00", 0.03, ""),
+        )
+        conn.commit()
+
+        result = dashboard_data.fetch_model_performance(conn)
+        assert [m["model"] for m in result["models"]] == ["unknown"]
+        row = result["models"][0]
+        assert row["task_session_count"] == 2
+        assert row["skill_run_count"] == 1
+
     def test_models_sorted_by_total_cost_desc(self):
         """Highest task_cost + skill_cost combined model appears first."""
         conn = _make_conn_full()

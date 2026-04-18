@@ -408,7 +408,7 @@ def fetch_cost_scatter_data(conn: sqlite3.Connection, offset_minutes: int = 0) -
     rows = conn.execute(
         f"""SELECT s.id as session_id,
                   s.task_id,
-                  COALESCE(s.model, 'unknown') as model,
+                  COALESCE(NULLIF(s.model, ''), 'unknown') as model,
                   COALESCE(s.cost_dollars, 0) as cost,
                   COALESCE(s.tokens_in, 0) as tokens_in,
                   COALESCE(s.tokens_out, 0) as tokens_out,
@@ -570,7 +570,7 @@ def fetch_model_performance(conn: sqlite3.Connection, offset_minutes: int = 0) -
 
     Returns a dict with four keys:
     - models: per-model rollups with task-session and skill-run sub-aggregates,
-      keyed on the COALESCE(model, 'unknown') value so the Tasks/Skills/Both
+      keyed on the COALESCE(NULLIF(model, ''), 'unknown') value so the Tasks/Skills/Both
       toggle can recombine them client-side. Sorted by total cost desc.
     - complexity_matrix: (model, complexity) buckets with avg turns and avg
       cost-per-session derived from task_sessions only (skill_runs have no
@@ -584,7 +584,7 @@ def fetch_model_performance(conn: sqlite3.Connection, offset_minutes: int = 0) -
     offset_mod = f"{sign}{offset_minutes} minutes"
 
     task_rollup_rows = conn.execute(
-        """SELECT COALESCE(s.model, 'unknown') as model,
+        """SELECT COALESCE(NULLIF(s.model, ''), 'unknown') as model,
                   COUNT(s.id) as task_session_count,
                   COUNT(DISTINCT s.task_id) as task_count,
                   SUM(COALESCE(s.cost_dollars, 0)) as task_cost,
@@ -594,21 +594,21 @@ def fetch_model_performance(conn: sqlite3.Connection, offset_minutes: int = 0) -
                   SUM(COALESCE(s.lines_removed, 0)) as task_lines_removed,
                   SUM(COALESCE(s.request_count, 0)) as task_request_count
            FROM task_sessions s
-           GROUP BY COALESCE(s.model, 'unknown')"""
+           GROUP BY COALESCE(NULLIF(s.model, ''), 'unknown')"""
     ).fetchall()
     task_rollup = {r["model"]: dict(r) for r in task_rollup_rows}
 
     skill_rollup: dict[str, dict] = {}
     try:
         skill_rollup_rows = conn.execute(
-            """SELECT COALESCE(model, 'unknown') as model,
+            """SELECT COALESCE(NULLIF(model, ''), 'unknown') as model,
                       COUNT(*) as skill_run_count,
                       SUM(COALESCE(cost_dollars, 0)) as skill_cost,
                       SUM(COALESCE(tokens_in, 0)) as skill_tokens_in,
                       SUM(COALESCE(tokens_out, 0)) as skill_tokens_out,
                       SUM(COALESCE(request_count, 0)) as skill_request_count
                FROM skill_runs
-               GROUP BY COALESCE(model, 'unknown')"""
+               GROUP BY COALESCE(NULLIF(model, ''), 'unknown')"""
         ).fetchall()
         skill_rollup = {r["model"]: dict(r) for r in skill_rollup_rows}
     except sqlite3.OperationalError:
@@ -638,7 +638,7 @@ def fetch_model_performance(conn: sqlite3.Connection, offset_minutes: int = 0) -
     models.sort(key=lambda m: (-(m["task_cost"] + m["skill_cost"]), m["model"]))
 
     cm_rows = conn.execute(
-        """SELECT COALESCE(s.model, 'unknown') as model,
+        """SELECT COALESCE(NULLIF(s.model, ''), 'unknown') as model,
                   t.complexity,
                   COUNT(s.id) as session_count,
                   ROUND(AVG(COALESCE(s.request_count, 0)), 1) as avg_turns,
@@ -646,7 +646,7 @@ def fetch_model_performance(conn: sqlite3.Connection, offset_minutes: int = 0) -
            FROM task_sessions s
            LEFT JOIN tasks t ON s.task_id = t.id
            WHERE t.complexity IS NOT NULL
-           GROUP BY COALESCE(s.model, 'unknown'), t.complexity
+           GROUP BY COALESCE(NULLIF(s.model, ''), 'unknown'), t.complexity
            ORDER BY model, CASE t.complexity
                WHEN 'XS' THEN 1
                WHEN 'S' THEN 2
@@ -660,7 +660,7 @@ def fetch_model_performance(conn: sqlite3.Connection, offset_minutes: int = 0) -
 
     ts_task_rows = conn.execute(
         f"""SELECT date(started_at, '{offset_mod}') as day,
-                   COALESCE(model, 'unknown') as model,
+                   COALESCE(NULLIF(model, ''), 'unknown') as model,
                    SUM(COALESCE(cost_dollars, 0)) as cost,
                    SUM(COALESCE(request_count, 0)) as request_count,
                    SUM(COALESCE(lines_added, 0) + COALESCE(lines_removed, 0)) as total_lines,
@@ -676,7 +676,7 @@ def fetch_model_performance(conn: sqlite3.Connection, offset_minutes: int = 0) -
     try:
         ts_skill_rows = conn.execute(
             f"""SELECT date(started_at, '{offset_mod}') as day,
-                       COALESCE(model, 'unknown') as model,
+                       COALESCE(NULLIF(model, ''), 'unknown') as model,
                        SUM(COALESCE(cost_dollars, 0)) as cost,
                        SUM(COALESCE(request_count, 0)) as request_count,
                        0 as total_lines,
