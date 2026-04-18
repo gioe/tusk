@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [642] - 2026-04-18
+
+- [TASK-85] Show task_id in tusk skill-run list output
+
 ## [641] - 2026-04-18
 
 - [TASK-79] Add skill_runs.task_id for per-task skill-cost attribution
