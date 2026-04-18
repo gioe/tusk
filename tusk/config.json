@@ -15,8 +15,7 @@
   },
   "review": {
     "mode": "ai_only",
-    "max_passes": 2,
-    "reviewers": []
+    "max_passes": 2
   },
   "review_categories": ["must_fix", "suggest", "defer"],
   "review_severities": ["critical", "major", "minor"],
