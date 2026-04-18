@@ -17,6 +17,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import time
 from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -214,6 +215,12 @@ _GREP_EXCLUDE_PREFIX = (
 )
 
 
+_CODE_TIMEOUT_SECS = 120
+# Test suites grow; subprocess.run(capture_output=True) can also slow pytest by
+# ~2.5x vs direct invocation because stdout/stderr pipes are drained serially.
+_TEST_TIMEOUT_SECS = 300
+
+
 def run_verification(criterion_type: str, spec: str) -> dict:
     """Run automated verification based on criterion type.
 
@@ -223,21 +230,31 @@ def run_verification(criterion_type: str, spec: str) -> dict:
         return {"passed": True, "output": ""}
 
     if criterion_type in ("code", "test"):
-        # Run spec as a shell command; pass means exit code 0
+        timeout = _TEST_TIMEOUT_SECS if criterion_type == "test" else _CODE_TIMEOUT_SECS
+        t0 = time.monotonic()
         try:
             result = subprocess.run(
                 _GREP_EXCLUDE_PREFIX + spec,
-                shell=True, capture_output=True, text=True, encoding="utf-8", timeout=120,
+                shell=True, capture_output=True, text=True, encoding="utf-8", timeout=timeout,
             )
+            elapsed = time.monotonic() - t0
             output = result.stdout.strip()
             if result.stderr.strip():
                 output += ("\n" if output else "") + result.stderr.strip()
+            passed = result.returncode == 0
+            if not passed:
+                header = f"exit_code={result.returncode}, elapsed={elapsed:.1f}s\n"
+                output = header + output
             # Truncate long output
             if len(output) > 2000:
                 output = output[:2000] + "\n... (truncated)"
-            return {"passed": result.returncode == 0, "output": output}
+            return {"passed": passed, "output": output}
         except subprocess.TimeoutExpired:
-            return {"passed": False, "output": "Verification timed out (120s)"}
+            elapsed = time.monotonic() - t0
+            return {
+                "passed": False,
+                "output": f"exit_code=timeout, elapsed={elapsed:.1f}s\nVerification timed out ({timeout}s)",
+            }
         except Exception as e:
             return {"passed": False, "output": f"Error running verification: {e}"}
 

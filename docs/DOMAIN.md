@@ -109,6 +109,8 @@ A verifiable condition that must be satisfied before a task is considered done. 
 
 **`code`/`test` auto-exclusions for grep.** Every `code`/`test` spec is prefixed with a POSIX shell function that redefines `grep` to add `--exclude-dir=__pycache__ --exclude-dir=.pytest_cache --exclude-dir=node_modules`. `grep -r` ignores `.gitignore`, so a spec like `! grep -rE "foo" skills/` would otherwise match `foo` inside compiled `.pyc` bytecode or cached dependency trees and fail the negation. The exclusions are a no-op for non-recursive grep and don't affect non-grep specs. If you need to grep *inside* one of those dirs, call `command grep` directly to bypass the wrapper.
 
+**Verification subprocess timeouts.** `code`-type specs run under a 120s subprocess timeout; `test`-type specs get 300s because `subprocess.run(capture_output=True)` can slow pytest invocations ~2.5x vs direct runs. On failure, the captured output is prepended with `exit_code=<N>, elapsed=<Xs>\n` so non-zero exits are distinguishable from timeouts (which report `exit_code=timeout`). The metadata header survives the 2000-char output truncation.
+
 **Sources:**
 - `original` — specified when task was created
 - `subsumption` — added when a duplicate task was merged in

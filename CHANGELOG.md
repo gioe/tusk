@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [632] - 2026-04-18
+
+- [TASK-66] Improve tusk-criteria.py test-verification: raise subprocess timeout and surface exit code + elapsed time on failure
+
 ## [631] - 2026-04-18
 
 - [TASK-69] Auto-exclude __pycache__, .pytest_cache, and node_modules from grep in code/test criterion specs
