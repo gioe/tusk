@@ -166,6 +166,7 @@ This document defines the eight product pillars that guide tusk's design and dev
 
 **Representative features:**
 - `/token-audit` — five diagnostic categories: size census, companion loading, SQL anti-patterns, redundancy, narrative density
+- Compact JSON by default on CLI stdout — `bin/tusk-*.py` scripts and the bash dispatcher emit single-line `json.dumps` output (no indent, no post-separator spaces) since agents are the primary consumer; `--pretty` / `TUSK_PRETTY=1` restore indented output for human debugging
 - Conditional companion files (`SUBCOMMANDS.md`, `REFERENCE.md`) — loaded only when the relevant subcommand is invoked
 - `tusk-pricing-lib.py` shared library — single implementation of transcript parsing, cost computation, and session aggregation
 - `acceptance_criteria.cost_dollars` / `tokens_in` / `tokens_out` — per-criterion cost attribution to pinpoint expensive steps

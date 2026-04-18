@@ -14,6 +14,7 @@ require it).
 | File | Role |
 |------|------|
 | **tusk-db-lib.py** | Shared database and config utilities. Provides `get_connection()` (opens `tasks.db` with FK enforcement via `PRAGMA foreign_keys = ON`) and `load_config()`. Imported by almost every command script. |
+| **tusk-json-lib.py** | Shared JSON stdout helper. Provides `dumps(obj)` which returns compact single-line JSON by default (`separators=(",", ":")`, `ensure_ascii=False`) for agent consumption, or indented JSON when `TUSK_PRETTY=1` is set in the environment. The `bin/tusk` bash dispatcher translates a global `--pretty` flag into `TUSK_PRETTY=1` before invoking any Python script. Imported by every command script that prints JSON to stdout. |
 | **tusk-pricing-lib.py** | Shared transcript-parsing and cost-computation utilities. Provides pricing data loading, model resolution, JSONL transcript iteration, and per-session token/cost aggregation. Imported by: `tusk-session-stats.py`, `tusk-criteria.py`, `tusk-session-recalc.py`, `tusk-call-breakdown.py`, `tusk-skill-run.py`, `tusk-dashboard-data.py`. |
 | **tusk-dashboard-data.py** | Data-access layer for the HTML dashboard. Provides `get_connection()` and all `fetch_*` functions that query the DB. Imported by `tusk-dashboard.py` and `tusk-dashboard-html.py`. |
 | **tusk-dashboard-html.py** | HTML-generation layer for the dashboard. Contains all templating functions: formatters, component generators, and section builders. Imported by `tusk-dashboard.py`. Depends on `tusk-dashboard-css.py` and `tusk-dashboard-js.py`. |
@@ -107,3 +108,27 @@ require it).
 | **tusk-pricing-update.py** | `tusk pricing-update [--dry-run]` | Anthropic pricing page (HTTPS) | `pricing.json` |
 | **tusk-sync-skills.py** | `tusk sync-skills` | `skills/`, `skills-internal/` | `.claude/skills/` (recreates symlinks) |
 | **tusk-upgrade.py** | `tusk upgrade [--no-commit] [--force]` | GitHub releases tarball, `VERSION` | copies updated files to `.claude/bin/` and `.claude/skills/`; runs `tusk migrate` |
+
+---
+
+## JSON output contract
+
+Every `bin/tusk-*.py` script (and the `bin/tusk` bash dispatcher) emits JSON
+to stdout in **compact** form by default — one line, `","` / `":"` separators
+with no trailing whitespace, `ensure_ascii=False` so non-ASCII survives as
+UTF-8 bytes instead of `\uXXXX` escapes. Agents are the primary consumer; every
+byte becomes an input token on the next model turn.
+
+Human-readable indented output (`indent=2`) is opt-in via either:
+
+- `--pretty` — any invocation of `tusk` accepts a global `--pretty` flag; the
+  bash dispatcher strips it from the argv and exports `TUSK_PRETTY=1` before
+  dispatching.
+- `TUSK_PRETTY=1` — set the env var directly (for shells, test harnesses, or
+  piped invocations). Accepted truthy values: `1`, `true`, `yes`, `on`.
+
+Scripts do not call `json.dumps(obj, indent=2)` on stdout paths — they import
+`tusk-json-lib.py` via the shared `tusk_loader` and call `dumps(obj)`. File
+writes that produce human-edited config (`config.json`, `settings.json`,
+`pricing.json`, `MANIFEST`) remain pretty-printed with `indent=2` since they
+are read by humans outside the agent hot path.
