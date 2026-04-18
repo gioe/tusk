@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [628] - 2026-04-18
+
+- [TASK-60] Simplify /review-commits to single generalist and remove per-domain reviewer infra
+
 ## [627] - 2026-04-18
 
 - [TASK-63] Add `tusk skill-run cancel <run_id>` and wire it into early-exit paths of review-commits, groom-backlog, investigate, and investigate-directory
