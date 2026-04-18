@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [649] - 2026-04-18
+
+- [TASK-83] Wire skill-run lifecycle into /tusk, /chain, /retro
+
 ## [648] - 2026-04-18
 
 - [TASK-92] Fix tusk lint Rule 5 false positives on SQL string literals
