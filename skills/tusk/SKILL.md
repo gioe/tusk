@@ -62,7 +62,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
 **Follow these steps IN ORDER:**
 
-1. **Start the task** — fetch details, check progress, create/reuse session, and set status in one call:
+1. **Start the task and begin cost tracking** — fetch details, check progress, create/reuse session, and set status in one call:
    ```bash
    tusk task-start <id> --force
    ```
@@ -74,11 +74,25 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
    Hold onto `session_id` from the JSON — it will be passed to `tusk merge` in step 12 to close the session. **Do not pass it to `tusk task-done`; use `tusk merge` for the full finalization sequence.**
 
+   Once `tusk task-start` returns successfully, begin skill-run cost tracking so this session's spend can be attributed to the task:
+   ```bash
+   tusk skill-run start tusk --task-id <id>
+   ```
+   This prints `{"run_id": N, "started_at": "...", "task_id": N}`. Capture `run_id` — it's referenced by every exit path below.
+
+   > **Early-exit cleanup:** If any step below causes the skill to stop before reaching the final `/retro` invocation in Step 12, first call `tusk skill-run cancel <run_id>` to close the open row, then stop. Otherwise the row lingers as `(open)` in `tusk skill-run list` forever. The explicit cancel calls below cover the known post-start early-exit paths; if you hit an unexpected bail-out, cancel before returning.
+   >
+   > **Pre-start exits don't need cancel.** Exits in the "Get Next Task" flow that happen *before* this Step 1 — empty backlog (`tusk task-select` exit 1), L/XL user-declines, no smaller task available and the user refuses the original — happen before `tusk skill-run start` has run, so no `run_id` exists to cancel. Just stop.
+
 1b. **Workflow routing** — If the task's `workflow` field (from the `task` object in step 1) is non-null, the task uses a custom workflow instead of the default development cycle. Look up the corresponding skill:
    ```
    Read file: .claude/skills/<workflow>/SKILL.md
    ```
-   If the file exists, **stop following the steps below** and follow that skill's instructions instead, passing the task ID and session_id from step 1. If the file does not exist, log a warning ("Workflow '<workflow>' not found — falling back to default development cycle") and continue with step 2.
+   If the file exists, cancel the /tusk skill-run (the handoff skill will open its own run) and **stop following the steps below**, following that skill's instructions instead, passing the task ID and session_id from step 1:
+   ```bash
+   tusk skill-run cancel <run_id>
+   ```
+   If the file does not exist, log a warning ("Workflow '<workflow>' not found — falling back to default development cycle") and continue with step 2 (no cancel — the /tusk run stays open for the rest of the default flow).
 
 2. **Create a new git branch IMMEDIATELY** (skip if resuming and branch already exists):
    ```bash
@@ -110,7 +124,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
    1. Check the task description and acceptance criteria for specific test commands or test names to run.
    2. If specific tests are named, run them directly. Otherwise, use `tusk test-detect` to find the project's test command, then run the most relevant subset.
-   3. **If tests pass**: the issue may already be fixed or the description may be inaccurate — surface this to the user and stop before investigating further.
+   3. **If tests pass**: the issue may already be fixed or the description may be inaccurate — run `tusk skill-run cancel <run_id>`, surface this to the user, and stop before investigating further.
    4. **If tests fail**: capture the failure output. Use it as the primary diagnostic anchor in step 5 (Explore).
 
 5. **Explore the codebase before implementing** — use a sub-agent to research:
@@ -210,7 +224,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     3. **Implement a fix** — make the minimal change required to address the root cause.
     4. **Retry `tusk commit`** with the same arguments.
 
-    Repeat up to **3 times**. If tests still fail after 3 attempts, surface the full failure output and a summary of what was tried to the user, then **stop** — do not continue looping.
+    Repeat up to **3 times**. If tests still fail after 3 attempts, run `tusk skill-run cancel <run_id>`, surface the full failure output and a summary of what was tried to the user, then **stop** — do not continue looping.
 
     3. Log a progress checkpoint:
       ```bash
@@ -247,7 +261,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
       ```
       > **Warning:** Do NOT spawn a `pr-review-toolkit:code-reviewer` agent directly as a shortcut. That agent receives only a manually reconstructed diff — not the real `git diff` output — which causes false-positive review findings. The `/review-commits` skill exists specifically to fetch and pass the real diff verbatim; bypassing it removes that safeguard.
 
-      After `/review-commits` completes with verdict **APPROVED**, proceed to step 12. If verdict is **CHANGES REMAINING**, surface the unresolved items to the user and stop.
+      After `/review-commits` completes with verdict **APPROVED**, proceed to step 12. If verdict is **CHANGES REMAINING**, run `tusk skill-run cancel <run_id>`, surface the unresolved items to the user, and stop.
 
 12. **Finalize — merge, push, and run retro.** Execute as a single uninterrupted sequence — do NOT pause for user confirmation between steps:
     ```bash
@@ -276,6 +290,11 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     tusk abandon <id> --reason wont_do|duplicate --session $SESSION_ID [--note "<rationale>"]
     ```
     `tusk abandon` switches off the feature branch, deletes it (force), closes the session, and marks the task Done with the given `closed_reason` in one call. **Refuses** if the feature branch has commits not on the default branch — in that case use `tusk merge` to ship the work, or delete the branch manually if you really want to discard it. The optional `--note` records the decision rationale on `task_progress` so the audit trail survives. After `tusk abandon` exits 0, run `/retro` exactly as you would after `tusk merge`.
+
+    After `tusk merge` (or `tusk abandon`) exits 0, close out the /tusk skill-run so its cost is captured before `/retro` starts its own run:
+    ```bash
+    tusk skill-run finish <run_id>
+    ```
 
     Then run `/retro` immediately — do not ask "shall I run retro?". Invoke it to review the session, surface process improvements, and create follow-up tasks.
 
