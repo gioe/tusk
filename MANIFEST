@@ -97,6 +97,7 @@
   ".claude/skills/tusk-insights/RECOMMENDATIONS.md",
   ".claude/skills/tusk-insights/SKILL.md",
   ".claude/skills/tusk-update/SKILL.md",
+  ".claude/skills/tusk-update/SMOKE-TEST.md",
   ".claude/skills/tusk/SKILL.md",
   ".claude/skills/tusk/SUBCOMMANDS.md",
   ".claude/hooks/auto-lint.sh",
