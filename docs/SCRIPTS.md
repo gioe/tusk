@@ -11,6 +11,15 @@ These files have **no `__main__` entry point** and are never invoked directly.
 They are imported by command scripts via `importlib` (hyphenated filenames
 require it).
 
+> **Rule 8 convention for new library scripts.** The `tusk lint` Rule 8
+> (orphaned `tusk-*.py` scripts) looks for the literal filename string
+> (e.g., `tusk-json-lib.py`) in either `bin/tusk` or another script — a bare
+> `tusk_loader.load("tusk-json-lib")` call is **not** enough to satisfy it,
+> because the loader argument uses the stem without the `.py` suffix. When
+> adding a new library script, add a comment of the form
+> `import tusk_loader  # loads tusk-<name>.py` in at least one consumer.
+> That single literal reference clears Rule 8 and documents the dependency.
+
 | File | Role |
 |------|------|
 | **tusk-db-lib.py** | Shared database and config utilities. Provides `get_connection()` (opens `tasks.db` with FK enforcement via `PRAGMA foreign_keys = ON`) and `load_config()`. Imported by almost every command script. |
