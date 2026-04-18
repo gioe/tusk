@@ -125,7 +125,7 @@ Only when the diff is non-empty and a review has been started in Step 4, proceed
 - The diff is small (fewer than ~200 lines) or contains only non-code files (`.md`, `.json`, `.yaml`).
 - `review.reviewer` is absent from config (the review record is unassigned and no agent is configured to handle it).
 
-Read the diff yourself, evaluate it, and record the result directly. Always pass `--model <your_model_id>` — the ID from your own system prompt (e.g. `claude-opus-4-7`, `claude-sonnet-4-6`) — so `code_reviews.model` records which model produced this review:
+Read the diff yourself, evaluate it, and record the result directly. Always pass `--model <your_model_id>` — the canonical ID matching the format in `task_sessions.model` (e.g. `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5`). Strip any suffixes like `[1m]` or date-stamps from your system prompt's ID so the value joins cleanly against other model-tagged tables (e.g. `claude-opus-4-7[1m]` → `claude-opus-4-7`):
 
 ```bash
 # Approve with no findings:

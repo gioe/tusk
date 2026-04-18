@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [644] - 2026-04-18
+
+- [TASK-80] Record reviewer model on code_reviews rows
+
 ## [643] - 2026-04-18
 
 - [TASK-80] Record reviewer model on code_reviews rows

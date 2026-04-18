@@ -105,7 +105,7 @@ Omit `--file` and `--line-start` for general comments.
 
 ### Step 4: Submit Your Review Verdict
 
-Always pass `--model <your_model_id>` — the exact model ID from your own system prompt (e.g. `claude-opus-4-7`, `claude-sonnet-4-6`) — so `code_reviews.model` records which model produced this review:
+Always pass `--model <your_model_id>` — the canonical model ID matching the format in `task_sessions.model` (e.g. `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5`). Strip any suffixes like `[1m]` or date-stamps from your system prompt's ID so the value joins cleanly against other model-tagged tables. Example: if your system prompt says `claude-opus-4-7[1m]`, pass `--model claude-opus-4-7`.
 
 - Any must_fix: `tusk review request-changes {review_id} --model <your_model_id>`
 - No must_fix: `tusk review approve {review_id} --model <your_model_id>`
