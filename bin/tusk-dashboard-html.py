@@ -830,6 +830,140 @@ def generate_cost_scatter_section() -> str:
 </script>"""
 
 
+def generate_models_section(model_performance: dict | None) -> str:
+    """Generate the Models tab body: KPI cards with a Tasks/Skills/Both source toggle."""
+    data = model_performance or {}
+    payload = {
+        "models": data.get("models") or [],
+        "complexity_matrix": data.get("complexity_matrix") or [],
+        "timeseries_tasks": data.get("timeseries_tasks") or [],
+        "timeseries_skills": data.get("timeseries_skills") or [],
+    }
+    payload_json = json.dumps(payload).replace("</", "<\\/")
+
+    panel_html = """\
+<div class="panel" style="margin-bottom: var(--sp-6);">
+  <div class="section-header" style="display:flex;align-items:center;justify-content:space-between;">
+    <span>Models</span>
+    <div class="cost-trend-controls">
+      <span class="cost-toggle-label">Source</span>
+      <div class="cost-trend-tabs" id="modelsSourceTabs">
+        <button class="cost-tab active" data-source="both">Both</button>
+        <button class="cost-tab" data-source="tasks">Tasks</button>
+        <button class="cost-tab" data-source="skills">Skills</button>
+      </div>
+    </div>
+  </div>
+  <div id="modelsKpiGrid" class="kpi-grid" style="padding: 0 var(--sp-4) var(--sp-4);"></div>
+</div>
+"""
+
+    script = """\
+<script>
+(function() {
+  var data = window.__tuskModels || {};
+  var models = data.models || [];
+
+  var source = 'both';
+
+  function fmtCost(v) { return '$' + (v || 0).toFixed(2); }
+  function fmtCostFine(v) { return '$' + (v || 0).toFixed(4); }
+  function fmtTokens(n) {
+    n = n || 0;
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+    return String(n|0);
+  }
+  function fmtInt(n) { return (n || 0).toLocaleString(); }
+
+  function summarize(m) {
+    var cost = 0, tokensIn = 0, tokensOut = 0, reqs = 0, sessions = 0, tasks = 0, linesAdd = 0, linesRem = 0, skillRuns = 0;
+    if (source === 'tasks' || source === 'both') {
+      cost += m.task_cost || 0;
+      tokensIn += m.task_tokens_in || 0;
+      tokensOut += m.task_tokens_out || 0;
+      reqs += m.task_request_count || 0;
+      sessions += m.task_session_count || 0;
+      tasks += m.task_count || 0;
+      linesAdd += m.task_lines_added || 0;
+      linesRem += m.task_lines_removed || 0;
+    }
+    if (source === 'skills' || source === 'both') {
+      cost += m.skill_cost || 0;
+      tokensIn += m.skill_tokens_in || 0;
+      tokensOut += m.skill_tokens_out || 0;
+      reqs += m.skill_request_count || 0;
+      skillRuns += m.skill_run_count || 0;
+    }
+    var loc = linesAdd + linesRem;
+    return {
+      model: m.model, cost: cost, tokens_in: tokensIn, tokens_out: tokensOut,
+      requests: reqs, sessions: sessions, skill_runs: skillRuns, tasks: tasks,
+      loc: loc,
+      cost_per_task: tasks > 0 ? cost / tasks : 0,
+      cost_per_loc: loc > 0 ? cost / loc : 0,
+      cost_per_turn: reqs > 0 ? cost / reqs : 0
+    };
+  }
+
+  function renderKpi() {
+    var host = document.getElementById('modelsKpiGrid');
+    if (!host) return;
+    var rows = models.map(summarize).filter(function(s) {
+      return s.cost > 0 || s.sessions > 0 || s.skill_runs > 0 || s.requests > 0;
+    });
+    rows.sort(function(a, b) { return b.cost - a.cost; });
+    if (!rows.length) {
+      host.innerHTML = '<p class="empty" style="grid-column:1/-1;">No data for this source.</p>';
+      return;
+    }
+    host.innerHTML = rows.map(function(r) {
+      var srcDetail;
+      if (source === 'tasks') {
+        srcDetail = fmtInt(r.sessions) + ' session' + (r.sessions === 1 ? '' : 's');
+      } else if (source === 'skills') {
+        srcDetail = fmtInt(r.skill_runs) + ' skill run' + (r.skill_runs === 1 ? '' : 's');
+      } else {
+        srcDetail = fmtInt(r.sessions) + ' / ' + fmtInt(r.skill_runs) + ' (sess/skill)';
+      }
+      var costPerLoc = r.loc > 0 ? '<div class="kpi-sub">' + fmtCostFine(r.cost_per_loc) + ' / LOC</div>' : '';
+      var costPerTask = (source !== 'skills' && r.tasks > 0) ? '<div class="kpi-sub">' + fmtCost(r.cost_per_task) + ' / task</div>' : '';
+      return (
+        '<div class="kpi-card">' +
+          '<div class="kpi-label">' + r.model + '</div>' +
+          '<div class="kpi-value">' + fmtCost(r.cost) + '</div>' +
+          '<div class="kpi-sub">' + srcDetail + '</div>' +
+          '<div class="kpi-sub">' + fmtInt(r.requests) + ' turns \u00b7 ' + fmtTokens(r.tokens_in + r.tokens_out) + ' tok</div>' +
+          costPerTask +
+          costPerLoc +
+        '</div>'
+      );
+    }).join('');
+  }
+
+  function renderAll() {
+    renderKpi();
+  }
+  window.__tuskModelsRerender = renderAll;
+
+  var srcBtns = document.querySelectorAll('#modelsSourceTabs .cost-tab');
+  srcBtns.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      srcBtns.forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      source = btn.getAttribute('data-source');
+      renderAll();
+    });
+  });
+
+  renderAll();
+})();
+</script>
+"""
+
+    return f'<script>window.__tuskModels = {payload_json};</script>\n' + panel_html + script
+
+
 def generate_dow_hour_heatmap_section() -> str:
     """Generate Day-of-Week × Hour heatmap panel (rendered by JS)."""
     return """\

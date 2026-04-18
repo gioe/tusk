@@ -56,6 +56,7 @@ fetch_cost_trend_monthly = _data.fetch_cost_trend_monthly
 fetch_hourly_cost = _data.fetch_hourly_cost
 fetch_dow_hour_heatmap = _data.fetch_dow_hour_heatmap
 fetch_cost_scatter_data = _data.fetch_cost_scatter_data
+fetch_model_performance = _data.fetch_model_performance
 # HTML generation layer
 generate_css = _html.generate_css
 generate_header = _html.generate_header
@@ -66,6 +67,7 @@ generate_cost_trend_section = _html.generate_cost_trend_section
 generate_hourly_cost_section = _html.generate_hourly_cost_section
 generate_dow_hour_heatmap_section = _html.generate_dow_hour_heatmap_section
 generate_cost_scatter_section = _html.generate_cost_scatter_section
+generate_models_section = _html.generate_models_section
 generate_filter_bar = _html.generate_filter_bar
 generate_table_header = _html.generate_table_header
 generate_pagination = _html.generate_pagination
@@ -99,6 +101,7 @@ def generate_html(task_metrics: list[dict],
                   hourly_cost: list[dict] = None,
                   dow_hour_heatmap: list[dict] = None,
                   cost_scatter_data: list[dict] = None,
+                  model_performance: dict = None,
                   project_name: str = "Tusk") -> str:
     """Generate the full HTML dashboard by composing sub-functions."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -206,6 +209,9 @@ def generate_html(task_metrics: list[dict],
         dag_tasks or [], dag_edges or [], dag_blockers or []
     )
 
+    # Models tab (per-model rollups, complexity table, trend chart)
+    models_html = generate_models_section(model_performance or {})
+
     css = generate_css()
     header = generate_header(now, tz_label, project_name)
     footer = generate_footer(now, version)
@@ -291,6 +297,7 @@ def generate_html(task_metrics: list[dict],
 
 <div id="tab-models" class="tab-panel">
   <div class="container">
+    {models_html}
   </div>
 </div>
 
@@ -365,6 +372,8 @@ def main():
         hourly_cost = fetch_hourly_cost(conn, utc_offset_minutes)
         dow_hour_heatmap = fetch_dow_hour_heatmap(conn, utc_offset_minutes)
         cost_scatter_data = fetch_cost_scatter_data(conn, utc_offset_minutes)
+        # Per-model rollups for the Models tab
+        model_performance = fetch_model_performance(conn, utc_offset_minutes)
     finally:
         conn.close()
 
@@ -398,6 +407,7 @@ def main():
         hourly_cost=hourly_cost,
         dow_hour_heatmap=dow_hour_heatmap,
         cost_scatter_data=cost_scatter_data,
+        model_performance=model_performance,
         project_name=project_name,
     )
     log.debug("Generated %d bytes of HTML", len(html_content))
