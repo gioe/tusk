@@ -1458,11 +1458,11 @@ class TestFetchCostTrendMonthly:
 
 
 # ---------------------------------------------------------------------------
-# Schema sync guard: _SCHEMA fixture vs bin/tusk CREATE TABLE task_sessions
+# Schema sync guards: in-file fixtures vs bin/tusk CREATE TABLE blocks
 # ---------------------------------------------------------------------------
 
-def _extract_task_sessions_columns(sql_text):
-    """Return the set of column names defined in the CREATE TABLE task_sessions block.
+def _extract_table_columns(sql_text, table_name):
+    """Return the set of column names defined in the CREATE TABLE <table_name> block.
 
     Scans line-by-line from the opening '(' to the closing ');' so that column
     definitions containing sub-expressions (e.g. DEFAULT (datetime('now'))) do
@@ -1470,7 +1470,7 @@ def _extract_task_sessions_columns(sql_text):
     """
     import re
 
-    header = re.search(r"CREATE TABLE task_sessions\s*\(", sql_text, re.IGNORECASE)
+    header = re.search(rf"CREATE TABLE {re.escape(table_name)}\s*\(", sql_text, re.IGNORECASE)
     if not header:
         return set()
 
@@ -1508,8 +1508,8 @@ class TestTaskSessionsSchemaSync:
         with open(tusk_path) as f:
             tusk_sql = f.read()
 
-        tusk_cols = _extract_task_sessions_columns(tusk_sql)
-        fixture_cols = _extract_task_sessions_columns(_SCHEMA)
+        tusk_cols = _extract_table_columns(tusk_sql, "task_sessions")
+        fixture_cols = _extract_table_columns(_SCHEMA, "task_sessions")
 
         assert tusk_cols, "Could not find CREATE TABLE task_sessions in bin/tusk"
         assert fixture_cols, "Could not find CREATE TABLE task_sessions in _SCHEMA fixture"
@@ -1524,4 +1524,36 @@ class TestTaskSessionsSchemaSync:
         assert not extra_in_fixture, (
             f"task_sessions columns in _SCHEMA fixture not in bin/tusk: {sorted(extra_in_fixture)}. "
             "Update _SCHEMA in tests/unit/test_dashboard_data.py to match."
+        )
+
+
+class TestSkillRunsSchemaSync:
+    """Guard against drift between _SKILL_RUNS_TABLE fixture and bin/tusk CREATE TABLE skill_runs."""
+
+    def test_fixture_matches_bin_tusk(self):
+        """Fail if any skill_runs column is present in one definition but absent from the other.
+
+        Mirrors TestTaskSessionsSchemaSync — catches future migrations that add
+        columns to skill_runs without updating the _SKILL_RUNS_TABLE test fixture.
+        """
+        tusk_path = os.path.join(REPO_ROOT, "bin", "tusk")
+        with open(tusk_path) as f:
+            tusk_sql = f.read()
+
+        tusk_cols = _extract_table_columns(tusk_sql, "skill_runs")
+        fixture_cols = _extract_table_columns(_SKILL_RUNS_TABLE, "skill_runs")
+
+        assert tusk_cols, "Could not find CREATE TABLE skill_runs in bin/tusk"
+        assert fixture_cols, "Could not find CREATE TABLE skill_runs in _SKILL_RUNS_TABLE fixture"
+
+        missing_from_fixture = tusk_cols - fixture_cols
+        extra_in_fixture = fixture_cols - tusk_cols
+
+        assert not missing_from_fixture, (
+            f"skill_runs columns in bin/tusk missing from _SKILL_RUNS_TABLE fixture: {sorted(missing_from_fixture)}. "
+            "Update _SKILL_RUNS_TABLE in tests/unit/test_dashboard_data.py to match."
+        )
+        assert not extra_in_fixture, (
+            f"skill_runs columns in _SKILL_RUNS_TABLE fixture not in bin/tusk: {sorted(extra_in_fixture)}. "
+            "Update _SKILL_RUNS_TABLE in tests/unit/test_dashboard_data.py to match."
         )
