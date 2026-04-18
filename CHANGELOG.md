@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [651] - 2026-04-18
+
+- [TASK-82] Link post-merge outcomes to source tasks via tasks.fixes_task_id
+
 ## [650] - 2026-04-18
 
 - [TASK-96] tusk skill-run should handle --help on subcommands instead of inserting stray skill_runs rows
