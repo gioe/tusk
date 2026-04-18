@@ -16,6 +16,16 @@ Optional: `/review-commits <task_id>` — if omitted, task ID is inferred from t
 
 ---
 
+## Step 0: Start Cost Tracking
+
+Record the start of this review run so cost can be captured at the end:
+
+```bash
+tusk skill-run start review-commits
+```
+
+This prints `{"run_id": N, "started_at": "..."}`. Capture `run_id` — you will need it in Step 11.
+
 ## Step 1: Read Config and Check Mode
 
 ```bash
@@ -58,6 +68,7 @@ Determine the base branch and compute the diff:
 DEFAULT_BRANCH=$(tusk git-default-branch)
 CURRENT_BRANCH=$(git branch --show-current)
 git diff "${DEFAULT_BRANCH}...HEAD"
+DIFF_LINES=$(git diff "${DEFAULT_BRANCH}...HEAD" | wc -l | tr -d ' ')
 ```
 
 If the diff is empty — whether on the default branch or on a feature branch whose commits have already been merged (fast-forward or otherwise) — attempt to recover the correct range by scanning git log for `[TASK-<id>]` commits (where `<id>` is `TASK_ID` from Step 2):
@@ -72,6 +83,7 @@ If `TASK_COMMITS` is non-empty, construct the range from the oldest to the newes
 NEWEST_COMMIT=$(echo "$TASK_COMMITS" | head -1)
 OLDEST_COMMIT=$(echo "$TASK_COMMITS" | tail -1)
 git diff "${OLDEST_COMMIT}^..${NEWEST_COMMIT}"
+DIFF_LINES=$(git diff "${OLDEST_COMMIT}^..${NEWEST_COMMIT}" | wc -l | tr -d ' ')
 ```
 
 Use this diff (and this range) going forward — including for the `--diff-summary` passed to `tusk review start` and for any re-review diff stat checks in Step 8.
@@ -460,4 +472,24 @@ suggest:   <total_count> found, <fixed_count> fixed, <dismissed_count> dismissed
 defer:     <total_count> found, <created_count> tasks created, <skipped_count> skipped (duplicate)
 
 Verdict: <display label>
+```
+
+## Step 11: Finish Cost Tracking
+
+Record cost for this review run. Replace `<run_id>` with the value captured in Step 0, and fill in the actual counts from this run:
+
+- `must_fix_count` — the `open_must_fix` value from `tusk review-verdict` in Step 10.
+- `passes` — the final pass number printed in Step 10's summary block.
+- `diff_lines` — the `DIFF_LINES` value captured in Step 3.
+
+```bash
+tusk skill-run finish <run_id> --metadata '{"must_fix_count":<M>,"passes":<P>,"diff_lines":<D>}'
+```
+
+This reads the Claude Code transcript for the time window of this run and stores token counts and estimated cost in the `skill_runs` table.
+
+To view cost history across all review-commits runs:
+
+```bash
+tusk skill-run list review-commits
 ```
