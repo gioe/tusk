@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [645] - 2026-04-18
+
+- [TASK-88] tusk commit should retry git add with -f for tracked files blocked by gitignore directory rules
+
 ## [644] - 2026-04-18
 
 - [TASK-80] Record reviewer model on code_reviews rows
