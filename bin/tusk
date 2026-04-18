@@ -409,7 +409,8 @@ CREATE TABLE tasks (
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),
     started_at TEXT,
-    closed_at TEXT
+    closed_at TEXT,
+    fixes_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL
 );
 
 -- task_dependencies
@@ -803,7 +804,7 @@ PILLARS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 54;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 55;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."

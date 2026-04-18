@@ -1702,6 +1702,132 @@ def migrate_54(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 54: broadened task_metrics.reopen_count to to_status = 'To Do'")
 
 
+def migrate_55(db_path: str, config_path: str, script_dir: str) -> None:
+    """Link follow-up/rework tasks back to the source task they fix.
+
+    Adds nullable tasks.fixes_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL
+    so post-hoc rollups can answer 'did the shipped code actually stick?' — when a
+    task goes Done and a follow-up task is later created to patch, revert, or rework
+    it, the follow-up points back at the original. Combined with skill_runs.task_id
+    (migration 51) and code_reviews.model (migration 52), this enables durability-
+    per-model queries.
+
+    One-shot backfill: greps tasks.description for 'fixes TASK-N',
+    'follow-up from TASK-N', and 'retro follow-up from TASK-N' phrasing, and
+    additionally scans git log for commits whose subject has a '[TASK-M]' prefix
+    AND whose message references one of those phrases (mapping M → N). Coverage
+    is expected <30% — the rest is lost, which is explicitly acceptable per the
+    TASK-82 brief. The git-log path is best-effort and silently no-ops when git
+    is unavailable or the DB lives outside a git repo.
+
+    Idempotent: column-add is guarded by has_column(); backfill only touches rows
+    where fixes_task_id IS NULL; FK integrity is preserved by filtering against
+    the current id set before each UPDATE.
+    """
+    if get_version(db_path) >= 55:
+        _progress("  Migration 55: added tasks.fixes_task_id and backfilled follow-up links")
+        return
+
+    if not has_column(db_path, "tasks", "fixes_task_id"):
+        run_script(
+            db_path,
+            "ALTER TABLE tasks ADD COLUMN fixes_task_id INTEGER "
+            "REFERENCES tasks(id) ON DELETE SET NULL;",
+        )
+
+    ref_re = re.compile(
+        r"(?:retro\s+)?follow[-\s]?up\s+from\s+TASK-(\d+)|fixes\s+TASK-(\d+)",
+        re.IGNORECASE,
+    )
+    prefix_re = re.compile(r"^\s*\[TASK-(\d+)\]")
+
+    conn = db_connect(db_path)
+    try:
+        existing_ids = {r[0] for r in conn.execute("SELECT id FROM tasks").fetchall()}
+
+        desc_updates: list[tuple[int, int]] = []
+        for task_id, desc in conn.execute(
+            "SELECT id, description FROM tasks "
+            "WHERE fixes_task_id IS NULL AND description IS NOT NULL"
+        ).fetchall():
+            m = ref_re.search(desc)
+            if not m:
+                continue
+            ref = int(m.group(1) or m.group(2))
+            if ref == task_id or ref not in existing_ids:
+                continue
+            desc_updates.append((ref, task_id))
+
+        git_pairs = _followup_pairs_from_git(db_path, existing_ids, ref_re, prefix_re)
+
+        all_updates = desc_updates + git_pairs
+        if all_updates:
+            conn.executemany(
+                "UPDATE tasks SET fixes_task_id = ? "
+                "WHERE id = ? AND fixes_task_id IS NULL",
+                all_updates,
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    set_version(db_path, 55)
+    _progress("  Migration 55: added tasks.fixes_task_id and backfilled follow-up links")
+
+
+def _followup_pairs_from_git(
+    db_path: str,
+    existing_ids: set,
+    ref_re,
+    prefix_re,
+) -> list:
+    """Return (fixes_task_id, current_task_id) pairs scraped from git log.
+
+    Walks up from db_path until a .git directory is found; returns [] if none
+    exists or if git invocation fails (fresh projects, missing binary, etc.).
+    """
+    start = os.path.dirname(os.path.abspath(db_path))
+    repo_root = start
+    while repo_root and not os.path.isdir(os.path.join(repo_root, ".git")):
+        parent = os.path.dirname(repo_root)
+        if parent == repo_root:
+            return []
+        repo_root = parent
+    if not os.path.isdir(os.path.join(repo_root, ".git")):
+        return []
+
+    try:
+        output = subprocess.check_output(
+            ["git", "-C", repo_root, "log", "--all", "--format=%H%n%B%n--END--"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=30,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        return []
+
+    pairs: dict = {}
+    for block in output.split("--END--\n"):
+        block = block.strip()
+        if not block:
+            continue
+        lines = block.split("\n", 1)
+        body = lines[1] if len(lines) > 1 else ""
+        p = prefix_re.search(body)
+        if not p:
+            continue
+        current = int(p.group(1))
+        r = ref_re.search(body)
+        if not r:
+            continue
+        ref = int(r.group(1) or r.group(2))
+        if ref == current or current not in existing_ids or ref not in existing_ids:
+            continue
+        pairs.setdefault(current, ref)
+
+    return [(ref, current) for current, ref in pairs.items()]
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -1759,6 +1885,7 @@ MIGRATIONS = [
     (52, migrate_52),
     (53, migrate_53),
     (54, migrate_54),
+    (55, migrate_55),
 ]
 
 
