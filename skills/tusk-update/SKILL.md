@@ -115,7 +115,7 @@ After the list, include the configurable fields reference table so the user know
 | `dupes.similar_threshold` | No | Python-side only (0.0–1.0) |
 | `review.mode` | No | `"disabled"` or `"ai_only"`; config-side only |
 | `review.max_passes` | No | Integer; max fix-and-re-review cycles; config-side only |
-| `review.reviewers` | No | Array of `{name, description}` objects; config-side only |
+| `review.reviewer` | No | Single `{name, description}` object (or absent for inline-only review); config-side only |
 | `review_categories` | Yes | Valid comment categories; empty array disables validation |
 | `review_severities` | Yes | Valid severity levels; empty array disables validation |
 | `project_type` | No | String key identifying the project type (e.g. `python_service`, `ios_app`); `null` if unset |

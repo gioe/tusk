@@ -57,7 +57,6 @@ bin/tusk lint
 bin/tusk autoclose
 bin/tusk backlog-scan [--duplicates] [--unassigned] [--unsized] [--expired]   # → {duplicates:[...], unassigned:[...], unsized:[...], expired:[...]}
 bin/tusk test-detect               # → {"command": "<cmd>", "confidence": "high|medium|low|none"}
-bin/tusk scaffold-reviewer-prompts # → {created:[...], skipped:[...], skill_dir_missing:bool}
 bin/tusk add-lib [--lib <name>] [--repo <owner/repo>] [--ref <branch|tag|sha>]  # → {"lib": "<name>", "tasks": [...], "error": null}
 bin/tusk init-fetch-bootstrap      # → {"libs": [{name, repo, tasks, error}, ...]}
 bin/tusk init-write-config [--domains <json>] [--agents <json>] [--task-types <json>] [--test-command <cmd>] [--project-type <type>] [--project-libs <json>]  # → {"success": bool, "config_path": "...", "backed_up": bool}
@@ -118,7 +117,7 @@ When neither override is set and an active session exists for a different projec
 
 `config.default.json` defines domains, task_types, statuses, priorities, closed_reasons, complexity, criterion_types, and agents. On `tusk init`, SQLite validation triggers are **auto-generated** from the config via an embedded Python snippet in `bin/tusk`. Empty arrays (e.g., `"domains": []`) disable validation for that column. After editing config post-install, run `tusk regen-triggers` to update triggers without destroying the database (unlike `tusk init --force` which recreates the DB).
 
-The config also includes a `review` block: `mode` (`"disabled"` or `"ai_only"`), `max_passes`, and `reviewers`. Top-level `review_categories` and `review_severities` define valid comment values — empty arrays disable validation.
+The config also includes a `review` block: `mode` (`"disabled"` or `"ai_only"`), `max_passes`, and an optional `reviewer` object (`{name, description}`). Top-level `review_categories` and `review_severities` define valid comment values — empty arrays disable validation.
 
 **Adding a new top-level key to `config.default.json`:** You must also add the key to `KNOWN_KEYS` in `bin/tusk-config-tools.py` (line ~34). Rule 7 of the config linter validates that every key in `config.default.json` is present in `KNOWN_KEYS` — if it's missing, `tusk init` and `tusk validate` will both fail with a Rule 7 violation.
 

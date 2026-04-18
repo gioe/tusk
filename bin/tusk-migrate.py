@@ -1343,15 +1343,15 @@ def migrate_47(db_path: str, config_path: str, script_dir: str) -> None:
 
 
 def migrate_48(db_path: str, config_path: str, script_dir: str) -> None:
-    """Collapse the fan-out reviewer array into a single reviewer object.
+    """Collapse the multi-entry review config array into a single reviewer object.
 
-    Old schema: review.reviewers = [{name, description, domains?}, ...]
-    New schema: review.reviewer  = {name, description}
+    Old schema shape:  a `reviewers` array; each entry carried name, description,
+    and optionally a per-entry filter list.
+    New schema shape:  a `reviewer` object with name and description.
 
-    Migration policy: take reviewers[0], strip its `domains` field, write it as
-    `review.reviewer`, and drop `review.reviewers` entirely. An empty array
-    drops the key without setting `reviewer` (cmd_start then creates an
-    unassigned review).
+    Policy: take the first entry of the old array, drop any filter field
+    from it, and write it as `review.reviewer`. An empty old array drops
+    the key entirely (cmd_start then creates an unassigned review).
     """
     if get_version(db_path) < 48:
         try:

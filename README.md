@@ -56,9 +56,9 @@ Edit `tusk/config.json` after install:
   },
   "test_command": "pytest tests/",  // shell command run by `tusk commit` before staging; empty string disables
   "review": {
-    "mode": "ai_only",              // "disabled" skips /review-commits; "ai_only" runs AI reviewers
+    "mode": "ai_only",              // "disabled" skips /review-commits; "ai_only" runs one AI reviewer
     "max_passes": 2,                // maximum review-fix-re-review cycles before stopping
-    "reviewers": [{ "name": "general", "description": "..." }]  // one entry per AI reviewer persona
+    "reviewer": { "name": "general", "description": "..." }  // single AI reviewer persona; omit for inline review only
   },
   "dupes": {
     "check_threshold": 0.82,        // cosine similarity above which a task is flagged as a likely duplicate
@@ -76,9 +76,9 @@ Edit `tusk/config.json` after install:
 - **agents**: Used by `/groom-backlog` to auto-assign tasks; empty object skips assignment
 - **statuses**, **priorities**, **closed_reasons**: Changing these is possible but not recommended
 - **test_command**: Shell command run by `tusk commit` before staging files; a non-zero exit blocks the commit. Empty string disables the check.
-- **review.mode**: Controls `/review-commits` behavior — `"disabled"` skips AI review entirely; `"ai_only"` runs the configured reviewer personas
+- **review.mode**: Controls `/review-commits` behavior — `"disabled"` skips AI review entirely; `"ai_only"` runs the configured reviewer
 - **review.max_passes**: Maximum number of review → fix → re-review cycles before the skill stops iterating
-- **review.reviewers**: List of AI reviewer personas; each entry has a `name` and a `description` of what it focuses on
+- **review.reviewer**: Optional AI reviewer persona with `name` and `description`. When absent, `/review-commits` falls back to inline (non-agent) review
 - **dupes.check_threshold**: Cosine similarity score (0–1) above which a candidate is treated as a likely duplicate and blocked
 - **dupes.similar_threshold**: Cosine similarity score (0–1) above which a candidate is surfaced as possibly similar (for human review)
 - **merge.mode**: `"local"` performs a fast-forward merge directly; `"pr"` squash-merges via `gh pr merge`

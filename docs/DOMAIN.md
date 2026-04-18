@@ -213,8 +213,8 @@ One reviewer's assessment of a task's PR, for one pass of the fix-and-re-review 
 | `cost_dollars` | REAL | nullable | AI cost of this review pass |
 | `tokens_in` | INTEGER | nullable | |
 | `tokens_out` | INTEGER | nullable | |
-| `agent_name` | TEXT | nullable | Named agent that ran the review (e.g. set by /chain when spawning parallel reviewers) |
-| `note` | TEXT | nullable | Optional reason or note stored with the approval (e.g. "Skipped: reviewer domains [frontend] does not match task domain [cli]") |
+| `agent_name` | TEXT | nullable | Named agent that ran the review (set by /chain when spawning an agent-driven review) |
+| `note` | TEXT | nullable | Optional reason or note stored with the approval (e.g. "Auto-approved (stall): agent exceeded monitoring threshold") |
 | `created_at` | TEXT | default now | |
 | `updated_at` | TEXT | default now | |
 
@@ -531,9 +531,9 @@ Non-enum config keys that control runtime behavior (not column validation). All 
 | `project_type` | `string \| null` | `null` | Selects the active entry in `project_libs`. Set by `/tusk-init` based on the project category (e.g. `ios_app`, `python_service`). `null` means no bootstrap seeding. |
 | `project_libs` | `object` | (examples) | Maps project-type keys to `{ repo, ref }` objects. `repo` is an owner/name GitHub repo path; `ref` is a branch, tag, or commit SHA pinning which `tusk-bootstrap.json` to fetch. |
 | `test_command` | `string` | `""` | Shell command used by `tusk commit` to run tests before committing. Empty string disables test gating. |
-| `review.mode` | `string` | `"ai_only"` | Controls AI code review. `"disabled"` skips review entirely; `"ai_only"` runs the configured reviewers. |
+| `review.mode` | `string` | `"ai_only"` | Controls AI code review. `"disabled"` skips review entirely; `"ai_only"` runs the configured reviewer. |
 | `review.max_passes` | `integer` | `2` | Maximum review-fix cycles before `/review-commits` surfaces unresolved findings to the user. |
-| `review.reviewers` | `array` | (general) | List of reviewer objects with `name` and `description`. Each reviewer is dispatched as a parallel agent in `/review-commits`. |
+| `review.reviewer` | `object \| absent` | (general) | Single reviewer object with `name` and `description`. `/review-commits` spawns at most one background reviewer agent; absent means inline review only. |
 | `dupes.check_threshold` | `float` | `0.82` | Similarity score above which a candidate is flagged as a likely duplicate during task insertion. |
 | `dupes.similar_threshold` | `float` | `0.6` | Lower similarity threshold used for "possibly related" warnings (below `check_threshold`). |
 | `dupes.strip_prefixes` | `array` | `["Deferred", ...]` | Prefixes stripped from task summaries before duplicate comparison (e.g. `[Deferred]` prefix added to PR-deferred tasks). |
