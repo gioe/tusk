@@ -928,6 +928,67 @@ class TestFetchModelPerformance:
         assert result["models"][0]["model"] == "expensive-model"
         assert result["models"][1]["model"] == "cheap-model"
 
+    def test_null_request_count_surfaces_as_none_not_zero(self):
+        """Pre-migration rows with NULL request_count must not be coerced to 0 in rollups.
+
+        The Models tab renders '\u2014 turns' when request_count is None (unknown)
+        and 'N turns' when it's a real number. Collapsing NULL->0 at the SQL
+        layer makes 'N tokens but 0 turns' impossible to diagnose.
+        """
+        conn = _make_conn_full()
+        conn.execute(
+            "INSERT INTO tasks (id, summary, complexity) VALUES (?, ?, ?)",
+            (1, "t1", "M"),
+        )
+        # Task-side: explicit NULL request_count (simulates pre-TASK-73 migration row).
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, cost_dollars, tokens_in, model, request_count) VALUES (?, ?, ?, ?, ?, ?)",
+            (1, "2026-04-01 10:00:00", 0.50, 1000, "sonnet-4", None),
+        )
+        # Skill-side: explicit NULL request_count.
+        conn.execute(
+            "INSERT INTO skill_runs (skill_name, started_at, cost_dollars, model, request_count) VALUES (?, ?, ?, ?, ?)",
+            ("/tusk", "2026-04-01 11:00:00", 0.05, "sonnet-4", None),
+        )
+        conn.commit()
+
+        result = dashboard_data.fetch_model_performance(conn)
+
+        assert len(result["models"]) == 1
+        m = result["models"][0]
+        assert m["task_request_count"] is None, "task rollup must preserve NULL"
+        assert m["skill_request_count"] is None, "skill rollup must preserve NULL"
+
+        cm = result["complexity_matrix"]
+        assert len(cm) == 1
+        assert cm[0]["avg_turns"] is None, "complexity matrix avg_turns must preserve NULL"
+
+        ts_task = result["timeseries_tasks"]
+        assert len(ts_task) == 1
+        assert ts_task[0]["request_count"] is None, "task timeseries request_count must preserve NULL"
+
+        ts_skill = result["timeseries_skills"]
+        assert len(ts_skill) == 1
+        assert ts_skill[0]["request_count"] is None, "skill timeseries request_count must preserve NULL"
+
+    def test_mixed_null_and_real_request_count_sums_known_values(self):
+        """When some rows have NULL request_count and others don't, the rollup sums only the known values."""
+        conn = _make_conn_full()
+        conn.execute("INSERT INTO tasks (id, summary, complexity) VALUES (?, ?, ?)", (1, "t1", "M"))
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, cost_dollars, model, request_count) VALUES (?, ?, ?, ?, ?)",
+            (1, "2026-04-01 10:00:00", 0.50, "sonnet-4", None),
+        )
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, cost_dollars, model, request_count) VALUES (?, ?, ?, ?, ?)",
+            (1, "2026-04-01 11:00:00", 0.50, "sonnet-4", 20),
+        )
+        conn.commit()
+
+        result = dashboard_data.fetch_model_performance(conn)
+        assert result["models"][0]["task_request_count"] == 20
+        assert result["complexity_matrix"][0]["avg_turns"] == 20.0
+
     def test_complexity_matrix_groups_by_model_and_complexity(self):
         """complexity_matrix carries avg_turns and avg_cost per (model, complexity)."""
         conn = _make_conn_full()

@@ -950,12 +950,12 @@ def generate_models_section(model_performance: dict | None) -> str:
   function fmtInt(n) { return (n || 0).toLocaleString(); }
 
   function summarize(m) {
-    var cost = 0, tokensIn = 0, tokensOut = 0, reqs = 0, sessions = 0, tasks = 0, linesAdd = 0, linesRem = 0, skillRuns = 0;
+    var cost = 0, tokensIn = 0, tokensOut = 0, reqs = 0, reqsKnown = false, sessions = 0, tasks = 0, linesAdd = 0, linesRem = 0, skillRuns = 0;
     if (source === 'tasks' || source === 'both') {
       cost += m.task_cost || 0;
       tokensIn += m.task_tokens_in || 0;
       tokensOut += m.task_tokens_out || 0;
-      reqs += m.task_request_count || 0;
+      if (m.task_request_count != null) { reqs += m.task_request_count; reqsKnown = true; }
       sessions += m.task_session_count || 0;
       tasks += m.task_count || 0;
       linesAdd += m.task_lines_added || 0;
@@ -965,17 +965,18 @@ def generate_models_section(model_performance: dict | None) -> str:
       cost += m.skill_cost || 0;
       tokensIn += m.skill_tokens_in || 0;
       tokensOut += m.skill_tokens_out || 0;
-      reqs += m.skill_request_count || 0;
+      if (m.skill_request_count != null) { reqs += m.skill_request_count; reqsKnown = true; }
       skillRuns += m.skill_run_count || 0;
     }
     var loc = linesAdd + linesRem;
     return {
       model: m.model, cost: cost, tokens_in: tokensIn, tokens_out: tokensOut,
-      requests: reqs, sessions: sessions, skill_runs: skillRuns, tasks: tasks,
+      requests: reqsKnown ? reqs : null, requests_known: reqsKnown,
+      sessions: sessions, skill_runs: skillRuns, tasks: tasks,
       loc: loc,
       cost_per_task: tasks > 0 ? cost / tasks : 0,
       cost_per_loc: loc > 0 ? cost / loc : 0,
-      cost_per_turn: reqs > 0 ? cost / reqs : 0
+      cost_per_turn: (reqsKnown && reqs > 0) ? cost / reqs : 0
     };
   }
 
@@ -983,7 +984,7 @@ def generate_models_section(model_performance: dict | None) -> str:
     var host = document.getElementById('modelsKpiGrid');
     if (!host) return;
     var rows = models.map(summarize).filter(function(s) {
-      return s.cost > 0 || s.sessions > 0 || s.skill_runs > 0 || s.requests > 0;
+      return s.cost > 0 || s.sessions > 0 || s.skill_runs > 0 || (s.requests || 0) > 0;
     });
     rows.sort(function(a, b) { return b.cost - a.cost; });
     if (!rows.length) {
@@ -1001,12 +1002,13 @@ def generate_models_section(model_performance: dict | None) -> str:
       }
       var costPerLoc = r.loc > 0 ? '<div class="kpi-sub">' + fmtCostFine(r.cost_per_loc) + ' / LOC</div>' : '';
       var costPerTask = (source !== 'skills' && r.tasks > 0) ? '<div class="kpi-sub">' + fmtCost(r.cost_per_task) + ' / task</div>' : '';
+      var turnsText = r.requests_known ? fmtInt(r.requests) + ' turns' : '\u2014 turns';
       return (
         '<div class="kpi-card">' +
           '<div class="kpi-label">' + escapeHtml(r.model) + '</div>' +
           '<div class="kpi-value">' + fmtCost(r.cost) + '</div>' +
           '<div class="kpi-sub">' + srcDetail + '</div>' +
-          '<div class="kpi-sub">' + fmtInt(r.requests) + ' turns \u00b7 ' + fmtTokens(r.tokens_in + r.tokens_out) + ' tok</div>' +
+          '<div class="kpi-sub">' + turnsText + ' \u00b7 ' + fmtTokens(r.tokens_in + r.tokens_out) + ' tok</div>' +
           costPerTask +
           costPerLoc +
         '</div>'
@@ -1041,8 +1043,9 @@ def generate_models_section(model_performance: dict | None) -> str:
         if (!cell) {
           out += '<td class="text-muted-dash" style="text-align:right">\u2014</td>';
         } else {
+          var turns = cell.avg_turns == null ? '\u2014' : Number(cell.avg_turns).toFixed(1);
           out += '<td style="text-align:right">'
-            + Number(cell.avg_turns || 0).toFixed(1)
+            + turns
             + ' / ' + fmtCostFine(cell.avg_cost)
             + '</td>';
         }
@@ -1059,9 +1062,11 @@ def generate_models_section(model_performance: dict | None) -> str:
     function add(arr) {
       arr.forEach(function(r) {
         var k = r.day + '|' + r.model;
-        if (!merged[k]) merged[k] = { day: r.day, model: r.model, cost: 0, request_count: 0, total_lines: 0, total_tokens: 0 };
+        if (!merged[k]) merged[k] = { day: r.day, model: r.model, cost: 0, request_count: null, total_lines: 0, total_tokens: 0 };
         merged[k].cost += r.cost || 0;
-        merged[k].request_count += r.request_count || 0;
+        if (r.request_count != null) {
+          merged[k].request_count = (merged[k].request_count || 0) + r.request_count;
+        }
         merged[k].total_lines += r.total_lines || 0;
         merged[k].total_tokens += r.total_tokens || 0;
       });
@@ -1085,7 +1090,7 @@ def generate_models_section(model_performance: dict | None) -> str:
         var r = lookup[day + '|' + name];
         if (!r) return 0;
         if (metric === 'cost') return r.cost || 0;
-        if (metric === 'turns') return r.request_count || 0;
+        if (metric === 'turns') return r.request_count == null ? null : r.request_count;
         if (metric === 'tokens') return r.total_tokens || 0;
         if (metric === 'cost_per_loc') return (r.total_lines || 0) > 0 ? (r.cost || 0) / r.total_lines : 0;
         return 0;
