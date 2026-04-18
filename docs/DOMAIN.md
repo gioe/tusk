@@ -179,6 +179,7 @@ A bounded work session on a task, tracking cost and metrics. A task can have mul
 | `first_context_tokens` | INTEGER | nullable | Context window size at the start of the session |
 | `last_context_tokens` | INTEGER | nullable | Context window size at the end of the session |
 | `context_window` | INTEGER | nullable | Total context window capacity for the model used (e.g. 1000000 for claude-sonnet-4-6); used as denominator in ctx_pct calculations |
+| `request_count` | INTEGER | nullable | Deduplicated Claude API request count for the session (distinct requestIds in the transcript time window); populated by `tusk session-stats` / `tusk session-recalc` |
 
 **Invariant:** At most one open (unclosed) session per task is allowed. Enforced by a partial UNIQUE index: `UNIQUE INDEX idx_task_sessions_open ON task_sessions(task_id) WHERE ended_at IS NULL`. `tusk task-start` detects a concurrent-insert race via `IntegrityError` and reuses the winning session with a warning rather than failing.
 
@@ -268,6 +269,7 @@ A record of a single execution of a tusk skill, capturing start/end timestamps, 
 | `tokens_out` | INTEGER | nullable | Output tokens |
 | `model` | TEXT | nullable | Dominant model used during the run |
 | `metadata` | TEXT | nullable | JSON blob with skill-specific stats (e.g. tasks_done, tasks_deleted) |
+| `request_count` | INTEGER | nullable | Deduplicated Claude API request count for the run (distinct requestIds in the transcript time window); populated by `tusk skill-run finish`, zeroed by `tusk skill-run cancel` |
 
 ---
 
@@ -474,7 +476,7 @@ Task A **contingently blocks** Task B means: B can theoretically proceed, but it
 
 | View | Purpose | Used By |
 |------|---------|---------|
-| `task_metrics` | Aggregates session cost/tokens/lines per task | `tusk-dashboard.py`, reporting |
+| `task_metrics` | Aggregates session cost/tokens/lines/request_count per task (exposes `total_request_count` = SUM of `task_sessions.request_count`) | `tusk-dashboard.py`, reporting |
 | `v_ready_tasks` | Canonical "ready to work" definition: To Do, all `blocks`-type deps Done, no open external blockers (contingent deps do not prevent readiness) | `/tusk`, `tusk-loop.py`, `tusk deps ready` |
 | `v_chain_heads` | Non-Done tasks with unfinished downstream dependents and no unmet upstream deps | `/chain` |
 | `v_blocked_tasks` | Non-Done tasks blocked by dependency or external blocker, with `block_reason` and `blocking_summary` | `/tusk blocked`, `tusk deps blocked` |

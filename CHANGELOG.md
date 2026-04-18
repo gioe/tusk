@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [636] - 2026-04-18
+
+- [TASK-73] Persist request_count on task_sessions and skill_runs
+
 ## [635] - 2026-04-18
 
 - [TASK-71] Refactor /investigate SKILL.md for token efficiency
