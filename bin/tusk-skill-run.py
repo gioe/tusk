@@ -199,7 +199,7 @@ def cmd_list(conn, skill_name: str | None, limit: int) -> None:
     if skill_name:
         rows = conn.execute(
             """SELECT id, skill_name, started_at, ended_at,
-                      cost_dollars, tokens_in, tokens_out, model, metadata
+                      cost_dollars, tokens_in, tokens_out, model, metadata, task_id
                FROM skill_runs
                WHERE skill_name = ?
                ORDER BY id DESC
@@ -209,7 +209,7 @@ def cmd_list(conn, skill_name: str | None, limit: int) -> None:
     else:
         rows = conn.execute(
             """SELECT id, skill_name, started_at, ended_at,
-                      cost_dollars, tokens_in, tokens_out, model, metadata
+                      cost_dollars, tokens_in, tokens_out, model, metadata, task_id
                FROM skill_runs
                ORDER BY id DESC
                LIMIT ?""",
@@ -221,20 +221,21 @@ def cmd_list(conn, skill_name: str | None, limit: int) -> None:
         return
 
     # Header
-    print(f"{'ID':<6} {'Skill':<20} {'Started':<20} {'Cost':>8}  {'Tokens In':>10}  {'Model':<25}  Metadata")
-    print("-" * 100)
+    print(f"{'ID':<6} {'Task':<10} {'Skill':<20} {'Started':<20} {'Cost':>8}  {'Tokens In':>10}  {'Model':<25}  Metadata")
+    print("-" * 110)
     for r in rows:
         cost_str = f"${r['cost_dollars']:.4f}" if r["cost_dollars"] is not None else "pending"
         tokens_str = f"{r['tokens_in']:,}" if r["tokens_in"] is not None else "-"
         meta_str = r["metadata"] or ""
         started = (r["started_at"] or "")[:16]
+        task_str = f"TASK-{r['task_id']}" if r["task_id"] is not None else "-"
         if not r["ended_at"]:
             status = "(open)"
         elif r["cost_dollars"] == 0 and (r["model"] or "") == "" and r["metadata"] is None:
             status = "(cancelled)"
         else:
             status = ""
-        print(f"{r['id']:<6} {r['skill_name']:<20} {started:<20} {cost_str:>8}  {tokens_str:>10}  {(r['model'] or '-'):<25}  {meta_str} {status}")
+        print(f"{r['id']:<6} {task_str:<10} {r['skill_name']:<20} {started:<20} {cost_str:>8}  {tokens_str:>10}  {(r['model'] or '-'):<25}  {meta_str} {status}")
 
 
 def main():
