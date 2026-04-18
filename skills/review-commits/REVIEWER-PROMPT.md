@@ -105,8 +105,10 @@ Omit `--file` and `--line-start` for general comments.
 
 ### Step 4: Submit Your Review Verdict
 
-- Any must_fix: `tusk review request-changes {review_id}`
-- No must_fix: `tusk review approve {review_id}`
+Always pass `--model <your_model_id>` — the exact model ID from your own system prompt (e.g. `claude-opus-4-7`, `claude-sonnet-4-6`) — so `code_reviews.model` records which model produced this review:
+
+- Any must_fix: `tusk review request-changes {review_id} --model <your_model_id>`
+- No must_fix: `tusk review approve {review_id} --model <your_model_id>`
 
 ---
 
@@ -116,5 +118,5 @@ Omit `--file` and `--line-start` for general comments.
 - Reserve `must_fix` for genuinely blocking issues.
 - No double-counting the same root cause; no praise comments.
 
-Complete by running either `tusk review approve {review_id}` or `tusk review request-changes {review_id}` — this signals the orchestrator you're done.
+Complete by running either `tusk review approve {review_id} --model <your_model_id>` or `tusk review request-changes {review_id} --model <your_model_id>` — this signals the orchestrator you're done.
 ````

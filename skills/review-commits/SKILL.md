@@ -125,13 +125,13 @@ Only when the diff is non-empty and a review has been started in Step 4, proceed
 - The diff is small (fewer than ~200 lines) or contains only non-code files (`.md`, `.json`, `.yaml`).
 - `review.reviewer` is absent from config (the review record is unassigned and no agent is configured to handle it).
 
-Read the diff yourself, evaluate it, and record the result directly:
+Read the diff yourself, evaluate it, and record the result directly. Always pass `--model <your_model_id>` — the ID from your own system prompt (e.g. `claude-opus-4-7`, `claude-sonnet-4-6`) — so `code_reviews.model` records which model produced this review:
 
 ```bash
 # Approve with no findings:
-tusk review approve <review_id> --note "Inline review: small/docs-only diff (or no reviewer configured), no findings."
+tusk review approve <review_id> --model <your_model_id> --note "Inline review: small/docs-only diff (or no reviewer configured), no findings."
 # Or if changes are needed:
-tusk review request-changes <review_id>
+tusk review request-changes <review_id> --model <your_model_id>
 # Then add comments as needed:
 tusk review add-comment <review_id> "<description>" --file "<file>" --line-start <line> --category <category> --severity <severity>
 ```
@@ -207,16 +207,16 @@ STALL_THRESHOLD = 5   # iterations (~2.5 min at 30 s/iter)
 
    **Agent still running:**
    - Increment `stall_count` by 1.
-   - If `stall_count >= STALL_THRESHOLD`, the agent has been running for too long without posting a verdict. Auto-approve immediately with a stall warning note and exit the loop:
+   - If `stall_count >= STALL_THRESHOLD`, the agent has been running for too long without posting a verdict. Auto-approve immediately with a stall warning note and exit the loop. Pass `--model <your_model_id>` (the orchestrator's own ID from its system prompt) since the orchestrator, not the stalled agent, is closing this review:
      ```bash
-     tusk review approve <review_id> --note "Auto-approved (stall): reviewer agent has been running for ≥5 monitoring iterations (~2.5 min) without posting a verdict. The agent may be looping or running a long-running command such as a full test suite. Check REVIEWER-PROMPT.md Step 2.6 constraints. To prevent stalls, ensure the agent sandbox has the required permissions.allow entries: Bash(git diff:*), Bash(git remote:*), Bash(git symbolic-ref:*), Bash(git branch:*), Bash(tusk review:*)"
+     tusk review approve <review_id> --model <your_model_id> --note "Auto-approved (stall): reviewer agent has been running for ≥5 monitoring iterations (~2.5 min) without posting a verdict. The agent may be looping or running a long-running command such as a full test suite. Check REVIEWER-PROMPT.md Step 2.6 constraints. To prevent stalls, ensure the agent sandbox has the required permissions.allow entries: Bash(git diff:*), Bash(git remote:*), Bash(git symbolic-ref:*), Bash(git branch:*), Bash(tusk review:*)"
      ```
      Continue as if the review returned no findings.
 
    **Agent has completed** (TaskOutput shows the agent is done) but the review is still `"pending"`:
-   - The agent finished without calling `tusk review approve` or `tusk review request-changes`. Log a warning and auto-approve with a note:
+   - The agent finished without calling `tusk review approve` or `tusk review request-changes`. Log a warning and auto-approve with a note. Pass `--model <your_model_id>` (the orchestrator's own ID) since the orchestrator, not the silent agent, is closing this review:
      ```bash
-     tusk review approve <review_id> --note "Auto-approved (no verdict): reviewer agent completed without posting a decision. Most likely cause: Bash tool not permitted in agent sandbox. Required permissions.allow entries: Bash(git diff:*), Bash(git remote:*), Bash(git symbolic-ref:*), Bash(git branch:*), Bash(tusk review:*)"
+     tusk review approve <review_id> --model <your_model_id> --note "Auto-approved (no verdict): reviewer agent completed without posting a decision. Most likely cause: Bash tool not permitted in agent sandbox. Required permissions.allow entries: Bash(git diff:*), Bash(git remote:*), Bash(git symbolic-ref:*), Bash(git branch:*), Bash(tusk review:*)"
      ```
      The most common cause is missing Bash tool permissions (the agent could not run `git diff` or `tusk review`). Run `tusk upgrade` to propagate the required `permissions.allow` entries if they are missing from `.claude/settings.json`. Continue as if the review returned no findings.
 
