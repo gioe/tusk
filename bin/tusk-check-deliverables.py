@@ -38,6 +38,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tusk_loader  # loads tusk-db-lib.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 
 # Regex to extract candidate file paths from unstructured text.
@@ -156,7 +158,7 @@ def main(argv: list) -> int:
                 "recommendation": "mark_done" if files_found else "implement_fresh",
             }
 
-        print(json.dumps(output, indent=2))
+        print(dumps(output))
         return 0
     finally:
         conn.close()

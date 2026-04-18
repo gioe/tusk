@@ -24,6 +24,8 @@ import tusk_loader
 log = logging.getLogger(__name__)
 
 _db_lib = tusk_loader.load("tusk-db-lib")
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 
 
@@ -148,7 +150,7 @@ def cmd_scope(conn: sqlite3.Connection, head_ids: list[int]):
         "remaining": len(tasks) - done_count,
         "tasks": tasks,
     }
-    print(json.dumps(output, indent=2))
+    print(dumps(output))
 
 
 def cmd_frontier(conn: sqlite3.Connection, head_ids: list[int]):
@@ -192,7 +194,7 @@ def cmd_frontier(conn: sqlite3.Connection, head_ids: list[int]):
         for row in ready
     ]
 
-    print(json.dumps({"head_task_ids": head_ids, "frontier": frontier}, indent=2))
+    print(dumps({"head_task_ids": head_ids, "frontier": frontier}))
 
 
 def cmd_frontier_check(conn: sqlite3.Connection, head_ids: list[int]):
@@ -250,7 +252,7 @@ def cmd_frontier_check(conn: sqlite3.Connection, head_ids: list[int]):
         ).fetchone()[0]
         status = "complete" if not_done == 0 else "stuck"
 
-    print(json.dumps({"status": status, "frontier": frontier}, indent=2))
+    print(dumps({"status": status, "frontier": frontier}))
 
 
 def cmd_validate_scope(conn: sqlite3.Connection, head_ids: list[int]):

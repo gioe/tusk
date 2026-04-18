@@ -20,10 +20,12 @@ import sqlite3
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader
+import tusk_loader  # loads tusk-db-lib.py and tusk-json-lib.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 get_connection = _db_lib.get_connection
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
 
 
 def _task_id_type(value: str) -> int:
@@ -73,7 +75,7 @@ def main(argv: list[str]) -> int:
             "task_progress": [{key: row[key] for key in row.keys()} for row in progress_rows],
         }
 
-        print(json.dumps(result, indent=2))
+        print(dumps(result))
         return 0
     finally:
         conn.close()

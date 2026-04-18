@@ -23,6 +23,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tusk_loader
 
 _db_lib = tusk_loader.load("tusk-db-lib")
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 
 
@@ -122,7 +124,7 @@ ORDER BY priority_score DESC, id
     result = [{key: row[key] for key in row.keys()} for row in rows]
 
     if args.fmt == "json":
-        print(json.dumps(result, indent=2))
+        print(dumps(result))
     else:
         print_text_table(result)
 

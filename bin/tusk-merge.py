@@ -40,6 +40,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tusk_loader  # loads tusk-db-lib.py and tusk-git-helpers.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 checkpoint_wal = _db_lib.checkpoint_wal
 
@@ -600,7 +602,7 @@ def main(argv: list[str]) -> int:
             return 0
         if session_was_closed:
             task_done_result["sessions_closed"] = 1
-        print(json.dumps(task_done_result, indent=2))
+        print(dumps(task_done_result))
         return 0
 
     if err:
@@ -998,7 +1000,7 @@ def main(argv: list[str]) -> int:
                     "Investigate your git history or task notes to reconstruct them.",
                     file=sys.stderr,
                 )
-            print(json.dumps(synthetic, indent=2))
+            print(dumps(synthetic))
             return 0
         print(f"Error: task-done failed:\n{result.stderr.strip()}", file=sys.stderr)
         return 2
@@ -1020,7 +1022,7 @@ def main(argv: list[str]) -> int:
     if session_was_closed:
         task_done_result["sessions_closed"] = 1  # merge always operates on one session
 
-    print(json.dumps(task_done_result, indent=2))
+    print(dumps(task_done_result))
     return 0
 
 

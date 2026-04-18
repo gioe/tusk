@@ -48,6 +48,25 @@
 
 set -euo pipefail
 
+# ── --pretty flag → TUSK_PRETTY env var ──────────────────────────────
+# Agents consume JSON stdout; compact is the default. --pretty restores
+# indented output for humans. Strip the flag before dispatch so subcommands
+# that don't declare it still accept it.
+_tusk_filtered_args=()
+for _arg in "$@"; do
+  if [[ "$_arg" == "--pretty" ]]; then
+    export TUSK_PRETTY=1
+  else
+    _tusk_filtered_args+=("$_arg")
+  fi
+done
+if (( ${#_tusk_filtered_args[@]} > 0 )); then
+  set -- "${_tusk_filtered_args[@]}"
+else
+  set --
+fi
+unset _tusk_filtered_args _arg
+
 # ── Resolve paths ────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -176,7 +195,7 @@ read_config_key() {
   local config
   config="$(resolve_config)"
   python3 -c "
-import json, sys
+import json, os, sys
 with open(sys.argv[1]) as f:
     cfg = json.load(f)
 key = sys.argv[2]
@@ -188,7 +207,8 @@ if val is None:
 elif isinstance(val, list):
     print('\n'.join(str(v) for v in val))
 elif isinstance(val, dict):
-    print(json.dumps(val, indent=2))
+    pretty = os.environ.get('TUSK_PRETTY', '').strip().lower() in ('1', 'true', 'yes', 'on')
+    print(json.dumps(val, indent=2) if pretty else json.dumps(val, separators=(',', ':')))
 else:
     print(val)
 " "$config" "$key"

@@ -33,6 +33,8 @@ import tusk_loader
 TUSK_BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
 
 _db_lib = tusk_loader.load("tusk-db-lib")
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 load_config = _db_lib.load_config
 validate_enum = _db_lib.validate_enum
@@ -178,7 +180,7 @@ def main(argv: list[str]) -> int:
             "matched_summary": dupe.get("summary", ""),
             "similarity": dupe.get("similarity", 0),
         }
-        print(json.dumps(result, indent=2))
+        print(dumps(result))
         return 1
 
     # Compute expires_at
@@ -245,7 +247,7 @@ def main(argv: list[str]) -> int:
         "summary": summary,
         "criteria_ids": criteria_ids,
     }
-    print(json.dumps(result, indent=2))
+    print(dumps(result))
     return 0
 
 

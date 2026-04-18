@@ -23,6 +23,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tusk_loader  # loads tusk-db-lib.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 
 
@@ -102,7 +104,7 @@ def main(argv: list[str]) -> int:
                 "task_progress": progress_by_task.get(tid, []),
             })
 
-        print(json.dumps(results, indent=2))
+        print(dumps(results))
         return 0
     finally:
         conn.close()

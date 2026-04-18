@@ -25,6 +25,8 @@ import tusk_loader
 COMPLEXITY_ORDER = ["XS", "S", "M", "L", "XL"]
 
 _db_lib = tusk_loader.load("tusk-db-lib")
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 
 
@@ -130,7 +132,7 @@ LIMIT 1
         "complexity": row["complexity"],
         "description": row["description"],
     }
-    print(json.dumps(result, indent=2))
+    print(dumps(result))
     return 0
 
 

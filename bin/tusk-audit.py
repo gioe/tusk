@@ -32,6 +32,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tusk_loader  # loads tusk-db-lib.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 
 
@@ -146,7 +148,7 @@ def main() -> None:
         sys.exit(1)
 
     result = run_audit(db_path, config)
-    print(json.dumps(result, indent=2))
+    print(dumps(result))
 
 
 if __name__ == "__main__":

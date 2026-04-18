@@ -70,6 +70,8 @@ def load_config(config_path: str) -> None:
 # ── Helpers ──────────────────────────────────────────────────────────
 
 _db_lib = tusk_loader.load("tusk-db-lib")
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 
 
@@ -192,7 +194,7 @@ def cmd_check(args: argparse.Namespace, db_path: str) -> int:
     matches.sort(key=lambda m: m["similarity"], reverse=True)
 
     if args.json:
-        print(json.dumps({"duplicates": matches}, indent=2))
+        print(dumps({"duplicates": matches}))
     elif matches:
         print(f"Duplicates found for: {args.summary!r}")
         print(f"{'ID':<6} {'Score':<7} {'Summary'}")
@@ -237,7 +239,7 @@ def cmd_scan(args: argparse.Namespace, db_path: str) -> int:
     pairs.sort(key=lambda p: p["similarity"], reverse=True)
 
     if args.json:
-        print(json.dumps({"duplicate_pairs": pairs}, indent=2))
+        print(dumps({"duplicate_pairs": pairs}))
     elif pairs:
         print(f"Duplicate pairs found: {len(pairs)}")
         print(f"{'ID A':<6} {'ID B':<6} {'Score':<7} {'Summary A':<35} {'Summary B'}")
@@ -293,12 +295,7 @@ def cmd_similar(args: argparse.Namespace, db_path: str) -> int:
     matches.sort(key=lambda m: m["similarity"], reverse=True)
 
     if args.json:
-        print(
-            json.dumps(
-                {"target": {"id": target["id"], "summary": target["summary"]}, "similar": matches},
-                indent=2,
-            )
-        )
+        print(dumps({"target": {"id": target["id"], "summary": target["summary"]}, "similar": matches}))
     elif matches:
         print(f"Tasks similar to #{target['id']}: {target['summary']!r}")
         print(f"{'ID':<6} {'Score':<7} {'Domain':<18} {'Summary'}")

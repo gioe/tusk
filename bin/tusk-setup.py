@@ -18,6 +18,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tusk_loader
 
 _db_lib = tusk_loader.load("tusk-db-lib")
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 
 
@@ -59,7 +61,7 @@ def main(argv: list[str]) -> int:
         "config": config,
         "backlog": backlog,
     }
-    print(json.dumps(result, indent=2))
+    print(dumps(result))
     return 0
 
 

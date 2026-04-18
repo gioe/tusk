@@ -24,6 +24,11 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tusk_loader  # loads tusk-json-lib.py
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -204,7 +209,7 @@ def main(argv: list) -> int:
         i += 1
 
     results = scan(root, extra_excludes if extra_excludes else None)
-    print(json.dumps(results, indent=2))
+    print(dumps(results))
     return 0
 
 

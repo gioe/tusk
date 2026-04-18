@@ -38,6 +38,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tusk_loader
 
 _db_lib = tusk_loader.load("tusk-db-lib")
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 load_config = _db_lib.load_config
 checkpoint_wal = _db_lib.checkpoint_wal
@@ -349,7 +351,7 @@ def main(argv: list[str]) -> int:
     if session_was_closed:
         task_done_result["sessions_closed"] = 1
 
-    print(json.dumps(task_done_result, indent=2))
+    print(dumps(task_done_result))
     return 0
 
 

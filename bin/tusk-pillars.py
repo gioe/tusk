@@ -20,6 +20,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tusk_loader  # loads tusk-db-lib.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 load_config = _db_lib.load_config
 
@@ -33,7 +35,7 @@ def cmd_list(args: argparse.Namespace, db_path: str, config: dict) -> int:
             "SELECT id, name, core_claim FROM pillars ORDER BY id"
         ).fetchall()
         result = [{"id": r[0], "name": r[1], "core_claim": r[2]} for r in rows]
-        print(json.dumps(result, indent=2))
+        print(dumps(result))
         return 0
     finally:
         conn.close()

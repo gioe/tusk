@@ -30,6 +30,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tusk_loader
 
 _db_lib = tusk_loader.load("tusk-db-lib")
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 load_config = _db_lib.load_config
 
@@ -227,7 +229,7 @@ def main(argv: list[str]) -> int:
             "unblocked_tasks": unblocked_list,
         }
 
-        print(json.dumps(result, indent=2))
+        print(dumps(result))
         return 0
     finally:
         conn.close()

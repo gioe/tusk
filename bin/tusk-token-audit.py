@@ -19,6 +19,11 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tusk_loader  # loads tusk-json-lib.py
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
+
 TOKENS_PER_LINE = 10  # rough estimate
 
 # ── File helpers (from tusk-lint.py pattern) ─────────────────────────
@@ -537,7 +542,7 @@ def main():
     density = analyze_narrative_density(skills)
 
     if mode == "json":
-        print(json.dumps(build_json(census, companions, sql_patterns, redundancy, density), indent=2))
+        print(dumps(build_json(census, companions, sql_patterns, redundancy, density)))
     elif mode == "summary":
         print(format_summary(census, companions, sql_patterns, redundancy, density))
     else:

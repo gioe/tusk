@@ -44,6 +44,8 @@ import tusk_loader
 TUSK_BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
 
 _db_lib = tusk_loader.load("tusk-db-lib")
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 load_config = _db_lib.load_config
 validate_enum = _db_lib.validate_enum
@@ -192,7 +194,7 @@ def main(argv: list[str]) -> int:
         updated_task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         task_dict = {key: updated_task[key] for key in updated_task.keys()}
 
-        print(json.dumps(task_dict, indent=2))
+        print(dumps(task_dict))
         return 0
     finally:
         conn.close()
