@@ -31,6 +31,24 @@ Before Step 1, extract flags from the skill arguments:
 - If `--on-failure` is absent or the value is invalid, `on_failure_strategy` is unset (interactive mode).
 - The remaining tokens (non-flag values) are the head task IDs.
 
+## Step 0: Start Cost Tracking
+
+Record the start of this chain run so cost can be captured when the chain finishes:
+
+```bash
+tusk skill-run start chain --task-id <head_task_id>
+```
+
+**Pass `--task-id` only when exactly one head task ID was provided.** With multiple heads the chain spans more than one task and cost can't be attributed to a single row — omit `--task-id` in that case:
+
+```bash
+tusk skill-run start chain
+```
+
+This prints `{"run_id": N, "started_at": "...", "task_id": N | null}`. Capture `run_id` — it's referenced by every exit path below.
+
+> **Early-exit cleanup:** If any step below causes the chain to stop before reaching the final report in Step 7, first call `tusk skill-run cancel <run_id>` to close the open row, then stop. Otherwise the row lingers as `(open)` in `tusk skill-run list` forever. The explicit cancel calls below cover the known early-exit paths; if you hit an unexpected bail-out, cancel before returning.
+
 ## Step 1: Validate the Head Task(s)
 
 For each provided task ID, run:
@@ -39,8 +57,8 @@ For each provided task ID, run:
 tusk -header -column "SELECT id, summary, status, priority, complexity, assignee FROM tasks WHERE id = <task_id>"
 ```
 
-- If no rows returned: abort — "Task `<task_id>` not found."
-- If status is not `To Do` and not `In Progress`: abort — "Task `<task_id>` has status `<status>` — only To Do or In Progress tasks can start a chain."
+- If no rows returned: run `tusk skill-run cancel <run_id>`, then abort — "Task `<task_id>` not found."
+- If status is not `To Do` and not `In Progress`: run `tusk skill-run cancel <run_id>`, then abort — "Task `<task_id>` has status `<status>` — only To Do or In Progress tasks can start a chain."
 
 ## Step 2: Compute and Display Scope
 
@@ -81,8 +99,8 @@ tusk chain validate-scope <head_task_id1> [<head_task_id2> ...]
 
 Parse the returned JSON. It has two fields: `scope_type` and `skip_head_execution`:
 
-- **`no-downstream`**: inform the user there is no chain downstream — suggest `/tusk <id>` for each head instead. Stop here.
-- **`all-done`**: inform the user the chain is already complete. Stop here.
+- **`no-downstream`**: run `tusk skill-run cancel <run_id>`, inform the user there is no chain downstream — suggest `/tusk <id>` for each head instead. Stop here.
+- **`all-done`**: run `tusk skill-run cancel <run_id>`, inform the user the chain is already complete. Stop here.
 - **`heads-done-only`** (`skip_head_execution: true`): all head tasks are already Done — skip Step 3 and go directly to Step 4 (wave loop).
 - **`active-chain`**: proceed normally to Step 3.
 
@@ -148,7 +166,7 @@ Read the agents' output files to capture any final messages.
 
 **If `on_failure_strategy` is set**, apply it automatically without prompting:
 - **skip**: Log a warning for each stuck task — "Warning: Task `<id>` (`<summary>`) did not complete (status: `<status>`). Skipping due to `--on-failure skip`." — then proceed to Step 4.
-- **abort**: Stop immediately. Report that the chain was aborted due to `--on-failure abort` and list which tasks completed vs. which did not.
+- **abort**: Run `tusk skill-run cancel <run_id>`, then stop immediately. Report that the chain was aborted due to `--on-failure abort` and list which tasks completed vs. which did not.
 
 **Otherwise (interactive)**, report to the user:
 
@@ -161,8 +179,8 @@ Read the agents' output files to capture any final messages.
 > 3. **Abort** — stop the entire chain
 
 - **Resume**: spawn new background agents using the same Agent Prompt Template (the new agents will pick up prior progress via `tusk task-start`) and restart the monitoring loop.
-- **Skip**: do not proceed to Step 4. Report that the chain was stopped.
-- **Abort**: stop entirely. Report that the chain was aborted.
+- **Skip**: run `tusk skill-run cancel <run_id>`, do not proceed to Step 4. Report that the chain was stopped.
+- **Abort**: run `tusk skill-run cancel <run_id>`, stop entirely. Report that the chain was aborted.
 
 ## Step 4: Wave Loop
 
@@ -185,7 +203,7 @@ Parse the returned JSON. It has two fields:
   ```bash
   tusk chain status <head_task_id1> [<head_task_id2> ...] --format text
   ```
-  The default output is compact JSON; `--format text` renders the human-readable multi-line table. Show the output to the user and ask how to proceed.
+  The default output is compact JSON; `--format text` renders the human-readable multi-line table. Show the output to the user and ask how to proceed. If the user chooses to stop the chain here, run `tusk skill-run cancel <run_id>` before returning.
 - **`continue`**: the `frontier` array contains at least one ready task — proceed to Step 4c.
 
 ### 4c. Spawn Parallel Agents
@@ -289,6 +307,12 @@ The default output is compact JSON; `--format text` is used here for the human-r
 - Total tasks completed in the chain
 - Any tasks that did not complete (and current status)
 - Chain execution is finished
+
+Then close out the chain skill-run so its cost is captured:
+
+```bash
+tusk skill-run finish <run_id>
+```
 
 ## Agent Prompt Template
 
