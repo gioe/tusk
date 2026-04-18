@@ -692,7 +692,7 @@ class TestDotDirectoryPathsRegression:
         assert captured_add_args[1] == os.path.join(".circleci", "config.yml")
 
     def test_gitignored_github_path_reveals_specific_rule(self, tmp_path, capsys):
-        """When a .github/ file is gitignored, git check-ignore -v identifies the matching rule."""
+        """When an untracked .github/ file is blocked by gitignore, the rule is surfaced."""
         mod = _load_module()
 
         workflow_file = tmp_path / ".github" / "workflows" / "ci.yml"
@@ -702,14 +702,20 @@ class TestDotDirectoryPathsRegression:
         argv = _argv(tmp_path, files=[".github/workflows/ci.yml"])
 
         gitignore_rule = ".gitignore:1:.github/\t.github/workflows/ci.yml"
+        gitignore_stderr = (
+            "The following paths are ignored by one of your .gitignore files:\n"
+            ".github/workflows/ci.yml"
+        )
 
         def fake_run(args, **kwargs):
             if args[:2] == ["git", "add"]:
+                return _make_completed(1, stderr=gitignore_stderr)
+            if args[:3] == ["git", "ls-files", "--error-unmatch"]:
+                # Untracked — force-add must be refused per TASK-88.
                 return _make_completed(
-                    128,
-                    stderr="fatal: pathspec '.github/workflows/ci.yml' did not match any files",
+                    1, stderr="error: pathspec did not match any file(s) known to git",
                 )
-            if args[:3] == ["git", "check-ignore", "-v"]:
+            if args[:4] == ["git", "check-ignore", "--no-index", "-v"]:
                 return _make_completed(0, stdout=gitignore_rule + "\n")
             return _make_completed(0)
 
@@ -719,8 +725,9 @@ class TestDotDirectoryPathsRegression:
 
         assert rc == 3
         captured = capsys.readouterr()
-        assert ".gitignore:1:.github/" in captured.err
-        assert "git add -f" in captured.err
+        combined = captured.err + captured.out
+        assert ".gitignore:1:.github/" in combined
+        assert "git add -f" in combined
 
     def test_sparse_checkout_error_shows_hint(self, tmp_path, capsys):
         """When git add fails due to sparse-checkout, an actionable hint is shown."""

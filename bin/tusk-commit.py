@@ -733,34 +733,79 @@ def _run_commit(argv: list[str], state: dict) -> int:
 
         if stderr_text is not None:
             files_str = " ".join(to_add)
-            # Probe each file with git check-ignore -v to surface the specific
-            # gitignore rule (if any) blocking it — more actionable than checking
-            # for English substrings in git's locale-dependent error output.
-            ignored_files = []
+            # Classify each file: tracked status (authoritative) + gitignore
+            # rule (diagnostic).  `git ls-files --error-unmatch` exits 0 iff
+            # the path is already tracked.  `git check-ignore --no-index -v`
+            # reports the matching rule even for tracked paths — plain
+            # `check-ignore` skips tracked files, which is why a tracked file
+            # under a gitignored directory (e.g. tusk/config.json with /tusk/
+            # in .gitignore) would previously fall through the retry logic
+            # without the --no-index flag (TASK-88).
+            per_file = []  # (path, is_tracked, rule_or_None)
             for f in to_add:
-                ci = run(["git", "check-ignore", "-v", f], check=False, cwd=repo_root)
-                if ci.returncode == 0 and ci.stdout.strip():
-                    ignored_files.append((f, ci.stdout.strip()))
+                ls = run(
+                    ["git", "ls-files", "--error-unmatch", "--", f],
+                    check=False, cwd=repo_root,
+                )
+                is_tracked = ls.returncode == 0
+                ci = run(
+                    ["git", "check-ignore", "--no-index", "-v", "--", f],
+                    check=False, cwd=repo_root,
+                )
+                rule = (
+                    ci.stdout.strip()
+                    if ci.returncode == 0 and ci.stdout.strip()
+                    else None
+                )
+                per_file.append((f, is_tracked, rule))
 
-            if ignored_files:
-                # Auto-retry: if a file is blocked by .gitignore, retry with
-                # git add -f as a best-effort fallback (Issue #401).
-                ignored_paths = [f for f, _ in ignored_files]
-                non_ignored_paths = [f for f in to_add if f not in ignored_paths]
+            tracked_ignored = [(f, rule) for f, t, rule in per_file if t and rule]
+            untracked_ignored = [(f, rule) for f, t, rule in per_file if not t and rule]
+
+            if untracked_ignored:
+                # Refuse to force-add untracked gitignored files — doing so can
+                # silently pull in build artifacts, .env files, or other content
+                # the .gitignore exists to exclude. The user must opt in manually
+                # via `git add -f` if they really want to track the file.
+                _print_error(
+                    f"Error: git add failed (cwd: {repo_root}):\n"
+                    f"  Command: git add -- {files_str}\n"
+                    f"  {stderr_text}"
+                )
+                for f, rule in untracked_ignored:
+                    _print_error(
+                        f"  Refusing to force-add untracked gitignored file:\n"
+                        f"    {f}\n"
+                        f"    Rule: {rule}\n"
+                        f"  Hint: if you really want to track it, run `git add -f {f}` "
+                        f"manually, then retry `tusk commit`."
+                    )
+            elif tracked_ignored:
+                # All blocked paths are already tracked — safe to force-add.
+                # Covers the /tusk/ gitignored + tusk/config.json tracked pattern
+                # and the .claude/skills/<skill>/SKILL.md after-first-commit pattern.
+                tracked_paths = [f for f, _ in tracked_ignored]
+                tracked_set = {f for f, _ in tracked_ignored}
+                non_blocked = [f for f in to_add if f not in tracked_set]
                 print(
-                    f"Note: {len(ignored_paths)} file(s) blocked by .gitignore — "
-                    "retrying with `git add -f` (force-add for gitignored paths)."
+                    f"Note: {len(tracked_paths)} tracked file(s) blocked by "
+                    ".gitignore — retrying with `git add -f` "
+                    "(tracked files are safe to force-add)."
                 )
                 retry_ok = True
                 r_force = run(
-                    ["git", "add", "-f", "--"] + ignored_paths, check=False, cwd=repo_root
+                    ["git", "add", "-f", "--"] + tracked_paths,
+                    check=False, cwd=repo_root,
                 )
                 if r_force.returncode != 0:
                     retry_ok = False
-                    _print_error(f"Error: git add -f also failed:\n  {r_force.stderr.strip()}")
-                if retry_ok and non_ignored_paths:
+                    _print_error(
+                        f"Error: git add -f also failed:\n  {r_force.stderr.strip()}"
+                    )
+                if retry_ok and non_blocked:
                     r_rest = run(
-                        ["git", "add", "--"] + non_ignored_paths, check=False, cwd=repo_root
+                        ["git", "add", "--"] + non_blocked,
+                        check=False, cwd=repo_root,
                     )
                     if r_rest.returncode != 0:
                         retry_ok = False
@@ -776,7 +821,7 @@ def _run_commit(argv: list[str], state: dict) -> int:
                         f"  Command: git add -- {files_str}\n"
                         f"  {stderr_text}"
                     )
-                    for f, rule in ignored_files:
+                    for f, rule in tracked_ignored:
                         _print_error(
                             f"  Gitignore rule blocking '{f}':\n"
                             f"    {rule}\n"
@@ -789,7 +834,9 @@ def _run_commit(argv: list[str], state: dict) -> int:
                     f"  {stderr_text}"
                 )
                 if "ignored by" in stderr_text or ".gitignore" in stderr_text:
-                    # Fallback: git reported gitignore but check-ignore didn't find the rule
+                    # git reported gitignore but neither ls-files nor check-ignore
+                    # could attribute it to a specific path.  Leave the user with
+                    # the manual workaround.
                     _print_error(
                         "  Hint: one or more files are excluded by .gitignore — "
                         "use `git add -f <file>` to force-add, then commit manually."
