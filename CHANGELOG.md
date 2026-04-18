@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [648] - 2026-04-18
+
+- [TASK-92] Fix tusk lint Rule 5 false positives on SQL string literals
+
 ## [647] - 2026-04-18
 
 - [TASK-94] Broaden task_metrics.reopen_count to cover In Progress to To Do transitions
