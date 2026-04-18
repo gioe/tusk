@@ -1514,6 +1514,52 @@ def migrate_51(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 51: added skill_runs.task_id and backfilled task-scoped rows")
 
 
+def migrate_52(db_path: str, config_path: str, script_dir: str) -> None:
+    """Record reviewer model on code_reviews rows.
+
+    Adds code_reviews.model (nullable TEXT) so per-model reviewer experiments
+    ("does opus-as-reviewer catch more must_fix findings than sonnet-as-reviewer?")
+    can attribute findings to the model that produced them. Follows the same
+    pattern as task_sessions.model and skill_runs.model.
+
+    Backfill for historical rows: for each code_review whose model IS NULL,
+    find the task_session belonging to the same task whose
+    [started_at, ended_at] window contains code_reviews.created_at, and copy
+    that session's model. Open sessions (ended_at IS NULL) extend to now.
+    Ambiguous overlaps resolve to the most recently started session. The task
+    description guarantees this is valid for every current row since the
+    reviewer agent's model has never been overridden.
+
+    Idempotent: the column-add is guarded by has_column(), and the backfill
+    only touches rows where model IS NULL.
+    """
+    if get_version(db_path) >= 52:
+        _progress("  Migration 52: added code_reviews.model and backfilled from task_sessions")
+        return
+
+    alter_stmts = []
+    if not has_column(db_path, "code_reviews", "model"):
+        alter_stmts.append("ALTER TABLE code_reviews ADD COLUMN model TEXT;")
+
+    script = "\n".join(alter_stmts) + """
+        UPDATE code_reviews
+           SET model = (
+               SELECT ts.model
+                 FROM task_sessions ts
+                WHERE ts.task_id = code_reviews.task_id
+                  AND ts.started_at <= code_reviews.created_at
+                  AND (ts.ended_at IS NULL OR ts.ended_at >= code_reviews.created_at)
+                ORDER BY ts.started_at DESC
+                LIMIT 1
+           )
+         WHERE model IS NULL;
+
+        PRAGMA user_version = 52;
+    """
+    run_script(db_path, script)
+    _progress("  Migration 52: added code_reviews.model and backfilled from task_sessions")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -1568,6 +1614,7 @@ MIGRATIONS = [
     (49, migrate_49),
     (50, migrate_50),
     (51, migrate_51),
+    (52, migrate_52),
 ]
 
 

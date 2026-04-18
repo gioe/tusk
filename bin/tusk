@@ -621,6 +621,7 @@ CREATE TABLE code_reviews (
     tokens_in INTEGER,
     tokens_out INTEGER,
     agent_name TEXT,
+    model TEXT,
     note TEXT,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),
@@ -774,7 +775,7 @@ PILLARS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 51;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 52;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."
