@@ -156,3 +156,66 @@ class TestCancelDispatcher:
 
         assert exc_info.value.code == 1
         assert "Usage: tusk skill-run cancel" in err.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Schema sync guard: _SKILL_RUNS_TABLE fixture vs bin/tusk CREATE TABLE skill_runs
+# ---------------------------------------------------------------------------
+
+def _extract_table_columns(sql_text, table_name):
+    """Return the set of column names defined in the CREATE TABLE <table_name> block.
+
+    Mirrors the helper of the same name in tests/unit/test_dashboard_data.py;
+    duplicated so each test file's fixture-vs-bin/tusk guard is self-contained.
+    """
+    import re
+
+    header = re.search(rf"CREATE TABLE {re.escape(table_name)}\s*\(", sql_text, re.IGNORECASE)
+    if not header:
+        return set()
+
+    body_start = sql_text.index("(", header.start())
+    body_lines = []
+    for line in sql_text[body_start + 1:].splitlines():
+        if line.strip().startswith(")"):
+            break
+        body_lines.append(line)
+
+    columns = set()
+    for line in body_lines:
+        line = line.strip().rstrip(",")
+        if not line:
+            continue
+        if re.match(r"(FOREIGN KEY|PRIMARY KEY|UNIQUE|CHECK|CONSTRAINT)\b", line, re.IGNORECASE):
+            continue
+        col_match = re.match(r"(\w+)", line)
+        if col_match:
+            columns.add(col_match.group(1).lower())
+    return columns
+
+
+class TestSkillRunsSchemaSync:
+    """Guard against drift between _SKILL_RUNS_TABLE fixture and bin/tusk CREATE TABLE skill_runs."""
+
+    def test_fixture_matches_bin_tusk(self):
+        tusk_path = os.path.join(REPO_ROOT, "bin", "tusk")
+        with open(tusk_path) as f:
+            tusk_sql = f.read()
+
+        tusk_cols = _extract_table_columns(tusk_sql, "skill_runs")
+        fixture_cols = _extract_table_columns(_SKILL_RUNS_TABLE, "skill_runs")
+
+        assert tusk_cols, "Could not find CREATE TABLE skill_runs in bin/tusk"
+        assert fixture_cols, "Could not find CREATE TABLE skill_runs in _SKILL_RUNS_TABLE fixture"
+
+        missing_from_fixture = tusk_cols - fixture_cols
+        extra_in_fixture = fixture_cols - tusk_cols
+
+        assert not missing_from_fixture, (
+            f"skill_runs columns in bin/tusk missing from _SKILL_RUNS_TABLE fixture: {sorted(missing_from_fixture)}. "
+            "Update _SKILL_RUNS_TABLE in tests/unit/test_skill_run_cancel.py to match."
+        )
+        assert not extra_in_fixture, (
+            f"skill_runs columns in _SKILL_RUNS_TABLE fixture not in bin/tusk: {sorted(extra_in_fixture)}. "
+            "Update _SKILL_RUNS_TABLE in tests/unit/test_skill_run_cancel.py to match."
+        )
