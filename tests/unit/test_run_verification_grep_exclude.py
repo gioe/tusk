@@ -76,23 +76,6 @@ def test_non_grep_spec_still_runs():
     assert result["passed"] is False
 
 
-def test_grep_in_pipeline_is_also_wrapped():
-    """grep invoked later in a pipeline (not at spec start) is still wrapped —
-    the shell function is inherited by pipeline stages."""
-    with tempfile.TemporaryDirectory() as tmp:
-        _make_tree(tmp)
-        # find ... | xargs grep would otherwise match the .pyc
-        spec = f'! find {tmp}/pkg -type f | xargs grep -lE "scaffold-reviewer-prompts"'
-        # Without the wrapper this would find the .pyc and fail the negation.
-        # The wrapper is inherited by subshells/pipeline stages so grep still skips
-        # __pycache__ even when invoked via xargs.
-        # Note: xargs runs grep as a child process — shell functions are NOT exported
-        # to children by default, so this test documents the limitation, not a guarantee.
-        # Skip assertion here; just confirm the call doesn't crash.
-        result = criteria_mod.run_verification("code", spec)
-    assert "passed" in result
-
-
 def test_manual_criterion_unchanged():
     """Manual criteria short-circuit before any shell execution."""
     result = criteria_mod.run_verification("manual", "anything here")
