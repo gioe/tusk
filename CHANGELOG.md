@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [646] - 2026-04-18
+
+- [TASK-81] Add task_status_transitions log for rework measurement
+
 ## [645] - 2026-04-18
 
 - [TASK-88] tusk commit should retry git add with -f for tracked files blocked by gitignore directory rules
