@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [638] - 2026-04-18
+
+- [TASK-75] Disambiguate 0 turns from unknown (pre-migration NULL) on the Models tab — KPI cards, complexity matrix cells, and the trend chart's Turns metric now render '—' when every contributing row predates the TASK-73 request_count migration
+
 ## [637] - 2026-04-18
 
 - [TASK-74] Add Models dashboard tab with per-model cost, turns, and cost-per-LOC comparison
