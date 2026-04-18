@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [641] - 2026-04-18
+
+- [TASK-79] Add skill_runs.task_id for per-task skill-cost attribution
+
 ## [640] - 2026-04-18
 
 - [TASK-78] Add migration 50 — date-gated backfill of historical 'claude-opus-4' rows on task_sessions and skill_runs into 'claude-opus-4-6' (before 2026-04-17) or 'claude-opus-4-7' (on/after) so other projects pick up the minor version split on `tusk upgrade`
