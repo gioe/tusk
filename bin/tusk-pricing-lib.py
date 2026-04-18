@@ -502,9 +502,10 @@ def iter_tool_call_costs(
 def update_session_stats(conn: sqlite3.Connection, session_id: int, totals: dict) -> None:
     """Write aggregated token/cost stats for a session to task_sessions.
 
-    Computes tokens_in, tokens_out, cost_dollars, model, and context token
-    fields from *totals* (as returned by aggregate_session()) and executes the
-    UPDATE.  Does not commit — the caller is responsible for committing.
+    Computes tokens_in, tokens_out, cost_dollars, model, request_count, and
+    context token fields from *totals* (as returned by aggregate_session())
+    and executes the UPDATE. Does not commit — the caller is responsible
+    for committing.
     """
     tokens_in = compute_tokens_in(totals)
     tokens_out = totals["output_tokens"]
@@ -513,15 +514,16 @@ def update_session_stats(conn: sqlite3.Connection, session_id: int, totals: dict
     peak_context = totals.get("peak_context_tokens")
     first_context = totals.get("first_context_tokens")
     last_context = totals.get("last_context_tokens")
+    request_count = totals.get("request_count")
     context_window = get_context_window(model) if model else None
 
     conn.execute(
         """UPDATE task_sessions
            SET tokens_in = ?, tokens_out = ?, cost_dollars = ?, model = ?,
                peak_context_tokens = ?, first_context_tokens = ?, last_context_tokens = ?,
-               context_window = ?
+               context_window = ?, request_count = ?
            WHERE id = ?""",
-        (tokens_in, tokens_out, cost, model, peak_context, first_context, last_context, context_window, session_id),
+        (tokens_in, tokens_out, cost, model, peak_context, first_context, last_context, context_window, request_count, session_id),
     )
 
 

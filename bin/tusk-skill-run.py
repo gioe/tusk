@@ -105,9 +105,9 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
 
     conn.execute(
         """UPDATE skill_runs
-           SET cost_dollars = ?, tokens_in = ?, tokens_out = ?, model = ?, metadata = ?
+           SET cost_dollars = ?, tokens_in = ?, tokens_out = ?, model = ?, metadata = ?, request_count = ?
            WHERE id = ?""",
-        (cost, tokens_in, tokens_out, model, metadata, run_id),
+        (cost, tokens_in, tokens_out, model, metadata, request_count, run_id),
     )
     conn.commit()
     # Close connection before spawning subprocess to avoid SQLITE_BUSY (two write
@@ -175,7 +175,8 @@ def cmd_cancel(conn, run_id: int) -> None:
                tokens_in = 0,
                tokens_out = 0,
                model = '',
-               metadata = NULL
+               metadata = NULL,
+               request_count = 0
            WHERE id = ?""",
         (run_id,),
     )
