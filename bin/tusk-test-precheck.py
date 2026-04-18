@@ -64,16 +64,18 @@ def detect_dirty(repo_root: str) -> bool:
 def find_stash_ref_by_message(repo_root: str, message: str) -> str:
     """Return the stash ref (e.g. ``stash@{2}``) whose subject contains ``message``.
 
-    Returns an empty string if no matching entry is found.  Searching by
-    message (not position) is what makes this safe against concurrent stash
-    pushes from other tools.
+    Returns an empty string only when ``git stash list`` succeeded and no
+    entry matches.  Raises ``RuntimeError`` if the command itself failed —
+    callers must never conflate "command failed" with "no match", because
+    doing so is what reintroduces the silent-data-loss failure mode this
+    CLI exists to prevent.
     """
     result = _run(
         ["git", "stash", "list", "--format=%gd %gs"],
         cwd=repo_root,
     )
     if result.returncode != 0:
-        return ""
+        raise RuntimeError(f"git stash list failed: {result.stderr.strip()}")
     for line in result.stdout.splitlines():
         ref, _, subject = line.partition(" ")
         if message in subject:
@@ -110,8 +112,24 @@ def resolve_test_command(explicit: str, config_path: str, repo_root: str,
 
 
 def run_test(test_command: str, repo_root: str) -> int:
-    """Run the configured test command in a shell and return its exit code."""
-    result = subprocess.run(test_command, cwd=repo_root, shell=True)
+    """Run the configured test command in a shell and return its exit code.
+
+    Captures stdout/stderr and re-emits both on *our* stderr so that *our*
+    stdout stays reserved for the final JSON payload — programmatic callers
+    must be able to run ``json.loads(result.stdout)`` directly rather than
+    fishing the last line out of interleaved test output.
+    """
+    result = subprocess.run(
+        test_command,
+        cwd=repo_root,
+        shell=True,
+        capture_output=True,
+        text=True,
+    )
+    if result.stdout:
+        sys.stderr.write(result.stdout)
+    if result.stderr:
+        sys.stderr.write(result.stderr)
     return result.returncode
 
 
@@ -171,22 +189,65 @@ def main(argv):
                 file=sys.stderr,
             )
             return 1
-        stash_ref = find_stash_ref_by_message(repo_root, stash_message)
-        stashed = bool(stash_ref)
+        try:
+            stash_ref = find_stash_ref_by_message(repo_root, stash_message)
+        except RuntimeError as e:
+            # push succeeded but we can't inspect the stash list — do NOT
+            # run tests, because we also can't guarantee we'll be able to
+            # pop our entry afterwards.  Surface the stash message so the
+            # user can recover manually.
+            print(
+                f"Error: {e}\n"
+                f"Stash entry '{stash_message}' was created but could not be "
+                "verified.  Inspect `git stash list` and pop it manually.",
+                file=sys.stderr,
+            )
+            return 1
+        if not stash_ref:
+            # Push reported success but our entry is not in the list.  This
+            # is the exact silent-data-loss pattern TASK-55 exists to
+            # prevent — treat it as a hard error, never a silent fall-through.
+            print(
+                f"Error: `git stash push` reported success but entry "
+                f"'{stash_message}' is not in `git stash list`.  Your local "
+                "changes may be in an inconsistent state.  Inspect `git "
+                "stash list` and `git fsck --lost-found` before retrying.",
+                file=sys.stderr,
+            )
+            return 1
+        stashed = True
 
-    exit_code = 0
+    exit_code = 1
+    run_test_error: Exception | None = None
     try:
         exit_code = run_test(test_command, repo_root)
+    except Exception as e:
+        # run_test raising (FileNotFoundError, OSError, etc.) must still
+        # trigger the stash-pop cleanup path — the alternative is leaving
+        # the user's changes orphaned in the stash list.  Record the
+        # exception and surface it after cleanup.
+        run_test_error = e
     finally:
         if stashed:
             # Look up the ref again — another `git stash push` could have
             # bumped our entry off the top while the tests ran.
-            stash_ref = find_stash_ref_by_message(repo_root, stash_message)
+            try:
+                stash_ref = find_stash_ref_by_message(repo_root, stash_message)
+            except RuntimeError as e:
+                print(
+                    f"Error: {e}\n"
+                    f"Your changes remain in the stash list under message "
+                    f"'{stash_message}'.  Locate the entry with `git stash "
+                    "list` and pop it manually.",
+                    file=sys.stderr,
+                )
+                return 1
             if not stash_ref:
                 print(
-                    f"Error: stash entry '{stash_message}' disappeared — your "
-                    "changes may be lost.  Inspect `git stash list` and "
-                    "`git fsck --lost-found` to recover.",
+                    f"Error: stash entry '{stash_message}' disappeared while "
+                    "tests were running — your changes may be lost.  "
+                    "Inspect `git stash list` and `git fsck --lost-found` "
+                    "to recover.",
                     file=sys.stderr,
                 )
                 return 1
@@ -200,6 +261,13 @@ def main(argv):
                     file=sys.stderr,
                 )
                 return 1
+
+    if run_test_error is not None:
+        print(
+            f"Error: test command '{test_command}' raised: {run_test_error!r}",
+            file=sys.stderr,
+        )
+        return 1
 
     print(json.dumps({
         "pre_existing": exit_code != 0,

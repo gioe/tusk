@@ -64,15 +64,20 @@ def _run_precheck(repo: str, *extra_args: str):
 
 
 def _parse_payload(stdout: str) -> dict:
-    """Pull the JSON object out of stdout (tolerate surrounding noise)."""
-    # tusk test-precheck may emit the test command's own stdout ahead of the
-    # JSON line.  Parse the *last* non-empty line, which is always our payload.
-    for line in reversed([ln for ln in stdout.splitlines() if ln.strip()]):
-        try:
-            return json.loads(line)
-        except json.JSONDecodeError:
-            continue
-    raise AssertionError(f"no JSON payload in stdout:\n{stdout}")
+    """Pull the JSON object out of stdout.
+
+    ``tusk test-precheck`` guarantees stdout is reserved for the payload —
+    the test command's own output is redirected to stderr.  ``stdout`` must
+    parse cleanly as a single JSON object; anything else is a contract
+    violation.
+    """
+    try:
+        return json.loads(stdout)
+    except json.JSONDecodeError as e:
+        raise AssertionError(
+            f"stdout is not clean JSON (test command output must not interleave):"
+            f"\n{stdout!r}\n{e}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +176,36 @@ class TestDirtyTree:
         assert open(os.path.join(repo, "new.txt")).read() == "untracked\n"
         # No leftover stash entries from our run.
         stash_list = _git("stash", "list", cwd=repo).stdout
+        assert "tusk-test-precheck" not in stash_list
+
+    def test_concurrent_push_bumps_our_ref_but_pop_by_name_still_works(self, tmp_path):
+        """If another ``git stash push`` runs between our push and our pop,
+        our named entry slides from stash@{0} to stash@{1}.  Lookup-by-
+        message must still find it; positional pop would trash the
+        intruder."""
+        repo = str(tmp_path / "repo")
+        _git_init(repo)
+        with open(os.path.join(repo, "README.md"), "w") as f:
+            f.write("ours\n")
+
+        # Use a test command that itself pushes a stash mid-run.  This
+        # simulates a parallel tool writing to the stash stack while our
+        # tests are executing.
+        intruder = os.path.join(repo, "intruder.txt")
+        command = (
+            f"echo intruder > {intruder} && "
+            f"git add {intruder} && "
+            f"git stash push -m 'intruder' > /dev/null"
+        )
+
+        result = _run_precheck(repo, "--command", command)
+        assert result.returncode == 0, result.stderr
+
+        # Our local edit came back.
+        assert open(os.path.join(repo, "README.md")).read() == "ours\n"
+        # The intruder stash is still around — we did not pop it by mistake.
+        stash_list = _git("stash", "list", cwd=repo).stdout
+        assert "intruder" in stash_list
         assert "tusk-test-precheck" not in stash_list
 
     def test_dirty_tree_does_not_pop_foreign_stash_on_top(self, tmp_path):
