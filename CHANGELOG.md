@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [631] - 2026-04-18
+
+- [TASK-69] Auto-exclude __pycache__, .pytest_cache, and node_modules from grep in code/test criterion specs
+
 ## [630] - 2026-04-18
 
 - [TASK-68] Rule 6 should exempt tasks closed with closed_reason IN ('duplicate','wont_do')

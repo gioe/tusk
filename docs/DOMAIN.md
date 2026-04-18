@@ -107,6 +107,8 @@ A verifiable condition that must be satisfied before a task is considered done. 
 - `test` — same as code; distinguished for reporting
 - `file` — verified by checking a glob pattern exists on disk
 
+**`code`/`test` auto-exclusions for grep.** Every `code`/`test` spec is prefixed with a POSIX shell function that redefines `grep` to add `--exclude-dir=__pycache__ --exclude-dir=.pytest_cache --exclude-dir=node_modules`. `grep -r` ignores `.gitignore`, so a spec like `! grep -rE "foo" skills/` would otherwise match `foo` inside compiled `.pyc` bytecode or cached dependency trees and fail the negation. The exclusions are a no-op for non-recursive grep and don't affect non-grep specs. If you need to grep *inside* one of those dirs, call `command grep` directly to bypass the wrapper.
+
 **Sources:**
 - `original` — specified when task was created
 - `subsumption` — added when a duplicate task was merged in

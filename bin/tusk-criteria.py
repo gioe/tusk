@@ -199,6 +199,21 @@ def _capture_criterion_tool_stats(
 
 # ── Verification ──────────────────────────────────────────────────────
 
+# Shell prefix injected before every code/test criterion spec. Redefines `grep`
+# (POSIX function, inherited by subshells and pipeline stages) so recursive
+# greps skip dirs that grep -r scans but users never mean to match: Python
+# bytecode caches, pytest caches, and JS dependency trees. grep -r ignores
+# .gitignore, so without this a spec like `! grep -rE "foo" skills/` can fail
+# because "foo" appears inside a compiled .pyc file. --exclude-dir is a no-op
+# for non-recursive grep, so this is safe for specs that don't use -r/-R.
+_GREP_EXCLUDE_PREFIX = (
+    'grep() { command grep '
+    '--exclude-dir=__pycache__ '
+    '--exclude-dir=.pytest_cache '
+    '--exclude-dir=node_modules "$@"; }; '
+)
+
+
 def run_verification(criterion_type: str, spec: str) -> dict:
     """Run automated verification based on criterion type.
 
@@ -211,7 +226,8 @@ def run_verification(criterion_type: str, spec: str) -> dict:
         # Run spec as a shell command; pass means exit code 0
         try:
             result = subprocess.run(
-                spec, shell=True, capture_output=True, text=True, encoding="utf-8", timeout=120,
+                _GREP_EXCLUDE_PREFIX + spec,
+                shell=True, capture_output=True, text=True, encoding="utf-8", timeout=120,
             )
             output = result.stdout.strip()
             if result.stderr.strip():
