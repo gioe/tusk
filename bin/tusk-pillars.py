@@ -13,6 +13,7 @@ Arguments received from tusk:
 import argparse
 import json
 import os
+import re
 import sqlite3
 import sys
 
@@ -24,6 +25,39 @@ _json_lib = tusk_loader.load("tusk-json-lib")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 load_config = _db_lib.load_config
+
+
+# ── Markdown parsing (shared with migration 47) ──────────────────────
+
+def parse_pillars_md(content: str) -> list:
+    """Extract ``[(name, core_claim)]`` pairs from a PILLARS.md-style doc.
+
+    Matches sections headed ``## N. Name`` followed by a ``**Core claim:** ...``
+    line. Sections without a core-claim line are skipped.
+    """
+    pillars = []
+    sections = re.split(r"(?m)^## \d+\.\s+", content)
+    for section in sections[1:]:
+        lines = section.splitlines()
+        if not lines:
+            continue
+        name = lines[0].strip()
+        if not name:
+            continue
+        claim = None
+        for line in lines[1:]:
+            m = re.match(r"^\s*\*\*Core claim:\*\*\s*(.+)$", line)
+            if m:
+                claim = m.group(1).strip()
+                break
+        if claim:
+            pillars.append((name, claim))
+    return pillars
+
+
+def _default_md_path(db_path: str) -> str:
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+    return os.path.join(repo_root, "docs", "PILLARS.md")
 
 
 # ── Subcommands ──────────────────────────────────────────────────────
@@ -94,6 +128,67 @@ def cmd_set_claim(args: argparse.Namespace, db_path: str, config: dict) -> int:
         conn.close()
 
 
+def cmd_sync_from_md(args: argparse.Namespace, db_path: str, config: dict) -> int:
+    """Upsert pillars from a markdown source-of-truth doc.
+
+    Default source: ``<repo_root>/docs/PILLARS.md``. When the file is absent
+    the command is a no-op and exits 0 — target projects without PILLARS.md
+    keep whatever ``/tusk-init`` seeded.
+    """
+    md_path = args.file or _default_md_path(db_path)
+
+    if not os.path.isfile(md_path):
+        print(dumps({
+            "source": md_path,
+            "found": False,
+            "parsed": 0,
+            "added": [],
+            "updated": [],
+            "unchanged": [],
+        }))
+        return 0
+
+    with open(md_path, "r") as f:
+        content = f.read()
+
+    pillars = parse_pillars_md(content)
+
+    added, updated, unchanged = [], [], []
+    conn = get_connection(db_path)
+    try:
+        for name, claim in pillars:
+            row = conn.execute(
+                "SELECT core_claim FROM pillars WHERE name = ?", (name,)
+            ).fetchone()
+            if row is None:
+                conn.execute(
+                    "INSERT INTO pillars (name, core_claim) VALUES (?, ?)",
+                    (name, claim),
+                )
+                added.append(name)
+            elif row[0] != claim:
+                conn.execute(
+                    "UPDATE pillars SET core_claim = ? WHERE name = ?",
+                    (claim, name),
+                )
+                updated.append(name)
+            else:
+                unchanged.append(name)
+        conn.commit()
+    finally:
+        conn.close()
+
+    print(dumps({
+        "source": md_path,
+        "found": True,
+        "parsed": len(pillars),
+        "added": added,
+        "updated": updated,
+        "unchanged": unchanged,
+    }))
+    return 0
+
+
 # ── Argument parsing ─────────────────────────────────────────────────
 
 def build_parser() -> argparse.ArgumentParser:
@@ -115,6 +210,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_set = sub.add_parser("set-claim", help="Update the core claim of a pillar")
     p_set.add_argument("name", help="Pillar name")
     p_set.add_argument("claim", help="New core claim")
+
+    p_sync = sub.add_parser(
+        "sync-from-md",
+        help="Upsert pillars from docs/PILLARS.md (idempotent)",
+    )
+    p_sync.add_argument(
+        "--file",
+        default=None,
+        help="Override markdown source path (default: <repo_root>/docs/PILLARS.md)",
+    )
 
     return parser
 
@@ -140,6 +245,7 @@ def main() -> None:
         "add": cmd_add,
         "remove": cmd_remove,
         "set-claim": cmd_set_claim,
+        "sync-from-md": cmd_sync_from_md,
     }
     sys.exit(handlers[args.subcommand](args, db_path, config))
 

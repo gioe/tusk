@@ -1307,6 +1307,41 @@ def migrate_46(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 46: added 'skip_note' column to acceptance_criteria")
 
 
+def migrate_47(db_path: str, config_path: str, script_dir: str) -> None:
+    """Backfill pillars table from <repo_root>/docs/PILLARS.md when present.
+
+    docs/PILLARS.md is the canonical narrative source; the pillars table is a
+    normalized projection used by /investigate, /investigate-directory, and
+    /address-issue. When PILLARS.md is absent (target projects), this migration
+    is a no-op and the table keeps whatever /tusk-init seeded.
+    """
+    if get_version(db_path) >= 47:
+        return
+    conn = db_connect(db_path)
+    count = conn.execute("SELECT COUNT(*) FROM pillars").fetchone()[0]
+    conn.close()
+    if count == 0:
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+        md_path = os.path.join(repo_root, "docs", "PILLARS.md")
+        if os.path.isfile(md_path):
+            try:
+                subprocess.run(
+                    [
+                        "python3",
+                        os.path.join(script_dir, "tusk-pillars.py"),
+                        db_path,
+                        config_path,
+                        "sync-from-md",
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
+            except Exception as e:
+                print(f"  Warning: PILLARS.md backfill failed: {e}", file=sys.stderr)
+    set_version(db_path, 47)
+    _progress("  Migration 47: backfilled pillars table from docs/PILLARS.md")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -1356,6 +1391,7 @@ MIGRATIONS = [
     (44, migrate_44),
     (45, migrate_45),
     (46, migrate_46),
+    (47, migrate_47),
 ]
 
 
