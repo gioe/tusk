@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [624] - 2026-04-17
+
+- [TASK-59] [Deferred] Trim tusk-update SKILL.md — move Step 7 smoke-test detail to companion
+
 ## [623] - 2026-04-17
 
 - [TASK-58] [Deferred] Trim tusk-init SKILL.md — move pillar catalogue and default claims to companion
