@@ -12,14 +12,28 @@ Reviews the current conversation history to capture process learnings, instructi
 
 ## Step 0: Setup
 
-Fetch config, backlog, then determine retro mode:
+Fetch config, backlog, then determine retro mode. Also capture the most recent Done task's ID so the retro's cost can be attributed to it:
 
 ```bash
-tusk "SELECT complexity FROM tasks WHERE status = 'Done' ORDER BY updated_at DESC LIMIT 1"
+tusk "SELECT id, complexity FROM tasks WHERE status = 'Done' ORDER BY updated_at DESC LIMIT 1"
 tusk setup
 ```
 
 Parse the JSON from `tusk setup`: use `config` for metadata assignment and `backlog` for duplicate comparison.
+
+Store the `id` from the first query as `RETRO_TASK_ID` — it's the single just-closed task this retro is reviewing. Then start cost tracking:
+
+```bash
+tusk skill-run start retro --task-id $RETRO_TASK_ID
+```
+
+This prints `{"run_id": N, "started_at": "...", "task_id": N}`. Capture `run_id` — it's referenced by every exit path below. If the query returned no rows (no Done tasks exist yet), omit `--task-id`:
+
+```bash
+tusk skill-run start retro
+```
+
+> **Early-exit cleanup:** If any step below causes the retro to stop before reaching the final report (LR-3 for lightweight, Step 6 for full), first call `tusk skill-run cancel <run_id>` to close the open row, then stop. Otherwise the row lingers as `(open)` in `tusk skill-run list` forever.
 
 - **XS or S** → follow the **Lightweight Retro** path below
 - **M, L, XL, or NULL** → read the full retro guide:
@@ -47,7 +61,7 @@ Streamlined retro for small tasks. Skips subsumption analysis and dependency pro
 
 Analyze the full conversation context using the resolved categories.
 
-If **all categories are empty**, report "Clean session — no findings" and stop. (Config and backlog were already fetched in Step 0 — no additional work needed.)
+If **all categories are empty**, run `tusk skill-run cancel <run_id>`, report "Clean session — no findings" and stop. (Config and backlog were already fetched in Step 0 — no additional work needed.)
 
 ### LR-1b: Classify Each Finding
 
@@ -207,6 +221,12 @@ Then show the current backlog:
 
 ```bash
 tusk -header -column "SELECT id, summary, priority, domain, task_type, status FROM tasks WHERE status = 'To Do' ORDER BY priority_score DESC, id"
+```
+
+Finally, close out the retro skill-run so its cost is captured:
+
+```bash
+tusk skill-run finish <run_id>
 ```
 
 **End of lightweight retro.** Do not continue to FULL-RETRO.md.

@@ -277,3 +277,9 @@ Then show the backlog:
 ```bash
 tusk -header -column "SELECT id, summary, priority, domain, task_type, status FROM tasks WHERE status = 'To Do' ORDER BY priority_score DESC, id"
 ```
+
+Finally, close out the retro skill-run so its cost is captured (uses the `run_id` captured in Step 0 of SKILL.md):
+
+```bash
+tusk skill-run finish <run_id>
+```
