@@ -933,6 +933,12 @@ def generate_models_section(model_performance: dict | None) -> str:
   var PALETTE = ['#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
   var trendChart = null;
 
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
   function fmtCost(v) { return '$' + (v || 0).toFixed(2); }
   function fmtCostFine(v) { return '$' + (v || 0).toFixed(4); }
   function fmtTokens(n) {
@@ -997,7 +1003,7 @@ def generate_models_section(model_performance: dict | None) -> str:
       var costPerTask = (source !== 'skills' && r.tasks > 0) ? '<div class="kpi-sub">' + fmtCost(r.cost_per_task) + ' / task</div>' : '';
       return (
         '<div class="kpi-card">' +
-          '<div class="kpi-label">' + r.model + '</div>' +
+          '<div class="kpi-label">' + escapeHtml(r.model) + '</div>' +
           '<div class="kpi-value">' + fmtCost(r.cost) + '</div>' +
           '<div class="kpi-sub">' + srcDetail + '</div>' +
           '<div class="kpi-sub">' + fmtInt(r.requests) + ' turns \u00b7 ' + fmtTokens(r.tokens_in + r.tokens_out) + ' tok</div>' +
@@ -1029,7 +1035,7 @@ def generate_models_section(model_performance: dict | None) -> str:
     }
     var out = '';
     modelNames.forEach(function(name) {
-      out += '<tr><td>' + name + '</td>';
+      out += '<tr><td>' + escapeHtml(name) + '</td>';
       COMPLEXITY_TIERS.forEach(function(tier) {
         var cell = byModel[name][tier];
         if (!cell) {
@@ -1158,7 +1164,6 @@ def generate_models_section(model_performance: dict | None) -> str:
     renderComplexityTable();
     renderChart();
   }
-  window.__tuskModelsRerender = renderAll;
 
   var srcBtns = document.querySelectorAll('#modelsSourceTabs .cost-tab');
   srcBtns.forEach(function(btn) {
