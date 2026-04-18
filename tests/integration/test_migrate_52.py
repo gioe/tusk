@@ -217,8 +217,13 @@ class TestMigrate52:
         assert tusk_migrate.get_version(db_at_v51) == 52
 
     def test_idempotent_when_already_at_v52(self, db_path, config_path):
-        """Fresh DB is already at v52 with the column present; re-running is a no-op."""
-        assert tusk_migrate.get_version(str(db_path)) == 52
+        """Fresh DB already has the column present; stamp v52 so the idempotent
+        path stays version-independent of future migrations."""
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA user_version = 52")
+        conn.commit()
+        conn.close()
+
         _seed_task(str(db_path), 401)
         _seed_session(str(db_path), 401, "2026-04-18 10:00:00", "2026-04-18 11:00:00", "claude-opus-4-7")
         # Insert with model NULL — the guard should short-circuit and leave it NULL.
