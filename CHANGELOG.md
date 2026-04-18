@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [650] - 2026-04-18
+
+- [TASK-96] tusk skill-run should handle --help on subcommands instead of inserting stray skill_runs rows
+
 ## [649] - 2026-04-18
 
 - [TASK-83] Wire skill-run lifecycle into /tusk, /chain, /retro
