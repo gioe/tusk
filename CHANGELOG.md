@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [637] - 2026-04-18
+
+- [TASK-74] Add Models dashboard tab with per-model cost, turns, and cost-per-LOC comparison
+
 ## [636] - 2026-04-18
 
 - [TASK-73] Persist request_count on task_sessions and skill_runs
