@@ -84,7 +84,9 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
     cost = 0.0
     tokens_in = 0
     tokens_out = 0
-    model = ""
+    # Sentinel distinguishes finish-with-no-transcript from `cmd_cancel` rows,
+    # which keep model = '' so `skill-run list` can tag them '(cancelled)'.
+    model = "(unknown)"
     request_count = 0
 
     if transcript_path and os.path.isfile(transcript_path):
@@ -216,7 +218,12 @@ def cmd_list(conn, skill_name: str | None, limit: int) -> None:
         tokens_str = f"{r['tokens_in']:,}" if r["tokens_in"] is not None else "-"
         meta_str = r["metadata"] or ""
         started = (r["started_at"] or "")[:16]
-        status = "(open)" if not r["ended_at"] else ""
+        if not r["ended_at"]:
+            status = "(open)"
+        elif r["cost_dollars"] == 0 and (r["model"] or "") == "" and r["metadata"] is None:
+            status = "(cancelled)"
+        else:
+            status = ""
         print(f"{r['id']:<6} {r['skill_name']:<20} {started:<20} {cost_str:>8}  {tokens_str:>10}  {(r['model'] or '-'):<25}  {meta_str} {status}")
 
 
