@@ -2,6 +2,8 @@
 
 This document defines the eight product pillars that guide tusk's design and development. Each pillar represents a core value the product commits to. Use this file to categorize backlog items and evaluate proposed work against which pillar it advances.
 
+**Source of truth.** This markdown file is the canonical definition of tusk's pillars. The `pillars` DB table (queried by `/investigate`, `/investigate-directory`, and `/address-issue`) is a normalized projection of the `## N. Name` + `**Core claim:**` pairs in this file — it exists so skills can filter on pillar name and claim without parsing markdown at query time. The table is seeded automatically on `tusk init` / `tusk migrate` when this file is present (migration 47). After editing names or core claims here, run `tusk pillars sync-from-md` to re-sync the DB; the richer fields (definition, maturity, representative features) stay markdown-only.
+
 ---
 
 ## Maturity Summary

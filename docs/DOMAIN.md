@@ -356,7 +356,7 @@ A DB-backed grep rule that `tusk lint` runs alongside its hardcoded rules. Rules
 
 ### Pillar
 
-A named design principle with a one-sentence core claim. Managed via `tusk pillars list|add|remove|set-claim`. Provides a queryable store for the values defined in `docs/PILLARS.md`.
+A named design principle with a one-sentence core claim. Managed via `tusk pillars list|add|remove|set-claim|sync-from-md`. The `pillars` table is a **normalized projection** of `docs/PILLARS.md` — the markdown file is the canonical narrative source (definitions, maturity, representative features), while the table indexes `name` and `core_claim` for machine queries by `/investigate`, `/investigate-directory`, and `/address-issue`. `tusk pillars sync-from-md` performs an idempotent upsert from the doc; migration 47 and `tusk init` seed the table automatically when `docs/PILLARS.md` is present. Target projects without a PILLARS.md fall back to `/tusk-init`'s catalogue-based seeding.
 
 | Attribute | Type | Constraints | Description |
 |-----------|------|-------------|-------------|
