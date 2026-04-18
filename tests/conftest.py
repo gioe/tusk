@@ -38,6 +38,18 @@ def db_path(tmp_path, config_path, monkeypatch):
     — silently hit the repo's live tusk/tasks.db and produce opaque
     "Session N already closed" / "Task N already Done" failures that
     reference IDs from the live DB. See TASK-53.
+
+    Path-layout gotcha: the DB sits at ``tmp_path/tasks.db`` (flat), not at
+    ``tmp_path/tusk/tasks.db`` (production layout). Any code-under-test that
+    resolves a repo-rooted path via ``dirname(dirname(db_path))/<subpath>``
+    (e.g. migration 29 looking for ``tusk/conventions.md``, migration 47
+    looking for ``docs/PILLARS.md``) will land at the *parent* of
+    ``tmp_path``, not inside it. For those tests, build a nested fixture —
+    create ``tmp_path/tusk/tasks.db`` with ``TUSK_DB`` pinned to that path
+    and place the sibling files under ``tmp_path/...`` — so that
+    ``dirname(dirname(db))`` resolves to ``tmp_path``. See
+    ``tests/integration/test_migrate_47.py::repo_with_pillars_md`` for the
+    canonical pattern.
     """
     db_file = tmp_path / "tasks.db"
     monkeypatch.setenv("TUSK_DB", str(db_file))
