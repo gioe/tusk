@@ -1653,6 +1653,55 @@ def migrate_53(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 53: added task_status_transitions table, trigger, backfill, and task_metrics.reopen_count")
 
 
+def migrate_54(db_path: str, config_path: str, script_dir: str) -> None:
+    """Broaden task_metrics.reopen_count to cover any backward jump into To Do.
+
+    Migration 53 defined reopen_count as COUNT(*) WHERE from_status = 'Done',
+    which only captured post-Done reopens (Done -> To Do via
+    'tusk task-reopen --force'). It missed In Progress -> To Do rework —
+    a task bouncing through To Do before ever reaching Done — even though
+    TASK-81's motivating example required it.
+
+    This migration recreates the task_metrics view with
+    to_status = 'To Do' instead, which subsumes both cycles:
+      - In Progress -> To Do (mid-task rework)
+      - Done -> To Do       (post-Done reopen via --force)
+
+    The column name stays reopen_count (non-breaking for dashboard consumers).
+    Backfill produces no synthetic rows with to_status='To Do', so the
+    forward-looking-only property is preserved.
+
+    Idempotent: DROP VIEW IF EXISTS + CREATE VIEW reconstructs the view from
+    scratch regardless of prior state.
+    """
+    if get_version(db_path) >= 54:
+        _progress("  Migration 54: broadened task_metrics.reopen_count to to_status = 'To Do'")
+        return
+
+    script = """
+        DROP VIEW IF EXISTS task_metrics;
+        CREATE VIEW task_metrics AS
+        SELECT t.*,
+            COUNT(s.id) as session_count,
+            SUM(s.duration_seconds) as total_duration_seconds,
+            SUM(s.cost_dollars) as total_cost,
+            SUM(s.tokens_in) as total_tokens_in,
+            SUM(s.tokens_out) as total_tokens_out,
+            SUM(s.lines_added) as total_lines_added,
+            SUM(s.lines_removed) as total_lines_removed,
+            SUM(s.request_count) as total_request_count,
+            (SELECT COUNT(*) FROM task_status_transitions tst
+              WHERE tst.task_id = t.id AND tst.to_status = 'To Do') as reopen_count
+        FROM tasks t
+        LEFT JOIN task_sessions s ON t.id = s.task_id
+        GROUP BY t.id;
+
+        PRAGMA user_version = 54;
+    """
+    run_script(db_path, script)
+    _progress("  Migration 54: broadened task_metrics.reopen_count to to_status = 'To Do'")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -1709,6 +1758,7 @@ MIGRATIONS = [
     (51, migrate_51),
     (52, migrate_52),
     (53, migrate_53),
+    (54, migrate_54),
 ]
 
 

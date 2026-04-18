@@ -487,7 +487,9 @@ END;
 -- task_metrics view
 -- reopen_count uses a correlated subquery rather than a second LEFT JOIN so
 -- session-level aggregates (COUNT(s.id), SUM(s.duration_seconds), ...) don't
--- multiply by the number of transitions per task.
+-- multiply by the number of transitions per task. Counts any backward jump
+-- into 'To Do' (to_status = 'To Do'), which captures both In Progress -> To Do
+-- rework and Done -> To Do post-Done reopens via 'tusk task-reopen --force'.
 CREATE VIEW task_metrics AS
 SELECT t.*,
     COUNT(s.id) as session_count,
@@ -499,7 +501,7 @@ SELECT t.*,
     SUM(s.lines_removed) as total_lines_removed,
     SUM(s.request_count) as total_request_count,
     (SELECT COUNT(*) FROM task_status_transitions tst
-      WHERE tst.task_id = t.id AND tst.from_status IN ('Done')) as reopen_count
+      WHERE tst.task_id = t.id AND tst.to_status = 'To Do') as reopen_count
 FROM tasks t
 LEFT JOIN task_sessions s ON t.id = s.task_id
 GROUP BY t.id;
@@ -801,7 +803,7 @@ PILLARS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 53;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 54;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."
