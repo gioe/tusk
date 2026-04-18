@@ -92,7 +92,8 @@ def _make_db_with_workflow(tmp_path):
             created_at TEXT DEFAULT (datetime('now')),
             updated_at TEXT DEFAULT (datetime('now')),
             started_at TEXT,
-            closed_at TEXT
+            closed_at TEXT,
+            fixes_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL
         )
     """)
     conn.execute("""

@@ -22,7 +22,7 @@ bin/tusk validate
 bin/tusk task-get <task_id>        # accepts integer ID or TASK-NNN prefix form
 bin/tusk task-list [--status <s>] [--domain <d>] [--assignee <a>] [--workflow <w>] [--format text|json] [--all]  # list tasks (not the built-in TaskList tool)
 bin/tusk task-select [--max-complexity XS|S|M|L|XL]
-bin/tusk task-insert "<summary>" "<description>" [--priority P] [--domain D] [--task-type T] [--assignee A] [--complexity C] [--workflow W] [--criteria "..." ...] [--typed-criteria '{"text":"...","type":"...","spec":"..."}' ...] [--deferred] [--expires-in DAYS]
+bin/tusk task-insert "<summary>" "<description>" [--priority P] [--domain D] [--task-type T] [--assignee A] [--complexity C] [--workflow W] [--criteria "..." ...] [--typed-criteria '{"text":"...","type":"...","spec":"..."}' ...] [--deferred] [--expires-in DAYS] [--fixes-task-id ID]
 bin/tusk task-start <task_id> [--force]
 bin/tusk task-done <task_id> --reason completed|expired|wont_do|duplicate [--force]
 bin/tusk task-update <task_id> [--priority P] [--domain D] [--task-type T] [--assignee A] [--complexity C] [--workflow W] [--summary S] [--description D]
@@ -197,6 +197,7 @@ See `docs/MIGRATIONS.md` for table-recreation and trigger-only migration templat
 - Add the migration block inside `cmd_migrate()` in `bin/tusk`
 - Stamp `PRAGMA user_version = N` in `cmd_init()` (the standalone sqlite3 call near the end) so that fresh installs never need to run that migration
 - Update `docs/DOMAIN.md` to reflect any schema, view, or trigger changes introduced by the migration
+- In the idempotent-path test (`test_idempotent_when_already_at_v<N>`), explicitly stamp `PRAGMA user_version = N` on the fresh `db_path` fixture before calling `migrate_N()` — or assert `>= N` / use a `version_before` capture. Never assert `get_version(db_path) == N` without stamping: fresh DBs initialize at whatever the latest migration is, so the test breaks the moment migration N+1 lands. See `test_migrate_48.py:113` and `test_migrate_50.py:133` for the stamping pattern.
 - If the migration adds/renames/removes a column on `task_sessions` or `skill_runs`, also update the schema fixtures in `tests/unit/test_dashboard_data.py` (`_SCHEMA`, `_SKILL_RUNS_TABLE`) and `tests/unit/test_skill_run_cancel.py` (`_SKILL_RUNS_TABLE`). The `TestTaskSessionsSchemaSync` and `TestSkillRunsSchemaSync` guards catch drift automatically — running the unit suite will fail loudly if either fixture falls out of sync with `bin/tusk`.
 
 ## Creating a New Skill
