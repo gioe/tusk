@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [639] - 2026-04-18
+
+- [TASK-77] Refresh pricing.json for claude-opus-4-7 and add its CONTEXT_WINDOW entry (1M) so resolve_model() preserves the minor version instead of collapsing 4.7 sessions to 'claude-opus-4' on the Models tab
+
 ## [638] - 2026-04-18
 
 - [TASK-75] Disambiguate 0 turns from unknown (pre-migration NULL) on the Models tab — KPI cards, complexity matrix cells, and the trend chart's Turns metric now render '—' when every contributing row predates the TASK-73 request_count migration
