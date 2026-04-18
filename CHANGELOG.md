@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [625] - 2026-04-18
+
+- [TASK-61] Instrument /review-commits with skill-run cost tracking
+
 ## [624] - 2026-04-17
 
 - [TASK-59] [Deferred] Trim tusk-update SKILL.md — move Step 7 smoke-test detail to companion
