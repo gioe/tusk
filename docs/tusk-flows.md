@@ -74,8 +74,6 @@
                            lint
                            [continues /tusk workflow from step 4]
 
-/dashboard ─────────────── dashboard
-
 /token-audit ───────────── token-audit
                            setup
                            config
@@ -259,7 +257,6 @@ SKILL               start  done   insert update                  eria           
 /token-audit          ✗      ✗      ✓*     ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✓        ✗        ✗     ✗      ✓       ✓       ✗
 /tusk-update          ✗      ✗      ✗      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✗        ✗        ✗     ✗      ✓       ✗       ✗
 /tusk-insights        ✗      ✗      ✗      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✗        ✗        ✗     ✗      ✗       ✗       ✗
-/dashboard            ✗      ✗      ✗      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✗        ✗        ✗     ✗      ✗       ✗       ✗
 /tusk-init            ✗      ✗      ✗      ✗       ✗        ✗       ✗      ✗      ✗     ✗       ✗      ✗        ✗        ✗     ✗      ✓       ✗       ✗
 
 * via /create-task delegation

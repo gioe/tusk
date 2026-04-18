@@ -162,8 +162,7 @@ Two external library repos ship their own `tusk-bootstrap.json` and are pre-conf
 - **`/retro`** — Post-session retrospective; surfaces improvements and proposes tasks or lint rules
 - **`/tusk-update`** — Update config post-install without losing data
 - **`/tusk-init`** — Interactive setup wizard
-- **`/dashboard`** — HTML task dashboard with per-task metrics
-- **`/tusk-insights`** — Read-only DB health audit
+- **`/tusk-insights`** — Read-only DB health audit + on-demand HTML task dashboard
 - **`/investigate`** — Scope a problem via Plan Mode and propose remediation tasks for `/create-task`
 - **`/investigate-directory`** — Audit a directory's purpose and alignment with the tusk client project
 - **`/resume-task`** — Recover session from branch name + progress log

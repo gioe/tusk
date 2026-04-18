@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [634] - 2026-04-18
+
+- [TASK-70] Consolidate /dashboard skill into /tusk-insights
+
 ## [633] - 2026-04-18
 
 - [TASK-67] Teach tusk commit to handle already-staged deletions without re-adding them via `git add -f`
