@@ -877,6 +877,26 @@ def generate_models_section(model_performance: dict | None) -> str:
     </p>
   </div>
 </div>
+<div class="panel" style="margin-bottom: var(--sp-6);">
+  <div class="section-header" style="display:flex;align-items:center;justify-content:space-between;">
+    <span>Trend</span>
+    <div class="cost-trend-controls">
+      <span class="cost-toggle-label">Y-Axis</span>
+      <div class="cost-trend-tabs" id="modelsMetricTabs">
+        <button class="cost-tab active" data-metric="cost">Cost</button>
+        <button class="cost-tab" data-metric="cost_per_loc">Cost / LOC</button>
+        <button class="cost-tab" data-metric="turns">Turns</button>
+        <button class="cost-tab" data-metric="tokens">Tokens</button>
+      </div>
+    </div>
+  </div>
+  <div style="padding: 0 var(--sp-4) var(--sp-4);">
+    <canvas id="modelsTrendChart" height="280" style="max-width:100%;width:100%;"></canvas>
+  </div>
+  <p style="padding:0 var(--sp-4) var(--sp-4);font-size:0.7rem;color:var(--text-muted);margin:0;">
+    One line per model. Cost/LOC uses task lines added + removed on the same day (skill runs contribute 0 LOC).
+  </p>
+</div>
 """
 
     script = """\
@@ -885,9 +905,14 @@ def generate_models_section(model_performance: dict | None) -> str:
   var data = window.__tuskModels || {};
   var models = data.models || [];
   var complexityMatrix = data.complexity_matrix || [];
+  var tsTasks = data.timeseries_tasks || [];
+  var tsSkills = data.timeseries_skills || [];
 
   var source = 'both';
+  var metric = 'cost';
   var COMPLEXITY_TIERS = ['XS', 'S', 'M', 'L', 'XL'];
+  var PALETTE = ['#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
+  var trendChart = null;
 
   function fmtCost(v) { return '$' + (v || 0).toFixed(2); }
   function fmtCostFine(v) { return '$' + (v || 0).toFixed(4); }
@@ -1002,9 +1027,117 @@ def generate_models_section(model_performance: dict | None) -> str:
     tbody.innerHTML = out;
   }
 
+  function combinedTimeseries() {
+    if (source === 'tasks') return tsTasks.slice();
+    if (source === 'skills') return tsSkills.slice();
+    var merged = {};
+    function add(arr) {
+      arr.forEach(function(r) {
+        var k = r.day + '|' + r.model;
+        if (!merged[k]) merged[k] = { day: r.day, model: r.model, cost: 0, request_count: 0, total_lines: 0, total_tokens: 0 };
+        merged[k].cost += r.cost || 0;
+        merged[k].request_count += r.request_count || 0;
+        merged[k].total_lines += r.total_lines || 0;
+        merged[k].total_tokens += r.total_tokens || 0;
+      });
+    }
+    add(tsTasks);
+    add(tsSkills);
+    return Object.keys(merged).map(function(k) { return merged[k]; });
+  }
+
+  function buildTrendConfig() {
+    var src = combinedTimeseries();
+    var daySet = {}, modelSet = {};
+    src.forEach(function(r) { daySet[r.day] = true; modelSet[r.model] = true; });
+    var days = Object.keys(daySet).sort();
+    var modelNames = Object.keys(modelSet).sort();
+    var lookup = {};
+    src.forEach(function(r) { lookup[r.day + '|' + r.model] = r; });
+    var datasets = modelNames.map(function(name, i) {
+      var color = PALETTE[i % PALETTE.length];
+      var points = days.map(function(day) {
+        var r = lookup[day + '|' + name];
+        if (!r) return 0;
+        if (metric === 'cost') return r.cost || 0;
+        if (metric === 'turns') return r.request_count || 0;
+        if (metric === 'tokens') return r.total_tokens || 0;
+        if (metric === 'cost_per_loc') return (r.total_lines || 0) > 0 ? (r.cost || 0) / r.total_lines : 0;
+        return 0;
+      });
+      return {
+        label: name,
+        data: points,
+        borderColor: color,
+        backgroundColor: color + '33',
+        tension: 0.25,
+        pointRadius: 3,
+        pointHoverRadius: 6,
+        fill: false
+      };
+    });
+    return { labels: days, datasets: datasets };
+  }
+
+  function renderChart() {
+    var canvas = document.getElementById('modelsTrendChart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    if (trendChart) { trendChart.destroy(); trendChart = null; }
+    var cfg = buildTrendConfig();
+    var style = getComputedStyle(document.documentElement);
+    var textMuted = style.getPropertyValue('--text-muted').trim() || '#94a3b8';
+    var border = style.getPropertyValue('--border').trim() || '#e2e8f0';
+    var yTitle;
+    if (metric === 'cost') yTitle = 'Cost ($)';
+    else if (metric === 'cost_per_loc') yTitle = 'Cost / LOC ($)';
+    else if (metric === 'turns') yTitle = 'Turns';
+    else yTitle = 'Tokens';
+    trendChart = new Chart(canvas, {
+      type: 'line',
+      data: cfg,
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: textMuted, usePointStyle: true, padding: 16 } },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                var v = ctx.parsed.y || 0;
+                if (metric === 'cost') return ctx.dataset.label + ': $' + v.toFixed(4);
+                if (metric === 'cost_per_loc') return ctx.dataset.label + ': $' + v.toFixed(6) + ' / LOC';
+                if (metric === 'turns') return ctx.dataset.label + ': ' + Math.round(v) + ' turns';
+                return ctx.dataset.label + ': ' + v.toLocaleString() + ' tokens';
+              }
+            }
+          }
+        },
+        scales: {
+          x: { ticks: { color: textMuted, font: { size: 11 }, maxTicksLimit: 12 }, grid: { color: border, borderDash: [3,3] } },
+          y: {
+            title: { display: true, text: yTitle, color: textMuted },
+            ticks: {
+              color: textMuted,
+              font: { size: 11 },
+              callback: function(v) {
+                if (metric === 'cost') return '$' + v.toFixed(2);
+                if (metric === 'cost_per_loc') return '$' + v.toFixed(4);
+                if (metric === 'tokens') return v >= 1e6 ? (v/1e6).toFixed(1) + 'M' : v >= 1e3 ? (v/1e3).toFixed(0) + 'K' : v;
+                return v;
+              }
+            },
+            grid: { color: border, borderDash: [3,3] },
+            beginAtZero: true
+          }
+        }
+      }
+    });
+  }
+
   function renderAll() {
     renderKpi();
     renderComplexityTable();
+    renderChart();
   }
   window.__tuskModelsRerender = renderAll;
 
@@ -1015,6 +1148,16 @@ def generate_models_section(model_performance: dict | None) -> str:
       btn.classList.add('active');
       source = btn.getAttribute('data-source');
       renderAll();
+    });
+  });
+
+  var metricBtns = document.querySelectorAll('#modelsMetricTabs .cost-tab');
+  metricBtns.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      metricBtns.forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      metric = btn.getAttribute('data-metric');
+      renderChart();
     });
   });
 
