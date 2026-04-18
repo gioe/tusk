@@ -113,12 +113,19 @@ def cmd_validate(config_path: str) -> int:
         if not isinstance(review, dict):
             errors.append(f'"review" must be an object (got {type(review).__name__}).')
         else:
-            KNOWN_REVIEW_KEYS = {'mode', 'max_passes', 'reviewers'}
+            KNOWN_REVIEW_KEYS = {'mode', 'max_passes', 'reviewer'}
             known_review_list = ', '.join(sorted(KNOWN_REVIEW_KEYS))
             unknown_review = set(review.keys()) - KNOWN_REVIEW_KEYS
             if unknown_review:
                 for k in sorted(unknown_review):
-                    errors.append(f'Unknown key "review.{k}". Valid review keys: {known_review_list}')
+                    if k == 'reviewers':
+                        errors.append(
+                            'Unknown key "review.reviewers". The fan-out reviewer array was removed; '
+                            'use a single "review.reviewer" object instead. Run `tusk migrate` to convert '
+                            'an existing config.'
+                        )
+                    else:
+                        errors.append(f'Unknown key "review.{k}". Valid review keys: {known_review_list}')
 
             if 'mode' in review:
                 VALID_MODES = {'ai_only', 'disabled'}
@@ -135,19 +142,17 @@ def cmd_validate(config_path: str) -> int:
                 elif mp < 1:
                     errors.append(f'"review.max_passes" must be at least 1 (got {mp}).')
 
-            if 'reviewers' in review:
-                rv = review['reviewers']
-                if not isinstance(rv, list):
-                    errors.append(f'"review.reviewers" must be a list (got {type(rv).__name__}).')
+            if 'reviewer' in review:
+                rv = review['reviewer']
+                if rv is None:
+                    pass
+                elif not isinstance(rv, dict):
+                    errors.append(f'"review.reviewer" must be an object with name and description fields (got {type(rv).__name__}: {rv!r}).')
                 else:
-                    for i, item in enumerate(rv):
-                        if not isinstance(item, dict):
-                            errors.append(f'"review.reviewers[{i}]" must be an object with name and description fields (got {type(item).__name__}: {item!r}).')
-                        else:
-                            if not isinstance(item.get('name'), str):
-                                errors.append(f'"review.reviewers[{i}].name" must be a string.')
-                            if not isinstance(item.get('description'), str):
-                                errors.append(f'"review.reviewers[{i}].description" must be a string.')
+                    if not isinstance(rv.get('name'), str):
+                        errors.append('"review.reviewer.name" must be a string.')
+                    if not isinstance(rv.get('description'), str):
+                        errors.append('"review.reviewer.description" must be a string.')
 
     # ── Validate merge (optional object) ──
     if 'merge' in cfg:

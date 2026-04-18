@@ -31,17 +31,17 @@ def load_review_config(config_path: str) -> dict:
         with open(config_path) as f:
             config = json.load(f)
         return {
-            "reviewers": config.get("review", {}).get("reviewers", []),
+            "reviewer": config.get("review", {}).get("reviewer"),
             "max_passes": config.get("review", {}).get("max_passes", 2),
             "categories": config.get("review_categories", []),
             "severities": config.get("review_severities", []),
         }
     except (OSError, json.JSONDecodeError):
-        return {"reviewers": [], "max_passes": 2, "categories": [], "severities": []}
+        return {"reviewer": None, "max_passes": 2, "categories": [], "severities": []}
 
 
 def cmd_start(args: argparse.Namespace, db_path: str, config_path: str) -> int:
-    """Create one code_reviews row per enabled reviewer (or a single unassigned row)."""
+    """Create one code_reviews row for the configured reviewer (or unassigned)."""
     conn = get_connection(db_path)
     try:
         task = conn.execute("SELECT id, summary FROM tasks WHERE id = ?", (args.task_id,)).fetchone()
@@ -65,46 +65,30 @@ def cmd_start(args: argparse.Namespace, db_path: str, config_path: str) -> int:
             print(f"Superseded {len(prior_pending)} prior pending review(s): {superseded_ids}")
 
         cfg = load_review_config(config_path)
-        reviewers = cfg["reviewers"]
+        reviewer_item = cfg["reviewer"]
 
-        # If a specific reviewer was passed on the CLI, use only that one
+        # CLI override wins over config
         if args.reviewer:
-            reviewers = [args.reviewer]
+            reviewer_name = args.reviewer
+        elif isinstance(reviewer_item, dict):
+            reviewer_name = reviewer_item.get("name")
+        elif isinstance(reviewer_item, str):
+            reviewer_name = reviewer_item
+        else:
+            reviewer_name = None
 
-        # If no reviewers configured and none specified, create one unassigned review.
-        # Emit a warning so misconfigured setups (e.g. reviewers added to config.default.json
-        # instead of tusk/config.json) are immediately visible rather than silently creating
-        # only one unassigned row. Root cause of issue #390.
-        if not reviewers:
-            print(
-                f"Warning: no reviewers found in {config_path} — creating one unassigned review."
-                " If you expected multiple reviewers, verify that tusk/config.json contains"
-                " 'review.reviewers' entries.",
-                file=sys.stderr,
-            )
-            reviewers = [None]
-
-        created_ids = []
-        for reviewer_item in reviewers:
-            # reviewer_item may be a dict {"name": ..., "description": ...} or a plain string/None
-            if isinstance(reviewer_item, dict):
-                reviewer_name = reviewer_item.get("name")
-            else:
-                reviewer_name = reviewer_item
-            conn.execute(
-                "INSERT INTO code_reviews (task_id, reviewer, status, review_pass, diff_summary, agent_name)"
-                " VALUES (?, ?, 'pending', ?, ?, ?)",
-                (args.task_id, reviewer_name, args.pass_num, args.diff_summary, args.agent),
-            )
-            conn.commit()
-            rid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-            created_ids.append((rid, reviewer_name))
+        conn.execute(
+            "INSERT INTO code_reviews (task_id, reviewer, status, review_pass, diff_summary, agent_name)"
+            " VALUES (?, ?, 'pending', ?, ?, ?)",
+            (args.task_id, reviewer_name, args.pass_num, args.diff_summary, args.agent),
+        )
+        conn.commit()
+        rid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     finally:
         conn.close()
 
-    for rid, reviewer in created_ids:
-        reviewer_str = f" (reviewer: {reviewer})" if reviewer else ""
-        print(f"Started review #{rid} for task #{args.task_id}{reviewer_str}: {task['summary']}")
+    reviewer_str = f" (reviewer: {reviewer_name})" if reviewer_name else ""
+    print(f"Started review #{rid} for task #{args.task_id}{reviewer_str}: {task['summary']}")
 
     return 0
 

@@ -1342,6 +1342,43 @@ def migrate_47(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 47: backfilled pillars table from docs/PILLARS.md")
 
 
+def migrate_48(db_path: str, config_path: str, script_dir: str) -> None:
+    """Collapse the fan-out reviewer array into a single reviewer object.
+
+    Old schema: review.reviewers = [{name, description, domains?}, ...]
+    New schema: review.reviewer  = {name, description}
+
+    Migration policy: take reviewers[0], strip its `domains` field, write it as
+    `review.reviewer`, and drop `review.reviewers` entirely. An empty array
+    drops the key without setting `reviewer` (cmd_start then creates an
+    unassigned review).
+    """
+    if get_version(db_path) < 48:
+        try:
+            with open(config_path) as f:
+                cfg = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            print(f"  Warning: skipping migration 48 — could not read {config_path}: {e}", file=sys.stderr)
+            set_version(db_path, 48)
+            _progress("  Migration 48: collapsed review.reviewers (array) into review.reviewer (object)")
+            return
+
+        review = cfg.get("review")
+        if isinstance(review, dict) and "reviewers" in review:
+            reviewers = review.pop("reviewers")
+            if isinstance(reviewers, list) and reviewers and isinstance(reviewers[0], dict):
+                first = dict(reviewers[0])
+                first.pop("domains", None)
+                review["reviewer"] = first
+            with open(config_path, "w") as f:
+                json.dump(cfg, f, indent=2)
+                f.write("\n")
+        set_version(db_path, 48)
+    else:
+        set_version(db_path, 48)
+    _progress("  Migration 48: collapsed review.reviewers (array) into review.reviewer (object)")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -1392,6 +1429,7 @@ MIGRATIONS = [
     (45, migrate_45),
     (46, migrate_46),
     (47, migrate_47),
+    (48, migrate_48),
 ]
 
 
