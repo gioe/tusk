@@ -192,31 +192,42 @@ def rule5_done_without_closed_reason(root):
     violations = []
     exempt = {"bin/tusk-lint.py"}
     done_re = re.compile(r"status\s*=\s*'Done'", re.IGNORECASE)
-    # Matches UPDATE or INSERT that would actually *set* the status
-    write_re = re.compile(r"(?<!-)\b(UPDATE|INSERT)\b", re.IGNORECASE)
-    select_re = re.compile(r"\bSELECT\b", re.IGNORECASE)
+    # The nearest preceding DML keyword decides whether the match sits in
+    # a read (SELECT) or a write (UPDATE/INSERT/DELETE/REPLACE) clause.
+    # A flat context window can't distinguish 'INSERT INTO x SELECT ...
+    # WHERE status = ''Done''' (read inside the SELECT half) from a real
+    # write — walking back to the closest keyword does.
+    dml_re = re.compile(r"\b(UPDATE|INSERT|SELECT|DELETE|REPLACE)\b", re.IGNORECASE)
 
     for rel, full in find_files(root, ["skills", "scripts", "bin"], [".md", ".sh", ".py"]):
         if is_self(rel) or rel in exempt:
             continue
         lines = read_lines(full)
         for i, (lineno, line) in enumerate(lines):
-            if not done_re.search(line):
+            m = done_re.search(line)
+            if not m:
                 continue
 
-            # Fast path: if the line itself is a SELECT (no write keywords), skip
-            if select_re.search(line) and not write_re.search(line):
-                continue
-
-            # Check surrounding context (same line + 15 lines before)
-            # to determine the SQL statement type
             context_start = max(0, i - 15)
             context_end = min(len(lines), i + 6)
-            context = "".join(l for _, l in lines[context_start:context_end])
 
-            # Skip if this is a SELECT query (read-only, not setting status)
-            if select_re.search(context) and not write_re.search(context):
+            nearest_dml = None
+            same_line_prefix = line[: m.start()]
+            same_line_matches = list(dml_re.finditer(same_line_prefix))
+            if same_line_matches:
+                nearest_dml = same_line_matches[-1].group(1).upper()
+            else:
+                for j in range(i - 1, context_start - 1, -1):
+                    prev_matches = list(dml_re.finditer(lines[j][1]))
+                    if prev_matches:
+                        nearest_dml = prev_matches[-1].group(1).upper()
+                        break
+
+            # SELECT context is read-only.
+            if nearest_dml == "SELECT":
                 continue
+
+            context = "".join(l for _, l in lines[context_start:context_end])
 
             # Skip CREATE TRIGGER definitions — BEFORE UPDATE in a trigger body
             # is DDL, not an actual data-modifying statement
