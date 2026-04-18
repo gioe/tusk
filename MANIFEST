@@ -81,6 +81,7 @@
   ".claude/skills/retro/FOCUS.md.example",
   ".claude/skills/retro/FULL-RETRO.md",
   ".claude/skills/retro/SKILL.md",
+  ".claude/skills/review-commits/REVIEWER-EXAMPLES.md",
   ".claude/skills/review-commits/REVIEWER-PROMPT-cli.md",
   ".claude/skills/review-commits/REVIEWER-PROMPT-dashboard.md",
   ".claude/skills/review-commits/REVIEWER-PROMPT-docs.md",

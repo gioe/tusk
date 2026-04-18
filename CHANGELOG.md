@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [626] - 2026-04-18
+
+- [TASK-62] Trim REVIEWER-PROMPT.md to 120 lines and 6 KB
+
 ## [625] - 2026-04-18
 
 - [TASK-61] Instrument /review-commits with skill-run cost tracking
