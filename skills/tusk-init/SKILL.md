@@ -213,21 +213,7 @@ If the user skips, print:
 
 > Skipped design pillars — run `tusk pillars add` any time to add them later.
 
-and proceed to Step 3b.
-
-## Step 3b: Scaffold Domain Reviewer Prompts
-
-After domains are confirmed in Step 3, run:
-
-```bash
-tusk scaffold-reviewer-prompts
-```
-
-This creates a stub `REVIEWER-PROMPT-<domain>.md` in `.claude/skills/review-commits/` for each configured domain. Each stub prepends a domain-specific focus comment to the base `REVIEWER-PROMPT.md` content. Existing files are left untouched (idempotent). The command exits 0 silently if the `review-commits` skill directory does not exist.
-
-If the returned JSON `created` array is non-empty, print a one-line summary:
-
-> Created N domain reviewer prompt(s): REVIEWER-PROMPT-api.md, REVIEWER-PROMPT-frontend.md, ...
+and proceed to Step 4.
 
 ## Step 4: Suggest and Confirm Agents
 
