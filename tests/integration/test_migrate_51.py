@@ -218,8 +218,8 @@ class TestMigrate51:
         assert tusk_migrate.get_version(db_at_v50) == 51
 
     def test_idempotent_when_already_at_v51(self, db_path, config_path):
-        """Fresh DB is already at v51 with the column present; re-running is a no-op."""
-        assert tusk_migrate.get_version(str(db_path)) == 51
+        """Fresh DB is already at v51+ with the column present; re-running is a no-op."""
+        assert tusk_migrate.get_version(str(db_path)) >= 51
         _seed_task(str(db_path), 401)
         _seed_session(str(db_path), 401, "2026-04-18 10:00:00", "2026-04-18 11:00:00")
         # Insert with task_id NULL — the guard should short-circuit and leave it NULL.
@@ -231,9 +231,10 @@ class TestMigrate51:
         conn.commit()
         conn.close()
 
+        version_before = tusk_migrate.get_version(str(db_path))
         tusk_migrate.migrate_51(str(db_path), config_path, SCRIPT_DIR)
 
-        assert tusk_migrate.get_version(str(db_path)) == 51
+        assert tusk_migrate.get_version(str(db_path)) == version_before
         assert _fetch_skill_runs(str(db_path)) == [
             ("review-commits", "2026-04-18 10:30:00", None),
         ]
