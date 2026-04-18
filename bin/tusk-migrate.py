@@ -1425,6 +1425,48 @@ def migrate_49(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 49: added request_count column to task_sessions and skill_runs, extended task_metrics view")
 
 
+def migrate_50(db_path: str, config_path: str, script_dir: str) -> None:
+    """Split collapsed 'claude-opus-4' rows into the correct minor version.
+
+    Context: before TASK-77, pricing.json stopped at claude-opus-4-6, so
+    resolve_model() prefix-collapsed every 'claude-opus-4-7' transcript entry
+    to 'claude-opus-4' (the shortest prefix match). task_sessions.model and
+    skill_runs.model were stamped at session-close time with that collapsed
+    value, so even after pricing.json was refreshed, historical rows still
+    read 'claude-opus-4' — and the Models dashboard couldn't tell 4.6 from 4.7.
+
+    This migration splits the bucket on the 2026-04-17 cutoff: anything dated
+    on or after that is Opus 4.7 (the upgrade date for the primary tusk user's
+    fleet), everything earlier is Opus 4.6. On a DB that has no 'claude-opus-4'
+    rows (fresh installs, or repos manually backfilled during TASK-77), every
+    UPDATE is a no-op by design.
+
+    This is a data-only migration — no schema change.
+    """
+    if get_version(db_path) >= 50:
+        _progress("  Migration 50: split collapsed 'claude-opus-4' rows into 4-6 / 4-7 on the 2026-04-17 cutoff")
+        return
+
+    script = """
+        UPDATE task_sessions
+           SET model = 'claude-opus-4-7'
+         WHERE model = 'claude-opus-4' AND started_at >= '2026-04-17';
+        UPDATE task_sessions
+           SET model = 'claude-opus-4-6'
+         WHERE model = 'claude-opus-4' AND started_at < '2026-04-17';
+        UPDATE skill_runs
+           SET model = 'claude-opus-4-7'
+         WHERE model = 'claude-opus-4' AND started_at >= '2026-04-17';
+        UPDATE skill_runs
+           SET model = 'claude-opus-4-6'
+         WHERE model = 'claude-opus-4' AND started_at < '2026-04-17';
+
+        PRAGMA user_version = 50;
+    """
+    run_script(db_path, script)
+    _progress("  Migration 50: split collapsed 'claude-opus-4' rows into 4-6 / 4-7 on the 2026-04-17 cutoff")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -1477,6 +1519,7 @@ MIGRATIONS = [
     (47, migrate_47),
     (48, migrate_48),
     (49, migrate_49),
+    (50, migrate_50),
 ]
 
 
