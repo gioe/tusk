@@ -366,6 +366,7 @@ def generate_header(now: str, tz_label: str = "", project_name: str = "Tusk") ->
   <button class="tab-btn" data-tab="dag">DAG</button>
   <button class="tab-btn" data-tab="skills">Skills</button>
   <button class="tab-btn" data-tab="cost">Cost</button>
+  <button class="tab-btn" data-tab="models">Models</button>
 </div>"""
 
 

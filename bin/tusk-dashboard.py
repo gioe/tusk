@@ -289,6 +289,11 @@ def generate_html(task_metrics: list[dict],
   </div>
 </div>
 
+<div id="tab-models" class="tab-panel">
+  <div class="container">
+  </div>
+</div>
+
 {footer}
 
 {criteria_script}
