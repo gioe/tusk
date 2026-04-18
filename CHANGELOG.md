@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [627] - 2026-04-18
+
+- [TASK-63] Add `tusk skill-run cancel <run_id>` and wire it into early-exit paths of review-commits, groom-backlog, investigate, and investigate-directory
+
 ## [626] - 2026-04-18
 
 - [TASK-62] Trim REVIEWER-PROMPT.md to 120 lines and 6 KB

@@ -7,6 +7,7 @@ the Claude Code JSONL transcript for the time window.
 Called by the tusk wrapper:
     tusk skill-run start <skill_name>
     tusk skill-run finish <run_id> [--metadata '{"key":"val"}']
+    tusk skill-run cancel <run_id>
     tusk skill-run list [<skill_name>] [--limit N]
 
 Arguments received from tusk:
@@ -134,6 +135,47 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
         print(f"  Metadata:      {metadata}")
 
 
+def cmd_cancel(conn, run_id: int) -> None:
+    """Close an open skill_runs row with zero cost and null metadata.
+
+    Used by skills that exit early before reaching 'skill-run finish' — e.g. when
+    a validity check fails after Step 0 already inserted the row. Idempotent:
+    calling cancel on an already-finished row prints a warning but exits 0, so
+    skills can call it unconditionally in their bail-out branches.
+    """
+    row = conn.execute(
+        "SELECT id, skill_name, ended_at FROM skill_runs WHERE id = ?",
+        (run_id,),
+    ).fetchone()
+
+    if not row:
+        print(f"Error: No skill run found with id {run_id}", file=sys.stderr)
+        sys.exit(1)
+
+    if row["ended_at"]:
+        print(
+            f"Warning: Run {run_id} ({row['skill_name']}) is already finished "
+            f"(ended_at={row['ended_at']}) — cancel is a no-op.",
+            file=sys.stderr,
+        )
+        return
+
+    conn.execute(
+        """UPDATE skill_runs
+           SET ended_at = datetime('now'),
+               cost_dollars = 0,
+               tokens_in = 0,
+               tokens_out = 0,
+               model = '',
+               metadata = NULL
+           WHERE id = ?""",
+        (run_id,),
+    )
+    conn.commit()
+
+    print(f"Skill run {run_id} ({row['skill_name']}) cancelled.")
+
+
 def cmd_list(conn, skill_name: str | None, limit: int) -> None:
     """Print recent skill runs, optionally filtered by skill name."""
     if skill_name:
@@ -175,7 +217,7 @@ def cmd_list(conn, skill_name: str | None, limit: int) -> None:
 def main():
     if len(sys.argv) < 4:
         print(
-            "Usage: tusk skill-run {start <skill_name> | finish <run_id> [--metadata JSON] | list [<skill_name>] [--limit N]}",
+            "Usage: tusk skill-run {start <skill_name> | finish <run_id> [--metadata JSON] | cancel <run_id> | list [<skill_name>] [--limit N]}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -215,6 +257,17 @@ def main():
                     i += 1
             cmd_finish(conn, run_id, metadata, db_path)
 
+        elif subcommand == "cancel":
+            if len(args) < 2:
+                print("Usage: tusk skill-run cancel <run_id>", file=sys.stderr)
+                sys.exit(1)
+            try:
+                run_id = int(args[1])
+            except ValueError:
+                print(f"Error: run_id must be an integer, got '{args[1]}'", file=sys.stderr)
+                sys.exit(1)
+            cmd_cancel(conn, run_id)
+
         elif subcommand == "list":
             skill_filter = None
             limit = 20
@@ -231,7 +284,7 @@ def main():
             cmd_list(conn, skill_filter, limit)
 
         else:
-            print(f"Error: unknown subcommand '{subcommand}'. Use start, finish, or list.", file=sys.stderr)
+            print(f"Error: unknown subcommand '{subcommand}'. Use start, finish, cancel, or list.", file=sys.stderr)
             sys.exit(1)
 
     finally:
