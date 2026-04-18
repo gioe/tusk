@@ -28,6 +28,7 @@ MODEL_ALIASES: dict = {}
 
 # Context window sizes (in tokens) for known models.
 CONTEXT_WINDOW: dict[str, int] = {
+    "claude-opus-4-7": 1_000_000,
     "claude-opus-4-6": 1_000_000,
     "claude-opus-4-5": 200_000,
     "claude-opus-4-1": 200_000,
