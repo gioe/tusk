@@ -270,18 +270,19 @@ def cmd_approve(args: argparse.Namespace, db_path: str) -> int:
             print(f"Error: Review {args.review_id} not found", file=sys.stderr)
             return 2
 
+        set_clauses = ["status = 'approved'", "review_pass = 1", "updated_at = datetime('now')"]
+        params: list = []
         if args.note:
-            conn.execute(
-                "UPDATE code_reviews SET status = 'approved', review_pass = 1,"
-                " note = ?, updated_at = datetime('now') WHERE id = ?",
-                (args.note, args.review_id),
-            )
-        else:
-            conn.execute(
-                "UPDATE code_reviews SET status = 'approved', review_pass = 1,"
-                " updated_at = datetime('now') WHERE id = ?",
-                (args.review_id,),
-            )
+            set_clauses.append("note = ?")
+            params.append(args.note)
+        if args.model:
+            set_clauses.append("model = ?")
+            params.append(args.model)
+        params.append(args.review_id)
+        conn.execute(
+            f"UPDATE code_reviews SET {', '.join(set_clauses)} WHERE id = ?",
+            params,
+        )
         conn.commit()
     finally:
         conn.close()
@@ -304,10 +305,15 @@ def cmd_request_changes(args: argparse.Namespace, db_path: str) -> int:
             print(f"Error: Review {args.review_id} not found", file=sys.stderr)
             return 2
 
+        set_clauses = ["status = 'changes_requested'", "review_pass = 0", "updated_at = datetime('now')"]
+        params: list = []
+        if args.model:
+            set_clauses.append("model = ?")
+            params.append(args.model)
+        params.append(args.review_id)
         conn.execute(
-            "UPDATE code_reviews SET status = 'changes_requested', review_pass = 0,"
-            " updated_at = datetime('now') WHERE id = ?",
-            (args.review_id,),
+            f"UPDATE code_reviews SET {', '.join(set_clauses)} WHERE id = ?",
+            params,
         )
         conn.commit()
     finally:
@@ -566,10 +572,12 @@ def main():
     approve_p = subparsers.add_parser("approve", help="Approve a review")
     approve_p.add_argument("review_id", type=int, help="Review ID")
     approve_p.add_argument("--note", help="Optional reason or note to store with the approval")
+    approve_p.add_argument("--model", help="Reviewer model ID (e.g. claude-opus-4-7)")
 
     # request-changes
     req_changes_p = subparsers.add_parser("request-changes", help="Request changes on a review")
     req_changes_p.add_argument("review_id", type=int, help="Review ID")
+    req_changes_p.add_argument("--model", help="Reviewer model ID (e.g. claude-opus-4-7)")
 
     # status
     status_p = subparsers.add_parser("status", help="Show current review status for a task (JSON)")
