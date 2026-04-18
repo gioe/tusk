@@ -1,12 +1,12 @@
 ---
 name: review-commits
-description: Run parallel AI code reviewers against the task's git diff, fix must_fix issues, and defer or dismiss suggestions
+description: Run an AI code reviewer against the task's git diff, fix must_fix issues, and defer or dismiss suggestions
 allowed-tools: Bash, Read, Task
 ---
 
 # Review Commits Skill
 
-Orchestrates parallel code review against the task's git diff (commits on the current branch vs the base branch). Spawns one background reviewer agent per enabled reviewer in config, monitors completion, fixes must_fix findings, handles suggest findings interactively, and creates deferred tasks for defer findings.
+Orchestrates a single code review against the task's git diff (commits on the current branch vs the base branch). Spawns at most one background reviewer agent (or zero, if no reviewer is configured), monitors completion, fixes must_fix findings, handles suggest findings interactively, and creates deferred tasks for defer findings.
 
 > Use `/create-task` for task creation — handles decomposition, deduplication, criteria, and deps. Use `tusk task-insert` only for bulk/automated inserts.
 
@@ -37,7 +37,7 @@ tusk config
 Parse the returned JSON. Extract:
 - `review.mode` — if `"disabled"`, run `tusk skill-run cancel <run_id>`, print "Review mode is disabled in config (review.mode = disabled). Enable it in tusk/config.json to use /review-commits." and **stop**.
 - `review.max_passes` — maximum fix-and-re-review cycles (default: 2)
-- `review.reviewers` — list of reviewer objects (each with `name` and `description` fields). If empty, a single unassigned review will be used.
+- `review.reviewer` — a single reviewer object with `name` and `description` fields, or absent. When absent, the review is created as unassigned and Step 5 falls back to inline review (no agent is spawned).
 - `review_categories` — valid comment categories (typically `["must_fix", "suggest", "defer"]`)
 - `review_severities` — valid severity levels (typically `["critical", "major", "minor"]`)
 - `task_types` — list of valid task type strings. Resolve the best type for deferred tasks now: prefer `"refactor"`, then `"chore"`, then the first entry that is not `"bug"`. Store as `DEFERRED_TASK_TYPE`. If the list is empty or every entry is `"bug"`, set `DEFERRED_TASK_TYPE = null`.
@@ -60,7 +60,7 @@ tusk -header -column "SELECT id, summary, status, domain FROM tasks WHERE id = <
 
 If no row is returned, run `tusk skill-run cancel <run_id>` to close the open row, then abort: "Task `<task_id>` not found."
 
-Store the task's `domain` value (may be NULL/empty — this is used to filter reviewers in Step 5).
+Store the task's `domain` value — Step 7 uses it when dupe-checking and creating deferred tasks.
 
 ## Step 3: Get the Git Diff
 
@@ -97,47 +97,48 @@ If the diff is still empty after the TASK-commit recovery, run `tusk skill-run c
 
 Capture the diff only to check for emptiness and to generate the `--diff-summary` for `tusk review start`. **Do not pass the diff to reviewer agents** — they will fetch it themselves via `git diff` to avoid transcription errors.
 
-## Step 4: Start Reviews
+## Step 4: Start the Review
 
-Start a review record for the task. This creates one `code_reviews` row per configured reviewer (or one unassigned row if no reviewers are configured):
+Start a review record for the task. This creates one `code_reviews` row using the configured reviewer (or unassigned if `review.reviewer` is absent):
 
 ```bash
 tusk review start <task_id> --diff-summary "<first 120 chars of diff summary>"
 ```
 
-The command prints **one line per created review**. Example output for 3 configured reviewers:
+The command prints a single line, for example:
 
 ```
 Started review #12 for task #42 (reviewer: general): Fix login bug
-Started review #13 for task #42 (reviewer: backend): Fix login bug
-Started review #14 for task #42 (reviewer: security): Fix login bug
 ```
 
-Parse **every line** to collect all review IDs. Do not stop after the first line.
-Store the mapping: reviewer name → review_id (e.g., `{"general": 12, "backend": 13, "security": 14}`).
+Capture the printed `review_id`.
 
-## Step 5: Spawn Parallel Reviewer Agents
+## Step 5: Spawn the Reviewer Agent
 
-Only when the diff is non-empty and reviews have been started in Step 4, proceed with the steps below.
+Only when the diff is non-empty and a review has been started in Step 4, proceed with the steps below.
 
 ### Step 5.1: Choose review strategy and verify permissions
 
 > **Important:** Background reviewer agents run in an **isolated sandbox** and do **not** inherit the parent session's tool permissions. Approving Bash in this conversation does not grant Bash access to spawned agents. The `permissions.allow` block in `.claude/settings.json` is the only reliable way to grant tool access in agent sandboxes — it applies to all subagents spawned from this project, regardless of what is auto-approved in the current session.
 
-**For small or documentation-only diffs (fewer than ~200 lines changed, or only non-code files such as `.md`, `.json`, `.yaml`):** skip agent spawning and perform an inline review instead. Read the diff yourself, evaluate it against the reviewer focus areas, and record the result directly:
+**Inline-review path (no agent spawned).** Use the inline path when *any* of the following is true:
+- The diff is small (fewer than ~200 lines) or contains only non-code files (`.md`, `.json`, `.yaml`).
+- `review.reviewer` is absent from config (the review record is unassigned and no agent is configured to handle it).
+
+Read the diff yourself, evaluate it, and record the result directly:
 
 ```bash
 # Approve with no findings:
-tusk review approve <review_id> --note "Inline review: small/docs-only diff, no findings."
+tusk review approve <review_id> --note "Inline review: small/docs-only diff (or no reviewer configured), no findings."
 # Or if changes are needed:
 tusk review request-changes <review_id>
 # Then add comments as needed:
 tusk review add-comment <review_id> "<description>" --file "<file>" --line-start <line> --category <category> --severity <severity>
 ```
 
-After recording the inline decision, skip directly to Step 6.
+After recording the inline decision, skip directly to Step 7.
 
-**For all other diffs:** verify the required agent sandbox permissions are configured before spawning reviewer agents. Run:
+**Agent path.** For larger code diffs with a configured reviewer, verify the required agent sandbox permissions before spawning the reviewer agent:
 
 ```bash
 REVIEW_PERM_CHECK=$(tusk review-check-perms) || { echo "Agent review aborted: $REVIEW_PERM_CHECK"; tusk skill-run cancel <run_id>; exit 1; }
@@ -146,7 +147,7 @@ REVIEW_PERM_CHECK=$(tusk review-check-perms) || { echo "Agent review aborted: $R
 On success the command prints `OK` and exits 0. On failure it prints a single `MISSING: …` line (either `not found on disk or in HEAD`, a JSON/shape error, or a comma-separated list of missing `permissions.allow` entries), cancels the skill run to avoid an orphan pending row, and exits 1. When the check fails, surface to the user:
 > Agent review aborted: `<captured MISSING: line>`. Create `.claude/settings.json` or add the missing entries manually, or run `tusk upgrade` to apply them, then restart the session.
 
-Proceed to spawn agents only if the check prints `OK`.
+Proceed to spawn the agent only if the check prints `OK`.
 
 Read the reviewer prompt template:
 
@@ -156,31 +157,11 @@ Read file: <base_directory>/REVIEWER-PROMPT.md
 
 Where `<base_directory>` is the skill base directory shown at the top of this file.
 
-**Filter reviewers by task domain before spawning:**
-
-If `review.reviewers` is empty in config (i.e. there is only one unassigned review created in Step 4), **skip this filter step entirely** and proceed to the spawn block below for that review. The filter applies only when multiple configured reviewers exist and need to be narrowed by domain.
-
-Run:
-
-```bash
-tusk filter-reviewers --task-id <task_id>
-```
-
-This returns a JSON array of reviewer names that match the task's domain (e.g. `["general", "security"]`). Use it together with the `reviewer name → review_id` mapping from Step 4 to determine which review_ids to spawn agents for.
-
-For each review_id whose reviewer name is **not** in the returned array, immediately auto-approve it without spawning an agent, recording the reason with `--note`:
-
-```bash
-tusk review approve <review_id> --note "Skipped: reviewer domains [<reviewer_domains>] does not match task domain [<task_domain>]"
-```
-
-Proceed to spawn agents **only for the remaining (non-filtered) review_ids**.
-
-For each review_id, spawn a **background agent** using the Task tool. Issue **all Task tool calls in a single message** to run them in parallel:
+Spawn a single **background agent** using the Task tool:
 
 ```
-Task tool call (for EACH review_id):
-  description: "review-commits reviewer <reviewer_name or 'unassigned'> task <task_id>"
+Task tool call:
+  description: "review-commits reviewer task <task_id>"
   subagent_type: general-purpose
   run_in_background: true
   prompt: <REVIEWER-PROMPT.md content, with placeholders replaced — see template>
@@ -188,26 +169,25 @@ Task tool call (for EACH review_id):
 
 Fill in these placeholders from the template:
 - `{task_id}` — the task ID
-- `{review_id}` — the review ID for this reviewer
-- `{reviewer_name}` — the reviewer's `name` field, or "unassigned" if none
-- `{reviewer_focus}` — the reviewer's `description` field, or "General code review: correctness, clarity, and consistency." if none
+- `{review_id}` — the review ID captured in Step 4
+- `{reviewer_name}` — `review.reviewer.name` from config
+- `{reviewer_focus}` — `review.reviewer.description` from config
 - `{review_categories}` — comma-separated list from config (e.g., `must_fix, suggest, defer`)
 - `{review_severities}` — comma-separated list from config (e.g., `critical, major, minor`)
 
-**Do not pass the diff inline.** Each reviewer agent fetches the diff itself via `git diff` (see REVIEWER-PROMPT.md Step 1). This prevents transcription errors from the orchestrator-to-agent copy.
+**Do not pass the diff inline.** The reviewer agent fetches the diff itself via `git diff` (see REVIEWER-PROMPT.md Step 1). This prevents transcription errors from the orchestrator-to-agent copy.
 
-After spawning, record a map of: review_id → agent task ID.
+After spawning, record the agent task ID.
 
 ## Step 6: Monitor Reviewer Completion
 
-Wait for all reviewer agents to finish:
+Wait for the reviewer agent to finish.
 
 **Setup before entering the loop:**
 
-Initialize a stall counter for each spawned review_id:
 ```
-stall_counts = { <review_id>: 0, ... }   # one entry per spawned agent
-STALL_THRESHOLD = 5                       # iterations (~2.5 min at 30 s/iter)
+stall_count = 0
+STALL_THRESHOLD = 5   # iterations (~2.5 min at 30 s/iter)
 ```
 
 **Monitoring loop:**
@@ -217,40 +197,40 @@ STALL_THRESHOLD = 5                       # iterations (~2.5 min at 30 s/iter)
    sleep 30
    ```
 
-2. Check which reviews are still pending:
+2. Check whether the review is still pending:
    ```bash
    tusk review status <task_id>
    ```
-   Parse the JSON. Reviews with `status = "pending"` are still in progress. If all reviews have `status` of `"approved"` or `"changes_requested"`, exit the loop.
+   Parse the JSON. If the review's `status` is `"approved"` or `"changes_requested"`, exit the loop.
 
-3. For each pending review, check whether its agent has finished using `TaskOutput` with `block: false` and the agent task ID:
+3. If still pending, check whether the agent has finished using `TaskOutput` with `block: false` and the agent task ID:
 
    **Agent still running:**
-   - Increment `stall_counts[review_id]` by 1.
-   - If `stall_counts[review_id] >= STALL_THRESHOLD`, the agent has been running for too long without posting a verdict. Auto-approve it immediately with a stall warning note and remove it from the pending set:
+   - Increment `stall_count` by 1.
+   - If `stall_count >= STALL_THRESHOLD`, the agent has been running for too long without posting a verdict. Auto-approve immediately with a stall warning note and exit the loop:
      ```bash
      tusk review approve <review_id> --note "Auto-approved (stall): reviewer agent has been running for ≥5 monitoring iterations (~2.5 min) without posting a verdict. The agent may be looping or running a long-running command such as a full test suite. Check REVIEWER-PROMPT.md Step 2.6 constraints. To prevent stalls, ensure the agent sandbox has the required permissions.allow entries: Bash(git diff:*), Bash(git remote:*), Bash(git symbolic-ref:*), Bash(git branch:*), Bash(tusk review:*)"
      ```
-     Continue as if this review returned no findings.
+     Continue as if the review returned no findings.
 
    **Agent has completed** (TaskOutput shows the agent is done) but the review is still `"pending"`:
-   - The agent finished without calling `tusk review approve` or `tusk review request-changes`. Log a warning and auto-approve it with a note:
+   - The agent finished without calling `tusk review approve` or `tusk review request-changes`. Log a warning and auto-approve with a note:
      ```bash
      tusk review approve <review_id> --note "Auto-approved (no verdict): reviewer agent completed without posting a decision. Most likely cause: Bash tool not permitted in agent sandbox. Required permissions.allow entries: Bash(git diff:*), Bash(git remote:*), Bash(git symbolic-ref:*), Bash(git branch:*), Bash(tusk review:*)"
      ```
-     The most common cause is missing Bash tool permissions (the agent could not run `git diff` or `tusk review`). Run `tusk upgrade` to propagate the required `permissions.allow` entries if they are missing from `.claude/settings.json`. Continue as if those reviews returned no findings.
+     The most common cause is missing Bash tool permissions (the agent could not run `git diff` or `tusk review`). Run `tusk upgrade` to propagate the required `permissions.allow` entries if they are missing from `.claude/settings.json`. Continue as if the review returned no findings.
 
-4. If any agents remain running (and have not yet been stall-auto-approved), go back to step 1.
+4. If the agent is still running and has not been stall-auto-approved, go back to step 1.
 
 ## Step 7: Process Findings
 
-After all reviewer agents complete, fetch the full review results for each review:
+After the reviewer agent completes, fetch the full review results:
 
 ```bash
 tusk review list <task_id>
 ```
 
-Gather all open (unresolved) comments across all reviews. Before processing any comments, initialize a bash array to track every file you touch during review fixes — Step 9 uses this list to stage only the files you actually modified:
+Gather all open (unresolved) comments from the review. Before processing any comments, initialize a bash array to track every file you touch during review fixes — Step 9 uses this list to stage only the files you actually modified:
 
 ```bash
 REVIEW_FIX_FILES=()
@@ -376,9 +356,9 @@ Otherwise, loop while `can_retry` is true:
      DEFAULT_BRANCH=$(tusk git-default-branch); git diff $(git merge-base HEAD origin/${DEFAULT_BRANCH})..HEAD --stat | tail -1
      ```
 
-   **For small or documentation-only diffs (fewer than ~200 lines changed, or only non-code files):** skip agent spawning and perform an inline review. Read the diff yourself, evaluate it against reviewer focus areas, and record the result directly (approve or request-changes + add-comment). After recording the inline decision, skip to step 3.
+   **For small or documentation-only diffs (fewer than ~200 lines changed, or only non-code files), or when `review.reviewer` is absent from config:** skip agent spawning and perform an inline review. Read the diff yourself, evaluate it against the reviewer focus area, and record the result directly (approve or request-changes + add-comment). After recording the inline decision, skip to step 3.
 
-   **For all other diffs:** verify the required agent sandbox permissions are configured before spawning re-review agents. Run:
+   **For all other diffs:** verify the required agent sandbox permissions are configured before spawning the re-review agent. Run:
 
    ```bash
    REVIEW_PERM_CHECK=$(tusk review-check-perms) || { echo "Re-review agent aborted: $REVIEW_PERM_CHECK"; exit 1; }
@@ -387,7 +367,7 @@ Otherwise, loop while `can_retry` is true:
    On failure the command prints a single `MISSING: …` line and exits 1. When the check fails, surface to the user:
    > Re-review agent aborted: `<captured MISSING: line>`. Create `.claude/settings.json` or add the missing entries manually, or run `tusk upgrade` to apply them, then restart the session.
 
-   Proceed to spawn re-review agents only if the check prints `OK`. Re-review agents fetch the diff themselves — no diff is passed inline.
+   Proceed to spawn the re-review agent only if the check prints `OK`. The re-review agent fetches the diff itself — no diff is passed inline.
 
 3. Monitor completion (Step 6) and process findings (Step 7).
 
@@ -444,7 +424,7 @@ git push
 
 ## Step 10: Final Summary
 
-For each review ID, print the summary:
+Print the review summary:
 
 ```bash
 tusk review summary <review_id>
@@ -466,7 +446,6 @@ Use the returned `verdict` and `open_must_fix` values in the summary. Map the ma
 ```
 Review complete for Task <task_id>: <task_summary>
 ══════════════════════════════════════════════════
-Reviewers: <count>
 Pass:      <final_pass_number>
 
 must_fix:  <total_count> found, <fixed_count> fixed
