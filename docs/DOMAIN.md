@@ -206,7 +206,7 @@ An append-only audit log entry recording one change of `tasks.status`. Populated
 - **In Progress** tasks get a `'To Do' → 'In Progress'` row at `started_at` (when set).
 - **To Do** tasks get nothing.
 
-**No historical reopen recovery.** No synthetic row ever has `from_status = 'Done'`, because reopen history was never stored in the DB or git. `task_metrics.reopen_count` is therefore always `0` for tasks that were already closed before migration 53 landed; the audit trail is forward-looking only. See `docs/MIGRATIONS.md § Seeding Audit Tables: No Historical Recovery`.
+**No historical reopen recovery.** No synthetic row ever has `to_status = 'To Do'` (the predicate `task_metrics.reopen_count` counts, as of migration 54), because reopen and rework history were never stored in the DB or git. `task_metrics.reopen_count` is therefore always `0` for tasks that were already closed before migration 53 landed; the audit trail is forward-looking only. See `docs/MIGRATIONS.md § Seeding Audit Tables: No Historical Recovery`.
 
 ---
 
@@ -503,7 +503,7 @@ Task A **contingently blocks** Task B means: B can theoretically proceed, but it
 
 | View | Purpose | Used By |
 |------|---------|---------|
-| `task_metrics` | Aggregates session cost/tokens/lines/request_count per task (exposes `total_request_count` = SUM of `task_sessions.request_count`, plus `reopen_count` = count of `task_status_transitions` rows whose `from_status` is `'Done'` — a forward-looking rework signal; always `0` for tasks that were already Done before migration 53) | `tusk-dashboard.py`, reporting |
+| `task_metrics` | Aggregates session cost/tokens/lines/request_count per task (exposes `total_request_count` = SUM of `task_sessions.request_count`, plus `reopen_count` = count of `task_status_transitions` rows whose `to_status` is `'To Do'` — a forward-looking rework signal capturing both `In Progress → To Do` mid-task rework and `Done → To Do` post-Done reopens via `tusk task-reopen --force`; always `0` for tasks that were already closed before migration 53, since migration 53's backfill produces no `to_status='To Do'` rows) | `tusk-dashboard.py`, reporting |
 | `v_ready_tasks` | Canonical "ready to work" definition: To Do, all `blocks`-type deps Done, no open external blockers (contingent deps do not prevent readiness) | `/tusk`, `tusk-loop.py`, `tusk deps ready` |
 | `v_chain_heads` | Non-Done tasks with unfinished downstream dependents and no unmet upstream deps | `/chain` |
 | `v_blocked_tasks` | Non-Done tasks blocked by dependency or external blocker, with `block_reason` and `blocking_summary` | `/tusk blocked`, `tusk deps blocked` |
