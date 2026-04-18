@@ -26,6 +26,8 @@ tusk skill-run start review-commits
 
 This prints `{"run_id": N, "started_at": "..."}`. Capture `run_id` — you will need it in Step 11.
 
+> **Early-exit cleanup:** If any validity/mode check below causes the skill to stop before Step 11, first call `tusk skill-run cancel <run_id>` to close the open row, then stop. Otherwise the row lingers as `(open)` in `tusk skill-run list` forever. The explicit cancel calls below cover the known early-exit paths; if you hit an unexpected bail-out, cancel before returning.
+
 ## Step 1: Read Config and Check Mode
 
 ```bash
@@ -33,7 +35,7 @@ tusk config
 ```
 
 Parse the returned JSON. Extract:
-- `review.mode` — if `"disabled"`, print "Review mode is disabled in config (review.mode = disabled). Enable it in tusk/config.json to use /review-commits." and **stop**.
+- `review.mode` — if `"disabled"`, run `tusk skill-run cancel <run_id>`, print "Review mode is disabled in config (review.mode = disabled). Enable it in tusk/config.json to use /review-commits." and **stop**.
 - `review.max_passes` — maximum fix-and-re-review cycles (default: 2)
 - `review.reviewers` — list of reviewer objects (each with `name` and `description` fields). If empty, a single unassigned review will be used.
 - `review_categories` — valid comment categories (typically `["must_fix", "suggest", "defer"]`)
@@ -56,7 +58,7 @@ Verify the task exists and capture its domain:
 tusk -header -column "SELECT id, summary, status, domain FROM tasks WHERE id = <task_id>"
 ```
 
-If no row is returned, abort: "Task `<task_id>` not found."
+If no row is returned, run `tusk skill-run cancel <run_id>` to close the open row, then abort: "Task `<task_id>` not found."
 
 Store the task's `domain` value (may be NULL/empty — this is used to filter reviewers in Step 5).
 
@@ -88,10 +90,10 @@ DIFF_LINES=$(git diff "${OLDEST_COMMIT}^..${NEWEST_COMMIT}" | wc -l | tr -d ' ')
 
 Use this diff (and this range) going forward — including for the `--diff-summary` passed to `tusk review start` and for any re-review diff stat checks in Step 8.
 
-If `TASK_COMMITS` is empty (no `[TASK-<id>]` commits found in recent history), stop with:
+If `TASK_COMMITS` is empty (no `[TASK-<id>]` commits found in recent history), run `tusk skill-run cancel <run_id>` and stop with:
 > No changes found — `[TASK-<task_id>]` commits not detected in recent git log. The diff range cannot be determined automatically. Confirm the correct commit range manually and re-run.
 
-If the diff is still empty after the TASK-commit recovery, report "No changes found compared to the base branch." and stop.
+If the diff is still empty after the TASK-commit recovery, run `tusk skill-run cancel <run_id>`, report "No changes found compared to the base branch.", and stop.
 
 Capture the diff only to check for emptiness and to generate the `--diff-summary` for `tusk review start`. **Do not pass the diff to reviewer agents** — they will fetch it themselves via `git diff` to avoid transcription errors.
 
@@ -138,10 +140,10 @@ After recording the inline decision, skip directly to Step 6.
 **For all other diffs:** verify the required agent sandbox permissions are configured before spawning reviewer agents. Run:
 
 ```bash
-REVIEW_PERM_CHECK=$(tusk review-check-perms) || { echo "Agent review aborted: $REVIEW_PERM_CHECK"; exit 1; }
+REVIEW_PERM_CHECK=$(tusk review-check-perms) || { echo "Agent review aborted: $REVIEW_PERM_CHECK"; tusk skill-run cancel <run_id>; exit 1; }
 ```
 
-On success the command prints `OK` and exits 0. On failure it prints a single `MISSING: …` line (either `not found on disk or in HEAD`, a JSON/shape error, or a comma-separated list of missing `permissions.allow` entries) and exits 1. When the check fails, surface to the user:
+On success the command prints `OK` and exits 0. On failure it prints a single `MISSING: …` line (either `not found on disk or in HEAD`, a JSON/shape error, or a comma-separated list of missing `permissions.allow` entries), cancels the skill run to avoid an orphan pending row, and exits 1. When the check fails, surface to the user:
 > Agent review aborted: `<captured MISSING: line>`. Create `.claude/settings.json` or add the missing entries manually, or run `tusk upgrade` to apply them, then restart the session.
 
 Proceed to spawn agents only if the check prints `OK`.

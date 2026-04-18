@@ -18,6 +18,8 @@ tusk skill-run start investigate
 
 This prints `{"run_id": N, "started_at": "..."}`. Capture `run_id` — you will need it in Step 8.
 
+> **Early-exit cleanup:** If any check below causes the skill to stop before Step 8 (e.g., the user never provides a problem statement in Step 1, `tusk setup` / `tusk pillars list` fails, or the investigation is abandoned before reaching the report), first call `tusk skill-run cancel <run_id>` to close the open row, then stop. Otherwise the row lingers as `(open)` in `tusk skill-run list` forever.
+
 ## Step 1: Capture the Problem
 
 The user provides a problem statement after `/investigate`. It could be:

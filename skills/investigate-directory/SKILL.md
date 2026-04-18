@@ -18,6 +18,8 @@ tusk skill-run start investigate-directory
 
 Capture `run_id` from the output — needed in Step 6.
 
+> **Early-exit cleanup:** If any check below causes the skill to stop before Step 6 (e.g., the user never provides a directory in Step 1, the resolved path does not exist, or `tusk setup` / `tusk pillars list` fails), first call `tusk skill-run cancel <run_id>` to close the open row, then stop. Otherwise the row lingers as `(open)` in `tusk skill-run list` forever.
+
 ## Step 1: Capture the Directory Argument
 
 The user provides a directory path after `/investigate-directory`. It may be:
