@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [630] - 2026-04-18
+
+- [TASK-68] Rule 6 should exempt tasks closed with closed_reason IN ('duplicate','wont_do')
+
 ## [629] - 2026-04-18
 
 - [TASK-65] Mark cancelled runs in 'tusk skill-run list' output

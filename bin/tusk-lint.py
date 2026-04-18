@@ -242,6 +242,11 @@ def rule6_done_incomplete_criteria(root):
     Scoped to recently-closed tasks so retroactive criteria added to historical
     Done tasks (closed before criteria enforcement) are not reported.  See
     RULE6_RECENT_DAYS above for rationale.
+
+    Tasks closed with closed_reason IN ('duplicate', 'wont_do') are exempt:
+    a duplicate closure means another task owns the criteria, and wont_do
+    closures are intentional abandonments — neither indicates premature
+    completion, which is what this rule is meant to catch.
     """
     db_path = _db_path_from_root(root)
     if not db_path:
@@ -256,6 +261,7 @@ def rule6_done_incomplete_criteria(root):
                 "FROM tasks t "
                 "JOIN acceptance_criteria ac ON ac.task_id = t.id "
                 "WHERE t.status = 'Done' "
+                "  AND COALESCE(t.closed_reason, '') NOT IN ('duplicate', 'wont_do') "
                 "  AND ac.is_completed = 0 AND ac.is_deferred = 0 "
                 "  AND COALESCE(t.closed_at, t.updated_at) >= date('now', ?) "
                 "GROUP BY t.id "
