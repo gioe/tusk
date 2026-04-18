@@ -48,12 +48,43 @@ The core unit of work. Every piece of planned work is a task.
 | `updated_at` | TEXT | default now | Last-modified timestamp |
 | `started_at` | TEXT | nullable | When the task first moved to In Progress; set by `tusk task-start`, backfilled from `MIN(task_sessions.started_at)` by migration 36 |
 | `closed_at` | TEXT | nullable | When the task was closed; set by `tusk task-done`, backfilled from `updated_at` for existing Done tasks by migration 37. Used by `v_velocity` for accurate week bucketing |
+| `fixes_task_id` | INTEGER | nullable; FK → `tasks(id)` ON DELETE SET NULL | ID of the source task this is a follow-up/rework of. Set by `tusk task-insert --fixes-task-id <id>` or by `/create-task` when the input says "fixes TASK-N", "follow-up from TASK-N", or "retro follow-up from TASK-N". Added in migration 55 with a best-effort backfill over existing task descriptions and git-log commit bodies |
 
 **Canonical values:**
 - `status`: `To Do`, `In Progress`, `Done`
 - `priority`: `Highest`, `High`, `Medium`, `Low`, `Lowest`
 - `closed_reason`: `completed`, `expired`, `wont_do`, `duplicate`
 - `complexity`: `XS` (~1 quick session), `S` (~1 full session), `M` (~1–2 sessions), `L` (~3–5 sessions), `XL` (~5+ sessions)
+
+#### Rework Attribution
+
+`fixes_task_id` lets post-hoc rollups ask: *did the code a given model shipped actually stick, or did it need to be re-fixed?* Joining follow-up tasks back to the sessions that originally closed their source tasks produces a per-model rework rate:
+
+```sql
+-- Fraction of each model's closed feature/bug tasks that later had a follow-up
+-- task created against them. Lower is better.
+WITH closer_sessions AS (
+    SELECT s.task_id,
+           s.model,
+           ROW_NUMBER() OVER (PARTITION BY s.task_id ORDER BY s.ended_at DESC) AS rn
+      FROM task_sessions s
+     WHERE s.ended_at IS NOT NULL
+)
+SELECT cs.model,
+       COUNT(DISTINCT t.id) AS shipped_tasks,
+       COUNT(DISTINCT fu.id) AS rework_tasks,
+       ROUND(1.0 * COUNT(DISTINCT fu.id) / NULLIF(COUNT(DISTINCT t.id), 0), 3) AS rework_rate
+  FROM tasks t
+  JOIN closer_sessions cs ON cs.task_id = t.id AND cs.rn = 1
+  LEFT JOIN tasks fu ON fu.fixes_task_id = t.id
+ WHERE t.status = 'Done'
+   AND t.closed_reason = 'completed'
+   AND t.task_type IN ('feature', 'bug')
+ GROUP BY cs.model
+ ORDER BY rework_rate ASC;
+```
+
+The `closer_sessions` CTE picks the session that actually shipped each task (the most recently ended session, since tasks often span multiple sessions); the outer query attributes any follow-up that links back via `fixes_task_id` to that closer model. Apply the `COALESCE(NULLIF(model, ''), 'unknown')` normalization from the data-access layer if you want NULL and empty-string models bucketed together.
 
 #### Task Type Semantics
 
