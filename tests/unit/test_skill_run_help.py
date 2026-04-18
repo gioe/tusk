@@ -78,6 +78,14 @@ def _run_main(db_path, monkeypatch, *extra_args):
     return exit_code, out.getvalue(), err.getvalue()
 
 
+def _row_count(db_path):
+    c = sqlite3.connect(str(db_path))
+    try:
+        return c.execute("SELECT COUNT(*) FROM skill_runs").fetchone()[0]
+    finally:
+        c.close()
+
+
 class TestTopLevelHelp:
     """Covers criterion 408: `tusk skill-run --help` (top-level)."""
 
@@ -94,3 +102,22 @@ class TestTopLevelHelp:
         exit_code, out, err = _run_main(db_path, monkeypatch, "-h")
         assert exit_code == 0
         assert "Usage: tusk skill-run" in out
+
+
+class TestStartHelp:
+    """Covers criterion 406: `tusk skill-run start --help` must not insert a row."""
+
+    def test_start_double_dash_help_prints_usage_and_inserts_nothing(self, db_path, monkeypatch):
+        assert _row_count(db_path) == 0
+        exit_code, out, err = _run_main(db_path, monkeypatch, "start", "--help")
+        assert exit_code == 0
+        assert "Usage: tusk skill-run start" in out
+        assert err == ""
+        # The bug was that --help was interpreted as skill_name and a row was inserted.
+        assert _row_count(db_path) == 0
+
+    def test_start_short_dash_h_prints_usage_and_inserts_nothing(self, db_path, monkeypatch):
+        exit_code, out, err = _run_main(db_path, monkeypatch, "start", "-h")
+        assert exit_code == 0
+        assert "Usage: tusk skill-run start" in out
+        assert _row_count(db_path) == 0

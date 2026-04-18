@@ -264,6 +264,12 @@ def main():
             return
 
         if subcommand == "start":
+            if len(args) >= 2 and args[1] in ("--help", "-h"):
+                # --help at the skill_name position: print usage and exit 0 without
+                # inserting a skill_runs row (the bug was that --help was treated as
+                # a skill_name and a stray row was created).
+                print("Usage: tusk skill-run start <skill_name> [--task-id <id>]")
+                return
             if len(args) < 2:
                 print("Usage: tusk skill-run start <skill_name> [--task-id <id>]", file=sys.stderr)
                 sys.exit(1)
