@@ -1467,6 +1467,53 @@ def migrate_50(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 50: split collapsed 'claude-opus-4' rows into 4-6 / 4-7 on the 2026-04-17 cutoff")
 
 
+def migrate_51(db_path: str, config_path: str, script_dir: str) -> None:
+    """Link skill_runs rows back to the task that triggered them.
+
+    Adds skill_runs.task_id (nullable INTEGER, FK → tasks(id) ON DELETE SET NULL)
+    so per-task 'all-in cost' rollups can attribute skill-run spend (e.g. /review-commits)
+    to the originating task. Nullable because standalone skills like /groom-backlog
+    and /tusk-insights run without a task.
+
+    Backfill for historical rows: for each skill_run with a task-scoped skill_name
+    ('tusk', 'chain', 'review-commits', 'retro') whose task_id is NULL, find the
+    task_session whose [started_at, ended_at] window contains the skill_run's
+    started_at and copy its task_id. Open sessions (ended_at IS NULL) are treated
+    as extending to now. Ambiguous overlaps resolve to the most recently started
+    session.
+
+    Idempotent: the column-add is guarded by has_column(), and the backfill only
+    touches rows where task_id IS NULL.
+    """
+    if get_version(db_path) >= 51:
+        _progress("  Migration 51: added skill_runs.task_id and backfilled task-scoped rows")
+        return
+
+    alter_stmts = []
+    if not has_column(db_path, "skill_runs", "task_id"):
+        alter_stmts.append(
+            "ALTER TABLE skill_runs ADD COLUMN task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL;"
+        )
+
+    script = "\n".join(alter_stmts) + """
+        UPDATE skill_runs
+           SET task_id = (
+               SELECT ts.task_id
+                 FROM task_sessions ts
+                WHERE ts.started_at <= skill_runs.started_at
+                  AND (ts.ended_at IS NULL OR ts.ended_at >= skill_runs.started_at)
+                ORDER BY ts.started_at DESC
+                LIMIT 1
+           )
+         WHERE task_id IS NULL
+           AND skill_name IN ('tusk', 'chain', 'review-commits', 'retro');
+
+        PRAGMA user_version = 51;
+    """
+    run_script(db_path, script)
+    _progress("  Migration 51: added skill_runs.task_id and backfilled task-scoped rows")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -1520,6 +1567,7 @@ MIGRATIONS = [
     (48, migrate_48),
     (49, migrate_49),
     (50, migrate_50),
+    (51, migrate_51),
 ]
 
 
