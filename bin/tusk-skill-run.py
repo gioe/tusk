@@ -255,6 +255,14 @@ def main():
     try:
         subcommand = args[0]
 
+        if subcommand in ("--help", "-h"):
+            # Top-level help — print usage to stdout and exit 0 so `tusk skill-run --help`
+            # is a valid query, not an 'unknown subcommand' error.
+            print(
+                "Usage: tusk skill-run {start <skill_name> [--task-id <id>] | finish <run_id> [--metadata JSON] | cancel <run_id> | list [<skill_name>] [--limit N]}"
+            )
+            return
+
         if subcommand == "start":
             if len(args) < 2:
                 print("Usage: tusk skill-run start <skill_name> [--task-id <id>]", file=sys.stderr)
