@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [635] - 2026-04-18
+
+- [TASK-71] Refactor /investigate SKILL.md for token efficiency
+
 ## [634] - 2026-04-18
 
 - [TASK-70] Consolidate /dashboard skill into /tusk-insights

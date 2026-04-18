@@ -18,7 +18,7 @@ tusk skill-run start investigate
 
 This prints `{"run_id": N, "started_at": "..."}`. Capture `run_id` — you will need it in Step 8.
 
-> **Early-exit cleanup:** If any check below causes the skill to stop before Step 8 (e.g., the user never provides a problem statement in Step 1, `tusk setup` / `tusk pillars list` fails, or the investigation is abandoned before reaching the report), first call `tusk skill-run cancel <run_id>` to close the open row, then stop. Otherwise the row lingers as `(open)` in `tusk skill-run list` forever.
+> **Early-exit cleanup:** If any check below causes the skill to stop before Step 8 (e.g., the user never provides a problem statement, or the investigation is abandoned before the report), first call `tusk skill-run cancel <run_id>` to close the open row, then stop. Otherwise the row lingers as `(open)` in `tusk skill-run list` forever.
 
 ## Step 1: Capture the Problem
 
@@ -33,7 +33,7 @@ If the user didn't provide a description, ask:
 
 > What problem should I investigate? Describe the issue, area of concern, or question you want scoped.
 
-If the user does not respond, or declines to provide a problem statement, run `tusk skill-run cancel <run_id>` and stop. This closes the open `skill_runs` row instead of leaving it pending forever.
+If the user does not respond, or declines to provide a problem statement, run `tusk skill-run cancel <run_id>` and stop.
 
 **Valid outcomes include "no action needed."** The goal is an honest assessment, not a task list. If investigation reveals the concern is unfounded, the code is already correct, or existing tasks cover it, say so clearly — that is a successful investigation.
 
@@ -41,38 +41,17 @@ If the user does not respond, or declines to provide a problem statement, run `t
 
 Use the `EnterPlanMode` tool now. This enforces the investigation contract — no files will be written or modified during the investigation phase.
 
-## Step 3: Load Project Context
+## Step 3: Defer Context Loading
 
-Fetch config and open backlog for reference:
-
-```bash
-tusk setup
-```
-
-Parse the returned JSON. Hold `config` (domains, agents, task_types, priorities, complexity) and `backlog` (open tasks) in context. You'll need both during investigation — `backlog` lets you catch tasks that already cover the same ground, which is also a first-class reason to conclude "no action needed."
-
-Fetch project pillars from the DB:
-
-```bash
-tusk pillars list
-```
-
-This returns a JSON array `[{id, name, core_claim}]` (empty array `[]` if none are defined). Hold the pillar definitions in context — you will use them in Step 5 to evaluate whether proposed tasks align with the project's design values. If the array is empty, skip the pillar filter in Step 5.
+Project config, backlog, and pillars are only needed when drafting remediation. Skip the fetch here — Step 5 loads them on demand, so "no action needed" flows skip the cost entirely.
 
 ## Step 4: Investigate
 
 Use read-only tools to understand the problem. Shape the investigation around the problem statement — don't go wide for completeness, go deep where the problem points.
 
-**Allowed tools during investigation:**
-- `Read` — read source files, configs, tests, docs
-- `Glob` — discover files in relevant directories
-- `Grep` — search for patterns, symbols, error strings, function calls
-- `Task` with `subagent_type=Explore` — broad multi-location searches where simple grep is insufficient
-- `Bash` — run `tusk` commands only (queries to the task database, not build/test commands)
+> Use Read/Grep/Glob and tusk Bash queries only — Plan Mode blocks writes.
 
-**Prohibited during investigation:**
-- `Write`, `Edit` — do not touch any project files
-- Build commands, test runners, scripts that produce side effects
+**Prefer direct `Grep` + `Read` over sub-agents.** For scoped problems (a specific symbol, file, or error string), direct search is cheaper and faster than spawning an Explore agent. Default to **at most 1** `Task(subagent_type=Explore)` call for this skill, and only when the problem genuinely spans many unknown locations — overriding Plan Mode's "up to 3 in parallel" default. If you can name the files or symbols involved, skip Explore entirely.
 
 ### What to answer for each affected area
 
@@ -87,24 +66,31 @@ Use read-only tools to understand the problem. Shape the investigation around th
 
 Stop when you have a clear picture of the problem area — whether that leads to concrete remediation tasks or to the conclusion that no action is needed.
 
-**Exhaustiveness:** Report every distinct finding the evidence supports — do not force findings into clusters to reach a round number. The correct count may be 0, 1, 4, 7, or any other number. Artificial grouping hides signal; artificial splitting adds noise. Let the data determine the count.
+**Exhaustiveness:** Report every distinct finding the evidence supports — do not force findings into clusters to reach a round number. Artificial grouping hides signal; artificial splitting adds noise.
 
 ## Step 5: Write the Investigation Report
 
-Before drafting the report, apply the **Decision Criteria** filter to each potential finding:
+**Load context now** (deferred from Step 3 — skip entirely if there is nothing to remediate):
+
+```bash
+tusk setup
+tusk pillars list
+```
+
+Parse `tusk setup` for `config` (domains, agents, task_types, priorities, complexity) and `backlog` (open tasks — used to catch existing coverage). `tusk pillars list` returns `[{id, name, core_claim}]` or `[]`; if empty, skip the Pillar filter below.
 
 ### Decision Criteria
 
-A finding belongs in **Proposed Remediation** only if it passes all six filters. If it fails any filter, move it to **Out of Scope** and note which filter it failed and why. Exception: a finding that fails only the **Convention redirect** filter is not moved out of scope — it is kept in Proposed Remediation as an inline `tusk conventions add` action (see below).
+A finding belongs in **Proposed Remediation** only if it passes all six filters. If it fails any filter, move it to **Out of Scope** and note which filter it failed and why. Exception: a finding that fails only the **Convention redirect** filter is kept in Proposed Remediation as an inline `tusk conventions add` action.
 
 | Filter | Question to ask |
 |--------|-----------------|
-| **Pillar impact** | Does acting on this finding align with at least one project pillar (from `tusk pillars list`, loaded in Step 3)? Findings that conflict with core design values belong out of scope regardless of severity. *(Skip this filter if the pillars array was empty — projects without pillars have no pillar constraints to check.)* |
-| **Root cause vs. symptom** | Is this the root cause, or a downstream symptom of another finding already in scope? Symptoms should reference their root-cause task rather than get their own. |
-| **Actionability** | Can a task be written with clear, verifiable acceptance criteria? Vague concerns without a concrete "done" condition belong in Open Questions, not Proposed Remediation. |
-| **Cost of inaction** | If left unfixed, does this finding cause measurable harm (data loss, user-facing breakage, security risk, compounding tech debt)? Low-stakes cosmetic issues that are "nice to fix" belong out of scope. |
-| **Backlog coverage** | Is an open backlog task already addressing this? If yes, note the existing task ID and exclude it from Proposed Remediation. |
-| **Convention redirect** | Does this finding state a rule, heuristic, or invariant that belongs in the conventions DB rather than in CLAUDE.md or a task? If yes, do not propose a task — instead, include the exact `tusk conventions add` command as an inline action in Proposed Remediation. Any finding whose sole actionable outcome is a CLAUDE.md bullet point fails this filter. |
+| **Pillar impact** | Does acting on this finding align with at least one project pillar? Conflicts with core design values belong out of scope regardless of severity. *(Skip if the pillars array was empty.)* |
+| **Root cause vs. symptom** | Is this the root cause, or a downstream symptom of another finding already in scope? |
+| **Actionability** | Can a task be written with clear, verifiable acceptance criteria? Vague concerns belong in Open Questions. |
+| **Cost of inaction** | If left unfixed, does this finding cause measurable harm (data loss, user-facing breakage, security risk, compounding tech debt)? |
+| **Backlog coverage** | Is an open backlog task already addressing this? If yes, note the existing task ID and exclude it. |
+| **Convention redirect** | Does this finding state a rule, heuristic, or invariant that belongs in the conventions DB? If yes, do not propose a task — include the exact `tusk conventions add` command as an inline action. |
 
 ---
 
@@ -118,32 +104,25 @@ One or two sentences: root cause and scope.
 
 ### Affected Areas
 - `path/to/file.py` — what is wrong here
-- `path/to/other.ts` — what is wrong here
 
 ### Root Cause
-Detailed explanation. Include relevant code snippets inline (do not re-read files at this stage).
+Detailed explanation. Include relevant code snippets inline.
 
-### Proposed Remediation *(omit this section if investigation finds nothing actionable)*
+### Proposed Remediation *(omit if nothing actionable)*
 
-> Zero tasks is a valid outcome. Only include tasks that passed all six Decision Criteria filters above, plus convention redirects.
+> Zero tasks is a valid outcome. Only include tasks that passed all six Decision Criteria filters, plus convention redirects.
 
 **<imperative summary>** (Priority · Domain · Type · Complexity)
 > What needs to be done and why. Include acceptance criteria ideas.
 
-**<imperative summary>** (Priority · Domain · Type · Complexity)
-> ...
-
-**Convention redirect: <one-line description of the rule>**
-> `tusk conventions add --topic <topic> --text "<rule text>" --source investigate`
-> *(This finding states a rule/heuristic that belongs in the conventions DB — no task needed.)*
-
-*If no remediation is warranted, replace this section with a brief explanation of why no action is needed.*
+**Convention redirect: <one-line description>**
+> `tusk conventions add --topic <topic> --text "<rule>" --source investigate`
 
 ### Out of Scope
-Related issues discovered that did not pass the Decision Criteria filters. Note which filter each failed. Candidates for separate tasks or future work.
+Related issues that did not pass the Decision Criteria filters. Note which filter each failed.
 
 ### Open Questions
-Ambiguities or decisions that need input before work can begin. Omit this section if none.
+Ambiguities or decisions that need input before work can begin. Omit if none.
 ```
 
 ## Step 6: Exit Plan Mode
@@ -154,79 +133,39 @@ Use `ExitPlanMode` to present the investigation report for user review. Set `all
 [{"tool": "Bash", "prompt": "run /create-task to create tasks if the user approves"}]
 ```
 
-After presenting the report, explicitly ask the user:
+After presenting the report, ask the user **two separate questions**:
 
-> Should I create tasks for the proposed remediation, or is this finding sufficient on its own?
+> 1. Should I create tasks for the proposed remediation?
+> 2. Should I capture any Out of Scope items as deferred tasks so they're not lost?
 
-Wait for the user to respond. They may:
-- Ask follow-up questions → answer from your investigation findings; re-investigate only if genuinely new ground is needed
-- Request a deeper look at a specific area → use read-only tools, then update the report
-- Approve the proposed tasks → proceed to Step 7
-- Remove specific tasks → exclude them from Step 7
-- Decline to create tasks, or if no remediation was proposed → proceed to Step 8 to close the skill gracefully
+Wait for the user to respond. They may answer the two questions independently, ask follow-ups, request a deeper look (re-investigate only if genuinely new ground is needed), remove specific tasks, or decline entirely.
 
-## Step 7: Create Tasks via /create-task *(conditional — skip if user declined or no tasks are warranted)*
+## Step 7: Hand Off to /create-task *(conditional — skip if user declined both prompts)*
 
-> **Note:** Keep the `run_id` from Step 0 in context — you will need it after `/create-task` completes in Step 8.
-
-**If the user declined task creation, or if the investigation found nothing actionable, skip this step entirely and proceed to Step 8.**
-
-If the user approved task creation, pass the proposed remediation tasks to the `/create-task` workflow. Read the skill:
+If the user approved any Proposed Remediation items and/or any Out of Scope items, invoke `/create-task` **once** via the Skill tool with both sets combined in a single payload:
 
 ```
-Read file: <base_directory>/../create-task/SKILL.md
+Skill(skill="create-task", args="<approved remediation items>\n\n[Deferred]\n<approved Out of Scope items>")
 ```
 
-Follow its instructions from **Step 1**, using the Proposed Remediation section from your report as the input text. `/create-task` will handle:
-- Decomposition review and user approval
-- Acceptance criteria generation
-- Duplicate detection
-- Metadata assignment (priority, domain, task_type, complexity, assignee)
-- Dependency proposals
+Mark deferred items with a `[Deferred]` header (or an inline "add as deferred" intent phrase) so `/create-task` inserts them with `is_deferred=1`, `[Deferred]` prefix, and `expires_at = now + 60 days`. `/create-task` handles decomposition review, acceptance criteria generation, duplicate detection, metadata assignment, and dependency proposals for both sets in one pass.
 
-## Step 7.5: Offer Deferred Tasks for Out of Scope Items *(conditional)*
+**Fallback:** If the mixed payload does not parse cleanly (e.g. `/create-task` misreads the active/deferred split), retry with two sequential `Skill(skill="create-task", ...)` calls — first the active items, then the deferred items.
 
-**Skip this step if the report's Out of Scope section is empty or absent.**
-
-If Out of Scope items were identified, ask the user:
-
-> The investigation also surfaced these out-of-scope findings. Should I capture any as deferred tasks so they're not lost?
->
-> [list the Out of Scope items]
-
-Wait for the user's response. If they decline or don't select any items, proceed to Step 8 with `<D>` = 0.
-
-If the user approves any items, pass them to the `/create-task` workflow in deferred mode. Read the skill:
-
-```
-Read file: <base_directory>/../create-task/SKILL.md
-```
-
-Follow its instructions, passing the approved Out of Scope items as the input text with a `--deferred` flag (or an inline "add as deferred" intent phrase). `/create-task` handles decomposition review, acceptance criteria generation, duplicate detection, metadata assignment, and deferred insertion (`is_deferred=1`, `[Deferred]` prefix, `expires_at = now + 60 days`).
-
-Track the number of deferred tasks actually inserted (`<D>`) from the `/create-task` results — you will need it in Step 8.
+Track the total number of tasks created (active + deferred) from the `/create-task` results — you will need it in Step 8.
 
 ## Step 8: Finish Cost Tracking
 
-Record cost for this investigation run. Replace `<run_id>` with the value captured in Step 0, `<N>` with the number of tasks proposed in your Investigation Report (Step 5), and `<M>` with the total number of tasks created — include both tasks created by `/create-task` (Step 7) and deferred tasks inserted in Step 7.5. If neither step created any tasks, set `<M>` to 0.
+Record cost for this investigation run. Replace `<run_id>` with the value captured in Step 0, `<N>` with the number of tasks proposed in the report, and `<M>` with the total number of tasks created in Step 7 (0 if the step was skipped).
 
 ```bash
 tusk skill-run finish <run_id> --metadata '{"tasks_proposed":<N>,"tasks_created":<M>}'
 ```
 
-This reads the Claude Code transcript for the time window of this run and stores token counts, estimated cost, and productivity metadata in the `skill_runs` table. Note that the captured window covers the full session — including both the investigation phase and the `/create-task` workflow — so the reported cost reflects the entire `/investigate` invocation.
+This reads the Claude Code transcript for the time window of this run and stores token counts, estimated cost, and productivity metadata in the `skill_runs` table. The captured window covers the full session — investigation plus `/create-task` — so the reported cost reflects the entire `/investigate` invocation.
 
-To view cost history across all investigate runs:
+To view cost history:
 
 ```bash
 tusk skill-run list investigate
 ```
-
-## Hard Constraints
-
-- **Never write or edit project files** — not during investigation, not after
-- **Never run build commands, test runners, or scripts** — `Bash` is for `tusk` queries only
-- **Never implement any proposed task** — that is the job of `/tusk`
-- **Task creation is optional** — if investigation finds nothing actionable, or the user declines, close gracefully without calling `/create-task`
-- **Never insert tasks directly** with `tusk task-insert` — if creating tasks, always hand off to `/create-task`
-- If the fix is trivially obvious (a one-line typo, obvious config error), note it in the report as a "Trivial Fix" and let the user decide whether to create a task or fix it manually — do not apply it yourself
