@@ -197,6 +197,7 @@ See `docs/MIGRATIONS.md` for table-recreation and trigger-only migration templat
 - Add the migration block inside `cmd_migrate()` in `bin/tusk`
 - Stamp `PRAGMA user_version = N` in `cmd_init()` (the standalone sqlite3 call near the end) so that fresh installs never need to run that migration
 - Update `docs/DOMAIN.md` to reflect any schema, view, or trigger changes introduced by the migration
+- If the migration adds/renames/removes a column on `task_sessions` or `skill_runs`, also update the schema fixtures in `tests/unit/test_dashboard_data.py` (`_SCHEMA`, `_SKILL_RUNS_TABLE`) and `tests/unit/test_skill_run_cancel.py` (`_SKILL_RUNS_TABLE`). The `TestTaskSessionsSchemaSync` guard catches `task_sessions` drift automatically; the `skill_runs` fixtures have no guard — keep them aligned manually.
 
 ## Creating a New Skill
 
