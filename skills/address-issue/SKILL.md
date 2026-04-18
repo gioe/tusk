@@ -10,23 +10,16 @@ Fetches a GitHub issue, converts it into a tusk task, and immediately begins wor
 
 ## Step 1: Parse the Issue Reference
 
-The user invokes this skill with an optional issue number or full URL. Examples:
-- `/address-issue 314`
-- `/address-issue https://github.com/gioe/tusk/issues/314`
-- `/address-issue` *(no argument — defaults to newest open issue)*
+Invoked with an optional issue number or full URL (e.g. `/address-issue 314`, `/address-issue https://github.com/gioe/tusk/issues/314`, or no argument to default to the newest open issue).
 
 Extract the issue number:
-- If a full URL is given, parse the number from the path.
-- If only a number is given, use it directly.
-- If **no argument was provided**, fetch the newest open issue automatically:
+- Full URL → parse the number from the path.
+- Number only → use it directly.
+- No argument → fetch the newest open issue:
   ```bash
   gh issue list --repo gioe/tusk --state open --limit 1 --json number,title
   ```
-  If this returns an empty list, report:
-  > No open issues found in gioe/tusk.
-
-  Then stop. Otherwise, use the returned `number` and display:
-  > No issue specified — defaulting to newest open issue: #<number> "<title>"
+  If empty, report `> No open issues found in gioe/tusk.` and stop. Otherwise use the returned `number` and display: `> No issue specified — defaulting to newest open issue: #<number> "<title>"`
 
 ## Step 2: Fetch the Issue
 
@@ -72,12 +65,9 @@ Generate **3–7 acceptance criteria** from the issue body — concrete, testabl
 
 Scan the issue body for a `## Failing Test` section. If present:
 
-1. Extract the test spec from that section. Prefer a fenced code block immediately following the heading; support both triple-backtick and single-backtick fences:
-   - Triple-backtick: content between ` ``` ` (optionally with a language tag on the opening fence) and the next ` ``` `
-   - Single-backtick: content between a single `` ` `` open and close on the same or adjacent lines
-   - Take the **first** fenced block found in the section; trim leading/trailing whitespace from the extracted content.
+1. Extract the test spec. Prefer the **first** fenced block after the heading (triple- or single-backtick, with optional language tag); trim surrounding whitespace.
 
-   **Plain-text fallback — if no fenced block is found in the section**, treat the plain text between the `## Failing Test` heading and the next heading (or end of body) as the spec. Drop lines whose first non-whitespace character is `#` (shell-style comments), then trim leading/trailing whitespace from the remainder. If the result is non-empty, use it as `<test_spec>` for the validation below — the sandbox flow in item 2 applies identically whether the spec came from a fenced block or the plain-text fallback. If the stripped result is empty, treat the section as missing and fall through to item 3.
+   **Plain-text fallback — if no fenced block is found**, treat the plain text between the `## Failing Test` heading and the next heading (or end of body) as the spec. Drop `#`-prefixed lines (shell comments) and trim whitespace. If non-empty, use as `<test_spec>` (sandbox flow in item 2 applies identically). If empty, fall through to item 3.
 
 2. **Validate the extracted spec** — the spec is arbitrary shell code from a GitHub issue body and must be treated as untrusted. Show it to the user for approval, then run it in a sandbox so it cannot reach the host tusk repo (which is one `tusk`/`git` walk-up away), read environment secrets, or invoke project-installed tools.
 
@@ -115,64 +105,32 @@ Scan the issue body for a `## Failing Test` section. If present:
 
    Interpret the result:
 
-   - **Exit nonzero and no command error** — the spec fails as expected on the current codebase. Store as `test_spec` and proceed normally.
+   - **Exit nonzero, no command error** — spec fails as expected. Store as `test_spec` and proceed. (Before storing, verify the spec calls into the project under test — runs a CLI, imports a project module, references a real file. Self-contained specs with inline logic may exit nonzero yet pass trivially once that inline logic is fixed; surface this in Step 7 so the implementer validates manually.)
+   - **Exit 0** — spec passes before any fix (self-contained demo or already-resolved issue). Ask the implementer: discard (`test_spec=null`, `test_present="no"`) or keep with a `(warning: passed before fix)` note appended?
+   - **Command error** (exit 126/127, or stderr contains "command not found" / "syntax error") — not a runnable shell command. Set `test_spec=null`, score `test_present="no"`, and inform: > The `## Failing Test` spec produced a command error (`<first line of SPEC_STDERR>`). Treating as no failing test.
 
-     > **Note:** Before storing, verify the spec actually calls into the project under test (e.g., runs a CLI command, imports a project module, or references a real project file). A spec that embeds its own logic — defining its own functions inline rather than calling the real implementation — may exit nonzero (demonstrating the bug) yet pass trivially once its inline logic is corrected, without ever exercising the actual fix. If the spec appears self-contained, surface this during Step 7 and ask the implementer to validate the criterion manually before marking it done.
-
-   - **Exit 0** — the spec passes *before* any fix. This indicates a self-contained demonstration or already-resolved issue. Warn the implementer:
-     > **Warning:** The `## Failing Test` spec exits 0 on the current codebase — it may not be a real regression test. Discard it (treat as `test_spec=null`, `test_present="no"`) or keep it with this warning attached?
-
-     Wait for confirmation:
-     - **Discard** → set `test_spec = null`; score `test_present` as `"no"` (contributes negatively for `bug`/`defect` types; N/A otherwise).
-     - **Keep** → store as `test_spec` with a `(warning: passed before fix)` note appended; proceed normally.
-
-   - **Command error** (exit code 126/127, or stderr contains "command not found", "not found", or "syntax error") — the spec is not a runnable shell command. Treat as `test_spec = null` and score `test_present` as `"no"`. Inform the implementer:
-     > The `## Failing Test` spec produced a command error (`<first line of SPEC_STDERR>`). Treating as no failing test.
-
-3. **If no `## Failing Test` section is found**, set `test_spec = null`. No test criterion will be added in Step 6. For `bug` and `defect` task types, the absence will bias the Step 4.7 verdict toward Defer via the `test_present` factor. For all other task types (`docs`, `feature`, `refactor`, etc.), the `test_present` factor is N/A — missing a failing test does not bias the verdict.
-
-> **Note:** The test criterion is marked done by running `tusk criteria done <cid>`. Because `criterion_type=test`, tusk automatically executes `verification_spec` as a shell command and blocks closure if it exits nonzero. No manual check is required — the spec must pass on its own.
+3. **If no `## Failing Test` section is found**, set `test_spec = null`. No test criterion is added in Step 6. For `bug`/`defect` task types, this biases the Step 4.7 verdict toward Defer via `test_present`; for other task types, `test_present` is N/A.
 
 ## Step 4.5: Optional Codebase Investigation
 
-**Skip this step entirely if complexity is XS or S.** Only run for M, L, or XL complexity issues.
+**Skip if complexity is XS or S.** Only run for M, L, or XL.
 
-After completing Step 4, offer the user a chance to investigate the codebase before presenting the task proposal:
+Ask the user:
 
-> Before presenting the proposal, should I investigate the codebase for context? This helps surface relevant files, existing patterns, and edge cases that could sharpen the acceptance criteria. (**yes** / **no**, default: no)
+> Before presenting the proposal, should I investigate the codebase for context? (**yes** / **no**, default: no)
 
-Wait for the user's response. Treat any response other than an explicit **yes** as **no** — skip directly to Step 5 with no changes.
+Treat any non-`yes` response as skip. On **yes**:
 
-If the user says **yes**:
+1. **Read-only investigation.** Tools: `Read`, `Grep`, `Glob`, and read-only `Bash` (tusk CLI queries, `ls`, directory inspection — no writes, no edits, no commits). Cap at ~10 tool calls; summarize even if incomplete. Look for:
+   - Files/functions tied to the issue's subject (search by keyword, class, config key)
+   - Existing tests for the affected paths
+   - Established conventions for similar features
+   - Any partial implementation already present
+   - Related tusk tasks: `tusk task-list --format json | jq '.[] | select(.summary | ascii_downcase | contains("<keyword>"))'`
 
-1. **Run a read-only investigation.** Use only these tools: `Read`, `Grep`, `Glob`, and `Bash` (restricted to read-only operations: `tusk` CLI queries, `ls`, directory inspection — no write commands, no `git commit`, no file edits). Limit the investigation to ~10 tool calls; stop and summarize what you found even if the picture is incomplete. Explore:
-   - Files and functions directly related to the issue's subject area (search by keyword, class name, or config key mentioned in the issue body)
-   - Existing tests for the affected code paths
-   - Any conventions or patterns already established for similar features
-   - Whether a partial implementation already exists
+2. **Summarize** findings as a short bullet list before proceeding.
 
-   Example queries:
-   - Use the `Grep` tool to find files mentioning a keyword from the issue
-   - Use the `Glob` tool to locate relevant test files
-   - Query the tusk backlog for related tasks:
-     ```bash
-     tusk task-list --format json | python3 -c "import sys,json; tasks=json.load(sys.stdin); [print(t['id'], t['summary']) for t in tasks if '<keyword>' in t['summary'].lower()]"
-     ```
-
-2. **Summarize the findings** in a short block before proceeding:
-
-   > **Codebase Investigation Findings:**
-   > - <finding 1>
-   > - <finding 2>
-   > ...
-
-3. **Refine the task fields** from Step 4 based on what you found:
-   - Adjust `description` to reference specific files or functions that will need to change.
-   - Add, remove, or sharpen acceptance criteria to reflect actual code structure (e.g., replace a vague criterion with one that names the specific function or test file).
-   - Adjust `complexity` up or down if the codebase evidence warrants it.
-   - Do **not** change the `summary`, `priority`, or `domain` unless the investigation reveals a fundamental misclassification.
-
-Proceed to Step 5 with the updated task fields.
+3. **Refine Step 4 fields**: sharpen `description` (name files/functions), tighten criteria to match real code structure, adjust `complexity` if warranted. Do **not** change `summary`, `priority`, or `domain` unless the investigation reveals a fundamental misclassification.
 
 ## Step 4.6: Reproducibility Check (bug-type only)
 
@@ -238,56 +196,36 @@ Open with a **Model Recommendation** block (including the score breakdown from S
 ...
 ```
 
-Then ask, **bolding the option that matches the recommendation**:
+Then ask the user to choose, **bolding the option that matches the Model Recommendation**. For a Decline recommendation, replace "confirm" with "proceed anyway" in the prompt:
 
-- If recommendation is **Address**:
-  > Create this task? You can **confirm** (implement now), defer (add to backlog, no immediate work), edit (e.g., "change priority to High"), decline (close the issue without creating a task), or cancel.
+> Create this task? You can confirm (implement now), defer (add to backlog, no immediate work), edit (e.g., "change priority to High"), decline (close the issue without creating a task), or cancel.
 
-- If recommendation is **Defer**:
-  > Create this task? You can confirm (implement now), **defer** (add to backlog, no immediate work), edit (e.g., "change priority to High"), decline (close the issue without creating a task), or cancel.
+The user retains full veto power — any option may be chosen regardless of the recommendation. Wait for explicit approval before inserting.
 
-- If recommendation is **Decline**:
-  > Create this task? You can proceed anyway (implement now), defer (add to backlog, no immediate work), edit (e.g., "change priority to High"), **decline** (close the issue without creating a task), or cancel.
+### Shared gh Failure Handling
 
-The user retains full veto power — any option may be chosen regardless of the recommendation.
+Referenced by the Decline Path, Defer Path, and Step 9. When a `gh issue close` or `gh issue comment` call fails:
 
-Wait for explicit user approval before inserting.
+1. If the error contains `already in a 'closed'` state, retry the action as `gh issue comment <number> --repo <owner/repo> --body "<same body>"`.
+2. If the retry also fails, or the original error was something else (permissions, locked issue, etc.), surface the manual URL and the message to paste:
+   > Could not update issue #<N> automatically. Please visit https://github.com/<owner/repo>/issues/<N> and add this comment: "<body>"
+
+Never abort the skill on a gh failure — continue the flow with the manual-URL fallback.
 
 ### Decline Path
 
-If the user types **decline** (optionally followed by a rationale, e.g., `decline out of scope`):
+If the user types **decline** (optionally followed by an inline rationale, e.g. `decline out of scope`):
 
-1. If no rationale was given inline, prompt:
-   > Why are you declining this issue? Choose one or describe:
-   > - `out of scope`
-   > - `won't fix`
-   > - `already handled by TASK-<id>`
-   > - `duplicate of #<issue>`
-   > - `other: <free text>`
+1. If no rationale was given, prompt the user to pick one: `out of scope`, `won't fix`, `already handled by TASK-<id>`, `duplicate of #<issue>`, or a free-text reason.
 
-   Wait for the user's response.
-
-2. Close the GitHub issue with the rationale as a comment:
+2. Close the issue:
    ```bash
    gh issue close <number> --repo <owner/repo> --comment "Declined: <rationale>"
    ```
+   - Success → > **Declined** — Issue #<N> closed. Reason: <rationale>. No task created.
+   - Failure → apply **Shared gh Failure Handling**; on the already-closed retry path, the summary becomes: > Issue #<N> is already closed. Reason recorded: <rationale>. No task created.
 
-3. If `gh` succeeds, end with a decision summary:
-   > **Declined** — Issue #<N> closed. Reason: <rationale>. No task created.
-
-4. If `gh` fails, inspect the error output:
-   - If the output contains the phrase `already in a 'closed'` (e.g. `already in a 'closed' state`), post the rationale as a standalone comment:
-     ```bash
-     gh issue comment <number> --repo <owner/repo> --body "Declined: <rationale>"
-     ```
-     - If the comment succeeds, end with:
-       > Issue #<N> is already closed. Reason recorded: <rationale>. No task created.
-     - If the comment also fails (e.g. issue is locked), fall through to the manual close URL below, adding a note that the issue is already closed.
-   - Otherwise, report the error and show the manual close URL:
-     > Could not close issue #<N> automatically. Please close it at: https://github.com/<owner/repo>/issues/<N>
-     > Reason to use as a comment: "Declined: <rationale>"
-
-5. **Do NOT insert a task.** Stop — do not proceed to Step 6.
+3. **Do NOT insert a task.** Stop — do not proceed to Step 6.
 
 ### Defer Path
 
@@ -295,25 +233,20 @@ If the user types **defer**:
 
 1. Proceed to Step 6 to deduplicate and insert the task (same insert flow as the implement-now path). Do NOT call `tusk task-start` or create a branch after insertion.
 
-2. After the task is inserted, attempt to apply the `accepted` label to the GitHub issue so the decision is visible in the issue list without opening tusk:
+2. After insertion, try to apply the `accepted` label so the decision is visible in the issue list:
    ```bash
-   gh label list --repo <owner/repo> --json name
+   gh label list --repo <owner/repo> --json name   # check availability
+   gh issue edit <number> --repo <owner/repo> --add-label "accepted"   # only if label exists
    ```
-   If `"accepted"` appears in the list, run:
-   ```bash
-   gh issue edit <number> --repo <owner/repo> --add-label "accepted"
-   ```
-   If the label does not exist or the command fails, skip silently — labeling is advisory.
+   If the label is missing or either call fails, skip silently — labeling is advisory.
 
-3. Post a comment on the GitHub issue:
+3. Post a comment on the issue:
    ```bash
    gh issue comment <number> --repo <owner/repo> --body "Tracked as tusk task #<task_id>. No timeline yet — will be addressed in a future session."
    ```
-   If `gh` fails (e.g. insufficient permissions or locked issue), warn the user:
-   > Could not post comment on issue #<N>. Please add it manually: "Tracked as tusk task #<task_id>. No timeline yet — will be addressed in a future session."
+   On failure, apply **Shared gh Failure Handling**.
 
-4. End with a decision summary:
-   > **Deferred** — tusk task #<task_id> created. Issue #<N> commented (and labeled `accepted` if the label exists). No work started yet.
+4. End with: > **Deferred** — tusk task #<task_id> created. Issue #<N> commented (and labeled `accepted` if the label exists). No work started yet.
 
 5. **Do NOT proceed to Step 7.** Stop after the comment.
 
@@ -386,28 +319,17 @@ Hold onto the `session_id` returned by `tusk task-start` in step 1 of the /tusk 
 
 ### Step 8: Merge
 
-First, check whether work was done on a feature branch or directly on the default branch:
+Detect whether work landed on a feature branch or directly on the default branch:
 
 ```bash
 CURRENT_BRANCH=$(git branch --show-current)
 DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
 ```
 
-If `CURRENT_BRANCH` equals `DEFAULT_BRANCH` (i.e., commits were made directly on main/master), skip `tusk merge` — the commit is already on the default branch. Capture the commit SHA and proceed to Step 9.
+- `CURRENT_BRANCH == DEFAULT_BRANCH` → skip `tusk merge`; the commit is already shipped.
+- Otherwise → run `tusk merge <task_id> --session <session_id>`.
 
-If on a feature branch, run the merge normally:
-
-```bash
-tusk merge <task_id> --session <session_id>
-```
-
-After the merge completes (or if skipped), capture the commit SHA for Step 9:
-
-```bash
-git log --oneline -1   # extract the short commit SHA from the first token
-```
-
-If the project uses PR-based merges, note the PR URL from the merge output or `gh pr list --state merged --limit 1`.
+Then capture the commit SHA for Step 9 via `git log --oneline -1` (first token). If the project uses PR-based merges, also note the PR URL from the merge output or `gh pr list --state merged --limit 1`.
 
 ### Step 9: Close the GitHub Issue
 
@@ -415,18 +337,7 @@ If the project uses PR-based merges, note the PR URL from the merge output or `g
 gh issue close <number> --repo <owner/repo> --comment "Resolved in <commit_sha> — <pr_url_or_branch>. Tracked as tusk task #<task_id>."
 ```
 
-Use the `commit_sha` from Step 8. If a PR URL is available, include it; otherwise use the branch name.
-
-If the `gh` command fails, inspect the error output:
-- If the output contains the phrase `already in a 'closed'` (e.g. `already in a 'closed' state`), post the resolution note as a standalone comment:
-  ```bash
-  gh issue comment <number> --repo <owner/repo> --body "Resolved in <commit_sha> — <pr_url_or_branch>. Tracked as tusk task #<task_id>."
-  ```
-  - If the comment succeeds, continue to Step 10 normally.
-  - If the comment also fails (e.g. issue is locked), remind the user to add the note manually:
-    > Issue #<N> is already closed and locked. Please add the resolution note manually at: https://github.com/<owner/repo>/issues/<N>
-- Otherwise (e.g. insufficient permissions), report the error and remind the user to close the issue manually:
-  > Could not close issue #<N> automatically. Please close it at: https://github.com/<owner/repo>/issues/<N>
+Use the `commit_sha` from Step 8 (include the PR URL if available, else the branch name). On failure, apply **Shared gh Failure Handling** from Step 5 — the already-closed retry posts the resolution note as a standalone comment and continues to Step 10.
 
 ### Step 10: Retro
 
