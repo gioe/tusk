@@ -121,16 +121,7 @@ After the list, include the configurable fields reference table so the user know
 | `project_type` | No | String key identifying the project type (e.g. `python_service`, `ios_app`); `null` if unset |
 | `project_libs.*.ref` | No | Pin a project lib's bootstrap ref to a tag or commit SHA; defaults to `"main"` |
 
-**Agents object shape:** Each key is an agent name used for task assignment; each value is a plain string describing what that agent handles. Example:
-
-```json
-{
-  "agents": {
-    "backend": "API, business logic, data layer",
-    "frontend": "UI components, styling, client-side"
-  }
-}
-```
+**Agents object shape:** `{ "<agent_name>": "<description string>" }` — e.g. `{ "backend": "API, business logic, data layer", "frontend": "UI components, styling, client-side" }`.
 
 Then ask a single approval question:
 
@@ -182,47 +173,30 @@ Proposed config:
 
 ## Step 5: Write Updated Config
 
-Read the current config file, apply changes, and write it back:
+Use the Read tool to load `tusk/config.json`, then Edit to update only the fields the user requested — preserve everything else.
 
-Use the Read tool to load `tusk/config.json`, then use the Edit tool to update it with the new values. Preserve all fields — only modify the ones the user requested.
-
-**Convention migration (if approved in Step 2):** For each approved convention bullet, run:
+**Convention migration (if approved in Step 2):** For each approved bullet, strip markdown markers (`**`, `*`, backtick fences) and insert as plain text:
 
 ```bash
-tusk conventions add "<bullet text (with formatting stripped)>"
+tusk conventions add "<bullet text>"
 ```
 
-Strip markdown emphasis markers (`**`, `*`, backtick fences) from the text before inserting — plain text is stored in the DB.
-
-Then replace the conventions section in `CLAUDE.md` with a single pointer line using the Edit tool:
-
-> Replace the "Key Conventions" section body with: `Run \`tusk conventions list\` to see project conventions.`
-
-Leave the section heading in place.
+Then Edit `CLAUDE.md` to replace the "Key Conventions" section body with `Run \`tusk conventions list\` to see project conventions.` (leave the heading in place).
 
 ## Step 5b: Execute Task Reassignment (if approved)
 
-**Only run this step if a domain reassignment was approved in Step 2.**
-
-Execute the reassignment without additional prompting. If the user approved reassigning all unassigned tasks to a new domain:
+**Only if a domain reassignment was approved in Step 2.** Execute without additional prompting:
 
 ```bash
 DOMAIN=$(tusk sql-quote "<new_domain>")
+# All unassigned tasks:
 tusk "UPDATE tasks SET domain = $DOMAIN, updated_at = datetime('now') WHERE status <> 'Done' AND (domain IS NULL OR domain = '')"
-tusk "SELECT changes() AS rows_updated"
-```
-
-If the user approved reassigning specific task IDs (e.g., 12, 15, 18):
-
-```bash
-DOMAIN=$(tusk sql-quote "<new_domain>")
+# Or specific IDs (e.g., 12, 15, 18):
 tusk "UPDATE tasks SET domain = $DOMAIN, updated_at = datetime('now') WHERE id IN (12, 15, 18) AND status <> 'Done'"
 tusk "SELECT changes() AS rows_updated"
 ```
 
-Report the `rows_updated` count and proceed to Step 6.
-
-If multiple domains were added, execute reassignment for each new domain in sequence.
+Report the `rows_updated` count. If multiple domains were added, repeat for each.
 
 ## Step 6: Regenerate Triggers (if needed)
 
