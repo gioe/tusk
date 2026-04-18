@@ -126,3 +126,13 @@ When adding a new key to `config.default.json`, you must also register it in `KN
 4. If the key drives enum validation (like `domains` or `task_types`), run `tusk regen-triggers` to rebuild the SQLite validation triggers from the updated config.
 5. Update `CLAUDE.md`'s **Config-Driven Validation** section if the key has semantics worth documenting.
 6. Bump `VERSION` and add a `CHANGELOG.md` entry — new config keys are distributed to target projects.
+
+---
+
+## Seeding Audit Tables: No Historical Recovery
+
+When a new audit table (e.g. `task_status_transitions`, added in migration 53) is introduced to capture events that were never previously recorded, the migration may seed one or more synthetic rows per existing task to avoid an empty table. These seeds represent *only* what can be reconstructed from columns already in the DB (e.g. `tasks.started_at`, `tasks.closed_at`) — they are **not** an attempt to recover historical events that were never captured.
+
+For example, `migrate_53` writes a synthetic `'To Do → In Progress'` row at `started_at` and a synthetic `'In Progress → Done'` row at `closed_at` for each completed task. Any intermediate reopens — `Done → To Do` via `tusk task-reopen --force`, or repeated `In Progress ↔ To Do` cycles — are permanently lost, because the database never stored them. The `task_metrics.reopen_count` column will therefore always be 0 for historical tasks; the value of the new audit table is forward-looking.
+
+**Rule:** Document the seeded shape and the "no historical recovery" caveat in the migration's docstring and in `docs/DOMAIN.md`. Don't synthesize plausible-but-unknowable rows — a clean "we can't know" is better than a fabricated event history.

@@ -1560,6 +1560,99 @@ def migrate_52(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 52: added code_reviews.model and backfilled from task_sessions")
 
 
+def migrate_53(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add task_status_transitions audit log + task_metrics.reopen_count.
+
+    Creates a task_status_transitions(id, task_id, from_status, to_status,
+    changed_at) table and an AFTER UPDATE OF status trigger on tasks that
+    records every status change. Extends task_metrics with a reopen_count
+    column (count of transitions whose from_status is the Done terminal state)
+    so 'rework rate per model' becomes a first-class query.
+
+    Seeds synthetic rows for existing tasks so the table is not empty on
+    first migrate:
+      - Done tasks get 'To Do → In Progress' (at started_at, if set) and
+        'In Progress → Done' (at COALESCE(closed_at, updated_at)).
+      - In Progress tasks get 'To Do → In Progress' (at started_at, if set).
+      - To Do tasks get nothing.
+    No synthetic row ever has from_status='Done', so historical reopen_count
+    is always 0 by design — reopen history does not exist in the DB or git.
+    Value is forward-looking.
+
+    Idempotent: guarded with has_table/has_column checks, CREATE TRIGGER IF
+    NOT EXISTS, and NOT EXISTS on the backfill so a partial prior run still
+    converges.
+    """
+    if get_version(db_path) >= 53:
+        _progress("  Migration 53: added task_status_transitions table, trigger, backfill, and task_metrics.reopen_count")
+        return
+
+    ddl_stmts = []
+    if not has_table(db_path, "task_status_transitions"):
+        ddl_stmts.append("""
+            CREATE TABLE task_status_transitions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                from_status TEXT,
+                to_status TEXT NOT NULL,
+                changed_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+            );
+            CREATE INDEX idx_task_status_transitions_task_id ON task_status_transitions(task_id);
+        """)
+
+    script = "\n".join(ddl_stmts) + """
+        CREATE TRIGGER IF NOT EXISTS log_task_status_transition
+        AFTER UPDATE OF status ON tasks
+        FOR EACH ROW
+        WHEN OLD.status IS NOT NEW.status
+        BEGIN
+            INSERT INTO task_status_transitions (task_id, from_status, to_status, changed_at)
+            VALUES (NEW.id, OLD.status, NEW.status, datetime('now'));
+        END;
+
+        INSERT INTO task_status_transitions (task_id, from_status, to_status, changed_at)
+        SELECT t.id, 'To Do', 'In Progress', t.started_at
+          FROM tasks t
+         WHERE t.started_at IS NOT NULL
+           AND t.status IN ('In Progress', 'Done')
+           AND NOT EXISTS (
+             SELECT 1 FROM task_status_transitions tst
+              WHERE tst.task_id = t.id AND tst.to_status = 'In Progress'
+           );
+
+        INSERT INTO task_status_transitions (task_id, from_status, to_status, changed_at)
+        SELECT t.id, 'In Progress', 'Done', COALESCE(t.closed_at, t.updated_at)
+          FROM tasks t
+         WHERE t.status IN ('Done')
+           AND NOT EXISTS (
+             SELECT 1 FROM task_status_transitions tst
+              WHERE tst.task_id = t.id AND tst.to_status IN ('Done')
+           );
+
+        DROP VIEW IF EXISTS task_metrics;
+        CREATE VIEW task_metrics AS
+        SELECT t.*,
+            COUNT(s.id) as session_count,
+            SUM(s.duration_seconds) as total_duration_seconds,
+            SUM(s.cost_dollars) as total_cost,
+            SUM(s.tokens_in) as total_tokens_in,
+            SUM(s.tokens_out) as total_tokens_out,
+            SUM(s.lines_added) as total_lines_added,
+            SUM(s.lines_removed) as total_lines_removed,
+            SUM(s.request_count) as total_request_count,
+            (SELECT COUNT(*) FROM task_status_transitions tst
+              WHERE tst.task_id = t.id AND tst.from_status IN ('Done')) as reopen_count
+        FROM tasks t
+        LEFT JOIN task_sessions s ON t.id = s.task_id
+        GROUP BY t.id;
+
+        PRAGMA user_version = 53;
+    """
+    run_script(db_path, script)
+    _progress("  Migration 53: added task_status_transitions table, trigger, backfill, and task_metrics.reopen_count")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -1615,6 +1708,7 @@ MIGRATIONS = [
     (50, migrate_50),
     (51, migrate_51),
     (52, migrate_52),
+    (53, migrate_53),
 ]
 
 

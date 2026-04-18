@@ -463,7 +463,31 @@ CREATE TABLE task_sessions (
 );
 CREATE UNIQUE INDEX idx_task_sessions_open ON task_sessions(task_id) WHERE ended_at IS NULL;
 
+-- task_status_transitions (append-only audit log of tasks.status changes)
+CREATE TABLE task_status_transitions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    from_status TEXT,
+    to_status TEXT NOT NULL,
+    changed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_task_status_transitions_task_id ON task_status_transitions(task_id);
+
+-- Trigger: record every status change on tasks into task_status_transitions.
+CREATE TRIGGER log_task_status_transition
+AFTER UPDATE OF status ON tasks
+FOR EACH ROW
+WHEN OLD.status IS NOT NEW.status
+BEGIN
+    INSERT INTO task_status_transitions (task_id, from_status, to_status, changed_at)
+    VALUES (NEW.id, OLD.status, NEW.status, datetime('now'));
+END;
+
 -- task_metrics view
+-- reopen_count uses a correlated subquery rather than a second LEFT JOIN so
+-- session-level aggregates (COUNT(s.id), SUM(s.duration_seconds), ...) don't
+-- multiply by the number of transitions per task.
 CREATE VIEW task_metrics AS
 SELECT t.*,
     COUNT(s.id) as session_count,
@@ -473,7 +497,9 @@ SELECT t.*,
     SUM(s.tokens_out) as total_tokens_out,
     SUM(s.lines_added) as total_lines_added,
     SUM(s.lines_removed) as total_lines_removed,
-    SUM(s.request_count) as total_request_count
+    SUM(s.request_count) as total_request_count,
+    (SELECT COUNT(*) FROM task_status_transitions tst
+      WHERE tst.task_id = t.id AND tst.from_status IN ('Done')) as reopen_count
 FROM tasks t
 LEFT JOIN task_sessions s ON t.id = s.task_id
 GROUP BY t.id;
@@ -775,7 +801,7 @@ PILLARS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 52;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 53;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."
