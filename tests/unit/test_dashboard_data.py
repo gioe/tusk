@@ -70,6 +70,7 @@ CREATE TABLE task_sessions (
     first_context_tokens INTEGER,
     last_context_tokens INTEGER,
     context_window INTEGER,
+    request_count INTEGER,
     FOREIGN KEY (task_id) REFERENCES tasks(id)
 );
 
@@ -81,7 +82,8 @@ SELECT t.*,
     SUM(s.tokens_in) as total_tokens_in,
     SUM(s.tokens_out) as total_tokens_out,
     SUM(s.lines_added) as total_lines_added,
-    SUM(s.lines_removed) as total_lines_removed
+    SUM(s.lines_removed) as total_lines_removed,
+    SUM(s.request_count) as total_request_count
 FROM tasks t
 LEFT JOIN task_sessions s ON t.id = s.task_id
 GROUP BY t.id;
@@ -576,7 +578,8 @@ CREATE TABLE skill_runs (
     tokens_in INTEGER,
     tokens_out INTEGER,
     model TEXT,
-    metadata TEXT
+    metadata TEXT,
+    request_count INTEGER
 );
 """
 

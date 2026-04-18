@@ -1379,6 +1379,52 @@ def migrate_48(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 48: collapsed review.reviewers (array) into review.reviewer (object)")
 
 
+def migrate_49(db_path: str, config_path: str, script_dir: str) -> None:
+    """Persist request_count on task_sessions and skill_runs.
+
+    aggregate_session() in tusk-pricing-lib already computes the deduplicated
+    Claude API request count per session, but prior to this migration it was
+    only printed and never stored. Adds a nullable request_count INTEGER column
+    to both task_sessions and skill_runs, and extends the task_metrics view
+    with SUM(s.request_count) AS total_request_count so historical "turns per
+    task size" queries don't have to re-parse every transcript.
+
+    Idempotent: column additions are guarded by has_column() so a partial
+    prior run (column present, view unchanged) still reaches the view recreation
+    and version bump.
+    """
+    if get_version(db_path) >= 49:
+        _progress("  Migration 49: added request_count column to task_sessions and skill_runs, extended task_metrics view")
+        return
+
+    alter_stmts = []
+    if not has_column(db_path, "task_sessions", "request_count"):
+        alter_stmts.append("ALTER TABLE task_sessions ADD COLUMN request_count INTEGER;")
+    if not has_column(db_path, "skill_runs", "request_count"):
+        alter_stmts.append("ALTER TABLE skill_runs ADD COLUMN request_count INTEGER;")
+
+    script = "\n".join(alter_stmts) + """
+        DROP VIEW IF EXISTS task_metrics;
+        CREATE VIEW task_metrics AS
+        SELECT t.*,
+            COUNT(s.id) as session_count,
+            SUM(s.duration_seconds) as total_duration_seconds,
+            SUM(s.cost_dollars) as total_cost,
+            SUM(s.tokens_in) as total_tokens_in,
+            SUM(s.tokens_out) as total_tokens_out,
+            SUM(s.lines_added) as total_lines_added,
+            SUM(s.lines_removed) as total_lines_removed,
+            SUM(s.request_count) as total_request_count
+        FROM tasks t
+        LEFT JOIN task_sessions s ON t.id = s.task_id
+        GROUP BY t.id;
+
+        PRAGMA user_version = 49;
+    """
+    run_script(db_path, script)
+    _progress("  Migration 49: added request_count column to task_sessions and skill_runs, extended task_metrics view")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -1430,6 +1476,7 @@ MIGRATIONS = [
     (46, migrate_46),
     (47, migrate_47),
     (48, migrate_48),
+    (49, migrate_49),
 ]
 
 

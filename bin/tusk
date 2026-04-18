@@ -458,6 +458,7 @@ CREATE TABLE task_sessions (
     first_context_tokens INTEGER,
     last_context_tokens INTEGER,
     context_window INTEGER,
+    request_count INTEGER,
     FOREIGN KEY (task_id) REFERENCES tasks(id)
 );
 CREATE UNIQUE INDEX idx_task_sessions_open ON task_sessions(task_id) WHERE ended_at IS NULL;
@@ -471,7 +472,8 @@ SELECT t.*,
     SUM(s.tokens_in) as total_tokens_in,
     SUM(s.tokens_out) as total_tokens_out,
     SUM(s.lines_added) as total_lines_added,
-    SUM(s.lines_removed) as total_lines_removed
+    SUM(s.lines_removed) as total_lines_removed,
+    SUM(s.request_count) as total_request_count
 FROM tasks t
 LEFT JOIN task_sessions s ON t.id = s.task_id
 GROUP BY t.id;
@@ -657,7 +659,8 @@ CREATE TABLE skill_runs (
     tokens_in INTEGER,
     tokens_out INTEGER,
     model TEXT,
-    metadata TEXT
+    metadata TEXT,
+    request_count INTEGER
 );
 CREATE INDEX idx_skill_runs_skill_name ON skill_runs(skill_name);
 SR_SCHEMA
@@ -770,7 +773,7 @@ PILLARS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 48;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 49;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."
