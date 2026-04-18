@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [622] - 2026-04-17
+
+- [TASK-57] [Deferred] Trim address-issue SKILL.md — consolidate approval blocks and gh-error paths
+
 ## [621] - 2026-04-17
 
 - [TASK-45] Resolve source-of-truth for project pillars: `docs/PILLARS.md` is now the canonical narrative source; the `pillars` DB table is retained as a normalized projection auto-synced from the doc. New `tusk pillars sync-from-md` subcommand performs an idempotent upsert, and migration 47 seeds the table on first run when a `docs/PILLARS.md` is present. `tusk init` does the same seed on fresh installs. `/investigate`'s pillar filter now activates out of the box on the tusk repo — `tusk pillars list` returns the 8 pillars defined in `docs/PILLARS.md` instead of an empty array. PILLARS.md and DOMAIN.md document the decision and the projection model; target projects without a `docs/PILLARS.md` continue to seed pillars through `/tusk-init`'s catalogue.
