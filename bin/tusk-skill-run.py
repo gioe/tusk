@@ -5,7 +5,7 @@ Records start/end timestamps for skill executions and computes cost from
 the Claude Code JSONL transcript for the time window.
 
 Called by the tusk wrapper:
-    tusk skill-run start <skill_name>
+    tusk skill-run start <skill_name> [--task-id <id>]
     tusk skill-run finish <run_id> [--metadata '{"key":"val"}']
     tusk skill-run cancel <run_id>
     tusk skill-run list [<skill_name>] [--limit N]
@@ -29,21 +29,30 @@ _db_lib = tusk_loader.load("tusk-db-lib")
 get_connection = _db_lib.get_connection
 
 
-def cmd_start(conn, skill_name: str) -> None:
-    """Insert a new skill_runs row and print the run_id."""
+def cmd_start(conn, skill_name: str, task_id: int | None = None) -> None:
+    """Insert a new skill_runs row and print the run_id.
+
+    When task_id is provided, stamps the row so per-task cost rollups can
+    attribute this skill run to the originating task. Task-scoped skills
+    (/tusk, /chain, /review-commits, /retro) should always pass it.
+    """
     cur = conn.execute(
-        "INSERT INTO skill_runs (skill_name) VALUES (?)",
-        (skill_name,),
+        "INSERT INTO skill_runs (skill_name, task_id) VALUES (?, ?)",
+        (skill_name, task_id),
     )
     conn.commit()
     run_id = cur.lastrowid
 
     row = conn.execute(
-        "SELECT id, skill_name, started_at FROM skill_runs WHERE id = ?",
+        "SELECT id, skill_name, started_at, task_id FROM skill_runs WHERE id = ?",
         (run_id,),
     ).fetchone()
 
-    print(json.dumps({"run_id": row["id"], "started_at": row["started_at"]}))
+    print(json.dumps({
+        "run_id": row["id"],
+        "started_at": row["started_at"],
+        "task_id": row["task_id"],
+    }))
 
 
 def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
@@ -247,9 +256,25 @@ def main():
 
         if subcommand == "start":
             if len(args) < 2:
-                print("Usage: tusk skill-run start <skill_name>", file=sys.stderr)
+                print("Usage: tusk skill-run start <skill_name> [--task-id <id>]", file=sys.stderr)
                 sys.exit(1)
-            cmd_start(conn, args[1])
+            skill_name = args[1]
+            task_id: int | None = None
+            i = 2
+            while i < len(args):
+                if args[i] == "--task-id" and i + 1 < len(args):
+                    try:
+                        task_id = int(args[i + 1])
+                    except ValueError:
+                        print(
+                            f"Error: --task-id must be an integer, got '{args[i + 1]}'",
+                            file=sys.stderr,
+                        )
+                        sys.exit(1)
+                    i += 2
+                else:
+                    i += 1
+            cmd_start(conn, skill_name, task_id)
 
         elif subcommand == "finish":
             if len(args) < 2:
