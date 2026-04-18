@@ -292,6 +292,11 @@ def main():
             cmd_start(conn, skill_name, task_id)
 
         elif subcommand == "finish":
+            if len(args) >= 2 and args[1] in ("--help", "-h"):
+                # --help at the run_id position: print usage and exit 0 instead of
+                # the confusing 'run_id must be an integer' error.
+                print("Usage: tusk skill-run finish <run_id> [--metadata JSON]")
+                return
             if len(args) < 2:
                 print("Usage: tusk skill-run finish <run_id> [--metadata JSON]", file=sys.stderr)
                 sys.exit(1)
@@ -312,6 +317,11 @@ def main():
             cmd_finish(conn, run_id, metadata, db_path)
 
         elif subcommand == "cancel":
+            if len(args) >= 2 and args[1] in ("--help", "-h"):
+                # --help at the run_id position: print usage and exit 0 instead of
+                # the confusing 'run_id must be an integer' error.
+                print("Usage: tusk skill-run cancel <run_id>")
+                return
             if len(args) < 2:
                 print("Usage: tusk skill-run cancel <run_id>", file=sys.stderr)
                 sys.exit(1)

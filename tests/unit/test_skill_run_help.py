@@ -121,3 +121,30 @@ class TestStartHelp:
         assert exit_code == 0
         assert "Usage: tusk skill-run start" in out
         assert _row_count(db_path) == 0
+
+
+class TestFinishCancelHelp:
+    """Covers criterion 407: finish/cancel --help print usage and exit 0 instead of an integer error."""
+
+    def test_finish_double_dash_help_prints_usage_and_exits_zero(self, db_path, monkeypatch):
+        exit_code, out, err = _run_main(db_path, monkeypatch, "finish", "--help")
+        assert exit_code == 0
+        assert "Usage: tusk skill-run finish" in out
+        # Before the fix, this branch reported 'run_id must be an integer'.
+        assert "must be an integer" not in err
+
+    def test_finish_short_dash_h_prints_usage_and_exits_zero(self, db_path, monkeypatch):
+        exit_code, out, err = _run_main(db_path, monkeypatch, "finish", "-h")
+        assert exit_code == 0
+        assert "Usage: tusk skill-run finish" in out
+
+    def test_cancel_double_dash_help_prints_usage_and_exits_zero(self, db_path, monkeypatch):
+        exit_code, out, err = _run_main(db_path, monkeypatch, "cancel", "--help")
+        assert exit_code == 0
+        assert "Usage: tusk skill-run cancel" in out
+        assert "must be an integer" not in err
+
+    def test_cancel_short_dash_h_prints_usage_and_exits_zero(self, db_path, monkeypatch):
+        exit_code, out, err = _run_main(db_path, monkeypatch, "cancel", "-h")
+        assert exit_code == 0
+        assert "Usage: tusk skill-run cancel" in out
