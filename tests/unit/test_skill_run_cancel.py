@@ -50,7 +50,8 @@ CREATE TABLE skill_runs (
     tokens_out INTEGER,
     model TEXT,
     metadata TEXT,
-    request_count INTEGER
+    request_count INTEGER,
+    task_id INTEGER
 );
 """
 
