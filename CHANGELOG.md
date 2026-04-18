@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [623] - 2026-04-17
+
+- [TASK-58] [Deferred] Trim tusk-init SKILL.md — move pillar catalogue and default claims to companion
+
 ## [622] - 2026-04-17
 
 - [TASK-57] [Deferred] Trim address-issue SKILL.md — consolidate approval blocks and gh-error paths
