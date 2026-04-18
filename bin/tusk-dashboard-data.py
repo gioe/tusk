@@ -563,3 +563,140 @@ def fetch_complexity_metrics(conn: sqlite3.Connection) -> list[dict]:
     result = [dict(r) for r in rows]
     log.debug("Fetched %d complexity metric rows", len(result))
     return result
+
+
+def fetch_model_performance(conn: sqlite3.Connection, offset_minutes: int = 0) -> dict:
+    """Fetch per-model rollups for the Models dashboard tab.
+
+    Returns a dict with four keys:
+    - models: per-model rollups with task-session and skill-run sub-aggregates,
+      keyed on the COALESCE(model, 'unknown') value so the Tasks/Skills/Both
+      toggle can recombine them client-side. Sorted by total cost desc.
+    - complexity_matrix: (model, complexity) buckets with avg turns and avg
+      cost-per-session derived from task_sessions only (skill_runs have no
+      task linkage, hence no complexity).
+    - timeseries_tasks / timeseries_skills: daily rollups per model, bucketed
+      in local time via offset_minutes so the line chart on the Models tab
+      lines up with the other time-series panels.
+    """
+    log.debug("Querying model performance rollups (offset=%d)", offset_minutes)
+    sign = "+" if offset_minutes >= 0 else ""
+    offset_mod = f"{sign}{offset_minutes} minutes"
+
+    task_rollup_rows = conn.execute(
+        """SELECT COALESCE(s.model, 'unknown') as model,
+                  COUNT(s.id) as task_session_count,
+                  COUNT(DISTINCT s.task_id) as task_count,
+                  SUM(COALESCE(s.cost_dollars, 0)) as task_cost,
+                  SUM(COALESCE(s.tokens_in, 0)) as task_tokens_in,
+                  SUM(COALESCE(s.tokens_out, 0)) as task_tokens_out,
+                  SUM(COALESCE(s.lines_added, 0)) as task_lines_added,
+                  SUM(COALESCE(s.lines_removed, 0)) as task_lines_removed,
+                  SUM(COALESCE(s.request_count, 0)) as task_request_count
+           FROM task_sessions s
+           GROUP BY COALESCE(s.model, 'unknown')"""
+    ).fetchall()
+    task_rollup = {r["model"]: dict(r) for r in task_rollup_rows}
+
+    skill_rollup: dict[str, dict] = {}
+    try:
+        skill_rollup_rows = conn.execute(
+            """SELECT COALESCE(model, 'unknown') as model,
+                      COUNT(*) as skill_run_count,
+                      SUM(COALESCE(cost_dollars, 0)) as skill_cost,
+                      SUM(COALESCE(tokens_in, 0)) as skill_tokens_in,
+                      SUM(COALESCE(tokens_out, 0)) as skill_tokens_out,
+                      SUM(COALESCE(request_count, 0)) as skill_request_count
+               FROM skill_runs
+               GROUP BY COALESCE(model, 'unknown')"""
+        ).fetchall()
+        skill_rollup = {r["model"]: dict(r) for r in skill_rollup_rows}
+    except sqlite3.OperationalError:
+        log.warning("skill_runs table not found — skipping skill rollups for Models tab")
+
+    all_model_names = set(task_rollup) | set(skill_rollup)
+    models: list[dict] = []
+    for name in all_model_names:
+        t = task_rollup.get(name, {})
+        s = skill_rollup.get(name, {})
+        models.append({
+            "model": name,
+            "task_session_count": t.get("task_session_count") or 0,
+            "task_count": t.get("task_count") or 0,
+            "task_cost": round(t.get("task_cost") or 0, 6),
+            "task_tokens_in": t.get("task_tokens_in") or 0,
+            "task_tokens_out": t.get("task_tokens_out") or 0,
+            "task_lines_added": t.get("task_lines_added") or 0,
+            "task_lines_removed": t.get("task_lines_removed") or 0,
+            "task_request_count": t.get("task_request_count") or 0,
+            "skill_run_count": s.get("skill_run_count") or 0,
+            "skill_cost": round(s.get("skill_cost") or 0, 6),
+            "skill_tokens_in": s.get("skill_tokens_in") or 0,
+            "skill_tokens_out": s.get("skill_tokens_out") or 0,
+            "skill_request_count": s.get("skill_request_count") or 0,
+        })
+    models.sort(key=lambda m: (-(m["task_cost"] + m["skill_cost"]), m["model"]))
+
+    cm_rows = conn.execute(
+        """SELECT COALESCE(s.model, 'unknown') as model,
+                  t.complexity,
+                  COUNT(s.id) as session_count,
+                  ROUND(AVG(COALESCE(s.request_count, 0)), 1) as avg_turns,
+                  ROUND(AVG(COALESCE(s.cost_dollars, 0)), 4) as avg_cost
+           FROM task_sessions s
+           LEFT JOIN tasks t ON s.task_id = t.id
+           WHERE t.complexity IS NOT NULL
+           GROUP BY COALESCE(s.model, 'unknown'), t.complexity
+           ORDER BY model, CASE t.complexity
+               WHEN 'XS' THEN 1
+               WHEN 'S' THEN 2
+               WHEN 'M' THEN 3
+               WHEN 'L' THEN 4
+               WHEN 'XL' THEN 5
+               ELSE 6
+           END"""
+    ).fetchall()
+    complexity_matrix = [dict(r) for r in cm_rows]
+
+    ts_task_rows = conn.execute(
+        f"""SELECT date(started_at, '{offset_mod}') as day,
+                   COALESCE(model, 'unknown') as model,
+                   SUM(COALESCE(cost_dollars, 0)) as cost,
+                   SUM(COALESCE(request_count, 0)) as request_count,
+                   SUM(COALESCE(lines_added, 0) + COALESCE(lines_removed, 0)) as total_lines,
+                   SUM(COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0)) as total_tokens
+            FROM task_sessions
+            WHERE started_at IS NOT NULL
+            GROUP BY day, model
+            ORDER BY day, model"""
+    ).fetchall()
+    timeseries_tasks = [dict(r) for r in ts_task_rows]
+
+    timeseries_skills: list[dict] = []
+    try:
+        ts_skill_rows = conn.execute(
+            f"""SELECT date(started_at, '{offset_mod}') as day,
+                       COALESCE(model, 'unknown') as model,
+                       SUM(COALESCE(cost_dollars, 0)) as cost,
+                       SUM(COALESCE(request_count, 0)) as request_count,
+                       0 as total_lines,
+                       SUM(COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0)) as total_tokens
+                FROM skill_runs
+                WHERE started_at IS NOT NULL
+                GROUP BY day, model
+                ORDER BY day, model"""
+        ).fetchall()
+        timeseries_skills = [dict(r) for r in ts_skill_rows]
+    except sqlite3.OperationalError:
+        log.warning("skill_runs table not found — skipping skill timeseries for Models tab")
+
+    log.debug(
+        "Fetched models=%d, complexity=%d, ts_tasks=%d, ts_skills=%d",
+        len(models), len(complexity_matrix), len(timeseries_tasks), len(timeseries_skills),
+    )
+    return {
+        "models": models,
+        "complexity_matrix": complexity_matrix,
+        "timeseries_tasks": timeseries_tasks,
+        "timeseries_skills": timeseries_skills,
+    }

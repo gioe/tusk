@@ -822,6 +822,172 @@ class TestFetchSkillRuns:
 
 
 # ---------------------------------------------------------------------------
+# fetch_model_performance()
+# ---------------------------------------------------------------------------
+
+
+class TestFetchModelPerformance:
+    def test_unions_task_and_skill_models(self):
+        """Models are drawn from task_sessions and skill_runs; each gets a row."""
+        conn = _make_conn_full()
+        conn.execute("INSERT INTO tasks (id, summary) VALUES (?, ?)", (1, "t1"))
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, cost_dollars, model, request_count) VALUES (?, ?, ?, ?, ?)",
+            (1, "2026-04-01 10:00:00", 0.50, "sonnet-4", 30),
+        )
+        conn.execute(
+            "INSERT INTO skill_runs (skill_name, started_at, cost_dollars, model, request_count) VALUES (?, ?, ?, ?, ?)",
+            ("/tusk", "2026-04-01 11:00:00", 0.05, "haiku-4", 5),
+        )
+        conn.commit()
+
+        result = dashboard_data.fetch_model_performance(conn)
+        names = {m["model"] for m in result["models"]}
+        assert names == {"sonnet-4", "haiku-4"}
+
+    def test_task_and_skill_rollups_are_separate(self):
+        """Same model on both tables → one row with both sub-aggregates."""
+        conn = _make_conn_full()
+        conn.execute("INSERT INTO tasks (id, summary) VALUES (?, ?)", (1, "t1"))
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, cost_dollars, tokens_in, tokens_out, lines_added, lines_removed, model, request_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (1, "2026-04-01 10:00:00", 0.80, 1000, 500, 30, 10, "sonnet-4", 40),
+        )
+        conn.execute(
+            "INSERT INTO skill_runs (skill_name, started_at, cost_dollars, tokens_in, tokens_out, model, request_count) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("/tusk", "2026-04-01 11:00:00", 0.20, 200, 100, "sonnet-4", 7),
+        )
+        conn.commit()
+
+        result = dashboard_data.fetch_model_performance(conn)
+        assert len(result["models"]) == 1
+        m = result["models"][0]
+        assert m["model"] == "sonnet-4"
+        assert m["task_session_count"] == 1
+        assert abs(m["task_cost"] - 0.80) < 1e-9
+        assert m["task_tokens_in"] == 1000
+        assert m["task_lines_added"] == 30
+        assert m["task_request_count"] == 40
+        assert m["skill_run_count"] == 1
+        assert abs(m["skill_cost"] - 0.20) < 1e-9
+        assert m["skill_tokens_in"] == 200
+        assert m["skill_request_count"] == 7
+
+    def test_null_model_becomes_unknown(self):
+        """Rows with NULL model group under the sentinel 'unknown'."""
+        conn = _make_conn_full()
+        conn.execute("INSERT INTO tasks (id, summary) VALUES (?, ?)", (1, "t1"))
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, cost_dollars, model) VALUES (?, ?, ?, ?)",
+            (1, "2026-04-01 10:00:00", 0.10, None),
+        )
+        conn.commit()
+
+        result = dashboard_data.fetch_model_performance(conn)
+        assert [m["model"] for m in result["models"]] == ["unknown"]
+
+    def test_models_sorted_by_total_cost_desc(self):
+        """Highest task_cost + skill_cost combined model appears first."""
+        conn = _make_conn_full()
+        conn.execute("INSERT INTO tasks (id, summary) VALUES (?, ?)", (1, "t1"))
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, cost_dollars, model) VALUES (?, ?, ?, ?)",
+            (1, "2026-04-01 10:00:00", 0.10, "cheap-model"),
+        )
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, cost_dollars, model) VALUES (?, ?, ?, ?)",
+            (1, "2026-04-01 11:00:00", 5.00, "expensive-model"),
+        )
+        conn.commit()
+
+        result = dashboard_data.fetch_model_performance(conn)
+        assert result["models"][0]["model"] == "expensive-model"
+        assert result["models"][1]["model"] == "cheap-model"
+
+    def test_complexity_matrix_groups_by_model_and_complexity(self):
+        """complexity_matrix carries avg_turns and avg_cost per (model, complexity)."""
+        conn = _make_conn_full()
+        conn.execute(
+            "INSERT INTO tasks (id, summary, status, closed_reason, complexity) VALUES (?, ?, ?, ?, ?)",
+            (1, "m-task", "Done", "completed", "M"),
+        )
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, cost_dollars, model, request_count) VALUES (?, ?, ?, ?, ?)",
+            (1, "2026-04-01 10:00:00", 1.00, "sonnet-4", 100),
+        )
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, cost_dollars, model, request_count) VALUES (?, ?, ?, ?, ?)",
+            (1, "2026-04-01 11:00:00", 0.50, "sonnet-4", 50),
+        )
+        conn.commit()
+
+        result = dashboard_data.fetch_model_performance(conn)
+        cm = result["complexity_matrix"]
+        assert len(cm) == 1
+        row = cm[0]
+        assert row["model"] == "sonnet-4"
+        assert row["complexity"] == "M"
+        assert row["session_count"] == 2
+        assert row["avg_turns"] == 75.0
+        assert abs(row["avg_cost"] - 0.75) < 1e-9
+
+    def test_complexity_matrix_excludes_null_complexity(self):
+        """Sessions linked to tasks with NULL complexity are omitted."""
+        conn = _make_conn_full()
+        conn.execute("INSERT INTO tasks (id, summary, complexity) VALUES (?, ?, ?)", (1, "no-size", None))
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, cost_dollars, model) VALUES (?, ?, ?, ?)",
+            (1, "2026-04-01 10:00:00", 1.00, "sonnet-4"),
+        )
+        conn.commit()
+
+        result = dashboard_data.fetch_model_performance(conn)
+        assert result["complexity_matrix"] == []
+
+    def test_timeseries_bucketed_by_local_day(self):
+        """offset_minutes shifts started_at into local day buckets."""
+        conn = _make_conn_full()
+        conn.execute("INSERT INTO tasks (id, summary) VALUES (?, ?)", (1, "t1"))
+        # 04-01 23:30 UTC → 04-02 00:30 at UTC+60
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, cost_dollars, model) VALUES (?, ?, ?, ?)",
+            (1, "2026-04-01 23:30:00", 1.00, "sonnet-4"),
+        )
+        conn.commit()
+
+        result = dashboard_data.fetch_model_performance(conn, offset_minutes=60)
+        assert len(result["timeseries_tasks"]) == 1
+        assert result["timeseries_tasks"][0]["day"] == "2026-04-02"
+        assert result["timeseries_tasks"][0]["model"] == "sonnet-4"
+
+    def test_missing_skill_runs_table_degrades_gracefully(self):
+        """No skill_runs table → skill rollups and timeseries are empty, task side still works."""
+        conn = _make_conn()  # minimal schema, no skill_runs
+        conn.execute("INSERT INTO tasks (id, summary) VALUES (?, ?)", (1, "t1"))
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, cost_dollars, model) VALUES (?, ?, ?, ?)",
+            (1, "2026-04-01 10:00:00", 0.25, "sonnet-4"),
+        )
+        conn.commit()
+
+        result = dashboard_data.fetch_model_performance(conn)
+        assert len(result["models"]) == 1
+        assert result["models"][0]["skill_run_count"] == 0
+        assert abs(result["models"][0]["skill_cost"]) < 1e-9
+        assert result["timeseries_skills"] == []
+
+    def test_empty_database_returns_empty_lists(self):
+        conn = _make_conn_full()
+        result = dashboard_data.fetch_model_performance(conn)
+        assert result == {
+            "models": [],
+            "complexity_matrix": [],
+            "timeseries_tasks": [],
+            "timeseries_skills": [],
+        }
+
+
+# ---------------------------------------------------------------------------
 # fetch_velocity()
 # ---------------------------------------------------------------------------
 
