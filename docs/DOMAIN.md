@@ -185,6 +185,31 @@ A bounded work session on a task, tracking cost and metrics. A task can have mul
 
 ---
 
+### Task Status Transition
+
+An append-only audit log entry recording one change of `tasks.status`. Populated automatically by the `log_task_status_transition` trigger so that rework — a task that cycles `In Progress → To Do → In Progress` or is reopened `Done → To Do` via `tusk task-reopen --force` — is distinguishable from a task that moved straight through the lifecycle. `tasks.status` only holds the current state; without this log, "how many times did this task get reopened?" is unanswerable.
+
+| Attribute | Type | Constraints | Description |
+|-----------|------|-------------|-------------|
+| `id` | INTEGER | PK, autoincrement | |
+| `task_id` | INTEGER | FK → tasks(id) ON DELETE CASCADE | Owning task |
+| `from_status` | TEXT | nullable | Previous status (NULL only for synthetic backfill rows with no prior state) |
+| `to_status` | TEXT | NOT NULL | New status |
+| `changed_at` | TEXT | NOT NULL, default now | Timestamp of the transition |
+
+**Indexes:** `idx_task_status_transitions_task_id`.
+
+**Trigger: `log_task_status_transition`.** `AFTER UPDATE OF status ON tasks FOR EACH ROW WHEN OLD.status IS NOT NEW.status` — inserts one row per status change. No-op UPDATEs (same-status assignments) do not log. The trigger fires for transitions performed via `tusk task-reopen --force` too: that command drops and recreates `validate_status_transition` (the forward-only enforcement trigger), not `log_task_status_transition`, so reopens are captured.
+
+**Backfill.** Migration 53 seeds synthetic rows for existing tasks so the table is not empty on first upgrade:
+- **Done** tasks get a `'To Do' → 'In Progress'` row at `started_at` (when set) plus an `'In Progress' → 'Done'` row at `COALESCE(closed_at, updated_at)`.
+- **In Progress** tasks get a `'To Do' → 'In Progress'` row at `started_at` (when set).
+- **To Do** tasks get nothing.
+
+**No historical reopen recovery.** No synthetic row ever has `from_status = 'Done'`, because reopen history was never stored in the DB or git. `task_metrics.reopen_count` is therefore always `0` for tasks that were already closed before migration 53 landed; the audit trail is forward-looking only. See `docs/MIGRATIONS.md § Seeding Audit Tables: No Historical Recovery`.
+
+---
+
 ### Task Progress Checkpoint
 
 An append-only log entry written after each commit, capturing enough context for a new agent to resume work mid-task without reading the full conversation history.
@@ -478,7 +503,7 @@ Task A **contingently blocks** Task B means: B can theoretically proceed, but it
 
 | View | Purpose | Used By |
 |------|---------|---------|
-| `task_metrics` | Aggregates session cost/tokens/lines/request_count per task (exposes `total_request_count` = SUM of `task_sessions.request_count`) | `tusk-dashboard.py`, reporting |
+| `task_metrics` | Aggregates session cost/tokens/lines/request_count per task (exposes `total_request_count` = SUM of `task_sessions.request_count`, plus `reopen_count` = count of `task_status_transitions` rows whose `from_status` is `'Done'` — a forward-looking rework signal; always `0` for tasks that were already Done before migration 53) | `tusk-dashboard.py`, reporting |
 | `v_ready_tasks` | Canonical "ready to work" definition: To Do, all `blocks`-type deps Done, no open external blockers (contingent deps do not prevent readiness) | `/tusk`, `tusk-loop.py`, `tusk deps ready` |
 | `v_chain_heads` | Non-Done tasks with unfinished downstream dependents and no unmet upstream deps | `/chain` |
 | `v_blocked_tasks` | Non-Done tasks blocked by dependency or external blocker, with `block_reason` and `blocking_summary` | `/tusk blocked`, `tusk deps blocked` |
