@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [647] - 2026-04-18
+
+- [TASK-94] Broaden task_metrics.reopen_count to cover In Progress to To Do transitions
+
 ## [646] - 2026-04-18
 
 - [TASK-81] Add task_status_transitions log for rework measurement
