@@ -154,6 +154,8 @@ Present analysis in this format:
 
 **IMPORTANT**: Before making any changes, explicitly ask the user to approve each category.
 
+If the user declines approval (or no actions were proposed), run `tusk skill-run cancel <run_id>` and stop — do not proceed to Step 5. This closes the open `skill_runs` row instead of leaving it pending forever.
+
 ## Step 5: Execute Changes
 
 Only after user approval:

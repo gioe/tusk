@@ -148,9 +148,15 @@ def cmd_cancel(conn, run_id: int) -> None:
         (run_id,),
     ).fetchone()
 
+    # Cancel is cleanup-only: exit 0 on missing or already-finished rows so
+    # skill bail-out paths can call it unconditionally without masking the
+    # real abort reason with a cancel-failure exit code.
     if not row:
-        print(f"Error: No skill run found with id {run_id}", file=sys.stderr)
-        sys.exit(1)
+        print(
+            f"Warning: No skill run found with id {run_id} — cancel is a no-op.",
+            file=sys.stderr,
+        )
+        return
 
     if row["ended_at"]:
         print(

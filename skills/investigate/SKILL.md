@@ -33,6 +33,8 @@ If the user didn't provide a description, ask:
 
 > What problem should I investigate? Describe the issue, area of concern, or question you want scoped.
 
+If the user does not respond, or declines to provide a problem statement, run `tusk skill-run cancel <run_id>` and stop. This closes the open `skill_runs` row instead of leaving it pending forever.
+
 **Valid outcomes include "no action needed."** The goal is an honest assessment, not a task list. If investigation reveals the concern is unfounded, the code is already correct, or existing tasks cover it, say so clearly — that is a successful investigation.
 
 ## Step 2: Enter Plan Mode

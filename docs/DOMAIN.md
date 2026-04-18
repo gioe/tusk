@@ -258,7 +258,7 @@ A record of a single execution of a tusk skill, capturing start/end timestamps, 
 | `id` | INTEGER | PK, autoincrement | |
 | `skill_name` | TEXT | NOT NULL | Skill invoked (e.g. `groom-backlog`) |
 | `started_at` | TEXT | NOT NULL, default now | When `tusk skill-run start` was called |
-| `ended_at` | TEXT | nullable | Set by `tusk skill-run finish` |
+| `ended_at` | TEXT | nullable | Set by `tusk skill-run finish` or `tusk skill-run cancel` |
 | `cost_dollars` | REAL | nullable | Estimated cost from transcript parsing |
 | `tokens_in` | INTEGER | nullable | Total input tokens (base + cache write + cache read) |
 | `tokens_out` | INTEGER | nullable | Output tokens |

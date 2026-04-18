@@ -99,7 +99,7 @@ require it).
 |------|---------------|-------|--------|
 | **tusk-session-stats.py** | `tusk session-stats <session_id> [transcript_path]` | Claude Code JSONL transcripts, `task_sessions` | `task_sessions` (`tokens_in`, `tokens_out`, `cost_dollars`, `model`); depends on `tusk-pricing-lib.py` |
 | **tusk-session-recalc.py** | `tusk session-recalc` | `task_sessions`, Claude Code JSONL transcripts | `task_sessions` (recomputes cost for all sessions); depends on `tusk-pricing-lib.py` |
-| **tusk-skill-run.py** | `tusk skill-run start\|finish\|list [flags]` | `skill_runs`, Claude Code JSONL transcripts | `skill_runs`; depends on `tusk-pricing-lib.py` |
+| **tusk-skill-run.py** | `tusk skill-run start\|finish\|cancel\|list [flags]` | `skill_runs`, Claude Code JSONL transcripts | `skill_runs`; depends on `tusk-pricing-lib.py` |
 | **tusk-token-audit.py** | `tusk token-audit [--summary\|--json]` | skill SKILL.md files in `skills/`, `skills-internal/`, `.claude/skills/` | nothing; advisory analysis only |
 
 ### Dashboard
