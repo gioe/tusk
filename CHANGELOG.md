@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [633] - 2026-04-18
+
+- [TASK-67] Teach tusk commit to handle already-staged deletions without re-adding them via `git add -f`
+
 ## [632] - 2026-04-18
 
 - [TASK-66] Improve tusk-criteria.py test-verification: raise subprocess timeout and surface exit code + elapsed time on failure

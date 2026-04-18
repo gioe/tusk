@@ -130,6 +130,41 @@ def run(args: list[str], check: bool = True, cwd: str | None = None) -> subproce
     return subprocess.run(args, capture_output=True, text=True, encoding="utf-8", check=check, cwd=cwd)
 
 
+def _get_staged_deletions(repo_root: str) -> set[str]:
+    """Return repo-root-relative paths currently staged as deletions.
+
+    Uses ``git diff --cached --name-status -z`` so paths with embedded
+    special characters survive the parse. Renames and copies carry two
+    path tokens (old + new) and are skipped — neither is a pure deletion
+    of the user-supplied path.
+
+    Paths returned here must be excluded from ``git add`` in Step 3
+    (TASK-67): the gitignore-retry branch force-adds with ``-f``, which
+    would silently re-add the deleted file and defeat the deletion.
+    """
+    result = run(
+        ["git", "diff", "--cached", "--name-status", "-z"],
+        check=False, cwd=repo_root,
+    )
+    if result.returncode != 0 or not result.stdout:
+        return set()
+    deletions: set[str] = set()
+    tokens = result.stdout.split("\0")
+    i = 0
+    while i < len(tokens):
+        status = tokens[i]
+        if not status:
+            i += 1
+            continue
+        if status[:1] in ("R", "C"):
+            i += 3
+            continue
+        if status.startswith("D") and i + 1 < len(tokens):
+            deletions.add(tokens[i + 1])
+        i += 2
+    return deletions
+
+
 def _print_error(msg: str) -> None:
     """Print an error to both stderr (interactive) and stdout (background-task output file capture)."""
     print(msg, file=sys.stderr)
@@ -456,10 +491,15 @@ def _run_commit(argv: list[str], state: dict) -> int:
             cwd=repo_root,
         )
         git_tracked = set(ls.stdout.splitlines())
+        # Files already staged as deletions (via `git rm`) are legitimate —
+        # they are absent from disk AND from `git ls-files` (the rm removed
+        # them from the index) but appear in `git diff --cached` as 'D'.
+        # Treat them as valid inputs so Step 3 can commit the staged deletion.
+        staged_deletions = _get_staged_deletions(repo_root)
         missing = [
             (orig, resolved)
             for (orig, resolved), rel in zip(not_on_disk, rel_for_git)
-            if rel not in git_tracked
+            if rel not in git_tracked and rel not in staged_deletions
         ]
     if missing:
         for orig, resolved in missing:
@@ -628,10 +668,42 @@ def _run_commit(argv: list[str], state: dict) -> int:
     # File paths were already resolved and validated in Step 0.
     # git add handles deletions of tracked files natively since Git 2.x — no git rm needed.
     # The -- separator prevents git from misinterpreting file paths as options.
+    #
+    # Paths already staged as deletions (e.g. via `git rm`) MUST NOT be passed
+    # to `git add` (TASK-67): the gitignore-retry branch force-adds with `-f`
+    # and would silently re-add the deleted file to the index, defeating the
+    # deletion. Partition them out; they ride along into the commit through
+    # their existing staged state.
+    staged_deletion_set = _get_staged_deletions(repo_root)
+    rel_for_diff = [
+        os.path.relpath(f, repo_root) if os.path.isabs(f) else f
+        for f in resolved_files
+    ]
+    to_add = [
+        f for f, rel in zip(resolved_files, rel_for_diff)
+        if rel not in staged_deletion_set
+    ]
+    skipped_deletions = len(resolved_files) - len(to_add)
+
     if announce_status:
-        print(f"=== Staging {len(resolved_files)} file(s) ===")
+        if to_add and skipped_deletions:
+            print(
+                f"=== Staging {len(to_add)} file(s) "
+                f"(plus {skipped_deletions} already-staged deletion(s)) ==="
+            )
+        elif to_add:
+            print(f"=== Staging {len(to_add)} file(s) ===")
+        else:
+            print(f"=== Committing {skipped_deletions} already-staged deletion(s) ===")
         sys.stdout.flush()
-    result = run(["git", "add", "--"] + resolved_files, check=False, cwd=repo_root)
+
+    if to_add:
+        result = run(["git", "add", "--"] + to_add, check=False, cwd=repo_root)
+    else:
+        # Deletion-only commit: nothing to add; the index already holds the
+        # staged deletions. Fabricate a success result so the existing flow
+        # falls straight through to Step 4.
+        result = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
     if result.returncode != 0:
         stderr_text = result.stderr.strip()
 
@@ -642,7 +714,7 @@ def _run_commit(argv: list[str], state: dict) -> int:
         if "pathspec" in stderr_text and "did not match" in stderr_text:
             rel_resolved = [
                 os.path.relpath(f, repo_root) if os.path.isabs(f) else f
-                for f in resolved_files
+                for f in to_add
             ]
             cached = run(
                 ["git", "ls-files", "--cached", "--"] + rel_resolved,
@@ -660,12 +732,12 @@ def _run_commit(argv: list[str], state: dict) -> int:
                 stderr_text = None  # suppress the error block below
 
         if stderr_text is not None:
-            files_str = " ".join(resolved_files)
+            files_str = " ".join(to_add)
             # Probe each file with git check-ignore -v to surface the specific
             # gitignore rule (if any) blocking it — more actionable than checking
             # for English substrings in git's locale-dependent error output.
             ignored_files = []
-            for f in resolved_files:
+            for f in to_add:
                 ci = run(["git", "check-ignore", "-v", f], check=False, cwd=repo_root)
                 if ci.returncode == 0 and ci.stdout.strip():
                     ignored_files.append((f, ci.stdout.strip()))
@@ -674,7 +746,7 @@ def _run_commit(argv: list[str], state: dict) -> int:
                 # Auto-retry: if a file is blocked by .gitignore, retry with
                 # git add -f as a best-effort fallback (Issue #401).
                 ignored_paths = [f for f, _ in ignored_files]
-                non_ignored_paths = [f for f in resolved_files if f not in ignored_paths]
+                non_ignored_paths = [f for f in to_add if f not in ignored_paths]
                 print(
                     f"Note: {len(ignored_paths)} file(s) blocked by .gitignore — "
                     "retrying with `git add -f` (force-add for gitignored paths)."
@@ -758,9 +830,9 @@ def _run_commit(argv: list[str], state: dict) -> int:
         # nothing new staged. Detect this by diffing the index against the
         # working tree for the files we staged; if any diverged, re-stage the
         # reformatted content and retry the commit exactly once.
-        if not commit_landed and not skip_verify:
+        if not commit_landed and not skip_verify and to_add:
             diff_result = run(
-                ["git", "diff", "--name-only", "--"] + resolved_files,
+                ["git", "diff", "--name-only", "--"] + to_add,
                 check=False,
                 cwd=repo_root,
             )
@@ -775,7 +847,7 @@ def _run_commit(argv: list[str], state: dict) -> int:
                     "after staging — re-staging reformatted content and retrying commit once."
                 )
                 readd = run(
-                    ["git", "add", "--"] + resolved_files, check=False, cwd=repo_root
+                    ["git", "add", "--"] + to_add, check=False, cwd=repo_root
                 )
                 if readd.returncode == 0:
                     result = run(commit_cmd, check=False, cwd=repo_root)
