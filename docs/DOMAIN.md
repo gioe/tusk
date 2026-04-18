@@ -219,6 +219,7 @@ One reviewer's assessment of a task's PR, for one pass of the fix-and-re-review 
 | `tokens_in` | INTEGER | nullable | |
 | `tokens_out` | INTEGER | nullable | |
 | `agent_name` | TEXT | nullable | Named agent that ran the review (set by /chain when spawning an agent-driven review) |
+| `model` | TEXT | nullable | Model that produced the review (e.g. `claude-opus-4-7`); set by `tusk review approve --model` / `tusk review request-changes --model` on review close. Added in migration 52; historical rows are backfilled from `task_sessions.model` by joining `code_reviews.created_at` into session windows. |
 | `note` | TEXT | nullable | Optional reason or note stored with the approval (e.g. "Auto-approved (stall): agent exceeded monitoring threshold") |
 | `created_at` | TEXT | default now | |
 | `updated_at` | TEXT | default now | |
