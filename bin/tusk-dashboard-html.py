@@ -856,6 +856,27 @@ def generate_models_section(model_performance: dict | None) -> str:
   </div>
   <div id="modelsKpiGrid" class="kpi-grid" style="padding: 0 var(--sp-4) var(--sp-4);"></div>
 </div>
+<div class="panel" style="margin-bottom: var(--sp-6);">
+  <div class="section-header"><span>Avg Turns &amp; Cost by Complexity</span></div>
+  <div style="padding: 0 var(--sp-4) var(--sp-4);overflow-x:auto;">
+    <table id="modelsComplexityTable">
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th style="text-align:right">XS</th>
+          <th style="text-align:right">S</th>
+          <th style="text-align:right">M</th>
+          <th style="text-align:right">L</th>
+          <th style="text-align:right">XL</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <p style="font-size:0.7rem;color:var(--text-muted);margin:var(--sp-2) 0 0;">
+      Each cell shows <span style="white-space:nowrap">avg&nbsp;turns</span> / <span style="white-space:nowrap">avg&nbsp;cost</span> per session in that complexity bucket. Derived from task sessions only.
+    </p>
+  </div>
+</div>
 """
 
     script = """\
@@ -863,8 +884,10 @@ def generate_models_section(model_performance: dict | None) -> str:
 (function() {
   var data = window.__tuskModels || {};
   var models = data.models || [];
+  var complexityMatrix = data.complexity_matrix || [];
 
   var source = 'both';
+  var COMPLEXITY_TIERS = ['XS', 'S', 'M', 'L', 'XL'];
 
   function fmtCost(v) { return '$' + (v || 0).toFixed(2); }
   function fmtCostFine(v) { return '$' + (v || 0).toFixed(4); }
@@ -941,8 +964,47 @@ def generate_models_section(model_performance: dict | None) -> str:
     }).join('');
   }
 
+  function renderComplexityTable() {
+    var table = document.getElementById('modelsComplexityTable');
+    if (!table) return;
+    var tbody = table.querySelector('tbody');
+    tbody.innerHTML = '';
+    if (source === 'skills') {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty">Complexity breakdown is task-session only.</td></tr>';
+      return;
+    }
+    var byModel = {};
+    complexityMatrix.forEach(function(row) {
+      if (!byModel[row.model]) byModel[row.model] = {};
+      byModel[row.model][row.complexity] = row;
+    });
+    var modelNames = Object.keys(byModel).sort();
+    if (!modelNames.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty">No tasks with resolved complexity yet.</td></tr>';
+      return;
+    }
+    var out = '';
+    modelNames.forEach(function(name) {
+      out += '<tr><td>' + name + '</td>';
+      COMPLEXITY_TIERS.forEach(function(tier) {
+        var cell = byModel[name][tier];
+        if (!cell) {
+          out += '<td class="text-muted-dash" style="text-align:right">\u2014</td>';
+        } else {
+          out += '<td style="text-align:right">'
+            + Number(cell.avg_turns || 0).toFixed(1)
+            + ' / ' + fmtCostFine(cell.avg_cost)
+            + '</td>';
+        }
+      });
+      out += '</tr>';
+    });
+    tbody.innerHTML = out;
+  }
+
   function renderAll() {
     renderKpi();
+    renderComplexityTable();
   }
   window.__tuskModelsRerender = renderAll;
 
