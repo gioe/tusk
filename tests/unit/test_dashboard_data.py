@@ -46,11 +46,13 @@ CREATE TABLE tasks (
     expires_at TEXT,
     closed_reason TEXT,
     complexity TEXT,
-    is_deferred INTEGER NOT NULL DEFAULT 0,
+    is_deferred INTEGER NOT NULL DEFAULT 0 CHECK (is_deferred IN (0, 1)),
+    workflow TEXT,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),
     started_at TEXT,
-    closed_at TEXT
+    closed_at TEXT,
+    fixes_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL
 );
 
 CREATE TABLE task_sessions (
