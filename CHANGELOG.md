@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [660] - 2026-04-19
+
+- [TASK-105] Surface reopens and rework chain for the retro'd task in /retro
+
 ## [659] - 2026-04-19
 
 - [TASK-104] Extend `tusk retro-signals` with a `deferred_review_comments` field and wire /retro (full path) to surface a Review Theme Summary section from `review_themes` and `deferred_review_comments` — lightweight retro path is unchanged
