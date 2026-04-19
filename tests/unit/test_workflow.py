@@ -67,35 +67,41 @@ def _write_config(path, workflows=None, **overrides):
     return path
 
 
+# Mirror of bin/tusk's CREATE TABLE tasks block — kept in sync via
+# TestTasksSchemaSync below. When a migration adds or renames a tasks column,
+# update this constant; the guard will flag the drift if you forget.
+_TASKS_TABLE = """
+CREATE TABLE tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    summary TEXT NOT NULL,
+    description TEXT,
+    status TEXT DEFAULT 'To Do',
+    priority TEXT DEFAULT 'Medium',
+    domain TEXT,
+    assignee TEXT,
+    task_type TEXT,
+    priority_score INTEGER DEFAULT 0,
+    expires_at TEXT,
+    closed_reason TEXT,
+    complexity TEXT,
+    is_deferred INTEGER NOT NULL DEFAULT 0 CHECK (is_deferred IN (0, 1)),
+    workflow TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    started_at TEXT,
+    closed_at TEXT,
+    fixes_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL
+)
+"""
+
+
 def _make_db_with_workflow(tmp_path):
     """Create a DB file with the tasks table including the workflow column."""
     db_path = str(tmp_path / "tusk" / "tasks.db")
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    conn.execute("""
-        CREATE TABLE tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            summary TEXT NOT NULL,
-            description TEXT,
-            status TEXT DEFAULT 'To Do',
-            priority TEXT DEFAULT 'Medium',
-            domain TEXT,
-            assignee TEXT,
-            task_type TEXT,
-            priority_score INTEGER DEFAULT 0,
-            expires_at TEXT,
-            closed_reason TEXT,
-            complexity TEXT,
-            is_deferred INTEGER NOT NULL DEFAULT 0 CHECK (is_deferred IN (0, 1)),
-            workflow TEXT,
-            created_at TEXT DEFAULT (datetime('now')),
-            updated_at TEXT DEFAULT (datetime('now')),
-            started_at TEXT,
-            closed_at TEXT,
-            fixes_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL
-        )
-    """)
+    conn.execute(_TASKS_TABLE)
     conn.execute("""
         CREATE TABLE acceptance_criteria (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -525,3 +531,73 @@ class TestTaskUpdateWorkflow:
         row = conn.execute("SELECT workflow FROM tasks WHERE id = 1").fetchone()
         assert row["workflow"] == "anything"
         conn.close()
+
+
+# ── Schema sync guard ─────────────────────────────────────────────────────────
+
+def _extract_table_columns(sql_text, table_name):
+    """Return the set of column names defined in the CREATE TABLE <table_name> block.
+
+    Mirrors the helper of the same name in tests/unit/test_dashboard_data.py
+    and tests/unit/test_skill_run_cancel.py; duplicated so each test file's
+    fixture-vs-bin/tusk guard is self-contained.
+    """
+    import re
+
+    header = re.search(rf"CREATE TABLE {re.escape(table_name)}\s*\(", sql_text, re.IGNORECASE)
+    if not header:
+        return set()
+
+    body_start = sql_text.index("(", header.start())
+    body_lines = []
+    for line in sql_text[body_start + 1:].splitlines():
+        if line.strip().startswith(")"):
+            break
+        body_lines.append(line)
+
+    columns = set()
+    for line in body_lines:
+        line = line.strip().rstrip(",")
+        if not line:
+            continue
+        if re.match(r"(FOREIGN KEY|PRIMARY KEY|UNIQUE|CHECK|CONSTRAINT)\b", line, re.IGNORECASE):
+            continue
+        col_match = re.match(r"(\w+)", line)
+        if col_match:
+            columns.add(col_match.group(1).lower())
+    return columns
+
+
+class TestTasksSchemaSync:
+    """Guard against drift between _TASKS_TABLE fixture and bin/tusk CREATE TABLE tasks."""
+
+    def test_fixture_matches_bin_tusk(self):
+        """Fail if any column is present in one definition but absent from the other.
+
+        Mirrors TestTaskSessionsSchemaSync / TestSkillRunsSchemaSync — catches
+        future migrations that add columns to tasks without updating the
+        _TASKS_TABLE test fixture. TASK-82's migration 55 added fixes_task_id
+        to bin/tusk but _make_db_with_workflow silently drifted, so unrelated
+        unit tests began failing mid-commit with 'no such column: fixes_task_id'.
+        """
+        tusk_path = os.path.join(REPO_ROOT, "bin", "tusk")
+        with open(tusk_path) as f:
+            tusk_sql = f.read()
+
+        tusk_cols = _extract_table_columns(tusk_sql, "tasks")
+        fixture_cols = _extract_table_columns(_TASKS_TABLE, "tasks")
+
+        assert tusk_cols, "Could not find CREATE TABLE tasks in bin/tusk"
+        assert fixture_cols, "Could not find CREATE TABLE tasks in _TASKS_TABLE fixture"
+
+        missing_from_fixture = tusk_cols - fixture_cols
+        extra_in_fixture = fixture_cols - tusk_cols
+
+        assert not missing_from_fixture, (
+            f"tasks columns in bin/tusk missing from _TASKS_TABLE fixture: {sorted(missing_from_fixture)}. "
+            "Update _TASKS_TABLE in tests/unit/test_workflow.py to match."
+        )
+        assert not extra_in_fixture, (
+            f"tasks columns in _TASKS_TABLE fixture not in bin/tusk: {sorted(extra_in_fixture)}. "
+            "Update _TASKS_TABLE in tests/unit/test_workflow.py to match."
+        )
