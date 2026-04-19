@@ -552,6 +552,23 @@ def main() -> None:
     repo_root = args.repo_root
     script_dir = args.script_dir
 
+    # Guard the hidden --_rexec-src flag: the tempdir we'd rmtree in finally is
+    # derived from this path, so require it to live under the system tempdir.
+    # Under normal operation only our own os.execv sets it, always to a
+    # mkdtemp(prefix="tusk-upgrade-") subpath — anything else is misuse.
+    if args.rexec_src:
+        tmp_root = os.path.realpath(tempfile.gettempdir())
+        rexec_real = os.path.realpath(args.rexec_src)
+        try:
+            common = os.path.commonpath([rexec_real, tmp_root])
+        except ValueError:
+            common = ""
+        if common != tmp_root:
+            raise SystemExit(
+                f"Error: --_rexec-src must be a subpath of {tmp_root} "
+                f"(got: {args.rexec_src})"
+            )
+
     version_path = os.path.join(script_dir, "VERSION")
     try:
         local_version = int(Path(version_path).read_text().strip()) if os.path.exists(version_path) else 0
