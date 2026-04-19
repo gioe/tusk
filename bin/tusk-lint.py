@@ -912,6 +912,8 @@ def rule18_manifest_drift(root):
         violations.append(f"  MANIFEST: missing '{path}' (in source tree but not in MANIFEST)")
     for path in sorted(on_disk - expected_set):
         violations.append(f"  MANIFEST: extra '{path}' (in MANIFEST but not in source tree)")
+    if violations:
+        violations.append("  Fix: run `tusk generate-manifest`.")
     return violations
 
 
