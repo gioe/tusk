@@ -47,7 +47,22 @@ When `reopen_count == 0` AND both `rework_chain.fixes` and `rework_chain.fixed_b
 
 Consume `skipped_criteria` and `unconsumed_next_steps` from this same `tusk retro-signals` JSON — **do not** issue separate SQL queries against `acceptance_criteria` or `task_progress`. The aggregation already filters empty `skip_note`/`next_steps` rows for you.
 
-The remaining field (`tool_call_outliers`) is informational context for categorization but does not drive a specific report section here.
+- **`tool_call_outliers`** — tools whose `SUM(call_count)` across every session belonging to `RETRO_TASK_ID` met or exceeded a per-complexity threshold. `retro-signals` does the `tool_call_stats` aggregation, the session-grain filter (to avoid double-counting across the `(session, skill_run, criterion)` denormalization), and the threshold cut in SQL; each row is `{tool_name, call_count, total_cost, threshold, complexity}`. Drives Step 4's "Session Shape" section as a **soft warning only** — /retro does not auto-create a task from this signal, it's context for the reviewer to decide whether the shape of the session was healthy.
+
+  The per-complexity thresholds (tunable via `CALL_COUNT_THRESHOLDS` in `bin/tusk-retro-signals.py`) are:
+
+  | Complexity | `call_count` threshold |
+  |------------|------------------------|
+  | XS         | 20                     |
+  | S          | 40                     |
+  | M          | 80                     |
+  | L          | 150                    |
+  | XL         | 300                    |
+  | (unset)    | 80                     |
+
+Consume `tool_call_outliers` from this same `tusk retro-signals` JSON — **do not** issue a separate SQL query against `tool_call_stats`. The aggregation already applies the session-grain filter and the per-complexity threshold for you.
+
+This signal drives the full retro only — the lightweight retro path (XS/S in `SKILL.md`) is intentionally unchanged to keep it lean.
 
 If the task has no review activity at all, both `review_themes` and `deferred_review_comments` will be empty arrays. In that case, **omit** the "Review Theme Summary" section from Step 4 silently — do not add a "(none)" placeholder.
 
