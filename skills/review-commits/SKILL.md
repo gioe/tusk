@@ -64,46 +64,33 @@ Store the task's `domain` value — Step 7 uses it when dupe-checking and creati
 
 ## Step 3: Get the Git Diff
 
-Determine the base branch and compute the diff:
+Compute the diff range in one call — the helper handles the default-branch resolution (`tusk git-default-branch`), the `<default>...HEAD` primary range, and the `[TASK-<id>]` commit-range recovery fallback used when the feature branch has already been merged and deleted:
 
 ```bash
-DEFAULT_BRANCH=$(tusk git-default-branch)
-CURRENT_BRANCH=$(git branch --show-current)
-git diff "${DEFAULT_BRANCH}...HEAD"
-DIFF_LINES=$(git diff "${DEFAULT_BRANCH}...HEAD" | wc -l | tr -d ' ')
+DIFF_RANGE_JSON=$(tusk review-diff-range $TASK_ID)
 ```
 
-If the diff is empty — whether on the default branch or on a feature branch whose commits have already been merged (fast-forward or otherwise) — attempt to recover the correct range by scanning git log for `[TASK-<id>]` commits (where `<id>` is `TASK_ID` from Step 2):
+On success the helper prints a single JSON object with four keys (`range`, `diff_lines`, `summary`, `recovered_from_task_commits`) and exits 0. Capture:
 
 ```bash
-TASK_COMMITS=$(git log --format="%H" --grep="\[TASK-${TASK_ID}\]" -n 50)
+DIFF_RANGE=$(echo "$DIFF_RANGE_JSON" | jq -r .range)
+DIFF_LINES=$(echo "$DIFF_RANGE_JSON" | jq -r .diff_lines)
+DIFF_SUMMARY=$(echo "$DIFF_RANGE_JSON" | jq -r .summary)
 ```
 
-If `TASK_COMMITS` is non-empty, construct the range from the oldest to the newest matching commit:
+If the helper exits non-zero, it means no diff is recoverable — either no `[TASK-<id>]` commits were found in recent history, or the recovered range is still empty. The helper's stderr message is the same one Step 3 used to print inline. Run `tusk skill-run cancel <run_id>` and stop, surfacing the helper's stderr verbatim.
 
-```bash
-NEWEST_COMMIT=$(echo "$TASK_COMMITS" | head -1)
-OLDEST_COMMIT=$(echo "$TASK_COMMITS" | tail -1)
-git diff "${OLDEST_COMMIT}^..${NEWEST_COMMIT}"
-DIFF_LINES=$(git diff "${OLDEST_COMMIT}^..${NEWEST_COMMIT}" | wc -l | tr -d ' ')
-```
-
-Use this diff (and this range) going forward — including for the `--diff-summary` passed to `tusk review start` and for any re-review diff stat checks in Step 8.
-
-If `TASK_COMMITS` is empty (no `[TASK-<id>]` commits found in recent history), run `tusk skill-run cancel <run_id>` and stop with:
-> No changes found — `[TASK-<task_id>]` commits not detected in recent git log. The diff range cannot be determined automatically. Confirm the correct commit range manually and re-run.
-
-If the diff is still empty after the TASK-commit recovery, run `tusk skill-run cancel <run_id>`, report "No changes found compared to the base branch.", and stop.
-
-Capture the diff only to check for emptiness and to generate the `--diff-summary` for `tusk review start`. **Do not pass the diff to reviewer agents** — they will fetch it themselves via `git diff` to avoid transcription errors.
+Use `$DIFF_RANGE` for any subsequent `git diff` call in this skill, and pass `$DIFF_SUMMARY` to `tusk review start` (Step 4). **Do not pass the diff to reviewer agents** — they will fetch it themselves via `git diff` to avoid transcription errors.
 
 ## Step 4: Start the Review
 
 Start a review record for the task. This creates one `code_reviews` row using the configured reviewer (or unassigned if `review.reviewer` is absent):
 
 ```bash
-tusk review start <task_id> --diff-summary "<first 120 chars of diff summary>"
+tusk review start <task_id> --diff-summary "$DIFF_SUMMARY"
 ```
+
+`$DIFF_SUMMARY` was captured from the `tusk review-diff-range` JSON in Step 3 — already truncated to the first 120 characters of the diff.
 
 The command prints a single line, for example:
 
@@ -346,17 +333,13 @@ Otherwise, loop while `can_retry` is true:
    tusk review start <task_id> --pass-num <current_pass + 1> --diff-summary "Re-review pass <n>"
    ```
 
-2. **Check diff size before deciding review strategy.** Measure the current diff using the same range established in Step 3:
-   - If `CURRENT_BRANCH == DEFAULT_BRANCH` (on default branch), use the TASK-commit range from Step 3:
-     ```bash
-     git diff "${OLDEST_COMMIT}^..${NEWEST_COMMIT}" --stat | tail -1
-     ```
-   - Otherwise (feature branch), use the merge-base range:
-     ```bash
-     DEFAULT_BRANCH=$(tusk git-default-branch); git diff $(git merge-base HEAD origin/${DEFAULT_BRANCH})..HEAD --stat | tail -1
-     ```
+2. **Check diff size before deciding review strategy.** Recompute the range with the same helper used in Step 3 — it transparently handles both the default-branch (TASK-commit recovery) and feature-branch (`<default>...HEAD`) cases:
 
-   **For small or documentation-only diffs (fewer than ~200 lines changed, or only non-code files), or when `review.reviewer` is absent from config:** skip agent spawning and perform an inline review. Read the diff yourself, evaluate it against the reviewer focus area, and record the result directly (approve or request-changes + add-comment). After recording the inline decision, skip to step 3.
+   ```bash
+   DIFF_LINES=$(tusk review-diff-range $TASK_ID | jq -r .diff_lines)
+   ```
+
+   **For small or documentation-only diffs (`$DIFF_LINES` below ~200, or only non-code files), or when `review.reviewer` is absent from config:** skip agent spawning and perform an inline review. Read the diff yourself, evaluate it against the reviewer focus area, and record the result directly (approve or request-changes + add-comment). After recording the inline decision, skip to step 3.
 
    **For all other diffs:** verify the required agent sandbox permissions are configured before spawning the re-review agent. Run:
 
