@@ -500,6 +500,121 @@ def iter_tool_call_costs(
                 }
 
 
+def iter_tool_errors(
+    transcript_path: str,
+    started_at: datetime,
+    ended_at: datetime | None,
+) -> Iterator[dict]:
+    """Iterate tool failures within a transcript time window.
+
+    Yields one dict per user-typed `tool_result` block whose `is_error` flag is
+    truthy — this covers every failure the Claude Code framework records, i.e.
+    non-zero Bash exits, Edit/Read/Write guard errors, sub-agent errors, and
+    user-rejected ExitPlanMode calls. The timestamp filter uses the user
+    message's own `timestamp`, not the originating assistant call's — same
+    convention as `iter_tool_call_costs`.
+
+    Output shape:
+        tool_name (str)       — tool identifier (resolved from the assistant
+                                 message that invoked the tool; '(unknown)' if
+                                 the invocation is missing or split across a
+                                 transcript split)
+        error_text (str)      — raw error payload (trimmed; the `<tool_use_error>`
+                                 wrapper stripped when present)
+        ts (datetime)         — tz-aware timestamp of the user message
+
+    Because assistant `tool_use` blocks always precede their matching user
+    `tool_result` blocks in JSONL order, a single pass suffices: we maintain
+    a running `tool_use_id -> tool_name` map and emit errors as we see them.
+    """
+    tool_names: dict[str, str] = {}
+
+    with open(transcript_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            entry_type = entry.get("type")
+            message = entry.get("message", {}) if isinstance(entry.get("message"), dict) else {}
+            content = message.get("content")
+            if not isinstance(content, list):
+                continue
+
+            if entry_type == "assistant":
+                # Learn the tool_name for every tool_use in this message so we
+                # can attribute any later error back to the right tool.
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "tool_use":
+                        tool_use_id = block.get("id")
+                        tool_name = block.get("name")
+                        if tool_use_id and tool_name:
+                            tool_names[tool_use_id] = tool_name
+                continue
+
+            if entry_type != "user":
+                continue
+
+            ts_str = entry.get("timestamp")
+            if not ts_str:
+                continue
+            try:
+                ts = parse_timestamp(ts_str)
+            except (ValueError, TypeError):
+                continue
+            if ts < started_at:
+                continue
+            if ended_at and ts > ended_at:
+                continue
+
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") != "tool_result":
+                    continue
+                if not block.get("is_error"):
+                    continue
+                tool_name = tool_names.get(block.get("tool_use_id"), "(unknown)")
+                yield {
+                    "tool_name": tool_name,
+                    "error_text": _extract_error_text(block.get("content")),
+                    "ts": ts,
+                }
+
+
+def _extract_error_text(raw) -> str:
+    """Normalize a `tool_result` error payload into a single compact string.
+
+    The `content` field on a tool_result block is either a string or a list of
+    `{"type": "text", "text": "..."}` dicts depending on the tool. We join the
+    text segments, strip the `<tool_use_error>...</tool_use_error>` wrapper
+    when present (Claude Code emits it for framework-level rejections), and
+    collapse interior whitespace so the result renders cleanly in a single
+    table cell.
+    """
+    if isinstance(raw, str):
+        text = raw
+    elif isinstance(raw, list):
+        parts: list[str] = []
+        for c in raw:
+            if isinstance(c, dict) and c.get("type") == "text":
+                t = c.get("text")
+                if isinstance(t, str):
+                    parts.append(t)
+        text = "\n".join(parts)
+    else:
+        text = ""
+
+    text = text.strip()
+    if text.startswith("<tool_use_error>") and text.endswith("</tool_use_error>"):
+        text = text[len("<tool_use_error>"): -len("</tool_use_error>")].strip()
+    return " ".join(text.split())
+
+
 def update_session_stats(conn: sqlite3.Connection, session_id: int, totals: dict) -> None:
     """Write aggregated token/cost stats for a session to task_sessions.
 

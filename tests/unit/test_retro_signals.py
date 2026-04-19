@@ -43,7 +43,9 @@ CREATE TABLE tasks (
 );
 CREATE TABLE task_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id INTEGER NOT NULL
+    task_id INTEGER NOT NULL,
+    started_at TEXT,
+    ended_at TEXT
 );
 CREATE TABLE task_status_transitions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -444,6 +446,185 @@ class TestToolCallOutliers:
         assert out[0]["complexity"] is None
 
 
+# ── tool_errors ───────────────────────────────────────────────────────
+
+
+def _write_transcript(path, entries):
+    with open(path, "w") as f:
+        for e in entries:
+            f.write(json.dumps(e) + "\n")
+
+
+def _tc_assistant(ts_iso, tool_use_id, tool_name):
+    return {
+        "type": "assistant",
+        "timestamp": ts_iso,
+        "requestId": f"req-{tool_use_id}",
+        "message": {
+            "model": "claude-opus-4-7",
+            "usage": {"input_tokens": 0, "output_tokens": 0},
+            "content": [{"type": "tool_use", "id": tool_use_id, "name": tool_name}],
+        },
+    }
+
+
+def _tc_user_error(ts_iso, tool_use_id, body):
+    return {
+        "type": "user",
+        "timestamp": ts_iso,
+        "message": {
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": tool_use_id,
+                    "is_error": True,
+                    "content": body,
+                }
+            ]
+        },
+    }
+
+
+class TestFetchToolErrors:
+    def test_empty_when_no_sessions(self, tmp_path):
+        db_path, conn = _make_db(tmp_path, task_id=1)
+        conn.close()
+        c = sqlite3.connect(db_path)
+        c.row_factory = sqlite3.Row
+        assert mod.fetch_tool_errors(c, 1, transcripts=[]) == []
+
+    def test_empty_when_sessions_have_no_started_at(self, tmp_path):
+        db_path, conn = _make_db(tmp_path, task_id=1)
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, ended_at) VALUES (1, NULL, NULL)"
+        )
+        conn.commit()
+        conn.row_factory = sqlite3.Row
+        assert mod.fetch_tool_errors(conn, 1, transcripts=[]) == []
+
+    def test_aggregates_per_tool_with_sample(self, tmp_path):
+        db_path, conn = _make_db(tmp_path, task_id=1)
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, ended_at) "
+            "VALUES (1, '2026-04-19 12:00:00', '2026-04-19 14:00:00')"
+        )
+        conn.commit()
+        conn.row_factory = sqlite3.Row
+
+        transcript = tmp_path / "session.jsonl"
+        _write_transcript(transcript, [
+            _tc_assistant("2026-04-19T12:05:00Z", "tu_bash_1", "Bash"),
+            _tc_user_error("2026-04-19T12:05:01Z", "tu_bash_1", "Exit code 1\nfirst bash failure"),
+            _tc_assistant("2026-04-19T12:10:00Z", "tu_edit_1", "Edit"),
+            _tc_user_error("2026-04-19T12:10:01Z", "tu_edit_1",
+                           "<tool_use_error>File has not been read yet.</tool_use_error>"),
+            _tc_assistant("2026-04-19T12:15:00Z", "tu_bash_2", "Bash"),
+            _tc_user_error("2026-04-19T12:15:01Z", "tu_bash_2", "Exit code 2\nsecond bash failure"),
+        ])
+
+        out = mod.fetch_tool_errors(conn, 1, transcripts=[str(transcript)])
+        # Sorted by error_count desc, then tool_name — so Bash (2) first, Edit (1) second.
+        assert [r["tool_name"] for r in out] == ["Bash", "Edit"]
+        assert out[0]["error_count"] == 2
+        # Sample is the FIRST observed error for that tool — not the last.
+        assert out[0]["sample"].startswith("Exit code 1")
+        assert out[1]["error_count"] == 1
+        assert out[1]["sample"] == "File has not been read yet."
+
+    def test_filters_errors_outside_session_windows(self, tmp_path):
+        db_path, conn = _make_db(tmp_path, task_id=1)
+        # Two non-contiguous sessions for task 1 — proves per-session filtering
+        # is applied on top of the broad overall window.
+        conn.executescript("""
+            INSERT INTO task_sessions (task_id, started_at, ended_at)
+                VALUES (1, '2026-04-19 10:00:00', '2026-04-19 11:00:00');
+            INSERT INTO task_sessions (task_id, started_at, ended_at)
+                VALUES (1, '2026-04-19 14:00:00', '2026-04-19 15:00:00');
+        """)
+        conn.commit()
+        conn.row_factory = sqlite3.Row
+
+        transcript = tmp_path / "session.jsonl"
+        _write_transcript(transcript, [
+            # Inside first session.
+            _tc_assistant("2026-04-19T10:30:00Z", "tu_1", "Bash"),
+            _tc_user_error("2026-04-19T10:30:01Z", "tu_1", "Exit code 1"),
+            # Between the two sessions — must be dropped even though it falls
+            # inside the [10:00, 15:00] overall window.
+            _tc_assistant("2026-04-19T12:30:00Z", "tu_2", "Bash"),
+            _tc_user_error("2026-04-19T12:30:01Z", "tu_2", "Exit code 99"),
+            # Inside second session.
+            _tc_assistant("2026-04-19T14:30:00Z", "tu_3", "Edit"),
+            _tc_user_error("2026-04-19T14:30:01Z", "tu_3",
+                           "<tool_use_error>in second window</tool_use_error>"),
+        ])
+
+        out = mod.fetch_tool_errors(conn, 1, transcripts=[str(transcript)])
+        assert len(out) == 2
+        counts = {r["tool_name"]: r["error_count"] for r in out}
+        assert counts == {"Bash": 1, "Edit": 1}  # Exit-code-99 row dropped
+
+    def test_open_session_scans_to_end(self, tmp_path):
+        db_path, conn = _make_db(tmp_path, task_id=1)
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, ended_at) "
+            "VALUES (1, '2026-04-19 12:00:00', NULL)"  # open
+        )
+        conn.commit()
+        conn.row_factory = sqlite3.Row
+
+        transcript = tmp_path / "session.jsonl"
+        _write_transcript(transcript, [
+            _tc_assistant("2026-04-19T12:00:30Z", "tu_1", "Bash"),
+            _tc_user_error("2026-04-19T12:00:31Z", "tu_1", "Exit code 1"),
+            # Hours later — still inside an open session.
+            _tc_assistant("2026-04-19T18:00:00Z", "tu_2", "Bash"),
+            _tc_user_error("2026-04-19T18:00:01Z", "tu_2", "Exit code 2"),
+        ])
+
+        out = mod.fetch_tool_errors(conn, 1, transcripts=[str(transcript)])
+        assert len(out) == 1 and out[0]["tool_name"] == "Bash"
+        assert out[0]["error_count"] == 2
+
+    def test_ignores_other_tasks_sessions(self, tmp_path):
+        db_path, conn = _make_db(tmp_path, task_id=1)
+        conn.executescript("""
+            INSERT INTO tasks (id, summary) VALUES (2, 'other');
+            INSERT INTO task_sessions (task_id, started_at, ended_at)
+                VALUES (2, '2026-04-19 12:00:00', '2026-04-19 13:00:00');
+        """)
+        conn.commit()
+        conn.row_factory = sqlite3.Row
+
+        transcript = tmp_path / "session.jsonl"
+        _write_transcript(transcript, [
+            _tc_assistant("2026-04-19T12:30:00Z", "tu_1", "Bash"),
+            _tc_user_error("2026-04-19T12:30:01Z", "tu_1", "Exit code 1"),
+        ])
+        # Task 1 has no sessions — the other-task error must not leak.
+        assert mod.fetch_tool_errors(conn, 1, transcripts=[str(transcript)]) == []
+
+    def test_sample_truncated_to_limit(self, tmp_path):
+        db_path, conn = _make_db(tmp_path, task_id=1)
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, ended_at) "
+            "VALUES (1, '2026-04-19 12:00:00', '2026-04-19 13:00:00')"
+        )
+        conn.commit()
+        conn.row_factory = sqlite3.Row
+
+        long_body = "z" * 500
+        transcript = tmp_path / "session.jsonl"
+        _write_transcript(transcript, [
+            _tc_assistant("2026-04-19T12:30:00Z", "tu_1", "Bash"),
+            _tc_user_error("2026-04-19T12:30:01Z", "tu_1", long_body),
+        ])
+
+        out = mod.fetch_tool_errors(conn, 1, transcripts=[str(transcript)])
+        assert len(out[0]["sample"]) <= mod.TOOL_ERROR_SAMPLE_MAX_CHARS
+        assert out[0]["sample"].endswith("…")
+
+
 # ── unconsumed_next_steps ─────────────────────────────────────────────
 
 
@@ -487,7 +668,7 @@ class TestMainOutput:
         assert set(data.keys()) == {
             "task_id", "complexity", "reopen_count", "rework_chain",
             "review_themes", "deferred_review_comments",
-            "skipped_criteria", "tool_call_outliers",
+            "skipped_criteria", "tool_call_outliers", "tool_errors",
             "unconsumed_next_steps",
         }
         # Empty-state shape: zero counts and empty arrays.
@@ -497,6 +678,7 @@ class TestMainOutput:
         assert data["deferred_review_comments"] == []
         assert data["skipped_criteria"] == []
         assert data["tool_call_outliers"] == []
+        assert data["tool_errors"] == []
         assert data["unconsumed_next_steps"] == []
 
     def test_accepts_task_prefix_form(self, tmp_path):

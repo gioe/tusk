@@ -64,6 +64,12 @@ Consume `tool_call_outliers` from this same `tusk retro-signals` JSON — **do n
 
 This signal drives the full retro only — the lightweight retro path (XS/S in `SKILL.md`) is intentionally unchanged to keep it lean.
 
+- **`tool_errors`** — tool failures observed during this task's sessions, aggregated per `tool_name`. Data source is the Claude Code transcript (`~/.claude/projects/*.jsonl`), not a DB table — every failing tool_use already lands in the transcript with `is_error: true`, so no PostToolUse hook or sidecar log file is involved. See `docs/retro-error-detection.md` for the evaluation that picked this path over a hook. Each row is `{tool_name, error_count, sample}` where `sample` is the first observed error for that tool (trimmed to ~160 chars; the `<tool_use_error>` wrapper is stripped when present). Rows are already sorted by `error_count` descending, then `tool_name`. Drives Step 4's "Errors encountered" section as a **soft warning only** — /retro does not auto-create a task from this signal, it's context for the reviewer to decide whether the failures were meaningful (a real bug) or benign (a typo that got corrected on the next call).
+
+Consume `tool_errors` from this same `tusk retro-signals` JSON — **do not** open transcripts directly or issue separate `tool_call_stats` queries. The aggregation already resolves the tool_use_id → tool_name mapping, applies the session-window filter, and truncates the sample for you.
+
+This signal drives the full retro only — the lightweight retro path (XS/S in `SKILL.md`) is intentionally unchanged to keep it lean.
+
 If the task has no review activity at all, both `review_themes` and `deferred_review_comments` will be empty arrays. In that case, **omit** the "Review Theme Summary" section from Step 4 silently — do not add a "(none)" placeholder.
 
 ## Step 3: Categorize Findings
@@ -169,6 +175,13 @@ Brief (2-3 sentence) overview of what the session accomplished.
 | Tool | Calls | Threshold (complexity) | Cost |
 |------|-------|------------------------|------|
 
+### Errors encountered (omit if tool_errors is empty)
+
+> **Soft warning** — these errors are context, not an action item. /retro does not auto-create a task from this section.
+
+| Tool | Errors | Sample |
+|------|-------:|--------|
+
 ### <Category name from Step 3> (N findings)
 1. **<title>** — <description>
    → Proposed: <summary> | <priority> | <task_type> | <domain>
@@ -215,6 +228,12 @@ Brief (2-3 sentence) overview of what the session accomplished.
 - Each row renders `tool_name` verbatim, `call_count` as an integer, the `Threshold (complexity)` column as `<threshold> (<complexity>)` using the entry's own fields (e.g. `80 (M)`; render complexity as `unset` when null), and `total_cost` rounded to cents (`$0.42`). Rows are already sorted descending by `call_count` by `retro-signals`; do not re-sort.
 - The "Soft warning" callout is mandatory whenever the section is rendered — it's what flags this as context rather than a proposed action.
 - Never promote a Session Shape row into a Proposed Action, a subsumption, or a lint rule. /retro treats this section as read-only diagnostic output: the reviewer decides whether the shape warrants follow-up, and if it does, they create the task manually via `/create-task`.
+
+**Errors encountered rendering rules:**
+- If `tool_errors` is empty, omit the entire "Errors encountered" section silently (no heading, no placeholder, no "clean session" note). An empty array means no failing `tool_result` landed inside any of the task's session windows — either no errors occurred, no transcripts were found for the project, or `task_sessions` had no rows with a `started_at` to scope against. /retro's behavior is identical in every case.
+- Each row renders `tool_name` verbatim (including `(unknown)` when the originating `tool_use` block is missing from the transcript — typically because the session was split across a compaction or crash), `error_count` as an integer, and `sample` printed verbatim. The aggregation already truncates `sample` to the configured limit; do not re-quote or re-truncate. Rows are already sorted descending by `error_count`, tie-broken by `tool_name`, by `retro-signals`; do not re-sort.
+- The "Soft warning" callout is mandatory whenever the section is rendered — same rule as Session Shape: it's what flags this as context rather than a proposed action.
+- Never promote an Errors-encountered row into a Proposed Action, a subsumption, or a lint rule. One-off tool errors are frequently benign (a typo in a Bash command, a Read against a file that was already stale) — the reviewer is the one who decides whether a pattern warrants follow-up, and if so, they create the task manually via `/create-task`.
 
 Then ask the user to **confirm**, **remove** specific numbers, **edit** a task, **reject subsumption**, **add** a finding, or **skip**. Wait for explicit approval before inserting.
 

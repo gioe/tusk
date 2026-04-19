@@ -29,6 +29,8 @@ Output JSON shape:
         "tool_call_outliers":  [{"tool_name": "...", "call_count": N,
                                  "total_cost": N.N, "threshold": N,
                                  "complexity": "..." | null}, ...],
+        "tool_errors":         [{"tool_name": "...", "error_count": N,
+                                 "sample": "..."}, ...],
         "unconsumed_next_steps": [{"created_at": "...", "next_steps": "..."}, ...]
     }
 
@@ -51,6 +53,7 @@ import tusk_loader  # noqa: E402
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
+_pricing_lib = tusk_loader.load("tusk-pricing-lib")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 
@@ -72,6 +75,9 @@ REVIEW_THEME_MIN_RECURRENCE = 2
 
 # Max chars of a representative review comment to include (keeps output compact).
 REVIEW_SAMPLE_MAX_CHARS = 80
+
+# Max chars of a representative tool-error message to include.
+TOOL_ERROR_SAMPLE_MAX_CHARS = 160
 
 
 def _resolve_task_id(raw: str) -> int:
@@ -255,6 +261,110 @@ def fetch_tool_call_outliers(
     ]
 
 
+def fetch_tool_errors(
+    conn: sqlite3.Connection,
+    task_id: int,
+    *,
+    transcripts: list[str] | None = None,
+) -> list[dict]:
+    """Tool failures observed during any of this task's sessions, aggregated
+    per tool_name.
+
+    Data source is Claude Code transcripts (`~/.claude/projects/*.jsonl`), not
+    a dedicated hook or log file — every failing tool_use already lands in the
+    transcript with `is_error: true`. See docs/retro-error-detection.md for
+    the rationale.
+
+    Returns a list of `{tool_name, error_count, sample}` dicts sorted by
+    `error_count` descending then `tool_name`, so the reviewer sees the
+    noisiest tool first. `sample` is the text of the first error observed for
+    that tool (trimmed to TOOL_ERROR_SAMPLE_MAX_CHARS) — enough to recognize
+    the failure mode without dumping full stderr into the retro.
+
+    The `transcripts` argument is injectable for tests; production callers
+    resolve transcripts via `find_all_transcripts_with_fallback()`.
+    """
+    sessions = conn.execute(
+        "SELECT started_at, ended_at FROM task_sessions "
+        "  WHERE task_id = ? AND started_at IS NOT NULL "
+        "  ORDER BY started_at",
+        (task_id,),
+    ).fetchall()
+    if not sessions:
+        return []
+
+    if transcripts is None:
+        transcripts = _pricing_lib.find_all_transcripts_with_fallback()
+    if not transcripts:
+        return []
+
+    # Parse each session's window into tz-aware datetimes up front.
+    windows: list[tuple] = []
+    for row in sessions:
+        try:
+            start = _pricing_lib.parse_sqlite_timestamp(row["started_at"])
+        except (ValueError, TypeError):
+            continue
+        end = None
+        if row["ended_at"]:
+            try:
+                end = _pricing_lib.parse_sqlite_timestamp(row["ended_at"])
+            except (ValueError, TypeError):
+                end = None
+        windows.append((start, end))
+
+    if not windows:
+        return []
+
+    # Broad window: earliest start to latest end. An open session (ended_at
+    # IS NULL) pushes the upper bound to None so we scan to end-of-transcript.
+    overall_start = min(w[0] for w in windows)
+    overall_end = (
+        max(w[1] for w in windows) if all(w[1] is not None for w in windows) else None
+    )
+
+    per_tool: dict[str, dict] = {}
+    for transcript_path in transcripts:
+        if not os.path.isfile(transcript_path):
+            continue
+        try:
+            iterator = _pricing_lib.iter_tool_errors(
+                transcript_path, overall_start, overall_end
+            )
+        except OSError:
+            continue
+        for item in iterator:
+            ts = item["ts"]
+            # Only count errors that fall inside one of the task's sessions —
+            # the broad window lets us read each transcript once, but the
+            # per-session filter prevents cross-session bleed when the task
+            # ran in multiple non-contiguous sittings.
+            if not any(
+                ts >= start and (end is None or ts <= end) for start, end in windows
+            ):
+                continue
+            tool_name = item["tool_name"]
+            bucket = per_tool.setdefault(
+                tool_name, {"error_count": 0, "sample": None}
+            )
+            bucket["error_count"] += 1
+            if bucket["sample"] is None and item["error_text"]:
+                bucket["sample"] = _compact(
+                    item["error_text"], TOOL_ERROR_SAMPLE_MAX_CHARS
+                )
+
+    rows = [
+        {
+            "tool_name": tool_name,
+            "error_count": info["error_count"],
+            "sample": info["sample"] or "",
+        }
+        for tool_name, info in per_tool.items()
+    ]
+    rows.sort(key=lambda r: (-r["error_count"], r["tool_name"]))
+    return rows
+
+
 def fetch_unconsumed_next_steps(conn: sqlite3.Connection, task_id: int) -> list[dict]:
     """Non-empty next_steps handoff notes from task_progress, oldest first.
 
@@ -287,6 +397,7 @@ def build_signals(conn: sqlite3.Connection, task_id: int) -> dict:
         "deferred_review_comments": fetch_deferred_review_comments(conn, task_id),
         "skipped_criteria": fetch_skipped_criteria(conn, task_id),
         "tool_call_outliers": fetch_tool_call_outliers(conn, task_id, complexity),
+        "tool_errors": fetch_tool_errors(conn, task_id),
         "unconsumed_next_steps": fetch_unconsumed_next_steps(conn, task_id),
     }
 
