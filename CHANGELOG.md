@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [668] - 2026-04-19
+
+- Close the `tusk upgrade` bootstrap gap — `bin/tusk upgrade` previously ran the **installed** (older) `tusk-upgrade.py` to write the new one, so any UX/behavior change to the upgrader itself only took effect on the next run; now, after downloading and extracting the tarball, the outer process compares the MD5 of the installed `tusk-upgrade.py` against the extracted copy and, if they differ, `os.execv`s the new script with a hidden `--_rexec-src <tempdir/src>` flag so it picks up where the outer left off (skipping re-download/re-extract and ownership of tempdir cleanup transfers across the exec boundary via `mkdtemp` + try/finally instead of `TemporaryDirectory()`, since context-manager cleanup doesn't survive `execv`); the re-exec path suppresses the duplicate "Checking for updates…" / "Upgrading from version X → Y…" header lines so users see one clean run. Net effect: from v668 onward, an upgrade that changes the upgrader delivers its own improvements on the **same** run that installed them, not the run after.
+
 ## [667] - 2026-04-19
 
 - Make `tusk upgrade` output compact by default — collapses ~40–60 lines of per-file "Updated skill: …", "Updated hook: …", "Registered hook: …", "Permission already present: …" chatter into ~7 aligned summary lines (Skills / Hooks / Config / Migrations / Cleanup counts); lint-divergence and missing-permission warnings stay loud either way; pass `-v` / `--verbose` to restore the legacy per-file output for debugging; helpers now return counts and callers direct-importing `tusk-upgrade.py` in tests keep the verbose default so all 790 unit tests pass unchanged

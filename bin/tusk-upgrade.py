@@ -19,6 +19,7 @@ import re
 import shutil
 import ssl
 import subprocess
+import sys
 import tarfile
 import tempfile
 from pathlib import Path
@@ -52,6 +53,21 @@ _verbose = True
 def _vprint(*args, **kwargs) -> None:
     if _verbose:
         print(*args, **kwargs)
+
+
+def _should_rexec(src: str, script_dir: str) -> bool:
+    """Return True when the upgrader in the tarball differs from the installed one.
+
+    Closes the bootstrap gap where 'tusk upgrade' runs the *installed* (older)
+    tusk-upgrade.py to install a newer one — any UX change to the upgrader itself
+    only takes effect on the next run unless we hand off to the freshly-extracted
+    copy mid-upgrade.
+    """
+    old = os.path.join(script_dir, "tusk-upgrade.py")
+    new = os.path.join(src, "bin", "tusk-upgrade.py")
+    if not os.path.isfile(old) or not os.path.isfile(new):
+        return False
+    return hashlib.md5(Path(old).read_bytes()).hexdigest() != hashlib.md5(Path(new).read_bytes()).hexdigest()
 
 
 # ── HTTP helpers ─────────────────────────────────────────────────────────────
@@ -524,6 +540,10 @@ def main() -> None:
         "-v", "--verbose", action="store_true",
         help="Show per-file detail; default is a compact summary.",
     )
+    # Internal: set by a re-exec from a newly-extracted upgrader. Points at the
+    # already-extracted src/ directory inside a tempdir we now own. Never set by
+    # humans — hidden from --help.
+    parser.add_argument("--_rexec-src", dest="rexec_src", default=None, help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     global _verbose
@@ -538,7 +558,8 @@ def main() -> None:
     except ValueError as e:
         raise SystemExit(f"Error: Could not parse local VERSION: {e}") from e
 
-    print("Checking for updates...")
+    if not args.rexec_src:
+        print("Checking for updates...")
 
     latest_tag = get_latest_tag()
     remote_version = get_remote_version(latest_tag)
@@ -552,26 +573,53 @@ def main() -> None:
             print("This may indicate a dev build or an unpublished release.")
             return
 
-    print(f"Upgrading from version {local_version} → {remote_version}...")
+    if not args.rexec_src:
+        print(f"Upgrading from version {local_version} → {remote_version}...")
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        # Download and extract tarball
-        tarball_path = os.path.join(tmpdir, "tusk.tar.gz")
-        tarball_url = f"https://github.com/{GITHUB_REPO}/archive/refs/tags/{latest_tag}.tar.gz"
-        tarball_data = fetch_bytes(tarball_url, timeout=DL_TIMEOUT)
-        with open(tarball_path, "wb") as f:
-            f.write(tarball_data)
-        with tarfile.open(tarball_path) as tar:
-            tar.extractall(tmpdir, filter="data")
+    # Own a tempdir that survives a potential os.execv to a newer upgrader.
+    # When re-exec'd we inherit ownership of the tempdir created by the outer
+    # (older) upgrader — clean it up in our own finally.
+    if args.rexec_src:
+        src = args.rexec_src
+        tmpdir = os.path.dirname(src.rstrip("/"))
+    else:
+        tmpdir = tempfile.mkdtemp(prefix="tusk-upgrade-")
 
-        # Find extracted directory (tusk-v2, tusk-v3, etc.)
-        extracted = [
-            d for d in os.listdir(tmpdir)
-            if os.path.isdir(os.path.join(tmpdir, d)) and d.startswith("tusk-")
-        ]
-        if not extracted:
-            raise SystemExit("Error: Unexpected archive structure.")
-        src = os.path.join(tmpdir, extracted[0])
+    try:
+        if not args.rexec_src:
+            # Download and extract tarball
+            tarball_path = os.path.join(tmpdir, "tusk.tar.gz")
+            tarball_url = f"https://github.com/{GITHUB_REPO}/archive/refs/tags/{latest_tag}.tar.gz"
+            tarball_data = fetch_bytes(tarball_url, timeout=DL_TIMEOUT)
+            with open(tarball_path, "wb") as f:
+                f.write(tarball_data)
+            with tarfile.open(tarball_path) as tar:
+                tar.extractall(tmpdir, filter="data")
+
+            # Find extracted directory (tusk-v2, tusk-v3, etc.)
+            extracted = [
+                d for d in os.listdir(tmpdir)
+                if os.path.isdir(os.path.join(tmpdir, d)) and d.startswith("tusk-")
+            ]
+            if not extracted:
+                raise SystemExit("Error: Unexpected archive structure.")
+            src = os.path.join(tmpdir, extracted[0])
+
+            # Close the bootstrap gap: if the upgrader in the tarball differs
+            # from the one currently running, hand off to the new copy so its
+            # UX/behavior changes take effect on this same run — not the next.
+            if _should_rexec(src, script_dir):
+                new_script = os.path.join(src, "bin", "tusk-upgrade.py")
+                argv = [sys.executable, new_script, repo_root, script_dir, "--_rexec-src", src]
+                if args.no_commit:
+                    argv.append("--no-commit")
+                if args.force:
+                    argv.append("--force")
+                if args.verbose:
+                    argv.append("--verbose")
+                # os.execv does NOT return; the new process inherits tmpdir
+                # and will rmtree it inside its own finally block.
+                os.execv(sys.executable, argv)
 
         old_manifest = os.path.join(repo_root, ".claude", "tusk-manifest.json")
         new_manifest = os.path.join(src, "MANIFEST")
@@ -616,6 +664,8 @@ def main() -> None:
 
         # Stamp VERSION last — ensures interrupted upgrades re-run next time
         shutil.copy2(os.path.join(src, "VERSION"), os.path.join(script_dir, "VERSION"))
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
     if not _verbose:
         print(f"  Skills       {skill_count} updated")
