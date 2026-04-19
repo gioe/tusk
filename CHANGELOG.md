@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [665] - 2026-04-19
+
+- [TASK-108] Add `retro_findings` table (migration 57) and new `tusk retro-themes` subcommand for cross-retro theme detection; `/retro` now writes one row per approved finding on close and fetches recurring themes (≥3 occurrences in the last 30 days) at Step 0b so each retro can see patterns no single session can surface on its own — all cross-retro aggregation happens in SQL behind `tusk retro-themes` via a HAVING filter, never in the skill
+
 ## [664] - 2026-04-19
 
 - [TASK-112] Fix fetch_skipped_criteria to include criteria skipped via tusk criteria skip
