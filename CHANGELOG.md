@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [662] - 2026-04-19
+
+- [TASK-107] Add tool-call outlier detection to /retro
+
 ## [661] - 2026-04-19
 
 - [TASK-106] Surface skipped criteria and unfinished progress next_steps in /retro
