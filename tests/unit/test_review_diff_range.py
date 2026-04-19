@@ -12,9 +12,10 @@ Covers (per TASK-114 criterion 499):
 
 Each path exercises the real ``git diff`` / ``git log`` behavior against a
 temporary repo so the interaction with git stays in the test surface. The
-only stubbed piece is ``tusk git-default-branch``, which is replaced by a
-shim script that echoes a known branch name — the repo has no remote, so
-the real wrapper would otherwise fall back to "main".
+only stubbed piece is ``default_branch()``, which the direct-function tests
+monkeypatch to return "main" directly rather than shelling out to
+``tusk git-default-branch`` against a repo with no remote. The CLI-layer
+tests rely on the real wrapper's symbolic-ref → gh → "main" fallback.
 """
 
 import importlib.util
@@ -182,7 +183,7 @@ class TestEmptyDiffFallback:
         assert "commits not detected" in msg
 
 
-# ── CLI-layer test (subprocess, wrapper stubbed via monkeypatched module) ──
+# ── CLI-layer tests (real subprocess, real bin/tusk wrapper) ──────────
 
 
 class TestCLI:
