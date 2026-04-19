@@ -42,7 +42,12 @@ Consume `reopen_count` and `rework_chain` from this same `tusk retro-signals` JS
 
 When `reopen_count == 0` AND both `rework_chain.fixes` and `rework_chain.fixed_by` are empty, omit the "Rework Context" section from Step 4 silently (no heading, no placeholder).
 
-The remaining fields (`skipped_criteria`, `tool_call_outliers`, `unconsumed_next_steps`) are informational context for categorization but do not drive a specific report section here.
+- **`skipped_criteria`** — acceptance criteria with a non-empty `skip_note` (covers both `is_deferred=1` deferrals and `--skip-verify` closures that recorded a rationale). Each entry is a gap the author acknowledged at close time and must be surfaced in Step 4's "Known gaps at close" section so the reviewer can decide whether the skip is acceptable or needs a follow-up task.
+- **`unconsumed_next_steps`** — every non-empty `task_progress.next_steps` handoff note for this task, oldest first. Many of these describe work that was later completed in the same session; some describe work that was quietly dropped. Step 4 runs a heuristic match against the final committed work and surfaces the residue under "Known gaps at close" — ambiguous matches must trigger a user confirmation prompt before being called out.
+
+Consume `skipped_criteria` and `unconsumed_next_steps` from this same `tusk retro-signals` JSON — **do not** issue separate SQL queries against `acceptance_criteria` or `task_progress`. The aggregation already filters empty `skip_note`/`next_steps` rows for you.
+
+The remaining field (`tool_call_outliers`) is informational context for categorization but does not drive a specific report section here.
 
 If the task has no review activity at all, both `review_themes` and `deferred_review_comments` will be empty arrays. In that case, **omit** the "Review Theme Summary" section from Step 4 silently — do not add a "(none)" placeholder.
 
