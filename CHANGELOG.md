@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [663] - 2026-04-19
+
+- [TASK-109] Surface session-scoped tool failures in /retro (full path) via a new `tool_errors` signal in `tusk retro-signals` and a matching "Errors encountered" soft-warning section — reads Claude Code transcripts directly (no PostToolUse hook, no sidecar log file); see `docs/retro-error-detection.md` for the evaluation that picked this path
+
 ## [662] - 2026-04-19
 
 - [TASK-107] Add tool-call outlier detection to /retro
