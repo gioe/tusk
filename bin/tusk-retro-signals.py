@@ -204,14 +204,20 @@ def fetch_deferred_review_comments(conn: sqlite3.Connection, task_id: int) -> li
 
 
 def fetch_skipped_criteria(conn: sqlite3.Connection, task_id: int) -> list[dict]:
-    """Criteria with a non-empty skip_note — covers both explicit deferrals
-    (is_deferred=1) and skip-verify closures that recorded a rationale."""
+    """Criteria with a recorded rationale for not shipping code — covers
+    skip-verify closures (skip_note, from `tusk criteria done --skip-verify`)
+    and explicit deferrals (deferred_reason, from `tusk criteria skip --reason`).
+    The two paths write to different columns; either populated column surfaces
+    the criterion. The output 'skip_note' key is COALESCE'd (skip_note wins)
+    so FULL-RETRO.md's renderer sees one field regardless of origin."""
     rows = conn.execute(
-        "SELECT id, criterion, is_deferred, skip_note "
+        "SELECT id, criterion, is_deferred, "
+        "       COALESCE(NULLIF(TRIM(skip_note), ''), deferred_reason) AS skip_note "
         "  FROM acceptance_criteria "
         " WHERE task_id = ? "
-        "   AND skip_note IS NOT NULL "
-        "   AND TRIM(skip_note) <> '' "
+        "   AND ((skip_note IS NOT NULL AND TRIM(skip_note) <> '') "
+        "        OR (is_deferred = 1 AND deferred_reason IS NOT NULL "
+        "            AND TRIM(deferred_reason) <> '')) "
         " ORDER BY id",
         (task_id,),
     ).fetchall()

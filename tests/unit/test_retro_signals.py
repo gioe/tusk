@@ -69,6 +69,7 @@ CREATE TABLE acceptance_criteria (
     criterion TEXT,
     is_completed INTEGER DEFAULT 0,
     is_deferred INTEGER DEFAULT 0,
+    deferred_reason TEXT,
     skip_note TEXT
 );
 CREATE TABLE code_reviews (
@@ -376,6 +377,64 @@ class TestSkippedCriteria:
         assert len(out) == 2
         assert {c["is_deferred"] for c in out} == {0, 1}
         assert all(c["skip_note"].strip() for c in out)
+
+    def test_deferred_reason_only_path(self, tmp_path):
+        db_path, conn = _make_db(tmp_path, task_id=1)
+        conn.execute(
+            "INSERT INTO acceptance_criteria (task_id, criterion, is_completed, is_deferred, deferred_reason, skip_note) "
+            "VALUES (1, 'skipped via tusk criteria skip', 0, 1, 'out of scope — downstream task', NULL)"
+        )
+        conn.commit()
+        conn.row_factory = sqlite3.Row
+        out = mod.fetch_skipped_criteria(conn, 1)
+        assert len(out) == 1
+        assert out[0]["is_deferred"] == 1
+        assert out[0]["skip_note"] == "out of scope — downstream task"
+
+    def test_skip_note_only_path(self, tmp_path):
+        db_path, conn = _make_db(tmp_path, task_id=1)
+        conn.execute(
+            "INSERT INTO acceptance_criteria (task_id, criterion, is_completed, is_deferred, deferred_reason, skip_note) "
+            "VALUES (1, 'done with --skip-verify', 1, 0, NULL, 'runtime-only change, no git diff')"
+        )
+        conn.commit()
+        conn.row_factory = sqlite3.Row
+        out = mod.fetch_skipped_criteria(conn, 1)
+        assert len(out) == 1
+        assert out[0]["is_deferred"] == 0
+        assert out[0]["skip_note"] == "runtime-only change, no git diff"
+
+    def test_both_populated_skip_note_wins(self, tmp_path):
+        db_path, conn = _make_db(tmp_path, task_id=1)
+        conn.execute(
+            "INSERT INTO acceptance_criteria (task_id, criterion, is_completed, is_deferred, deferred_reason, skip_note) "
+            "VALUES (1, 'both columns set', 1, 1, 'deferred rationale', 'skip_note rationale')"
+        )
+        conn.commit()
+        conn.row_factory = sqlite3.Row
+        out = mod.fetch_skipped_criteria(conn, 1)
+        assert len(out) == 1
+        assert out[0]["skip_note"] == "skip_note rationale"
+
+    def test_is_deferred_zero_with_deferred_reason_ignored(self, tmp_path):
+        db_path, conn = _make_db(tmp_path, task_id=1)
+        conn.execute(
+            "INSERT INTO acceptance_criteria (task_id, criterion, is_completed, is_deferred, deferred_reason, skip_note) "
+            "VALUES (1, 'stray deferred_reason', 0, 0, 'orphaned after reset', NULL)"
+        )
+        conn.commit()
+        conn.row_factory = sqlite3.Row
+        assert mod.fetch_skipped_criteria(conn, 1) == []
+
+    def test_blank_deferred_reason_ignored(self, tmp_path):
+        db_path, conn = _make_db(tmp_path, task_id=1)
+        conn.execute(
+            "INSERT INTO acceptance_criteria (task_id, criterion, is_completed, is_deferred, deferred_reason, skip_note) "
+            "VALUES (1, 'blank deferred_reason', 0, 1, '   ', NULL)"
+        )
+        conn.commit()
+        conn.row_factory = sqlite3.Row
+        assert mod.fetch_skipped_criteria(conn, 1) == []
 
 
 # ── tool_call_outliers ────────────────────────────────────────────────
