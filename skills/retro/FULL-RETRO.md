@@ -35,8 +35,14 @@ Parse the JSON. The fields consumed by the steps below are:
 
 - **`review_themes`** — `(category, severity)` pairs with ≥ 2 occurrences across this task's review passes, plus a short sample comment. Each theme is a candidate Category A (conventions) or Category D (lint rules) finding. Seed Step 3 directly from this list — **do not** re-query `review_comments` with SQL.
 - **`deferred_review_comments`** — individual review comments with `resolution='deferred'`, each with its `deferred_task_id` (may be null). These are open follow-up threads and must be surfaced in the Step 4 report so reviewers can see what was punted forward.
+- **`reopen_count`** — integer count of `to_status='To Do'` transitions on this task. When > 0, render a `**Reopened N times**` line in Step 4's "Rework Context" section so the reviewer pauses on whether the close actually stuck.
+- **`rework_chain`** — `{fixes, fixed_by}`. `fixes` is the upstream task this one was filed to address (via `fixes_task_id`); `fixed_by` is the downstream follow-ups that were filed to fix *this* one. When either list is non-empty, render the entries in Step 4's "Rework Context" section and append the explicit "**Was the root cause addressed?**" prompt — recurring fix chains are the strongest signal that an earlier pass treated symptoms rather than the underlying issue.
 
-All other fields (`reopen_count`, `rework_chain`, `skipped_criteria`, `tool_call_outliers`, `unconsumed_next_steps`) are informational context for categorization but do not drive a specific report section here.
+Consume `reopen_count` and `rework_chain` from this same `tusk retro-signals` JSON — **do not** issue separate SQL queries against `task_status_transitions` or `tasks.fixes_task_id`. The aggregation already covers both directions.
+
+When `reopen_count == 0` AND both `rework_chain.fixes` and `rework_chain.fixed_by` are empty, omit the "Rework Context" section from Step 4 silently (no heading, no placeholder).
+
+The remaining fields (`skipped_criteria`, `tool_call_outliers`, `unconsumed_next_steps`) are informational context for categorization but do not drive a specific report section here.
 
 If the task has no review activity at all, both `review_themes` and `deferred_review_comments` will be empty arrays. In that case, **omit** the "Review Theme Summary" section from Step 4 silently — do not add a "(none)" placeholder.
 
@@ -108,6 +114,14 @@ Show all findings in a structured report:
 ### Summary
 Brief (2-3 sentence) overview of what the session accomplished.
 
+### Rework Context (omit if reopen_count == 0 AND rework_chain.fixes is empty AND rework_chain.fixed_by is empty)
+
+- **Reopened N times** (omit line if reopen_count == 0)
+- **Fixes**: TASK-X "<summary>" (status) (one bullet per `rework_chain.fixes` entry; omit line if empty)
+- **Fixed by**: TASK-Y "<summary>" (status) (one bullet per `rework_chain.fixed_by` entry; omit line if empty)
+
+> **Was the root cause addressed?** (include only when `rework_chain.fixes` or `rework_chain.fixed_by` is non-empty)
+
 ### Review Theme Summary (omit if both tables below are empty)
 
 **Recurring themes** (from `review_themes` — omit table if empty)
@@ -142,6 +156,12 @@ Brief (2-3 sentence) overview of what the session accomplished.
 - If only one of the two tables has rows, include the section with just that table and omit the empty one.
 - Each `deferred_review_comments` row shows `deferred_task_id` as `TASK-<id>` when non-null; render `—` when null (no follow-up task was linked). This keeps the "what happened to it" link visible even after the comment is closed out.
 - Sample columns are already truncated to 80 chars by `retro-signals`; do not re-quote or pad them.
+
+**Rework Context rendering rules:**
+- If `reopen_count == 0` AND both `rework_chain.fixes` and `rework_chain.fixed_by` are empty, omit the entire "Rework Context" section silently (no heading, no placeholder).
+- The "Reopened N times" line appears only when `reopen_count > 0`.
+- The "Fixes" / "Fixed by" bullets appear only when their respective list is non-empty. Render each entry's `id` as `TASK-<id>` and include the `status`.
+- When either `rework_chain.fixes` or `rework_chain.fixed_by` is non-empty, the "Was the root cause addressed?" prompt is mandatory — it's the entire reason for surfacing the chain.
 
 Then ask the user to **confirm**, **remove** specific numbers, **edit** a task, **reject subsumption**, **add** a finding, or **skip**. Wait for explicit approval before inserting.
 
