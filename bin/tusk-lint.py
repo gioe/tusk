@@ -949,13 +949,13 @@ def rule19_tusk_manifest_json_sync(root):
     for path in sorted(manifest - tusk_manifest):
         violations.append(
             f"  MANIFEST has '{path}' but .claude/tusk-manifest.json does not"
-            " (run bin/tusk-generate-manifest.py to regenerate both files)"
         )
     for path in sorted(tusk_manifest - manifest):
         violations.append(
             f"  .claude/tusk-manifest.json has '{path}' but MANIFEST does not"
-            " (run bin/tusk-generate-manifest.py to regenerate both files)"
         )
+    if violations:
+        violations.append("  Fix: run `tusk generate-manifest`.")
     return violations
 
 
