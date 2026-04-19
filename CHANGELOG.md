@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [675] - 2026-04-19
+
+- Fuse the `tusk skill-run start` call into `tusk task-start` via a new `--skill <name>` flag: when provided, the same DB transaction that opens the session and flips the task to In Progress also inserts a `skill_runs` row attributed to that task and returns its details under `result.skill_run = {run_id, skill_name, started_at, task_id}` in the JSON output. Omitting `--skill` leaves `result.skill_run = null` and does not touch `skill_runs`, preserving the standalone `tusk skill-run start` call path used by skills without a task (e.g., `/investigate-directory`). Pre-start error exits (exit 1 empty-backlog, exit 2 task-not-found / zero-criteria-without-force / open-external-blockers) return before the `skill_runs` INSERT, so no orphaned open rows are created on those paths. `skills/tusk/SKILL.md` Step 1 collapses from two invocations (`tusk task-start <id> --force` → `tusk skill-run start tusk --task-id <id>`) to one (`tusk task-start <id> --force --skill tusk`), with the run_id now captured from `skill_run.run_id` in the returned blob. Three new integration tests in `tests/integration/test_task_start_fused.py` pin: (a) `--skill tusk` inserts a live, open `skill_runs` row with the right `task_id` and surfaces the run_id in the JSON; (b) omitting `--skill` leaves `skill_run=None` and the row count unchanged; (c) the zero-criteria-without-force exit 2 path does NOT insert a skill_runs row, backing the SKILL.md claim that pre-start exits never need a cancel.
+
 ## [674] - 2026-04-19
 
 - Make `tusk lint` terse by default: on clean success, prints a single `OK — N rules passed` line instead of a per-rule PASS report. Add `--verbose`/`-v` to restore the old full per-rule output, and keep `--quiet`/`-q` (used by `tusk commit`) as fully silent on clean success. Violations continue to print verbatim with their rule name and WARN/WARN [ADVISORY] label in all modes.

@@ -2,12 +2,12 @@
 """Consolidate task-start setup into a single CLI command.
 
 Called by the tusk wrapper:
-    tusk task-start [<task_id>] [--force] [--agent <name>]
+    tusk task-start [<task_id>] [--force] [--agent <name>] [--skill <name>]
 
 Arguments received from tusk:
     sys.argv[1] — DB path
     sys.argv[2] — config path
-    sys.argv[3:] — [task_id] [--force] [--agent <name>]
+    sys.argv[3:] — [task_id] [--force] [--agent <name>] [--skill <name>]
 
 When task_id is omitted, the top WSJF-ranked ready task is picked from
 v_ready_tasks (same ranking logic tusk-task-select uses) and started in a
@@ -91,10 +91,17 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument("--force", action="store_true", help="Bypass zero-criteria guard")
     parser.add_argument("--agent", dest="agent_name", metavar="NAME", help="Agent name")
+    parser.add_argument(
+        "--skill",
+        dest="skill_name",
+        metavar="NAME",
+        help="Also open a skill_runs row for cost tracking (saves a follow-up 'skill-run start' call).",
+    )
     args = parser.parse_args(argv[2:])
     task_id = args.task_id
     force = args.force
     agent_name = args.agent_name
+    skill_name = args.skill_name
 
     conn = get_connection(db_path)
     try:
@@ -263,12 +270,35 @@ def main(argv: list[str]) -> int:
 
         deliverable_check_needed = any(c["is_completed"] for c in criteria_list)
 
+        # Optional fused skill-run start: collapses the common /tusk, /chain,
+        # /review-commits, /retro pattern of calling `tusk skill-run start <name>
+        # --task-id <id>` immediately after task-start into a single CLI round-trip.
+        skill_run_info = None
+        if skill_name is not None:
+            cur = conn.execute(
+                "INSERT INTO skill_runs (skill_name, task_id) VALUES (?, ?)",
+                (skill_name, task_id),
+            )
+            conn.commit()
+            run_id = cur.lastrowid
+            run_row = conn.execute(
+                "SELECT id, skill_name, started_at, task_id FROM skill_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+            skill_run_info = {
+                "run_id": run_row["id"],
+                "skill_name": run_row["skill_name"],
+                "started_at": run_row["started_at"],
+                "task_id": run_row["task_id"],
+            }
+
         result = {
             "task": task_dict,
             "progress": progress_list,
             "criteria": criteria_list,
             "session_id": session_id,
             "deliverable_check_needed": deliverable_check_needed,
+            "skill_run": skill_run_info,
         }
 
         _register_active_project()
@@ -282,6 +312,6 @@ def main(argv: list[str]) -> int:
 if __name__ == "__main__":
     if len(sys.argv) < 2 or not sys.argv[1].endswith(".db"):
         print("Error: This script must be invoked via the tusk wrapper.", file=sys.stderr)
-        print("Use: tusk task-start [<task_id>] [--force]", file=sys.stderr)
+        print("Use: tusk task-start [<task_id>] [--force] [--agent NAME] [--skill NAME]", file=sys.stderr)
         sys.exit(1)
     sys.exit(main(sys.argv[1:]))

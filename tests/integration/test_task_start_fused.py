@@ -168,6 +168,98 @@ class TestFusedTaskStart:
         assert f"TASK-{prereq_id}" in stderr
         assert "Prerequisite task" in stderr
 
+    def test_skill_flag_opens_skill_run_row(self, db_path, config_path):
+        """--skill <name> opens a skill_runs row attributed to the started task
+        and includes its details under result['skill_run']. Saves the follow-up
+        `tusk skill-run start <name> --task-id <id>` call."""
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            task_id = insert_task(conn, "Task with fused skill-run", priority_score=60)
+            insert_criterion(conn, task_id, "do the thing")
+        finally:
+            conn.close()
+
+        rc, result, _ = call_start(
+            db_path, config_path, str(task_id), "--force", "--skill", "tusk"
+        )
+
+        assert rc == 0
+        assert result is not None
+        assert result["task"]["id"] == task_id
+        sr = result["skill_run"]
+        assert sr is not None
+        assert sr["skill_name"] == "tusk"
+        assert sr["task_id"] == task_id
+        assert isinstance(sr["run_id"], int) and sr["run_id"] > 0
+        assert sr["started_at"]
+
+        # Verify the row actually landed with the expected shape.
+        conn = sqlite3.connect(str(db_path))
+        try:
+            row = conn.execute(
+                "SELECT skill_name, task_id, ended_at FROM skill_runs WHERE id = ?",
+                (sr["run_id"],),
+            ).fetchone()
+        finally:
+            conn.close()
+        assert row is not None
+        assert row[0] == "tusk"
+        assert row[1] == task_id
+        assert row[2] is None  # still open
+
+    def test_without_skill_flag_skill_run_is_null(self, db_path, config_path):
+        """Omitting --skill leaves result['skill_run'] = None and does not touch
+        the skill_runs table — preserves the existing two-call pattern for
+        callers that haven't migrated yet."""
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            task_id = insert_task(conn, "Task without skill flag", priority_score=60)
+            insert_criterion(conn, task_id, "do the thing")
+            before = conn.execute("SELECT COUNT(*) FROM skill_runs").fetchone()[0]
+        finally:
+            conn.close()
+
+        rc, result, _ = call_start(db_path, config_path, str(task_id), "--force")
+
+        assert rc == 0
+        assert result is not None
+        assert result["skill_run"] is None
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            after = conn.execute("SELECT COUNT(*) FROM skill_runs").fetchone()[0]
+        finally:
+            conn.close()
+        assert after == before
+
+    def test_skill_flag_not_inserted_on_error_exits(self, db_path, config_path):
+        """Guard-rail exits (task not found / no criteria without --force) return
+        before the skill_runs INSERT — critical for the early-exit-cleanup notes
+        in SKILL.md that promise no orphaned skill_runs rows on pre-start exits."""
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            before = conn.execute("SELECT COUNT(*) FROM skill_runs").fetchone()[0]
+            # Task exists but has zero criteria and --force is NOT passed → exit 2.
+            no_crit_id = insert_task(conn, "Task without criteria", priority_score=60)
+        finally:
+            conn.close()
+
+        rc, _, stderr = call_start(
+            db_path, config_path, str(no_crit_id), "--skill", "tusk"
+        )
+        assert rc == 2
+        assert "no acceptance criteria" in stderr
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            after = conn.execute("SELECT COUNT(*) FROM skill_runs").fetchone()[0]
+        finally:
+            conn.close()
+        assert after == before
+
     def test_explicit_task_id_path_unchanged(self, db_path, config_path):
         """CID 434(c): passing an explicit task_id still starts that specific task
         (regression guard — the fused path only activates when task_id is omitted)."""
