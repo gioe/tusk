@@ -137,6 +137,16 @@ Brief (2-3 sentence) overview of what the session accomplished.
 | # | Category | Severity | File | Deferred Task | Comment |
 |---|----------|----------|------|---------------|---------|
 
+### Known gaps at close (omit if skipped_criteria is empty AND no next_steps survive the heuristic match)
+
+**Skipped criteria** (from `skipped_criteria` — omit table if empty)
+| # | Criterion | Kind | Skip note |
+|---|-----------|------|-----------|
+
+**Unfinished next_steps** (from `unconsumed_next_steps` after heuristic match — omit table if empty)
+| When | Handoff note |
+|------|--------------|
+
 ### <Category name from Step 3> (N findings)
 1. **<title>** — <description>
    → Proposed: <summary> | <priority> | <task_type> | <domain>
@@ -167,6 +177,16 @@ Brief (2-3 sentence) overview of what the session accomplished.
 - The "Reopened N times" line appears only when `reopen_count > 0`.
 - The "Fixes" / "Fixed by" bullets appear only when their respective list is non-empty. Render each entry's `id` as `TASK-<id>` and include the `status`.
 - When either `rework_chain.fixes` or `rework_chain.fixed_by` is non-empty, the "Was the root cause addressed?" prompt is mandatory — it's the entire reason for surfacing the chain.
+
+**Known gaps at close rendering rules:**
+- Before rendering the "Unfinished next_steps" table, classify each `unconsumed_next_steps` entry against the session's actual outcomes (completed criteria, commit messages, final merge state):
+  - **Matched** — the handoff note is clearly reflected in work that shipped. Drop it silently.
+  - **Unmatched** — the handoff note describes work with no corresponding output. Keep it in the table.
+  - **Ambiguous** — partial or indirect match (e.g. the note says "wire X to Y" and commits touched X but not Y). Ask the user `Did you consume this next_steps note? → "<quoted text>"` and wait for a yes/no answer before rendering. Keep the row only if the user says no.
+- Each `skipped_criteria` row renders the `Kind` column as `deferred` when `is_deferred == 1` and `skipped` otherwise. The `Skip note` column is printed verbatim — the aggregation already guarantees it's non-empty.
+- The "When" column for an `unconsumed_next_steps` row is the entry's `created_at` timestamp; the "Handoff note" column is the `next_steps` text verbatim (do not truncate).
+- If `skipped_criteria` is empty AND every `unconsumed_next_steps` entry was either matched or confirmed-consumed via the prompt, omit the entire "Known gaps at close" section silently (no heading, no placeholder).
+- If only one of the two tables has rows, include the section with just that table and omit the empty one.
 
 Then ask the user to **confirm**, **remove** specific numbers, **edit** a task, **reject subsumption**, **add** a finding, or **skip**. Wait for explicit approval before inserting.
 
