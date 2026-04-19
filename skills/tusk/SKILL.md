@@ -234,7 +234,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
     The `next_steps` field is critical — write it as if briefing a new agent who has zero context. Include what's been done, what remains, decisions made, and the branch name.
 
-    **Schema migration reminder:** If the commit includes changes to `bin/tusk` that add or modify a migration (inside `cmd_migrate()`), run `tusk migrate` on the live database immediately after committing.
+    **Schema migration reminder:** If the commit adds or modifies a migration in `bin/tusk-migrate.py` (or bumps `cmd_init`'s fresh-DB `user_version` stamp in `bin/tusk`), run `tusk migrate` on the live database immediately after committing.
 
 8. **Review the code locally** before considering the work complete.
 

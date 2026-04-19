@@ -194,7 +194,7 @@ Two independent version tracks:
 See `docs/MIGRATIONS.md` for table-recreation and trigger-only migration templates, including the ordering rules and gotchas.
 
 **Checklist when adding migration N:**
-- Add the migration block inside `cmd_migrate()` in `bin/tusk`
+- Add a `migrate_N` function in `bin/tusk-migrate.py` and register it in the `MIGRATIONS` list near the bottom of that file
 - Stamp `PRAGMA user_version = N` in `cmd_init()` (the standalone sqlite3 call near the end) so that fresh installs never need to run that migration
 - Update `docs/DOMAIN.md` to reflect any schema, view, or trigger changes introduced by the migration
 - In the idempotent-path test (`test_idempotent_when_already_at_v<N>`), explicitly stamp `PRAGMA user_version = N` on the fresh `db_path` fixture before calling `migrate_N()` — or assert `>= N` / use a `version_before` capture. Never assert `get_version(db_path) == N` without stamping: fresh DBs initialize at whatever the latest migration is, so the test breaks the moment migration N+1 lands. See `test_migrate_48.py:113` and `test_migrate_50.py:133` for the stamping pattern.
