@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [667] - 2026-04-19
+
+- Make `tusk upgrade` output compact by default — collapses ~40–60 lines of per-file "Updated skill: …", "Updated hook: …", "Registered hook: …", "Permission already present: …" chatter into ~7 aligned summary lines (Skills / Hooks / Config / Migrations / Cleanup counts); lint-divergence and missing-permission warnings stay loud either way; pass `-v` / `--verbose` to restore the legacy per-file output for debugging; helpers now return counts and callers direct-importing `tusk-upgrade.py` in tests keep the verbose default so all 790 unit tests pass unchanged
+
 ## [666] - 2026-04-19
 
 - [TASK-113] Add `tusk retro-finding add` subcommand that wraps the `retro_findings` INSERT /retro previously ran inline; `skills/retro/SKILL.md` LR-3a and `skills/retro/FULL-RETRO.md` 6a now call the wrapper instead of raw `tusk "INSERT INTO retro_findings ..." + $(tusk sql-quote ...)` — eliminates the NULL-vs-quoted-string footgun for `task_id` (omit `--task-id` to store a true SQL NULL) and validates `skill_run_id` (and `task_id` when supplied) as real FK references before the INSERT so dangling-FK rows and typos fail fast with exit 1

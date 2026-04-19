@@ -44,6 +44,15 @@ GITHUB_REPO = "gioe/tusk"
 API_TIMEOUT = 15   # seconds for GitHub API calls
 DL_TIMEOUT = 60    # seconds for tarball download
 
+# Verbosity flag. Defaults to True so tests and direct imports keep the legacy
+# loud output; main() sets it to args.verbose so routine CLI upgrades are quiet.
+_verbose = True
+
+
+def _vprint(*args, **kwargs) -> None:
+    if _verbose:
+        print(*args, **kwargs)
+
 
 # ── HTTP helpers ─────────────────────────────────────────────────────────────
 
@@ -80,26 +89,29 @@ def get_remote_version(tag: str) -> int:
 
 # ── Upgrade steps ─────────────────────────────────────────────────────────────
 
-def remove_orphans(old_manifest_path: str, new_manifest_path: str, repo_root: str) -> None:
+def remove_orphans(old_manifest_path: str, new_manifest_path: str, repo_root: str) -> int:
     with open(old_manifest_path) as f:
         old_files = set(json.load(f))
     with open(new_manifest_path) as f:
         new_files = set(json.load(f))
     orphans = old_files - new_files
+    removed = 0
     for rel_path in sorted(orphans):
         full_path = os.path.join(repo_root, rel_path)
         if os.path.isfile(full_path):
             os.remove(full_path)
-            print(f"  Removed orphan: {rel_path}")
+            removed += 1
+            _vprint(f"  Removed orphan: {rel_path}")
             parent = os.path.dirname(full_path)
             try:
                 os.rmdir(parent)
-                print(f"  Removed empty dir: {os.path.relpath(parent, repo_root)}")
+                _vprint(f"  Removed empty dir: {os.path.relpath(parent, repo_root)}")
             except OSError:
-                print(
+                _vprint(
                     f"  Kept non-empty dir (user files present): "
                     f"{os.path.relpath(parent, repo_root)}"
                 )
+    return removed
 
 
 def copy_bin_files(src: str, script_dir: str) -> None:
@@ -137,13 +149,14 @@ def copy_bin_files(src: str, script_dir: str) -> None:
         os.path.join(src, "pricing.json"),
         os.path.join(script_dir, "pricing.json"),
     )
-    print("  Updated CLI and support files")
+    _vprint("  Updated CLI and support files")
 
 
-def copy_skills(src: str, repo_root: str) -> None:
+def copy_skills(src: str, repo_root: str) -> int:
     skills_src = os.path.join(src, "skills")
     if not os.path.isdir(skills_src):
-        return
+        return 0
+    count = 0
     for skill_name in os.listdir(skills_src):
         skill_dir = os.path.join(skills_src, skill_name)
         if not os.path.isdir(skill_dir):
@@ -154,25 +167,31 @@ def copy_skills(src: str, repo_root: str) -> None:
             src_file = os.path.join(skill_dir, fname)
             if os.path.isfile(src_file):
                 shutil.copy2(src_file, dest_dir)
-        print(f"  Updated skill: {skill_name}")
+        count += 1
+        _vprint(f"  Updated skill: {skill_name}")
+    return count
 
 
-def copy_scripts(src: str, repo_root: str) -> None:
+def copy_scripts(src: str, repo_root: str) -> int:
     scripts_src = os.path.join(src, "scripts")
     if not os.path.isdir(scripts_src):
-        return
+        return 0
     os.makedirs(os.path.join(repo_root, "scripts"), exist_ok=True)
+    count = 0
     for script in Path(scripts_src).glob("*.py"):
         shutil.copy2(str(script), os.path.join(repo_root, "scripts"))
-        print(f"  Updated scripts/{script.name}")
+        count += 1
+        _vprint(f"  Updated scripts/{script.name}")
+    return count
 
 
-def copy_hooks(src: str, repo_root: str) -> None:
+def copy_hooks(src: str, repo_root: str) -> int:
     hooks_src = os.path.join(src, ".claude", "hooks")
     if not os.path.isdir(hooks_src):
-        return
+        return 0
     hooks_dest = os.path.join(repo_root, ".claude", "hooks")
     os.makedirs(hooks_dest, exist_ok=True)
+    count = 0
     for hookfile in os.listdir(hooks_src):
         src_hook = os.path.join(hooks_src, hookfile)
         if not os.path.isfile(src_hook):
@@ -180,7 +199,9 @@ def copy_hooks(src: str, repo_root: str) -> None:
         dest_hook = os.path.join(hooks_dest, hookfile)
         shutil.copy2(src_hook, dest_hook)
         os.chmod(dest_hook, 0o755)
-        print(f"  Updated hook: {hookfile}")
+        count += 1
+        _vprint(f"  Updated hook: {hookfile}")
+    return count
 
 
 def override_setup_path(repo_root: str) -> None:
@@ -199,15 +220,16 @@ def override_setup_path(repo_root: str) -> None:
     os.chmod(setup_path, 0o755)
 
 
-def merge_config_defaults(src: str, repo_root: str, script_dir: str) -> None:
+def merge_config_defaults(src: str, repo_root: str, script_dir: str) -> list[str]:
     """Backfill keys present in config.default.json but absent from config.json.
 
     Existing values in config.json are never overwritten — only missing keys are
-    added with the default value from config.default.json.
+    added with the default value from config.default.json. Returns the list of
+    keys that were backfilled.
     """
     project_config = os.path.join(repo_root, "tusk", "config.json")
     if not os.path.isfile(project_config):
-        return  # No installed config — nothing to backfill
+        return []  # No installed config — nothing to backfill
 
     # Prefer the default config from the freshly-extracted src directory so we
     # always merge against the latest defaults, not the previously installed ones.
@@ -216,7 +238,7 @@ def merge_config_defaults(src: str, repo_root: str, script_dir: str) -> None:
         # Fallback to the already-installed copy (e.g. local dev / test scenario)
         default_config = os.path.join(script_dir, "config.default.json")
     if not os.path.isfile(default_config):
-        return
+        return []
 
     try:
         with open(default_config) as f:
@@ -225,7 +247,7 @@ def merge_config_defaults(src: str, repo_root: str, script_dir: str) -> None:
             config = json.load(f)
     except json.JSONDecodeError as e:
         print(f"  Warning: could not parse config for backfill: {e}", flush=True)
-        return
+        return []
 
     added = []
     for key, value in defaults.items():
@@ -237,7 +259,8 @@ def merge_config_defaults(src: str, repo_root: str, script_dir: str) -> None:
         with open(project_config, "w") as f:
             json.dump(config, f, indent=2)
             f.write("\n")
-        print(f"  Backfilled config keys: {', '.join(added)}")
+        _vprint(f"  Backfilled config keys: {', '.join(added)}")
+    return added
 
 
 def _normalize_hook_cmd(cmd: str) -> str:
@@ -277,12 +300,18 @@ def _dedup_hook_groups(groups: list) -> list:
     return deduped
 
 
-def merge_hook_registrations(src: str, repo_root: str) -> None:
+def merge_hook_registrations(src: str, repo_root: str) -> dict:
+    """Merge source hook registrations and permissions into target settings.json.
+
+    Returns a summary dict: {"registered": N, "dedup_removed": N, "permissions_added": N}.
+    """
     source_settings_path = os.path.join(src, ".claude", "settings.json")
     target_settings_path = os.path.join(repo_root, ".claude", "settings.json")
 
+    summary = {"registered": 0, "dedup_removed": 0, "permissions_added": 0}
+
     if not os.path.isfile(source_settings_path):
-        return
+        return summary
 
     try:
         with open(source_settings_path) as f:
@@ -310,7 +339,8 @@ def merge_hook_registrations(src: str, repo_root: str) -> None:
         target_hooks[event_type] = _dedup_hook_groups(target_hooks[event_type])
         removed = before - len(target_hooks[event_type])
         if removed:
-            print(f"  Removed {removed} duplicate hook group(s) from {event_type}")
+            summary["dedup_removed"] += removed
+            _vprint(f"  Removed {removed} duplicate hook group(s) from {event_type}")
 
     for event_type, source_groups in source_hooks.items():
         target_groups = target_hooks.setdefault(event_type, [])
@@ -326,11 +356,12 @@ def merge_hook_registrations(src: str, repo_root: str) -> None:
                 target_groups.append(group)
                 for cmd in group_commands:
                     if cmd:
-                        print(f"  Registered hook: {cmd}")
+                        summary["registered"] += 1
+                        _vprint(f"  Registered hook: {cmd}")
             else:
                 for cmd in group_commands:
                     if cmd:
-                        print(f"  Hook already registered: {_normalize_hook_cmd(cmd)}")
+                        _vprint(f"  Hook already registered: {_normalize_hook_cmd(cmd)}")
 
     # Merge permissions.allow entries (same logic as install.sh step 4b)
     target_allow = target_settings.setdefault("permissions", {}).setdefault("allow", [])
@@ -339,13 +370,16 @@ def merge_hook_registrations(src: str, repo_root: str) -> None:
         if entry not in existing_allow:
             target_allow.append(entry)
             existing_allow.add(entry)
-            print(f"  Added permission: {entry}")
+            summary["permissions_added"] += 1
+            _vprint(f"  Added permission: {entry}")
         else:
-            print(f"  Permission already present: {entry}")
+            _vprint(f"  Permission already present: {entry}")
 
     with open(target_settings_path, "w") as f:
         json.dump(target_settings, f, indent=2)
         f.write("\n")
+
+    return summary
 
 
 REQUIRED_REVIEW_COMMITS_PERMISSIONS = [
@@ -414,19 +448,25 @@ def ensure_review_commits_permissions(repo_root: str) -> list[str]:
     return added
 
 
-def remove_deprecated_files(repo_root: str) -> None:
+def remove_deprecated_files(repo_root: str) -> int:
+    removed = 0
     for rel in ["tusk/conventions.md", "tusk/dashboard.html", "tusk/tusk.db"]:
         full = os.path.join(repo_root, rel)
         if os.path.isfile(full):
             os.remove(full)
-            print(f"  Removed deprecated file: {rel}")
+            removed += 1
+            _vprint(f"  Removed deprecated file: {rel}")
+    return removed
 
 
 def update_gitignore(script_dir: str) -> None:
-    subprocess.run([os.path.join(script_dir, "tusk"), "update-gitignore"], check=True)
+    kwargs = {"check": True}
+    if not _verbose:
+        kwargs["stdout"] = subprocess.DEVNULL
+    subprocess.run([os.path.join(script_dir, "tusk"), "update-gitignore"], **kwargs)
 
 
-def fix_trailing_newlines(script_dir: str, repo_root: str) -> None:
+def fix_trailing_newlines(script_dir: str, repo_root: str) -> int:
     candidates = [
         *glob.glob(os.path.join(script_dir, "*.json")),
         *glob.glob(os.path.join(script_dir, "*.py")),
@@ -446,7 +486,8 @@ def fix_trailing_newlines(script_dir: str, repo_root: str) -> None:
                 f.write(b"\n")
             fixed += 1
     if fixed > 0:
-        print(f"  Fixed missing trailing newline in {fixed} file(s).")
+        _vprint(f"  Fixed missing trailing newline in {fixed} file(s).")
+    return fixed
 
 
 def stage_and_commit(repo_root: str, manifest_path: str, remote_version: int) -> None:
@@ -479,7 +520,14 @@ def main() -> None:
     parser.add_argument("script_dir", help="Absolute path to script dir")
     parser.add_argument("--no-commit", action="store_true", help="Skip auto-commit")
     parser.add_argument("--force", action="store_true", help="Force upgrade even if same version")
+    parser.add_argument(
+        "-v", "--verbose", action="store_true",
+        help="Show per-file detail; default is a compact summary.",
+    )
     args = parser.parse_args()
+
+    global _verbose
+    _verbose = args.verbose
 
     repo_root = args.repo_root
     script_dir = args.script_dir
@@ -528,39 +576,69 @@ def main() -> None:
         old_manifest = os.path.join(repo_root, ".claude", "tusk-manifest.json")
         new_manifest = os.path.join(src, "MANIFEST")
 
-        # Remove orphaned files
+        orphan_count = 0
         if os.path.isfile(old_manifest) and os.path.isfile(new_manifest):
-            remove_orphans(old_manifest, new_manifest, repo_root)
+            orphan_count = remove_orphans(old_manifest, new_manifest, repo_root)
         elif not os.path.isfile(old_manifest):
             print("  No prior manifest found; skipping orphan removal (first upgrade with manifest support)")
         else:
             print("  Warning: new release has no MANIFEST file; skipping orphan removal")
 
         copy_bin_files(src, script_dir)
-        copy_skills(src, repo_root)
-        copy_scripts(src, repo_root)
-        copy_hooks(src, repo_root)
+        skill_count = copy_skills(src, repo_root)
+        script_count = copy_scripts(src, repo_root)
+        hook_count = copy_hooks(src, repo_root)
         override_setup_path(repo_root)
-        merge_hook_registrations(src, repo_root)
+        hook_summary = merge_hook_registrations(src, repo_root)
         added_perms = ensure_review_commits_permissions(repo_root)
         for entry in added_perms:
-            print(f"  Added required permission: {entry}")
-        merge_config_defaults(src, repo_root, script_dir)
+            _vprint(f"  Added required permission: {entry}")
+        backfilled_keys = merge_config_defaults(src, repo_root, script_dir)
 
-        # Run migrations using the newly installed binary
-        subprocess.run([os.path.join(script_dir, "tusk"), "migrate"], check=True)
+        # Run migrations using the newly installed binary. In quiet mode, capture
+        # stdout so only the single-line schema summary is surfaced below.
+        migrate_cmd = [os.path.join(script_dir, "tusk"), "migrate"]
+        if _verbose:
+            subprocess.run(migrate_cmd, check=True)
+            migrate_summary = "ran"
+        else:
+            result = subprocess.run(migrate_cmd, check=True, capture_output=True, text=True)
+            migrate_summary = (result.stdout or "ran").strip().splitlines()[-1]
 
-        remove_deprecated_files(repo_root)
+        deprecated_count = remove_deprecated_files(repo_root)
         update_gitignore(script_dir)
 
         if os.path.isfile(new_manifest):
             shutil.copy2(new_manifest, old_manifest)
-            print("  Updated .claude/tusk-manifest.json")
+            _vprint("  Updated .claude/tusk-manifest.json")
 
-        fix_trailing_newlines(script_dir, repo_root)
+        newline_fixes = fix_trailing_newlines(script_dir, repo_root)
 
         # Stamp VERSION last — ensures interrupted upgrades re-run next time
         shutil.copy2(os.path.join(src, "VERSION"), os.path.join(script_dir, "VERSION"))
+
+    if not _verbose:
+        print(f"  Skills       {skill_count} updated")
+        print(f"  Hooks        {hook_count} updated"
+              + (f", {hook_summary['registered']} registered" if hook_summary["registered"] else "")
+              + (f", {hook_summary['dedup_removed']} dedup'd" if hook_summary["dedup_removed"] else ""))
+        if script_count:
+            print(f"  Scripts      {script_count} updated")
+        perms_total = hook_summary["permissions_added"] + len(added_perms)
+        if perms_total:
+            print(f"  Permissions  {perms_total} added")
+        if backfilled_keys:
+            print(f"  Config       {len(backfilled_keys)} key(s) backfilled: {', '.join(backfilled_keys)}")
+        print(f"  Migrations   {migrate_summary}")
+        cleanup_bits = []
+        if orphan_count:
+            cleanup_bits.append(f"{orphan_count} orphan(s)")
+        if deprecated_count:
+            cleanup_bits.append(f"{deprecated_count} deprecated file(s)")
+        if newline_fixes:
+            cleanup_bits.append(f"{newline_fixes} newline fix(es)")
+        if cleanup_bits:
+            print(f"  Cleanup      {', '.join(cleanup_bits)}")
 
     print()
     print(f"Upgrade complete (version {remote_version}).")
