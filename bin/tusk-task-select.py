@@ -20,14 +20,16 @@ import sqlite3
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader
-
-COMPLEXITY_ORDER = ["XS", "S", "M", "L", "XL"]
+import tusk_loader  # loads tusk-db-lib.py, tusk-json-lib.py, tusk-rank-lib.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
+_rank_lib = tusk_loader.load("tusk-rank-lib")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
+select_top_ready_task = _rank_lib.select_top_ready_task
+empty_backlog_message = _rank_lib.empty_backlog_message
+COMPLEXITY_ORDER = _rank_lib.COMPLEXITY_ORDER
 
 
 def main(argv: list[str]) -> int:
@@ -66,30 +68,11 @@ def main(argv: list[str]) -> int:
 
     conn = get_connection(db_path)
     try:
-        conditions: list[str] = []
-        params: list = []
-
-        if args.max_complexity:
-            idx = COMPLEXITY_ORDER.index(args.max_complexity)
-            allowed = COMPLEXITY_ORDER[: idx + 1]
-            placeholders = ",".join("?" * len(allowed))
-            conditions.append(f"complexity IN ({placeholders})")
-            params.extend(allowed)
-
-        if exclude_ids:
-            placeholders = ",".join("?" * len(exclude_ids))
-            conditions.append(f"id NOT IN ({placeholders})")
-            params.extend(exclude_ids)
-
-        where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-        sql = f"""
-SELECT id, summary, priority, priority_score, domain, assignee, complexity, description
-FROM v_ready_tasks
-{where_clause}
-ORDER BY priority_score DESC, id
-LIMIT 1
-"""
-        row = conn.execute(sql, params).fetchone()
+        row = select_top_ready_task(
+            conn,
+            max_complexity=args.max_complexity,
+            exclude_ids=exclude_ids,
+        )
 
         warn_rows: list = []
         if row is not None:
@@ -109,12 +92,13 @@ LIMIT 1
         conn.close()
 
     if row is None:
-        msg = "No ready tasks found"
-        if args.max_complexity:
-            msg += f" with complexity at or below {args.max_complexity}"
-        if exclude_ids:
-            msg += f" (excluding {len(exclude_ids)} task ID{'s' if len(exclude_ids) != 1 else ''})"
-        print(msg, file=sys.stderr)
+        print(
+            empty_backlog_message(
+                max_complexity=args.max_complexity,
+                exclude_ids=exclude_ids,
+            ),
+            file=sys.stderr,
+        )
         return 1
 
     if warn_rows:
