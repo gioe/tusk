@@ -43,6 +43,7 @@
   ".claude/bin/tusk-retro-signals.py",
   ".claude/bin/tusk-retro-themes.py",
   ".claude/bin/tusk-review-check-perms.py",
+  ".claude/bin/tusk-review-final-summary.py",
   ".claude/bin/tusk-review.py",
   ".claude/bin/tusk-session-recalc.py",
   ".claude/bin/tusk-session-stats.py",
