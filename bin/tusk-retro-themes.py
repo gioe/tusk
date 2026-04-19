@@ -22,7 +22,11 @@ Output JSON shape (pre-aggregated tuples only — no raw row escape hatch):
     {
         "window_days": N,
         "min_recurrence": N,
-        "total_findings": N,          # total rows considered in the window
+        "total_findings": N,          # rows in the window; counted BEFORE
+                                      # min_recurrence is applied (post-WHERE,
+                                      # pre-HAVING) so callers can tell
+                                      # "6 findings, only 1 recurring theme"
+                                      # at a glance
         "themes": [                   # sorted by count desc, then theme asc
             {"theme": "<category>", "count": N},
             ...
