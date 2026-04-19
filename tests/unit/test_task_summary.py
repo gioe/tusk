@@ -312,14 +312,18 @@ class TestDiff:
             ["git", "config", "user.name", "Test"], cwd=repo_root, check=True
         )
 
-    def _commit(self, repo_root, path, content, message):
+    def _commit(self, repo_root, path, content, message, commit_date=None):
         full = os.path.join(repo_root, path)
         os.makedirs(os.path.dirname(full), exist_ok=True) if os.path.dirname(path) else None
         with open(full, "w") as f:
             f.write(content)
         subprocess.run(["git", "add", path], cwd=repo_root, check=True)
+        env = os.environ.copy()
+        if commit_date:
+            env["GIT_AUTHOR_DATE"] = commit_date
+            env["GIT_COMMITTER_DATE"] = commit_date
         subprocess.run(
-            ["git", "commit", "-q", "-m", message], cwd=repo_root, check=True
+            ["git", "commit", "-q", "-m", message], cwd=repo_root, check=True, env=env
         )
 
     def test_diff_filters_to_task(self, tmp_path):
@@ -351,6 +355,38 @@ class TestDiff:
         """fetch_diff against a non-git dir returns all zeros (no exception)."""
         diff = mod.fetch_diff(1, str(tmp_path))
         assert diff["commits"] == 0
+
+    def test_diff_excludes_commits_before_started_at(self, tmp_path):
+        """Two [TASK-7] commits sharing a numeric ID across DB lifetimes:
+        only the one authored after `since` is counted."""
+        repo = str(tmp_path)
+        self._init_repo(repo)
+        # Earlier incarnation of TASK-7 — pre-dates the current task's started_at.
+        self._commit(
+            repo, "old.txt", "old\n", "[TASK-7] earlier incarnation",
+            commit_date="2026-01-15 10:00:00 +0000",
+        )
+        # Current TASK-7 commits — after started_at.
+        self._commit(
+            repo, "new.txt", "one\n", "[TASK-7] current — first",
+            commit_date="2026-04-19 11:00:00 +0000",
+        )
+        self._commit(
+            repo, "new.txt", "one\ntwo\n", "[TASK-7] current — second",
+            commit_date="2026-04-19 12:00:00 +0000",
+        )
+
+        # Without `since`, all three [TASK-7] commits leak in.
+        unscoped = mod.fetch_diff(7, repo)
+        assert unscoped["commits"] == 3
+        assert unscoped["files_changed"] == 2
+
+        # With `since=started_at`, the earlier incarnation is excluded.
+        scoped = mod.fetch_diff(7, repo, since="2026-04-19 10:00:00")
+        assert scoped["commits"] == 2
+        assert scoped["files_changed"] == 1
+        assert scoped["lines_added"] == 2
+        assert scoped["lines_removed"] == 0
 
 
 # ── end-to-end: CLI exit codes and output modes ───────────────────────

@@ -49,7 +49,10 @@ With --format markdown, the same data is rendered as a user-facing block.
 
 Diff stats are derived from `git log --grep="[TASK-<id>]"` — commits that don't
 reference the task ID are excluded, preventing cross-task pollution on shared
-branches. If the task was abandoned (no commits), all diff fields are 0.
+branches. The query is also scoped with `--since=<tasks.started_at>` so commits
+from an earlier incarnation of the same numeric ID (e.g., after a fresh DB init
+where IDs reset) are excluded. If the task was abandoned (no commits), all diff
+fields are 0.
 
 Exit codes:
     0 — success
@@ -139,23 +142,31 @@ def fetch_duration(conn: sqlite3.Connection, task_id: int, identity: dict) -> di
     }
 
 
-def fetch_diff(task_id: int, repo_root: str) -> dict:
+def fetch_diff(task_id: int, repo_root: str, since: str | None = None) -> dict:
     """Parse `git log --grep` output to collect commit count, unique files, and line deltas.
 
     `--all` scans every ref so post-merge commits (now on the default branch)
     are still found. The `[TASK-<id>]` grep filter excludes commits for other
-    tasks that happen to sit on the same branch history.
+    tasks that happen to sit on the same branch history. When `since` is
+    provided (typically `tasks.started_at`), `--since=<since> UTC` is appended
+    so commits authored before this task's lifetime — e.g. an earlier
+    incarnation of the same numeric ID after a fresh DB init — are excluded.
+    The "UTC" suffix anchors the SQLite-stored UTC timestamp against git's
+    local-time interpretation of `--since`.
     """
     zero = {"commits": 0, "files_changed": 0, "lines_added": 0, "lines_removed": 0}
+    cmd = [
+        "git", "log", "--all",
+        f"--grep=[TASK-{task_id}]",
+        "--fixed-strings",
+        "--numstat",
+        "--format=__COMMIT__ %H",
+    ]
+    if since:
+        cmd.append(f"--since={since} UTC")
     try:
         result = subprocess.run(
-            [
-                "git", "log", "--all",
-                f"--grep=[TASK-{task_id}]",
-                "--fixed-strings",
-                "--numstat",
-                "--format=__COMMIT__ %H",
-            ],
+            cmd,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -255,7 +266,7 @@ def build_summary(conn: sqlite3.Connection, task_id: int, repo_root: str) -> dic
         "closed_reason": identity["closed_reason"],
         "cost": fetch_cost(conn, task_id),
         "duration": fetch_duration(conn, task_id, identity),
-        "diff": fetch_diff(task_id, repo_root),
+        "diff": fetch_diff(task_id, repo_root, since=identity["started_at"]),
         "criteria": fetch_criteria(conn, task_id),
         "review_passes": fetch_review_passes(conn, task_id),
         "reopen_count": fetch_reopen_count(conn, task_id),
