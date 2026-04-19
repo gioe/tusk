@@ -271,36 +271,23 @@ Record every decision (fix or dismiss) with a one-line rationale — these will 
 
 ### defer comments
 
-These are valid issues but out of scope for the current work. For each `defer` comment:
+These are valid issues but out of scope for the current work. If `DEFERRED_TASK_TYPE` (resolved in Step 1) is **null** — config has no suitable task type — skip helper invocation entirely. For each `defer` comment, print a warning "Skipped deferred task — no suitable task_type in config (not 'bug'): <summary>" and mark the comment resolved manually via `tusk review resolve <comment_id> deferred`.
 
-1. Run a heuristic dupe check first:
-   ```bash
-   tusk dupes check "<summary from comment>" --domain <same domain as current task>
-   ```
-   Interpret the exit code:
-   - **Exit code 0** — no duplicate found; proceed to step 2.
-   - **Exit code 1** — duplicate already exists; **skip task creation** and print a note (e.g., "Skipped deferred task — duplicate found: <summary>"). Mark the comment resolved as deferred anyway:
-     ```bash
-     tusk review resolve <comment_id> deferred
-     ```
-   - **Any other exit code** — the dupe check itself failed (e.g., database error); **skip task creation**, print a warning (e.g., "Skipped deferred task — dupe check failed with exit code <N>: <summary>"), and mark the comment resolved as deferred.
+Otherwise, call the helper per comment to atomically run the dupe check, insert the deferred task (when not a duplicate), and mark the comment resolved — one call replaces the prior three-step dance:
 
-2. If exit code 0 (no duplicate), create the deferred task. Use `DEFERRED_TASK_TYPE` resolved in Step 1:
-   - **If `DEFERRED_TASK_TYPE` is non-null**, include `--task-type <DEFERRED_TASK_TYPE>`:
-     ```bash
-     tusk task-insert "<summary from comment>" "<full comment text>" \
-       --priority Medium \
-       --domain <same domain as current task> \
-       --task-type <DEFERRED_TASK_TYPE> \
-       --criteria "Address deferred finding: <summary from comment>" \
-       --deferred
-     ```
-   - **If `DEFERRED_TASK_TYPE` is null** (config has no suitable task type), skip task creation and print a warning: "Skipped deferred task — no suitable task_type in config (not 'bug'): <summary>".
+```bash
+tusk review-defer <comment_id> --domain <same domain as current task> --task-type <DEFERRED_TASK_TYPE>
+```
 
-   In both cases, mark the comment resolved:
-   ```bash
-   tusk review resolve <comment_id> deferred
-   ```
+The helper reads the comment text from `review_comments`, runs `tusk dupes check` on the derived summary against the given domain, and:
+- inserts a new deferred task (`--priority Medium`, `--task-type <DEFERRED_TASK_TYPE>`, `--deferred`, criterion "Address deferred finding: <summary>") when there is no duplicate;
+- records the match and skips insertion when a duplicate already exists;
+- records the failure and skips insertion when the dupe check itself errored.
+
+In all three branches the comment is marked resolved. The helper exits 0 and prints JSON `{created_task_id, skipped_reason, matched_task_id}` on stdout:
+- `created_task_id` set, `skipped_reason` null — new deferred task was created; note the id.
+- `skipped_reason: "duplicate"` — `matched_task_id` points at an open task already covering this finding; print a note (e.g., "Skipped deferred task — duplicate of #<id>: <summary>").
+- `skipped_reason: "dupe_check_failed"` — the dupe check itself errored; print a warning (e.g., "Skipped deferred task — dupe check failed: <summary>") so the user can re-file manually if needed.
 
 After processing all findings, check the current verdict:
 
