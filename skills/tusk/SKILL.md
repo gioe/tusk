@@ -24,11 +24,13 @@ This returns the full config as JSON (domains, agents, task_types, priorities, c
 
 ### Get Next Task (default - no arguments)
 
-Finds the highest-priority task that is ready to work on (no incomplete dependencies) and **automatically begins working on it**.
+Finds the highest-priority task that is ready to work on (no incomplete dependencies), opens a session for it, flips its status to In Progress, and returns the same JSON blob documented under "Begin Work on a Task" below — all in one call.
 
 ```bash
-tusk task-select
+tusk task-start --force
 ```
+
+The `--force` flag ensures the workflow proceeds even if the task has no acceptance criteria (emits a warning rather than hard-failing).
 
 **Empty backlog**: If the command exits with code 1, the backlog has no ready tasks. Check why:
 
@@ -42,23 +44,15 @@ tusk -header -column "SELECT status, COUNT(*) as count FROM tasks GROUP BY statu
 
 Do **not** suggest `/groom-backlog` or `/retro` when there are no ready tasks — those skills require an active backlog or session history to be useful.
 
-**Complexity warning**: If the selected task has complexity **L** or **XL**, display a warning to the user before proceeding:
-
-> **Note: This is a large task (complexity: L/XL) — expect 3+ sessions to complete.**
-
-Then ask the user whether to proceed or request a smaller task. If the user chooses a smaller task, re-run excluding L and XL:
+On success, the JSON blob's `task.id` is the task you just started. Begin skill-run cost tracking for it and **immediately proceed to step 1b of the "Begin Work on a Task" workflow** (the initial `tusk task-start <id>` call is already done — you have the JSON). Do not wait for additional user confirmation.
 
 ```bash
-tusk task-select --max-complexity M
+tusk skill-run start tusk --task-id <id>
 ```
-
-If no smaller task is available, inform the user and offer to proceed with the original L/XL task.
-
-After the user confirms (or if the task is not L/XL), **immediately proceed to the "Begin Work on a Task" workflow** using the retrieved task ID. Do not wait for additional user confirmation.
 
 ### Begin Work on a Task (with task ID argument)
 
-When called with a task ID (e.g., `/tusk 6`), begin the full development workflow:
+When called with a task ID (e.g., `/tusk 6`), begin the full development workflow. When called with no argument, the "Get Next Task" step above has already run `tusk task-start --force` for you — **skip Step 1's `tusk task-start` call and pick up from Step 1's skill-run start and the rest of the flow**, using the JSON blob you already have.
 
 **Follow these steps IN ORDER:**
 
@@ -82,7 +76,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
    > **Early-exit cleanup:** If any step below causes the skill to stop before reaching the final `/retro` invocation in Step 12, first call `tusk skill-run cancel <run_id>` to close the open row, then stop. Otherwise the row lingers as `(open)` in `tusk skill-run list` forever. The explicit cancel calls below cover the known post-start early-exit paths; if you hit an unexpected bail-out, cancel before returning.
    >
-   > **Pre-start exits don't need cancel.** Exits in the "Get Next Task" flow that happen *before* this Step 1 — empty backlog (`tusk task-select` exit 1), L/XL user-declines, no smaller task available and the user refuses the original — happen before `tusk skill-run start` has run, so no `run_id` exists to cancel. Just stop.
+   > **Pre-start exits don't need cancel.** If the "Get Next Task" flow exits 1 (empty backlog — `tusk task-start --force` returned "No ready tasks found"), that happens before `tusk skill-run start` has run, so no `run_id` exists to cancel. Just stop.
 
 1b. **Workflow routing** — If the task's `workflow` field (from the `task` object in step 1) is non-null, the task uses a custom workflow instead of the default development cycle. Look up the corresponding skill:
    ```

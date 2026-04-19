@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [655] - 2026-04-18
+
+- [TASK-103] Fuse task ranking into task-start so no-arg /tusk makes one CLI call instead of two
+
 ## [654] - 2026-04-18
 
 - [TASK-100] Surface per-model rework rate in tusk-insights / dashboard
