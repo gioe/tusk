@@ -1306,6 +1306,7 @@ case "${1:-}" in
   review-pass-status) shift; exec python3 "$SCRIPT_DIR/tusk-review.py" "$DB_PATH" "$(resolve_config)" pass-status "$@" ;;
   review-final-summary) shift; exec python3 "$SCRIPT_DIR/tusk-review-final-summary.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   review-diff-range) shift; exec python3 "$SCRIPT_DIR/tusk-review-diff-range.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  review-defer) shift; exec python3 "$SCRIPT_DIR/tusk-review-defer.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   deps) shift; exec python3 "$SCRIPT_DIR/tusk-deps.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   session-stats) shift; exec python3 "$SCRIPT_DIR/tusk-session-stats.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   session-recalc) shift; exec python3 "$SCRIPT_DIR/tusk-session-recalc.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
