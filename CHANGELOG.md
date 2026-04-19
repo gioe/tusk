@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [661] - 2026-04-19
+
+- [TASK-106] Surface skipped criteria and unfinished progress next_steps in /retro
+
 ## [660] - 2026-04-19
 
 - [TASK-105] Surface reopens and rework chain for the retro'd task in /retro
