@@ -27,6 +27,7 @@ bin/tusk task-start [<task_id>] [--force] [--agent NAME] [--skill NAME]   # --sk
 bin/tusk task-done <task_id> --reason completed|expired|wont_do|duplicate [--force]
 bin/tusk task-update <task_id> [--priority P] [--domain D] [--task-type T] [--assignee A] [--complexity C] [--workflow W] [--summary S] [--description D]
 bin/tusk task-reopen <task_id> --force
+bin/tusk task-summary <task_id> [--format json|markdown]   # end-of-run rollup: identity, cost, duration, diff, criteria counts (JSON default; markdown for user-facing display)
 
 # Dev workflow
 bin/tusk branch <task_id> <slug>
