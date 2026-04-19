@@ -1026,7 +1026,7 @@ if os.path.isfile(_extra_path):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: tusk-lint.py <repo_root> [--quiet]", file=sys.stderr)
+        print("Usage: tusk-lint.py <repo_root> [--verbose|--quiet]", file=sys.stderr)
         sys.exit(2)
 
     root = sys.argv[1]
@@ -1034,16 +1034,26 @@ def main():
         print(f"Error: {root} is not a directory", file=sys.stderr)
         sys.exit(2)
 
-    # --quiet suppresses per-rule PASS lines and the report header — only rules
-    # with violations are shown. Used by `tusk commit` to avoid flooding commit
-    # output with 20+ PASS lines when nothing is wrong.
-    quiet = "--quiet" in sys.argv[2:]
+    # Output modes:
+    #   default  — print only rules with violations; on success print a single
+    #              "OK — N rules passed" summary. Good for interactive use.
+    #   --verbose / -v — full per-rule report with PASS lines + header. Useful
+    #                    for CI or when auditing which rules ran.
+    #   --quiet / -q   — print only rules with violations; silent on clean
+    #                    success. Used by `tusk commit` where the caller
+    #                    already prints its own banners.
+    flags = sys.argv[2:]
+    verbose = "--verbose" in flags or "-v" in flags
+    quiet = "--quiet" in flags or "-q" in flags
+    if verbose and quiet:
+        print("Error: --verbose and --quiet are mutually exclusive", file=sys.stderr)
+        sys.exit(2)
 
     total_violations = 0
     rules_with_violations = 0
     total_advisory_violations = 0
 
-    if not quiet:
+    if verbose:
         print("=== Lint Conventions Report ===")
         print()
 
@@ -1061,7 +1071,7 @@ def main():
             for v in violations:
                 print(v)
             print()
-        elif not quiet:
+        elif verbose:
             print(name)
             print("  PASS — no violations")
             print()
@@ -1070,10 +1080,17 @@ def main():
         print(f"=== Summary: {total_violations} violation{'s' if total_violations != 1 else ''} across {rules_with_violations} rule{'s' if rules_with_violations != 1 else ''} ===")
         sys.exit(1)
     else:
-        if quiet and total_advisory_violations:
-            print(f"=== Summary: no blocking violations ({total_advisory_violations} advisory) ===")
-        elif not quiet:
-            print("=== Summary: no violations ===")
+        if quiet:
+            if total_advisory_violations:
+                print(f"=== Summary: no blocking violations ({total_advisory_violations} advisory) ===")
+        else:
+            rule_count = len(RULES)
+            if verbose:
+                print("=== Summary: no violations ===")
+            elif total_advisory_violations:
+                print(f"OK — {rule_count} rules passed ({total_advisory_violations} advisory)")
+            else:
+                print(f"OK — {rule_count} rules passed")
         sys.exit(0)
 
 

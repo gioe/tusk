@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [674] - 2026-04-19
+
+- Make `tusk lint` terse by default: on clean success, prints a single `OK — N rules passed` line instead of a per-rule PASS report. Add `--verbose`/`-v` to restore the old full per-rule output, and keep `--quiet`/`-q` (used by `tusk commit`) as fully silent on clean success. Violations continue to print verbatim with their rule name and WARN/WARN [ADVISORY] label in all modes.
+
 ## [673] - 2026-04-19
 
 - Add `Bash(tusk lint:*)` and `Bash(bin/tusk lint:*)` to `.claude/settings.json` `permissions.allow` so agents can invoke the linter without a permission prompt. Merges into client settings via `install.sh` / `tusk upgrade` on next update.

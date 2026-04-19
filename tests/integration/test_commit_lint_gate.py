@@ -82,12 +82,16 @@ def _run_commit(repo: str, *extra_args: str, env_extra: dict | None = None):
 
 
 class TestLintQuietOutput:
-    def test_quiet_suppresses_pass_lines(self, tmp_path):
+    def test_default_is_terse_and_verbose_is_full(self, tmp_path):
         repo = str(tmp_path / "repo")
         _git_init(repo)
 
-        verbose = subprocess.run(
+        default = subprocess.run(
             ["python3", TUSK_LINT_PY, repo],
+            capture_output=True, text=True,
+        )
+        verbose = subprocess.run(
+            ["python3", TUSK_LINT_PY, repo, "--verbose"],
             capture_output=True, text=True,
         )
         quiet = subprocess.run(
@@ -99,9 +103,13 @@ class TestLintQuietOutput:
         assert "PASS — no violations" in verbose.stdout
         assert "=== Lint Conventions Report ===" in verbose.stdout
 
-        # Quiet output drops them entirely.
-        assert "PASS — no violations" not in quiet.stdout
-        assert "=== Lint Conventions Report ===" not in quiet.stdout
+        # Default output drops per-rule detail but prints a one-line OK summary.
+        assert "PASS — no violations" not in default.stdout
+        assert "=== Lint Conventions Report ===" not in default.stdout
+        assert default.stdout.startswith("OK —") or "\nOK —" in default.stdout
+
+        # Quiet output is entirely silent on clean success.
+        assert quiet.stdout == ""
 
     def test_quiet_still_prints_violations(self, tmp_path):
         repo = str(tmp_path / "repo")
