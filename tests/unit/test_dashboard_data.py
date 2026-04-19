@@ -1497,6 +1497,39 @@ def _extract_table_columns(sql_text, table_name):
     return columns
 
 
+class TestTasksSchemaSync:
+    """Guard against drift between _SCHEMA fixture and bin/tusk CREATE TABLE tasks."""
+
+    def test_fixture_matches_bin_tusk(self):
+        """Fail if any tasks column is present in one definition but absent from the other.
+
+        Mirrors TestTaskSessionsSchemaSync / TestSkillRunsSchemaSync — catches future
+        migrations that add columns to tasks without updating the _SCHEMA test fixture
+        (the exact drift TASK-98 closed for tests/unit/test_workflow.py).
+        """
+        tusk_path = os.path.join(REPO_ROOT, "bin", "tusk")
+        with open(tusk_path) as f:
+            tusk_sql = f.read()
+
+        tusk_cols = _extract_table_columns(tusk_sql, "tasks")
+        fixture_cols = _extract_table_columns(_SCHEMA, "tasks")
+
+        assert tusk_cols, "Could not find CREATE TABLE tasks in bin/tusk"
+        assert fixture_cols, "Could not find CREATE TABLE tasks in _SCHEMA fixture"
+
+        missing_from_fixture = tusk_cols - fixture_cols
+        extra_in_fixture = fixture_cols - tusk_cols
+
+        assert not missing_from_fixture, (
+            f"tasks columns in bin/tusk missing from _SCHEMA fixture: {sorted(missing_from_fixture)}. "
+            "Update _SCHEMA in tests/unit/test_dashboard_data.py to match."
+        )
+        assert not extra_in_fixture, (
+            f"tasks columns in _SCHEMA fixture not in bin/tusk: {sorted(extra_in_fixture)}. "
+            "Update _SCHEMA in tests/unit/test_dashboard_data.py to match."
+        )
+
+
 class TestTaskSessionsSchemaSync:
     """Guard against drift between _SCHEMA fixture and bin/tusk CREATE TABLE task_sessions."""
 
