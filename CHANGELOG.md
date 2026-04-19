@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [657] - 2026-04-19
+
+- [TASK-110] Add `tusk retro-signals <task_id>` subcommand that emits all retro-relevant pre-aggregated signals (reopen_count, rework_chain, review_themes, skipped_criteria, tool_call_outliers, unconsumed_next_steps) as a single compact JSON blob so `/retro` can make one fetch instead of six separate queries
+
 ## [656] - 2026-04-18
 
 - [TASK-103] Fuse task ranking into task-start so no-arg /tusk makes one CLI call instead of two

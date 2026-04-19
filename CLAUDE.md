@@ -56,6 +56,7 @@ bin/tusk wsjf
 bin/tusk lint
 bin/tusk autoclose
 bin/tusk backlog-scan [--duplicates] [--unassigned] [--unsized] [--expired]   # → {duplicates:[...], unassigned:[...], unsized:[...], expired:[...]}
+bin/tusk retro-signals <task_id>   # → {task_id, complexity, reopen_count, rework_chain:{fixes,fixed_by}, review_themes, skipped_criteria, tool_call_outliers, unconsumed_next_steps}
 bin/tusk test-detect               # → {"command": "<cmd>", "confidence": "high|medium|low|none"}
 bin/tusk add-lib [--lib <name>] [--repo <owner/repo>] [--ref <branch|tag|sha>]  # → {"lib": "<name>", "tasks": [...], "error": null}
 bin/tusk init-fetch-bootstrap      # → {"libs": [{name, repo, tasks, error}, ...]}
