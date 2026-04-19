@@ -23,6 +23,23 @@ Review the entire session, not just the most recent messages.
 
 Use the JSON already fetched via `tusk setup` in Step 0 of the retro skill: `config` for metadata assignment and `backlog` for semantic duplicate comparison in Step 3.
 
+## Step 2b: Fetch Retro Signals
+
+Fetch pre-aggregated retro signals for the just-closed task. `RETRO_TASK_ID` was captured in Step 0 of SKILL.md:
+
+```bash
+tusk retro-signals $RETRO_TASK_ID
+```
+
+Parse the JSON. The fields consumed by the steps below are:
+
+- **`review_themes`** — `(category, severity)` pairs with ≥ 2 occurrences across this task's review passes, plus a short sample comment. Each theme is a candidate Category A (conventions) or Category D (lint rules) finding. Seed Step 3 directly from this list — **do not** re-query `review_comments` with SQL.
+- **`deferred_review_comments`** — individual review comments with `resolution='deferred'`, each with its `deferred_task_id` (may be null). These are open follow-up threads and must be surfaced in the Step 4 report so reviewers can see what was punted forward.
+
+All other fields (`reopen_count`, `rework_chain`, `skipped_criteria`, `tool_call_outliers`, `unconsumed_next_steps`) are informational context for categorization but do not drive a specific report section here.
+
+If the task has no review activity at all, both `review_themes` and `deferred_review_comments` will be empty arrays. In that case, **omit** the "Review Theme Summary" section from Step 4 silently — do not add a "(none)" placeholder.
+
 ## Step 3: Categorize Findings
 
 If `<base_directory>/FOCUS.md` was found in Step 1, use those categories.
@@ -36,6 +53,15 @@ Otherwise organize into the default four categories:
 - **E**: Debugging Velocity — only if the session involved fixing a bug or diagnosing unexpected behavior. Reflect on: (1) what information was missing that delayed diagnosis; what tool, log, or trace would have surfaced the root cause immediately; whether a test would have caught this before it became a bug. (2) Did fixing this bug change the conditions under which adjacent issues matter? (e.g., removing noise that was masking a separate signal, raising the quality bar in a way that exposes nearby gaps.) If so, those adjacent issues are in scope for this category even if they predate the session — "predated the session" is not sufficient grounds for dismissal when the fix elevated their relevance. If no bug was present, this category is empty. Findings must be concrete (tasks or skill/CLAUDE.md patches) — not generic advice like "add more logging."
 
 If a category has no findings, note that explicitly — an empty category is a positive signal.
+
+### Seeding from `review_themes`
+
+For each entry in `review_themes` (from Step 2b), add one candidate finding to either Category A or Category D based on the theme's `category`/`severity` signal and its sample comment:
+
+- **Category A (conventions)** — the recurring comment describes a heuristic, preference, or convention the reviewer keeps repeating (e.g. "always pass `encoding='utf-8'` to `subprocess.run`", "prefer `pathlib.Path` over `os.path`"). Rule-like guidance that can be captured via `tusk conventions add` belongs here.
+- **Category D (lint rules)** — the recurring comment points at a concrete grep-detectable anti-pattern (e.g. "don't call `sqlite3` directly", "bare `except:` in *.py files"). Only promote to D if an actual mistake occurred that a grep rule would have caught — general advice stays in A.
+
+Use the `count` and `sample` fields to show the reviewer why this theme crossed the noise floor. Don't invent themes that aren't in `review_themes` — the aggregation already filtered to recurrence ≥ 2.
 
 ### 3a: Classify Each Finding
 
@@ -82,6 +108,16 @@ Show all findings in a structured report:
 ### Summary
 Brief (2-3 sentence) overview of what the session accomplished.
 
+### Review Theme Summary (omit if both tables below are empty)
+
+**Recurring themes** (from `review_themes` — omit table if empty)
+| Category | Severity | Count | Sample |
+|----------|----------|-------|--------|
+
+**Deferred review comments** (from `deferred_review_comments` — omit table if empty)
+| # | Category | Severity | File | Deferred Task | Comment |
+|---|----------|----------|------|---------------|---------|
+
 ### <Category name from Step 3> (N findings)
 1. **<title>** — <description>
    → Proposed: <summary> | <priority> | <task_type> | <domain>
@@ -100,6 +136,12 @@ Brief (2-3 sentence) overview of what the session accomplished.
 | # | Summary | Priority | Domain | Type | Category | Classification |
 |---|---------|----------|--------|------|----------|----------------|
 ```
+
+**Review Theme Summary rendering rules:**
+- If both `review_themes` and `deferred_review_comments` are empty, omit the entire "Review Theme Summary" section silently (no heading, no placeholder).
+- If only one of the two tables has rows, include the section with just that table and omit the empty one.
+- Each `deferred_review_comments` row shows `deferred_task_id` as `TASK-<id>` when non-null; render `—` when null (no follow-up task was linked). This keeps the "what happened to it" link visible even after the comment is closed out.
+- Sample columns are already truncated to 80 chars by `retro-signals`; do not re-quote or pad them.
 
 Then ask the user to **confirm**, **remove** specific numbers, **edit** a task, **reject subsumption**, **add** a finding, or **skip**. Wait for explicit approval before inserting.
 
