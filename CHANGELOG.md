@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [652] - 2026-04-18
+
+- [TASK-99] Migrations that alter tasks columns must recreate dependent views
+
 ## [651] - 2026-04-18
 
 - [TASK-82] Link post-merge outcomes to source tasks via tasks.fixes_task_id

@@ -1828,6 +1828,100 @@ def _followup_pairs_from_git(
     return [(ref, current) for current, ref in pairs.items()]
 
 
+def migrate_56(db_path: str, config_path: str, script_dir: str) -> None:
+    """Recreate tasks-dependent views so ALTER TABLE additions propagate.
+
+    SQLite resolves ``SELECT t.*`` at CREATE VIEW time and freezes the column
+    list. Adding a column to ``tasks`` via ALTER TABLE (as migration 55 did for
+    ``fixes_task_id``) does not propagate into views that select ``t.*``:
+    ``task_metrics``, ``v_ready_tasks``, and ``v_chain_heads`` all keep their
+    pre-ALTER column lists until re-CREATEd. Fresh installs are fine because
+    ``cmd_init`` rebuilds the schema end-to-end; only migrated DBs carry stale
+    view shapes.
+
+    ``v_criteria_coverage`` projects specific columns (not ``t.*``), so its
+    column list does not freeze — but it is recreated here anyway, per the
+    task brief, to keep the set of "tasks-dependent views" uniform and to
+    guarantee bit-for-bit parity with ``cmd_init``.
+
+    Idempotent: DROP VIEW IF EXISTS + CREATE VIEW reconstructs each view from
+    scratch regardless of prior state. Definitions mirror ``cmd_init`` in
+    ``bin/tusk`` verbatim as of v56.
+    """
+    if get_version(db_path) >= 56:
+        _progress("  Migration 56: recreated tasks-dependent views")
+        return
+
+    script = """
+        DROP VIEW IF EXISTS task_metrics;
+        CREATE VIEW task_metrics AS
+        SELECT t.*,
+            COUNT(s.id) as session_count,
+            SUM(s.duration_seconds) as total_duration_seconds,
+            SUM(s.cost_dollars) as total_cost,
+            SUM(s.tokens_in) as total_tokens_in,
+            SUM(s.tokens_out) as total_tokens_out,
+            SUM(s.lines_added) as total_lines_added,
+            SUM(s.lines_removed) as total_lines_removed,
+            SUM(s.request_count) as total_request_count,
+            (SELECT COUNT(*) FROM task_status_transitions tst
+              WHERE tst.task_id = t.id AND tst.to_status = 'To Do') as reopen_count
+        FROM tasks t
+        LEFT JOIN task_sessions s ON t.id = s.task_id
+        GROUP BY t.id;
+
+        DROP VIEW IF EXISTS v_ready_tasks;
+        CREATE VIEW v_ready_tasks AS
+        SELECT t.*
+        FROM tasks t
+        WHERE t.status = 'To Do'
+          AND NOT EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks blocker ON d.depends_on_id = blocker.id
+            WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM external_blockers eb
+            WHERE eb.task_id = t.id AND eb.is_resolved = 0
+          );
+
+        DROP VIEW IF EXISTS v_chain_heads;
+        CREATE VIEW v_chain_heads AS
+        SELECT t.*
+        FROM tasks t
+        WHERE t.status <> 'Done'
+          AND EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks downstream ON d.task_id = downstream.id
+            WHERE d.depends_on_id = t.id AND downstream.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks blocker ON d.depends_on_id = blocker.id
+            WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM external_blockers eb
+            WHERE eb.task_id = t.id AND eb.is_resolved = 0
+          );
+
+        DROP VIEW IF EXISTS v_criteria_coverage;
+        CREATE VIEW v_criteria_coverage AS
+        SELECT t.id AS task_id,
+               t.summary,
+               COUNT(CASE WHEN ac.is_deferred = 0 OR ac.is_deferred IS NULL THEN 1 END) AS total_criteria,
+               COALESCE(SUM(CASE WHEN ac.is_completed = 1 AND (ac.is_deferred = 0 OR ac.is_deferred IS NULL) THEN 1 ELSE 0 END), 0) AS completed_criteria,
+               COUNT(CASE WHEN ac.is_deferred = 0 OR ac.is_deferred IS NULL THEN 1 END) - COALESCE(SUM(CASE WHEN ac.is_completed = 1 AND (ac.is_deferred = 0 OR ac.is_deferred IS NULL) THEN 1 ELSE 0 END), 0) AS remaining_criteria
+        FROM tasks t
+        LEFT JOIN acceptance_criteria ac ON ac.task_id = t.id
+        GROUP BY t.id, t.summary;
+
+        PRAGMA user_version = 56;
+    """
+    run_script(db_path, script)
+    _progress("  Migration 56: recreated tasks-dependent views")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -1886,6 +1980,7 @@ MIGRATIONS = [
     (53, migrate_53),
     (54, migrate_54),
     (55, migrate_55),
+    (56, migrate_56),
 ]
 
 
