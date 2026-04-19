@@ -424,36 +424,27 @@ git push
 
 ## Step 10: Final Summary
 
-Print the review summary:
+Render the final summary block in one call — the helper reads all counts from `code_reviews` / `review_comments`, computes the verdict the same way as `tusk review verdict`, and maps `APPROVED` / `CHANGES_REMAINING` to the display label (`APPROVED` / `CHANGES REMAINING`):
 
 ```bash
-tusk review summary <review_id>
+tusk review-final-summary <review_id>
 ```
 
-Then print an overall summary. Retrieve the verdict:
-
-```bash
-tusk review-verdict <task_id>
-```
-
-Use the returned `verdict` and `open_must_fix` values in the summary. Map the machine-readable verdict to a human-readable label before printing:
-
-| `verdict` value     | Display label      |
-|---------------------|--------------------|
-| `APPROVED`          | `APPROVED`         |
-| `CHANGES_REMAINING` | `CHANGES REMAINING`|
+Output shape:
 
 ```
 Review complete for Task <task_id>: <task_summary>
 ══════════════════════════════════════════════════
-Pass:      <final_pass_number>
+Pass:      <pass number of this review>
 
 must_fix:  <total_count> found, <fixed_count> fixed
 suggest:   <total_count> found, <fixed_count> fixed, <dismissed_count> dismissed
 defer:     <total_count> found, <created_count> tasks created, <skipped_count> skipped (duplicate)
 
-Verdict: <display label>
+Verdict: <APPROVED | CHANGES REMAINING>
 ```
+
+Counts aggregate across **all** of the task's reviews (including superseded passes) so the block reflects cumulative findings — but the verdict considers only non-superseded reviews, matching `tusk review verdict`. A deferred finding counts as "created" when `review_comments.deferred_task_id` is populated and as "skipped" (duplicate) when it is NULL.
 
 ## Step 11: Finish Cost Tracking
 
