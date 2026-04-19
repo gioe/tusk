@@ -150,9 +150,10 @@ class TestBranchUnreachableRemote:
         _, err = capsys.readouterr()
         assert "git pull origin main failed" in err
 
-    def test_stash_is_popped_after_unreachable_pull(self, capsys):
+    def test_stash_left_intact_after_unreachable_pull(self, capsys):
         """When dirty-state triggered an auto-stash and origin is unreachable,
-        the stash must still be popped onto the new branch."""
+        the default path must leave the stash intact (no auto-pop) — the user
+        is informed of the stash ref so they can restore manually."""
         mod = _load_module()
         fake_run, stash_pops = _fake_run_with_pull(
             pull_rc=128,
@@ -163,9 +164,27 @@ class TestBranchUnreachableRemote:
             rc = mod.main([".", "5", "test-slug"])
 
         assert rc == 0
+        assert stash_pops == [], (
+            f"default path must NOT pop the stash; got: {stash_pops}"
+        )
+        err = capsys.readouterr().err
+        assert "stash@{0}" in err
+
+    def test_stash_is_popped_after_unreachable_pull_with_flag(self, capsys):
+        """--pop-stash restores the legacy pop-onto-new-branch behavior even
+        when origin is unreachable."""
+        mod = _load_module()
+        fake_run, stash_pops = _fake_run_with_pull(
+            pull_rc=128,
+            pull_stderr="fatal: unable to access '...': Could not resolve host: nowhere",
+            dirty=True,
+        )
+        with patch.object(mod, "run", side_effect=fake_run):
+            rc = mod.main([".", "5", "test-slug", "--pop-stash"])
+
+        assert rc == 0
         assert len(stash_pops) == 1, (
-            f"expected exactly one `git stash pop` after successful branch creation; "
-            f"got {stash_pops}"
+            f"expected exactly one `git stash pop` with --pop-stash; got {stash_pops}"
         )
 
 
