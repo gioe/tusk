@@ -2,11 +2,11 @@
 """Create a feature branch for a task.
 
 Called by the tusk wrapper:
-    tusk branch <task_id> <slug>
+    tusk branch <task_id> <slug> [--pop-stash]
 
 Arguments received from tusk:
     sys.argv[1] — repo root, used to locate the tusk DB for WAL checkpoint
-    sys.argv[2:] — task_id and slug
+    sys.argv[2:] — task_id, slug, and optional flags
 
 Steps:
     1. Detect the repo's default branch (remote HEAD → gh fallback → "main")
@@ -16,6 +16,13 @@ Steps:
        - One found → warn and switch to it (skip creation)
        - None found → create feature/TASK-<id>-<slug>
     4. Print the branch name
+
+Stash behavior:
+    When the working tree is dirty, tusk branch auto-stashes the changes before
+    switching branches. By default the stash is left intact (safer when the
+    orphan changes belong to a previous task) and the stash ref/message is
+    printed so the user can pop manually. Pass --pop-stash to restore the
+    previous behavior of popping the stash onto the new branch at the end.
 """
 
 import os
@@ -67,10 +74,11 @@ def detect_default_branch() -> str:
 def _try_pop_stash(current_branch: str | None = None) -> None:
     """Attempt to pop the auto-stash and notify the user of the outcome.
 
-    If *current_branch* is provided, append a note reminding the user which
-    branch they are currently on (useful when checkout succeeded but a later
-    step failed, leaving them on the default branch rather than their original
-    branch).
+    Only invoked when --pop-stash is passed; the default path leaves the stash
+    intact. If *current_branch* is provided, append a note reminding the user
+    which branch they are currently on (useful when checkout succeeded but a
+    later step failed, leaving them on the default branch rather than their
+    original branch).
     """
     branch_note = (
         f" You are now on '{current_branch}'; switch back to your original branch before continuing."
@@ -103,15 +111,44 @@ def _try_pop_stash(current_branch: str | None = None) -> None:
         )
 
 
+def _emit_stash_preserved(stash_msg: str, current_branch: str | None = None) -> None:
+    """Print a note that the auto-stash was left intact (default path)."""
+    branch_note = f" You are now on '{current_branch}'." if current_branch else ""
+    print(
+        f"Note: orphan changes saved as stash@{{0}}: {stash_msg}.{branch_note}\n"
+        f"  If they belong to this task, restore with: git stash pop stash@{{0}}\n"
+        f"  Otherwise drop with: git stash drop stash@{{0}} (or re-run with --pop-stash to restore automatically).",
+        file=sys.stderr,
+    )
+
+
+def _handle_stash_exit(
+    pop_stash: bool, stash_msg: str, current_branch: str | None = None
+) -> None:
+    """Dispatch stash cleanup based on the --pop-stash flag."""
+    if pop_stash:
+        _try_pop_stash(current_branch=current_branch)
+    else:
+        _emit_stash_preserved(stash_msg, current_branch=current_branch)
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) < 3:
-        print("Usage: tusk branch <task_id> <slug>", file=sys.stderr)
+    pop_stash = False
+    positional: list[str] = []
+    for a in argv:
+        if a == "--pop-stash":
+            pop_stash = True
+        else:
+            positional.append(a)
+
+    if len(positional) < 3:
+        print("Usage: tusk branch <task_id> <slug> [--pop-stash]", file=sys.stderr)
         return 1
 
-    # argv[0] is repo_root — used to locate the tusk DB for WAL checkpoint
-    repo_root = argv[0]
-    task_id_str = argv[1]
-    slug = argv[2]
+    # positional[0] is repo_root — used to locate the tusk DB for WAL checkpoint
+    repo_root = positional[0]
+    task_id_str = positional[1]
+    slug = positional[2]
 
     try:
         task_id = int(task_id_str)
@@ -141,6 +178,7 @@ def main(argv: list[str]) -> int:
         line and not line.startswith("??")
         for line in status_result.stdout.splitlines()
     )
+    stash_msg = f"tusk-branch: auto-stash for TASK-{task_id}"
     if dirty:
         # Checkpoint the WAL before stashing so that any in-flight SQLite
         # writes are flushed to the main DB file. Without this, a git stash
@@ -149,10 +187,7 @@ def main(argv: list[str]) -> int:
         db_path = os.path.join(repo_root, "tusk", "tasks.db")
         checkpoint_wal(db_path)
         stash = run(
-            [
-                "git", "stash", "push",
-                "-m", f"tusk-branch: auto-stash for TASK-{task_id}",
-            ],
+            ["git", "stash", "push", "-m", stash_msg],
             check=False,
         )
         if stash.returncode != 0:
@@ -168,7 +203,7 @@ def main(argv: list[str]) -> int:
     if result.returncode != 0:
         print(f"Error: git checkout {default_branch} failed:\n{result.stderr.strip()}", file=sys.stderr)
         if dirty:
-            _try_pop_stash()
+            _handle_stash_exit(pop_stash, stash_msg)
         return 2
 
     if _has_remote():
@@ -183,7 +218,7 @@ def main(argv: list[str]) -> int:
             else:
                 print(f"Error: git pull origin {default_branch} failed:\n{result.stderr.strip()}", file=sys.stderr)
                 if dirty:
-                    _try_pop_stash(current_branch=default_branch)
+                    _handle_stash_exit(pop_stash, stash_msg, current_branch=default_branch)
                 return 2
     else:
         print(
@@ -212,7 +247,7 @@ def main(argv: list[str]) -> int:
             file=sys.stderr,
         )
         if dirty:
-            _try_pop_stash(current_branch=default_branch)
+            _handle_stash_exit(pop_stash, stash_msg, current_branch=default_branch)
         return 2
     elif existing_branches:
         existing_branch = existing_branches[0]
@@ -254,7 +289,7 @@ def main(argv: list[str]) -> int:
                     file=sys.stderr,
                 )
                 if dirty:
-                    _try_pop_stash(current_branch=default_branch)
+                    _handle_stash_exit(pop_stash, stash_msg, current_branch=default_branch)
                 return 2
 
             delete_result = run(["git", "branch", "-D", existing_branch], check=False)
@@ -264,7 +299,7 @@ def main(argv: list[str]) -> int:
                     file=sys.stderr,
                 )
                 if dirty:
-                    _try_pop_stash(current_branch=default_branch)
+                    _handle_stash_exit(pop_stash, stash_msg, current_branch=default_branch)
                 return 2
 
             result = run(["git", "checkout", "-b", branch_name], check=False)
@@ -274,7 +309,7 @@ def main(argv: list[str]) -> int:
                     file=sys.stderr,
                 )
                 if dirty:
-                    _try_pop_stash(current_branch=default_branch)
+                    _handle_stash_exit(pop_stash, stash_msg, current_branch=default_branch)
                 return 2
         else:
             print(
@@ -287,7 +322,7 @@ def main(argv: list[str]) -> int:
             if result.returncode != 0:
                 print(f"Error: git checkout {existing_branch} failed:\n{result.stderr.strip()}", file=sys.stderr)
                 if dirty:
-                    _try_pop_stash(current_branch=default_branch)
+                    _handle_stash_exit(pop_stash, stash_msg, current_branch=default_branch)
                 return 2
             branch_name = existing_branch
     else:
@@ -295,14 +330,15 @@ def main(argv: list[str]) -> int:
         if result.returncode != 0:
             print(f"Error: git checkout -b {branch_name} failed:\n{result.stderr.strip()}", file=sys.stderr)
             if dirty:
-                _try_pop_stash(current_branch=default_branch)
+                _handle_stash_exit(pop_stash, stash_msg, current_branch=default_branch)
             return 2
 
-    # Restore stashed changes onto the new branch. Auto-popping here avoids
-    # requiring the user to manually run 'git stash pop' and ensures generated
-    # files (e.g. .pyc bytecode, tasks.db) are restored in the right place.
+    # Default: leave the stash intact so orphan changes that belong to a
+    # previous task don't silently ride along to the new branch. With
+    # --pop-stash, restore the previous behavior of popping onto the new
+    # branch (useful when the dirty changes really do belong to this task).
     if dirty:
-        _try_pop_stash()
+        _handle_stash_exit(pop_stash, stash_msg)
 
     print(branch_name)
     return 0
