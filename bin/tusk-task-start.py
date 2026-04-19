@@ -2,12 +2,18 @@
 """Consolidate task-start setup into a single CLI command.
 
 Called by the tusk wrapper:
-    tusk task-start <task_id> [--force] [--agent <name>]
+    tusk task-start [<task_id>] [--force] [--agent <name>]
 
 Arguments received from tusk:
     sys.argv[1] — DB path
     sys.argv[2] — config path
-    sys.argv[3:] — task_id [--force] [--agent <name>]
+    sys.argv[3:] — [task_id] [--force] [--agent <name>]
+
+When task_id is omitted, the top WSJF-ranked ready task is picked from
+v_ready_tasks (same ranking logic tusk-task-select uses) and started in a
+single call — this eliminates the select+start round-trip the /tusk no-arg
+path used to pay. If no ready tasks exist, exits 1 with the same stderr
+message tusk-task-select historically emitted.
 
 Performs all setup steps for beginning work on a task:
   1. Fetch the task (validate it exists and is actionable)
@@ -28,12 +34,15 @@ import sqlite3
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader
+import tusk_loader  # loads tusk-db-lib.py, tusk-json-lib.py, tusk-rank-lib.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
+_rank_lib = tusk_loader.load("tusk-rank-lib")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
+select_top_ready_task = _rank_lib.select_top_ready_task
+empty_backlog_message = _rank_lib.empty_backlog_message
 
 
 def _register_active_project() -> None:
@@ -71,9 +80,15 @@ def main(argv: list[str]) -> int:
     # argv[1] is config_path (unused but kept for dispatch consistency)
     parser = argparse.ArgumentParser(
         prog="tusk task-start",
-        description="Begin work on a task",
+        description="Begin work on a task (or pick the top ready task when no ID is given)",
     )
-    parser.add_argument("task_id", type=int, help="Task ID")
+    parser.add_argument(
+        "task_id",
+        type=int,
+        nargs="?",
+        default=None,
+        help="Task ID. Omit to auto-select the top WSJF-ranked ready task.",
+    )
     parser.add_argument("--force", action="store_true", help="Bypass zero-criteria guard")
     parser.add_argument("--agent", dest="agent_name", metavar="NAME", help="Agent name")
     args = parser.parse_args(argv[2:])
@@ -83,6 +98,17 @@ def main(argv: list[str]) -> int:
 
     conn = get_connection(db_path)
     try:
+        # 0. Fused select path: no explicit task_id means "start the top
+        # WSJF-ranked ready task". Mirrors tusk-task-select's exit-1 message
+        # so shell-level callers (and /loop) can treat the two paths
+        # interchangeably.
+        if task_id is None:
+            top = select_top_ready_task(conn)
+            if top is None:
+                print(empty_backlog_message(), file=sys.stderr)
+                return 1
+            task_id = top["id"]
+
         # 1. Fetch the task
         task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         if not task:
@@ -256,6 +282,6 @@ def main(argv: list[str]) -> int:
 if __name__ == "__main__":
     if len(sys.argv) < 2 or not sys.argv[1].endswith(".db"):
         print("Error: This script must be invoked via the tusk wrapper.", file=sys.stderr)
-        print("Use: tusk task-start <task_id> [--force]", file=sys.stderr)
+        print("Use: tusk task-start [<task_id>] [--force]", file=sys.stderr)
         sys.exit(1)
     sys.exit(main(sys.argv[1:]))
