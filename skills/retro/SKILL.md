@@ -240,10 +240,15 @@ tusk -header -column "SELECT id, summary, priority, domain, task_type, status FR
 Before closing the skill run, write one `retro_findings` row per **approved** finding (task created, issue filed, lint rule added, convention added, or skill-patched inline). Skipped/duplicate findings are **not** recorded — only actioned ones feed the cross-retro signal. For each approved finding, run:
 
 ```bash
-tusk "INSERT INTO retro_findings (skill_run_id, task_id, category, summary, action_taken) VALUES (<run_id>, <RETRO_TASK_ID or NULL>, $(tusk sql-quote '<category>'), $(tusk sql-quote '<one-line summary>'), $(tusk sql-quote '<action_taken>'))"
+tusk retro-finding add \
+  --skill-run-id <run_id> \
+  --category '<category>' \
+  --summary '<one-line summary>' \
+  [--task-id <RETRO_TASK_ID>] \
+  [--action-taken '<action_taken>']
 ```
 
-`<action_taken>` vocabulary (pick whichever fits; leave the field NULL if none do):
+`<action_taken>` vocabulary (pick whichever fits; omit `--action-taken` if none do):
 - `task:TASK-<id>` — a new task was created via `tusk task-insert`
 - `issue:<url>` — a GitHub issue was filed via `tusk report-issue`
 - `lint:<id>` — a lint rule was added via `tusk lint-rule add`
@@ -251,7 +256,7 @@ tusk "INSERT INTO retro_findings (skill_run_id, task_id, category, summary, acti
 - `skill-patch:<file>` — an inline edit was applied to a skill or CLAUDE.md
 - `documented` — recorded without a concrete action (e.g. noted for context)
 
-Pass `NULL` (not a quoted string) for `task_id` when no `RETRO_TASK_ID` was captured in Step 0. Use `$(tusk sql-quote ...)` for every text field — do not hand-escape.
+**Omit** `--task-id` entirely when no `RETRO_TASK_ID` was captured in Step 0 — the wrapper stores a real SQL NULL. Do not pass `--task-id NULL` or `--task-id ""`. Text fields are passed as normal argparse arguments; no `$(tusk sql-quote ...)` is required. The wrapper validates `skill_run_id` (and `task_id` if supplied) as real FKs before the INSERT, so a typo'd id fails fast with exit 1.
 
 Finally, close out the retro skill-run so its cost is captured:
 

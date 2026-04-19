@@ -427,10 +427,15 @@ Before closing the skill run, write one `retro_findings` row per **approved** fi
 For each approved finding, run:
 
 ```bash
-tusk "INSERT INTO retro_findings (skill_run_id, task_id, category, summary, action_taken) VALUES (<run_id>, <RETRO_TASK_ID or NULL>, $(tusk sql-quote '<category>'), $(tusk sql-quote '<one-line summary>'), $(tusk sql-quote '<action_taken>'))"
+tusk retro-finding add \
+  --skill-run-id <run_id> \
+  --category '<category>' \
+  --summary '<one-line summary>' \
+  [--task-id <RETRO_TASK_ID>] \
+  [--action-taken '<action_taken>']
 ```
 
-`<action_taken>` vocabulary (pick whichever fits; leave the field NULL if none do):
+`<action_taken>` vocabulary (pick whichever fits; omit `--action-taken` if none do):
 - `task:TASK-<id>` — a new task was created via `tusk task-insert`
 - `issue:<url>` — a GitHub issue was filed via `tusk report-issue`
 - `lint:<id>` — a lint rule was added via `tusk lint-rule add`
@@ -439,9 +444,9 @@ tusk "INSERT INTO retro_findings (skill_run_id, task_id, category, summary, acti
 - `subsumed:TASK-<id>` — folded into an existing task via 5a
 - `documented` — recorded without a concrete action (e.g. noted for context)
 
-Pass `NULL` (not a quoted string) for `task_id` when no `RETRO_TASK_ID` was captured in Step 0 of SKILL.md. Use `$(tusk sql-quote ...)` for every text field — do not hand-escape.
+**Omit** `--task-id` entirely when no `RETRO_TASK_ID` was captured in Step 0 of SKILL.md — the wrapper stores a real SQL NULL. Do not pass `--task-id NULL` or `--task-id ""`. Text fields are passed as normal argparse arguments; no `$(tusk sql-quote ...)` is required. The wrapper validates `skill_run_id` (and `task_id` if supplied) as real FKs before the INSERT, so a typo'd id fails fast with exit 1.
 
-The `category` column is the theme dimension `tusk retro-themes` groups on, so it must carry the resolved category name from Step 3 (default `A`/`B`/`C`/`D`/`E`, or the FOCUS.md label if customised). Do not write a human-readable category description here; downstream grouping is exact-match on this field.
+The `--category` value is the theme dimension `tusk retro-themes` groups on, so it must carry the resolved category name from Step 3 (default `A`/`B`/`C`/`D`/`E`, or the FOCUS.md label if customised). Do not write a human-readable category description here; downstream grouping is exact-match on this field.
 
 Finally, close out the retro skill-run so its cost is captured (uses the `run_id` captured in Step 0 of SKILL.md):
 
