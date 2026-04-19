@@ -162,6 +162,13 @@ Brief (2-3 sentence) overview of what the session accomplished.
 | When | Handoff note |
 |------|--------------|
 
+### Session Shape (omit if tool_call_outliers is empty)
+
+> **Soft warning** — these counts are context, not an action item. /retro does not auto-create a task from this section.
+
+| Tool | Calls | Threshold (complexity) | Cost |
+|------|-------|------------------------|------|
+
 ### <Category name from Step 3> (N findings)
 1. **<title>** — <description>
    → Proposed: <summary> | <priority> | <task_type> | <domain>
@@ -202,6 +209,12 @@ Brief (2-3 sentence) overview of what the session accomplished.
 - The "When" column for an `unconsumed_next_steps` row is the entry's `created_at` timestamp; the "Handoff note" column is the `next_steps` text verbatim (do not truncate).
 - If `skipped_criteria` is empty AND every `unconsumed_next_steps` entry was either matched or confirmed-consumed via the prompt, omit the entire "Known gaps at close" section silently (no heading, no placeholder).
 - If only one of the two tables has rows, include the section with just that table and omit the empty one.
+
+**Session Shape rendering rules:**
+- If `tool_call_outliers` is empty, omit the entire "Session Shape" section silently (no heading, no placeholder, no "clean session" note). An empty array means no tool crossed the threshold — or that `tool_call_stats` had no rows for any of the task's sessions at all, which is the same outcome from /retro's perspective.
+- Each row renders `tool_name` verbatim, `call_count` as an integer, the `Threshold (complexity)` column as `<threshold> (<complexity>)` using the entry's own fields (e.g. `80 (M)`; render complexity as `unset` when null), and `total_cost` rounded to cents (`$0.42`). Rows are already sorted descending by `call_count` by `retro-signals`; do not re-sort.
+- The "Soft warning" callout is mandatory whenever the section is rendered — it's what flags this as context rather than a proposed action.
+- Never promote a Session Shape row into a Proposed Action, a subsumption, or a lint rule. /retro treats this section as read-only diagnostic output: the reviewer decides whether the shape warrants follow-up, and if it does, they create the task manually via `/create-task`.
 
 Then ask the user to **confirm**, **remove** specific numbers, **edit** a task, **reject subsumption**, **add** a finding, or **skip**. Wait for explicit approval before inserting.
 
