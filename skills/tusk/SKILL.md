@@ -52,7 +52,7 @@ tusk skill-run start tusk --task-id <id>
 
 ### Begin Work on a Task (with task ID argument)
 
-When called with a task ID (e.g., `/tusk 6`), begin the full development workflow. When called with no argument, the "Get Next Task" step above has already run `tusk task-start --force` for you — **skip Step 1's `tusk task-start` call and pick up from Step 1's skill-run start and the rest of the flow**, using the JSON blob you already have.
+When called with a task ID (e.g., `/tusk 6`), begin the full development workflow. When called with no argument, the "Get Next Task" step above has already run both `tusk task-start --force` **and** `tusk skill-run start` for you — **skip Step 1 entirely and pick up at Step 1b (Workflow routing)**, using the JSON blob and the `run_id` you already captured.
 
 **Follow these steps IN ORDER:**
 
