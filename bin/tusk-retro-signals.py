@@ -20,6 +20,10 @@ Output JSON shape:
         },
         "review_themes":       [{"category": "...", "severity": "...",
                                  "count": N, "sample": "..."}, ...],
+        "deferred_review_comments": [{"id": N, "category": "...", "severity": "...",
+                                      "file_path": "..." | null,
+                                      "deferred_task_id": N | null,
+                                      "sample": "..."}, ...],
         "skipped_criteria":    [{"id": N, "criterion": "...",
                                  "is_deferred": 0|1, "skip_note": "..."}, ...],
         "tool_call_outliers":  [{"tool_name": "...", "call_count": N,
@@ -156,6 +160,43 @@ def fetch_review_themes(conn: sqlite3.Connection, task_id: int) -> list[dict]:
     ]
 
 
+def fetch_deferred_review_comments(conn: sqlite3.Connection, task_id: int) -> list[dict]:
+    """Review comments the reviewer marked resolution='deferred' across all
+    review passes for this task, each with the follow-up task it was punted to.
+
+    Emitted individually (not grouped) because each row is a concrete open thread
+    — /retro reports them alongside their deferred_task_id so the audit trail of
+    'why wasn't this fixed' stays visible. Comment bodies are truncated via the
+    same sample limit as review_themes to keep the blob compact."""
+    rows = conn.execute(
+        """
+        SELECT rc.id,
+               rc.category,
+               rc.severity,
+               rc.file_path,
+               rc.deferred_task_id,
+               rc.comment
+          FROM review_comments rc
+          JOIN code_reviews cr ON cr.id = rc.review_id
+         WHERE cr.task_id = ?
+           AND rc.resolution = 'deferred'
+         ORDER BY rc.id
+        """,
+        (task_id,),
+    ).fetchall()
+    return [
+        {
+            "id": r["id"],
+            "category": r["category"],
+            "severity": r["severity"],
+            "file_path": r["file_path"],
+            "deferred_task_id": r["deferred_task_id"],
+            "sample": _compact(r["comment"] or "", REVIEW_SAMPLE_MAX_CHARS),
+        }
+        for r in rows
+    ]
+
+
 def fetch_skipped_criteria(conn: sqlite3.Connection, task_id: int) -> list[dict]:
     """Criteria with a non-empty skip_note — covers both explicit deferrals
     (is_deferred=1) and skip-verify closures that recorded a rationale."""
@@ -243,6 +284,7 @@ def build_signals(conn: sqlite3.Connection, task_id: int) -> dict:
         "reopen_count": fetch_reopen_count(conn, task_id),
         "rework_chain": fetch_rework_chain(conn, task_id),
         "review_themes": fetch_review_themes(conn, task_id),
+        "deferred_review_comments": fetch_deferred_review_comments(conn, task_id),
         "skipped_criteria": fetch_skipped_criteria(conn, task_id),
         "tool_call_outliers": fetch_tool_call_outliers(conn, task_id, complexity),
         "unconsumed_next_steps": fetch_unconsumed_next_steps(conn, task_id),
