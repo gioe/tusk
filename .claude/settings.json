@@ -5,7 +5,9 @@
       "Bash(git remote:*)",
       "Bash(git symbolic-ref:*)",
       "Bash(git branch:*)",
-      "Bash(tusk review:*)"
+      "Bash(tusk review:*)",
+      "Bash(tusk lint:*)",
+      "Bash(bin/tusk lint:*)"
     ]
   },
   "hooks": {

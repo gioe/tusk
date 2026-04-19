@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [673] - 2026-04-19
+
+- Add `Bash(tusk lint:*)` and `Bash(bin/tusk lint:*)` to `.claude/settings.json` `permissions.allow` so agents can invoke the linter without a permission prompt. Merges into client settings via `install.sh` / `tusk upgrade` on next update.
+
 ## [672] - 2026-04-19
 
 - [TASK-115] Add `tusk review-defer <comment_id> --domain <d> --task-type <t>` wrapper and rewire `/review-commits` Step 7 defer-comments block to call it instead of a three-call bash sequence (`tusk dupes check` → `tusk task-insert --deferred` → `tusk review resolve <comment_id> deferred`); the helper reads the comment text from `review_comments`, derives the summary from the first non-empty line, runs the dupe check against the given domain, and branches three ways: (1) no duplicate → inserts a deferred task with `--priority Medium`, `--task-type <t>`, `--deferred`, and criterion "Address deferred finding: <summary>"; (2) duplicate found → records `matched_task_id` and skips the insert; (3) dupe check itself errored → records `dupe_check_failed` and skips the insert. In all three branches the source comment is marked resolved with `deferred`, so the review verdict can progress regardless of whether a new task was actually created. Returns `{created_task_id, skipped_reason, matched_task_id}` as JSON on stdout; eight new unit tests in `tests/unit/test_review_defer.py` pin the three branches, the subprocess dispatch order (no `task-insert` call on skip paths), the summary-extraction logic, the missing-comment error path, the resolve-failure surface, and the CLI-layer JSON shape + required-flag + bad-comment-id exit paths. `skills/review-commits/SKILL.md` Step 7 drops from ~32 lines of prose+bash to ~15 lines, eliminating drift risk between the per-branch snippets and keeping the null-`DEFERRED_TASK_TYPE` config guard up front where it belongs
