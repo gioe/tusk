@@ -1198,6 +1198,73 @@ def generate_models_section(model_performance: dict | None) -> str:
     return f'<script>window.__tuskModels = {payload_json};</script>\n' + panel_html + script
 
 
+def generate_rework_rate_section(
+    rework_rate: list[dict] | None, min_sample_size: int = 5
+) -> str:
+    """Per-model rework rate panel for the Models tab.
+
+    Renders one row per closer-model with shipped / rework / rate columns.
+    Models with fewer than `min_sample_size` shipped tasks keep their raw
+    counts but show '—' for the rate so an early noisy ratio doesn't dominate.
+    """
+    rows = rework_rate or []
+    if not rows:
+        return """\
+<div class="panel" style="margin-bottom: var(--sp-6);">
+  <div class="section-header"><span>Rework Rate</span></div>
+  <div style="padding: var(--sp-4);">
+    <p class="empty">No shipped feature/bug tasks with closer sessions yet.</p>
+  </div>
+</div>
+"""
+
+    body = ""
+    for r in rows:
+        shipped = r.get("shipped_tasks") or 0
+        rework = r.get("rework_tasks") or 0
+        rate = r.get("rework_rate")
+        meets = bool(r.get("meets_threshold"))
+        if meets and rate is not None:
+            rate_cell = f"{rate * 100:.1f}%"
+        else:
+            rate_cell = '<span class="text-muted-dash">\u2014</span>'
+        body += (
+            "<tr>"
+            f"<td>{esc(r.get('model') or 'unknown')}</td>"
+            f'<td style="text-align:right">{shipped}</td>'
+            f'<td style="text-align:right">{rework}</td>'
+            f'<td style="text-align:right">{rate_cell}</td>'
+            "</tr>"
+        )
+
+    return f"""\
+<div class="panel" style="margin-bottom: var(--sp-6);">
+  <div class="section-header"><span>Rework Rate</span></div>
+  <div style="padding: 0 var(--sp-4) var(--sp-4);overflow-x:auto;">
+    <table>
+      <thead>
+        <tr>
+          <th>Model</th>
+          <th style="text-align:right">Shipped</th>
+          <th style="text-align:right">Rework</th>
+          <th style="text-align:right">Rate</th>
+        </tr>
+      </thead>
+      <tbody>
+        {body}
+      </tbody>
+    </table>
+    <p style="font-size:0.7rem;color:var(--text-muted);margin:var(--sp-2) 0 0;">
+      Shipped = completed feature/bug tasks attributed to the model of the most
+      recently ended session. Rework = follow-up tasks filed against them via
+      <code>tasks.fixes_task_id</code>. Rate is hidden (&mdash;) until a model has at
+      least {min_sample_size} shipped tasks. Lower is better.
+    </p>
+  </div>
+</div>
+"""
+
+
 def generate_dow_hour_heatmap_section() -> str:
     """Generate Day-of-Week × Hour heatmap panel (rendered by JS)."""
     return """\

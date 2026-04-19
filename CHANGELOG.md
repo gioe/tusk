@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [654] - 2026-04-18
+
+- [TASK-100] Surface per-model rework rate in tusk-insights / dashboard
+
 ## [653] - 2026-04-18
 
 - [TASK-99] Correct stale phrasing in /tusk SKILL.md and CLAUDE.md migration checklist: migration bodies live in bin/tusk-migrate.py, not inside cmd_migrate() in bin/tusk

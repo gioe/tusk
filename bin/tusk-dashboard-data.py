@@ -706,3 +706,60 @@ def fetch_model_performance(conn: sqlite3.Connection, offset_minutes: int = 0) -
         "timeseries_tasks": timeseries_tasks,
         "timeseries_skills": timeseries_skills,
     }
+
+
+def fetch_rework_rate(conn: sqlite3.Connection, min_sample_size: int = 5) -> list[dict]:
+    """Per-model rework rate: fraction of shipped feature/bug tasks that later had a
+    follow-up task filed against them (via tasks.fixes_task_id).
+
+    The "closer model" is the model of the most recently ended session on the
+    shipped task — i.e. the model that actually landed the work, which may not be
+    the model that started it. `min_sample_size` controls which rows are deemed
+    statistically meaningful: rows are always returned, but each row carries a
+    `meets_threshold` flag so the renderer can suppress the ratio for tiny samples.
+
+    Mirrors the canonical query in docs/DOMAIN.md (closer_sessions CTE +
+    LEFT JOIN tasks.fixes_task_id) and applies the standard
+    COALESCE(NULLIF(model, ''), 'unknown') normalization so NULL and '' model
+    rows bucket together — matching fetch_model_performance / fetch_cost_scatter_data.
+
+    Each row: {model, shipped_tasks, rework_tasks, rework_rate, meets_threshold}.
+    rework_rate is NULL for models with 0 shipped tasks (shouldn't occur given
+    the JOIN, but NULLIF guards against divide-by-zero). Sorted by rework_rate
+    ASC (NULLs last), then model ASC for deterministic output.
+    """
+    log.debug("Querying per-model rework rate (min_sample=%d)", min_sample_size)
+    rows = conn.execute(
+        """WITH closer_sessions AS (
+               SELECT s.task_id,
+                      COALESCE(NULLIF(s.model, ''), 'unknown') AS model,
+                      ROW_NUMBER() OVER (
+                          PARTITION BY s.task_id ORDER BY s.ended_at DESC
+                      ) AS rn
+                 FROM task_sessions s
+                WHERE s.ended_at IS NOT NULL
+           )
+           SELECT cs.model AS model,
+                  COUNT(DISTINCT t.id) AS shipped_tasks,
+                  COUNT(DISTINCT fu.id) AS rework_tasks,
+                  ROUND(
+                      1.0 * COUNT(DISTINCT fu.id)
+                          / NULLIF(COUNT(DISTINCT t.id), 0),
+                      3
+                  ) AS rework_rate
+             FROM tasks t
+             JOIN closer_sessions cs ON cs.task_id = t.id AND cs.rn = 1
+        LEFT JOIN tasks fu ON fu.fixes_task_id = t.id
+            WHERE t.status = 'Done'
+              AND t.closed_reason = 'completed'
+              AND t.task_type IN ('feature', 'bug')
+         GROUP BY cs.model
+         ORDER BY (rework_rate IS NULL), rework_rate ASC, cs.model ASC"""
+    ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["meets_threshold"] = (d["shipped_tasks"] or 0) >= min_sample_size
+        out.append(d)
+    log.debug("Fetched rework_rate rows=%d", len(out))
+    return out

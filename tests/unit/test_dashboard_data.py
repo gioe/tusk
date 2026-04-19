@@ -1076,6 +1076,181 @@ class TestFetchModelPerformance:
 
 
 # ---------------------------------------------------------------------------
+# fetch_rework_rate()
+# ---------------------------------------------------------------------------
+
+
+def _seed_shipped_task(conn, *, task_id, model, ended_at, task_type="feature",
+                       status="Done", closed_reason="completed", fixes_task_id=None):
+    """Seed one closed task plus its closer session. Helper for rework_rate tests."""
+    conn.execute(
+        "INSERT INTO tasks (id, summary, status, closed_reason, task_type, fixes_task_id) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (task_id, f"t{task_id}", status, closed_reason, task_type, fixes_task_id),
+    )
+    conn.execute(
+        "INSERT INTO task_sessions (task_id, started_at, ended_at, cost_dollars, model) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (task_id, ended_at, ended_at, 0.01, model),
+    )
+
+
+class TestFetchReworkRate:
+    def test_empty_database_returns_empty_list(self):
+        conn = _make_conn_full()
+        assert dashboard_data.fetch_rework_rate(conn) == []
+
+    def test_shipped_with_followup_counts_as_rework(self):
+        """A follow-up task with fixes_task_id pointing at a closer's task → rework row."""
+        conn = _make_conn_full()
+        _seed_shipped_task(conn, task_id=1, model="sonnet-4", ended_at="2026-04-01 10:00:00")
+        # Follow-up that fixes task 1 (it doesn't need to be Done itself)
+        conn.execute(
+            "INSERT INTO tasks (id, summary, task_type, fixes_task_id) VALUES (?, ?, ?, ?)",
+            (2, "fixup", "bug", 1),
+        )
+        conn.commit()
+
+        rows = dashboard_data.fetch_rework_rate(conn, min_sample_size=1)
+        assert len(rows) == 1
+        assert rows[0]["model"] == "sonnet-4"
+        assert rows[0]["shipped_tasks"] == 1
+        assert rows[0]["rework_tasks"] == 1
+        assert rows[0]["rework_rate"] == 1.0
+
+    def test_closer_model_is_most_recently_ended_session(self):
+        """When a task has multiple sessions, the closer model = session with latest ended_at."""
+        conn = _make_conn_full()
+        conn.execute(
+            "INSERT INTO tasks (id, summary, status, closed_reason, task_type) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (1, "multi-session", "Done", "completed", "feature"),
+        )
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, ended_at, model) VALUES (?, ?, ?, ?)",
+            (1, "2026-04-01 09:00:00", "2026-04-01 10:00:00", "starter-model"),
+        )
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, ended_at, model) VALUES (?, ?, ?, ?)",
+            (1, "2026-04-02 09:00:00", "2026-04-02 10:00:00", "closer-model"),
+        )
+        conn.commit()
+
+        rows = dashboard_data.fetch_rework_rate(conn, min_sample_size=1)
+        assert [r["model"] for r in rows] == ["closer-model"]
+        assert rows[0]["shipped_tasks"] == 1
+
+    def test_excludes_non_completed_closed_reason(self):
+        """Tasks with closed_reason != 'completed' are not shipped — they don't count."""
+        conn = _make_conn_full()
+        _seed_shipped_task(
+            conn, task_id=1, model="m1", ended_at="2026-04-01 10:00:00",
+            closed_reason="wont_do",
+        )
+        conn.commit()
+        assert dashboard_data.fetch_rework_rate(conn, min_sample_size=1) == []
+
+    def test_excludes_non_feature_bug_task_types(self):
+        """Only feature/bug task_types are measured — chore/docs/test don't count."""
+        conn = _make_conn_full()
+        _seed_shipped_task(
+            conn, task_id=1, model="m1", ended_at="2026-04-01 10:00:00", task_type="chore",
+        )
+        _seed_shipped_task(
+            conn, task_id=2, model="m1", ended_at="2026-04-02 10:00:00", task_type="docs",
+        )
+        _seed_shipped_task(
+            conn, task_id=3, model="m1", ended_at="2026-04-03 10:00:00", task_type="feature",
+        )
+        conn.commit()
+
+        rows = dashboard_data.fetch_rework_rate(conn, min_sample_size=1)
+        assert len(rows) == 1
+        assert rows[0]["shipped_tasks"] == 1
+
+    def test_meets_threshold_flag_respects_min_sample_size(self):
+        """meets_threshold is True iff shipped_tasks >= min_sample_size."""
+        conn = _make_conn_full()
+        # 3 shipped by "below" — under threshold of 5
+        for i in range(1, 4):
+            _seed_shipped_task(
+                conn, task_id=i, model="below", ended_at=f"2026-04-0{i} 10:00:00",
+            )
+        # 5 shipped by "above" — meets threshold of 5
+        for i in range(10, 15):
+            _seed_shipped_task(
+                conn, task_id=i, model="above", ended_at=f"2026-04-{i} 10:00:00",
+            )
+        conn.commit()
+
+        rows = dashboard_data.fetch_rework_rate(conn, min_sample_size=5)
+        by_model = {r["model"]: r for r in rows}
+        assert by_model["below"]["meets_threshold"] is False
+        assert by_model["below"]["shipped_tasks"] == 3
+        assert by_model["above"]["meets_threshold"] is True
+        assert by_model["above"]["shipped_tasks"] == 5
+
+    def test_null_and_empty_model_merge_as_unknown(self):
+        """COALESCE(NULLIF(model,''),'unknown') matches the rest of the data layer."""
+        conn = _make_conn_full()
+        _seed_shipped_task(conn, task_id=1, model=None, ended_at="2026-04-01 10:00:00")
+        _seed_shipped_task(conn, task_id=2, model="", ended_at="2026-04-02 10:00:00")
+        conn.commit()
+
+        rows = dashboard_data.fetch_rework_rate(conn, min_sample_size=1)
+        assert [r["model"] for r in rows] == ["unknown"]
+        assert rows[0]["shipped_tasks"] == 2
+
+    def test_sorted_by_rework_rate_ascending(self):
+        """Lower rework_rate is better → appears first. NULL rates sort last."""
+        conn = _make_conn_full()
+        # Model "clean": 2 shipped, 0 rework → rate 0.0
+        _seed_shipped_task(conn, task_id=1, model="clean", ended_at="2026-04-01 10:00:00")
+        _seed_shipped_task(conn, task_id=2, model="clean", ended_at="2026-04-02 10:00:00")
+        # Model "dirty": 2 shipped, 2 rework → rate 1.0
+        _seed_shipped_task(conn, task_id=3, model="dirty", ended_at="2026-04-03 10:00:00")
+        _seed_shipped_task(conn, task_id=4, model="dirty", ended_at="2026-04-04 10:00:00")
+        conn.execute(
+            "INSERT INTO tasks (id, summary, task_type, fixes_task_id) VALUES (?, ?, ?, ?)",
+            (101, "fu1", "bug", 3),
+        )
+        conn.execute(
+            "INSERT INTO tasks (id, summary, task_type, fixes_task_id) VALUES (?, ?, ?, ?)",
+            (102, "fu2", "bug", 4),
+        )
+        conn.commit()
+
+        rows = dashboard_data.fetch_rework_rate(conn, min_sample_size=1)
+        assert [r["model"] for r in rows] == ["clean", "dirty"]
+        assert rows[0]["rework_rate"] == 0.0
+        assert rows[1]["rework_rate"] == 1.0
+
+    def test_session_with_null_ended_at_excluded_from_closer_selection(self):
+        """An open session (ended_at IS NULL) cannot be the closer — the previous
+        ended session wins even if it started earlier."""
+        conn = _make_conn_full()
+        conn.execute(
+            "INSERT INTO tasks (id, summary, status, closed_reason, task_type) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (1, "mixed", "Done", "completed", "feature"),
+        )
+        # Older ended session with the real closer model
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, ended_at, model) VALUES (?, ?, ?, ?)",
+            (1, "2026-04-01 09:00:00", "2026-04-01 10:00:00", "true-closer"),
+        )
+        # Newer open session — ended_at IS NULL
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, ended_at, model) VALUES (?, ?, ?, ?)",
+            (1, "2026-04-02 09:00:00", None, "open-session-model"),
+        )
+        conn.commit()
+
+        rows = dashboard_data.fetch_rework_rate(conn, min_sample_size=1)
+        assert [r["model"] for r in rows] == ["true-closer"]
+
+
+# ---------------------------------------------------------------------------
 # fetch_velocity()
 # ---------------------------------------------------------------------------
 
