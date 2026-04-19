@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [658] - 2026-04-19
+
+- [TASK-111] Rule 18 (MANIFEST drift) output should name 'tusk generate-manifest' as the fix
+
 ## [657] - 2026-04-19
 
 - [TASK-110] Add `tusk retro-signals <task_id>` subcommand that emits all retro-relevant pre-aggregated signals (reopen_count, rework_chain, review_themes, skipped_criteria, tool_call_outliers, unconsumed_next_steps) as a single compact JSON blob so `/retro` can make one fetch instead of six separate queries
