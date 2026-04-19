@@ -1922,6 +1922,54 @@ def migrate_56(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 56: recreated tasks-dependent views")
 
 
+def migrate_57(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add retro_findings table for cross-retro theme detection.
+
+    Creates retro_findings(id, skill_run_id, task_id, category, summary,
+    action_taken, created_at) with FKs to skill_runs (ON DELETE CASCADE so
+    findings disappear if the originating retro run is deleted) and tasks
+    (ON DELETE SET NULL — findings outlive the task they were filed against;
+    deleting the retro'd task must not erase the cross-retro record).
+
+    Populated by /retro at close, one row per approved finding. Read via
+    'tusk retro-themes' to surface recurring themes across recent retros.
+    Indexes on skill_run_id, task_id, category, and created_at keep the
+    per-theme / per-window rollups cheap.
+
+    Idempotent: guarded with has_table; re-running is a no-op after the
+    table exists.
+    """
+    if get_version(db_path) >= 57:
+        _progress("  Migration 57: added retro_findings table")
+        return
+
+    ddl_stmts = []
+    if not has_table(db_path, "retro_findings"):
+        ddl_stmts.append("""
+            CREATE TABLE retro_findings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                skill_run_id INTEGER NOT NULL,
+                task_id INTEGER,
+                category TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                action_taken TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (skill_run_id) REFERENCES skill_runs(id) ON DELETE CASCADE,
+                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
+            );
+            CREATE INDEX idx_retro_findings_skill_run_id ON retro_findings(skill_run_id);
+            CREATE INDEX idx_retro_findings_task_id ON retro_findings(task_id);
+            CREATE INDEX idx_retro_findings_category ON retro_findings(category);
+            CREATE INDEX idx_retro_findings_created_at ON retro_findings(created_at);
+        """)
+
+    script = "\n".join(ddl_stmts) + """
+        PRAGMA user_version = 57;
+    """
+    run_script(db_path, script)
+    _progress("  Migration 57: added retro_findings table")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -1981,6 +2029,7 @@ MIGRATIONS = [
     (54, migrate_54),
     (55, migrate_55),
     (56, migrate_56),
+    (57, migrate_57),
 ]
 
 

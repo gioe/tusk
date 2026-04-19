@@ -331,6 +331,24 @@ A record of a single execution of a tusk skill, capturing start/end timestamps, 
 
 ---
 
+### Retro Finding
+
+One row per approved finding emitted by `/retro` on close. Populated by the skill via a direct `INSERT` after the user approves a finding for action (task created, lint rule added, convention recorded, skill patched inline, or documented). Read by `tusk retro-themes` to surface themes (grouped by `category`) that recur across recent retros — the cross-retro pattern detector that a single retrospective can't see.
+
+| Attribute | Type | Constraints | Description |
+|-----------|------|-------------|-------------|
+| `id` | INTEGER | PK, autoincrement | |
+| `skill_run_id` | INTEGER | NOT NULL, FK → skill_runs(id) ON DELETE CASCADE | The retro run that produced this finding; cascades so findings disappear if the originating run is deleted |
+| `task_id` | INTEGER | nullable, FK → tasks(id) ON DELETE SET NULL | The task the retro was reviewing (`RETRO_TASK_ID`). Null when retro ran without a task context. SET NULL on delete — findings outlive their origin task so the cross-retro history survives task cleanup |
+| `category` | TEXT | NOT NULL | Finding category — defaults are `A`/`B`/`C`/`D`/`E` (see `skills/retro/SKILL.md` Step 3), or a custom label when `FOCUS.md` is in use. Grouped on by `tusk retro-themes` as the "theme" |
+| `summary` | TEXT | NOT NULL | One-line title of the finding as presented to the user for approval |
+| `action_taken` | TEXT | nullable | What `/retro` did with the finding — `task:TASK-N` when a task was created, `issue:<url>` when a GitHub issue was filed, `convention:<id>`, `lint:<id>`, `skill-patch:<file>`, or `documented` for CLAUDE.md/skill inline edits. Null when the finding was approved for tracking but no concrete action was recorded |
+| `created_at` | TEXT | NOT NULL, default now | When the finding was recorded (at retro close time) |
+
+**Indexes:** `idx_retro_findings_skill_run_id`, `idx_retro_findings_task_id`, `idx_retro_findings_category`, `idx_retro_findings_created_at`.
+
+---
+
 ### Tool Call Stats
 
 Pre-computed per-tool-call cost aggregates, grouped by session, skill run, or criterion and tool name. Populated by `tusk call-breakdown` which parses Claude transcripts and summarises which tools were called most/least expensively. Each row belongs to exactly one of: a session, a skill run, or a criterion — never more than one, never none.
