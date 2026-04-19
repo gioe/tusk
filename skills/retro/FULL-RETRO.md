@@ -399,6 +399,8 @@ For each approved Category A finding:
 
 ## Step 6: Report Results
 
+The /tusk skill already printed the task summary block (`tusk task-summary <id> --format markdown`) immediately before invoking /retro, so the user has already seen the canonical identity/cost/duration/diff/criteria rollup for the just-closed task. Do **not** re-emit that block here — start directly with the retrospective findings so the two sections read as one continuous report.
+
 ```markdown
 ## Retrospective Complete
 
