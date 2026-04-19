@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [678] - 2026-04-19
+
+- [TASK-120] tusk branch: leave auto-stashed orphan changes off the new feature branch by default
+
 ## [676] - 2026-04-19
 
 - Add `tusk task-summary <id> [--format json|markdown]` — a new CLI that emits a standardized end-of-run block for a task: identity (`TASK-<id>`, summary, status, closed_reason), cost (`SUM(skill_runs.cost_dollars)` and skill-run count), duration (wall from earliest session `started_at` to `tasks.closed_at`, active time from `SUM(task_sessions.duration_seconds)`, session count), diff stats (commit count, unique files changed, lines added/removed — derived from `git log --all --grep="[TASK-<id>]" --fixed-strings --numstat`, which excludes commits for unrelated tasks on shared branches), criteria counts (total, manual vs automated, `skip_notes`, `deferred`), review pass count, and reopen count. `skills/tusk/SKILL.md` Step 12 now invokes `tusk task-summary <id> --format markdown` on both the `tusk merge` and `tusk abandon` success paths, immediately after `tusk skill-run finish` and before handing off to `/retro`, so the user sees the canonical task rollup first and retrospective findings second. `skills/retro/SKILL.md` LR-3 and `skills/retro/FULL-RETRO.md` Step 6 explicitly reference the summary block and tell /retro not to re-emit it. `tests/unit/test_task_summary.py` (25 cases) pins one-session, multi-session, zero-commit abandon, and reopen-count > 0 behavior, plus the numstat parser, `[TASK-<id>]` filter, TASK-N prefix resolution, exit codes, and markdown singular/plural rendering.
