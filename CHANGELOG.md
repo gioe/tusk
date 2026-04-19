@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [666] - 2026-04-19
+
+- [TASK-113] Add `tusk retro-finding add` subcommand that wraps the `retro_findings` INSERT /retro previously ran inline; `skills/retro/SKILL.md` LR-3a and `skills/retro/FULL-RETRO.md` 6a now call the wrapper instead of raw `tusk "INSERT INTO retro_findings ..." + $(tusk sql-quote ...)` — eliminates the NULL-vs-quoted-string footgun for `task_id` (omit `--task-id` to store a true SQL NULL) and validates `skill_run_id` (and `task_id` when supplied) as real FK references before the INSERT so dangling-FK rows and typos fail fast with exit 1
+
 ## [665] - 2026-04-19
 
 - [TASK-108] Add `retro_findings` table (migration 57) and new `tusk retro-themes` subcommand for cross-retro theme detection; `/retro` now writes one row per approved finding on close and fetches recurring themes (≥3 occurrences in the last 30 days) at Step 0b so each retro can see patterns no single session can surface on its own — all cross-retro aggregation happens in SQL behind `tusk retro-themes` via a HAVING filter, never in the skill
