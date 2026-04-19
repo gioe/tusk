@@ -72,6 +72,14 @@ This signal drives the full retro only — the lightweight retro path (XS/S in `
 
 If the task has no review activity at all, both `review_themes` and `deferred_review_comments` will be empty arrays. In that case, **omit** the "Review Theme Summary" section from Step 4 silently — do not add a "(none)" placeholder.
 
+## Step 2c: Cross-retro Themes (from Step 0b output)
+
+Step 0b in `SKILL.md` already ran `tusk retro-themes --window-days 30 --min-recurrence 3` and captured the pre-aggregated `{theme, count}` tuples as `$RECURRING_THEMES`. **Do not re-run the query here**, and **do not** issue separate SQL against `retro_findings` — all cross-retro aggregation belongs behind `tusk retro-themes`; `/retro` consumes only the tuple stream.
+
+If `$RECURRING_THEMES` is empty, no recurring pattern has crossed the 3×/30-day bar yet — nothing to flag in Step 3.
+
+If one or more themes are present, carry the list into Step 3: for every finding whose category matches a recurring theme, append an inline recurrence note (`— recurring theme: seen N times in last 30 days`) next to that finding in both the categorization table and the Step 4 report. This tells the reviewer "this isn't the first time we've surfaced something in this bucket" before they approve a new task for it, which raises the bar for duplicate work.
+
 ## Step 3: Categorize Findings
 
 If `<base_directory>/FOCUS.md` was found in Step 1, use those categories.
@@ -411,6 +419,29 @@ Then show the backlog:
 ```bash
 tusk -header -column "SELECT id, summary, priority, domain, task_type, status FROM tasks WHERE status = 'To Do' ORDER BY priority_score DESC, id"
 ```
+
+### 6a: Record approved findings for cross-retro theme detection
+
+Before closing the skill run, write one `retro_findings` row per **approved** finding — every new task created in 5b, every GitHub issue filed, every lint rule applied in 5d, every convention or skill patch applied in 5e. Subsumptions (5a) are recorded as well, with `action_taken: subsumed:TASK-<id>` so the merge-into target is captured. Duplicates and user-rejected findings are **not** recorded — only approved, actioned findings feed the cross-retro signal.
+
+For each approved finding, run:
+
+```bash
+tusk "INSERT INTO retro_findings (skill_run_id, task_id, category, summary, action_taken) VALUES (<run_id>, <RETRO_TASK_ID or NULL>, $(tusk sql-quote '<category>'), $(tusk sql-quote '<one-line summary>'), $(tusk sql-quote '<action_taken>'))"
+```
+
+`<action_taken>` vocabulary (pick whichever fits; leave the field NULL if none do):
+- `task:TASK-<id>` — a new task was created via `tusk task-insert`
+- `issue:<url>` — a GitHub issue was filed via `tusk report-issue`
+- `lint:<id>` — a lint rule was added via `tusk lint-rule add`
+- `convention:<id>` — a convention was added via `tusk conventions add`
+- `skill-patch:<file>` — an inline edit was applied to a skill or CLAUDE.md
+- `subsumed:TASK-<id>` — folded into an existing task via 5a
+- `documented` — recorded without a concrete action (e.g. noted for context)
+
+Pass `NULL` (not a quoted string) for `task_id` when no `RETRO_TASK_ID` was captured in Step 0 of SKILL.md. Use `$(tusk sql-quote ...)` for every text field — do not hand-escape.
+
+The `category` column is the theme dimension `tusk retro-themes` groups on, so it must carry the resolved category name from Step 3 (default `A`/`B`/`C`/`D`/`E`, or the FOCUS.md label if customised). Do not write a human-readable category description here; downstream grouping is exact-match on this field.
 
 Finally, close out the retro skill-run so its cost is captured (uses the `run_id` captured in Step 0 of SKILL.md):
 

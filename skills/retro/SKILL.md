@@ -35,6 +35,18 @@ tusk skill-run start retro
 
 > **Early-exit cleanup:** If any step below causes the retro to stop before reaching the final report (LR-3 for lightweight, Step 6 for full), first call `tusk skill-run cancel <run_id>` to close the open row, then stop. Otherwise the row lingers as `(open)` in `tusk skill-run list` forever.
 
+## Step 0b: Cross-retro theme check
+
+Fetch themes recurring 3+ times across approved findings in the last 30 days so this retro can see patterns that any single retrospective misses:
+
+```bash
+tusk retro-themes --window-days 30 --min-recurrence 3
+```
+
+The output is pre-aggregated `{theme, count}` tuples — **do not** issue separate SQL queries against `retro_findings`. All cross-retro aggregation belongs in SQL behind `tusk retro-themes`; `/retro` consumes only the tuple stream.
+
+If `themes` is empty, skip — the current session stands alone. If any tuple is returned, store the list as `$RECURRING_THEMES` and use it in LR-1 (or Step 3 in FULL-RETRO) to flag recurrences: when this session surfaces a finding whose category matches a recurring theme, note the recurrence (e.g. `theme A recurring — seen N times in last 30 days`) next to that finding in the report.
+
 - **XS or S** → follow the **Lightweight Retro** path below
 - **M, L, XL, or NULL** → read the full retro guide:
   ```
@@ -222,6 +234,24 @@ Then show the current backlog:
 ```bash
 tusk -header -column "SELECT id, summary, priority, domain, task_type, status FROM tasks WHERE status = 'To Do' ORDER BY priority_score DESC, id"
 ```
+
+### LR-3a: Record approved findings for cross-retro theme detection
+
+Before closing the skill run, write one `retro_findings` row per **approved** finding (task created, issue filed, lint rule added, convention added, or skill-patched inline). Skipped/duplicate findings are **not** recorded — only actioned ones feed the cross-retro signal. For each approved finding, run:
+
+```bash
+tusk "INSERT INTO retro_findings (skill_run_id, task_id, category, summary, action_taken) VALUES (<run_id>, <RETRO_TASK_ID or NULL>, $(tusk sql-quote '<category>'), $(tusk sql-quote '<one-line summary>'), $(tusk sql-quote '<action_taken>'))"
+```
+
+`<action_taken>` vocabulary (pick whichever fits; leave the field NULL if none do):
+- `task:TASK-<id>` — a new task was created via `tusk task-insert`
+- `issue:<url>` — a GitHub issue was filed via `tusk report-issue`
+- `lint:<id>` — a lint rule was added via `tusk lint-rule add`
+- `convention:<id>` — a convention was added via `tusk conventions add`
+- `skill-patch:<file>` — an inline edit was applied to a skill or CLAUDE.md
+- `documented` — recorded without a concrete action (e.g. noted for context)
+
+Pass `NULL` (not a quoted string) for `task_id` when no `RETRO_TASK_ID` was captured in Step 0. Use `$(tusk sql-quote ...)` for every text field — do not hand-escape.
 
 Finally, close out the retro skill-run so its cost is captured:
 
