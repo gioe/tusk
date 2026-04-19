@@ -72,6 +72,8 @@ For each issue: category, severity, file path, line number, clear actionable des
 
 **Wrappers and delegation layers** (context providers, decorators, middleware, DI containers): do not flag as unused based on shallow traversal. Consumer usage can exist arbitrarily deep. Grep *all* files reachable from the wrapper's consumers for the exposed interface before flagging. If the search is incomplete or inconclusive, downgrade to `defer`.
 
+**`tusk "<raw SQL>"` is a valid invocation pattern, not wrong syntax.** The `bin/tusk` dispatcher routes every unrecognized subcommand to `cmd_query` — its raw-SQL passthrough — so `tusk "SELECT ..."`, `tusk "INSERT ..."`, and `tusk "UPDATE ..."` all execute the given SQL against the project's `tasks.db`. The pattern is used in `skills/retro/FULL-RETRO.md` (Steps 5a, 6a) and `skills/retro/SKILL.md` (LR-3a), among others. Do **not** flag `tusk "<SQL string>"` as "unknown command" or "wrong syntax" in a review — it is the idiomatic write path for skills that need DB-backed state. (If the skill still ought to use a dedicated subcommand instead, record that as `defer`, not `must_fix`.)
+
 ### Step 2.5: Verify Final State Before Flagging must_fix
 
 Before recording any `must_fix`, confirm the pattern exists in the final state — not just in a `-` diff line:
