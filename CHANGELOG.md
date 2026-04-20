@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [688] - 2026-04-20
+
+- [TASK-125] Harden bakeoff agent blindness with optional --isolation=clone mode
+
 ## [687] - 2026-04-20
 
 - [TASK-130] Resolve orphaned bin/tusk-review-wait.py — dispatch-register + MANIFEST or remove
