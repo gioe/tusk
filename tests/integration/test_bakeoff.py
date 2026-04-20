@@ -409,6 +409,86 @@ class TestTaskListShadowFilters:
         assert real_id not in ids
 
 
+class TestCreateCloneRealGit:
+    """TASK-133: exercise _create_clone against a real ephemeral git repo.
+
+    TestBakeoffIsolationClone stubs _create_clone entirely, so the actual
+    `git clone --local --no-hardlinks --single-branch --branch <base>`
+    invocation is never verified. This test calls _create_clone directly
+    to confirm the flags do what the docstring promises: --single-branch
+    keeps sibling branches from leaking into the clone, and `checkout -b`
+    lands the feature branch at HEAD.
+    """
+
+    def test_clone_isolates_base_branch_and_checks_out_feature_at_head(
+        self, tmp_path
+    ):
+        source_repo = tmp_path / "source"
+        source_repo.mkdir()
+        env = {
+            **os.environ,
+            "GIT_AUTHOR_NAME": "tusk-test",
+            "GIT_AUTHOR_EMAIL": "tusk-test@example.com",
+            "GIT_COMMITTER_NAME": "tusk-test",
+            "GIT_COMMITTER_EMAIL": "tusk-test@example.com",
+        }
+
+        def git(*args, cwd=source_repo):
+            subprocess.run(
+                ["git", *args], cwd=str(cwd), env=env,
+                check=True, capture_output=True, text=True,
+            )
+
+        git("init", "-q", "-b", "main")
+        (source_repo / "README").write_text("hello\n")
+        git("add", "README")
+        git("commit", "-q", "-m", "main commit")
+
+        # A sibling branch whose ref must NOT leak into the clone. Without
+        # --single-branch, `git clone --branch main` still fetches every
+        # ref from the source, so origin/sibling would appear in the clone.
+        git("checkout", "-q", "-b", "sibling")
+        (source_repo / "SIBLING").write_text("sibling data\n")
+        git("add", "SIBLING")
+        git("commit", "-q", "-m", "sibling commit")
+        git("checkout", "-q", "main")
+
+        clone_path = str(tmp_path / "clone")
+        feature_branch = "feature/bakeoff-test-1-42"
+
+        success, err = tusk_bakeoff._create_clone(
+            str(source_repo), clone_path, feature_branch, "main"
+        )
+        assert success, f"clone failed: {err!r}"
+        assert err == ""
+
+        refs = subprocess.run(
+            ["git", "for-each-ref", "--format=%(refname)"],
+            cwd=clone_path, capture_output=True, text=True, check=True,
+        ).stdout.splitlines()
+
+        # --single-branch must exclude the sibling branch entirely — no
+        # heads, no remote-tracking ref, nothing. Any match at all means
+        # the isolation guarantee is broken.
+        assert not any("sibling" in r for r in refs), (
+            f"sibling branch leaked into clone refs: {refs!r}"
+        )
+        assert "refs/remotes/origin/main" in refs, (
+            f"origin/main missing from clone refs: {refs!r}"
+        )
+        assert f"refs/heads/{feature_branch}" in refs, (
+            f"feature branch head missing from clone refs: {refs!r}"
+        )
+
+        head_ref = subprocess.run(
+            ["git", "symbolic-ref", "HEAD"],
+            cwd=clone_path, capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        assert head_ref == f"refs/heads/{feature_branch}", (
+            f"feature branch not checked out at HEAD: {head_ref!r}"
+        )
+
+
 class TestBakeoffIsolationClone:
     """TASK-125: --isolation=clone uses _create_clone (not _create_worktree),
     records isolation in the shadow description suffix, and fetches clone
