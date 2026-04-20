@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [680] - 2026-04-20
+
+- [TASK-122] Add bakeoff_id and bakeoff_shadow columns to tasks and filter affected views
+
 ## [679] - 2026-04-20
 
 - [TASK-121] Fix block-raw-sqlite.sh false positives on sqlite3 inside quoted strings
