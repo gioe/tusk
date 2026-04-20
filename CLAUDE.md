@@ -39,6 +39,8 @@ bin/tusk commit <task_id> "<file1>" ["<file2>" ...] -m "<message>" [--criteria <
 bin/tusk merge <task_id> [--session <session_id>] [--pr --pr-number <N>]
 bin/tusk progress <task_id> [--next-steps "..."]
 bin/tusk bakeoff <task_id> --models m1,m2[,mN] [--workspace-root <path>] [--claude-bin <path>] [--dry-run]  # run the same task under N models in parallel worktrees and emit a side-by-side report
+bin/tusk bakeoff pick <bakeoff_id> <shadow_id>   # merge the chosen shadow's branch into the source task's base branch, close the source session, mark source Done (completed), and delete sibling shadow rows + worktrees
+bin/tusk bakeoff discard <bakeoff_id>            # throw every shadow for this bakeoff away — delete shadow rows + force-remove worktrees; source task left untouched
 
 # Criteria
 bin/tusk criteria add <task_id> "criterion" [--source original|subsumption|pr_review] [--type manual|code|test|file] [--spec "..."]

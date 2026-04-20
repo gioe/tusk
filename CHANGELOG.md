@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [683] - 2026-04-20
+
+- [TASK-124] Add `tusk bakeoff pick <bakeoff_id> <shadow_id>` and `tusk bakeoff discard <bakeoff_id>` cleanup subcommands for the bakeoff workflow. `pick` fast-forwards the chosen shadow's branch into the source task's base branch (reusing the default-branch detection, session-close, and task-done codepaths that `tusk merge` drives), force-removes every shadow worktree + bakeoff branch for the same `bakeoff_id`, deletes sibling shadow rows (keeping the chosen one as an audit trail), closes the source task's open session, and marks the source task `Done` with `closed_reason = completed`. `discard` force-removes every shadow worktree + branch and deletes every shadow row for the given `bakeoff_id`, leaving the source task untouched. Both subcommands exit non-zero with a clear message when the `bakeoff_id` has no shadow rows and refuse to run when any shadow session (`task_sessions.ended_at IS NULL` on a `bakeoff_shadow = 1` row) is still open, so a pick can never race against an agent that's still writing. Five new tests in `tests/integration/test_bakeoff.py` cover the unknown-bakeoff refusal, the open-session refusal on both subcommands, shadow-not-in-bakeoff rejection, a pick happy path that prunes siblings and issues session-close + task-done, and a discard happy path that deletes every shadow row while leaving the source task intact.
+
 ## [682] - 2026-04-20
 
 - [TASK-126] Fold tokens_in/out/request_count aggregation into tusk-task-summary.build_summary
