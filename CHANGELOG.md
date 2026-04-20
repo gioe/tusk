@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [687] - 2026-04-20
+
+- [TASK-130] Resolve orphaned bin/tusk-review-wait.py — dispatch-register + MANIFEST or remove
+
 ## [686] - 2026-04-20
 
 - [TASK-128] Add `--rebase` flag to `tusk bakeoff pick` that mirrors `tusk merge --rebase` — before this change, picking a shadow after the default branch advanced during the bakeoff failed with a terse `git merge --ff-only` exit 2, leaving the caller to rebase and retry by hand. `_merge_shadow_branch` in `bin/tusk-bakeoff.py` now accepts `use_rebase`; when set it checks out the chosen shadow branch, runs `git rebase <default>`, switches back to the default branch, then ff-merges (aborting cleanly and surfacing the rebase stderr if conflicts block the rebase). When the ff-only merge fails without `--rebase`, the error message now explicitly points users at `tusk bakeoff pick <bakeoff_id> <shadow_id> --rebase` as the escape hatch. `TestBakeoffPickRebase` in `tests/integration/test_bakeoff.py` adds six regression tests covering flag threading through `cmd_pick`, default-off behavior, the rebase-then-ff sequence order, rebase-conflict abort + error surfacing, the new `--rebase` hint on bare ff-only failures, and the absence of the hint when `--rebase` has already been used.
