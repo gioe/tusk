@@ -5,18 +5,11 @@
 # Read JSON from stdin
 input=$(cat)
 
-# Extract the command and strip the contents of matched quote pairs
-# (both double and single) so quoted string literals can't be mistaken for
-# shell operators + sqlite3 (e.g. grep -E "foo|sqlite3" or commit messages
-# that mention sqlite3). Strip double-quoted runs first (they can contain
-# literal single quotes), then single-quoted runs.
+# Extract the command from tool_input.command
 command=$(echo "$input" | python3 -c "
-import sys, json, re
+import sys, json
 data = json.load(sys.stdin)
-cmd = data.get('tool_input', {}).get('command', '')
-cmd = re.sub(r'\"[^\"]*\"', '\"\"', cmd)
-cmd = re.sub(r\"'[^']*'\", \"''\", cmd)
-print(cmd)
+print(data.get('tool_input', {}).get('command', ''))
 " 2>/dev/null)
 
 # Check if sqlite3 is invoked in command position (after start-of-line,
