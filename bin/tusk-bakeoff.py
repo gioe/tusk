@@ -476,6 +476,29 @@ def _extract_source_id(description: str | None) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def _resolve_workspace_root(explicit: str | None) -> str:
+    """Same env/default fallback as `tusk bakeoff --workspace-root`."""
+    return (
+        explicit
+        or os.environ.get("TUSK_BAKEOFF_ROOT")
+        or os.path.join(os.path.expanduser("~"), ".tusk", "bakeoffs")
+    )
+
+
+def _rmtree_bakeoff_workspace(workspace_root: str, bakeoff_id: int) -> bool:
+    """Wholesale rmtree of `<workspace_root>/<bakeoff_id>/`. Idempotent.
+
+    Handles clone-mode dirs (which aren't tracked by `git worktree list`) and
+    also mops up any worktree dirs a prior `git worktree remove` missed.
+    Returns True if the directory existed and was removed, False otherwise.
+    """
+    bakeoff_dir = os.path.join(workspace_root, str(bakeoff_id))
+    if os.path.isdir(bakeoff_dir):
+        shutil.rmtree(bakeoff_dir, ignore_errors=True)
+        return True
+    return False
+
+
 def _find_bakeoff_branches(
     repo_root: str, bakeoff_id: int, shadow_id: int | None = None
 ) -> list[str]:
@@ -724,11 +747,20 @@ def cmd_pick(db_path: str, config_path: str, argv: list[str]) -> int:
             "default ff-only merge would fail."
         ),
     )
+    parser.add_argument(
+        "--workspace-root",
+        default=None,
+        help="Parent directory holding bakeoff workspaces, used to rmtree "
+             "the bakeoff dir after branch teardown (clone-mode dirs aren't "
+             "tracked by git worktree list). Default matches `tusk bakeoff`: "
+             "$TUSK_BAKEOFF_ROOT or $HOME/.tusk/bakeoffs.",
+    )
     args = parser.parse_args(argv)
 
     bakeoff_id = args.bakeoff_id
     shadow_id = args.shadow_id
     use_rebase = args.rebase
+    workspace_root = _resolve_workspace_root(args.workspace_root)
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
     tusk_bin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
 
@@ -823,6 +855,11 @@ def cmd_pick(db_path: str, config_path: str, argv: list[str]) -> int:
         _remove_worktree_and_branch(repo_root, branch)
         torn_down.append(branch)
 
+    # Clone-mode attempt dirs are not tracked by `git worktree list`, so the
+    # loop above won't touch them. Rmtree the whole bakeoff workspace as a
+    # catch-all — safe because the bakeoff is resolved at this point.
+    workspace_removed = _rmtree_bakeoff_workspace(workspace_root, bakeoff_id)
+
     # Delete sibling shadow rows — keep the chosen one as an audit trail.
     deleted_shadow_ids = [sid for sid in shadow_ids if sid != shadow_id]
     conn = get_connection(db_path)
@@ -865,6 +902,7 @@ def cmd_pick(db_path: str, config_path: str, argv: list[str]) -> int:
         "merged_branch": chosen_branch,
         "deleted_shadows": deleted_shadow_ids,
         "removed_branches": torn_down,
+        "workspace_removed": workspace_removed,
         "source_session_closed": session_closed,
     }))
     return 0
@@ -874,12 +912,20 @@ def cmd_discard(db_path: str, config_path: str, argv: list[str]) -> int:
     """Throw every shadow of a bakeoff away; leave the source task untouched."""
     parser = argparse.ArgumentParser(
         prog="tusk bakeoff discard",
-        description="Discard every shadow of a bakeoff — delete rows and worktrees.",
+        description="Discard every shadow of a bakeoff — delete rows and workspaces.",
     )
     parser.add_argument("bakeoff_id", type=int)
+    parser.add_argument(
+        "--workspace-root",
+        default=None,
+        help="Parent directory holding bakeoff workspaces, used to rmtree "
+             "the bakeoff dir (clone-mode dirs aren't tracked by git worktree "
+             "list). Default: $TUSK_BAKEOFF_ROOT or $HOME/.tusk/bakeoffs.",
+    )
     args = parser.parse_args(argv)
 
     bakeoff_id = args.bakeoff_id
+    workspace_root = _resolve_workspace_root(args.workspace_root)
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
 
     conn = get_connection(db_path)
@@ -912,6 +958,10 @@ def cmd_discard(db_path: str, config_path: str, argv: list[str]) -> int:
         _remove_worktree_and_branch(repo_root, branch)
         torn_down.append(branch)
 
+    # Rmtree the whole bakeoff workspace — catches clone-mode dirs (not
+    # tracked by `git worktree list`) and any stragglers from prior runs.
+    workspace_removed = _rmtree_bakeoff_workspace(workspace_root, bakeoff_id)
+
     conn = get_connection(db_path)
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -924,6 +974,7 @@ def cmd_discard(db_path: str, config_path: str, argv: list[str]) -> int:
         "bakeoff_id": bakeoff_id,
         "deleted_shadows": shadow_ids,
         "removed_branches": torn_down,
+        "workspace_removed": workspace_removed,
     }))
     return 0
 
@@ -932,9 +983,10 @@ def main(argv: list[str]) -> int:
     if len(argv) < 2:
         _print_err(
             "Usage: tusk bakeoff <task_id> --models m1,m2[,m3...] "
-            "[--workspace-root <path>] [--claude-bin <path>] [--dry-run]\n"
-            "       tusk bakeoff pick <bakeoff_id> <shadow_id>\n"
-            "       tusk bakeoff discard <bakeoff_id>"
+            "[--workspace-root <path>] [--claude-bin <path>] "
+            "[--isolation worktree|clone] [--dry-run]\n"
+            "       tusk bakeoff pick <bakeoff_id> <shadow_id> [--workspace-root <path>]\n"
+            "       tusk bakeoff discard <bakeoff_id> [--workspace-root <path>]"
         )
         return 1
 
@@ -1180,6 +1232,25 @@ def main(argv: list[str]) -> int:
                 f"Agent for {attempt['model']} (TASK-{attempt['shadow_id']}) "
                 f"exited with code {rc}{suffix}"
             )
+
+    # In clone-isolation mode each attempt's branch + commits live only inside
+    # its private clone's .git. Aggregation against the central DB already
+    # works via TUSK_PROJECT=repo_root (skill_runs / sessions / code_reviews
+    # rows land in tasks.db), but the git-based signals — pairwise diff stats
+    # and fetch_diff's `git log --all --grep=[TASK-<shadow>]` scan — run
+    # against repo_root and would otherwise see nothing. Fetch each clone's
+    # branch into the main repo so both git-based paths behave identically to
+    # worktree mode.
+    for attempt in attempts:
+        if attempt.get("isolation") != "clone":
+            continue
+        if not os.path.isdir(attempt["worktree"]):
+            continue
+        subprocess.run(
+            ["git", "fetch", attempt["worktree"],
+             f"{attempt['branch']}:{attempt['branch']}"],
+            capture_output=True, text=True, encoding="utf-8", cwd=repo_root,
+        )
 
     # Aggregation reads the central DB after every agent has finished writing
     # to it, so every skill_runs / task_sessions / code_reviews row the agents
