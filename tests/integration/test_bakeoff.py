@@ -691,3 +691,167 @@ class TestBakeoffDiscard:
         assert not any("task-done" in c for c in flat), (
             "discard must leave the source task untouched"
         )
+
+
+class TestDeleteShadowRowsChildCleanup:
+    """TASK-127: _delete_shadow_rows must sweep the full child set.
+
+    Seeds every table listed in the deferred finding — task_sessions,
+    task_progress, skill_runs, code_reviews, review_comments (both review_id
+    and deferred_task_id paths), tool_call_stats, tool_call_events — against
+    a shadow task, calls _delete_shadow_rows directly, and asserts each child
+    row is gone. Sidesteps open-session refusals and git/worktree plumbing by
+    exercising the helper in isolation.
+    """
+
+    def test_deletes_every_child_row_for_shadow(self, db_path, config_path):
+        source_id, bakeoff_id, shadow_ids = _seed_bakeoff(db_path)
+        target = shadow_ids[0]
+        sibling = shadow_ids[1]
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            cur = conn.execute(
+                "INSERT INTO task_sessions (task_id, started_at, ended_at) "
+                "VALUES (?, datetime('now', '-1 hour'), datetime('now'))",
+                (target,),
+            )
+            session_id = cur.lastrowid
+
+            conn.execute(
+                "INSERT INTO task_progress (task_id, commit_hash, next_steps) "
+                "VALUES (?, 'deadbeef', 'resume here')",
+                (target,),
+            )
+
+            cur = conn.execute(
+                "INSERT INTO skill_runs (skill_name, started_at, task_id) "
+                "VALUES ('tusk', datetime('now'), ?)",
+                (target,),
+            )
+            skill_run_id = cur.lastrowid
+
+            cur = conn.execute(
+                "INSERT INTO code_reviews (task_id, reviewer, status) "
+                "VALUES (?, 'stub-reviewer', 'approved')",
+                (target,),
+            )
+            review_id = cur.lastrowid
+
+            conn.execute(
+                "INSERT INTO review_comments (review_id, comment) "
+                "VALUES (?, 'direct child via review_id')",
+                (review_id,),
+            )
+
+            # deferred_task_id back-reference: a review on the SOURCE task
+            # whose comment points at the shadow as the deferred follow-up.
+            cur = conn.execute(
+                "INSERT INTO code_reviews (task_id, reviewer, status) "
+                "VALUES (?, 'stub-reviewer', 'approved')",
+                (source_id,),
+            )
+            foreign_review_id = cur.lastrowid
+            conn.execute(
+                "INSERT INTO review_comments (review_id, comment, "
+                "resolution, deferred_task_id) "
+                "VALUES (?, 'back-ref via deferred_task_id', 'deferred', ?)",
+                (foreign_review_id, target),
+            )
+
+            conn.execute(
+                "INSERT INTO tool_call_stats "
+                "(session_id, task_id, tool_name, call_count) "
+                "VALUES (?, ?, 'Read', 3)",
+                (session_id, target),
+            )
+            conn.execute(
+                "INSERT INTO tool_call_stats "
+                "(skill_run_id, tool_name, call_count) "
+                "VALUES (?, 'Edit', 2)",
+                (skill_run_id,),
+            )
+            conn.execute(
+                "INSERT INTO tool_call_events "
+                "(session_id, task_id, tool_name, called_at) "
+                "VALUES (?, ?, 'Read', datetime('now'))",
+                (session_id, target),
+            )
+            conn.execute(
+                "INSERT INTO tool_call_events "
+                "(skill_run_id, tool_name, called_at) "
+                "VALUES (?, 'Edit', datetime('now'))",
+                (skill_run_id,),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        # Invoke the helper directly against the target shadow.
+        conn = tusk_bakeoff.get_connection(str(db_path))
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            tusk_bakeoff._delete_shadow_rows(conn, [target])
+            conn.commit()
+        finally:
+            conn.close()
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            def scalar(sql, *params):
+                return conn.execute(sql, params).fetchone()[0]
+
+            # Target shadow and all of its direct children: gone.
+            assert scalar(
+                "SELECT COUNT(*) FROM tasks WHERE id = ?", target
+            ) == 0, "shadow task row must be deleted"
+            assert scalar(
+                "SELECT COUNT(*) FROM acceptance_criteria WHERE task_id = ?",
+                target,
+            ) == 0
+            assert scalar(
+                "SELECT COUNT(*) FROM task_sessions WHERE task_id = ?", target
+            ) == 0, "task_sessions row must be deleted"
+            assert scalar(
+                "SELECT COUNT(*) FROM task_progress WHERE task_id = ?", target
+            ) == 0, "task_progress row must be deleted"
+            assert scalar(
+                "SELECT COUNT(*) FROM skill_runs WHERE task_id = ? OR id = ?",
+                target, skill_run_id,
+            ) == 0, "skill_runs row must be hard-deleted (not just SET NULL'd)"
+            assert scalar(
+                "SELECT COUNT(*) FROM code_reviews WHERE task_id = ?", target
+            ) == 0, "code_reviews row must be deleted"
+            assert scalar(
+                "SELECT COUNT(*) FROM review_comments WHERE review_id = ?",
+                review_id,
+            ) == 0, "review_comments via review_id must be deleted"
+            assert scalar(
+                "SELECT COUNT(*) FROM review_comments WHERE deferred_task_id = ?",
+                target,
+            ) == 0, "review_comments back-ref via deferred_task_id must be deleted"
+            assert scalar(
+                "SELECT COUNT(*) FROM tool_call_stats "
+                "WHERE task_id = ? OR session_id = ? OR skill_run_id = ?",
+                target, session_id, skill_run_id,
+            ) == 0, "tool_call_stats rows must be deleted"
+            assert scalar(
+                "SELECT COUNT(*) FROM tool_call_events "
+                "WHERE task_id = ? OR session_id = ? OR skill_run_id = ?",
+                target, session_id, skill_run_id,
+            ) == 0, "tool_call_events rows must be deleted"
+
+            # Sibling shadow (not in the delete list) and source task both
+            # survive — the helper must not touch unrelated rows.
+            assert scalar(
+                "SELECT COUNT(*) FROM tasks WHERE id = ?", sibling
+            ) == 1, "sibling shadow must remain"
+            assert scalar(
+                "SELECT COUNT(*) FROM tasks WHERE id = ?", source_id
+            ) == 1, "source task must remain"
+            assert scalar(
+                "SELECT COUNT(*) FROM code_reviews WHERE task_id = ?",
+                source_id,
+            ) == 1, "source-task code_review must remain (deferred_task_id was nulled via row delete, not review delete)"
+        finally:
+            conn.close()
