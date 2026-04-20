@@ -5,11 +5,13 @@ Called by the tusk wrapper:
     tusk bakeoff <task_id> --models m1,m2[,m3...]
                  [--workspace-root <path>] [--claude-bin <path>]
                  [--timeout <seconds>] [--dry-run]
+    tusk bakeoff pick <bakeoff_id> <shadow_id>
+    tusk bakeoff discard <bakeoff_id>
 
 Arguments received from tusk:
     sys.argv[1] — DB path
     sys.argv[2] — config path (accepted for dispatch consistency, unused)
-    sys.argv[3:] — command flags
+    sys.argv[3:] — command flags (or `pick`/`discard` subcommand + its args)
 
 For each model the command:
   1. Clones the source task into a shadow row (bakeoff_shadow = 1) sharing a
@@ -41,7 +43,9 @@ attempt by making a commit on the current branch.
 Exit codes:
     0 — all attempts finished (some may have failed non-fatally; see report)
     1 — usage error / task not found / fewer than 2 models
+      — pick/discard: unknown bakeoff_id, bad shadow_id, or any shadow session still open
     2 — worktree or agent spawn failed before aggregation
+      — pick: git merge of the chosen shadow branch failed
 """
 
 import argparse
@@ -412,15 +416,375 @@ def _print_err(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
 
+# ---------------------------------------------------------------------------
+# pick / discard cleanup subcommands
+# ---------------------------------------------------------------------------
+
+
+_SOURCE_ID_RE = re.compile(r"source=TASK-(\d+)")
+
+
+def _extract_source_id(description: str | None) -> int | None:
+    """Pull `source=TASK-<N>` out of a shadow's description suffix."""
+    if not description:
+        return None
+    m = _SOURCE_ID_RE.search(description)
+    return int(m.group(1)) if m else None
+
+
+def _find_bakeoff_branches(
+    repo_root: str, bakeoff_id: int, shadow_id: int | None = None
+) -> list[str]:
+    """List local branches matching `feature/bakeoff-<bakeoff>-[<shadow>-]*`."""
+    if shadow_id is not None:
+        pattern = f"refs/heads/feature/bakeoff-{bakeoff_id}-{shadow_id}-*"
+    else:
+        pattern = f"refs/heads/feature/bakeoff-{bakeoff_id}-*"
+    result = subprocess.run(
+        ["git", "for-each-ref", "--format=%(refname:short)", pattern],
+        capture_output=True, text=True, cwd=repo_root,
+    )
+    if result.returncode != 0:
+        return []
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def _resolve_worktree_for_branch(repo_root: str, branch: str) -> str | None:
+    """Path of the worktree currently checked out on <branch>, or None.
+
+    `git worktree list --porcelain` prints per-worktree blocks; we walk them
+    recording the current `worktree <path>` line and matching when the branch
+    line names the ref we care about.
+    """
+    result = subprocess.run(
+        ["git", "worktree", "list", "--porcelain"],
+        capture_output=True, text=True, cwd=repo_root,
+    )
+    if result.returncode != 0:
+        return None
+    current_wt = None
+    for line in result.stdout.splitlines():
+        if line.startswith("worktree "):
+            current_wt = line[len("worktree "):].strip()
+        elif line.startswith("branch refs/heads/"):
+            if line[len("branch refs/heads/"):].strip() == branch:
+                return current_wt
+    return None
+
+
+def _remove_worktree_and_branch(repo_root: str, branch: str) -> None:
+    """Best-effort teardown: worktree first (if any), then delete the branch."""
+    wt = _resolve_worktree_for_branch(repo_root, branch)
+    if wt:
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", wt],
+            capture_output=True, cwd=repo_root,
+        )
+        if os.path.isdir(wt):
+            shutil.rmtree(wt, ignore_errors=True)
+    subprocess.run(
+        ["git", "branch", "-D", branch],
+        capture_output=True, cwd=repo_root,
+    )
+
+
+def _merge_shadow_branch(repo_root: str, branch: str) -> tuple[bool, str]:
+    """Fast-forward-only merge of <branch> into the detected default branch.
+
+    Mirrors the local-mode steps from tusk-merge: checkout default, pull (best
+    effort — skipped on unreachable remote or missing origin), ff-only merge,
+    push (best effort). We don't move tasks.db aside here because bakeoff
+    worktrees never commit to the primary worktree's branch, so checkout has
+    nothing to overwrite; if that assumption ever breaks we inherit a clear
+    git error message instead of silent data loss.
+    """
+    default_branch = _detect_default_branch(repo_root)
+
+    checkout = subprocess.run(
+        ["git", "checkout", default_branch],
+        capture_output=True, text=True, cwd=repo_root,
+    )
+    if checkout.returncode != 0:
+        return False, f"git checkout {default_branch}: {checkout.stderr.strip()}"
+
+    has_origin = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        capture_output=True, cwd=repo_root,
+    ).returncode == 0
+    if has_origin:
+        subprocess.run(
+            ["git", "-c", "pull.rebase=false", "pull", "origin", default_branch],
+            capture_output=True, text=True, cwd=repo_root,
+        )
+
+    merge = subprocess.run(
+        ["git", "merge", "--ff-only", branch],
+        capture_output=True, text=True, cwd=repo_root,
+    )
+    if merge.returncode != 0:
+        return False, f"git merge --ff-only {branch}: {merge.stderr.strip()}"
+
+    if has_origin:
+        subprocess.run(
+            ["git", "push", "origin", default_branch],
+            capture_output=True, text=True, cwd=repo_root,
+        )
+    return True, ""
+
+
+def _open_shadow_sessions(
+    conn: sqlite3.Connection, bakeoff_id: int
+) -> list[dict]:
+    """Open sessions (ended_at IS NULL) tied to any shadow of this bakeoff."""
+    rows = conn.execute(
+        "SELECT ts.id AS session_id, ts.task_id "
+        "FROM task_sessions ts JOIN tasks t ON ts.task_id = t.id "
+        "WHERE t.bakeoff_id = ? AND t.bakeoff_shadow = 1 "
+        "AND ts.ended_at IS NULL "
+        "ORDER BY ts.task_id, ts.id",
+        (bakeoff_id,),
+    ).fetchall()
+    return [{"session_id": r["session_id"], "task_id": r["task_id"]} for r in rows]
+
+
+def _delete_shadow_rows(conn: sqlite3.Connection, shadow_ids: list[int]) -> None:
+    """Delete acceptance_criteria + tasks rows for the given shadow ids."""
+    for sid in shadow_ids:
+        conn.execute("DELETE FROM acceptance_criteria WHERE task_id = ?", (sid,))
+        conn.execute("DELETE FROM tasks WHERE id = ?", (sid,))
+
+
+def cmd_pick(db_path: str, config_path: str, argv: list[str]) -> int:
+    """Merge a chosen shadow's branch into default, close the source task, prune siblings."""
+    parser = argparse.ArgumentParser(
+        prog="tusk bakeoff pick",
+        description="Merge a chosen bakeoff shadow back into the source task's base branch.",
+    )
+    parser.add_argument("bakeoff_id", type=int)
+    parser.add_argument("shadow_id", type=int)
+    args = parser.parse_args(argv)
+
+    bakeoff_id = args.bakeoff_id
+    shadow_id = args.shadow_id
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+    tusk_bin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
+
+    conn = get_connection(db_path)
+    try:
+        shadows = conn.execute(
+            "SELECT id, description FROM tasks "
+            "WHERE bakeoff_id = ? AND bakeoff_shadow = 1 ORDER BY id",
+            (bakeoff_id,),
+        ).fetchall()
+        if not shadows:
+            _print_err(f"Error: bakeoff {bakeoff_id} unknown (no shadow rows found)")
+            return 1
+
+        shadow_row = next((s for s in shadows if s["id"] == shadow_id), None)
+        if shadow_row is None:
+            known = [s["id"] for s in shadows]
+            _print_err(
+                f"Error: TASK-{shadow_id} is not a shadow of bakeoff {bakeoff_id}. "
+                f"Valid shadows: {known}"
+            )
+            return 1
+
+        open_sessions = _open_shadow_sessions(conn, bakeoff_id)
+        if open_sessions:
+            task_ids = sorted({s["task_id"] for s in open_sessions})
+            _print_err(
+                f"Error: bakeoff {bakeoff_id} has {len(open_sessions)} open session(s) "
+                f"on shadow task(s) {task_ids}. Close them or wait for the agents to "
+                f"exit before running pick."
+            )
+            return 1
+
+        source_id = _extract_source_id(shadow_row["description"])
+        if source_id is None:
+            _print_err(
+                f"Error: could not parse `source=TASK-<id>` from shadow "
+                f"TASK-{shadow_id}'s description."
+            )
+            return 1
+
+        source_session = conn.execute(
+            "SELECT id FROM task_sessions "
+            "WHERE task_id = ? AND ended_at IS NULL "
+            "ORDER BY id DESC LIMIT 1",
+            (source_id,),
+        ).fetchone()
+        source_session_id = source_session["id"] if source_session else None
+        shadow_ids = [s["id"] for s in shadows]
+    finally:
+        conn.close()
+
+    # Chosen branch — resolve by prefix match so we don't need to know the model slug.
+    chosen_branches = _find_bakeoff_branches(repo_root, bakeoff_id, shadow_id)
+    if not chosen_branches:
+        _print_err(
+            f"Error: no local branch matches "
+            f"feature/bakeoff-{bakeoff_id}-{shadow_id}-* — "
+            f"was the shadow branch already deleted?"
+        )
+        return 2
+    if len(chosen_branches) > 1:
+        _print_err(
+            f"Error: multiple branches match "
+            f"feature/bakeoff-{bakeoff_id}-{shadow_id}-*: {chosen_branches}. "
+            f"Refusing to guess which to merge."
+        )
+        return 2
+    chosen_branch = chosen_branches[0]
+
+    # Must drop the chosen shadow's worktree BEFORE checking out default on the
+    # primary repo — git refuses `checkout <default>` when another worktree
+    # still holds the branch we'd be leaving.
+    chosen_wt = _resolve_worktree_for_branch(repo_root, chosen_branch)
+    if chosen_wt:
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", chosen_wt],
+            capture_output=True, cwd=repo_root,
+        )
+        if os.path.isdir(chosen_wt):
+            shutil.rmtree(chosen_wt, ignore_errors=True)
+
+    ok, err = _merge_shadow_branch(repo_root, chosen_branch)
+    if not ok:
+        _print_err(f"Error: {err}")
+        return 2
+
+    # Tear down every bakeoff branch + worktree, including the now-merged one
+    # (ff-only merge leaves the ref alive — delete it so no stale handle remains).
+    torn_down: list[str] = []
+    for branch in _find_bakeoff_branches(repo_root, bakeoff_id):
+        _remove_worktree_and_branch(repo_root, branch)
+        torn_down.append(branch)
+
+    # Delete sibling shadow rows — keep the chosen one as an audit trail.
+    deleted_shadow_ids = [sid for sid in shadow_ids if sid != shadow_id]
+    conn = get_connection(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        _delete_shadow_rows(conn, deleted_shadow_ids)
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Close the source task's open session (if any) and mark it Done. Mirrors
+    # tusk merge's own subprocess calls into the same two downstream commands.
+    session_closed = False
+    if source_session_id is not None:
+        sc = subprocess.run(
+            [tusk_bin, "session-close", str(source_session_id)],
+            capture_output=True, text=True,
+        )
+        session_closed = sc.returncode == 0
+        if not session_closed and "already closed" not in (sc.stderr or ""):
+            _print_err(
+                f"Warning: session-close for session {source_session_id} exited "
+                f"{sc.returncode}: {(sc.stderr or '').strip()}"
+            )
+
+    td = subprocess.run(
+        [tusk_bin, "task-done", str(source_id), "--reason", "completed", "--force"],
+        capture_output=True, text=True,
+    )
+    if td.returncode != 0:
+        _print_err(
+            f"Warning: task-done for TASK-{source_id} exited {td.returncode}: "
+            f"{(td.stderr or '').strip()}"
+        )
+
+    print(dumps({
+        "bakeoff_id": bakeoff_id,
+        "shadow_id": shadow_id,
+        "source_task_id": source_id,
+        "merged_branch": chosen_branch,
+        "deleted_shadows": deleted_shadow_ids,
+        "removed_branches": torn_down,
+        "source_session_closed": session_closed,
+    }))
+    return 0
+
+
+def cmd_discard(db_path: str, config_path: str, argv: list[str]) -> int:
+    """Throw every shadow of a bakeoff away; leave the source task untouched."""
+    parser = argparse.ArgumentParser(
+        prog="tusk bakeoff discard",
+        description="Discard every shadow of a bakeoff — delete rows and worktrees.",
+    )
+    parser.add_argument("bakeoff_id", type=int)
+    args = parser.parse_args(argv)
+
+    bakeoff_id = args.bakeoff_id
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+
+    conn = get_connection(db_path)
+    try:
+        shadows = conn.execute(
+            "SELECT id FROM tasks "
+            "WHERE bakeoff_id = ? AND bakeoff_shadow = 1 ORDER BY id",
+            (bakeoff_id,),
+        ).fetchall()
+        if not shadows:
+            _print_err(f"Error: bakeoff {bakeoff_id} unknown (no shadow rows found)")
+            return 1
+
+        open_sessions = _open_shadow_sessions(conn, bakeoff_id)
+        if open_sessions:
+            task_ids = sorted({s["task_id"] for s in open_sessions})
+            _print_err(
+                f"Error: bakeoff {bakeoff_id} has {len(open_sessions)} open session(s) "
+                f"on shadow task(s) {task_ids}. Close them or wait for the agents to "
+                f"exit before running discard."
+            )
+            return 1
+
+        shadow_ids = [s["id"] for s in shadows]
+    finally:
+        conn.close()
+
+    torn_down: list[str] = []
+    for branch in _find_bakeoff_branches(repo_root, bakeoff_id):
+        _remove_worktree_and_branch(repo_root, branch)
+        torn_down.append(branch)
+
+    conn = get_connection(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        _delete_shadow_rows(conn, shadow_ids)
+        conn.commit()
+    finally:
+        conn.close()
+
+    print(dumps({
+        "bakeoff_id": bakeoff_id,
+        "deleted_shadows": shadow_ids,
+        "removed_branches": torn_down,
+    }))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
         _print_err(
             "Usage: tusk bakeoff <task_id> --models m1,m2[,m3...] "
-            "[--workspace-root <path>] [--claude-bin <path>] [--dry-run]"
+            "[--workspace-root <path>] [--claude-bin <path>] [--dry-run]\n"
+            "       tusk bakeoff pick <bakeoff_id> <shadow_id>\n"
+            "       tusk bakeoff discard <bakeoff_id>"
         )
         return 1
 
     db_path = argv[0]
+    config_path = argv[1]
+
+    # pick/discard cleanup subcommands. Task IDs are always numeric or TASK-N,
+    # so these literal keywords can never collide with the `run` form's
+    # positional task_id.
+    if len(argv) >= 3 and argv[2] == "pick":
+        return cmd_pick(db_path, config_path, argv[3:])
+    if len(argv) >= 3 and argv[2] == "discard":
+        return cmd_discard(db_path, config_path, argv[3:])
     # argv[1] is config_path — unused here but accepted for dispatch consistency.
 
     parser = argparse.ArgumentParser(
@@ -666,7 +1030,9 @@ if __name__ == "__main__":
         print("Error: This script must be invoked via the tusk wrapper.", file=sys.stderr)
         print(
             "Use: tusk bakeoff <task_id> --models m1,m2[,m3...] "
-            "[--workspace-root <path>] [--claude-bin <path>] [--dry-run]",
+            "[--workspace-root <path>] [--claude-bin <path>] [--dry-run]\n"
+            "     tusk bakeoff pick <bakeoff_id> <shadow_id>\n"
+            "     tusk bakeoff discard <bakeoff_id>",
             file=sys.stderr,
         )
         sys.exit(1)
