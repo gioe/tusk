@@ -6,10 +6,6 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
-## [679] - 2026-04-20
-
-- [TASK-121] Fix block-raw-sqlite.sh false positives on sqlite3 inside quoted strings
-
 ## [678] - 2026-04-19
 
 - [TASK-120] tusk branch: leave auto-stashed orphan changes off the new feature branch by default
