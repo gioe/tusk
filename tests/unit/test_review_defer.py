@@ -137,6 +137,12 @@ class TestCreatedBranch:
         assert "--task-type" in ti_call and "bug" in ti_call
         criteria_idx = ti_call.index("--criteria")
         assert ti_call[criteria_idx + 1].startswith("Address deferred finding:")
+        # review resolve receives --deferred-task-id so deferred_task_id is
+        # populated on the review_comments row (bug fix for TASK-129).
+        rr_call = plan["calls"][2]
+        assert rr_call[1:4] == ["review", "resolve", str(comment_id)]
+        assert "--deferred-task-id" in rr_call
+        assert rr_call[rr_call.index("--deferred-task-id") + 1] == "777"
 
 
 # ── duplicate branch ───────────────────────────────────────────────────
@@ -168,6 +174,9 @@ class TestDuplicateBranch:
         }
         subcmds = [c[1] for c in plan["calls"]]
         assert subcmds == ["dupes", "review"]  # no task-insert
+        # No task was created, so no --deferred-task-id should be passed
+        rr_call = plan["calls"][1]
+        assert "--deferred-task-id" not in rr_call
 
 
 # ── check-failed branch ────────────────────────────────────────────────
@@ -192,6 +201,8 @@ class TestCheckFailedBranch:
         }
         subcmds = [c[1] for c in plan["calls"]]
         assert subcmds == ["dupes", "review"]  # no task-insert
+        rr_call = plan["calls"][1]
+        assert "--deferred-task-id" not in rr_call
 
 
 # ── error surface ──────────────────────────────────────────────────────

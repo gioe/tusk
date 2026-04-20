@@ -137,9 +137,17 @@ def run_task_insert(summary: str, body: str, domain: str, task_type: str) -> int
     return task_id
 
 
-def run_review_resolve(comment_id: int) -> None:
-    """Mark the comment resolved as 'deferred'."""
+def run_review_resolve(comment_id: int, deferred_task_id: int | None = None) -> None:
+    """Mark the comment resolved as 'deferred'.
+
+    When ``deferred_task_id`` is provided, threads it through to
+    ``tusk review resolve --deferred-task-id`` so review_comments.deferred_task_id
+    records the task that was actually created. Without this link,
+    tusk review-final-summary counts the deferred finding as skipped-duplicate.
+    """
     cmd = [_TUSK_WRAPPER, "review", "resolve", str(comment_id), "deferred"]
+    if deferred_task_id is not None:
+        cmd.extend(["--deferred-task-id", str(deferred_task_id)])
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
         msg = (r.stderr or r.stdout or "").strip() or "tusk review resolve failed"
@@ -165,7 +173,7 @@ def defer_comment(db_path: str, comment_id: int, domain: str, task_type: str) ->
     else:
         skipped_reason = "dupe_check_failed"
 
-    run_review_resolve(comment_id)
+    run_review_resolve(comment_id, deferred_task_id=created_task_id)
 
     return {
         "created_task_id": created_task_id,

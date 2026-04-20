@@ -236,6 +236,14 @@ def cmd_resolve(args: argparse.Namespace, db_path: str) -> int:
         )
         return 2
 
+    deferred_task_id = getattr(args, "deferred_task_id", None)
+    if deferred_task_id is not None and args.resolution != "deferred":
+        print(
+            "Error: --deferred-task-id is only valid with resolution='deferred'",
+            file=sys.stderr,
+        )
+        return 2
+
     conn = get_connection(db_path)
     try:
         comment = conn.execute(
@@ -246,15 +254,23 @@ def cmd_resolve(args: argparse.Namespace, db_path: str) -> int:
             print(f"Error: Comment {args.comment_id} not found", file=sys.stderr)
             return 2
 
-        conn.execute(
-            "UPDATE review_comments SET resolution = ?, updated_at = datetime('now') WHERE id = ?",
-            (args.resolution, args.comment_id),
-        )
+        if deferred_task_id is not None:
+            conn.execute(
+                "UPDATE review_comments SET resolution = ?, deferred_task_id = ?,"
+                " updated_at = datetime('now') WHERE id = ?",
+                (args.resolution, deferred_task_id, args.comment_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE review_comments SET resolution = ?, updated_at = datetime('now') WHERE id = ?",
+                (args.resolution, args.comment_id),
+            )
         conn.commit()
     finally:
         conn.close()
 
-    print(f"Comment #{args.comment_id} marked '{args.resolution}': {comment['comment'][:60]}")
+    suffix = f" (deferred_task_id={deferred_task_id})" if deferred_task_id is not None else ""
+    print(f"Comment #{args.comment_id} marked '{args.resolution}'{suffix}: {comment['comment'][:60]}")
     return 0
 
 
@@ -567,6 +583,13 @@ def main():
     resolve_p = subparsers.add_parser("resolve", help="Resolve a review comment")
     resolve_p.add_argument("comment_id", type=int, help="Comment ID")
     resolve_p.add_argument("resolution", choices=["fixed", "deferred", "dismissed"], help="Resolution status")
+    resolve_p.add_argument(
+        "--deferred-task-id",
+        dest="deferred_task_id",
+        type=int,
+        default=None,
+        help="Task ID created from this deferred finding (only valid with resolution='deferred')",
+    )
 
     # approve
     approve_p = subparsers.add_parser("approve", help="Approve a review")
