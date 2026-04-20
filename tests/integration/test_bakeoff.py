@@ -568,7 +568,9 @@ class TestBakeoffPick:
             tusk_bakeoff, "_resolve_worktree_for_branch", lambda rr, br: None
         )
         monkeypatch.setattr(
-            tusk_bakeoff, "_merge_shadow_branch", lambda rr, br: (True, "")
+            tusk_bakeoff,
+            "_merge_shadow_branch",
+            lambda rr, br, use_rebase=False: (True, ""),
         )
 
         calls: list[list] = []
@@ -626,6 +628,227 @@ class TestBakeoffPick:
             conn.close()
         assert chosen in remaining
         assert other not in remaining, "Sibling shadow should have been deleted"
+
+
+class TestBakeoffPickRebase:
+    """TASK-128: `tusk bakeoff pick --rebase` threads through and drives the rebase path."""
+
+    def test_pick_threads_rebase_flag_through_to_merge_helper(
+        self, db_path, config_path, monkeypatch
+    ):
+        """cmd_pick --rebase must call _merge_shadow_branch with use_rebase=True."""
+        source_id, bakeoff_id, shadow_ids = _seed_bakeoff(db_path)
+        _open_session(db_path, source_id)
+        chosen = shadow_ids[0]
+
+        monkeypatch.setattr(tusk_bakeoff, "_detect_default_branch", lambda rr: "main")
+        fake_branches = [
+            f"feature/bakeoff-{bakeoff_id}-{sid}-stub" for sid in shadow_ids
+        ]
+        monkeypatch.setattr(
+            tusk_bakeoff,
+            "_find_bakeoff_branches",
+            lambda rr, bid, sid=None: list(fake_branches) if sid is None
+            else [b for b in fake_branches if f"-{sid}-" in b],
+        )
+        monkeypatch.setattr(
+            tusk_bakeoff, "_resolve_worktree_for_branch", lambda rr, br: None
+        )
+
+        captured: dict = {}
+
+        def _fake_merge(repo_root, branch, use_rebase=False):
+            captured["use_rebase"] = use_rebase
+            captured["branch"] = branch
+            return True, ""
+
+        monkeypatch.setattr(tusk_bakeoff, "_merge_shadow_branch", _fake_merge)
+        monkeypatch.setattr(
+            tusk_bakeoff.subprocess, "run",
+            lambda args, **kw: subprocess.CompletedProcess(args, 0, stdout="", stderr=""),
+        )
+
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+            exit_code = tusk_bakeoff.main([
+                str(db_path), str(config_path),
+                "pick", str(bakeoff_id), str(chosen), "--rebase",
+            ])
+
+        assert exit_code == 0, f"stderr:\n{stderr_buf.getvalue()}"
+        assert captured.get("use_rebase") is True, (
+            f"Expected use_rebase=True to reach _merge_shadow_branch, "
+            f"got {captured!r}"
+        )
+        assert f"-{chosen}-" in captured["branch"]
+
+    def test_pick_defaults_rebase_flag_to_false(
+        self, db_path, config_path, monkeypatch
+    ):
+        """Without --rebase, _merge_shadow_branch must be called with use_rebase=False."""
+        source_id, bakeoff_id, shadow_ids = _seed_bakeoff(db_path)
+        _open_session(db_path, source_id)
+        chosen = shadow_ids[0]
+
+        monkeypatch.setattr(tusk_bakeoff, "_detect_default_branch", lambda rr: "main")
+        fake_branches = [
+            f"feature/bakeoff-{bakeoff_id}-{sid}-stub" for sid in shadow_ids
+        ]
+        monkeypatch.setattr(
+            tusk_bakeoff,
+            "_find_bakeoff_branches",
+            lambda rr, bid, sid=None: list(fake_branches) if sid is None
+            else [b for b in fake_branches if f"-{sid}-" in b],
+        )
+        monkeypatch.setattr(
+            tusk_bakeoff, "_resolve_worktree_for_branch", lambda rr, br: None
+        )
+
+        captured: dict = {}
+
+        def _fake_merge(repo_root, branch, use_rebase=False):
+            captured["use_rebase"] = use_rebase
+            return True, ""
+
+        monkeypatch.setattr(tusk_bakeoff, "_merge_shadow_branch", _fake_merge)
+        monkeypatch.setattr(
+            tusk_bakeoff.subprocess, "run",
+            lambda args, **kw: subprocess.CompletedProcess(args, 0, stdout="", stderr=""),
+        )
+
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+            exit_code = tusk_bakeoff.main([
+                str(db_path), str(config_path),
+                "pick", str(bakeoff_id), str(chosen),
+            ])
+
+        assert exit_code == 0, f"stderr:\n{stderr_buf.getvalue()}"
+        assert captured.get("use_rebase") is False
+
+    def test_merge_shadow_branch_rebase_runs_rebase_before_ff_merge(
+        self, monkeypatch, tmp_path
+    ):
+        """With use_rebase=True, the helper checks out the branch, rebases onto
+        the default, switches back, then ff-merges — the sequence tusk-merge
+        executes under the same flag."""
+        monkeypatch.setattr(tusk_bakeoff, "_detect_default_branch", lambda rr: "main")
+
+        calls: list[list] = []
+
+        def _fake_run(args, **kwargs):
+            calls.append(list(args))
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(tusk_bakeoff.subprocess, "run", _fake_run)
+
+        ok, err = tusk_bakeoff._merge_shadow_branch(
+            str(tmp_path), "feature/bakeoff-1-2-stub", use_rebase=True
+        )
+        assert ok, f"rebase path should succeed when all git calls succeed: {err}"
+
+        seq = [c[:3] for c in calls if c[:1] == ["git"]]
+        # Sequence must include: checkout main -> checkout branch -> rebase main ->
+        # checkout main -> merge --ff-only branch (the rebase bracket lives
+        # between the first default-branch checkout and the ff-only merge).
+        assert ["git", "checkout", "main"] in seq
+        assert ["git", "checkout", "feature/bakeoff-1-2-stub"] in seq
+        assert ["git", "rebase", "main"] in seq
+        assert ["git", "merge", "--ff-only"] in seq, (
+            f"ff-only merge must still run after a successful rebase: seq={seq}"
+        )
+        # Order check: rebase must happen before the ff-only merge.
+        rebase_idx = next(
+            i for i, c in enumerate(calls) if c[:3] == ["git", "rebase", "main"]
+        )
+        merge_idx = next(
+            i for i, c in enumerate(calls) if c[:3] == ["git", "merge", "--ff-only"]
+        )
+        assert rebase_idx < merge_idx, (
+            f"rebase must precede ff-only merge; rebase@{rebase_idx} merge@{merge_idx}"
+        )
+
+    def test_merge_shadow_branch_rebase_conflict_aborts_and_surfaces_error(
+        self, monkeypatch, tmp_path
+    ):
+        """A failing `git rebase` must trigger `git rebase --abort` and return False.
+
+        Without the abort, the repo would be left in the middle of a rebase
+        and the caller would have no idea the state needed cleanup.
+        """
+        monkeypatch.setattr(tusk_bakeoff, "_detect_default_branch", lambda rr: "main")
+
+        calls: list[list] = []
+
+        def _fake_run(args, **kwargs):
+            calls.append(list(args))
+            if args[:3] == ["git", "rebase", "main"]:
+                return subprocess.CompletedProcess(
+                    args, 1, stdout="", stderr="CONFLICT (content): Merge conflict"
+                )
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(tusk_bakeoff.subprocess, "run", _fake_run)
+
+        ok, err = tusk_bakeoff._merge_shadow_branch(
+            str(tmp_path), "feature/bakeoff-1-2-stub", use_rebase=True
+        )
+        assert not ok
+        assert "rebase" in err.lower()
+        assert ["git", "rebase", "--abort"] in [c[:3] for c in calls], (
+            f"rebase --abort must run after a failed rebase; calls={calls}"
+        )
+        # ff-only merge must NOT have been attempted once rebase failed.
+        assert ["git", "merge", "--ff-only"] not in [c[:3] for c in calls]
+
+    def test_merge_shadow_branch_ff_failure_without_rebase_hints_flag(
+        self, monkeypatch, tmp_path
+    ):
+        """When ff-only fails and --rebase wasn't used, the error must suggest it."""
+        monkeypatch.setattr(tusk_bakeoff, "_detect_default_branch", lambda rr: "main")
+
+        def _fake_run(args, **kwargs):
+            if args[:3] == ["git", "merge", "--ff-only"]:
+                return subprocess.CompletedProcess(
+                    args, 128, stdout="",
+                    stderr="fatal: Not possible to fast-forward, aborting.",
+                )
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(tusk_bakeoff.subprocess, "run", _fake_run)
+
+        ok, err = tusk_bakeoff._merge_shadow_branch(
+            str(tmp_path), "feature/bakeoff-1-2-stub", use_rebase=False
+        )
+        assert not ok
+        assert "--rebase" in err, (
+            f"Error must point users at the --rebase escape hatch; got:\n{err}"
+        )
+
+    def test_merge_shadow_branch_ff_failure_with_rebase_does_not_rehint(
+        self, monkeypatch, tmp_path
+    ):
+        """After --rebase was already used, a subsequent ff failure must NOT re-suggest --rebase."""
+        monkeypatch.setattr(tusk_bakeoff, "_detect_default_branch", lambda rr: "main")
+
+        def _fake_run(args, **kwargs):
+            if args[:3] == ["git", "merge", "--ff-only"]:
+                return subprocess.CompletedProcess(
+                    args, 128, stdout="", stderr="fatal: Not possible to fast-forward",
+                )
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(tusk_bakeoff.subprocess, "run", _fake_run)
+
+        ok, err = tusk_bakeoff._merge_shadow_branch(
+            str(tmp_path), "feature/bakeoff-1-2-stub", use_rebase=True
+        )
+        assert not ok
+        assert "--rebase" not in err, (
+            f"Should not re-suggest --rebase when it was already used; got:\n{err}"
+        )
 
 
 class TestBakeoffDiscard:

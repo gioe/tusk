@@ -5,7 +5,7 @@ Called by the tusk wrapper:
     tusk bakeoff <task_id> --models m1,m2[,m3...]
                  [--workspace-root <path>] [--claude-bin <path>]
                  [--timeout <seconds>] [--dry-run]
-    tusk bakeoff pick <bakeoff_id> <shadow_id>
+    tusk bakeoff pick <bakeoff_id> <shadow_id> [--rebase]
     tusk bakeoff discard <bakeoff_id>
 
 Arguments received from tusk:
@@ -488,7 +488,9 @@ def _remove_worktree_and_branch(repo_root: str, branch: str) -> None:
     )
 
 
-def _merge_shadow_branch(repo_root: str, branch: str) -> tuple[bool, str]:
+def _merge_shadow_branch(
+    repo_root: str, branch: str, use_rebase: bool = False
+) -> tuple[bool, str]:
     """Fast-forward-only merge of <branch> into the detected default branch.
 
     Mirrors the local-mode steps from tusk-merge: checkout default, pull (best
@@ -497,6 +499,12 @@ def _merge_shadow_branch(repo_root: str, branch: str) -> tuple[bool, str]:
     worktrees never commit to the primary worktree's branch, so checkout has
     nothing to overwrite; if that assumption ever breaks we inherit a clear
     git error message instead of silent data loss.
+
+    When `use_rebase` is True, the chosen branch is rebased onto the refreshed
+    default before the ff-only merge attempt — mirroring tusk-merge's
+    `--rebase` path so bakeoffs started before the default branch advanced can
+    still be picked without a manual rebase. A rebase conflict aborts cleanly
+    and surfaces the failure instead of leaving the repo mid-rebase.
     """
     default_branch = _detect_default_branch(repo_root)
 
@@ -517,12 +525,56 @@ def _merge_shadow_branch(repo_root: str, branch: str) -> tuple[bool, str]:
             capture_output=True, text=True, cwd=repo_root,
         )
 
+    if use_rebase:
+        co_branch = subprocess.run(
+            ["git", "checkout", branch],
+            capture_output=True, text=True, cwd=repo_root,
+        )
+        if co_branch.returncode != 0:
+            return False, f"git checkout {branch}: {co_branch.stderr.strip()}"
+
+        rebase_result = subprocess.run(
+            ["git", "rebase", default_branch],
+            capture_output=True, text=True, cwd=repo_root,
+        )
+        if rebase_result.returncode != 0:
+            subprocess.run(
+                ["git", "rebase", "--abort"],
+                capture_output=True, cwd=repo_root,
+            )
+            subprocess.run(
+                ["git", "checkout", default_branch],
+                capture_output=True, cwd=repo_root,
+            )
+            return False, (
+                f"git rebase {default_branch} onto {branch} failed — "
+                f"resolve conflicts manually then re-run tusk bakeoff pick: "
+                f"{rebase_result.stderr.strip()}"
+            )
+
+        co_back = subprocess.run(
+            ["git", "checkout", default_branch],
+            capture_output=True, text=True, cwd=repo_root,
+        )
+        if co_back.returncode != 0:
+            return False, (
+                f"git checkout {default_branch} after rebase: "
+                f"{co_back.stderr.strip()}"
+            )
+
     merge = subprocess.run(
         ["git", "merge", "--ff-only", branch],
         capture_output=True, text=True, cwd=repo_root,
     )
     if merge.returncode != 0:
-        return False, f"git merge --ff-only {branch}: {merge.stderr.strip()}"
+        hint = ""
+        if not use_rebase:
+            hint = (
+                f"\nThe bakeoff branch cannot be fast-forwarded onto "
+                f"{default_branch}. Retry with:\n"
+                f"  tusk bakeoff pick <bakeoff_id> <shadow_id> --rebase"
+            )
+        return False, f"git merge --ff-only {branch}: {merge.stderr.strip()}{hint}"
 
     if has_origin:
         subprocess.run(
@@ -618,10 +670,21 @@ def cmd_pick(db_path: str, config_path: str, argv: list[str]) -> int:
     )
     parser.add_argument("bakeoff_id", type=int)
     parser.add_argument("shadow_id", type=int)
+    parser.add_argument(
+        "--rebase",
+        action="store_true",
+        help=(
+            "Rebase the chosen shadow branch onto the default branch before "
+            "the ff-only merge (mirrors tusk merge --rebase). Use this when "
+            "the default branch has advanced during the bakeoff and the "
+            "default ff-only merge would fail."
+        ),
+    )
     args = parser.parse_args(argv)
 
     bakeoff_id = args.bakeoff_id
     shadow_id = args.shadow_id
+    use_rebase = args.rebase
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
     tusk_bin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
 
@@ -704,7 +767,7 @@ def cmd_pick(db_path: str, config_path: str, argv: list[str]) -> int:
         if os.path.isdir(chosen_wt):
             shutil.rmtree(chosen_wt, ignore_errors=True)
 
-    ok, err = _merge_shadow_branch(repo_root, chosen_branch)
+    ok, err = _merge_shadow_branch(repo_root, chosen_branch, use_rebase=use_rebase)
     if not ok:
         _print_err(f"Error: {err}")
         return 2
