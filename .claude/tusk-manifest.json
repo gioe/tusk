@@ -47,6 +47,7 @@
   ".claude/bin/tusk-review-defer.py",
   ".claude/bin/tusk-review-diff-range.py",
   ".claude/bin/tusk-review-final-summary.py",
+  ".claude/bin/tusk-review-wait.py",
   ".claude/bin/tusk-review.py",
   ".claude/bin/tusk-session-recalc.py",
   ".claude/bin/tusk-session-stats.py",
