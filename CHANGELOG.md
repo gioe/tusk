@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [689] - 2026-04-20
+
+- [TASK-132] Rename bakeoff attempt dict key 'worktree' → 'workspace' for clarity
+
 ## [688] - 2026-04-20
 
 - [TASK-125] Harden bakeoff agent blindness with optional --isolation=clone mode

@@ -1113,10 +1113,7 @@ def main(argv: list[str]) -> int:
                 "model_slug": model_slug,
                 "shadow_id": shadow_id,
                 "branch": branch,
-                # `worktree` kept as the attempt dict key for backwards-compat
-                # with existing report/test paths; holds the workspace path
-                # regardless of isolation mode (worktree dir or clone dir).
-                "worktree": workspace_path,
+                "workspace": workspace_path,
                 "isolation": args.isolation,
             })
         # Hold the transaction open until workspaces succeed so a failure
@@ -1127,11 +1124,11 @@ def main(argv: list[str]) -> int:
         for attempt in attempts:
             if attempt["isolation"] == "clone":
                 ok, err = _create_clone(
-                    repo_root, attempt["worktree"], attempt["branch"], default_branch
+                    repo_root, attempt["workspace"], attempt["branch"], default_branch
                 )
             else:
                 ok, err = _create_worktree(
-                    repo_root, attempt["worktree"], attempt["branch"], default_branch
+                    repo_root, attempt["workspace"], attempt["branch"], default_branch
                 )
             if not ok:
                 # Tear down workspaces we already created for this bakeoff,
@@ -1141,11 +1138,11 @@ def main(argv: list[str]) -> int:
                 # bakeoff_id instead of stepping over half-built state.
                 for done in created:
                     if done["isolation"] == "clone":
-                        if os.path.isdir(done["worktree"]):
-                            shutil.rmtree(done["worktree"], ignore_errors=True)
+                        if os.path.isdir(done["workspace"]):
+                            shutil.rmtree(done["workspace"], ignore_errors=True)
                     else:
                         subprocess.run(
-                            ["git", "worktree", "remove", "--force", done["worktree"]],
+                            ["git", "worktree", "remove", "--force", done["workspace"]],
                             capture_output=True,
                             cwd=repo_root,
                         )
@@ -1174,7 +1171,7 @@ def main(argv: list[str]) -> int:
         "source_task_id": source_task_id,
         "isolation": args.isolation,
         "attempts": [
-            {k: v for k, v in a.items() if k in {"model", "shadow_id", "branch", "worktree", "isolation"}}
+            {k: v for k, v in a.items() if k in {"model", "shadow_id", "branch", "workspace", "isolation"}}
             for a in attempts
         ],
     }))
@@ -1193,13 +1190,13 @@ def main(argv: list[str]) -> int:
             claude_bin,
             attempt["shadow_id"],
             attempt["model"],
-            attempt["worktree"],
+            attempt["workspace"],
             repo_root,
         )
         procs.append((attempt, proc))
         _print_err(
             f"Spawned agent for {attempt['model']} (TASK-{attempt['shadow_id']}) "
-            f"pid={proc.pid} cwd={attempt['worktree']}"
+            f"pid={proc.pid} cwd={attempt['workspace']}"
         )
 
     # Per-attempt wall-clock timeout: Popen.communicate blocks forever
@@ -1248,10 +1245,10 @@ def main(argv: list[str]) -> int:
     for attempt in attempts:
         if attempt.get("isolation") != "clone":
             continue
-        if not os.path.isdir(attempt["worktree"]):
+        if not os.path.isdir(attempt["workspace"]):
             continue
         subprocess.run(
-            ["git", "fetch", attempt["worktree"],
+            ["git", "fetch", attempt["workspace"],
              f"{attempt['branch']}:{attempt['branch']}"],
             capture_output=True, text=True, encoding="utf-8", cwd=repo_root,
         )
@@ -1279,7 +1276,7 @@ def cleanup_worktrees(attempts: list[dict], repo_root: str) -> None:
     Exposed for the integration test which relies on deterministic cleanup.
     """
     for attempt in attempts:
-        wt = attempt.get("worktree")
+        wt = attempt.get("workspace")
         if not wt:
             continue
         subprocess.run(
