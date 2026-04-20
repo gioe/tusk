@@ -23,6 +23,7 @@ arguments they received so the test can verify per-model dispatch.
 
 import importlib.util
 import io
+import json
 import os
 import sqlite3
 import subprocess
@@ -810,6 +811,48 @@ class TestBakeoffPick:
         assert chosen in remaining
         assert other not in remaining, "Sibling shadow should have been deleted"
 
+    def test_pick_removes_clone_mode_workspace(
+        self, db_path, config_path, monkeypatch, tmp_path
+    ):
+        """Criterion 577: pick rmtree's `<workspace-root>/<bakeoff_id>/` and the
+        JSON output reports workspace_removed=true.
+
+        Clone-mode attempt dirs aren't tracked by `git worktree list`, so the
+        branch-teardown loop leaves them behind. `_rmtree_bakeoff_workspace` is
+        the catch-all — this test seeds a stub clone-mode dir under tmp_path
+        and asserts pick nukes it end-to-end.
+        """
+        source_id, bakeoff_id, shadow_ids = _seed_bakeoff(db_path)
+        _open_session(db_path, source_id)
+        chosen = shadow_ids[0]
+
+        workspace_root = tmp_path / "bakeoffs"
+        bakeoff_dir = workspace_root / str(bakeoff_id)
+        bakeoff_dir.mkdir(parents=True)
+        (bakeoff_dir / f"{chosen}-stub-a").mkdir()
+        (bakeoff_dir / f"{chosen}-stub-a" / "marker.txt").write_text("clone mode")
+
+        self._install_stubs(monkeypatch, bakeoff_id, shadow_ids)
+
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+            exit_code = tusk_bakeoff.main([
+                str(db_path), str(config_path),
+                "pick", str(bakeoff_id), str(chosen),
+                "--workspace-root", str(workspace_root),
+            ])
+
+        assert exit_code == 0, f"stderr:\n{stderr_buf.getvalue()}"
+
+        payload = json.loads(stdout_buf.getvalue())
+        assert payload["workspace_removed"] is True, (
+            f"Expected workspace_removed=true, got: {payload}"
+        )
+        assert not bakeoff_dir.exists(), (
+            f"Expected {bakeoff_dir} to be rmtree'd after pick"
+        )
+
 
 class TestBakeoffPickRebase:
     """TASK-128: `tusk bakeoff pick --rebase` threads through and drives the rebase path."""
@@ -1094,6 +1137,61 @@ class TestBakeoffDiscard:
         )
         assert not any("task-done" in c for c in flat), (
             "discard must leave the source task untouched"
+        )
+
+    def test_discard_removes_clone_mode_workspace(
+        self, db_path, config_path, monkeypatch, tmp_path
+    ):
+        """Criterion 578: discard rmtree's `<workspace-root>/<bakeoff_id>/` and
+        reports workspace_removed=true.
+
+        Mirror of the pick-side test — same clone-mode-dir-not-tracked-by-worktree
+        concern, same catch-all rmtree, same JSON field.
+        """
+        source_id, bakeoff_id, shadow_ids = _seed_bakeoff(db_path)
+
+        workspace_root = tmp_path / "bakeoffs"
+        bakeoff_dir = workspace_root / str(bakeoff_id)
+        bakeoff_dir.mkdir(parents=True)
+        for sid in shadow_ids:
+            attempt_dir = bakeoff_dir / f"{sid}-stub"
+            attempt_dir.mkdir()
+            (attempt_dir / "marker.txt").write_text("clone mode")
+
+        monkeypatch.setattr(tusk_bakeoff, "_detect_default_branch", lambda rr: "main")
+        fake_branches = [
+            f"feature/bakeoff-{bakeoff_id}-{sid}-stub" for sid in shadow_ids
+        ]
+        monkeypatch.setattr(
+            tusk_bakeoff, "_find_bakeoff_branches",
+            lambda rr, bid, sid=None: list(fake_branches) if sid is None
+            else [b for b in fake_branches if f"-{sid}-" in b],
+        )
+        monkeypatch.setattr(
+            tusk_bakeoff, "_resolve_worktree_for_branch", lambda rr, br: None
+        )
+        monkeypatch.setattr(
+            tusk_bakeoff.subprocess, "run",
+            lambda args, **kw: subprocess.CompletedProcess(args, 0, stdout="", stderr=""),
+        )
+
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+            exit_code = tusk_bakeoff.main([
+                str(db_path), str(config_path),
+                "discard", str(bakeoff_id),
+                "--workspace-root", str(workspace_root),
+            ])
+
+        assert exit_code == 0, f"stderr:\n{stderr_buf.getvalue()}"
+
+        payload = json.loads(stdout_buf.getvalue())
+        assert payload["workspace_removed"] is True, (
+            f"Expected workspace_removed=true, got: {payload}"
+        )
+        assert not bakeoff_dir.exists(), (
+            f"Expected {bakeoff_dir} to be rmtree'd after discard"
         )
 
 
