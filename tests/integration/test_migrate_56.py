@@ -8,8 +8,9 @@ Covers:
 - task_metrics, v_ready_tasks, v_chain_heads are recreated with the current
   tasks.* column list, so SELECT fixes_task_id FROM <view> succeeds (the
   exact regression cited in TASK-99's criterion 415)
-- the four view definitions match bin/tusk's cmd_init verbatim (the
-  canonical-source invariant)
+- the four view definitions match a frozen v56-era snapshot (i.e. the state
+  fresh installs had immediately after migration 56 landed, before any
+  later tasks-column migration further altered these views)
 - v_criteria_coverage's projected columns are unchanged (it never projected
   t.*, so column-list freezing never affected it; the migration still
   DROP+CREATEs it for uniformity)
@@ -25,7 +26,6 @@ import pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SCRIPT_DIR = os.path.join(REPO_ROOT, "bin")
-TUSK_BIN_PATH = os.path.join(SCRIPT_DIR, "tusk")
 
 
 def _load_migrate():
@@ -133,20 +133,78 @@ def _view_sql(db, name):
     return row[0] if row else None
 
 
-def _canonical_view_sql(view_name):
-    """Extract the canonical CREATE VIEW <view_name> block from bin/tusk."""
-    with open(TUSK_BIN_PATH, "r") as f:
-        content = f.read()
-    # Match "CREATE VIEW <name> AS ... ;" non-greedily up to the first ';'
-    # followed by a blank line or another CREATE/DROP. Views in cmd_init are
-    # each terminated by a ';' on its own closing line; restrict the match
-    # to the first ';' at column 0 or after GROUP BY to stay safe.
-    pattern = re.compile(
-        r"CREATE VIEW " + re.escape(view_name) + r"\b.*?;",
-        re.DOTALL,
-    )
-    m = pattern.search(content)
-    return m.group(0) if m else None
+# Frozen v56-era view definitions. These capture the shape fresh installs
+# had immediately after migration 56 landed — before migration 58 added
+# ``WHERE t.bakeoff_shadow = 0`` to these views in cmd_init. Pinning to a
+# snapshot (rather than live ``bin/tusk``) keeps this guard stable across
+# future tasks-column migrations that further alter cmd_init's views; a
+# migration N test must verify the post-migrate_N state matches what fresh
+# v(N) installs had, not what fresh v(latest) installs have today.
+_V56_VIEW_SQL = {
+    "task_metrics": """
+        CREATE VIEW task_metrics AS
+        SELECT t.*,
+            COUNT(s.id) as session_count,
+            SUM(s.duration_seconds) as total_duration_seconds,
+            SUM(s.cost_dollars) as total_cost,
+            SUM(s.tokens_in) as total_tokens_in,
+            SUM(s.tokens_out) as total_tokens_out,
+            SUM(s.lines_added) as total_lines_added,
+            SUM(s.lines_removed) as total_lines_removed,
+            SUM(s.request_count) as total_request_count,
+            (SELECT COUNT(*) FROM task_status_transitions tst
+              WHERE tst.task_id = t.id AND tst.to_status = 'To Do') as reopen_count
+        FROM tasks t
+        LEFT JOIN task_sessions s ON t.id = s.task_id
+        GROUP BY t.id
+    """,
+    "v_ready_tasks": """
+        CREATE VIEW v_ready_tasks AS
+        SELECT t.*
+        FROM tasks t
+        WHERE t.status = 'To Do'
+          AND NOT EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks blocker ON d.depends_on_id = blocker.id
+            WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM external_blockers eb
+            WHERE eb.task_id = t.id AND eb.is_resolved = 0
+          )
+    """,
+    "v_chain_heads": """
+        CREATE VIEW v_chain_heads AS
+        SELECT t.*
+        FROM tasks t
+        WHERE t.status <> 'Done'
+          AND EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks downstream ON d.task_id = downstream.id
+            WHERE d.depends_on_id = t.id AND downstream.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks blocker ON d.depends_on_id = blocker.id
+            WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM external_blockers eb
+            WHERE eb.task_id = t.id AND eb.is_resolved = 0
+          )
+    """,
+    "v_criteria_coverage": """
+        CREATE VIEW v_criteria_coverage AS
+        SELECT t.id AS task_id,
+               t.summary,
+               COUNT(CASE WHEN ac.is_deferred = 0 OR ac.is_deferred IS NULL THEN 1 END) AS total_criteria,
+               COALESCE(SUM(CASE WHEN ac.is_completed = 1 AND (ac.is_deferred = 0 OR ac.is_deferred IS NULL) THEN 1 ELSE 0 END), 0) AS completed_criteria,
+               COUNT(CASE WHEN ac.is_deferred = 0 OR ac.is_deferred IS NULL THEN 1 END) - COALESCE(SUM(CASE WHEN ac.is_completed = 1 AND (ac.is_deferred = 0 OR ac.is_deferred IS NULL) THEN 1 ELSE 0 END), 0) AS remaining_criteria
+        FROM tasks t
+        LEFT JOIN acceptance_criteria ac ON ac.task_id = t.id
+        GROUP BY t.id, t.summary
+    """,
+}
 
 
 class TestMigrate56:
@@ -214,25 +272,29 @@ class TestMigrate56:
             "remaining_criteria",
         ]
 
-    def test_view_definitions_match_cmd_init(
+    def test_view_definitions_match_v56_snapshot(
         self, db_at_v55_with_pre_v55_views, config_path
     ):
-        """Each recreated view's stored SQL must match the canonical
-        definition in cmd_init (whitespace-normalized). This guards against
-        drift between the migration's embedded SQL and the fresh-install
-        schema."""
+        """Each recreated view's stored SQL must match its frozen v56-era
+        snapshot (whitespace-normalized). This guards against drift between
+        the migration's embedded SQL and the v56 fresh-install schema.
+
+        The snapshot is pinned rather than re-extracted from live cmd_init:
+        migration 58 later added ``WHERE t.bakeoff_shadow = 0`` to these
+        views, and future tasks-column migrations may add more. Those belong
+        to their own migration-N shapes and must not leak back into
+        migrate_56's v56 shape.
+        """
         tusk_migrate.migrate_56(db_at_v55_with_pre_v55_views, config_path, SCRIPT_DIR)
 
         def _normalize(sql):
             return re.sub(r"\s+", " ", sql).strip().rstrip(";")
 
-        for view in ("task_metrics", "v_ready_tasks", "v_chain_heads", "v_criteria_coverage"):
+        for view, expected in _V56_VIEW_SQL.items():
             db_sql = _view_sql(db_at_v55_with_pre_v55_views, view)
-            canonical = _canonical_view_sql(view)
             assert db_sql is not None, f"{view} missing after migrate_56"
-            assert canonical is not None, f"canonical {view} not found in bin/tusk"
-            assert _normalize(db_sql) == _normalize(canonical), (
-                f"{view} definition drifted from cmd_init"
+            assert _normalize(db_sql) == _normalize(expected), (
+                f"{view} definition drifted from v56 snapshot"
             )
 
     def test_idempotent_when_already_at_v56(self, db_path, config_path):
