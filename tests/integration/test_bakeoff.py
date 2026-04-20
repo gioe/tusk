@@ -409,6 +409,109 @@ class TestTaskListShadowFilters:
         assert real_id not in ids
 
 
+class TestBakeoffIsolationClone:
+    """TASK-125: --isolation=clone uses _create_clone (not _create_worktree),
+    records isolation in the shadow description suffix, and fetches clone
+    branches into repo_root post-agent so aggregation stays isolation-agnostic.
+    """
+
+    def test_clone_mode_wires_through_and_tags_shadows(
+        self, db_path, config_path, monkeypatch, tmp_path
+    ):
+        task_id, _ = _insert_source_task(db_path)
+
+        clone_calls: list[dict] = []
+        worktree_calls: list[dict] = []
+        fetch_calls: list[list] = []
+
+        monkeypatch.setattr(tusk_bakeoff, "_detect_default_branch", lambda rr: "main")
+
+        def fake_clone(repo_root, clone_path, branch, base_branch):
+            clone_calls.append({
+                "clone_path": clone_path, "branch": branch, "base": base_branch,
+            })
+            os.makedirs(clone_path, exist_ok=True)
+            return True, ""
+
+        def fake_worktree(repo_root, worktree_path, branch, base_branch):
+            worktree_calls.append({
+                "worktree": worktree_path, "branch": branch, "base": base_branch,
+            })
+            os.makedirs(worktree_path, exist_ok=True)
+            return True, ""
+
+        monkeypatch.setattr(tusk_bakeoff, "_create_clone", fake_clone)
+        monkeypatch.setattr(tusk_bakeoff, "_create_worktree", fake_worktree)
+
+        real_run = tusk_bakeoff.subprocess.run
+
+        def fake_run(args, **kwargs):
+            # Record `git fetch <clone_path> <branch>:<branch>` calls; stub
+            # everything else (git pull/push etc.) as a no-op success.
+            if isinstance(args, list) and len(args) >= 2 and args[:2] == ["git", "fetch"]:
+                fetch_calls.append(list(args))
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(tusk_bakeoff.subprocess, "run", fake_run)
+
+        class _Proc:
+            def __init__(self, shadow_id):
+                self.pid = 2000 + shadow_id
+                self.returncode = 0
+            def communicate(self, timeout=None):
+                return (b"", b"")
+
+        monkeypatch.setattr(
+            tusk_bakeoff, "_spawn_agent",
+            lambda claude_bin, shadow_id, model, wt, rr: _Proc(shadow_id),
+        )
+        monkeypatch.setattr(tusk_bakeoff, "_pairwise_diff_stat", lambda rr, a, b: "stub")
+
+        workspace_root = str(tmp_path / "bakeoffs")
+
+        stderr_buf = io.StringIO()
+        stdout_buf = io.StringIO()
+        with redirect_stderr(stderr_buf), redirect_stdout(stdout_buf):
+            exit_code = tusk_bakeoff.main([
+                str(db_path), str(config_path), str(task_id),
+                "--models", "stub-a,stub-b",
+                "--isolation", "clone",
+                "--workspace-root", workspace_root,
+            ])
+
+        assert exit_code == 0, f"stderr:\n{stderr_buf.getvalue()}"
+
+        # Clone path taken, not worktree path.
+        assert len(clone_calls) == 2
+        assert worktree_calls == []
+
+        # Shadow descriptions must record isolation=clone so pick/discard
+        # diagnostics and post-mortem readers can tell which mode was used.
+        conn = sqlite3.connect(str(db_path))
+        try:
+            descs = [
+                row[0] for row in conn.execute(
+                    "SELECT description FROM tasks WHERE bakeoff_shadow = 1 "
+                    "ORDER BY id"
+                ).fetchall()
+            ]
+        finally:
+            conn.close()
+        assert len(descs) == 2
+        for d in descs:
+            assert "isolation=clone" in d, f"isolation marker missing: {d!r}"
+
+        # One fetch per clone attempt so repo_root sees the attempt branches.
+        assert len(fetch_calls) == 2
+        for call in fetch_calls:
+            assert call[0] == "git" and call[1] == "fetch"
+            assert call[3].count(":") == 1
+            src, dst = call[3].split(":")
+            assert src == dst
+            assert src.startswith("feature/bakeoff-")
+
+
 # ---------------------------------------------------------------------------
 # pick / discard cleanup subcommands (TASK-124)
 # ---------------------------------------------------------------------------
