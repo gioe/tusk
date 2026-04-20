@@ -45,6 +45,7 @@ Exit codes:
 
 import argparse
 import concurrent.futures
+import importlib.util
 import os
 import re
 import shutil
@@ -59,6 +60,26 @@ _db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
+
+
+def _load_task_summary_module():
+    """Load tusk-task-summary.py for its cost/duration/diff aggregation helpers.
+
+    tusk-task-summary.py already implements cost, duration, diff, and criteria
+    aggregation per task — reusing it here means the bakeoff report uses the
+    same definitions (e.g. `diff = commits greppable to [TASK-<id>]`) that the
+    end-of-run summary does, so cross-attempt numbers stay comparable.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "tusk_task_summary",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk-task-summary.py"),
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_task_summary = _load_task_summary_module()
 
 
 # Appended to each spawned agent's system prompt so it skips the two /tusk
@@ -240,6 +261,166 @@ def _spawn_agent(
     )
 
 
+def _fetch_review_verdict(conn: sqlite3.Connection, task_id: int) -> str | None:
+    """Most recent code_reviews.verdict for the task, or None if no review ran."""
+    row = conn.execute(
+        "SELECT verdict FROM code_reviews WHERE task_id = ? "
+        "ORDER BY id DESC LIMIT 1",
+        (task_id,),
+    ).fetchone()
+    return row["verdict"] if row else None
+
+
+def _fetch_token_totals(conn: sqlite3.Connection, task_id: int) -> dict:
+    """Sum tokens_in, tokens_out, request_count across skill_runs for the task."""
+    row = conn.execute(
+        "SELECT COALESCE(SUM(tokens_in), 0) AS tin, "
+        "       COALESCE(SUM(tokens_out), 0) AS tout, "
+        "       COALESCE(SUM(request_count), 0) AS req "
+        "FROM skill_runs WHERE task_id = ?",
+        (task_id,),
+    ).fetchone()
+    return {
+        "tokens_in": int(row["tin"] or 0),
+        "tokens_out": int(row["tout"] or 0),
+        "request_count": int(row["req"] or 0),
+    }
+
+
+def _collect_attempt_metrics(
+    conn: sqlite3.Connection,
+    attempt: dict,
+    repo_root: str,
+) -> dict:
+    """Per-shadow aggregation reusing tusk-task-summary's cost/duration/diff helpers.
+
+    Diff stats come from `git log --grep=[TASK-<shadow>]` across --all refs, so
+    the attempt branch's commits remain in scope even if its worktree is later
+    removed (the branch itself persists until manually deleted).
+    """
+    summary = _task_summary.build_summary(conn, attempt["shadow_id"], repo_root) or {}
+    tokens = _fetch_token_totals(conn, attempt["shadow_id"])
+    verdict = _fetch_review_verdict(conn, attempt["shadow_id"])
+    return {
+        **attempt,
+        "cost": summary.get("cost", {"total": 0.0, "skill_run_count": 0}),
+        "duration": summary.get("duration", {}),
+        "diff": summary.get("diff", {}),
+        "criteria": summary.get("criteria", {}),
+        "tokens": tokens,
+        "review_passes": summary.get("review_passes", 0),
+        "verdict": verdict,
+    }
+
+
+def _pairwise_diff_stat(
+    repo_root: str,
+    branch_a: str,
+    branch_b: str,
+) -> str:
+    """`git diff --stat <A>...<B>` output, or a placeholder when the ranges match."""
+    result = subprocess.run(
+        ["git", "diff", "--stat", f"{branch_a}...{branch_b}"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=repo_root,
+    )
+    if result.returncode != 0:
+        return f"(diff failed: {result.stderr.strip() or 'non-zero exit'})"
+    return result.stdout.strip() or "(identical)"
+
+
+def _format_duration(seconds: int | None) -> str:
+    if seconds is None:
+        return "—"
+    if seconds < 60:
+        return f"{seconds}s"
+    mins, secs = divmod(seconds, 60)
+    if mins < 60:
+        return f"{mins}m {secs}s" if secs else f"{mins}m"
+    hours, mins = divmod(mins, 60)
+    return f"{hours}h {mins}m" if mins else f"{hours}h"
+
+
+def _render_report(
+    bakeoff_id: int, source_task_id: int, attempts: list[dict], repo_root: str
+) -> str:
+    """Side-by-side markdown report: one column per attempt, plus pairwise diffs.
+
+    Metric rows cover everything criterion 549 enumerates (cost, tokens in/out,
+    wall + active time, request count, diff stats, review passes + verdict),
+    followed by a `### <A> vs <B>` section for every attempt pair so the user
+    can inspect how the models diverged without rerunning git themselves.
+    """
+    headers = ["Metric"] + [a["model"] for a in attempts]
+
+    def _row(label: str, values: list[str]) -> str:
+        return "| " + " | ".join([label] + values) + " |"
+
+    def _cell(a: dict, key_path: list, formatter=lambda v: str(v), default="—") -> str:
+        cur = a
+        for k in key_path:
+            cur = cur.get(k) if isinstance(cur, dict) else None
+            if cur is None:
+                return default
+        return formatter(cur)
+
+    lines: list[str] = [
+        f"# Bakeoff {bakeoff_id} — TASK-{source_task_id}",
+        "",
+        f"Source task: TASK-{source_task_id}",
+        f"Attempts: {len(attempts)}",
+        "",
+        "## Per-attempt metrics",
+        "",
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join(["---"] * len(headers)) + " |",
+        _row("Shadow task", [f"TASK-{a['shadow_id']}" for a in attempts]),
+        _row("Branch", [a["branch"] for a in attempts]),
+        _row(
+            "Agent exit",
+            [str(a.get("exit_code")) if a.get("exit_code") is not None else "—" for a in attempts],
+        ),
+        _row(
+            "Cost ($)",
+            [_cell(a, ["cost", "total"], lambda v: f"{float(v):.4f}") for a in attempts],
+        ),
+        _row("Tokens in", [_cell(a, ["tokens", "tokens_in"]) for a in attempts]),
+        _row("Tokens out", [_cell(a, ["tokens", "tokens_out"]) for a in attempts]),
+        _row("Requests", [_cell(a, ["tokens", "request_count"]) for a in attempts]),
+        _row(
+            "Wall time",
+            [_format_duration(a.get("duration", {}).get("wall_seconds")) for a in attempts],
+        ),
+        _row(
+            "Active time",
+            [_format_duration(a.get("duration", {}).get("active_seconds")) for a in attempts],
+        ),
+        _row("Sessions", [_cell(a, ["duration", "session_count"]) for a in attempts]),
+        _row("Commits", [_cell(a, ["diff", "commits"]) for a in attempts]),
+        _row("Files changed", [_cell(a, ["diff", "files_changed"]) for a in attempts]),
+        _row("Lines added", [_cell(a, ["diff", "lines_added"]) for a in attempts]),
+        _row("Lines removed", [_cell(a, ["diff", "lines_removed"]) for a in attempts]),
+        _row("Review passes", [str(a.get("review_passes", 0)) for a in attempts]),
+        _row("Verdict", [a.get("verdict") or "—" for a in attempts]),
+        "",
+        "## Pairwise diffs",
+        "",
+    ]
+    for i in range(len(attempts)):
+        for j in range(i + 1, len(attempts)):
+            a = attempts[i]
+            b = attempts[j]
+            lines.append(f"### {a['model']} vs {b['model']}")
+            lines.append("")
+            lines.append("```")
+            lines.append(_pairwise_diff_stat(repo_root, a["branch"], b["branch"]))
+            lines.append("```")
+            lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def _print_err(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
@@ -410,17 +591,17 @@ def main(argv: list[str]) -> int:
                 f"exited with code {proc.returncode}"
             )
 
-    # Aggregation + markdown report are added in the next commit (criterion 549);
-    # for now emit a minimal post-run JSON so callers can see each attempt's exit code.
-    print(dumps({
-        "bakeoff_id": bakeoff_id,
-        "source_task_id": source_task_id,
-        "attempts": [
-            {"model": a["model"], "shadow_id": a["shadow_id"],
-             "branch": a["branch"], "exit_code": a.get("exit_code")}
-            for a in attempts
-        ],
-    }), flush=True)
+    # Aggregation reads the central DB after every agent has finished writing
+    # to it, so every skill_runs / task_sessions / code_reviews row the agents
+    # produced is visible here.
+    conn = get_connection(db_path)
+    try:
+        enriched = [_collect_attempt_metrics(conn, a, repo_root) for a in attempts]
+    finally:
+        conn.close()
+
+    report = _render_report(bakeoff_id, source_task_id, enriched, repo_root)
+    print(report)
 
     return 0
 
