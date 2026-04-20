@@ -4,7 +4,7 @@
 Called by the tusk wrapper:
     tusk bakeoff <task_id> --models m1,m2[,m3...]
                  [--workspace-root <path>] [--claude-bin <path>]
-                 [--timeout <seconds>] [--dry-run]
+                 [--timeout <seconds>] [--isolation worktree|clone] [--dry-run]
     tusk bakeoff pick <bakeoff_id> <shadow_id> [--rebase]
     tusk bakeoff discard <bakeoff_id>
 
@@ -17,13 +17,18 @@ For each model the command:
   1. Clones the source task into a shadow row (bakeoff_shadow = 1) sharing a
      freshly-minted bakeoff_id across all attempts, copying every acceptance
      criterion verbatim.
-  2. Creates a git worktree on a new branch
+  2. Materializes a workspace on a new branch
      `feature/bakeoff-<bakeoff_id>-<shadow_id>-<model_slug>` branched from the
      source task's default branch (resolved via `tusk git-default-branch`).
+     With the default --isolation=worktree, this is a `git worktree add` that
+     shares the primary repo's .git; with --isolation=clone, it is a full
+     `git clone --local --no-hardlinks` so each attempt has an independent
+     .git and `git log --all` cannot see sibling attempts' branches.
   3. Spawns a background `claude -p /tusk <shadow_id> --model <model>` process
-     pinned to that worktree. Each agent is blind to the other worktrees' active
-     branches — the `--append-system-prompt` tells it to skip the `tusk branch`
-     and `tusk merge` steps so the branch stays intact for comparison.
+     pinned to that workspace. Each agent is told by the `--append-system-prompt`
+     to skip the `tusk branch` and `tusk merge` steps so the branch stays
+     intact for comparison. Clone mode enforces that blindness at the
+     filesystem level; worktree mode relies on the prompt alone.
 
 After every agent process exits, the command aggregates skill_runs + sessions
 per shadow and emits a markdown report with one column per model covering
@@ -155,16 +160,20 @@ def _clone_shadow(
     source: dict,
     bakeoff_id: int,
     model: str,
+    isolation: str = "worktree",
 ) -> int:
     """Insert a shadow row cloning summary/description/criteria from source.
 
     Shadow rows get status='To Do' so the spawned /tusk agent can start them
     normally; `bakeoff_shadow = 1` keeps them out of v_ready_tasks and the
-    default task-list. The model identifier is recorded in the description so
-    a reader paging the DB can tell which attempt is which without consulting
-    skill_runs.
+    default task-list. The model + isolation mode are recorded in the
+    description so a reader paging the DB (and pick/discard cleanup) can
+    identify the attempt without consulting skill_runs.
     """
-    suffix = f"\n\n[bakeoff {bakeoff_id} attempt · model={model} · source=TASK-{source['id']}]"
+    suffix = (
+        f"\n\n[bakeoff {bakeoff_id} attempt · model={model} · "
+        f"isolation={isolation} · source=TASK-{source['id']}]"
+    )
     conn.execute(
         "INSERT INTO tasks (summary, description, status, priority, domain, "
         "task_type, assignee, complexity, workflow, fixes_task_id, "
@@ -232,6 +241,41 @@ def _create_worktree(
         cwd=repo_root,
     )
     return result.returncode == 0, result.stderr.strip()
+
+
+def _create_clone(
+    repo_root: str,
+    clone_path: str,
+    branch: str,
+    base_branch: str,
+) -> tuple[bool, str]:
+    """`git clone --local --no-hardlinks --branch <base> <repo> <path>` + checkout.
+
+    Produces a fully independent .git so `git log --all` / `git branch -a`
+    inside the clone only see the attempt's own refs — sibling attempts are
+    unreachable at the filesystem level, not just by convention. --no-hardlinks
+    ensures no shared object storage between clones (stronger isolation than
+    the default --local, which hardlinks objects). The feature branch is
+    created at HEAD inside the clone, mirroring `git worktree add -b` semantics.
+    """
+    os.makedirs(os.path.dirname(clone_path), exist_ok=True)
+    clone_result = subprocess.run(
+        [
+            "git", "clone", "--local", "--no-hardlinks",
+            "--branch", base_branch, repo_root, clone_path,
+        ],
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    if clone_result.returncode != 0:
+        return False, clone_result.stderr.strip()
+    checkout = subprocess.run(
+        ["git", "checkout", "-b", branch],
+        capture_output=True, text=True, encoding="utf-8",
+        cwd=clone_path,
+    )
+    if checkout.returncode != 0:
+        return False, f"git checkout -b {branch}: {checkout.stderr.strip()}"
+    return True, ""
 
 
 def _spawn_agent(
@@ -936,9 +980,22 @@ def main(argv: list[str]) -> int:
         "A hung agent is killed and its attempt is recorded with exit_code=-9.",
     )
     parser.add_argument(
+        "--isolation",
+        choices=["worktree", "clone"],
+        default="worktree",
+        help=(
+            "How each attempt's workspace is materialized. 'worktree' (default) "
+            "is fast and shares the primary repo's .git; agents blindness is "
+            "enforced only by BAKEOFF_SYSTEM_PROMPT. 'clone' does a full "
+            "`git clone --local --no-hardlinks` per attempt — slower and more "
+            "disk, but agents literally cannot see sibling branches via "
+            "`git log --all` or `git branch -a`."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Skip agent dispatch; clone shadows + create worktrees, then exit.",
+        help="Skip agent dispatch; clone shadows + create workspaces, then exit.",
     )
     args = parser.parse_args(argv[2:])
 
@@ -989,10 +1046,10 @@ def main(argv: list[str]) -> int:
         bakeoff_id = _mint_bakeoff_id(conn)
         attempts: list[dict] = []
         for model in models:
-            shadow_id = _clone_shadow(conn, source, bakeoff_id, model)
+            shadow_id = _clone_shadow(conn, source, bakeoff_id, model, args.isolation)
             model_slug = _slugify_model(model)
             branch = f"feature/bakeoff-{bakeoff_id}-{shadow_id}-{model_slug}"
-            worktree_path = os.path.join(
+            workspace_path = os.path.join(
                 workspace_root, str(bakeoff_id), f"{shadow_id}-{model_slug}"
             )
             attempts.append({
@@ -1000,38 +1057,52 @@ def main(argv: list[str]) -> int:
                 "model_slug": model_slug,
                 "shadow_id": shadow_id,
                 "branch": branch,
-                "worktree": worktree_path,
+                # `worktree` kept as the attempt dict key for backwards-compat
+                # with existing report/test paths; holds the workspace path
+                # regardless of isolation mode (worktree dir or clone dir).
+                "worktree": workspace_path,
+                "isolation": args.isolation,
             })
-        # Hold the transaction open until worktrees succeed so a failure
-        # mid-setup can roll back the shadow rows along with the worktrees.
+        # Hold the transaction open until workspaces succeed so a failure
+        # mid-setup can roll back the shadow rows along with the directories.
 
         default_branch = _detect_default_branch(repo_root)
         created: list[dict] = []
         for attempt in attempts:
-            ok, err = _create_worktree(
-                repo_root, attempt["worktree"], attempt["branch"], default_branch
-            )
+            if attempt["isolation"] == "clone":
+                ok, err = _create_clone(
+                    repo_root, attempt["worktree"], attempt["branch"], default_branch
+                )
+            else:
+                ok, err = _create_worktree(
+                    repo_root, attempt["worktree"], attempt["branch"], default_branch
+                )
             if not ok:
-                # Tear down worktrees we already created for this bakeoff,
-                # their branches, and then the DB rows — so a caller retrying
-                # after a fix gets a fresh bakeoff_id instead of stepping over
-                # half-built state.
+                # Tear down workspaces we already created for this bakeoff,
+                # their branches (worktree mode only — clone branches live in
+                # the clone's own .git and vanish with the rmtree), and then
+                # the DB rows — so a caller retrying after a fix gets a fresh
+                # bakeoff_id instead of stepping over half-built state.
                 for done in created:
-                    subprocess.run(
-                        ["git", "worktree", "remove", "--force", done["worktree"]],
-                        capture_output=True,
-                        cwd=repo_root,
-                    )
-                    subprocess.run(
-                        ["git", "branch", "-D", done["branch"]],
-                        capture_output=True,
-                        cwd=repo_root,
-                    )
+                    if done["isolation"] == "clone":
+                        if os.path.isdir(done["worktree"]):
+                            shutil.rmtree(done["worktree"], ignore_errors=True)
+                    else:
+                        subprocess.run(
+                            ["git", "worktree", "remove", "--force", done["worktree"]],
+                            capture_output=True,
+                            cwd=repo_root,
+                        )
+                        subprocess.run(
+                            ["git", "branch", "-D", done["branch"]],
+                            capture_output=True,
+                            cwd=repo_root,
+                        )
                 conn.rollback()
                 _print_err(
-                    f"Error: worktree creation failed for {attempt['model']} "
-                    f"(branch {attempt['branch']}): {err}. "
-                    f"Rolled back {len(created)} earlier worktree(s) and {len(attempts)} shadow row(s)."
+                    f"Error: {attempt['isolation']} creation failed for "
+                    f"{attempt['model']} (branch {attempt['branch']}): {err}. "
+                    f"Rolled back {len(created)} earlier workspace(s) and {len(attempts)} shadow row(s)."
                 )
                 return 2
             created.append(attempt)
@@ -1045,8 +1116,9 @@ def main(argv: list[str]) -> int:
     _print_err(dumps({
         "bakeoff_id": bakeoff_id,
         "source_task_id": source_task_id,
+        "isolation": args.isolation,
         "attempts": [
-            {k: v for k, v in a.items() if k in {"model", "shadow_id", "branch", "worktree"}}
+            {k: v for k, v in a.items() if k in {"model", "shadow_id", "branch", "worktree", "isolation"}}
             for a in attempts
         ],
     }))
