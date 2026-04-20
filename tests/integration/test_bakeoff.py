@@ -852,6 +852,10 @@ class TestDeleteShadowRowsChildCleanup:
             assert scalar(
                 "SELECT COUNT(*) FROM code_reviews WHERE task_id = ?",
                 source_id,
-            ) == 1, "source-task code_review must remain (deferred_task_id was nulled via row delete, not review delete)"
+            ) == 1, (
+                "source-task code_review must remain — only the "
+                "review_comments row back-referencing the shadow is deleted, "
+                "the unrelated parent review stays put"
+            )
         finally:
             conn.close()
