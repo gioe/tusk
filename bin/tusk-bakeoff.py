@@ -275,35 +275,18 @@ def _fetch_review_verdict(conn: sqlite3.Connection, task_id: int) -> str | None:
     return row["status"] if row else None
 
 
-def _fetch_token_totals(conn: sqlite3.Connection, task_id: int) -> dict:
-    """Sum tokens_in, tokens_out, request_count across skill_runs for the task."""
-    row = conn.execute(
-        "SELECT COALESCE(SUM(tokens_in), 0) AS tin, "
-        "       COALESCE(SUM(tokens_out), 0) AS tout, "
-        "       COALESCE(SUM(request_count), 0) AS req "
-        "FROM skill_runs WHERE task_id = ?",
-        (task_id,),
-    ).fetchone()
-    return {
-        "tokens_in": int(row["tin"] or 0),
-        "tokens_out": int(row["tout"] or 0),
-        "request_count": int(row["req"] or 0),
-    }
-
-
 def _collect_attempt_metrics(
     conn: sqlite3.Connection,
     attempt: dict,
     repo_root: str,
 ) -> dict:
-    """Per-shadow aggregation reusing tusk-task-summary's cost/duration/diff helpers.
+    """Per-shadow aggregation reusing tusk-task-summary's cost/duration/diff/tokens helpers.
 
     Diff stats come from `git log --grep=[TASK-<shadow>]` across --all refs, so
     the attempt branch's commits remain in scope even if its worktree is later
     removed (the branch itself persists until manually deleted).
     """
     summary = _task_summary.build_summary(conn, attempt["shadow_id"], repo_root) or {}
-    tokens = _fetch_token_totals(conn, attempt["shadow_id"])
     verdict = _fetch_review_verdict(conn, attempt["shadow_id"])
     return {
         **attempt,
@@ -311,7 +294,7 @@ def _collect_attempt_metrics(
         "duration": summary.get("duration", {}),
         "diff": summary.get("diff", {}),
         "criteria": summary.get("criteria", {}),
-        "tokens": tokens,
+        "tokens": summary.get("tokens", {"tokens_in": 0, "tokens_out": 0, "request_count": 0}),
         "review_passes": summary.get("review_passes", 0),
         "verdict": verdict,
     }

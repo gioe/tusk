@@ -21,6 +21,7 @@ Output shape (JSON, default):
         "status": "Done",
         "closed_reason": "completed" | "wont_do" | "duplicate" | "expired" | null,
         "cost": {"total": 0.1234, "skill_run_count": N},
+        "tokens": {"tokens_in": N, "tokens_out": N, "request_count": N},
         "duration": {
             "wall_seconds": N | null,
             "active_seconds": N,
@@ -109,6 +110,22 @@ def fetch_cost(conn: sqlite3.Connection, task_id: int) -> dict:
     return {
         "total": round(float(row["total"] or 0.0), 4),
         "skill_run_count": int(row["cnt"] or 0),
+    }
+
+
+def fetch_tokens(conn: sqlite3.Connection, task_id: int) -> dict:
+    """Sum tokens_in, tokens_out, request_count across skill_runs for the task."""
+    row = conn.execute(
+        "SELECT COALESCE(SUM(tokens_in), 0) AS tin, "
+        "       COALESCE(SUM(tokens_out), 0) AS tout, "
+        "       COALESCE(SUM(request_count), 0) AS req "
+        "FROM skill_runs WHERE task_id = ?",
+        (task_id,),
+    ).fetchone()
+    return {
+        "tokens_in": int(row["tin"] or 0),
+        "tokens_out": int(row["tout"] or 0),
+        "request_count": int(row["req"] or 0),
     }
 
 
@@ -265,6 +282,7 @@ def build_summary(conn: sqlite3.Connection, task_id: int, repo_root: str) -> dic
         "status": identity["status"],
         "closed_reason": identity["closed_reason"],
         "cost": fetch_cost(conn, task_id),
+        "tokens": fetch_tokens(conn, task_id),
         "duration": fetch_duration(conn, task_id, identity),
         "diff": fetch_diff(task_id, repo_root, since=identity["started_at"]),
         "criteria": fetch_criteria(conn, task_id),

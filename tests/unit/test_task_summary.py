@@ -74,7 +74,10 @@ CREATE TABLE skill_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     skill_name TEXT NOT NULL,
     task_id INTEGER,
-    cost_dollars REAL
+    cost_dollars REAL,
+    tokens_in INTEGER,
+    tokens_out INTEGER,
+    request_count INTEGER
 );
 """
 
@@ -197,6 +200,40 @@ class TestOneSessionTask:
 
 
 # ── multi-session task ────────────────────────────────────────────────
+
+
+class TestTokens:
+    """build_summary returns a 'tokens' key aggregated across skill_runs."""
+
+    def test_tokens_sum_across_skill_runs(self, tmp_path):
+        db_path, conn = _make_db(tmp_path)
+        _insert_task(conn, task_id=30)
+        conn.executemany(
+            "INSERT INTO skill_runs (skill_name, task_id, cost_dollars, "
+            "tokens_in, tokens_out, request_count) VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                ("tusk", 30, 0.1, 1000, 500, 10),
+                ("retro", 30, 0.05, 200, 100, 3),
+            ],
+        )
+        conn.commit()
+        data = mod.build_summary(conn, 30, str(tmp_path))
+        assert data["tokens"] == {
+            "tokens_in": 1200,
+            "tokens_out": 600,
+            "request_count": 13,
+        }
+
+    def test_tokens_zero_when_no_skill_runs(self, tmp_path):
+        db_path, conn = _make_db(tmp_path)
+        _insert_task(conn, task_id=31)
+        conn.commit()
+        data = mod.build_summary(conn, 31, str(tmp_path))
+        assert data["tokens"] == {
+            "tokens_in": 0,
+            "tokens_out": 0,
+            "request_count": 0,
+        }
 
 
 class TestMultiSessionTask:
