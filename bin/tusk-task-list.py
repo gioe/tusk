@@ -85,7 +85,7 @@ def main(argv: list[str]) -> int:
         print("  --all       Include Done tasks (default: only non-Done tasks); ignored when --status is also set")
         return 0
 
-    conditions: list[str] = []
+    conditions: list[str] = ["bakeoff_shadow = 0"]
     params: list = []
 
     if not args.all_tasks and args.status is None:
