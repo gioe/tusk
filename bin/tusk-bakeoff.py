@@ -548,8 +548,64 @@ def _open_shadow_sessions(
 
 
 def _delete_shadow_rows(conn: sqlite3.Connection, shadow_ids: list[int]) -> None:
-    """Delete acceptance_criteria + tasks rows for the given shadow ids."""
+    """Hard-delete a shadow task plus every child row that references it.
+
+    PRAGMA foreign_keys is a per-connection pragma (OFF by default), so other
+    readers of the tusk DB cannot rely on ON DELETE CASCADE firing on the
+    shadow's children. Sweep the full child set explicitly: task_sessions,
+    task_progress, skill_runs, code_reviews, review_comments (both the
+    review_id path and the deferred_task_id back-reference), tool_call_stats,
+    and tool_call_events — routed through pivot ids (session/skill_run/review)
+    so rows linked only via those intermediates are cleaned too.
+    """
     for sid in shadow_ids:
+        session_ids = [
+            r[0] for r in conn.execute(
+                "SELECT id FROM task_sessions WHERE task_id = ?", (sid,)
+            ).fetchall()
+        ]
+        skill_run_ids = [
+            r[0] for r in conn.execute(
+                "SELECT id FROM skill_runs WHERE task_id = ?", (sid,)
+            ).fetchall()
+        ]
+        review_ids = [
+            r[0] for r in conn.execute(
+                "SELECT id FROM code_reviews WHERE task_id = ?", (sid,)
+            ).fetchall()
+        ]
+
+        conn.execute("DELETE FROM tool_call_events WHERE task_id = ?", (sid,))
+        conn.execute("DELETE FROM tool_call_stats  WHERE task_id = ?", (sid,))
+        for tsid in session_ids:
+            conn.execute(
+                "DELETE FROM tool_call_events WHERE session_id = ?", (tsid,)
+            )
+            conn.execute(
+                "DELETE FROM tool_call_stats  WHERE session_id = ?", (tsid,)
+            )
+        for srid in skill_run_ids:
+            conn.execute(
+                "DELETE FROM tool_call_events WHERE skill_run_id = ?", (srid,)
+            )
+            conn.execute(
+                "DELETE FROM tool_call_stats  WHERE skill_run_id = ?", (srid,)
+            )
+
+        for rvid in review_ids:
+            conn.execute(
+                "DELETE FROM review_comments WHERE review_id = ?", (rvid,)
+            )
+        # review_comments.deferred_task_id has no ON DELETE clause — the FK
+        # would otherwise block the parent DELETE under foreign_keys=ON.
+        conn.execute(
+            "DELETE FROM review_comments WHERE deferred_task_id = ?", (sid,)
+        )
+        conn.execute("DELETE FROM code_reviews WHERE task_id = ?", (sid,))
+
+        conn.execute("DELETE FROM skill_runs WHERE task_id = ?", (sid,))
+        conn.execute("DELETE FROM task_sessions WHERE task_id = ?", (sid,))
+        conn.execute("DELETE FROM task_progress WHERE task_id = ?", (sid,))
         conn.execute("DELETE FROM acceptance_criteria WHERE task_id = ?", (sid,))
         conn.execute("DELETE FROM tasks WHERE id = ?", (sid,))
 
