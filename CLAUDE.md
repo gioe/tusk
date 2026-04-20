@@ -20,7 +20,7 @@ bin/tusk validate
 
 # Task lifecycle
 bin/tusk task-get <task_id>        # accepts integer ID or TASK-NNN prefix form
-bin/tusk task-list [--status <s>] [--domain <d>] [--assignee <a>] [--workflow <w>] [--format text|json] [--all]  # list tasks (not the built-in TaskList tool)
+bin/tusk task-list [--status <s>] [--domain <d>] [--assignee <a>] [--workflow <w>] [--format text|json] [--all] [--include-shadows] [--bakeoff <id>]  # list tasks (not the built-in TaskList tool); bakeoff shadows are hidden by default
 bin/tusk task-select [--max-complexity XS|S|M|L|XL]
 bin/tusk task-insert "<summary>" "<description>" [--priority P] [--domain D] [--task-type T] [--assignee A] [--complexity C] [--workflow W] [--criteria "..." ...] [--typed-criteria '{"text":"...","type":"...","spec":"..."}' ...] [--deferred] [--expires-in DAYS] [--fixes-task-id ID]
 bin/tusk task-start [<task_id>] [--force] [--agent NAME] [--skill NAME]   # --skill opens a skill_runs row attributed to the task (returned under result.skill_run)
@@ -38,6 +38,7 @@ bin/tusk commit <task_id> "<file1>" ["<file2>" ...] -m "<message>" [--criteria <
 # Note: always quote file paths — zsh expands unquoted [brackets] as glob patterns before tusk receives them
 bin/tusk merge <task_id> [--session <session_id>] [--pr --pr-number <N>]
 bin/tusk progress <task_id> [--next-steps "..."]
+bin/tusk bakeoff <task_id> --models m1,m2[,mN] [--workspace-root <path>] [--claude-bin <path>] [--dry-run]  # run the same task under N models in parallel worktrees and emit a side-by-side report
 
 # Criteria
 bin/tusk criteria add <task_id> "criterion" [--source original|subsumption|pr_review] [--type manual|code|test|file] [--spec "..."]
