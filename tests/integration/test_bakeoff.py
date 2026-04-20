@@ -115,7 +115,7 @@ class TestBakeoffTwoModelEndToEnd:
 
         def fake_create_worktree(repo_root, worktree_path, branch, base_branch):
             created_worktrees.append({
-                "worktree": worktree_path,
+                "workspace": worktree_path,
                 "branch": branch,
                 "base": base_branch,
             })
@@ -133,12 +133,12 @@ class TestBakeoffTwoModelEndToEnd:
             def communicate(self):
                 return (f"agent for {self._model} finished\n".encode(), b"")
 
-        def fake_spawn(claude_bin, shadow_id, model, worktree_path, repo_root):
+        def fake_spawn(claude_bin, shadow_id, model, workspace_path, repo_root):
             spawned.append({
                 "claude_bin": claude_bin,
                 "shadow_id": shadow_id,
                 "model": model,
-                "worktree": worktree_path,
+                "workspace": workspace_path,
                 "repo_root": repo_root,
             })
             return _FakeProc(model, shadow_id)
@@ -321,7 +321,7 @@ class TestBakeoffAgentTimeout:
 
         spawns = []
 
-        def fake_spawn(claude_bin, shadow_id, model, worktree_path, repo_root):
+        def fake_spawn(claude_bin, shadow_id, model, workspace_path, repo_root):
             spawns.append(shadow_id)
             return _HangingProc(shadow_id)
 
@@ -435,7 +435,7 @@ class TestBakeoffIsolationClone:
 
         def fake_worktree(repo_root, worktree_path, branch, base_branch):
             worktree_calls.append({
-                "worktree": worktree_path, "branch": branch, "base": base_branch,
+                "workspace": worktree_path, "branch": branch, "base": base_branch,
             })
             os.makedirs(worktree_path, exist_ok=True)
             return True, ""

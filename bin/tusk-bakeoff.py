@@ -286,7 +286,7 @@ def _spawn_agent(
     claude_bin: str,
     shadow_id: int,
     model: str,
-    worktree_path: str,
+    workspace_path: str,
     repo_root: str,
 ) -> subprocess.Popen:
     """Start the Claude agent for one shadow. Does not wait."""
@@ -306,7 +306,7 @@ def _spawn_agent(
     ]
     return subprocess.Popen(
         args,
-        cwd=worktree_path,
+        cwd=workspace_path,
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
