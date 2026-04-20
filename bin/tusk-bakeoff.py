@@ -249,19 +249,23 @@ def _create_clone(
     branch: str,
     base_branch: str,
 ) -> tuple[bool, str]:
-    """`git clone --local --no-hardlinks --branch <base> <repo> <path>` + checkout.
+    """`git clone --local --no-hardlinks --single-branch --branch <base>` + checkout.
 
     Produces a fully independent .git so `git log --all` / `git branch -a`
     inside the clone only see the attempt's own refs — sibling attempts are
     unreachable at the filesystem level, not just by convention. --no-hardlinks
     ensures no shared object storage between clones (stronger isolation than
-    the default --local, which hardlinks objects). The feature branch is
-    created at HEAD inside the clone, mirroring `git worktree add -b` semantics.
+    the default --local, which hardlinks objects). --single-branch restricts
+    the initial fetch to `base_branch` only — without it `git clone --branch`
+    still pulls every ref from the source repo, so stale bakeoff branches
+    from earlier runs would leak into the clone as origin/feature/bakeoff-*
+    and become visible to `git log --all`. The feature branch is created at
+    HEAD inside the clone, mirroring `git worktree add -b` semantics.
     """
     os.makedirs(os.path.dirname(clone_path), exist_ok=True)
     clone_result = subprocess.run(
         [
-            "git", "clone", "--local", "--no-hardlinks",
+            "git", "clone", "--local", "--no-hardlinks", "--single-branch",
             "--branch", base_branch, repo_root, clone_path,
         ],
         capture_output=True, text=True, encoding="utf-8",

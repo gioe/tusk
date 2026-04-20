@@ -443,8 +443,6 @@ class TestBakeoffIsolationClone:
         monkeypatch.setattr(tusk_bakeoff, "_create_clone", fake_clone)
         monkeypatch.setattr(tusk_bakeoff, "_create_worktree", fake_worktree)
 
-        real_run = tusk_bakeoff.subprocess.run
-
         def fake_run(args, **kwargs):
             # Record `git fetch <clone_path> <branch>:<branch>` calls; stub
             # everything else (git pull/push etc.) as a no-op success.
