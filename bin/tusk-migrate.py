@@ -1970,6 +1970,131 @@ def migrate_57(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 57: added retro_findings table")
 
 
+def migrate_58(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add bakeoff columns to tasks and filter shadows out of downstream views.
+
+    Prereq schema for the tusk bakeoff workflow (TASK-123+). Adds two columns
+    on tasks:
+
+    * bakeoff_id INTEGER NULL — shared id grouping a set of shadow attempts
+    * bakeoff_shadow INTEGER NOT NULL DEFAULT 0 CHECK (IN (0, 1)) — 1 = shadow
+      row cloned for a model comparison, excluded from every normal listing
+
+    Recreates every view that references tasks (task_metrics, v_ready_tasks,
+    v_chain_heads, v_blocked_tasks, v_criteria_coverage) with the shadow
+    filter applied. Per CLAUDE.md's tasks-column migration rule, views that
+    SELECT t.* freeze their column list at CREATE time so ALTER TABLE ADD
+    COLUMN does not propagate; bodies mirror cmd_init verbatim.
+
+    Idempotent: column adds guarded by has_column(); DROP VIEW IF EXISTS +
+    CREATE VIEW reconstructs each view from scratch regardless of prior state.
+    """
+    if get_version(db_path) >= 58:
+        _progress("  Migration 58: added bakeoff columns and recreated tasks-dependent views")
+        return
+
+    if not has_column(db_path, "tasks", "bakeoff_id"):
+        run_script(db_path, "ALTER TABLE tasks ADD COLUMN bakeoff_id INTEGER;")
+    if not has_column(db_path, "tasks", "bakeoff_shadow"):
+        run_script(
+            db_path,
+            "ALTER TABLE tasks ADD COLUMN bakeoff_shadow INTEGER NOT NULL "
+            "DEFAULT 0 CHECK (bakeoff_shadow IN (0, 1));",
+        )
+
+    script = """
+        DROP VIEW IF EXISTS task_metrics;
+        CREATE VIEW task_metrics AS
+        SELECT t.*,
+            COUNT(s.id) as session_count,
+            SUM(s.duration_seconds) as total_duration_seconds,
+            SUM(s.cost_dollars) as total_cost,
+            SUM(s.tokens_in) as total_tokens_in,
+            SUM(s.tokens_out) as total_tokens_out,
+            SUM(s.lines_added) as total_lines_added,
+            SUM(s.lines_removed) as total_lines_removed,
+            SUM(s.request_count) as total_request_count,
+            (SELECT COUNT(*) FROM task_status_transitions tst
+              WHERE tst.task_id = t.id AND tst.to_status = 'To Do') as reopen_count
+        FROM tasks t
+        LEFT JOIN task_sessions s ON t.id = s.task_id
+        WHERE t.bakeoff_shadow = 0
+        GROUP BY t.id;
+
+        DROP VIEW IF EXISTS v_ready_tasks;
+        CREATE VIEW v_ready_tasks AS
+        SELECT t.*
+        FROM tasks t
+        WHERE t.status = 'To Do'
+          AND t.bakeoff_shadow = 0
+          AND NOT EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks blocker ON d.depends_on_id = blocker.id
+            WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM external_blockers eb
+            WHERE eb.task_id = t.id AND eb.is_resolved = 0
+          );
+
+        DROP VIEW IF EXISTS v_chain_heads;
+        CREATE VIEW v_chain_heads AS
+        SELECT t.*
+        FROM tasks t
+        WHERE t.status <> 'Done'
+          AND t.bakeoff_shadow = 0
+          AND EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks downstream ON d.task_id = downstream.id
+            WHERE d.depends_on_id = t.id AND downstream.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks blocker ON d.depends_on_id = blocker.id
+            WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM external_blockers eb
+            WHERE eb.task_id = t.id AND eb.is_resolved = 0
+          );
+
+        DROP VIEW IF EXISTS v_blocked_tasks;
+        CREATE VIEW v_blocked_tasks AS
+        SELECT t.id, t.summary, t.status, t.priority, t.domain, t.assignee,
+               'dependency' AS block_reason,
+               blocker.id AS blocking_id,
+               blocker.summary AS blocking_summary
+        FROM tasks t
+        JOIN task_dependencies d ON d.task_id = t.id
+        JOIN tasks blocker ON d.depends_on_id = blocker.id
+        WHERE t.status <> 'Done' AND t.bakeoff_shadow = 0 AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+        UNION ALL
+        SELECT t.id, t.summary, t.status, t.priority, t.domain, t.assignee,
+               'external_blocker' AS block_reason,
+               eb.id AS blocking_id,
+               eb.description AS blocking_summary
+        FROM tasks t
+        JOIN external_blockers eb ON eb.task_id = t.id
+        WHERE t.status <> 'Done' AND t.bakeoff_shadow = 0 AND eb.is_resolved = 0;
+
+        DROP VIEW IF EXISTS v_criteria_coverage;
+        CREATE VIEW v_criteria_coverage AS
+        SELECT t.id AS task_id,
+               t.summary,
+               COUNT(CASE WHEN ac.is_deferred = 0 OR ac.is_deferred IS NULL THEN 1 END) AS total_criteria,
+               COALESCE(SUM(CASE WHEN ac.is_completed = 1 AND (ac.is_deferred = 0 OR ac.is_deferred IS NULL) THEN 1 ELSE 0 END), 0) AS completed_criteria,
+               COUNT(CASE WHEN ac.is_deferred = 0 OR ac.is_deferred IS NULL THEN 1 END) - COALESCE(SUM(CASE WHEN ac.is_completed = 1 AND (ac.is_deferred = 0 OR ac.is_deferred IS NULL) THEN 1 ELSE 0 END), 0) AS remaining_criteria
+        FROM tasks t
+        LEFT JOIN acceptance_criteria ac ON ac.task_id = t.id
+        WHERE t.bakeoff_shadow = 0
+        GROUP BY t.id, t.summary;
+
+        PRAGMA user_version = 58;
+    """
+    run_script(db_path, script)
+    _progress("  Migration 58: added bakeoff columns and recreated tasks-dependent views")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -2030,6 +2155,7 @@ MIGRATIONS = [
     (55, migrate_55),
     (56, migrate_56),
     (57, migrate_57),
+    (58, migrate_58),
 ]
 
 
