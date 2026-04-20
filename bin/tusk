@@ -410,7 +410,9 @@ CREATE TABLE tasks (
     updated_at TEXT DEFAULT (datetime('now')),
     started_at TEXT,
     closed_at TEXT,
-    fixes_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL
+    fixes_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+    bakeoff_id INTEGER,
+    bakeoff_shadow INTEGER NOT NULL DEFAULT 0 CHECK (bakeoff_shadow IN (0, 1))
 );
 
 -- task_dependencies
@@ -505,6 +507,7 @@ SELECT t.*,
       WHERE tst.task_id = t.id AND tst.to_status = 'To Do') as reopen_count
 FROM tasks t
 LEFT JOIN task_sessions s ON t.id = s.task_id
+WHERE t.bakeoff_shadow = 0
 GROUP BY t.id;
 
 -- v_ready_tasks view: canonical ready-to-work definition
@@ -512,6 +515,7 @@ CREATE VIEW v_ready_tasks AS
 SELECT t.*
 FROM tasks t
 WHERE t.status = 'To Do'
+  AND t.bakeoff_shadow = 0
   AND NOT EXISTS (
     SELECT 1 FROM task_dependencies d
     JOIN tasks blocker ON d.depends_on_id = blocker.id
@@ -527,6 +531,7 @@ CREATE VIEW v_chain_heads AS
 SELECT t.*
 FROM tasks t
 WHERE t.status <> 'Done'
+  AND t.bakeoff_shadow = 0
   AND EXISTS (
     SELECT 1 FROM task_dependencies d
     JOIN tasks downstream ON d.task_id = downstream.id
@@ -551,7 +556,7 @@ SELECT t.id, t.summary, t.status, t.priority, t.domain, t.assignee,
 FROM tasks t
 JOIN task_dependencies d ON d.task_id = t.id
 JOIN tasks blocker ON d.depends_on_id = blocker.id
-WHERE t.status <> 'Done' AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+WHERE t.status <> 'Done' AND t.bakeoff_shadow = 0 AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
 UNION ALL
 SELECT t.id, t.summary, t.status, t.priority, t.domain, t.assignee,
        'external_blocker' AS block_reason,
@@ -559,7 +564,7 @@ SELECT t.id, t.summary, t.status, t.priority, t.domain, t.assignee,
        eb.description AS blocking_summary
 FROM tasks t
 JOIN external_blockers eb ON eb.task_id = t.id
-WHERE t.status <> 'Done' AND eb.is_resolved = 0;
+WHERE t.status <> 'Done' AND t.bakeoff_shadow = 0 AND eb.is_resolved = 0;
 
 -- v_criteria_coverage view: per-task total vs completed criteria count (excludes deferred criteria)
 CREATE VIEW v_criteria_coverage AS
@@ -570,6 +575,7 @@ SELECT t.id AS task_id,
        COUNT(CASE WHEN ac.is_deferred = 0 OR ac.is_deferred IS NULL THEN 1 END) - COALESCE(SUM(CASE WHEN ac.is_completed = 1 AND (ac.is_deferred = 0 OR ac.is_deferred IS NULL) THEN 1 ELSE 0 END), 0) AS remaining_criteria
 FROM tasks t
 LEFT JOIN acceptance_criteria ac ON ac.task_id = t.id
+WHERE t.bakeoff_shadow = 0
 GROUP BY t.id, t.summary;
 
 -- v_velocity view: completed tasks grouped by calendar week (Mon-start, %Y-W%W) with throughput and cost metrics
@@ -824,7 +830,7 @@ PILLARS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 57;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 58;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."
