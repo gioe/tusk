@@ -407,3 +407,287 @@ class TestTaskListShadowFilters:
         assert s1 in ids
         assert s2 not in ids
         assert real_id not in ids
+
+
+# ---------------------------------------------------------------------------
+# pick / discard cleanup subcommands (TASK-124)
+# ---------------------------------------------------------------------------
+
+
+def _seed_bakeoff(
+    db_path: str, models: tuple[str, ...] = ("stub-a", "stub-b")
+) -> tuple[int, int, list[int]]:
+    """Insert a source task + N shadow rows sharing a bakeoff_id.
+
+    Returns (source_id, bakeoff_id, [shadow_ids]). Shadow descriptions include
+    the `source=TASK-<src>` suffix that cmd_pick parses to locate the source.
+    """
+    conn = sqlite3.connect(str(db_path))
+    try:
+        cur = conn.execute(
+            "INSERT INTO tasks (summary, description, status, task_type, priority, "
+            "complexity, priority_score) "
+            "VALUES ('source task', 'bakeoff source description', 'In Progress', "
+            "'feature', 'Medium', 'S', 50)"
+        )
+        source_id = cur.lastrowid
+
+        max_row = conn.execute(
+            "SELECT COALESCE(MAX(bakeoff_id), 0) FROM tasks"
+        ).fetchone()[0]
+        bakeoff_id = int(max_row or 0) + 1
+
+        shadow_ids = []
+        for model in models:
+            suffix = f"\n\n[bakeoff {bakeoff_id} attempt · model={model} · source=TASK-{source_id}]"
+            cur = conn.execute(
+                "INSERT INTO tasks (summary, description, status, priority, "
+                "domain, task_type, complexity, bakeoff_id, bakeoff_shadow, "
+                "priority_score) "
+                "VALUES (?, ?, 'To Do', 'Medium', NULL, 'feature', 'S', ?, 1, 50)",
+                ("source task", "bakeoff source description" + suffix, bakeoff_id),
+            )
+            shadow_ids.append(cur.lastrowid)
+
+        for sid in shadow_ids:
+            conn.execute(
+                "INSERT INTO acceptance_criteria (task_id, criterion, source) "
+                "VALUES (?, 'criterion A', 'original')",
+                (sid,),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    return source_id, bakeoff_id, shadow_ids
+
+
+def _open_session(db_path: str, task_id: int) -> int:
+    """Open a task_sessions row (ended_at IS NULL) on the given task."""
+    conn = sqlite3.connect(str(db_path))
+    try:
+        cur = conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at) "
+            "VALUES (?, datetime('now'))",
+            (task_id,),
+        )
+        sid = cur.lastrowid
+        conn.commit()
+    finally:
+        conn.close()
+    return sid
+
+
+class TestBakeoffPickDiscardErrors:
+    """Criteria 555 + 556: unknown bakeoff_id and open shadow sessions both refuse."""
+
+    def test_pick_rejects_unknown_bakeoff_id(self, db_path, config_path):
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf), redirect_stdout(io.StringIO()):
+            exit_code = tusk_bakeoff.main(
+                [str(db_path), str(config_path), "pick", "9999", "1"]
+            )
+        assert exit_code == 1
+        assert "bakeoff 9999 unknown" in stderr_buf.getvalue()
+
+    def test_discard_rejects_unknown_bakeoff_id(self, db_path, config_path):
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf), redirect_stdout(io.StringIO()):
+            exit_code = tusk_bakeoff.main(
+                [str(db_path), str(config_path), "discard", "9999"]
+            )
+        assert exit_code == 1
+        assert "bakeoff 9999 unknown" in stderr_buf.getvalue()
+
+    def test_pick_rejects_shadow_not_in_bakeoff(self, db_path, config_path):
+        _, bakeoff_id, shadow_ids = _seed_bakeoff(db_path)
+        foreign_shadow = max(shadow_ids) + 100
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf), redirect_stdout(io.StringIO()):
+            exit_code = tusk_bakeoff.main([
+                str(db_path), str(config_path),
+                "pick", str(bakeoff_id), str(foreign_shadow),
+            ])
+        assert exit_code == 1
+        assert f"TASK-{foreign_shadow} is not a shadow" in stderr_buf.getvalue()
+
+    def test_pick_refuses_when_shadow_session_open(self, db_path, config_path):
+        _, bakeoff_id, shadow_ids = _seed_bakeoff(db_path)
+        _open_session(db_path, shadow_ids[0])
+
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf), redirect_stdout(io.StringIO()):
+            exit_code = tusk_bakeoff.main([
+                str(db_path), str(config_path),
+                "pick", str(bakeoff_id), str(shadow_ids[1]),
+            ])
+        assert exit_code == 1
+        stderr = stderr_buf.getvalue()
+        assert "open session" in stderr
+        assert str(shadow_ids[0]) in stderr
+
+    def test_discard_refuses_when_shadow_session_open(self, db_path, config_path):
+        _, bakeoff_id, shadow_ids = _seed_bakeoff(db_path)
+        _open_session(db_path, shadow_ids[1])
+
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf), redirect_stdout(io.StringIO()):
+            exit_code = tusk_bakeoff.main([
+                str(db_path), str(config_path),
+                "discard", str(bakeoff_id),
+            ])
+        assert exit_code == 1
+        stderr = stderr_buf.getvalue()
+        assert "open session" in stderr
+        assert str(shadow_ids[1]) in stderr
+
+
+class TestBakeoffPick:
+    """Criteria 552 + 553: pick merges chosen branch, closes source, prunes siblings."""
+
+    def _install_stubs(self, monkeypatch, bakeoff_id: int, shadow_ids: list[int]):
+        """Stub every git / tusk-bin subprocess call bakeoff pick/discard makes.
+
+        Records subprocess.run invocations so the test can assert that
+        session-close and task-done were issued against the right IDs and
+        that each shadow branch got a worktree-remove + branch-D teardown.
+        """
+        monkeypatch.setattr(tusk_bakeoff, "_detect_default_branch", lambda rr: "main")
+
+        fake_branches = [
+            f"feature/bakeoff-{bakeoff_id}-{sid}-stub" for sid in shadow_ids
+        ]
+
+        def _fake_find(repo_root, bid, sid=None):
+            assert bid == bakeoff_id
+            if sid is None:
+                return list(fake_branches)
+            return [b for b in fake_branches if f"-{sid}-" in b]
+
+        monkeypatch.setattr(tusk_bakeoff, "_find_bakeoff_branches", _fake_find)
+        monkeypatch.setattr(
+            tusk_bakeoff, "_resolve_worktree_for_branch", lambda rr, br: None
+        )
+        monkeypatch.setattr(
+            tusk_bakeoff, "_merge_shadow_branch", lambda rr, br: (True, "")
+        )
+
+        calls: list[list] = []
+
+        def _fake_run(args, **kwargs):
+            calls.append(list(args))
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(tusk_bakeoff.subprocess, "run", _fake_run)
+        return calls
+
+    def test_pick_happy_path(self, db_path, config_path, monkeypatch):
+        source_id, bakeoff_id, shadow_ids = _seed_bakeoff(db_path)
+        source_session_id = _open_session(db_path, source_id)
+        chosen = shadow_ids[0]
+        other = shadow_ids[1]
+
+        calls = self._install_stubs(monkeypatch, bakeoff_id, shadow_ids)
+
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+            exit_code = tusk_bakeoff.main([
+                str(db_path), str(config_path),
+                "pick", str(bakeoff_id), str(chosen),
+            ])
+
+        assert exit_code == 0, f"stderr:\n{stderr_buf.getvalue()}"
+
+        # Source session closed + source task-done issued via tusk-bin subprocess.
+        flat = [" ".join(str(a) for a in c) for c in calls]
+        assert any(
+            f"session-close {source_session_id}" in c for c in flat
+        ), f"Expected session-close call, got:\n{flat}"
+        assert any(
+            f"task-done {source_id} --reason completed" in c for c in flat
+        ), f"Expected task-done call, got:\n{flat}"
+
+        # All bakeoff branches torn down (-D issued once per shadow branch).
+        branch_dels = [c for c in calls if c[:3] == ["git", "branch", "-D"]]
+        assert len(branch_dels) == len(shadow_ids), (
+            f"Expected {len(shadow_ids)} branch deletions, got {branch_dels}"
+        )
+
+        # Sibling shadow row deleted; chosen shadow row remains as audit trail.
+        conn = sqlite3.connect(str(db_path))
+        try:
+            remaining = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT id FROM tasks WHERE bakeoff_id = ?", (bakeoff_id,)
+                ).fetchall()
+            }
+        finally:
+            conn.close()
+        assert chosen in remaining
+        assert other not in remaining, "Sibling shadow should have been deleted"
+
+
+class TestBakeoffDiscard:
+    """Criterion 554: discard deletes all shadow rows + worktrees, source untouched."""
+
+    def test_discard_happy_path(self, db_path, config_path, monkeypatch):
+        source_id, bakeoff_id, shadow_ids = _seed_bakeoff(db_path)
+
+        monkeypatch.setattr(tusk_bakeoff, "_detect_default_branch", lambda rr: "main")
+        fake_branches = [
+            f"feature/bakeoff-{bakeoff_id}-{sid}-stub" for sid in shadow_ids
+        ]
+        monkeypatch.setattr(
+            tusk_bakeoff, "_find_bakeoff_branches",
+            lambda rr, bid, sid=None: list(fake_branches) if sid is None
+            else [b for b in fake_branches if f"-{sid}-" in b],
+        )
+        monkeypatch.setattr(
+            tusk_bakeoff, "_resolve_worktree_for_branch", lambda rr, br: None
+        )
+
+        calls: list[list] = []
+
+        def _fake_run(args, **kwargs):
+            calls.append(list(args))
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(tusk_bakeoff.subprocess, "run", _fake_run)
+
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+            exit_code = tusk_bakeoff.main([
+                str(db_path), str(config_path),
+                "discard", str(bakeoff_id),
+            ])
+
+        assert exit_code == 0, f"stderr:\n{stderr_buf.getvalue()}"
+
+        # Source task untouched; every shadow row gone.
+        conn = sqlite3.connect(str(db_path))
+        try:
+            src_rows = conn.execute(
+                "SELECT id FROM tasks WHERE id = ?", (source_id,)
+            ).fetchall()
+            shadow_rows = conn.execute(
+                "SELECT id FROM tasks WHERE bakeoff_id = ? AND bakeoff_shadow = 1",
+                (bakeoff_id,),
+            ).fetchall()
+        finally:
+            conn.close()
+        assert len(src_rows) == 1, "Source task row must remain untouched"
+        assert shadow_rows == [], f"Every shadow row must be deleted, found {shadow_rows}"
+
+        # Every bakeoff branch got a -D; no session-close or task-done subprocess call
+        # was issued (discard never touches the source task).
+        branch_dels = [c for c in calls if c[:3] == ["git", "branch", "-D"]]
+        assert len(branch_dels) == len(shadow_ids)
+        flat = [" ".join(str(a) for a in c) for c in calls]
+        assert not any("session-close" in c for c in flat), (
+            "discard must not close any source session"
+        )
+        assert not any("task-done" in c for c in flat), (
+            "discard must leave the source task untouched"
+        )
