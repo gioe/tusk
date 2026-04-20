@@ -3,6 +3,7 @@
 
 Called by the tusk wrapper:
     tusk task-list [--status <s>] [--domain <d>] [--assignee <a>] [--format text|json] [--all]
+                   [--include-shadows] [--bakeoff <id>]
 
 Arguments received from tusk:
     sys.argv[1] — DB path
@@ -11,6 +12,11 @@ Arguments received from tusk:
 
 Returns a text table (default) or JSON array of matching tasks.
 Defaults to non-Done tasks. --all includes Done tasks.
+
+Shadows (bakeoff_shadow = 1) are excluded by default to keep the normal backlog
+view clean. --include-shadows re-includes them; --bakeoff <id> implicitly
+includes shadows for that one bakeoff_id (useful for inspecting a bakeoff's
+per-model attempt rows).
 """
 
 import argparse
@@ -55,7 +61,11 @@ def print_text_table(rows: list[dict]) -> None:
 
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
-        print("Usage: tusk task-list [--status <s>] [--domain <d>] [--assignee <a>] [--format text|json] [--all]", file=sys.stderr)
+        print(
+            "Usage: tusk task-list [--status <s>] [--domain <d>] [--assignee <a>] "
+            "[--format text|json] [--all] [--include-shadows] [--bakeoff <id>]",
+            file=sys.stderr,
+        )
         return 1
 
     db_path = argv[0]
@@ -69,24 +79,41 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--format", choices=["text", "json"], default="text", dest="fmt")
     parser.add_argument("--all", action="store_true", dest="all_tasks",
                         help="Include Done tasks (default excludes Done)")
+    parser.add_argument("--include-shadows", action="store_true", dest="include_shadows",
+                        help="Include bakeoff shadow rows (default: hidden)")
+    parser.add_argument("--bakeoff", type=int, default=None,
+                        help="Filter to a single bakeoff_id (implicitly includes shadows)")
     parser.add_argument("--help", "-h", action="store_true")
     args, _ = parser.parse_known_args(argv[2:])
 
     if args.help:
-        print("Usage: tusk task-list [--status <s>] [--domain <d>] [--assignee <a>] [--format text|json] [--all]")
+        print(
+            "Usage: tusk task-list [--status <s>] [--domain <d>] [--assignee <a>] "
+            "[--format text|json] [--all] [--include-shadows] [--bakeoff <id>]"
+        )
         print()
         print("Lists tasks from the database.")
         print()
         print("Options:")
-        print("  --status    Filter by status — case-sensitive (e.g. 'To Do', 'In Progress', 'Done')")
-        print("  --domain    Filter by domain")
-        print("  --assignee  Filter by assignee")
-        print("  --format    Output format: text (default) or json")
-        print("  --all       Include Done tasks (default: only non-Done tasks); ignored when --status is also set")
+        print("  --status            Filter by status — case-sensitive (e.g. 'To Do', 'In Progress', 'Done')")
+        print("  --domain            Filter by domain")
+        print("  --assignee          Filter by assignee")
+        print("  --format            Output format: text (default) or json")
+        print("  --all               Include Done tasks (default: only non-Done tasks); ignored when --status is also set")
+        print("  --include-shadows   Include bakeoff shadow rows (default: hidden)")
+        print("  --bakeoff <id>      Filter to a single bakeoff_id (implicitly includes shadows)")
         return 0
 
-    conditions: list[str] = ["bakeoff_shadow = 0"]
+    conditions: list[str] = []
     params: list = []
+
+    # Shadows are hidden by default; --include-shadows or --bakeoff overrides.
+    if not args.include_shadows and args.bakeoff is None:
+        conditions.append("bakeoff_shadow = 0")
+
+    if args.bakeoff is not None:
+        conditions.append("bakeoff_id = ?")
+        params.append(args.bakeoff)
 
     if not args.all_tasks and args.status is None:
         conditions.append("status <> 'Done'")
