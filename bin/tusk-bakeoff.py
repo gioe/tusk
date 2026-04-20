@@ -262,13 +262,17 @@ def _spawn_agent(
 
 
 def _fetch_review_verdict(conn: sqlite3.Connection, task_id: int) -> str | None:
-    """Most recent code_reviews.verdict for the task, or None if no review ran."""
+    """Most recent code_reviews.status for the task, or None if no review ran.
+
+    code_reviews stores the final verdict in `status` ('approved',
+    'changes_requested', 'superseded', etc.) — the last row wins.
+    """
     row = conn.execute(
-        "SELECT verdict FROM code_reviews WHERE task_id = ? "
+        "SELECT status FROM code_reviews WHERE task_id = ? "
         "ORDER BY id DESC LIMIT 1",
         (task_id,),
     ).fetchone()
-    return row["verdict"] if row else None
+    return row["status"] if row else None
 
 
 def _fetch_token_totals(conn: sqlite3.Connection, task_id: int) -> dict:
