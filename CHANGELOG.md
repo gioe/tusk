@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [682] - 2026-04-20
+
+- [TASK-126] Fold tokens_in/out/request_count aggregation into tusk-task-summary.build_summary
+
 ## [681] - 2026-04-20
 
 - [TASK-123] Add `tusk bakeoff <task_id> --models m1,m2[,mN]` — runs the same task under N Claude models in parallel and emits a side-by-side markdown report. For each model: clones the source task into a shadow row (`bakeoff_shadow = 1`) sharing a freshly-minted `bakeoff_id`, copies every acceptance criterion, creates a git worktree on `feature/bakeoff-<bakeoff_id>-<shadow_id>-<model_slug>` branched from the default branch (resolved via `tusk git-default-branch`), and spawns a background `claude -p /tusk <shadow_id> --model <model> --dangerously-skip-permissions` pinned to that worktree. An `--append-system-prompt` tells the agent to skip `tusk branch` (step 2 of /tusk — the default branch is locked by the primary worktree) and `tusk merge` (step 12 — the branch must stay intact for comparison). After every agent exits, per-shadow cost / tokens / wall + active duration / request count / diff stats / review passes / final verdict are aggregated by reusing `tusk-task-summary.py`'s helpers, then rendered as one markdown column per model followed by `git diff --stat` sections for every attempt pair. `bin/tusk-task-list.py` gains `--include-shadows` and `--bakeoff <id>` flags (shadows stay hidden by default; `--bakeoff <id>` implicitly includes the referenced bakeoff's shadows). Workspace root defaults to `$TUSK_BAKEOFF_ROOT` or `$HOME/.tusk/bakeoffs`; the `claude` binary can be overridden via `$TUSK_BAKEOFF_CLAUDE_BIN` (primarily for tests). `tests/integration/test_bakeoff.py` drives the 2-model flow end-to-end with stubbed worktree + agent + pairwise-diff helpers and asserts the shared `bakeoff_id`, cloned criteria, per-model dispatch, one-column-per-model metric rows, and the pairwise-diff section.
