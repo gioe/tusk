@@ -8,6 +8,12 @@ Covers:
   branch name that encodes the bakeoff_id and shadow_id.
 - The final markdown report contains one column per model plus a pairwise
   diff section — criterion 551's two required assertions.
+- Worktree creation failure rolls back ALL previously-created worktrees AND
+  the shadow rows, so a retry starts from a clean slate (review fix).
+- A hung agent is killed after --timeout and its attempt is recorded as
+  exit_code=-9 rather than blocking the bakeoff forever (review fix).
+- tusk task-list hides shadows by default, --include-shadows re-includes
+  them, and --bakeoff <id> filters to a single bakeoff (review fix).
 
 The test monkeypatches the worktree creation, agent spawn, and pairwise diff
 stat helpers so the test doesn't need a real git repo or a Claude subprocess.
@@ -223,3 +229,181 @@ class TestBakeoffTwoModelEndToEnd:
         assert "## Pairwise diffs" in stdout
         assert "### stub-a vs stub-b" in stdout
         assert "diff-stat(" in stdout, "Pairwise diff stub output missing from report"
+
+
+class TestBakeoffWorktreeRollback:
+    """Must-fix #1: if a worktree fails mid-setup, shadow rows + earlier worktrees roll back."""
+
+    def test_worktree_failure_rolls_back_shadows_and_earlier_worktrees(
+        self, db_path, config_path, monkeypatch
+    ):
+        task_id, _ = _insert_source_task(db_path)
+        monkeypatch.setattr(tusk_bakeoff, "_detect_default_branch", lambda rr: "main")
+
+        created = []
+        git_calls = []
+
+        def _create(repo_root, worktree_path, branch, base_branch):
+            # Succeed on the first attempt, fail on the second.
+            if len(created) >= 1:
+                return False, "simulated failure"
+            created.append(worktree_path)
+            os.makedirs(worktree_path, exist_ok=True)
+            return True, ""
+
+        def _fake_subprocess_run(args, **kwargs):
+            git_calls.append(list(args))
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(tusk_bakeoff, "_create_worktree", _create)
+        monkeypatch.setattr(tusk_bakeoff.subprocess, "run", _fake_subprocess_run)
+
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf), redirect_stdout(io.StringIO()):
+            exit_code = tusk_bakeoff.main([
+                str(db_path), str(config_path), str(task_id),
+                "--models", "stub-a,stub-b",
+            ])
+
+        assert exit_code == 2
+
+        # Shadow rows must be rolled back by the transaction.
+        conn = sqlite3.connect(str(db_path))
+        try:
+            shadow_count = conn.execute(
+                "SELECT COUNT(*) FROM tasks WHERE bakeoff_shadow = 1"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        assert shadow_count == 0, (
+            f"Expected all shadow rows rolled back, found {shadow_count} remaining"
+        )
+
+        # Earlier-created worktrees must have been torn down.
+        removes = [c for c in git_calls if c[:3] == ["git", "worktree", "remove"]]
+        branch_dels = [c for c in git_calls if c[:2] == ["git", "branch"] and c[2] == "-D"]
+        assert removes, f"Expected git worktree remove calls in {git_calls}"
+        assert branch_dels, f"Expected git branch -D calls in {git_calls}"
+
+        stderr = stderr_buf.getvalue()
+        assert "Rolled back" in stderr
+
+
+class TestBakeoffAgentTimeout:
+    """Must-fix #3: a hung agent is killed after --timeout and reported as -9."""
+
+    def test_timeout_kills_hung_agent_and_records_exit_minus_9(
+        self, db_path, config_path, monkeypatch
+    ):
+        task_id, _ = _insert_source_task(db_path)
+        monkeypatch.setattr(tusk_bakeoff, "_detect_default_branch", lambda rr: "main")
+        monkeypatch.setattr(
+            tusk_bakeoff,
+            "_create_worktree",
+            lambda rr, wt, br, base: (os.makedirs(wt, exist_ok=True) or (True, "")),
+        )
+        monkeypatch.setattr(tusk_bakeoff, "_pairwise_diff_stat", lambda rr, a, b: "stub-diff")
+
+        class _HangingProc:
+            def __init__(self, shadow_id):
+                self.pid = 5000 + shadow_id
+                self.returncode = None
+                self._killed = False
+
+            def communicate(self, timeout=None):
+                if not self._killed:
+                    raise subprocess.TimeoutExpired(cmd="claude", timeout=timeout)
+                return (b"", b"killed")
+
+            def kill(self):
+                self._killed = True
+                self.returncode = -9
+
+        spawns = []
+
+        def fake_spawn(claude_bin, shadow_id, model, worktree_path, repo_root):
+            spawns.append(shadow_id)
+            return _HangingProc(shadow_id)
+
+        monkeypatch.setattr(tusk_bakeoff, "_spawn_agent", fake_spawn)
+
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+            exit_code = tusk_bakeoff.main([
+                str(db_path), str(config_path), str(task_id),
+                "--models", "stub-a,stub-b",
+                "--timeout", "1",
+            ])
+
+        assert exit_code == 0, f"stderr:\n{stderr_buf.getvalue()}"
+        assert len(spawns) == 2
+        stderr_out = stderr_buf.getvalue()
+        assert "killed on timeout" in stderr_out, stderr_out
+        # Report row for agent exit should carry the -9 timeout marker for both.
+        stdout = stdout_buf.getvalue()
+        agent_exit_row = next(
+            (line for line in stdout.splitlines() if line.startswith("| Agent exit")),
+            None,
+        )
+        assert agent_exit_row is not None, f"No 'Agent exit' row in report:\n{stdout}"
+        assert agent_exit_row.count("-9") == 2, (
+            f"Expected both columns to show -9, got: {agent_exit_row}"
+        )
+
+
+class TestTaskListShadowFilters:
+    """Suggest: task-list --include-shadows / --bakeoff <id> flag coverage."""
+
+    def _insert_rows(self, db_path):
+        conn = sqlite3.connect(str(db_path))
+        try:
+            cur = conn.execute(
+                "INSERT INTO tasks (summary, priority, complexity, priority_score) "
+                "VALUES ('real task', 'Medium', 'S', 50)"
+            )
+            real_id = cur.lastrowid
+            cur = conn.execute(
+                "INSERT INTO tasks (summary, priority, complexity, priority_score, "
+                "bakeoff_id, bakeoff_shadow) "
+                "VALUES ('shadow 1', 'Medium', 'S', 50, 1, 1)"
+            )
+            shadow1_id = cur.lastrowid
+            cur = conn.execute(
+                "INSERT INTO tasks (summary, priority, complexity, priority_score, "
+                "bakeoff_id, bakeoff_shadow) "
+                "VALUES ('shadow 2', 'Medium', 'S', 50, 2, 1)"
+            )
+            shadow2_id = cur.lastrowid
+            conn.commit()
+        finally:
+            conn.close()
+        return real_id, shadow1_id, shadow2_id
+
+    def _list_ids(self, db_path, config_path, *extra_flags):
+        import json as _json
+        script = os.path.join(REPO_ROOT, "bin", "tusk-task-list.py")
+        result = subprocess.run(
+            ["python3", script, str(db_path), str(config_path), "--format", "json", *extra_flags],
+            capture_output=True, text=True, check=True,
+        )
+        return {row["id"] for row in _json.loads(result.stdout)}
+
+    def test_default_hides_shadows(self, db_path, config_path):
+        real_id, s1, s2 = self._insert_rows(db_path)
+        ids = self._list_ids(db_path, config_path)
+        assert real_id in ids
+        assert s1 not in ids
+        assert s2 not in ids
+
+    def test_include_shadows_shows_both(self, db_path, config_path):
+        real_id, s1, s2 = self._insert_rows(db_path)
+        ids = self._list_ids(db_path, config_path, "--include-shadows")
+        assert {real_id, s1, s2} <= ids
+
+    def test_bakeoff_id_filters_to_one_bakeoff(self, db_path, config_path):
+        real_id, s1, s2 = self._insert_rows(db_path)
+        ids = self._list_ids(db_path, config_path, "--bakeoff", "1")
+        assert s1 in ids
+        assert s2 not in ids
+        assert real_id not in ids

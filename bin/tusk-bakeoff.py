@@ -3,7 +3,8 @@
 
 Called by the tusk wrapper:
     tusk bakeoff <task_id> --models m1,m2[,m3...]
-                 [--workspace-root <path>] [--claude-bin <path>] [--dry-run]
+                 [--workspace-root <path>] [--claude-bin <path>]
+                 [--timeout <seconds>] [--dry-run]
 
 Arguments received from tusk:
     sys.argv[1] — DB path
@@ -241,7 +242,6 @@ def _spawn_agent(
     # Pin tusk's REPO_ROOT to the main repo so all tusk/DB operations hit the
     # central tasks.db rather than resolving to the worktree's own path.
     env["TUSK_PROJECT"] = repo_root
-    env["TUSK_BAKEOFF_ACTIVE"] = "1"
     args = [
         claude_bin,
         "-p",
@@ -463,6 +463,13 @@ def main(argv: list[str]) -> int:
         "Tests override this to stub the agent.",
     )
     parser.add_argument(
+        "--timeout",
+        type=int,
+        default=int(os.environ.get("TUSK_BAKEOFF_TIMEOUT", "1800")),
+        help="Per-agent wall-clock timeout in seconds (default: 1800 = 30 min). "
+        "A hung agent is killed and its attempt is recorded with exit_code=-9.",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Skip agent dispatch; clone shadows + create worktrees, then exit.",
@@ -507,6 +514,12 @@ def main(argv: list[str]) -> int:
             )
             return 1
 
+        # BEGIN IMMEDIATE promotes this transaction to a writer up front, so
+        # the MAX(bakeoff_id) read sees a consistent snapshot and another
+        # concurrent bakeoff cannot mint the same id. sqlite3's default
+        # isolation_level would auto-begin a DEFERRED transaction, which
+        # takes no lock on the SELECT — the race is real, not theoretical.
+        conn.execute("BEGIN IMMEDIATE")
         bakeoff_id = _mint_bakeoff_id(conn)
         attempts: list[dict] = []
         for model in models:
@@ -523,36 +536,54 @@ def main(argv: list[str]) -> int:
                 "branch": branch,
                 "worktree": worktree_path,
             })
+        # Hold the transaction open until worktrees succeed so a failure
+        # mid-setup can roll back the shadow rows along with the worktrees.
+
+        default_branch = _detect_default_branch(repo_root)
+        created: list[dict] = []
+        for attempt in attempts:
+            ok, err = _create_worktree(
+                repo_root, attempt["worktree"], attempt["branch"], default_branch
+            )
+            if not ok:
+                # Tear down worktrees we already created for this bakeoff,
+                # their branches, and then the DB rows — so a caller retrying
+                # after a fix gets a fresh bakeoff_id instead of stepping over
+                # half-built state.
+                for done in created:
+                    subprocess.run(
+                        ["git", "worktree", "remove", "--force", done["worktree"]],
+                        capture_output=True,
+                        cwd=repo_root,
+                    )
+                    subprocess.run(
+                        ["git", "branch", "-D", done["branch"]],
+                        capture_output=True,
+                        cwd=repo_root,
+                    )
+                conn.rollback()
+                _print_err(
+                    f"Error: worktree creation failed for {attempt['model']} "
+                    f"(branch {attempt['branch']}): {err}. "
+                    f"Rolled back {len(created)} earlier worktree(s) and {len(attempts)} shadow row(s)."
+                )
+                return 2
+            created.append(attempt)
+
         conn.commit()
     finally:
         conn.close()
 
-    default_branch = _detect_default_branch(repo_root)
-
-    # Worktree creation must complete before any agent spawns — a failure
-    # mid-loop would leave earlier worktrees orphaned without their agents.
-    for attempt in attempts:
-        ok, err = _create_worktree(
-            repo_root, attempt["worktree"], attempt["branch"], default_branch
-        )
-        if not ok:
-            _print_err(
-                f"Error: worktree creation failed for {attempt['model']} "
-                f"(branch {attempt['branch']}): {err}"
-            )
-            return 2
-
-    print(
-        dumps({
-            "bakeoff_id": bakeoff_id,
-            "source_task_id": source_task_id,
-            "attempts": [
-                {k: v for k, v in a.items() if k in {"model", "shadow_id", "branch", "worktree"}}
-                for a in attempts
-            ],
-        }),
-        flush=True,
-    )
+    # Dispatch metadata is informational; keep stdout reserved for the final
+    # markdown report so callers can pipe it cleanly.
+    _print_err(dumps({
+        "bakeoff_id": bakeoff_id,
+        "source_task_id": source_task_id,
+        "attempts": [
+            {k: v for k, v in a.items() if k in {"model", "shadow_id", "branch", "worktree"}}
+            for a in attempts
+        ],
+    }))
 
     if args.dry_run:
         _print_err("--dry-run: shadows + worktrees created; skipping agent dispatch.")
@@ -577,22 +608,39 @@ def main(argv: list[str]) -> int:
             f"pid={proc.pid} cwd={attempt['worktree']}"
         )
 
+    # Per-attempt wall-clock timeout: Popen.communicate blocks forever
+    # otherwise, so one hung agent (infinite prompt loop, wedged subprocess,
+    # stuck build) would freeze the entire bakeoff. On timeout we kill the
+    # process and record exit_code=-9 so the report still emits.
+    def _await(proc: subprocess.Popen) -> tuple[bytes, bytes, int]:
+        try:
+            stdout, stderr = proc.communicate(timeout=args.timeout)
+            return stdout or b"", stderr or b"", proc.returncode
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            try:
+                stdout, stderr = proc.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                stdout, stderr = b"", b""
+            return stdout or b"", stderr or b"", -9
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(procs)) as pool:
-        futures = {pool.submit(p.communicate): (a, p) for (a, p) in procs}
+        futures = {pool.submit(_await, p): (a, p) for (a, p) in procs}
         for fut in concurrent.futures.as_completed(futures):
             attempt, proc = futures[fut]
             try:
-                stdout, stderr = fut.result()
+                stdout, stderr, rc = fut.result()
             except Exception as e:  # pragma: no cover — defensive
                 attempt["exit_code"] = -1
                 attempt["agent_stderr"] = str(e)
                 continue
-            attempt["exit_code"] = proc.returncode
-            attempt["agent_stdout_tail"] = (stdout or b"").decode("utf-8", errors="replace")[-500:]
-            attempt["agent_stderr_tail"] = (stderr or b"").decode("utf-8", errors="replace")[-500:]
+            attempt["exit_code"] = rc
+            attempt["agent_stdout_tail"] = stdout.decode("utf-8", errors="replace")[-500:]
+            attempt["agent_stderr_tail"] = stderr.decode("utf-8", errors="replace")[-500:]
+            suffix = " (killed on timeout)" if rc == -9 else ""
             _print_err(
                 f"Agent for {attempt['model']} (TASK-{attempt['shadow_id']}) "
-                f"exited with code {proc.returncode}"
+                f"exited with code {rc}{suffix}"
             )
 
     # Aggregation reads the central DB after every agent has finished writing
