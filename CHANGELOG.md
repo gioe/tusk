@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [693] - 2026-04-22
+
+- [TASK-141] Fix: normalize linked-worktree branch names during tusk merge
+
 ## [692] - 2026-04-22
 
 - [TASK-139] Add Codex Desktop transcript support to `bin/tusk-pricing-lib.py` so Codex pricing/tests can be tracked instead of living as an untracked local file. `aggregate_session()` now recognizes `event_msg`/`token_count` entries and folds Codex `reasoning_output_tokens` into `output_tokens`, captures cached-input/context-window metadata, and falls back to `session_meta` model lookup when the transcript has no assistant-model rows. `iter_tool_call_costs()` now tracks Codex `response_item` function calls and `web_search_call` events, then splits the next `token_count` turn’s input/cache-read/output cost evenly across the pending tool calls. `iter_tool_errors()` now also understands failed Codex `*_end` events keyed by `call_id`, while preserving the existing Claude `tool_result is_error` path. The previously untracked regression file `tests/unit/test_pricing_codex.py` is now a real tracked test, and the existing `tests/unit/test_iter_tool_errors.py` coverage still passes.
