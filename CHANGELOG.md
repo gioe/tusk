@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [691] - 2026-04-22
+
+- [TASK-138] Make `tusk commit` surface linked-worktree guidance when the configured `test_command` is unavailable instead of aborting with a bare generic failure. `bin/tusk-commit.py` now detects linked git worktrees by comparing `git rev-parse --git-dir` vs `--git-common-dir`, recognizes shell-level command-unavailable failures (`exit 126/127`, `command not found`, `No such file or directory`), and replaces the generic `test_command failed` line with a targeted diagnostic that explains the worktree context and points users at `domain_test_commands` or intentional `--skip-verify` when they have already run the relevant task-scoped verification. `tests/unit/test_commit_output_capture_issue450.py` adds regression coverage for both branches: the new linked-worktree guidance path and the unchanged generic failure outside linked worktrees.
+
 ## [690] - 2026-04-20
 
 - [TASK-135] Rename worktree_path parameter + stub dict keys to workspace in bakeoff code

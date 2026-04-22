@@ -264,6 +264,78 @@ class TestCapturedOutputBehavior:
             "--verbose must stream test output (capture_output=False)"
         )
 
+    def test_unavailable_test_command_in_linked_worktree_prints_targeted_guidance(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """Exit-127 command errors in linked worktrees should name the worktree context."""
+        mod = _load_module()
+        repo, target = _make_repo(tmp_path)
+        cfg = _write_config(tmp_path, {"test_command": ".venv/bin/python3 -m pytest"})
+
+        real_run = subprocess.run
+
+        def fake_run(args, *a, **kw):
+            if isinstance(args, list) and args and "lint" in args:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if kw.get("shell") and args == ".venv/bin/python3 -m pytest":
+                return subprocess.CompletedProcess(
+                    args,
+                    127,
+                    stdout="",
+                    stderr="/bin/sh: .venv/bin/python3: No such file or directory\n",
+                )
+            return real_run(args, *a, **kw)
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+        monkeypatch.setattr(mod, "is_linked_worktree", lambda _repo_root: True)
+        monkeypatch.delenv("TUSK_TEST_COMMAND_TIMEOUT", raising=False)
+
+        argv = [str(repo), cfg, "999", "msg", str(target)]
+        rc = mod.main(argv)
+        captured = capsys.readouterr()
+        combined = captured.out + captured.err
+
+        assert rc == 2
+        assert "configured test_command is unavailable in this linked worktree" in combined
+        assert "domain_test_commands" in combined
+        assert "--skip-verify" in combined
+        assert "test_command failed" not in combined
+
+    def test_unavailable_test_command_outside_linked_worktree_keeps_generic_failure(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """Command errors outside linked worktrees should keep the existing generic message."""
+        mod = _load_module()
+        repo, target = _make_repo(tmp_path)
+        cfg = _write_config(tmp_path, {"test_command": "missing-cmd"})
+
+        real_run = subprocess.run
+
+        def fake_run(args, *a, **kw):
+            if isinstance(args, list) and args and "lint" in args:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if kw.get("shell") and args == "missing-cmd":
+                return subprocess.CompletedProcess(
+                    args,
+                    127,
+                    stdout="",
+                    stderr="/bin/sh: missing-cmd: command not found\n",
+                )
+            return real_run(args, *a, **kw)
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+        monkeypatch.setattr(mod, "is_linked_worktree", lambda _repo_root: False)
+        monkeypatch.delenv("TUSK_TEST_COMMAND_TIMEOUT", raising=False)
+
+        argv = [str(repo), cfg, "999", "msg", str(target)]
+        rc = mod.main(argv)
+        captured = capsys.readouterr()
+        combined = captured.out + captured.err
+
+        assert rc == 2
+        assert "test_command failed (exit 127" in combined
+        assert "linked worktree" not in combined
+
     def test_captured_output_dumped_on_failure(self, tmp_path, monkeypatch, capsys):
         """When tests fail in quiet mode, the captured stdout is surfaced so the failure is diagnosable."""
         mod = _load_module()

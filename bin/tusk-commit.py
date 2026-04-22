@@ -238,6 +238,79 @@ def load_test_command_timeout(config_path: str) -> tuple[int, str]:
     return DEFAULT_TEST_COMMAND_TIMEOUT_SEC, "default"
 
 
+def is_linked_worktree(repo_root: str) -> bool:
+    """Return True when repo_root is a linked git worktree checkout.
+
+    In the primary checkout, `git rev-parse --git-dir` and
+    `--git-common-dir` resolve to the same path. In a linked worktree they
+    diverge: .git points at the per-worktree admin dir while common-dir points
+    at the shared repository metadata.
+    """
+    try:
+        git_dir = run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-dir"],
+            check=False,
+            cwd=repo_root,
+        )
+        common_dir = run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            check=False,
+            cwd=repo_root,
+        )
+    except Exception:
+        return False
+
+    if git_dir.returncode != 0 or common_dir.returncode != 0:
+        return False
+    git_dir_path = git_dir.stdout.strip()
+    common_dir_path = common_dir.stdout.strip()
+    return bool(git_dir_path and common_dir_path and git_dir_path != common_dir_path)
+
+
+def _test_command_unavailable(result: subprocess.CompletedProcess) -> bool:
+    """Return True when the shell could not execute the configured command."""
+    stderr = (result.stderr or "").lower()
+    return (
+        result.returncode in (126, 127)
+        or "command not found" in stderr
+        or "no such file or directory" in stderr
+        or "not found" in stderr
+    )
+
+
+def _print_test_command_failure(
+    result: subprocess.CompletedProcess,
+    test_cmd: str,
+    elapsed: float,
+    repo_root: str,
+) -> None:
+    """Emit the most actionable failure message for the test_command gate."""
+    if _test_command_unavailable(result) and is_linked_worktree(repo_root):
+        print(
+            "\nError: configured test_command is unavailable in this linked worktree "
+            f"(exit {result.returncode}, {elapsed:.1f}s)",
+            file=sys.stderr,
+        )
+        print(f"  Command: {test_cmd}", file=sys.stderr)
+        print(
+            "  This usually means the global test_command references tools or paths "
+            "that are not present in this worktree checkout.",
+            file=sys.stderr,
+        )
+        print(
+            "  Next steps: configure a narrower domain_test_commands entry for this "
+            "task's domain, or rerun with --skip-verify if you already ran the "
+            "relevant targeted verification intentionally.",
+            file=sys.stderr,
+        )
+        return
+
+    print(
+        f"\nError: test_command failed (exit {result.returncode}, {elapsed:.1f}s) — aborting commit",
+        file=sys.stderr,
+    )
+
+
 def main(argv: list[str]) -> int:
     """Entry point — wraps _run_commit so a final summary line is always emitted.
 
@@ -626,10 +699,7 @@ def _run_commit(argv: list[str], state: dict) -> int:
                 if test.stderr:
                     sys.stderr.write(test.stderr)
                     sys.stderr.flush()
-            print(
-                f"\nError: test_command failed (exit {test.returncode}, {elapsed:.1f}s) — aborting commit",
-                file=sys.stderr,
-            )
+            _print_test_command_failure(test, test_cmd, elapsed, repo_root)
             return 2
         print(f"tests passed ({elapsed:.1f}s)")
         sys.stdout.flush()
