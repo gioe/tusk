@@ -76,30 +76,48 @@ INSTALL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 find_repo_root() {
   local dir="$PWD"
   while [[ "$dir" != "/" ]]; do
-    [[ -d "$dir/.git" ]] && echo "$dir" && return
+    [[ -e "$dir/.git" ]] && echo "$dir" && return
     dir="$(dirname "$dir")"
   done
   echo "$PWD"
 }
 
 CWD_REPO_ROOT="$(find_repo_root)"
+
+resolve_project_root() {
+  local worktree_root="$1"
+  local git_dir common_dir candidate
+  git_dir="$(git -C "$worktree_root" rev-parse --path-format=absolute --git-dir 2>/dev/null || true)"
+  common_dir="$(git -C "$worktree_root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  if [[ -n "$git_dir" && -n "$common_dir" && "$git_dir" != "$common_dir" ]]; then
+    candidate="$(cd "$common_dir/.." 2>/dev/null && pwd -P)" || candidate=""
+    if [[ -n "$candidate" && -d "$candidate" ]]; then
+      echo "$candidate"
+      return
+    fi
+  fi
+  echo "$worktree_root"
+}
+
+CWD_PROJECT_ROOT="$(resolve_project_root "$CWD_REPO_ROOT")"
 if [[ -n "${TUSK_PROJECT:-}" ]]; then
   if [[ ! -d "$TUSK_PROJECT" ]]; then
     echo "Error: TUSK_PROJECT=$TUSK_PROJECT is not a directory" >&2
     exit 2
   fi
-  REPO_ROOT="$(cd "$TUSK_PROJECT" && pwd -P)"
+  PROJECT_ROOT="$(cd "$TUSK_PROJECT" && pwd -P)"
 else
-  REPO_ROOT="$CWD_REPO_ROOT"
+  PROJECT_ROOT="$CWD_PROJECT_ROOT"
 fi
+REPO_ROOT="$CWD_REPO_ROOT"
 if [[ -n "${TUSK_DB:-}" ]]; then
   DB_PATH="$TUSK_DB"
   DB_DIR="$(dirname "$DB_PATH")"
 else
-  DB_DIR="$REPO_ROOT/tusk"
+  DB_DIR="$PROJECT_ROOT/tusk"
   DB_PATH="$DB_DIR/tasks.db"
 fi
-PROJECT_CONFIG="$REPO_ROOT/tusk/config.json"
+PROJECT_CONFIG="$PROJECT_ROOT/tusk/config.json"
 
 # ── Active-projects registry ─────────────────────────────────────────
 # Tracks projects with open sessions so tusk can warn when the CWD resolves
@@ -108,7 +126,7 @@ TUSK_STATE_DIR="${TUSK_STATE_DIR:-$HOME/.tusk}"
 ACTIVE_PROJECTS_FILE="$TUSK_STATE_DIR/active-projects"
 export TUSK_STATE_DIR
 export TUSK_ACTIVE_PROJECTS_FILE="$ACTIVE_PROJECTS_FILE"
-export TUSK_REPO_ROOT="$REPO_ROOT"
+export TUSK_REPO_ROOT="$PROJECT_ROOT"
 
 # Warn when a pinned project differs from the CWD-resolved repo, and neither
 # TUSK_PROJECT nor TUSK_DB is set (explicit pins suppress the warning).
@@ -124,7 +142,7 @@ maybe_warn_cross_repo_drift() {
   [[ -z "${TUSK_FORCE_WARN:-}" && ! -t 2 ]] && return 0
   [[ ! -s "$ACTIVE_PROJECTS_FILE" ]] && return 0
   local current_real others=() pinned seen=""
-  current_real="$(cd "$CWD_REPO_ROOT" 2>/dev/null && pwd -P)" || return 0
+  current_real="$(cd "$CWD_PROJECT_ROOT" 2>/dev/null && pwd -P)" || return 0
   while IFS= read -r pinned; do
     [[ -z "$pinned" ]] && continue
     [[ "$pinned" = "$current_real" ]] && continue
@@ -1041,7 +1059,7 @@ cmd_upgrade() {
 
 cmd_active_project() {
   local subcmd="${1:-}"
-  local path_arg="${2:-$REPO_ROOT}"
+  local path_arg="${2:-$PROJECT_ROOT}"
   case "$subcmd" in
     add)
       mkdir -p "$TUSK_STATE_DIR"
@@ -1131,8 +1149,8 @@ cmd_session_close() {
     echo "Closed $count open session(s) for task $task_id (lines: +$lines_added/-$lines_removed)"
     local remaining
     remaining="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM task_sessions WHERE ended_at IS NULL" 2>/dev/null || echo 0)"
-    if [[ "$remaining" = "0" && -d "$REPO_ROOT" ]]; then
-      cmd_active_project remove "$REPO_ROOT" 2>/dev/null || true
+    if [[ "$remaining" = "0" && -d "$PROJECT_ROOT" ]]; then
+      cmd_active_project remove "$PROJECT_ROOT" 2>/dev/null || true
     fi
     return 0
   fi
@@ -1196,8 +1214,8 @@ cmd_session_close() {
   # Deregister REPO_ROOT if no open sessions remain (cross-repo drift tracking)
   local remaining
   remaining="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM task_sessions WHERE ended_at IS NULL" 2>/dev/null || echo 0)"
-  if [[ "$remaining" = "0" && -d "$REPO_ROOT" && -z "${TUSK_DB:-}" ]]; then
-    cmd_active_project remove "$REPO_ROOT" 2>/dev/null || true
+  if [[ "$remaining" = "0" && -d "$PROJECT_ROOT" && -z "${TUSK_DB:-}" ]]; then
+    cmd_active_project remove "$PROJECT_ROOT" 2>/dev/null || true
   fi
 }
 
