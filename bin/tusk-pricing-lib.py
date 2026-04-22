@@ -111,6 +111,11 @@ def parse_sqlite_timestamp(ts: str) -> datetime:
     return datetime.strptime(ts, fmt).replace(tzinfo=timezone.utc)
 
 
+def _compact(text: str) -> str:
+    """Collapse interior whitespace so transcript-derived text fits one line."""
+    return " ".join((text or "").split())
+
+
 def derive_project_hash(cwd: str) -> str:
     """Derive Claude Code's project hash from a directory path.
 
@@ -254,6 +259,8 @@ def aggregate_session(
     peak_context_tokens = 0
     first_context_tokens: int | None = None
     last_context_tokens: int | None = None
+    context_window: int | None = None
+    codex_meta: dict | None = None
 
     with open(transcript_path) as f:
         for line in f:
@@ -264,6 +271,42 @@ def aggregate_session(
             try:
                 entry = json.loads(line)
             except json.JSONDecodeError:
+                continue
+
+            if entry.get("type") == "event_msg" and entry.get("payload", {}).get("type") == "token_count":
+                ts_str = entry.get("timestamp")
+                if not ts_str:
+                    continue
+                try:
+                    ts = parse_timestamp(ts_str)
+                except (ValueError, TypeError):
+                    continue
+                if ts < started_at:
+                    continue
+                if ended_at and ts > ended_at:
+                    continue
+
+                info = entry.get("payload", {}).get("info", {})
+                usage = info.get("total_token_usage") or info.get("last_token_usage") or {}
+                turn_input = usage.get("input_tokens", 0)
+                turn_cache_read = usage.get("cached_input_tokens", 0)
+                turn_output = usage.get("output_tokens", 0) + usage.get("reasoning_output_tokens", 0)
+                turn_context = turn_input + turn_cache_read
+
+                totals["input_tokens"] += turn_input
+                totals["output_tokens"] += turn_output
+                totals["cache_read_input_tokens"] += turn_cache_read
+                request_count += 1
+
+                if turn_context > peak_context_tokens:
+                    peak_context_tokens = turn_context
+                if first_context_tokens is None:
+                    first_context_tokens = turn_context
+                last_context_tokens = turn_context
+
+                model_context_window = info.get("model_context_window")
+                if isinstance(model_context_window, int):
+                    context_window = model_context_window
                 continue
 
             # Only assistant messages have usage data
@@ -344,6 +387,9 @@ def aggregate_session(
     dominant_model = ""
     if model_counts:
         dominant_model = max(model_counts, key=model_counts.get)
+    elif request_count:
+        codex_meta = _lookup_codex_thread_meta(transcript_path)
+        dominant_model = resolve_model(codex_meta.get("model", ""))
     log.debug("Dominant model: %s", dominant_model)
 
     return {
@@ -354,6 +400,7 @@ def aggregate_session(
         "peak_context_tokens": peak_context_tokens,
         "first_context_tokens": first_context_tokens,
         "last_context_tokens": last_context_tokens,
+        "context_window": context_window or get_context_window(dominant_model),
     }
 
 
@@ -419,6 +466,9 @@ def iter_tool_call_costs(
     PRICING and MODEL_ALIASES are populated.
     """
     seen_requests: set[str] = set()
+    pending_codex_calls: list[tuple[str, str]] = []
+    codex_meta = _lookup_codex_thread_meta(transcript_path)
+    codex_model = resolve_model(codex_meta.get("model", ""))
 
     with open(transcript_path) as f:
         for line in f:
@@ -428,6 +478,64 @@ def iter_tool_call_costs(
             try:
                 entry = json.loads(line)
             except json.JSONDecodeError:
+                continue
+
+            if entry.get("type") == "response_item":
+                payload = entry.get("payload", {})
+                call_id = payload.get("call_id")
+                payload_type = payload.get("type")
+                if payload_type == "function_call" and call_id:
+                    pending_codex_calls.append((call_id, payload.get("name", "(unknown)")))
+                elif payload_type == "web_search_call" and call_id:
+                    pending_codex_calls.append((call_id, "web_search"))
+                continue
+
+            if entry.get("type") == "event_msg" and entry.get("payload", {}).get("type") == "token_count":
+                ts_str = entry.get("timestamp")
+                if not ts_str:
+                    continue
+                try:
+                    ts = parse_timestamp(ts_str)
+                except (ValueError, TypeError):
+                    continue
+                if ts < started_at:
+                    pending_codex_calls.clear()
+                    continue
+                if ended_at and ts > ended_at:
+                    break
+                if not pending_codex_calls:
+                    continue
+
+                info = entry.get("payload", {}).get("info", {})
+                usage = info.get("total_token_usage") or info.get("last_token_usage") or {}
+                inp = usage.get("input_tokens", 0)
+                cache_read = usage.get("cached_input_tokens", 0)
+                out = usage.get("output_tokens", 0) + usage.get("reasoning_output_tokens", 0)
+                rates = PRICING.get(codex_model)
+                if rates:
+                    mtok = 1_000_000
+                    call_cost = (
+                        inp / mtok * rates["input"]
+                        + cache_read / mtok * rates["cache_read"]
+                        + out / mtok * rates["output"]
+                    )
+                else:
+                    call_cost = 0.0
+
+                n = len(pending_codex_calls)
+                inp_each = inp // n
+                out_each = out // n
+                cost_each = call_cost / n
+
+                for _, tool_name in pending_codex_calls:
+                    yield {
+                        "tool_name": tool_name,
+                        "marginal_input_tokens": inp_each,
+                        "output_tokens": out_each,
+                        "cost": round(cost_each, 8),
+                        "ts": ts,
+                    }
+                pending_codex_calls.clear()
                 continue
 
             if entry.get("type") != "assistant":
@@ -539,6 +647,47 @@ def iter_tool_errors(
             except json.JSONDecodeError:
                 continue
 
+            if entry.get("type") == "response_item":
+                payload = entry.get("payload", {})
+                call_id = payload.get("call_id")
+                payload_type = payload.get("type")
+                if payload_type == "function_call" and call_id:
+                    tool_names[call_id] = payload.get("name", "(unknown)")
+                elif payload_type == "web_search_call" and call_id:
+                    tool_names[call_id] = "web_search"
+                continue
+
+            if entry.get("type") == "event_msg":
+                ts_str = entry.get("timestamp")
+                if not ts_str:
+                    continue
+                try:
+                    ts = parse_timestamp(ts_str)
+                except (ValueError, TypeError):
+                    continue
+                if ts < started_at:
+                    continue
+                if ended_at and ts > ended_at:
+                    continue
+
+                payload = entry.get("payload", {})
+                payload_type = payload.get("type", "")
+                if not payload_type.endswith("_end"):
+                    continue
+                if payload.get("status") != "failed":
+                    continue
+                call_id = payload.get("call_id")
+                tool_name = tool_names.get(call_id, "(unknown)")
+                error_text = _compact(payload.get("stderr", ""))
+                if not error_text and payload.get("exit_code") is not None:
+                    error_text = f"Exit code {payload.get('exit_code')}"
+                yield {
+                    "tool_name": tool_name,
+                    "error_text": error_text,
+                    "ts": ts,
+                }
+                continue
+
             entry_type = entry.get("type")
             message = entry.get("message", {}) if isinstance(entry.get("message"), dict) else {}
             content = message.get("content")
@@ -612,7 +761,28 @@ def _extract_error_text(raw) -> str:
     text = text.strip()
     if text.startswith("<tool_use_error>") and text.endswith("</tool_use_error>"):
         text = text[len("<tool_use_error>"): -len("</tool_use_error>")].strip()
-    return " ".join(text.split())
+    return _compact(text)
+
+
+def _lookup_codex_thread_meta(transcript_path: str) -> dict:
+    """Return session_meta payload from a Codex transcript, or {} when absent."""
+    try:
+        with open(transcript_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if entry.get("type") == "session_meta":
+                    payload = entry.get("payload", {})
+                    if isinstance(payload, dict):
+                        return payload
+    except OSError:
+        pass
+    return {}
 
 
 def update_session_stats(conn: sqlite3.Connection, session_id: int, totals: dict) -> None:
