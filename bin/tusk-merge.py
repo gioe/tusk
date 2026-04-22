@@ -282,7 +282,7 @@ def find_task_branch(task_id: int) -> tuple[str | None, str | None, bool]:
     branches = []
     for line in result.stdout.splitlines():
         stripped = line.strip()
-        if stripped.startswith("* "):
+        if stripped.startswith(("* ", "+ ")):
             stripped = stripped[2:]
         if stripped:
             branches.append(stripped)

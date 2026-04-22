@@ -107,6 +107,23 @@ class TestFindTaskBranchMultiple:
         assert err is None
         assert pre_merged is False
 
+    def test_strips_linked_worktree_plus_marker(self):
+        """Linked worktree display marker should not leak into the branch name."""
+        mod = _load_module()
+        branch_name = "feature/TASK-8-linked-worktree"
+
+        def fake_run(args, check=True):
+            if args[:3] == ["git", "branch", "--list"]:
+                return _cp(0, stdout=f"+ {branch_name}\n")
+            return _cp(0)
+
+        with patch.object(mod, "run", side_effect=fake_run):
+            branch, err, pre_merged = mod.find_task_branch(8)
+
+        assert branch == branch_name
+        assert err is None
+        assert pre_merged is False
+
     def test_no_branch_returns_error(self):
         """No matching branch, not on default branch → error."""
         mod = _load_module()
