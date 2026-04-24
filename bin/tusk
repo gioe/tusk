@@ -572,6 +572,7 @@ SELECT t.*
 FROM tasks t
 WHERE t.status = 'To Do'
   AND t.bakeoff_shadow = 0
+  AND (t.is_deferred = 0 OR t.is_deferred IS NULL)
   AND NOT EXISTS (
     SELECT 1 FROM task_dependencies d
     JOIN tasks blocker ON d.depends_on_id = blocker.id
@@ -588,6 +589,7 @@ SELECT t.*
 FROM tasks t
 WHERE t.status <> 'Done'
   AND t.bakeoff_shadow = 0
+  AND (t.is_deferred = 0 OR t.is_deferred IS NULL)
   AND EXISTS (
     SELECT 1 FROM task_dependencies d
     JOIN tasks downstream ON d.task_id = downstream.id
