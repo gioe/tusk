@@ -223,6 +223,89 @@ else
   echo "  Skipping hooks and settings.json merge (Codex mode has no hooks primitive)"
 fi
 
+# ── 4d. Install git-event guards + dispatchers (both modes) ──────────
+# Copy hooks/git/*.sh guard scripts into <install_dir>/hooks/git/
+GIT_GUARDS_SRC="$SCRIPT_DIR/hooks/git"
+GIT_GUARDS_DST="$REPO_ROOT/$INSTALL_DIR/hooks/git"
+mkdir -p "$GIT_GUARDS_DST"
+for guard in "$GIT_GUARDS_SRC"/*.sh; do
+  [[ -f "$guard" ]] || continue
+  guardname="$(basename "$guard")"
+  cp "$guard" "$GIT_GUARDS_DST/$guardname"
+  chmod +x "$GIT_GUARDS_DST/$guardname"
+  echo "  Installed $INSTALL_DIR/hooks/git/$guardname"
+done
+
+# Write .git/hooks/{pre-commit,pre-push,commit-msg} dispatchers. The dispatchers
+# carry a TUSK_HOOK_DISPATCHER_V1 marker so re-runs stay idempotent. When an
+# existing non-tusk hook is present at any of those paths, it is renamed to
+# <event>.pre-tusk (once) and invoked from the dispatcher so external hooks are
+# preserved rather than overwritten.
+GIT_HOOKS_DIR="$REPO_ROOT/.git/hooks"
+if [[ -d "$GIT_HOOKS_DIR" ]]; then
+  TUSK_HOOK_MARKER="TUSK_HOOK_DISPATCHER_V1"
+
+  write_dispatcher() {
+    local event="$1"; shift
+    local guards="$*"
+    local target="$GIT_HOOKS_DIR/$event"
+    local chained="$target.pre-tusk"
+    local chained_present=0
+
+    if [[ -e "$target" ]] && ! grep -q "$TUSK_HOOK_MARKER" "$target" 2>/dev/null; then
+      if [[ ! -e "$chained" ]]; then
+        mv "$target" "$chained"
+        chmod +x "$chained"
+      fi
+    fi
+    [[ -e "$chained" ]] && chained_present=1
+
+    {
+      printf '#!/bin/bash\n'
+      printf '# %s — managed by tusk install.sh; do not edit.\n' "$TUSK_HOOK_MARKER"
+      printf '\n'
+      printf 'HERE="$(cd "$(dirname "$0")" && pwd)"\n'
+      printf 'REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"\n'
+      printf '\n'
+      printf 'HOOKS_DIR=""\n'
+      printf 'if [[ -d "$REPO_ROOT/.claude/bin/hooks/git" ]]; then\n'
+      printf '  HOOKS_DIR="$REPO_ROOT/.claude/bin/hooks/git"\n'
+      printf 'elif [[ -d "$REPO_ROOT/tusk/bin/hooks/git" ]]; then\n'
+      printf '  HOOKS_DIR="$REPO_ROOT/tusk/bin/hooks/git"\n'
+      printf 'fi\n'
+      printf '\n'
+      printf 'if [[ -n "$HOOKS_DIR" ]]; then\n'
+      printf '  for g in %s; do\n' "$guards"
+      printf '    script="$HOOKS_DIR/$g.sh"\n'
+      printf '    [[ -x "$script" ]] || continue\n'
+      printf '    "$script" "$@"\n'
+      printf '    rc=$?\n'
+      printf '    [[ $rc -eq 0 ]] || exit $rc\n'
+      printf '  done\n'
+      printf 'fi\n'
+      printf '\n'
+      printf 'if [[ -x "$HERE/%s.pre-tusk" ]]; then\n' "$event"
+      printf '  exec "$HERE/%s.pre-tusk" "$@"\n' "$event"
+      printf 'fi\n'
+      printf '\n'
+      printf 'exit 0\n'
+    } > "$target"
+    chmod +x "$target"
+
+    if [[ "$chained_present" -eq 1 ]]; then
+      echo "  Installed .git/hooks/$event (chains existing .git/hooks/$event.pre-tusk)"
+    else
+      echo "  Installed .git/hooks/$event"
+    fi
+  }
+
+  write_dispatcher pre-commit "block-raw-sqlite block-sql-neq dupe-gate"
+  write_dispatcher pre-push   "branch-naming version-bump-check"
+  write_dispatcher commit-msg "commit-msg-format"
+else
+  echo "  Warning: $REPO_ROOT/.git/hooks/ not found — skipping git-event dispatcher install"
+fi
+
 # ── 4c. Write tusk-manifest.json ─────────────────────────────────────
 python3 -c "
 import json, os, glob
@@ -262,6 +345,14 @@ if install_mode == 'claude':
             full = os.path.join(hooks_src, fname)
             if os.path.isfile(full):
                 files.append('.claude/hooks/' + fname)
+
+# hooks/git/*.sh ships in both install modes
+git_hooks_src = os.path.join(script_dir, 'hooks', 'git')
+if os.path.isdir(git_hooks_src):
+    for fname in sorted(os.listdir(git_hooks_src)):
+        full = os.path.join(git_hooks_src, fname)
+        if os.path.isfile(full):
+            files.append(install_dir + '/hooks/git/' + fname)
 
 manifest_full = os.path.join(repo_root, manifest_path_rel)
 os.makedirs(os.path.dirname(manifest_full), exist_ok=True)
