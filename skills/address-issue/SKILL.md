@@ -341,6 +341,20 @@ Use the `commit_sha` from Step 8 (include the PR URL if available, else the bran
 
 ### Step 10: Retro
 
+After `tusk merge` exits 0, close out the `/tusk` skill-run opened in Step 7 (its `run_id` came from `tusk task-start` inside the `/tusk` Step 1 invocation — you captured it as `skill_run.run_id` in the returned JSON) so its cost is captured before `/retro` starts its own run:
+
+```bash
+tusk skill-run finish <run_id>
+```
+
+Then emit the canonical end-of-run summary so the user sees the identity/cost/duration/diff/criteria rollup before the retro findings:
+
+```bash
+tusk task-summary <task_id> --format markdown
+```
+
+Show it verbatim — do not re-render or summarize. `/retro` Step LR-3 assumes this block has already been printed and intentionally does not re-emit it.
+
 Invoke `/retro` immediately — do not ask "shall I run retro?". Read and follow:
 
 ```
