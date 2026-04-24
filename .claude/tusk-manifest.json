@@ -113,5 +113,11 @@
   ".claude/hooks/dupe-gate.sh",
   ".claude/hooks/inject-task-context.sh",
   ".claude/hooks/setup-path.sh",
-  ".claude/hooks/version-bump-check.sh"
+  ".claude/hooks/version-bump-check.sh",
+  ".claude/bin/hooks/git/block-raw-sqlite.sh",
+  ".claude/bin/hooks/git/block-sql-neq.sh",
+  ".claude/bin/hooks/git/branch-naming.sh",
+  ".claude/bin/hooks/git/commit-msg-format.sh",
+  ".claude/bin/hooks/git/dupe-gate.sh",
+  ".claude/bin/hooks/git/version-bump-check.sh"
 ]

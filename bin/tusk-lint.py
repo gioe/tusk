@@ -906,6 +906,13 @@ def rule18_manifest_drift(root):
             if os.path.isfile(full):
                 expected.append(".claude/hooks/" + fname)
 
+    git_hooks_src = os.path.join(root, "hooks", "git")
+    if os.path.isdir(git_hooks_src):
+        for fname in sorted(os.listdir(git_hooks_src)):
+            full = os.path.join(git_hooks_src, fname)
+            if os.path.isfile(full):
+                expected.append(".claude/bin/hooks/git/" + fname)
+
     expected_set = set(expected)
     violations = []
     for path in sorted(expected_set - on_disk):
