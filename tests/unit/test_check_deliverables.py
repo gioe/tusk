@@ -252,6 +252,27 @@ class TestMainRecommendations:
         assert rc == 0
         json.loads(stdout)  # just verify it's valid JSON
 
+    def test_implement_fresh_includes_empty_default_branch_commits(self, tmp_path):
+        """The existing implement_fresh path must still emit an empty default_branch_commits list."""
+        db_path = _make_db(tmp_path, task_id=9996, summary="Add bin/nonexistent-file.py")
+        rc, stdout, _ = _run_main(db_path, 9996)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "implement_fresh"
+        assert data["default_branch_commits"] == []
+
+    def test_mark_done_includes_empty_default_branch_commits(self, tmp_path):
+        """The existing mark_done path must still emit an empty default_branch_commits list."""
+        skill_dir = tmp_path / "skills" / "present2"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text("# present2")
+        db_path = _make_db(tmp_path, task_id=9997, summary="Create skills/present2/SKILL.md")
+        rc, stdout, _ = _run_main(db_path, 9997)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "mark_done"
+        assert data["default_branch_commits"] == []
+
     def test_direct_invocation_guard(self):
         """Direct invocation without .db first arg should exit nonzero with usage hint."""
         result = subprocess.run(
@@ -261,3 +282,73 @@ class TestMainRecommendations:
         )
         assert result.returncode != 0
         assert "tusk wrapper" in result.stderr or "check-deliverables" in result.stderr
+
+
+# ── merged_not_closed (orphaned-task case) ────────────────────────────
+
+
+def _init_git_repo(repo_root, default_branch="main"):
+    """Init a real git repo at repo_root with a pinned default-branch ref.
+
+    Pins refs/remotes/origin/HEAD so _default_branch() resolves deterministically
+    without relying on the host gh/git config.
+    """
+    subprocess.run(
+        ["git", "init", "-b", default_branch, str(repo_root)],
+        check=True, capture_output=True,
+    )
+    for k, v in (("user.email", "test@example.com"), ("user.name", "Test")):
+        subprocess.run(
+            ["git", "-C", str(repo_root), "config", k, v],
+            check=True, capture_output=True,
+        )
+    subprocess.run(
+        ["git", "-C", str(repo_root), "commit", "--allow-empty", "-m", "initial"],
+        check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_root), "symbolic-ref", "refs/remotes/origin/HEAD",
+         f"refs/remotes/origin/{default_branch}"],
+        check=True, capture_output=True,
+    )
+
+
+def _git_commit(repo_root, message):
+    subprocess.run(
+        ["git", "-C", str(repo_root), "commit", "--allow-empty", "-m", message],
+        check=True, capture_output=True,
+    )
+    return subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=True, encoding="utf-8",
+    ).stdout.strip()
+
+
+class TestMergedNotClosed:
+    def test_merged_not_closed_when_task_commit_on_default(self, tmp_path):
+        """[TASK-N] commit on the default branch → merged_not_closed with the SHA listed."""
+        _init_git_repo(tmp_path)
+        sha = _git_commit(tmp_path, "[TASK-7777] orphaned implementation")
+        db_path = _make_db(tmp_path, task_id=7777)
+        rc, stdout, _ = _run_main(db_path, 7777)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "merged_not_closed"
+        assert data["commits_found"] is True
+        assert sha in data["default_branch_commits"]
+
+    def test_commits_found_when_task_commit_on_feature_branch_only(self, tmp_path):
+        """[TASK-N] commit on a non-default branch only → commits_found, not merged_not_closed."""
+        _init_git_repo(tmp_path)
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "checkout", "-b", "feature/TASK-8888-test"],
+            check=True, capture_output=True,
+        )
+        _git_commit(tmp_path, "[TASK-8888] feature work")
+        db_path = _make_db(tmp_path, task_id=8888)
+        rc, stdout, _ = _run_main(db_path, 8888)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "commits_found"
+        assert data["commits_found"] is True
+        assert data["default_branch_commits"] == []
