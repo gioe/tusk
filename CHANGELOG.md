@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [700] - 2026-04-24
+
+- [TASK-148] Fix `tusk init --force` wiping the live DB when a preflight step fails (issue #533). `cmd_init` previously `rm`'d the DB at line 426 *before* running the config copy, gitignore/CLAUDE.md update, and `validate_config` preflight. Under `set -euo pipefail` any preflight failure (damaged `tusk/config.json`, missing `tusk/` parent, gitignore write error) exited the script with the live DB already gone and the `.bak.<ts>` never restored. Option (a) fix: introduce a `recreate` flag that defers the backup+rm until all preflight steps have succeeded. New `tests/integration/test_init_force_preflight_guard.py` pins both the damaged-config failure case (DB must still exist + be non-empty) and the happy-path re-init (DB recreated with `tasks` table intact).
+
 ## [699] - 2026-04-24
 
 - [TASK-146] Add bin/tusk init-wizard CLI for non-Claude project setup
