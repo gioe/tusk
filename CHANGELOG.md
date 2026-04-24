@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [694] - 2026-04-24
+
+- [TASK-142] Add `path_test_commands` config key for path-scoped test command selection in polyglot monorepos. `tusk commit` and `tusk test-precheck` now pick the first insertion-order glob whose pattern matches *every* staged/changed path, falling back to `domain_test_commands[task.domain]` and then the global `test_command`. When staged paths span multiple patterns with no single catch-all, resolution falls through deterministically (callers can opt in to a project-wide fallback with a trailing `"*"` entry). `bin/tusk-commit.py` grows a pure `match_path_test_command()` helper and threads `resolved_files` into `load_test_command()`; `bin/tusk-test-precheck.py` mirrors the same resolver and accepts `--paths <file>…`, auto-detecting changed + untracked paths via `git diff --name-only HEAD` when the caller omits them. `bin/tusk-config-tools.py` adds `path_test_commands` to `KNOWN_KEYS` and validates it as an object of non-empty string keys mapped to string commands. The linked-worktree test_command-unavailable guidance in `bin/tusk-commit.py` now points users at both `path_test_commands` and `domain_test_commands` as remediation options. `docs/DOMAIN.md` and `docs/tusk-flows.md` document the new key and the full resolution order. `tests/unit/test_path_test_commands.py` adds 18 regression tests covering single-pattern match, insertion-order precedence, catch-all fallback, ambiguous-match fall-through, empty/invalid entries, and the full priority chain for both the commit and precheck resolvers.
+
 ## [693] - 2026-04-22
 
 - [TASK-141] Fix: normalize linked-worktree branch names during tusk merge
