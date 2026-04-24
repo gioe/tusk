@@ -68,13 +68,15 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader  # noqa: E402
+import tusk_loader  # noqa: E402 — loads tusk-db-lib.py, tusk-json-lib.py, tusk-pricing-lib.py, tusk-git-helpers.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
 _pricing_lib = tusk_loader.load("tusk-pricing-lib")
+_git_helpers = tusk_loader.load("tusk-git-helpers")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
+task_grep_arg = _git_helpers.task_grep_arg
 
 
 def _resolve_task_id(raw: str) -> int:
@@ -174,8 +176,7 @@ def fetch_diff(task_id: int, repo_root: str, since: str | None = None) -> dict:
     zero = {"commits": 0, "files_changed": 0, "lines_added": 0, "lines_removed": 0}
     cmd = [
         "git", "log", "--all",
-        f"--grep=[TASK-{task_id}]",
-        "--fixed-strings",
+        task_grep_arg(task_id),
         "--numstat",
         "--format=__COMMIT__ %H",
     ]
