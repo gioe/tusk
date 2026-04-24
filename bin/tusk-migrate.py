@@ -2095,6 +2095,74 @@ def migrate_58(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 58: added bakeoff columns and recreated tasks-dependent views")
 
 
+def migrate_59(db_path: str, config_path: str, script_dir: str) -> None:
+    """Exclude deferred tasks from v_ready_tasks and v_chain_heads.
+
+    Deferred tasks (``is_deferred = 1``) were leaking into the ready-task
+    queue because neither view filtered on the column — ``tusk task-start``
+    would happily hand back a row that is, by definition, "don't pick this
+    up yet." Adds ``(t.is_deferred = 0 OR t.is_deferred IS NULL)`` to both
+    views so they match ``cmd_init`` post-v59 bit-for-bit. The ``IS NULL``
+    branch is defensive: ``is_deferred`` is ``NOT NULL DEFAULT 0`` today,
+    but past schemas or raw INSERTs bypassing the default should not silently
+    requalify.
+
+    Idempotent: ``DROP VIEW IF EXISTS`` + ``CREATE VIEW`` reconstructs each
+    view from scratch regardless of prior state. Only the two views with the
+    readiness-gate semantics are touched — ``task_metrics``, ``v_blocked_tasks``,
+    and ``v_criteria_coverage`` intentionally still surface deferred rows so
+    cost/blocker/coverage reporting stays complete.
+    """
+    if get_version(db_path) >= 59:
+        _progress("  Migration 59: filtered deferred tasks out of v_ready_tasks and v_chain_heads")
+        return
+
+    script = """
+        DROP VIEW IF EXISTS v_ready_tasks;
+        CREATE VIEW v_ready_tasks AS
+        SELECT t.*
+        FROM tasks t
+        WHERE t.status = 'To Do'
+          AND t.bakeoff_shadow = 0
+          AND (t.is_deferred = 0 OR t.is_deferred IS NULL)
+          AND NOT EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks blocker ON d.depends_on_id = blocker.id
+            WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM external_blockers eb
+            WHERE eb.task_id = t.id AND eb.is_resolved = 0
+          );
+
+        DROP VIEW IF EXISTS v_chain_heads;
+        CREATE VIEW v_chain_heads AS
+        SELECT t.*
+        FROM tasks t
+        WHERE t.status <> 'Done'
+          AND t.bakeoff_shadow = 0
+          AND (t.is_deferred = 0 OR t.is_deferred IS NULL)
+          AND EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks downstream ON d.task_id = downstream.id
+            WHERE d.depends_on_id = t.id AND downstream.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks blocker ON d.depends_on_id = blocker.id
+            WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM external_blockers eb
+            WHERE eb.task_id = t.id AND eb.is_resolved = 0
+          );
+
+        PRAGMA user_version = 59;
+    """
+    run_script(db_path, script)
+    _progress("  Migration 59: filtered deferred tasks out of v_ready_tasks and v_chain_heads")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -2156,6 +2224,7 @@ MIGRATIONS = [
     (56, migrate_56),
     (57, migrate_57),
     (58, migrate_58),
+    (59, migrate_59),
 ]
 
 
