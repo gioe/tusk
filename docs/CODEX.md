@@ -57,6 +57,27 @@ Everything else works identically: the `tusk` CLI, task database, criteria track
 
 ## Limitations
 
-- There is no Codex-flavored analog of `/tusk-init`. Configure `tusk/config.json` by hand (domains, agents, task types) after running `install.sh`.
-- Seeding tasks from `tusk-bootstrap.json` files (the `project_libs` mechanism) still works in Codex mode, but the interactive prompts live inside the `/tusk-init` skill that only exists in Claude mode.
 - Migrating an existing Claude install to Codex (or vice versa) is not supported. Remove the old install dir, delete the install-mode marker, and re-run `install.sh`.
+
+## First-time setup (Codex)
+
+Use `tusk init-wizard` to configure `tusk/config.json` (domains, agents, task types, test command, project type, and optional bootstrap task seeding). The wizard is the Codex-facing equivalent of the Claude-only `/tusk-init` skill — it runs in any shell and works the same way in Claude and Codex sessions.
+
+- **Interactive** (default when stdin is a TTY): prompts for each setting with suggestions derived from a codebase scan.
+
+  ```bash
+  tusk init-wizard
+  ```
+
+- **Non-interactive** (flags only, scripting-safe):
+
+  ```bash
+  tusk init-wizard --non-interactive \
+    --domains '["api","frontend"]' \
+    --agents '{"backend":"APIs and DB","frontend":"UI"}' \
+    --task-types '["bug","feature","docs"]' \
+    --test-command 'pytest -q' \
+    --project-type python_service
+  ```
+
+Passing `--project-type ios_app` or `--project-type python_service` auto-populates `project_libs` from `config.default.json`. Add `--seed-bootstrap-tasks all` to fetch each lib's `tusk-bootstrap.json` and insert the published tasks in one pass.
