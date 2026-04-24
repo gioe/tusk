@@ -1,10 +1,10 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to Codex when working with code in this repository.
 
 ## Project Overview
 
-tusker is a portable task management system for Codex projects. It provides a local SQLite database, a bash CLI (`bin/tusk`), Python utility scripts, and Codex skills to track, prioritize, and work through tasks autonomously.
+tusker is a portable task management system for Codex projects. It provides a local SQLite database, a bash CLI (`bin/tusk`), and Python utility scripts to track, prioritize, and work through tasks autonomously.
 
 When proposing, evaluating, or reviewing features, consult `docs/PILLARS.md` for design tradeoffs. The pillars define what tusk values and provide a shared vocabulary for resolving competing approaches.
 
@@ -38,7 +38,7 @@ bin/tusk commit <task_id> "<file1>" ["<file2>" ...] -m "<message>" [--criteria <
 # Note: always quote file paths — zsh expands unquoted [brackets] as glob patterns before tusk receives them
 bin/tusk merge <task_id> [--session <session_id>] [--pr --pr-number <N>]
 bin/tusk progress <task_id> [--next-steps "..."]
-bin/tusk bakeoff <task_id> --models m1,m2[,mN] [--workspace-root <path>] [--Codex-bin <path>] [--dry-run]  # run the same task under N models in parallel worktrees and emit a side-by-side report
+bin/tusk bakeoff <task_id> --models m1,m2[,mN] [--workspace-root <path>] [--claude-bin <path>] [--dry-run]  # run the same task under N models in parallel worktrees and emit a side-by-side report
 bin/tusk bakeoff pick <bakeoff_id> <shadow_id> [--rebase]   # merge the chosen shadow's branch into the source task's base branch, close the source session, mark source Done (completed), and delete sibling shadow rows + worktrees. --rebase mirrors `tusk merge --rebase`: rebase chosen shadow onto default before the ff-only merge when the default branch has advanced during the bakeoff
 bin/tusk bakeoff discard <bakeoff_id>            # throw every shadow for this bakeoff away — delete shadow rows + force-remove worktrees; source task left untouched
 
@@ -159,7 +159,9 @@ Two external library repos ship their own `tusk-bootstrap.json` and are pre-conf
 
 - **`python_service`** — Seeds tasks for integrating [gioe/python-libs](https://github.com/gioe/python-libs), a standalone Python library repo distributed as the `gioe-libs` package. It provides structured logging (`gioe_libs.aiq_logging`), optional OpenTelemetry/Sentry observability extras, and shared utilities. Tasks cover installing the package, configuring structured logging, and (optionally) enabling observability.
 
-### Skills (installed to `.Codex/skills/` in target projects)
+### Skills (Claude Code only)
+
+> These skills are installed to `.claude/skills/` in Claude Code target projects. Codex consumers receive no skill equivalents today; a `.codex/prompts/` port is pending.
 
 - **`/tusk`** — Full dev workflow: pick task, implement, commit, review, done, retro
 - **`/groom-backlog`** — Auto-close expired tasks, dedup, re-prioritize backlog
@@ -184,7 +186,13 @@ Twelve tables: `tasks`, `task_dependencies`, `task_progress`, `task_sessions`, `
 
 ### Installation Model
 
-`install.sh` copies `bin/tusk` + `bin/tusk-*.py` + `VERSION` + `config.default.json` → `.Codex/bin/`, skills → `.Codex/skills/`, and runs `tusk init` + `tusk migrate`. This repo is the source; target projects get the installed copy.
+`install.sh` auto-detects the host agent layout and installs into the appropriate tree. See `docs/CODEX.md` for the full Claude-vs-Codex comparison.
+
+- **Claude Code project** (`.claude/` present): copies `bin/tusk` + `bin/tusk-*.py` + `VERSION` + `config.default.json` → `.claude/bin/`, skills → `.claude/skills/`, hooks → `.claude/hooks/`, merges `.claude/settings.json`, runs `tusk init` + `tusk migrate`.
+- **Codex project** (`AGENTS.md` present, no `.claude/`): copies binaries and support files → `tusk/bin/`, skips skills/hooks/settings.json (no Codex equivalents), updates `AGENTS.md` instead of `CLAUDE.md`, runs `tusk init` + `tusk migrate`.
+- Neither present → `install.sh` errors out. A marker file `<install_dir>/install-mode` (contents: `claude` or `codex`) is stamped so `tusk upgrade` and `tusk init` know which mode to apply on subsequent invocations.
+
+This repo is the source; target projects get the installed copy.
 
 ### Versioning and Upgrades
 
@@ -210,16 +218,16 @@ See `docs/MIGRATIONS.md` for table-recreation and trigger-only migration templat
 
 See `docs/SKILLS.md` for directory structure, frontmatter format, body guidelines, companion files, and symlink mechanics.
 
-**Public skill** (distributed to target projects):
+**Public skill** (distributed to Claude Code target projects):
 1. Create `skills/<name>/SKILL.md` with frontmatter + instructions
-2. Run `tusk sync-skills` to create the `.Codex/skills/<name>` symlink
-3. Add a one-line entry to the **Skills** list in `AGENTS.md`
+2. Run `tusk sync-skills` to create the `.claude/skills/<name>` symlink
+3. Add a one-line entry to the **Skills** list in both `CLAUDE.md` and `AGENTS.md`
 4. Bump the `VERSION` file (see below)
 5. Commit, push, and PR
 
 **Internal skill** (source repo only, not distributed):
 1. Create `skills-internal/<name>/SKILL.md` with frontmatter + instructions
-2. Run `tusk sync-skills` to create the `.Codex/skills/<name>` symlink
+2. Run `tusk sync-skills` to create the `.claude/skills/<name>` symlink
 3. Commit, push, and PR
 
 ## VERSION Bumps
