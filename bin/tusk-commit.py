@@ -49,6 +49,7 @@ Exit codes:
         Fix the violations, or bypass with --skip-lint / --skip-verify.
 """
 
+import fnmatch
 import json
 import os
 import re
@@ -183,16 +184,49 @@ def load_task_domain(tusk_bin: str, task_id: int) -> str:
         return ""
 
 
-def load_test_command(config_path: str, domain: str = "") -> str:
+def match_path_test_command(patterns: dict, paths) -> str:
+    """Return the first path_test_commands entry whose pattern matches every path.
+
+    Iterates patterns in insertion order (Python dicts preserve this since 3.7)
+    and picks the first key whose fnmatch pattern matches *every* repo-root-
+    relative path in ``paths``.  When staged changes span multiple subtrees and
+    no single pattern covers them all, returns "" so the caller falls through
+    to domain_test_commands / test_command.  Users encode a catch-all with
+    ``"*": "<project-wide command>"`` at the end of the map.
+
+    fnmatch's ``*`` matches across path separators, so ``apps/scraper/**`` and
+    ``apps/scraper/*`` both match ``apps/scraper/foo/bar.py``.
+    """
+    if not patterns or not paths:
+        return ""
+    normalized = [p.replace(os.sep, "/") for p in paths]
+    for pattern, cmd in patterns.items():
+        if not cmd or not isinstance(cmd, str):
+            continue
+        if all(fnmatch.fnmatchcase(p, pattern) for p in normalized):
+            return cmd
+    return ""
+
+
+def load_test_command(config_path: str, domain: str = "", paths=None) -> str:
     """Load the effective test command from config.
 
-    Prefers domain_test_commands[domain] when the task has a domain and a
-    matching entry exists.  Falls back to the global test_command otherwise.
+    Resolution order:
+      1. path_test_commands — first pattern where *every* path in ``paths``
+         matches (see match_path_test_command for semantics).
+      2. domain_test_commands[domain] — when the task has a domain and a
+         matching entry exists.
+      3. Global test_command.
+
     Returns an empty string when no command is configured.
     """
     try:
         with open(config_path) as f:
             config = json.load(f)
+        if paths:
+            cmd = match_path_test_command(config.get("path_test_commands", {}) or {}, paths)
+            if cmd:
+                return cmd
         if domain:
             cmd = config.get("domain_test_commands", {}).get(domain)
             if cmd:
@@ -298,9 +332,10 @@ def _print_test_command_failure(
             file=sys.stderr,
         )
         print(
-            "  Next steps: configure a narrower domain_test_commands entry for this "
-            "task's domain, or rerun with --skip-verify if you already ran the "
-            "relevant targeted verification intentionally.",
+            "  Next steps: configure a narrower path_test_commands entry "
+            "matching the staged paths, or a domain_test_commands entry for "
+            "this task's domain; or rerun with --skip-verify if you already "
+            "ran the relevant targeted verification intentionally.",
             file=sys.stderr,
         )
         return
@@ -633,6 +668,9 @@ def _run_commit(argv: list[str], state: dict) -> int:
     # ── Step 2: Run test_command gate (hard-blocks on failure) ───────
     # Only query the task's domain when domain_test_commands is configured —
     # avoids a DB round-trip for the common case where domain routing is unused.
+    # resolved_files is passed through so path_test_commands (insertion-order
+    # glob → command) can take precedence over domain/global when a single
+    # pattern covers every staged path.
     task_domain = ""
     try:
         with open(config_path) as _f:
@@ -641,7 +679,7 @@ def _run_commit(argv: list[str], state: dict) -> int:
             task_domain = load_task_domain(tusk_bin, task_id)
     except Exception:
         pass
-    test_cmd = load_test_command(config_path, task_domain)
+    test_cmd = load_test_command(config_path, task_domain, resolved_files)
     if test_cmd and not skip_verify:
         timeout_sec, timeout_source = load_test_command_timeout(config_path)
         # Only announce the command up-front in verbose mode.  In quiet mode
