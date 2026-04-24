@@ -103,11 +103,15 @@ def _fail(msg: str, **extra) -> None:
 
 
 def _run_tusk(args: list, timeout: int = 60) -> subprocess.CompletedProcess:
-    """Invoke a nested tusk subcommand. Inherits TUSK_DB so tests pin correctly."""
+    """Invoke a nested tusk subcommand. Inherits TUSK_DB so tests pin correctly.
+    Pass encoding='utf-8' so nested output with non-ASCII bytes (e.g. user's
+    project-type name, test-command args, bootstrap task summaries) doesn't
+    UnicodeDecodeError on non-UTF-8 locales."""
     return subprocess.run(
         ["tusk", *args],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=timeout,
     )
 
@@ -390,8 +394,10 @@ def _seed_bootstrap_tasks(interactive: bool) -> tuple:
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: tusk-init-wizard.py <db_path> <config_path> [options]", file=sys.stderr)
-        sys.exit(1)
+        _fail(
+            "tusk-init-wizard.py requires <db_path> and <config_path> as the "
+            "first two positional arguments (invoked via `tusk init-wizard`)."
+        )
 
     config_path = sys.argv[2]
 
