@@ -28,6 +28,7 @@
   ".claude/bin/tusk-init-fetch-bootstrap.py",
   ".claude/bin/tusk-init-scan-codebase.py",
   ".claude/bin/tusk-init-scan-todos.py",
+  ".claude/bin/tusk-init-wizard.py",
   ".claude/bin/tusk-init-write-config.py",
   ".claude/bin/tusk-json-lib.py",
   ".claude/bin/tusk-lint-rules.py",

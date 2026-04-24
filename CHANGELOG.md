@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [699] - 2026-04-24
+
+- [TASK-146] Add bin/tusk init-wizard CLI for non-Claude project setup
+
 ## [698] - 2026-04-24
 
 - [TASK-145] Cover the Codex-mode upgrade flow end-to-end. `bin/tusk-upgrade.py` extracts `_run_upgrade_steps()` from `main()` — the helper wraps every step between tarball extraction and tempdir cleanup (install-mode detection, manifest translation, orphan removal, bin copy, claude-only step gating, migrations, manifest/VERSION stamp) and returns a summary dict; `main()` keeps the download + rexec logic and renders the report from the dict. `tests/integration/test_upgrade_codex_mode.py` drives the helper against a fake Codex install + fake tarball src tree (skills/ and .claude/hooks/ seeded so the claude-only gating assertion is load-bearing): one test asserts `tusk/bin/` is updated, `tusk/tusk-manifest.json` contains only `tusk/bin/` paths, and `.claude/` is never created; the other seeds a prior codex-shaped manifest with one orphan path and asserts `orphan_count == 1` exactly (>1 would mean `translate_manifest_for_mode` regressed to a no-op and every prior codex path was flagged orphan, so the equality pins the translated-before-compare invariant).

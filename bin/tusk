@@ -971,7 +971,7 @@ candidates = [
   'review','deps','session-stats','session-recalc','skill-run',
   'call-breakdown','session-close','task-get','task-get-multi','task-select','task-start',
   'task-done','task-insert','task-update','task-reopen','task-list','task-summary',
-  'audit','autoclose','backlog-scan','test-detect','test-precheck','init-scan-codebase','init-scan-todos','review-check-perms','loop','merge','progress',
+  'audit','autoclose','backlog-scan','test-detect','test-precheck','init-scan-codebase','init-scan-todos','init-fetch-bootstrap','init-write-config','init-wizard','review-check-perms','loop','merge','progress',
   'setup','token-audit','sync-skills','generate-manifest','pricing-update','wsjf','shell',
   'version','version-bump','changelog-add','migrate','regen-triggers','upgrade',
 ]
@@ -1405,6 +1405,7 @@ case "${1:-}" in
   init-scan-todos) shift; exec python3 "$SCRIPT_DIR/tusk-init-scan-todos.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   init-fetch-bootstrap) shift; exec python3 "$SCRIPT_DIR/tusk-init-fetch-bootstrap.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   init-write-config) shift; exec python3 "$SCRIPT_DIR/tusk-init-write-config.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  init-wizard) shift; exec python3 "$SCRIPT_DIR/tusk-init-wizard.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   review-check-perms) shift; exec python3 "$SCRIPT_DIR/tusk-review-check-perms.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   loop) shift; exec python3 "$SCRIPT_DIR/tusk-loop.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   merge) shift; exec python3 "$SCRIPT_DIR/tusk-merge.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
