@@ -31,7 +31,7 @@ def cmd_validate(config_path: str) -> int:
     errors = []
 
     # ── Check for unknown top-level keys ──
-    KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'complexity', 'blocker_types', 'criterion_types', 'workflows', 'agents', 'dupes', 'review', 'review_categories', 'review_severities', 'merge', 'test_command', 'test_command_timeout_sec', 'domain_test_commands', 'project_type', 'project_libs', 'issue_scoring'}
+    KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'complexity', 'blocker_types', 'criterion_types', 'workflows', 'agents', 'dupes', 'review', 'review_categories', 'review_severities', 'merge', 'test_command', 'test_command_timeout_sec', 'domain_test_commands', 'path_test_commands', 'project_type', 'project_libs', 'issue_scoring'}
     known_list = ', '.join(sorted(KNOWN_KEYS))
     unknown = set(cfg.keys()) - KNOWN_KEYS
     if unknown:
@@ -187,6 +187,21 @@ def cmd_validate(config_path: str) -> int:
                 f'"test_command_timeout_sec" must be a positive integer '
                 f'(got {type(tt).__name__}: {tt!r}).'
             )
+
+    # ── Validate path_test_commands (optional object of glob→command strings) ──
+    # Insertion order is preserved and matters: tusk-commit.py picks the first
+    # pattern where every staged file matches, so users order patterns
+    # most-specific-first with an optional "*" catch-all at the end.
+    if 'path_test_commands' in cfg:
+        ptc = cfg['path_test_commands']
+        if not isinstance(ptc, dict):
+            errors.append(f'"path_test_commands" must be an object (got {type(ptc).__name__}).')
+        else:
+            for k, v in ptc.items():
+                if not isinstance(k, str) or not k:
+                    errors.append(f'"path_test_commands" keys must be non-empty strings (got {type(k).__name__}: {k!r}).')
+                if not isinstance(v, str):
+                    errors.append(f'"path_test_commands.{k}" value must be a string (got {type(v).__name__}: {v!r}).')
 
     # ── Report ──
     if errors:
