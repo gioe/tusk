@@ -105,6 +105,52 @@ def _vprint(*args, **kwargs) -> None:
         print(*args, **kwargs)
 
 
+def is_source_repo(repo_root: str) -> bool:
+    """Return True when repo_root looks like the tusk source repo.
+
+    Three markers (all must hold):
+    - skills/ is a real directory (not a symlink) with at least one subdir
+      containing a SKILL.md file
+    - install.sh is a regular file at repo root
+    - .claude/skills/ exists and every entry in it is a symlink
+
+    In installed projects, .claude/skills/ contains real directories (copied
+    from the tarball) and there is no skills/ sibling — so the combined test
+    distinguishes source from target without relying on a path name.
+    """
+    skills_dir = os.path.join(repo_root, "skills")
+    if os.path.islink(skills_dir) or not os.path.isdir(skills_dir):
+        return False
+    try:
+        skills_entries = os.listdir(skills_dir)
+    except OSError:
+        return False
+    has_skill_md = any(
+        os.path.isfile(os.path.join(skills_dir, name, "SKILL.md"))
+        for name in skills_entries
+        if os.path.isdir(os.path.join(skills_dir, name))
+    )
+    if not has_skill_md:
+        return False
+
+    if not os.path.isfile(os.path.join(repo_root, "install.sh")):
+        return False
+
+    claude_skills = os.path.join(repo_root, ".claude", "skills")
+    if not os.path.isdir(claude_skills):
+        return False
+    try:
+        claude_entries = [e for e in os.listdir(claude_skills) if not e.startswith(".")]
+    except OSError:
+        return False
+    if not claude_entries:
+        return False
+    return all(
+        os.path.islink(os.path.join(claude_skills, e))
+        for e in claude_entries
+    )
+
+
 def _should_rexec(src: str, script_dir: str) -> bool:
     """Return True when the upgrader in the tarball differs from the installed one.
 
@@ -698,6 +744,15 @@ def main() -> None:
 
     repo_root = args.repo_root
     script_dir = args.script_dir
+
+    # Refuse to run inside the tusk source repo. stage_and_commit does
+    # `git add --force` on MANIFEST paths, several of which (.claude/skills/*)
+    # are symlinks here and crash with "pathspec is beyond a symbolic link".
+    # The upgrade is also a no-op — VERSION tracks HEAD and source files are
+    # byte-identical to their own targets. git pull is the right tool.
+    if is_source_repo(repo_root):
+        print("This is the tusk source repo; use git pull to update.")
+        return
 
     # Guard the hidden --_rexec-src flag: the tempdir we'd rmtree in finally is
     # derived from this path, so require it to live under the system tempdir.
