@@ -37,12 +37,14 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader  # loads tusk-db-lib.py
+import tusk_loader  # loads tusk-db-lib.py, tusk-json-lib.py, tusk-git-helpers.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
+_git_helpers = tusk_loader.load("tusk-git-helpers")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
+find_task_commits = _git_helpers.find_task_commits
 
 # Regex to extract candidate file paths from unstructured text.
 # Matches tokens that start with a path-like prefix and contain at least one dot
@@ -69,27 +71,6 @@ def _extract_paths(text: str) -> list:
         if p and '.' in os.path.basename(p) and '://' not in p:
             paths.append(p)
     return paths
-
-
-def _find_commits(task_id: int, repo_root: str, refs: list) -> list:
-    """Return commit SHAs referencing [TASK-<id>] across the given refs.
-
-    The brackets in [TASK-<id>] are escaped because git --grep uses POSIX
-    BRE: an unescaped [TASK-<id>] is parsed as a character class with the
-    reversed range K-1 (K=75, 1=49), which git rejects with
-    'invalid character range' — emptying the result for every task ID.
-    """
-    args = ["git", "log", *refs, "--format=%H", rf"--grep=\[TASK-{task_id}\]"]
-    result = subprocess.run(
-        args,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        cwd=repo_root,
-    )
-    if result.returncode != 0:
-        return []
-    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
 def _default_branch(repo_root: str) -> str:
@@ -120,12 +101,12 @@ def _default_branch(repo_root: str) -> str:
 
 def check_commits(task_id: int, repo_root: str) -> bool:
     """Return True if any commits reference [TASK-<id>] on any branch."""
-    return bool(_find_commits(task_id, repo_root, ["--all"]))
+    return bool(find_task_commits(task_id, repo_root, ["--all"]))
 
 
 def check_default_branch_commits(task_id: int, repo_root: str) -> list:
     """Return commit SHAs on the default branch that reference [TASK-<id>]."""
-    return _find_commits(task_id, repo_root, [_default_branch(repo_root)])
+    return find_task_commits(task_id, repo_root, [_default_branch(repo_root)])
 
 
 def find_existing_files(task_id: int, conn: sqlite3.Connection, repo_root: str) -> list:
