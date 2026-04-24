@@ -73,6 +73,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Install dir is parent of bin/
 INSTALL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Detect install mode (claude vs codex) so gitignore and agent-doc updates
+# target the right locations. Driven by the install-mode marker stamped by
+# install.sh / tusk-upgrade.py. Absent marker → claude (legacy installs and
+# tusk's own source-repo dev env).
+if [[ -f "$SCRIPT_DIR/install-mode" ]]; then
+  INSTALL_MODE="$(tr -d '[:space:]' < "$SCRIPT_DIR/install-mode")"
+else
+  INSTALL_MODE="claude"
+fi
+case "$INSTALL_MODE" in claude|codex) ;; *) INSTALL_MODE="claude" ;; esac
+
 find_repo_root() {
   local dir="$PWD"
   while [[ "$dir" != "/" ]]; do
@@ -304,14 +315,23 @@ update_gitignore() {
     ".claude/skills/"
   )
   local -a tusk_ignores=(
-    ".claude/bin/"
-    ".claude/settings.json"
-    ".claude/tusk-manifest.json"
     "tusk/tasks.db"
     "tusk/tasks.db-wal"
     "tusk/tasks.db-shm"
     "tusk/backups/"
   )
+  if [[ "$INSTALL_MODE" == "codex" ]]; then
+    tusk_ignores+=(
+      "tusk/bin/"
+      "tusk/tusk-manifest.json"
+    )
+  else
+    tusk_ignores+=(
+      ".claude/bin/"
+      ".claude/settings.json"
+      ".claude/tusk-manifest.json"
+    )
+  fi
   # Remove deprecated entries added by older versions of tusk
   for deprecated in "${deprecated_ignores[@]}"; do
     if grep -qxF "$deprecated" "$gitignore" 2>/dev/null; then
@@ -344,15 +364,33 @@ cmd_update_gitignore() {
 }
 
 update_claude_md() {
-  local claude_md="$REPO_ROOT/CLAUDE.md"
+  # Resolve target agent-instructions file based on install mode. Prefer the
+  # existing file when present; otherwise create the mode-default (CLAUDE.md
+  # in claude mode, AGENTS.md in codex mode). Using >> auto-creates the file,
+  # preserving the long-standing behavior where tusk init creates CLAUDE.md
+  # when absent (issue #322).
   local sentinel="<!-- tusk-task-tools -->"
-  if grep -qF "$sentinel" "$claude_md" 2>/dev/null; then
-    echo "  CLAUDE.md already contains tusk task tool guidance."
+  local claude_md="$REPO_ROOT/CLAUDE.md"
+  local agents_md="$REPO_ROOT/AGENTS.md"
+  local target="" label=""
+  if [[ "$INSTALL_MODE" == "codex" ]]; then
+    if [[ -f "$agents_md" ]]; then target="$agents_md"; label="AGENTS.md"
+    elif [[ -f "$claude_md" ]]; then target="$claude_md"; label="CLAUDE.md"
+    else target="$agents_md"; label="AGENTS.md"
+    fi
+  else
+    if [[ -f "$claude_md" ]]; then target="$claude_md"; label="CLAUDE.md"
+    elif [[ -f "$agents_md" ]]; then target="$agents_md"; label="AGENTS.md"
+    else target="$claude_md"; label="CLAUDE.md"
+    fi
+  fi
+  if grep -qF "$sentinel" "$target" 2>/dev/null; then
+    echo "  $label already contains tusk task tool guidance."
     return
   fi
-  printf '\n%s\n## Tusk Task Lookup\n\n**Do NOT use Claude Code'\''s built-in `TaskList`, `TaskGet`, or `TaskUpdate` tools to look up or manage tasks.** Those tools manage background agent subprocesses, not tusk tasks.\n\nUse the tusk CLI instead:\n- `tusk task-list` — list tasks\n- `tusk task-get <id>` — get a task by ID (accepts `506` or `TASK-506`)\n- `tusk task-update <id>` — update a task\n' \
-    "$sentinel" >> "$claude_md"
-  echo "  Updated CLAUDE.md with tusk task tool guidance."
+  printf '\n%s\n## Tusk Task Lookup\n\n**Do NOT use your agent'\''s built-in `TaskList`, `TaskGet`, or `TaskUpdate` tools to look up or manage tasks.** Those tools manage background agent subprocesses, not tusk tasks.\n\nUse the tusk CLI instead:\n- `tusk task-list` — list tasks\n- `tusk task-get <id>` — get a task by ID (accepts `506` or `TASK-506`)\n- `tusk task-update <id>` — update a task\n' \
+    "$sentinel" >> "$target"
+  echo "  Updated $label with tusk task tool guidance."
 }
 
 cmd_init() {

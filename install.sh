@@ -1,18 +1,27 @@
 #!/usr/bin/env bash
 #
-# Install tusker into a Claude Code project.
+# Install tusker into a Claude Code or Codex project.
 #
 # Usage:
 #   cd /path/to/your/project
 #   /path/to/tusker/install.sh
 #
+# Agent-mode detection (auto):
+#   - .claude/ directory present → Claude Code mode; install to .claude/bin/,
+#     copy skills/hooks, and merge .claude/settings.json.
+#   - AGENTS.md present (and no .claude/) → Codex mode; install to tusk/bin/,
+#     skip skills/hooks/settings.json (no Codex equivalents).
+#   - Neither → error out with a helpful message.
+#
 # What it does:
-#   1. Copies bin/tusk + Python scripts → .claude/bin/
-#   2. Copies config, VERSION, pricing  → .claude/bin/
-#   3. Copies skills/*                  → .claude/skills/*
-#   4. Copies .claude/hooks/ scripts + merges hooks and permissions.allow into settings.json
-#   5. Runs tusk init + migrate
-#   6. Prints next steps
+#   1. Copies bin/tusk + Python scripts → <install_dir>/
+#   2. Copies config, VERSION, pricing  → <install_dir>/
+#   3. Claude mode only: copies skills/* → .claude/skills/*
+#   4. Claude mode only: copies .claude/hooks/ scripts + merges hooks
+#      and permissions.allow into .claude/settings.json
+#   5. Writes <install_dir>/install-mode marker so upgrades know which mode to apply
+#   6. Runs tusk init + migrate
+#   7. Prints next steps
 
 set -euo pipefail
 
@@ -26,19 +35,30 @@ fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
-# Must have Claude Code initialized
-if [[ ! -d "$REPO_ROOT/.claude" ]]; then
-  echo "Error: No .claude/ directory found. Initialize Claude Code first." >&2
+# ── Agent-mode detection ─────────────────────────────────────────────
+if [[ -d "$REPO_ROOT/.claude" ]]; then
+  INSTALL_MODE="claude"
+  AGENT_DIR=".claude"
+  INSTALL_DIR=".claude/bin"
+  MANIFEST_PATH=".claude/tusk-manifest.json"
+elif [[ -f "$REPO_ROOT/AGENTS.md" ]]; then
+  INSTALL_MODE="codex"
+  AGENT_DIR="tusk"
+  INSTALL_DIR="tusk/bin"
+  MANIFEST_PATH="tusk/tusk-manifest.json"
+else
+  echo "Error: No .claude/ directory or AGENTS.md found at $REPO_ROOT." >&2
+  echo "       Initialize Claude Code (creates .claude/) or Codex (creates AGENTS.md) first." >&2
   exit 1
 fi
 
-echo "Installing tusker into $REPO_ROOT"
+echo "Installing tusker into $REPO_ROOT (mode: $INSTALL_MODE, install dir: $INSTALL_DIR)"
 
 # ── 1. Copy bin + support files ──────────────────────────────────────
-mkdir -p "$REPO_ROOT/.claude/bin"
-cp "$SCRIPT_DIR/bin/tusk" "$REPO_ROOT/.claude/bin/tusk"
-chmod +x "$REPO_ROOT/.claude/bin/tusk"
-echo "  Installed .claude/bin/tusk"
+mkdir -p "$REPO_ROOT/$INSTALL_DIR"
+cp "$SCRIPT_DIR/bin/tusk" "$REPO_ROOT/$INSTALL_DIR/tusk"
+chmod +x "$REPO_ROOT/$INSTALL_DIR/tusk"
+echo "  Installed $INSTALL_DIR/tusk"
 
 # Scripts that are only meaningful in the tusk source repo — not distributed.
 # Canonical source: bin/dist-excluded.txt (also read by tusk-generate-manifest.py and tusk-lint.py).
@@ -51,51 +71,60 @@ for pyfile in "$SCRIPT_DIR"/bin/tusk-*.py; do
   if [[ " $TUSK_SKIP_SCRIPTS " == *" $basename_py "* ]]; then
     continue
   fi
-  cp "$pyfile" "$REPO_ROOT/.claude/bin/"
-  echo "  Installed .claude/bin/$basename_py"
+  cp "$pyfile" "$REPO_ROOT/$INSTALL_DIR/"
+  echo "  Installed $INSTALL_DIR/$basename_py"
 done
 
 # Record the baseline hash of tusk-lint.py so upgrades can detect true local modifications.
-python3 -c "import hashlib, pathlib; p = pathlib.Path('$REPO_ROOT/.claude/bin/tusk-lint.py'); pathlib.Path('$REPO_ROOT/.claude/bin/tusk-lint.py.hash').write_text(hashlib.md5(p.read_bytes()).hexdigest() + '\n')"
-echo "  Recorded .claude/bin/tusk-lint.py.hash"
+python3 -c "import hashlib, pathlib; p = pathlib.Path('$REPO_ROOT/$INSTALL_DIR/tusk-lint.py'); pathlib.Path('$REPO_ROOT/$INSTALL_DIR/tusk-lint.py.hash').write_text(hashlib.md5(p.read_bytes()).hexdigest() + '\n')"
+echo "  Recorded $INSTALL_DIR/tusk-lint.py.hash"
 
 # tusk_loader.py uses an underscore filename (importable without importlib) — copy explicitly.
-cp "$SCRIPT_DIR/bin/tusk_loader.py" "$REPO_ROOT/.claude/bin/tusk_loader.py"
-echo "  Installed .claude/bin/tusk_loader.py"
+cp "$SCRIPT_DIR/bin/tusk_loader.py" "$REPO_ROOT/$INSTALL_DIR/tusk_loader.py"
+echo "  Installed $INSTALL_DIR/tusk_loader.py"
 
 # ── 2. Copy config, VERSION ─────────────────────────────────────────
-cp "$SCRIPT_DIR/config.default.json" "$REPO_ROOT/.claude/bin/config.default.json"
-echo "  Installed .claude/bin/config.default.json"
+cp "$SCRIPT_DIR/config.default.json" "$REPO_ROOT/$INSTALL_DIR/config.default.json"
+echo "  Installed $INSTALL_DIR/config.default.json"
 
-cp "$SCRIPT_DIR/VERSION" "$REPO_ROOT/.claude/bin/VERSION"
-echo "  Installed .claude/bin/VERSION"
+cp "$SCRIPT_DIR/VERSION" "$REPO_ROOT/$INSTALL_DIR/VERSION"
+echo "  Installed $INSTALL_DIR/VERSION"
 
-cp "$SCRIPT_DIR/pricing.json" "$REPO_ROOT/.claude/bin/pricing.json"
-echo "  Installed .claude/bin/pricing.json"
+cp "$SCRIPT_DIR/pricing.json" "$REPO_ROOT/$INSTALL_DIR/pricing.json"
+echo "  Installed $INSTALL_DIR/pricing.json"
 
-# ── 3. Copy skills ───────────────────────────────────────────────────
-for skill_dir in "$SCRIPT_DIR"/skills/*/; do
-  skill_name="$(basename "$skill_dir")"
-  mkdir -p "$REPO_ROOT/.claude/skills/$skill_name"
-  cp "$skill_dir"* "$REPO_ROOT/.claude/skills/$skill_name/" 2>/dev/null || true
-  echo "  Installed skill: $skill_name"
-done
+# Stamp install-mode marker so tusk-upgrade.py can apply the right mode-specific logic.
+echo "$INSTALL_MODE" > "$REPO_ROOT/$INSTALL_DIR/install-mode"
+echo "  Stamped $INSTALL_DIR/install-mode ($INSTALL_MODE)"
 
-# ── 4. Copy hooks ──────────────────────────────────────────────────────
-mkdir -p "$REPO_ROOT/.claude/hooks"
+# ── 3. Copy skills (claude mode only) ────────────────────────────────
+if [[ "$INSTALL_MODE" == "claude" ]]; then
+  for skill_dir in "$SCRIPT_DIR"/skills/*/; do
+    skill_name="$(basename "$skill_dir")"
+    mkdir -p "$REPO_ROOT/.claude/skills/$skill_name"
+    cp "$skill_dir"* "$REPO_ROOT/.claude/skills/$skill_name/" 2>/dev/null || true
+    echo "  Installed skill: $skill_name"
+  done
+else
+  echo "  Skipping skills (Codex mode has no skills primitive)"
+fi
 
-# Copy all hook scripts from the tusk source repo
-for hookfile in "$SCRIPT_DIR"/.claude/hooks/*; do
-  [[ -f "$hookfile" ]] || continue
-  hookname="$(basename "$hookfile")"
-  cp "$hookfile" "$REPO_ROOT/.claude/hooks/$hookname"
-  chmod +x "$REPO_ROOT/.claude/hooks/$hookname"
-  echo "  Installed .claude/hooks/$hookname"
-done
+# ── 4. Copy hooks + merge settings (claude mode only) ────────────────
+if [[ "$INSTALL_MODE" == "claude" ]]; then
+  mkdir -p "$REPO_ROOT/.claude/hooks"
 
-# Override setup-path.sh for target projects — source version adds bin/ to PATH,
-# but installed projects need .claude/bin/ on PATH instead.
-cat > "$REPO_ROOT/.claude/hooks/setup-path.sh" << 'HOOKEOF'
+  # Copy all hook scripts from the tusk source repo
+  for hookfile in "$SCRIPT_DIR"/.claude/hooks/*; do
+    [[ -f "$hookfile" ]] || continue
+    hookname="$(basename "$hookfile")"
+    cp "$hookfile" "$REPO_ROOT/.claude/hooks/$hookname"
+    chmod +x "$REPO_ROOT/.claude/hooks/$hookname"
+    echo "  Installed .claude/hooks/$hookname"
+  done
+
+  # Override setup-path.sh for target projects — source version adds bin/ to PATH,
+  # but installed projects need .claude/bin/ on PATH instead.
+  cat > "$REPO_ROOT/.claude/hooks/setup-path.sh" << 'HOOKEOF'
 #!/bin/bash
 # Added by tusk install — puts .claude/bin on PATH for Claude Code sessions
 if [ -n "$CLAUDE_ENV_FILE" ]; then
@@ -104,10 +133,10 @@ if [ -n "$CLAUDE_ENV_FILE" ]; then
 fi
 exit 0
 HOOKEOF
-chmod +x "$REPO_ROOT/.claude/hooks/setup-path.sh"
+  chmod +x "$REPO_ROOT/.claude/hooks/setup-path.sh"
 
-# ── 4b. Merge hooks and permissions.allow into .claude/settings.json ─
-python3 -c "
+  # ── 4b. Merge hooks and permissions.allow into .claude/settings.json ─
+  python3 -c "
 import json, os
 
 source_settings_path = os.path.join('$SCRIPT_DIR', '.claude', 'settings.json')
@@ -190,6 +219,9 @@ with open(target_settings_path, 'w') as f:
     json.dump(target_settings, f, indent=2)
     f.write('\n')
 "
+else
+  echo "  Skipping hooks and settings.json merge (Codex mode has no hooks primitive)"
+fi
 
 # ── 4c. Write tusk-manifest.json ─────────────────────────────────────
 python3 -c "
@@ -197,6 +229,9 @@ import json, os, glob
 
 script_dir = '$SCRIPT_DIR'
 repo_root = '$REPO_ROOT'
+install_mode = '$INSTALL_MODE'
+install_dir = '$INSTALL_DIR'
+manifest_path_rel = '$MANIFEST_PATH'
 
 files = []
 
@@ -204,57 +239,76 @@ files = []
 with open(os.path.join(script_dir, 'bin', 'dist-excluded.txt'), encoding='utf-8') as _f:
     dist_excluded = {line.strip() for line in _f if line.strip()}
 
-files.append('.claude/bin/tusk')
+files.append(install_dir + '/tusk')
 for p in sorted(glob.glob(os.path.join(script_dir, 'bin', 'tusk-*.py'))):
     if os.path.basename(p) in dist_excluded:
         continue
-    files.append('.claude/bin/' + os.path.basename(p))
+    files.append(install_dir + '/' + os.path.basename(p))
 for name in ['config.default.json', 'VERSION', 'pricing.json']:
-    files.append('.claude/bin/' + name)
+    files.append(install_dir + '/' + name)
 
-for skill_dir in sorted(glob.glob(os.path.join(script_dir, 'skills', '*/'))):
-    skill_name = os.path.basename(skill_dir.rstrip('/'))
-    for fname in sorted(os.listdir(skill_dir)):
-        full = os.path.join(skill_dir, fname)
-        if os.path.isfile(full):
-            files.append('.claude/skills/' + skill_name + '/' + fname)
+# Skills/hooks only exist in claude mode
+if install_mode == 'claude':
+    for skill_dir in sorted(glob.glob(os.path.join(script_dir, 'skills', '*/'))):
+        skill_name = os.path.basename(skill_dir.rstrip('/'))
+        for fname in sorted(os.listdir(skill_dir)):
+            full = os.path.join(skill_dir, fname)
+            if os.path.isfile(full):
+                files.append('.claude/skills/' + skill_name + '/' + fname)
 
-hooks_src = os.path.join(script_dir, '.claude', 'hooks')
-for fname in sorted(os.listdir(hooks_src)):
-    full = os.path.join(hooks_src, fname)
-    if os.path.isfile(full):
-        files.append('.claude/hooks/' + fname)
+    hooks_src = os.path.join(script_dir, '.claude', 'hooks')
+    if os.path.isdir(hooks_src):
+        for fname in sorted(os.listdir(hooks_src)):
+            full = os.path.join(hooks_src, fname)
+            if os.path.isfile(full):
+                files.append('.claude/hooks/' + fname)
 
-manifest_path = os.path.join(repo_root, '.claude', 'tusk-manifest.json')
-with open(manifest_path, 'w') as f:
+manifest_full = os.path.join(repo_root, manifest_path_rel)
+os.makedirs(os.path.dirname(manifest_full), exist_ok=True)
+with open(manifest_full, 'w') as f:
     json.dump(files, f, indent=2)
     f.write('\n')
-print('  Wrote .claude/tusk-manifest.json (' + str(len(files)) + ' entries)')
+print('  Wrote ' + manifest_path_rel + ' (' + str(len(files)) + ' entries)')
 "
 
 # ── 5. Init database + migrate ───────────────────────────────────────
-TUSK="$REPO_ROOT/.claude/bin/tusk"
+TUSK="$REPO_ROOT/$INSTALL_DIR/tusk"
 "$TUSK" init
 "$TUSK" migrate
 
 # ── 6. Print next steps ───────────────────────────────────────────────
 echo ""
 echo "════════════════════════════════════════════════════════════════"
-echo "  Installation complete!"
+echo "  Installation complete! (mode: $INSTALL_MODE)"
 echo "════════════════════════════════════════════════════════════════"
 echo ""
-echo "Next steps:"
-echo ""
-echo "  1. Start a NEW Claude Code session (skills are discovered at startup,"
-echo "     so /tusk-init won't be available in the session that ran install.sh)"
-echo ""
-echo "  2. Run /tusk-init to configure your project interactively"
-echo "     (sets domains, agents, CLAUDE.md snippet, and seeds tasks from TODOs)"
-echo ""
-echo "  Or configure manually:"
-echo "     a. Edit tusk/config.json to set your project's domains and agents"
-echo "     b. Run: tusk init --force"
-echo "     c. Add the Task Queue snippet to your CLAUDE.md (see /tusk-init)"
+if [[ "$INSTALL_MODE" == "claude" ]]; then
+  echo "Next steps:"
+  echo ""
+  echo "  1. Start a NEW Claude Code session (skills are discovered at startup,"
+  echo "     so /tusk-init won't be available in the session that ran install.sh)"
+  echo ""
+  echo "  2. Run /tusk-init to configure your project interactively"
+  echo "     (sets domains, agents, CLAUDE.md snippet, and seeds tasks from TODOs)"
+  echo ""
+  echo "  Or configure manually:"
+  echo "     a. Edit tusk/config.json to set your project's domains and agents"
+  echo "     b. Run: tusk init --force"
+  echo "     c. Add the Task Queue snippet to your CLAUDE.md (see /tusk-init)"
+else
+  echo "Next steps (Codex mode):"
+  echo ""
+  echo "  1. Add $INSTALL_DIR to your PATH so 'tusk' is invocable:"
+  echo "       export PATH=\"$REPO_ROOT/$INSTALL_DIR:\$PATH\""
+  echo ""
+  echo "  2. Edit tusk/config.json to set your project's domains and agents."
+  echo ""
+  echo "  3. Tusk appended task-tool guidance to AGENTS.md (same block as CLAUDE.md"
+  echo "     in Claude mode). Review it so Codex knows to use the tusk CLI."
+  echo ""
+  echo "  Note: Claude-specific features (skills, hooks, settings.json) are not"
+  echo "  installed in Codex mode. See docs/CODEX.md for details."
+fi
 echo ""
 echo "════════════════════════════════════════════════════════════════"
 echo "  Found a bug? https://github.com/gioe/tusk/issues"
