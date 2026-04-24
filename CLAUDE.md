@@ -219,7 +219,7 @@ See `docs/SKILLS.md` for directory structure, frontmatter format, body guideline
 **Public skill** (distributed to target projects):
 1. Create `skills/<name>/SKILL.md` with frontmatter + instructions
 2. Run `tusk sync-skills` to create the `.claude/skills/<name>` symlink
-3. Add a one-line entry to the **Skills** list in `CLAUDE.md`
+3. Add a one-line entry to the **Skills** list in both `CLAUDE.md` and `AGENTS.md`
 4. Bump the `VERSION` file (see below)
 5. Commit, push, and PR
 
