@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [704] - 2026-04-24
+
+- [TASK-151] Guard tusk upgrade against running in the source repo
+
 ## [703] - 2026-04-24
 
 - [TASK-150] Extract shared find_task_commits helper across tusk-*.py scripts
