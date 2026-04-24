@@ -158,3 +158,60 @@ class TestCodexUpgradeEndToEnd:
             "registered": 0, "dedup_removed": 0, "permissions_added": 0,
         }
         assert summary["added_perms"] == []
+
+    def test_orphan_detection_uses_translated_manifest(
+        self, tmp_path, upgrade_mod, monkeypatch
+    ):
+        """Criterion 623: Orphan detection compares the old codex-shaped manifest
+        against a *translated* new manifest (claude-shaped tarball MANIFEST
+        rewritten for codex). A single orphan file listed in the old manifest
+        but absent from the translated new manifest is removed; files shared
+        between the two survive. Without translation, every prior codex path
+        would be reported as orphaned because none would match the raw
+        .claude/bin/ entries in the tarball MANIFEST — so orphan_count == 1
+        (not >1) is the signature that translation happened before comparison.
+        """
+        repo_root, script_dir = _make_codex_install(tmp_path)
+        src = _make_fake_src(tmp_path)
+        tmpdir = tmp_path / "scratch"
+        tmpdir.mkdir()
+        _stub_side_effects(monkeypatch, upgrade_mod)
+
+        orphan_rel = "tusk/bin/tusk-deprecated.py"
+        orphan_path = repo_root / orphan_rel
+        orphan_path.parent.mkdir(parents=True, exist_ok=True)
+        orphan_path.write_text("# dropped in v999\n")
+
+        old_manifest = repo_root / "tusk" / "tusk-manifest.json"
+        old_manifest.write_text(json.dumps([
+            "tusk/bin/tusk",
+            "tusk/bin/tusk-upgrade.py",
+            "tusk/bin/tusk-example.py",
+            "tusk/bin/tusk_loader.py",
+            "tusk/bin/config.default.json",
+            "tusk/bin/pricing.json",
+            "tusk/bin/VERSION",
+            orphan_rel,
+        ]))
+
+        summary = upgrade_mod._run_upgrade_steps(
+            str(src), str(repo_root), str(script_dir), str(tmpdir)
+        )
+
+        assert summary["orphan_count"] == 1, (
+            f"Expected exactly one orphan after translated-manifest comparison "
+            f"(got {summary['orphan_count']}). >1 means translation didn't happen "
+            f"and every prior codex path was flagged as an orphan."
+        )
+        assert not orphan_path.exists(), (
+            "Orphan file should have been deleted by remove_orphans()"
+        )
+        assert (script_dir / "tusk").exists(), (
+            "Files shared between old and translated new manifest must survive"
+        )
+
+        manifest_path = repo_root / "tusk" / "tusk-manifest.json"
+        updated_entries = json.loads(manifest_path.read_text())
+        assert orphan_rel not in updated_entries, (
+            "Post-upgrade manifest should no longer reference the removed orphan"
+        )
