@@ -49,6 +49,7 @@ _git_helpers = tusk_loader.load("tusk-git-helpers")
 _is_remote_unreachable = _git_helpers._is_remote_unreachable
 _UNREACHABLE_REMOTE_PATTERNS = _git_helpers._UNREACHABLE_REMOTE_PATTERNS
 _UNREACHABLE_REMOTE_REGEX = _git_helpers._UNREACHABLE_REMOTE_REGEX
+task_grep_arg = _git_helpers.task_grep_arg
 
 
 def run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
@@ -757,7 +758,7 @@ def main(argv: list[str]) -> int:
         # (empty result), the task's changes must already be on the default branch.
         _log_check = run(
             ["git", "log", branch_name, "--not", default_branch, "--oneline",
-             f"--grep=\\[TASK-{task_id}\\]"],
+             task_grep_arg(task_id)],
             check=False,
         )
         task_on_default = (

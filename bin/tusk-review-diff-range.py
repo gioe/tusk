@@ -44,10 +44,12 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader
+import tusk_loader  # loads tusk-json-lib.py, tusk-git-helpers.py
 
 _json_lib = tusk_loader.load("tusk-json-lib")
+_git_helpers = tusk_loader.load("tusk-git-helpers")
 dumps = _json_lib.dumps
+task_grep_arg = _git_helpers.task_grep_arg
 
 SUMMARY_CHARS = 120
 TASK_COMMIT_LIMIT = 50
@@ -104,7 +106,7 @@ def compute_range(task_id: int, repo_root: str) -> dict:
         [
             "log",
             "--format=%H",
-            f"--grep=\\[TASK-{task_id}\\]",
+            task_grep_arg(task_id),
             "-n",
             str(TASK_COMMIT_LIMIT),
         ],

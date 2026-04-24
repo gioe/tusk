@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [703] - 2026-04-24
+
+- [TASK-150] Extract shared find_task_commits helper across tusk-*.py scripts
+
 ## [702] - 2026-04-24
 
 - [retro-patch] /address-issue Step 4.1: clarify that the failing-test sandbox strips PATH, so specs calling project tools (`tusk`, `pytest`, etc.) exit 127 and are discarded — Step 4.1 only validates shell-safety, not regression behavior. /address-issue Step 4.6: recommend invoking the affected code path directly during the reproducibility check rather than only grepping for static markers (would have caught the `[TASK-N]` regex bug from issue #534 instantly). /tusk Step 2: tighten the `commits_found` bullet to "non-default branch only" for symmetry with the new `merged_not_closed` recommendation added in TASK-149.
