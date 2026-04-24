@@ -298,8 +298,14 @@ if [[ "$INSTALL_MODE" == "claude" ]]; then
 else
   echo "Next steps (Codex mode):"
   echo ""
-  echo "  1. Add $INSTALL_DIR to your PATH so 'tusk' is invocable:"
-  echo "       export PATH=\"$REPO_ROOT/$INSTALL_DIR:\$PATH\""
+  if command -v direnv >/dev/null 2>&1 && [[ ! -e "$REPO_ROOT/.envrc" ]]; then
+    echo "PATH_add tusk/bin" > "$REPO_ROOT/.envrc"
+    echo "  1. Wrote .envrc with 'PATH_add tusk/bin'. Run 'direnv allow' so 'tusk' is invocable:"
+    echo "       direnv allow"
+  else
+    echo "  1. Add $INSTALL_DIR to your PATH so 'tusk' is invocable:"
+    echo "       export PATH=\"$REPO_ROOT/$INSTALL_DIR:\$PATH\""
+  fi
   echo ""
   echo "  2. Edit tusk/config.json to set your project's domains and agents."
   echo ""

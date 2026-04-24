@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [705] - 2026-04-24
+
+- [TASK-158] install.sh in Codex mode auto-writes a `.envrc` with `PATH_add tusk/bin` when direnv is present and no `.envrc` exists, prompting the user to run `direnv allow`. Falls back to the existing manual `export PATH=…` reminder when direnv is absent or an `.envrc` already exists.
+
 ## [704] - 2026-04-24
 
 - [TASK-151] Guard tusk upgrade against running in the source repo
