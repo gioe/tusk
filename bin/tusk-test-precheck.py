@@ -36,6 +36,7 @@ Exit codes:
 """
 
 import argparse
+import fnmatch
 import json
 import os
 import subprocess
@@ -83,20 +84,86 @@ def find_stash_ref_by_message(repo_root: str, message: str) -> str:
     return ""
 
 
+def _match_path_test_command(patterns: dict, paths) -> str:
+    """Return the first path_test_commands entry whose pattern matches every path.
+
+    Mirrors ``match_path_test_command`` in ``tusk-commit.py`` so that the
+    precheck flow picks the same subtree-scoped command when the caller has
+    already told us (via --paths, or we detect via ``git diff --name-only HEAD``)
+    which paths the uncommitted work touches.
+    """
+    if not patterns or not paths:
+        return ""
+    normalized = [p.replace(os.sep, "/") for p in paths]
+    for pattern, cmd in patterns.items():
+        if not cmd or not isinstance(cmd, str):
+            continue
+        if all(fnmatch.fnmatchcase(p, pattern) for p in normalized):
+            return cmd
+    return ""
+
+
+def _detect_changed_paths(repo_root: str) -> list:
+    """Return repo-root-relative paths of changed + untracked files (best-effort).
+
+    Used when the caller hasn't passed --paths explicitly.  A failure to list
+    paths downgrades path_test_commands to "no match" — the resolver then
+    falls through to config["test_command"] / tusk test-detect, matching the
+    pre-existing behavior.
+    """
+    paths: list = []
+    diff = _run(["git", "diff", "--name-only", "HEAD"], cwd=repo_root)
+    if diff.returncode == 0 and diff.stdout:
+        paths.extend(p for p in diff.stdout.splitlines() if p)
+    untracked = _run(
+        ["git", "ls-files", "--others", "--exclude-standard"], cwd=repo_root,
+    )
+    if untracked.returncode == 0 and untracked.stdout:
+        paths.extend(p for p in untracked.stdout.splitlines() if p)
+    # Preserve order while de-duplicating (paths may appear in both listings).
+    seen = set()
+    deduped = []
+    for p in paths:
+        if p not in seen:
+            seen.add(p)
+            deduped.append(p)
+    return deduped
+
+
 def resolve_test_command(explicit: str, config_path: str, repo_root: str,
-                         script_dir: str) -> str:
-    """Resolve the test command via --command > config["test_command"] > tusk test-detect."""
+                         script_dir: str, paths=None) -> str:
+    """Resolve the test command.
+
+    Resolution order:
+      1. ``--command <cmd>`` (explicit override).
+      2. ``path_test_commands`` — first pattern where every path in ``paths``
+         matches.  When ``paths`` is None, we auto-detect from
+         ``git diff --name-only HEAD`` + untracked files so the precheck flow
+         lines up with the commit-time resolver without callers needing to
+         replay the path list.
+      3. ``config["test_command"]`` (global).
+      4. ``tusk test-detect`` when confidence is not "none".
+    """
     if explicit:
         return explicit
 
+    cfg = None
     try:
         with open(config_path) as f:
             cfg = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        cfg = None
+
+    if cfg is not None:
+        path_patterns = cfg.get("path_test_commands") or {}
+        if path_patterns:
+            effective_paths = paths if paths is not None else _detect_changed_paths(repo_root)
+            cmd = _match_path_test_command(path_patterns, effective_paths)
+            if cmd:
+                return cmd
         cmd = cfg.get("test_command") or ""
         if cmd:
             return cmd
-    except (OSError, json.JSONDecodeError):
-        pass
 
     tusk_bin = os.path.join(script_dir, "tusk")
     if os.path.isfile(tusk_bin) and os.access(tusk_bin, os.X_OK):
@@ -147,6 +214,15 @@ def main(argv):
         default="",
         help="Explicit test command (overrides config test_command / tusk test-detect).",
     )
+    parser.add_argument(
+        "--paths",
+        nargs="+",
+        default=None,
+        help=(
+            "Repo-root-relative paths used to resolve path_test_commands. "
+            "When omitted, precheck auto-detects changed + untracked paths from git."
+        ),
+    )
     args = parser.parse_args(argv[2:])
 
     repo_root = argv[0]
@@ -158,6 +234,7 @@ def main(argv):
         config_path=config_path,
         repo_root=repo_root,
         script_dir=script_dir,
+        paths=args.paths,
     )
     if not test_command:
         print(
