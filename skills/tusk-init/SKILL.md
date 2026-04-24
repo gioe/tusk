@@ -271,16 +271,18 @@ Store the confirmed value (empty string if skipped) for Step 6.
 
 Call `tusk init-write-config` with the values confirmed in the previous steps. This command reads the existing config, merges only the keys you provide (carrying forward everything else), backs up the config, writes the new file, runs `tusk init --force`, and restores the backup on failure — all atomically.
 
-Example call using values confirmed in Steps 3–5 (domains `["api","frontend"]`, agents `{"backend":{"model":"sonnet"}}`, task types `["bug","feature","docs"]`, test command `pytest`, project type `python_service`):
+Example call using values confirmed in Steps 3–5 (domains `["api","frontend"]`, agents `{"backend":"APIs and database work"}`, task types `["bug","feature","docs"]`, test command `pytest`, project type `python_service`):
 
 ```bash
 tusk init-write-config \
   --domains '["api","frontend"]' \
-  --agents '{"backend":{"model":"sonnet"}}' \
+  --agents '{"backend":"APIs and database work"}' \
   --task-types '["bug","feature","docs"]' \
   --test-command 'pytest' \
   --project-type 'python_service'
 ```
+
+> **Agents value shape:** the config validator requires `agents` to be a JSON object mapping agent name → **description string**, not name → dict. Passing `{"backend":{"model":"sonnet"}}` will fail validation with `"agents.backend" value must be a string (got dict: ...)`.
 
 Pass only the flags for values the user explicitly confirmed; keys not passed are carried forward from the existing config unchanged. To clear `test_command`, pass `--test-command ''`. To set `project_type` to null, pass `--project-type ''`.
 
