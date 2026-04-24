@@ -405,6 +405,12 @@ cmd_init() {
 
   mkdir -p "$DB_DIR"
 
+  # Decide whether we're recreating an existing DB, but defer the destructive
+  # cp/rm until every preflight step (config copy, gitignore/CLAUDE.md update,
+  # validate_config) has succeeded — otherwise a preflight failure after `rm`
+  # would leave the live DB gone with no automatic restore from the backup
+  # (issue #533).
+  local recreate=0
   if [[ -f "$DB_PATH" ]]; then
     echo "Database already exists at $DB_PATH"
     echo "Use 'tusk init --force' to recreate (existing data will be lost)."
@@ -421,9 +427,7 @@ cmd_init() {
           ;;
       esac
     fi
-    echo "Recreating database..."
-    cp "$DB_PATH" "${DB_PATH}.bak.$(date +%s)"
-    rm "$DB_PATH"
+    recreate=1
   fi
 
   # Copy default config if no project config exists
@@ -442,6 +446,13 @@ cmd_init() {
 
   # Validate config before proceeding
   validate_config
+
+  # All preflight passed — safe to back up and remove the live DB now.
+  if [[ $recreate -eq 1 ]]; then
+    echo "Recreating database..."
+    cp "$DB_PATH" "${DB_PATH}.bak.$(date +%s)"
+    rm "$DB_PATH"
+  fi
 
   # Base schema
   sqlite3 "$DB_PATH" <<'SCHEMA'
