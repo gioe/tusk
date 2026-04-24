@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [702] - 2026-04-24
+
+- [retro-patch] /address-issue Step 4.1: clarify that the failing-test sandbox strips PATH, so specs calling project tools (`tusk`, `pytest`, etc.) exit 127 and are discarded — Step 4.1 only validates shell-safety, not regression behavior. /address-issue Step 4.6: recommend invoking the affected code path directly during the reproducibility check rather than only grepping for static markers (would have caught the `[TASK-N]` regex bug from issue #534 instantly). /tusk Step 2: tighten the `commits_found` bullet to "non-default branch only" for symmetry with the new `merged_not_closed` recommendation added in TASK-149.
+
 ## [701] - 2026-04-24
 
 - [TASK-149] Fix `tusk check-deliverables` returning `implement_fresh` for tasks whose work is already merged to the default branch (issue #534). Root cause: `check_commits` passed `--grep=[TASK-<id>]` without escaping the brackets, which git parses as a POSIX BRE character class with the reversed range `K-1` (K=75, 1=49) — git rejects it with `invalid character range`, emptying the result for *every* task ID. The user-visible symptom was the orphaned-task case (task DB still open, work already on `main` via manual or PR-based merge), where the fallback returned `implement_fresh` and instructed `/tusk` to reimplement shipped work. Fix escapes the brackets in a new `_find_commits` helper, adds `_default_branch` (mirrors `cmd_git_default_branch` in `bin/tusk`: `symbolic-ref` → `gh` fallback → `main`), and introduces a `merged_not_closed` recommendation that routes the caller straight to finalize. `default_branch_commits` is added to the output JSON so the `/tusk` skill can surface which SHAs ship the work. The `/tusk` Step 2 dispatch grows a fourth bullet documenting the new recommendation. New `TestMergedNotClosed` tests pin the positive (commit on default → `merged_not_closed`) and negative (commit on feature branch only → `commits_found`) paths against a real git repo with `refs/remotes/origin/HEAD` pinned for deterministic default-branch resolution.

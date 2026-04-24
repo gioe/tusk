@@ -73,7 +73,7 @@ Scan the issue body for a `## Failing Test` section. If present:
 
    **a. Display the spec and request approval:**
 
-   > The issue body's `## Failing Test` section contains this spec. If approved, it will be executed in a sandbox to check whether it demonstrates a real regression.
+   > The issue body's `## Failing Test` section contains this spec. If approved, it runs in an isolated sandbox (`env -i`, `PATH=/usr/bin:/bin`, no `.git` parent) — project tools like `tusk`, `pytest`, and any project-installed binary are off PATH and will exit 127, which Step 4.1 treats as a command error and discards the spec. Step 4.1 only checks that the spec is a *runnable, shell-safe command*; the authoritative "does it actually fail on the current code" check happens later via `tusk criteria done`.
    > ```
    > <test_spec>
    > ```
@@ -136,7 +136,7 @@ Treat any non-`yes` response as skip. On **yes**:
 
 **Run this step only when `task_type = bug`.** Skip for all other task types.
 
-Before presenting the proposal, quickly scan the codebase to confirm the bug is still present. Use at most 3 tool calls (Grep, Read, or Bash read-only). If you find clear evidence the bug is already fixed (e.g., the code path described in the issue no longer exists or has been corrected), surface this before proceeding:
+Before presenting the proposal, quickly scan the codebase to confirm the bug is still present. Use at most 3 tool calls (Grep, Read, or Bash read-only). **Prefer invoking the affected code path directly** (e.g. running the actual command with a known input) over grepping for static markers — a live invocation surfaces regex bugs, off-by-one errors, and silent failures that grep-and-read miss. If you find clear evidence the bug is already fixed (e.g., the code path described in the issue no longer exists or has been corrected), surface this before proceeding:
 
 > **Reproducibility note:** The issue may already be fixed — [brief explanation]. Do you still want to create a task?
 
