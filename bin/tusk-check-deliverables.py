@@ -105,7 +105,7 @@ def _default_branch(repo_root: str) -> str:
         cwd=repo_root,
     )
     if result.returncode == 0 and result.stdout.strip():
-        return result.stdout.strip().rsplit("/", 1)[-1]
+        return result.stdout.strip().removeprefix("refs/remotes/origin/")
     result = subprocess.run(
         ["gh", "repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"],
         capture_output=True,
