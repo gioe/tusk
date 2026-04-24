@@ -45,6 +45,83 @@ select_top_ready_task = _rank_lib.select_top_ready_task
 empty_backlog_message = _rank_lib.empty_backlog_message
 
 
+# Content-word overlap threshold below which a prior progress.next_steps is
+# considered stale relative to the current task summary/description. Tuned so
+# typo fixes, rewording, and normal in-progress notes stay quiet; full scope
+# rewrites trip the warning. See tests in test_task_start_stale_progress.py.
+_STALE_PROGRESS_OVERLAP_THRESHOLD = 0.15
+_STALE_PROGRESS_MIN_TOKENS = 8
+
+_STALE_PROGRESS_STOPWORDS = frozenset({
+    "a", "all", "also", "an", "and", "any", "are", "as", "at", "be", "been",
+    "but", "by", "can", "could", "do", "does", "doing", "done", "for", "from",
+    "had", "has", "have", "he", "her", "here", "his", "how", "if", "in", "into",
+    "is", "it", "its", "just", "like", "may", "might", "most", "much", "no",
+    "not", "now", "of", "on", "one", "only", "or", "our", "over", "same", "she",
+    "so", "some", "still", "such", "than", "that", "the", "their", "them",
+    "then", "there", "these", "they", "this", "those", "to", "too", "two",
+    "up", "us", "very", "was", "we", "were", "what", "when", "which", "while",
+    "who", "why", "will", "with", "you", "your",
+})
+
+
+def _stem_token(word: str) -> str:
+    """Crude suffix stripping so "cache"/"caching" and "typo"/"typos" collide."""
+    for suffix in ("ing", "ied", "ies", "ed", "es", "s"):
+        if word.endswith(suffix) and len(word) - len(suffix) >= 4:
+            return word[: -len(suffix)]
+    return word
+
+
+def _extract_content_tokens(text: str) -> set[str]:
+    """Return the set of stemmed, lowercased content tokens in `text`.
+
+    Strips stopwords, short tokens, and punctuation. Intended for rough
+    vocabulary-overlap comparison — not a real NLP stemmer.
+    """
+    if not text:
+        return set()
+    raw = re.findall(r"[A-Za-z][A-Za-z0-9_]{2,}", text.lower())
+    return {
+        _stem_token(tok)
+        for tok in raw
+        if len(tok) >= 3 and tok not in _STALE_PROGRESS_STOPWORDS
+    }
+
+
+def _progress_next_steps_is_stale(next_steps: str, current_text: str) -> bool:
+    """True when `next_steps` shares too little vocabulary with `current_text`.
+
+    Returns False when next_steps is too short to judge, or when current_text
+    has no content tokens at all.
+    """
+    next_tokens = _extract_content_tokens(next_steps)
+    if len(next_tokens) < _STALE_PROGRESS_MIN_TOKENS:
+        return False
+    current_tokens = _extract_content_tokens(current_text)
+    if not current_tokens:
+        return False
+    overlap = len(next_tokens & current_tokens)
+    return (overlap / len(next_tokens)) < _STALE_PROGRESS_OVERLAP_THRESHOLD
+
+
+def _find_stale_progress_row(progress_rows: list, current_text: str):
+    """Return the most recent progress row whose next_steps looks stale, or None.
+
+    `progress_rows` is assumed ordered DESC by created_at (as task-start does).
+    Only the newest non-empty next_steps is evaluated — older entries are
+    superseded by design and not worth warning about separately.
+    """
+    for row in progress_rows:
+        next_steps = row["next_steps"]
+        if not next_steps or not next_steps.strip():
+            continue
+        if _progress_next_steps_is_stale(next_steps, current_text):
+            return row
+        return None
+    return None
+
+
 def _register_active_project() -> None:
     """Append the active REPO_ROOT to the active-projects registry.
 
@@ -267,6 +344,24 @@ def main(argv: list[str]) -> int:
                 print("Warning: selected task references unfinished prerequisite tasks:", file=sys.stderr)
                 for wr in warn_rows:
                     print(f"  TASK-{wr['id']}: {wr['summary']}", file=sys.stderr)
+
+        # Warn when the most recent progress.next_steps shares too little
+        # vocabulary with the current summary/description — signals the task
+        # was rewritten after prior checkpoints were written, making those
+        # notes misleading handoff context.
+        stale_row = _find_stale_progress_row(progress_list, text)
+        if stale_row is not None:
+            preview = " ".join((stale_row["next_steps"] or "").split())
+            if len(preview) > 160:
+                preview = preview[:157] + "..."
+            print(
+                f"Warning: prior progress for task {task_id} may be stale — "
+                f"latest next_steps (from {stale_row['created_at']}) does not "
+                f"substantially reference the current summary/description. "
+                f"Treat as context, not authoritative handoff.",
+                file=sys.stderr,
+            )
+            print(f"  next_steps: {preview}", file=sys.stderr)
 
         deliverable_check_needed = any(c["is_completed"] for c in criteria_list)
 
