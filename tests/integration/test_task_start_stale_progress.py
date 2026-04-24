@@ -256,10 +256,13 @@ class TestStaleProgressHelpers:
 
     def test_stem_collapses_common_suffixes(self):
         """Stem-based tokenization collapses caching/cache and typo/typos so
-        small edits (pluralization, gerund form) stay quiet."""
+        small edits (pluralization, gerund form, trailing 'e') stay quiet."""
         tokens = tusk_task_start._extract_content_tokens(
             "caching cache typo typos implementing implemented"
         )
         assert "cach" in tokens
         assert "typo" in tokens
         assert "implement" in tokens
+        # Both cache and caching must collapse to the same stem so typical
+        # noun↔gerund rewording of the same feature stays below the threshold.
+        assert tusk_task_start._stem_token("cache") == tusk_task_start._stem_token("caching")

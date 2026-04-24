@@ -66,10 +66,17 @@ _STALE_PROGRESS_STOPWORDS = frozenset({
 
 
 def _stem_token(word: str) -> str:
-    """Crude suffix stripping so "cache"/"caching" and "typo"/"typos" collide."""
+    """Crude suffix stripping so "cache"/"caching" and "typo"/"typos" collide.
+
+    Strips a plural/verb-form suffix when present, otherwise strips a bare
+    trailing "e" (so "cache" matches "caching" → "cach"). Guarded on length 4
+    to avoid over-stemming short tokens.
+    """
     for suffix in ("ing", "ied", "ies", "ed", "es", "s"):
         if word.endswith(suffix) and len(word) - len(suffix) >= 4:
             return word[: -len(suffix)]
+    if word.endswith("e") and len(word) >= 5:
+        return word[:-1]
     return word
 
 
