@@ -28,6 +28,7 @@ def _load(name: str, filename: str):
 
 commit_mod = _load("tusk_commit", "tusk-commit.py")
 precheck_mod = _load("tusk_test_precheck", "tusk-test-precheck.py")
+config_tools_mod = _load("tusk_config_tools", "tusk-config-tools.py")
 
 
 def _write_config(tmp_path, data: dict) -> str:
@@ -167,6 +168,103 @@ class TestLoadTestCommandPriority:
 # ---------------------------------------------------------------------------
 # precheck resolve_test_command path priority
 # ---------------------------------------------------------------------------
+
+
+class TestAbsolutePathNormalization:
+    """Regression: absolute path inputs must still match repo-relative patterns.
+
+    ``tusk-commit.py`` stores absolute paths unchanged in ``resolved_files``
+    when the user passes absolute file paths to ``tusk commit`` (see the
+    ``isabs`` branch in ``_run_commit``). Without normalization fnmatch would
+    not match ``apps/scraper/*`` against
+    ``/Users/foo/repo/apps/scraper/bar.py`` and path_test_commands would
+    silently fall through.
+    """
+
+    def test_commit_matcher_normalizes_absolute_paths(self):
+        patterns = {"apps/scraper/*": "pytest scraper"}
+        repo_root = "/Users/foo/repo"
+        abs_path = "/Users/foo/repo/apps/scraper/bar.py"
+        assert commit_mod.match_path_test_command(patterns, [abs_path], repo_root) == "pytest scraper"
+
+    def test_commit_matcher_handles_mixed_abs_and_rel_paths(self):
+        patterns = {"apps/scraper/*": "pytest scraper"}
+        repo_root = "/Users/foo/repo"
+        paths = ["/Users/foo/repo/apps/scraper/a.py", "apps/scraper/b.py"]
+        assert commit_mod.match_path_test_command(patterns, paths, repo_root) == "pytest scraper"
+
+    def test_load_test_command_threads_repo_root(self, tmp_path):
+        config = _write_config(tmp_path, {
+            "test_command": "pytest tests/",
+            "path_test_commands": {"apps/scraper/*": "pytest scraper"},
+        })
+        abs_path = f"{tmp_path}/apps/scraper/foo.py"
+        cmd = commit_mod.load_test_command(
+            config, domain="", paths=[abs_path], repo_root=str(tmp_path),
+        )
+        assert cmd == "pytest scraper"
+
+    def test_precheck_matcher_normalizes_absolute_paths(self):
+        patterns = {"apps/scraper/*": "pytest scraper"}
+        repo_root = "/Users/foo/repo"
+        abs_path = "/Users/foo/repo/apps/scraper/bar.py"
+        assert precheck_mod._match_path_test_command(patterns, [abs_path], repo_root) == "pytest scraper"
+
+
+class TestConfigValidatorPathTestCommands:
+    """Validator coverage for the path_test_commands shape.
+
+    Mirrors the validator logic in ``bin/tusk-config-tools.py``. Exercises
+    the ``cmd_validate`` entry point so a future refactor that drops one of
+    the inline checks fails loudly.
+    """
+
+    def _run_validate(self, tmp_path, cfg: dict) -> int:
+        p = tmp_path / "config.json"
+        p.write_text(json.dumps({
+            "statuses": ["To Do", "Done"],
+            "priorities": ["High", "Medium", "Low"],
+            "closed_reasons": ["completed", "expired"],
+            **cfg,
+        }))
+        return config_tools_mod.cmd_validate(str(p))
+
+    def test_rejects_non_object(self, tmp_path, capsys):
+        rc = self._run_validate(tmp_path, {"path_test_commands": ["not", "an", "object"]})
+        err = capsys.readouterr().err
+        assert rc == 1
+        assert 'path_test_commands" must be an object' in err
+
+    def test_rejects_string(self, tmp_path, capsys):
+        rc = self._run_validate(tmp_path, {"path_test_commands": "not an object"})
+        err = capsys.readouterr().err
+        assert rc == 1
+        assert 'path_test_commands" must be an object' in err
+
+    def test_rejects_empty_string_key(self, tmp_path, capsys):
+        rc = self._run_validate(tmp_path, {"path_test_commands": {"": "pytest all"}})
+        err = capsys.readouterr().err
+        assert rc == 1
+        assert "keys must be non-empty strings" in err
+
+    def test_rejects_non_string_value(self, tmp_path, capsys):
+        rc = self._run_validate(tmp_path, {"path_test_commands": {"*": 42}})
+        err = capsys.readouterr().err
+        assert rc == 1
+        assert 'path_test_commands.*" value must be a string' in err
+
+    def test_accepts_valid_shape(self, tmp_path):
+        rc = self._run_validate(tmp_path, {
+            "path_test_commands": {
+                "apps/scraper/*": "pytest scraper",
+                "*": "pytest all",
+            },
+        })
+        assert rc == 0
+
+    def test_accepts_empty_object(self, tmp_path):
+        rc = self._run_validate(tmp_path, {"path_test_commands": {}})
+        assert rc == 0
 
 
 class TestPrecheckResolveTestCommand:

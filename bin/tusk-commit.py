@@ -184,22 +184,52 @@ def load_task_domain(tusk_bin: str, task_id: int) -> str:
         return ""
 
 
-def match_path_test_command(patterns: dict, paths) -> str:
+def _normalize_path_for_match(path: str, repo_root: str = "") -> str:
+    """Return ``path`` as a forward-slash, repo-root-relative string.
+
+    Patterns in path_test_commands are authored as repo-root-relative globs
+    (``apps/scraper/*``), but callers sometimes pass absolute paths to
+    ``tusk commit`` — the commit path-resolution branch at lines 473-479
+    stores those absolute paths in ``resolved_files`` unchanged.  Without
+    this normalization an input like ``/Users/.../repo/apps/scraper/foo.py``
+    would never match ``apps/scraper/*`` and path_test_commands would
+    silently fall through to domain_test_commands / test_command.
+    """
+    p = path.replace(os.sep, "/")
+    if repo_root and os.path.isabs(path):
+        root = repo_root.replace(os.sep, "/").rstrip("/") + "/"
+        if sys.platform == "darwin":
+            if p.lower().startswith(root.lower()):
+                p = p[len(root):]
+        else:
+            if p.startswith(root):
+                p = p[len(root):]
+    return p
+
+
+def match_path_test_command(patterns: dict, paths, repo_root: str = "") -> str:
     """Return the first path_test_commands entry whose pattern matches every path.
 
     Iterates patterns in insertion order (Python dicts preserve this since 3.7)
     and picks the first key whose fnmatch pattern matches *every* repo-root-
-    relative path in ``paths``.  When staged changes span multiple subtrees and
-    no single pattern covers them all, returns "" so the caller falls through
-    to domain_test_commands / test_command.  Users encode a catch-all with
+    relative path in ``paths``.  Absolute paths are converted to repo-root-
+    relative form using ``repo_root`` before matching so callers can pass
+    whatever ``resolved_files`` yielded (mix of absolute + relative entries).
+    When staged changes span multiple subtrees and no single pattern covers
+    them all, returns "" so the caller falls through to domain_test_commands
+    / test_command.  Users encode a catch-all with
     ``"*": "<project-wide command>"`` at the end of the map.
+
+    An empty-string command value disables that pattern — resolution falls
+    through to the next entry as if the pattern were absent.  (This is the
+    same idiom supported for domain_test_commands.)
 
     fnmatch's ``*`` matches across path separators, so ``apps/scraper/**`` and
     ``apps/scraper/*`` both match ``apps/scraper/foo/bar.py``.
     """
     if not patterns or not paths:
         return ""
-    normalized = [p.replace(os.sep, "/") for p in paths]
+    normalized = [_normalize_path_for_match(p, repo_root) for p in paths]
     for pattern, cmd in patterns.items():
         if not cmd or not isinstance(cmd, str):
             continue
@@ -208,12 +238,15 @@ def match_path_test_command(patterns: dict, paths) -> str:
     return ""
 
 
-def load_test_command(config_path: str, domain: str = "", paths=None) -> str:
+def load_test_command(config_path: str, domain: str = "", paths=None,
+                      repo_root: str = "") -> str:
     """Load the effective test command from config.
 
     Resolution order:
       1. path_test_commands — first pattern where *every* path in ``paths``
-         matches (see match_path_test_command for semantics).
+         matches (see match_path_test_command for semantics).  ``repo_root``
+         lets the matcher normalize absolute paths to repo-root-relative
+         form before matching.
       2. domain_test_commands[domain] — when the task has a domain and a
          matching entry exists.
       3. Global test_command.
@@ -224,7 +257,9 @@ def load_test_command(config_path: str, domain: str = "", paths=None) -> str:
         with open(config_path) as f:
             config = json.load(f)
         if paths:
-            cmd = match_path_test_command(config.get("path_test_commands", {}) or {}, paths)
+            cmd = match_path_test_command(
+                config.get("path_test_commands", {}) or {}, paths, repo_root,
+            )
             if cmd:
                 return cmd
         if domain:
@@ -679,7 +714,9 @@ def _run_commit(argv: list[str], state: dict) -> int:
             task_domain = load_task_domain(tusk_bin, task_id)
     except Exception:
         pass
-    test_cmd = load_test_command(config_path, task_domain, resolved_files)
+    test_cmd = load_test_command(
+        config_path, task_domain, resolved_files, repo_root=real_repo_root,
+    )
     if test_cmd and not skip_verify:
         timeout_sec, timeout_source = load_test_command_timeout(config_path)
         # Only announce the command up-front in verbose mode.  In quiet mode

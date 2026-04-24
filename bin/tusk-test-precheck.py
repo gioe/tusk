@@ -84,17 +84,42 @@ def find_stash_ref_by_message(repo_root: str, message: str) -> str:
     return ""
 
 
-def _match_path_test_command(patterns: dict, paths) -> str:
+def _normalize_path_for_match(path: str, repo_root: str) -> str:
+    """Return ``path`` as a forward-slash, repo-root-relative string.
+
+    Patterns in path_test_commands are authored as repo-root-relative globs
+    (``apps/scraper/*``), but callers may pass absolute paths via --paths or
+    ``git diff --name-only`` output.  Without normalization an absolute input
+    like ``/Users/.../repo/apps/scraper/foo.py`` would never match
+    ``apps/scraper/*``.
+    """
+    p = path.replace(os.sep, "/")
+    if repo_root and os.path.isabs(path):
+        root = repo_root.replace(os.sep, "/").rstrip("/") + "/"
+        if sys.platform == "darwin":
+            if p.lower().startswith(root.lower()):
+                p = p[len(root):]
+        else:
+            if p.startswith(root):
+                p = p[len(root):]
+    return p
+
+
+def _match_path_test_command(patterns: dict, paths, repo_root: str = "") -> str:
     """Return the first path_test_commands entry whose pattern matches every path.
 
     Mirrors ``match_path_test_command`` in ``tusk-commit.py`` so that the
     precheck flow picks the same subtree-scoped command when the caller has
     already told us (via --paths, or we detect via ``git diff --name-only HEAD``)
-    which paths the uncommitted work touches.
+    which paths the uncommitted work touches.  Absolute paths are normalized
+    to repo-root-relative form via ``_normalize_path_for_match`` before
+    matching so callers can pass whatever form ``--paths`` received.  An
+    empty-string command value disables that pattern — resolution falls
+    through to the next entry.
     """
     if not patterns or not paths:
         return ""
-    normalized = [p.replace(os.sep, "/") for p in paths]
+    normalized = [_normalize_path_for_match(p, repo_root) for p in paths]
     for pattern, cmd in patterns.items():
         if not cmd or not isinstance(cmd, str):
             continue
@@ -106,10 +131,13 @@ def _match_path_test_command(patterns: dict, paths) -> str:
 def _detect_changed_paths(repo_root: str) -> list:
     """Return repo-root-relative paths of changed + untracked files (best-effort).
 
-    Used when the caller hasn't passed --paths explicitly.  A failure to list
-    paths downgrades path_test_commands to "no match" — the resolver then
-    falls through to config["test_command"] / tusk test-detect, matching the
-    pre-existing behavior.
+    Used when the caller hasn't passed --paths explicitly.  Includes both
+    modifications and deletions reported by ``git diff --name-only HEAD``
+    (deletions surface naturally in that output, and a user who deleted only
+    ``apps/scraper/foo.py`` should still resolve to the scraper-subtree
+    command).  A failure to list paths downgrades path_test_commands to "no
+    match" — the resolver then falls through to config["test_command"] /
+    tusk test-detect, matching the pre-existing behavior.
     """
     paths: list = []
     diff = _run(["git", "diff", "--name-only", "HEAD"], cwd=repo_root)
@@ -158,7 +186,7 @@ def resolve_test_command(explicit: str, config_path: str, repo_root: str,
         path_patterns = cfg.get("path_test_commands") or {}
         if path_patterns:
             effective_paths = paths if paths is not None else _detect_changed_paths(repo_root)
-            cmd = _match_path_test_command(path_patterns, effective_paths)
+            cmd = _match_path_test_command(path_patterns, effective_paths, repo_root)
             if cmd:
                 return cmd
         cmd = cfg.get("test_command") or ""
