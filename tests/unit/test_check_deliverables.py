@@ -232,7 +232,13 @@ class TestMainRecommendations:
         rc, stdout, _ = _run_main(db_path, 9993)
         assert rc == 0
         data = json.loads(stdout)
-        assert set(data.keys()) == {"commits_found", "files_found", "files", "recommendation"}
+        assert set(data.keys()) == {
+            "commits_found",
+            "files_found",
+            "files",
+            "default_branch_commits",
+            "recommendation",
+        }
 
     def test_error_on_unknown_task(self, tmp_path):
         db_path = _make_db(tmp_path, task_id=1)
