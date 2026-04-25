@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [717] - 2026-04-25
+
+- [TASK-160] Track per-user-prompt token cost in skill_runs and surface as trend metric
+
 ## [716] - 2026-04-25
 
 - [TASK-157] Add tusk retro CLI orchestrator for session retrospective
