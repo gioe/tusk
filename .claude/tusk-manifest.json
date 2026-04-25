@@ -123,5 +123,11 @@
   ".claude/bin/hooks/git/dupe-gate.sh",
   ".claude/bin/hooks/git/version-bump-check.sh",
   ".codex/prompts/create-task.md",
-  ".codex/prompts/tusk-init.md"
+  ".codex/prompts/investigate-directory.md",
+  ".codex/prompts/investigate.md",
+  ".codex/prompts/loop.md",
+  ".codex/prompts/resume-task.md",
+  ".codex/prompts/tusk-init.md",
+  ".codex/prompts/tusk-insights.md",
+  ".codex/prompts/tusk-update.md"
 ]

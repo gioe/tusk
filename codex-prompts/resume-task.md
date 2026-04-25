@@ -1,0 +1,79 @@
+# Resume Task — Recover After Crash or Timeout (Codex)
+
+Recovers context after a session crash/timeout and continues the implementation
+workflow.
+
+> **Conventions:** Run `tusk conventions search <topic>` for project rules
+> (commits, structure, testing, migrations, skill authoring). Do not restate
+> convention text inline — it drifts from the DB.
+
+## Step 1: Detect the Task ID
+
+```bash
+tusk branch-parse
+```
+
+- Returns `{"task_id": N}` → use that ID and proceed to Step 2
+- Exits 1 (branch doesn't match) → check for user-provided argument (e.g.,
+  `/resume-task 42`)
+- Neither → ask: "Could not detect a task ID. Which task ID should I resume?"
+
+## Step 2: Start the Task (Idempotent)
+
+```bash
+tusk task-start <TASK_ID> --force
+```
+
+The `--force` flag ensures the workflow proceeds even if the task has no
+acceptance criteria (emits a warning rather than hard-failing).
+
+Returns JSON with four keys:
+
+```
+task        — full task row (summary, description, priority, domain, assignee, complexity)
+progress    — checkpoints (most recent first); first entry's next_steps = resume point
+criteria    — acceptance criteria (id, criterion, source, is_completed)
+session_id  — reuses open session if one exists
+```
+
+Hold onto `session_id` for later use.
+
+## Step 3: Gather Context
+
+```bash
+git log --oneline $(git merge-base HEAD $(tusk git-default-branch))..HEAD
+```
+
+## Step 4: Display Recovery Summary
+
+```
+Task:        [TASK-<id>] <summary> (priority, complexity, domain)
+Description: <description>
+
+Progress Checkpoints: (most recent first)
+  - <next_steps> | <commit_hash> | <files_changed>
+  (or "No prior checkpoints found.")
+
+Acceptance Criteria:
+  - [x] completed criterion
+  - [ ] pending criterion  ← defines remaining work
+
+Recent Commits: (git log output from Step 3)
+
+Next Steps: <most recent checkpoint's next_steps, or incomplete criteria if none>
+```
+
+## Step 5: Resume the tusk Workflow
+
+Continue from `tusk.md` **step 4 onward** (explore → implement → commit →
+criteria → finalize). Steps 1–3 are already done by this prompt.
+
+- Mark criteria done as you go: `tusk criteria done <cid>`
+- Log progress after each commit:
+  ```bash
+  tusk progress <TASK_ID> --next-steps "<what remains>"
+  ```
+- Run `tusk lint` before pushing (advisory only)
+- For finalize steps (step 12), follow `tusk.md` Step 12 directly — it covers
+  `tusk merge`, `tusk skill-run finish`, `tusk task-summary`, and the
+  `retro.md` handoff.
