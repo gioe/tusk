@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [709] - 2026-04-25
+
+- [TASK-163] Add description-shape guideline to /create-task (WHY-only; no line numbers)
+
 ## [708] - 2026-04-24
 
 - [TASK-156] Add tusk groom CLI orchestrator for backlog grooming
