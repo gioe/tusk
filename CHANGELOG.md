@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [711] - 2026-04-25
+
+- [TASK-164] Add length guards on summary and description in /create-task
+
 ## [710] - 2026-04-25
 
 - [Retro] /review-commits Step 9 now uses `git push --set-upstream origin HEAD` so the first push of a new feature branch succeeds without `push.autoSetupRemote`
