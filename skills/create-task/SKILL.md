@@ -71,10 +71,10 @@ Each task carries three text fields with distinct intents — keep them sharp. B
 
 **Encouraged:** stable identifiers as anchors — function and class names, config keys, table and column names, environment variables, constant names, and file paths *without* line numbers. These survive refactors and let the implementer use grep/LSP to locate current call sites:
 
-- ✅ "The `cmd_init` function in `bin/tusk` stamps `PRAGMA user_version` on fresh installs"
-- ❌ "bin/tusk:1456 sets the user_version pragma"
-- ✅ "Migration 55 added `tasks.fixes_task_id`; views need to be recreated to pick it up"
-- ❌ "See line 88 of bin/tusk-migrate.py for the migration logic"
+- **Good:** "The `cmd_init` function in `bin/tusk` stamps `PRAGMA user_version` on fresh installs"
+- **Avoid:** "bin/tusk:1456 sets the user_version pragma"
+- **Good:** "Migration 55 added `tasks.fixes_task_id`; views need to be recreated to pick it up"
+- **Avoid:** "See line 88 of bin/tusk-migrate.py for the migration logic"
 
 ### Task Type Decision Guide
 
