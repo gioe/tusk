@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [730] - 2026-04-25
+
+- [TASK-179] Fix: hooks silently no-op in consumer repos due to source-only path filters
+
 ## [729] - 2026-04-25
 
 - [TASK-178] [Deferred] Extract hook-common.sh helper to dedupe tusk-binary resolution across hooks
