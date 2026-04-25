@@ -97,6 +97,8 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
     # which keep model = '' so `skill-run list` can tag them '(cancelled)'.
     model = "(unknown)"
     request_count = 0
+    user_prompt_tokens = 0
+    user_prompt_count = 0
 
     if transcript_path and os.path.isfile(transcript_path):
         totals = lib.aggregate_session(transcript_path, started_at, ended_at)
@@ -106,6 +108,8 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
             tokens_out = totals["output_tokens"]
             model = totals["model"]
             request_count = totals["request_count"]
+        user_prompt_tokens = totals.get("user_prompt_tokens", 0)
+        user_prompt_count = totals.get("user_prompt_count", 0)
     else:
         print(
             "Warning: No transcript found — cost will be $0.00.",
@@ -114,9 +118,12 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
 
     conn.execute(
         """UPDATE skill_runs
-           SET cost_dollars = ?, tokens_in = ?, tokens_out = ?, model = ?, metadata = ?, request_count = ?
+           SET cost_dollars = ?, tokens_in = ?, tokens_out = ?, model = ?,
+               metadata = ?, request_count = ?,
+               user_prompt_tokens = ?, user_prompt_count = ?
            WHERE id = ?""",
-        (cost, tokens_in, tokens_out, model, metadata, request_count, run_id),
+        (cost, tokens_in, tokens_out, model, metadata, request_count,
+         user_prompt_tokens, user_prompt_count, run_id),
     )
     conn.commit()
     # Close connection before spawning subprocess to avoid SQLITE_BUSY (two write
@@ -185,7 +192,9 @@ def cmd_cancel(conn, run_id: int) -> None:
                tokens_out = 0,
                model = '',
                metadata = NULL,
-               request_count = 0
+               request_count = 0,
+               user_prompt_tokens = 0,
+               user_prompt_count = 0
            WHERE id = ?""",
         (run_id,),
     )

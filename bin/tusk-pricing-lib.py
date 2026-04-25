@@ -229,6 +229,47 @@ def find_all_transcripts_with_fallback(start_dir: str | None = None) -> list[str
     return []
 
 
+def _user_prompt_text(message: dict) -> str:
+    """Extract real user-typed text from a Claude Code transcript user entry.
+
+    Returns the concatenated text of all non-tool_result blocks. A block is
+    counted when content is a plain string, or when it's a list of dicts
+    where the block's ``type`` is anything other than ``tool_result`` (i.e.
+    plain ``text`` blocks the user actually typed). Synthetic tool_result
+    payloads — which can be arbitrarily large but reflect what the model
+    saw, not what the user wrote — are excluded.
+    """
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "tool_result":
+                continue
+            text = block.get("text")
+            if isinstance(text, str):
+                parts.append(text)
+        return "".join(parts)
+    return ""
+
+
+def estimate_tokens_from_chars(chars: int) -> int:
+    """Approximate token count from character length (chars / 4).
+
+    Anthropic does not expose a per-message tokenizer, and assistant
+    ``input_tokens`` aggregates the full request (cache + new content), so
+    the user prompt has to be estimated. Four chars/token is the standard
+    rough approximation across Claude tokenizers; the absolute number is
+    inexact, but the trend stays meaningful.
+    """
+    if chars <= 0:
+        return 0
+    return chars // 4
+
+
 def aggregate_session(
     transcript_path: str,
     started_at: datetime,
@@ -239,7 +280,7 @@ def aggregate_session(
     Returns dict with keys: input_tokens, output_tokens,
     cache_creation_input_tokens, cache_creation_5m_tokens,
     cache_creation_1h_tokens, cache_read_input_tokens, model,
-    model_counts, request_count.
+    model_counts, request_count, user_prompt_tokens, user_prompt_count.
     """
     log.debug("Aggregating session from %s", transcript_path)
     log.debug("Time window: %s .. %s", started_at.isoformat(),
@@ -261,6 +302,8 @@ def aggregate_session(
     last_context_tokens: int | None = None
     context_window: int | None = None
     codex_meta: dict | None = None
+    user_prompt_tokens = 0
+    user_prompt_count = 0
 
     with open(transcript_path) as f:
         for line in f:
@@ -307,6 +350,25 @@ def aggregate_session(
                 model_context_window = info.get("model_context_window")
                 if isinstance(model_context_window, int):
                     context_window = model_context_window
+                continue
+
+            if entry.get("type") == "user" and not entry.get("isMeta"):
+                ts_str = entry.get("timestamp")
+                if ts_str:
+                    try:
+                        ts = parse_timestamp(ts_str)
+                    except (ValueError, TypeError):
+                        ts = None
+                    if ts is not None:
+                        if ts < started_at:
+                            continue
+                        if ended_at and ts > ended_at:
+                            continue
+                        text = _user_prompt_text(entry.get("message", {}))
+                        chars = len(text)
+                        if chars > 0:
+                            user_prompt_count += 1
+                            user_prompt_tokens += estimate_tokens_from_chars(chars)
                 continue
 
             # Only assistant messages have usage data
@@ -401,6 +463,8 @@ def aggregate_session(
         "first_context_tokens": first_context_tokens,
         "last_context_tokens": last_context_tokens,
         "context_window": context_window or get_context_window(dominant_model),
+        "user_prompt_tokens": user_prompt_tokens,
+        "user_prompt_count": user_prompt_count,
     }
 
 
