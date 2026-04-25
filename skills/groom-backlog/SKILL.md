@@ -36,7 +36,7 @@ This returns a JSON object with two keys:
 
 ## Pre-Check: Auto-Close Stale Tasks
 
-Run all three auto-close checks (expired deferred, merged PRs, moot contingent) in a single command:
+Run both auto-close checks (expired deferred, moot contingent) in a single command:
 
 ```bash
 tusk autoclose
@@ -44,9 +44,7 @@ tusk autoclose
 
 This returns a JSON summary with counts and task IDs per category:
 - `expired_deferred` — deferred tasks past their 60-day expiry (closed as `expired`)
-- `merged_prs` — In Progress tasks whose GitHub PR is already merged (closed as `completed`)
 - `moot_contingent` — tasks contingent on upstream work that closed as `wont_do`/`expired` (closed as `wont_do`)
-- `flagged_for_review` — (if present) In Progress tasks whose PR was closed without merging — flag these for user review in Step 3
 
 If `total_closed` is 0, report "No auto-close candidates found" and proceed to Step 1. Otherwise, report the counts before continuing.
 
