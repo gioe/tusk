@@ -273,7 +273,7 @@ After all waves are complete, do a single VERSION bump and CHANGELOG update cove
    gh pr merge --squash --delete-branch
    ```
 
-5. Mark deferred-to-chain criteria as done for all completed chain tasks. Individual chain agents skip VERSION/CHANGELOG criteria using `tusk criteria skip <id> --reason chain`; the orchestrator completes them here:
+4. Mark deferred-to-chain criteria as done for all completed chain tasks. Individual chain agents skip VERSION/CHANGELOG criteria using `tusk criteria skip <id> --reason chain`; the orchestrator completes them here:
    ```bash
    tusk criteria finish-deferred --reason chain <task_id1> [<task_id2> ...]
    ```

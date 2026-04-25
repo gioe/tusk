@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [724] - 2026-04-25
+
+- [Retro] Fix duplicate/out-of-order step numbering in skills/tusk/SKILL.md (Step 5 → 5b for Scope check) and skills/chain/SKILL.md (consolidation sub-step 5 → 4)
+
 ## [723] - 2026-04-25
 
 - [TASK-154] Port remaining Claude skills to .codex/prompts/ equivalents
