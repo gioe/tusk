@@ -1800,6 +1800,7 @@ def _followup_pairs_from_git(
         output = subprocess.check_output(
             ["git", "-C", repo_root, "log", "--all", "--format=%H%n%B%n--END--"],
             text=True,
+            encoding="utf-8",
             stderr=subprocess.DEVNULL,
             timeout=30,
         )
