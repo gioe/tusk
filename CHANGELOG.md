@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [718] - 2026-04-25
+
+- [TASK-167] Sweep bin/tusk-*.py to add encoding='utf-8' on subprocess.run(text=True) calls (Convention 25)
+
 ## [717] - 2026-04-25
 
 - [TASK-160] Track per-user-prompt token cost in skill_runs and surface as trend metric
