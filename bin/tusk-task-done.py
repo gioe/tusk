@@ -43,7 +43,7 @@ def _find_task_commits(task_id: int) -> list[str]:
         result = subprocess.run(
             ["git", "log", "--format=%H", f"--grep={pattern}"],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8",
             timeout=10,
         )
         if result.returncode == 0 and result.stdout.strip():

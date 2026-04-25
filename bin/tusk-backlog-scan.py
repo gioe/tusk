@@ -85,7 +85,7 @@ def scan_duplicates(db_path: str) -> list[dict]:
     result = subprocess.run(
         [tusk_bin, "dupes", "scan", "--status", "To Do", "--json"],
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8",
     )
     # exit 0 = no pairs, 1 = pairs found, anything else = error
     if result.returncode not in (0, 1):

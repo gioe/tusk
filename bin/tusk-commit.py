@@ -177,7 +177,7 @@ def load_task_domain(tusk_bin: str, task_id: int) -> str:
     try:
         result = subprocess.run(
             [tusk_bin, "shell", f"SELECT COALESCE(domain, '') FROM tasks WHERE id = {task_id}"],
-            capture_output=True, text=True, check=False,
+            capture_output=True, text=True, encoding="utf-8", check=False,
         )
         return result.stdout.strip() if result.returncode == 0 else ""
     except Exception:
@@ -732,7 +732,7 @@ def _run_commit(argv: list[str], state: dict) -> int:
                 test_cmd,
                 shell=True,
                 capture_output=not verbose,
-                text=True,
+                text=True, encoding="utf-8",
                 cwd=repo_root,
                 timeout=timeout_sec,
             )

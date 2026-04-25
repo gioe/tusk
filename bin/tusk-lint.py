@@ -517,7 +517,7 @@ def rule12_python_syntax(root):
         try:
             result = subprocess.run(
                 ["python3", "-m", "py_compile", full],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True, text=True, encoding="utf-8", timeout=5,
             )
             if result.returncode != 0:
                 err = result.stderr.strip()
@@ -605,7 +605,7 @@ def _version_bump_check(root, path_re, label):
     try:
         r = subprocess.run(
             ["git", "rev-parse", "--git-dir"],
-            capture_output=True, text=True, timeout=5, cwd=root,
+            capture_output=True, text=True, encoding="utf-8", timeout=5, cwd=root,
         )
         if r.returncode != 0:
             return []
@@ -625,7 +625,7 @@ def _version_bump_check(root, path_re, label):
     try:
         r = subprocess.run(
             ["git", "status", "--porcelain"],
-            capture_output=True, text=True, timeout=5, cwd=root,
+            capture_output=True, text=True, encoding="utf-8", timeout=5, cwd=root,
         )
         if r.returncode == 0:
             for line in r.stdout.splitlines():
@@ -655,13 +655,13 @@ def _version_bump_check(root, path_re, label):
         try:
             r = subprocess.run(
                 ["git", "log", "-1", "--format=%H", "--", "VERSION"],
-                capture_output=True, text=True, timeout=5, cwd=root,
+                capture_output=True, text=True, encoding="utf-8", timeout=5, cwd=root,
             )
             last_ver_commit = r.stdout.strip() if r.returncode == 0 else ""
             if last_ver_commit:
                 r2 = subprocess.run(
                     ["git", "diff", "--name-only", f"{last_ver_commit}..HEAD"],
-                    capture_output=True, text=True, timeout=5, cwd=root,
+                    capture_output=True, text=True, encoding="utf-8", timeout=5, cwd=root,
                 )
                 if r2.returncode == 0:
                     changed = r2.stdout.splitlines()
@@ -773,7 +773,7 @@ def _db_path_from_root(root):
     if not os.path.isfile(tusk_bin):
         tusk_bin = "tusk"
     try:
-        r = subprocess.run([tusk_bin, "path"], capture_output=True, text=True, timeout=5)
+        r = subprocess.run([tusk_bin, "path"], capture_output=True, text=True, encoding="utf-8", timeout=5)
         if r.returncode == 0:
             p = r.stdout.strip()
             if p and os.path.isfile(p):
@@ -824,7 +824,7 @@ def _run_lint_rules(root, rules):
             try:
                 result = subprocess.run(
                     ["grep", "-nE", pattern, filepath],
-                    capture_output=True, text=True, timeout=5,
+                    capture_output=True, text=True, encoding="utf-8", timeout=5,
                 )
                 if result.returncode == 0:
                     rel = os.path.relpath(filepath, root)

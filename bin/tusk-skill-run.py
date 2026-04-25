@@ -135,7 +135,7 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
         result = subprocess.run(
             ["tusk", "call-breakdown", "--skill-run", str(run_id), "--write-only"],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8",
         )
         if result.returncode != 0:
             msg = result.stderr.strip() or f"exit code {result.returncode}"

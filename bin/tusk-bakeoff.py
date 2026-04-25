@@ -513,7 +513,7 @@ def _find_bakeoff_branches(
         pattern = f"refs/heads/feature/bakeoff-{bakeoff_id}-*"
     result = subprocess.run(
         ["git", "for-each-ref", "--format=%(refname:short)", pattern],
-        capture_output=True, text=True, cwd=repo_root,
+        capture_output=True, text=True, encoding="utf-8", cwd=repo_root,
     )
     if result.returncode != 0:
         return []
@@ -529,7 +529,7 @@ def _resolve_worktree_for_branch(repo_root: str, branch: str) -> str | None:
     """
     result = subprocess.run(
         ["git", "worktree", "list", "--porcelain"],
-        capture_output=True, text=True, cwd=repo_root,
+        capture_output=True, text=True, encoding="utf-8", cwd=repo_root,
     )
     if result.returncode != 0:
         return None
@@ -581,7 +581,7 @@ def _merge_shadow_branch(
 
     checkout = subprocess.run(
         ["git", "checkout", default_branch],
-        capture_output=True, text=True, cwd=repo_root,
+        capture_output=True, text=True, encoding="utf-8", cwd=repo_root,
     )
     if checkout.returncode != 0:
         return False, f"git checkout {default_branch}: {checkout.stderr.strip()}"
@@ -593,20 +593,20 @@ def _merge_shadow_branch(
     if has_origin:
         subprocess.run(
             ["git", "-c", "pull.rebase=false", "pull", "origin", default_branch],
-            capture_output=True, text=True, cwd=repo_root,
+            capture_output=True, text=True, encoding="utf-8", cwd=repo_root,
         )
 
     if use_rebase:
         co_branch = subprocess.run(
             ["git", "checkout", branch],
-            capture_output=True, text=True, cwd=repo_root,
+            capture_output=True, text=True, encoding="utf-8", cwd=repo_root,
         )
         if co_branch.returncode != 0:
             return False, f"git checkout {branch}: {co_branch.stderr.strip()}"
 
         rebase_result = subprocess.run(
             ["git", "rebase", default_branch],
-            capture_output=True, text=True, cwd=repo_root,
+            capture_output=True, text=True, encoding="utf-8", cwd=repo_root,
         )
         if rebase_result.returncode != 0:
             subprocess.run(
@@ -625,7 +625,7 @@ def _merge_shadow_branch(
 
         co_back = subprocess.run(
             ["git", "checkout", default_branch],
-            capture_output=True, text=True, cwd=repo_root,
+            capture_output=True, text=True, encoding="utf-8", cwd=repo_root,
         )
         if co_back.returncode != 0:
             return False, (
@@ -635,7 +635,7 @@ def _merge_shadow_branch(
 
     merge = subprocess.run(
         ["git", "merge", "--ff-only", branch],
-        capture_output=True, text=True, cwd=repo_root,
+        capture_output=True, text=True, encoding="utf-8", cwd=repo_root,
     )
     if merge.returncode != 0:
         hint = ""
@@ -650,7 +650,7 @@ def _merge_shadow_branch(
     if has_origin:
         subprocess.run(
             ["git", "push", "origin", default_branch],
-            capture_output=True, text=True, cwd=repo_root,
+            capture_output=True, text=True, encoding="utf-8", cwd=repo_root,
         )
     return True, ""
 
@@ -880,7 +880,7 @@ def cmd_pick(db_path: str, config_path: str, argv: list[str]) -> int:
     if source_session_id is not None:
         sc = subprocess.run(
             [tusk_bin, "session-close", str(source_session_id)],
-            capture_output=True, text=True,
+            capture_output=True, text=True, encoding="utf-8",
         )
         session_closed = sc.returncode == 0
         if not session_closed and "already closed" not in (sc.stderr or ""):
@@ -891,7 +891,7 @@ def cmd_pick(db_path: str, config_path: str, argv: list[str]) -> int:
 
     td = subprocess.run(
         [tusk_bin, "task-done", str(source_id), "--reason", "completed", "--force"],
-        capture_output=True, text=True,
+        capture_output=True, text=True, encoding="utf-8",
     )
     if td.returncode != 0:
         _print_err(

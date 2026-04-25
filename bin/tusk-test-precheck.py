@@ -50,7 +50,7 @@ def _run(cmd_args, cwd, capture=True):
         cmd_args,
         cwd=cwd,
         capture_output=capture,
-        text=True,
+        text=True, encoding="utf-8",
     )
 
 
@@ -219,7 +219,7 @@ def run_test(test_command: str, repo_root: str) -> int:
         cwd=repo_root,
         shell=True,
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8",
     )
     if result.stdout:
         sys.stderr.write(result.stdout)

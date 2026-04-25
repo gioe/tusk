@@ -109,7 +109,7 @@ def main():
     try:
         result = subprocess.run(
             ["tusk", "init-fetch-bootstrap"],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, encoding="utf-8", timeout=60,
         )
     except FileNotFoundError:
         print(json.dumps({"lib": lib_name, "tasks": [], "error": "tusk not found in PATH"}))

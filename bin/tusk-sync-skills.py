@@ -15,7 +15,7 @@ import sys
 def get_repo_root():
     result = subprocess.run(
         ["git", "rev-parse", "--show-toplevel"],
-        capture_output=True, text=True
+        capture_output=True, text=True, encoding="utf-8"
     )
     if result.returncode != 0:
         print("Error: not inside a git repository", file=sys.stderr)

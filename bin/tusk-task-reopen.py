@@ -99,7 +99,7 @@ def main(argv: list[str]) -> int:
             regen = subprocess.run(
                 ["tusk", "regen-triggers"],
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8",
             )
             if regen.returncode != 0:
                 msg = regen.stderr.strip() or regen.stdout.strip() or "(no output)"

@@ -33,7 +33,7 @@ def git(args: list[str]) -> str:
     result = subprocess.run(
         ["git"] + args,
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8",
     )
     if result.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr.strip()}")

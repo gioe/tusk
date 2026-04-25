@@ -44,7 +44,7 @@ def _fetch_bootstrap(repo: str, ref: str) -> tuple:
     try:
         result = subprocess.run(
             ["gh", "api", url, "--jq", ".content"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, encoding="utf-8", timeout=30,
         )
     except FileNotFoundError:
         return None, "gh not available"

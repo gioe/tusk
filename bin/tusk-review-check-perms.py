@@ -59,7 +59,7 @@ def _load_settings(repo_root: str) -> dict | None:
     r = subprocess.run(
         ["git", "show", "HEAD:.claude/settings.json"],
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8",
         cwd=repo_root,
     )
     if r.returncode != 0:

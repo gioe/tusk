@@ -56,7 +56,7 @@ def run_dupe_check(summary: str, domain: str | None) -> dict | None:
     cmd = [TUSK_BIN, "dupes", "check", summary, "--json"]
     if domain:
         cmd.extend(["--domain", domain])
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
     if result.returncode == 1:
         # Duplicate found
         try:

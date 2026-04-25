@@ -53,7 +53,7 @@ task_grep_arg = _git_helpers.task_grep_arg
 
 
 def run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(args, capture_output=True, text=True, check=check)
+    return subprocess.run(args, capture_output=True, text=True, encoding="utf-8", check=check)
 
 
 def _has_remote(name: str = "origin") -> bool:

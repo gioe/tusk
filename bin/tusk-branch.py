@@ -42,7 +42,7 @@ _UNREACHABLE_REMOTE_REGEX = _git_helpers._UNREACHABLE_REMOTE_REGEX
 
 
 def run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(args, capture_output=True, text=True, check=check)
+    return subprocess.run(args, capture_output=True, text=True, encoding="utf-8", check=check)
 
 
 def _has_remote(name: str = "origin") -> bool:

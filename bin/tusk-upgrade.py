@@ -690,7 +690,7 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
         subprocess.run(migrate_cmd, check=True)
         migrate_summary = "ran"
     else:
-        result = subprocess.run(migrate_cmd, check=True, capture_output=True, text=True)
+        result = subprocess.run(migrate_cmd, check=True, capture_output=True, text=True, encoding="utf-8")
         migrate_summary = (result.stdout or "ran").strip().splitlines()[-1]
 
     deprecated_count = remove_deprecated_files(repo_root)

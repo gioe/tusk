@@ -219,7 +219,7 @@ def main():
         result = subprocess.run(
             ["tusk", "init", "--force"],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8",
         )
     except FileNotFoundError:
         # Restore backup

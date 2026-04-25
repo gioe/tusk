@@ -158,7 +158,7 @@ def _candidate_dirs(start: str) -> list[str]:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8",
             cwd=start,
             timeout=5,
         )

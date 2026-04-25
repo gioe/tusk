@@ -87,7 +87,7 @@ def run_dupe_check(summary: str, domain: str) -> tuple[int, int | None]:
     otherwise None.
     """
     cmd = [_TUSK_WRAPPER, "dupes", "check", summary, "--json", "--domain", domain]
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
     matched_task_id: int | None = None
     if r.returncode == 1:
         try:
@@ -119,7 +119,7 @@ def run_task_insert(summary: str, body: str, domain: str, task_type: str) -> int
         "--criteria", criterion,
         "--deferred",
     ]
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
     if r.returncode != 0:
         msg = (r.stderr or r.stdout or "").strip() or "tusk task-insert failed"
         raise SystemExit(f"tusk task-insert failed (exit {r.returncode}): {msg}")
@@ -148,7 +148,7 @@ def run_review_resolve(comment_id: int, deferred_task_id: int | None = None) -> 
     cmd = [_TUSK_WRAPPER, "review", "resolve", str(comment_id), "deferred"]
     if deferred_task_id is not None:
         cmd.extend(["--deferred-task-id", str(deferred_task_id)])
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
     if r.returncode != 0:
         msg = (r.stderr or r.stdout or "").strip() or "tusk review resolve failed"
         raise SystemExit(

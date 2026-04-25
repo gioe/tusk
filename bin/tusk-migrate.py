@@ -78,7 +78,7 @@ def generate_triggers(config_path: str, script_dir: str) -> str:
     result = subprocess.run(
         ["python3", os.path.join(script_dir, "tusk-config-tools.py"), "gen-triggers", config_path],
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8",
         check=True,
     )
     return result.stdout.strip()
