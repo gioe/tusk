@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [708] - 2026-04-24
+
+- [TASK-156] Add tusk groom CLI orchestrator for backlog grooming
+
 ## [707] - 2026-04-24
 
 - [TASK-153] Scaffold .codex/prompts/ distribution with install, upgrade, and pilot ports
