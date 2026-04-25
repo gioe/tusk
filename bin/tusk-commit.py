@@ -739,14 +739,21 @@ def _run_commit(argv: list[str], state: dict) -> int:
         except subprocess.TimeoutExpired as exc:
             # When capture_output=True, TimeoutExpired carries whatever was
             # collected on stdout/stderr before the child was killed — dump it
-            # first so the user can see which test hung.  text=True above means
-            # exc.stdout/exc.stderr are already str (or None).
+            # first so the user can see which test hung.  Even with text=True,
+            # the buffered payload can come back as raw bytes when the timeout
+            # fires before subprocess decodes it, so handle both shapes.
             if not verbose:
                 if exc.stdout:
-                    sys.stdout.write(exc.stdout)
+                    out = exc.stdout
+                    if isinstance(out, bytes):
+                        out = out.decode("utf-8", errors="replace")
+                    sys.stdout.write(out)
                     sys.stdout.flush()
                 if exc.stderr:
-                    sys.stderr.write(exc.stderr)
+                    err = exc.stderr
+                    if isinstance(err, bytes):
+                        err = err.decode("utf-8", errors="replace")
+                    sys.stderr.write(err)
                     sys.stderr.flush()
             source_hint = {
                 "env": "TUSK_TEST_COMMAND_TIMEOUT env var",
