@@ -2,12 +2,12 @@
 """Consolidate groom-backlog auto-close pre-checks into a single CLI command.
 
 Called by the tusk wrapper:
-    tusk autoclose
+    tusk autoclose [--dry-run]
 
 Arguments received from tusk:
     sys.argv[1] — DB path
     sys.argv[2] — config path
-    sys.argv[3:] — (unused, reserved for future flags)
+    sys.argv[3:] — flags (--dry-run)
 
 Runs two pre-checks in one call:
   1. Expired deferred tasks → closed_reason = 'expired'
@@ -15,6 +15,11 @@ Runs two pre-checks in one call:
 
 For each closure, appends an annotation to the description and closes open sessions.
 Prints a JSON summary with counts per category and closed task IDs.
+
+With --dry-run, the SELECT halves run unchanged but the UPDATE side effects
+(close_task / close_sessions) are skipped, so the same candidate IDs surface
+without modifying the DB. The output shape is identical except `applied`
+flips to false and `moot_details` is omitted.
 """
 
 import json
@@ -58,8 +63,12 @@ def close_task(conn: sqlite3.Connection, task_id: int, reason: str, annotation: 
     )
 
 
-def autoclose_expired_deferred(conn: sqlite3.Connection) -> list[int]:
-    """Close deferred tasks past their expiry date. Returns list of closed task IDs."""
+def autoclose_expired_deferred(conn: sqlite3.Connection, dry_run: bool = False) -> list[int]:
+    """Close deferred tasks past their expiry date. Returns list of (would-be) closed task IDs.
+
+    With dry_run=True, runs only the SELECT and skips close_task / close_sessions
+    so callers can preview candidates without mutating the DB.
+    """
     rows = conn.execute(
         "SELECT id FROM tasks "
         "WHERE is_deferred = 1 "
@@ -68,23 +77,28 @@ def autoclose_expired_deferred(conn: sqlite3.Connection) -> list[int]:
         "  AND expires_at < datetime('now')"
     ).fetchall()
 
-    closed_ids = []
-    for row in rows:
-        task_id = row["id"]
+    candidate_ids = [row["id"] for row in rows]
+    if dry_run:
+        return candidate_ids
+
+    for task_id in candidate_ids:
         close_task(
             conn, task_id, "expired",
             "Auto-closed: Deferred task expired after 60 days without action.",
         )
         close_sessions(conn, task_id)
-        closed_ids.append(task_id)
 
-    return closed_ids
-
+    return candidate_ids
 
 
-def autoclose_moot_contingent(conn: sqlite3.Connection) -> list[dict]:
+
+def autoclose_moot_contingent(conn: sqlite3.Connection, dry_run: bool = False) -> list[dict]:
     """Close tasks contingent on upstream tasks that closed as wont_do/expired.
-    Returns list of dicts with closed task ID and upstream reference."""
+    Returns list of dicts with (would-be) closed task ID and upstream reference.
+
+    With dry_run=True, runs only the SELECT and skips close_task / close_sessions
+    so callers can preview candidates without mutating the DB.
+    """
     rows = conn.execute(
         "SELECT t.id, t.summary, "
         "       d.depends_on_id AS upstream_id, "
@@ -98,46 +112,65 @@ def autoclose_moot_contingent(conn: sqlite3.Connection) -> list[dict]:
         "  AND upstream.closed_reason IN ('wont_do', 'expired')"
     ).fetchall()
 
-    closed = []
-    for row in rows:
-        task_id = row["id"]
-        upstream_id = row["upstream_id"]
-        upstream_reason = row["upstream_reason"]
+    candidates = [
+        {
+            "id": row["id"],
+            "upstream_id": row["upstream_id"],
+            "upstream_reason": row["upstream_reason"],
+        }
+        for row in rows
+    ]
+    if dry_run:
+        return candidates
 
-        annotation = f"Auto-closed: Contingent on TASK-{upstream_id} which closed as {upstream_reason}."
-        close_task(conn, task_id, "wont_do", annotation)
-        close_sessions(conn, task_id)
-        closed.append({"id": task_id, "upstream_id": upstream_id, "upstream_reason": upstream_reason})
+    for c in candidates:
+        annotation = (
+            f"Auto-closed: Contingent on TASK-{c['upstream_id']} "
+            f"which closed as {c['upstream_reason']}."
+        )
+        close_task(conn, c["id"], "wont_do", annotation)
+        close_sessions(conn, c["id"])
 
-    return closed
+    return candidates
+
+
+USAGE = "Usage: tusk autoclose [--dry-run]"
 
 
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
-        print("Usage: tusk autoclose", file=sys.stderr)
+        print(USAGE, file=sys.stderr)
         return 1
 
     db_path = argv[0]
     # argv[1] is config_path — reserved for future use
+    flags = argv[2:]
+
+    known_flags = {"--dry-run"}
+    unknown = [f for f in flags if f not in known_flags]
+    if unknown:
+        print(f"Unknown flags: {' '.join(unknown)}", file=sys.stderr)
+        print(USAGE, file=sys.stderr)
+        return 1
+
+    dry_run = "--dry-run" in flags
 
     conn = get_connection(db_path)
     try:
-        # 1. Expired deferred
-        expired_ids = autoclose_expired_deferred(conn)
+        expired_ids = autoclose_expired_deferred(conn, dry_run=dry_run)
+        moot_closed = autoclose_moot_contingent(conn, dry_run=dry_run)
 
-        # 2. Moot contingent
-        moot_closed = autoclose_moot_contingent(conn)
+        if not dry_run:
+            conn.commit()
 
-        conn.commit()
-
-        # Build summary
         summary = {
+            "applied": not dry_run,
             "expired_deferred": {"count": len(expired_ids), "task_ids": expired_ids},
             "moot_contingent": {"count": len(moot_closed), "task_ids": [c["id"] for c in moot_closed]},
             "total_closed": len(expired_ids) + len(moot_closed),
         }
 
-        if moot_closed:
+        if not dry_run and moot_closed:
             summary["moot_details"] = moot_closed
 
         print(dumps(summary))
@@ -149,6 +182,6 @@ def main(argv: list[str]) -> int:
 if __name__ == "__main__":
     if len(sys.argv) < 2 or not sys.argv[1].endswith(".db"):
         print("Error: This script must be invoked via the tusk wrapper.", file=sys.stderr)
-        print("Use: tusk autoclose", file=sys.stderr)
+        print(USAGE, file=sys.stderr)
         sys.exit(1)
     sys.exit(main(sys.argv[1:]))

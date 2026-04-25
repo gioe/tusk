@@ -44,17 +44,14 @@ Arguments received from tusk:
 
 import json
 import os
-import sqlite3
 import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tusk_loader
 
-_db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
 dumps = _json_lib.dumps
-get_connection = _db_lib.get_connection
 
 USAGE = "Usage: tusk groom [--dry-run]"
 
@@ -86,51 +83,17 @@ def _tusk_bin() -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
 
 
-def query_autoclose_candidates(conn: sqlite3.Connection) -> dict:
-    """Mirror the SELECT half of `tusk autoclose` without modifying state."""
-    expired_deferred = [
-        row["id"]
-        for row in conn.execute(
-            "SELECT id FROM tasks "
-            "WHERE is_deferred = 1 "
-            "  AND status = 'To Do' "
-            "  AND expires_at IS NOT NULL "
-            "  AND expires_at < datetime('now') "
-            "ORDER BY id"
-        ).fetchall()
-    ]
-    moot_contingent = [
-        row["id"]
-        for row in conn.execute(
-            "SELECT t.id "
-            "FROM tasks t "
-            "JOIN task_dependencies d ON t.id = d.task_id "
-            "JOIN tasks upstream ON d.depends_on_id = upstream.id "
-            "WHERE t.status <> 'Done' "
-            "  AND d.relationship_type = 'contingent' "
-            "  AND upstream.status = 'Done' "
-            "  AND upstream.closed_reason IN ('wont_do', 'expired') "
-            "ORDER BY t.id"
-        ).fetchall()
-    ]
-    return {
-        "applied": False,
-        "expired_deferred": {
-            "count": len(expired_deferred),
-            "task_ids": expired_deferred,
-        },
-        "moot_contingent": {
-            "count": len(moot_contingent),
-            "task_ids": moot_contingent,
-        },
-        "total": len(expired_deferred) + len(moot_contingent),
-    }
+def run_autoclose(dry_run: bool = False) -> dict:
+    """Invoke `tusk autoclose [--dry-run]` and shape its output for this orchestrator.
 
-
-def run_autoclose() -> dict:
-    """Invoke `tusk autoclose` and shape its output for this orchestrator."""
+    Both branches go through the same `tusk autoclose` subprocess so the
+    SELECT/UPDATE pair lives in exactly one place — `bin/tusk-autoclose.py`.
+    """
+    cmd = [_tusk_bin(), "autoclose"]
+    if dry_run:
+        cmd.append("--dry-run")
     result = subprocess.run(
-        [_tusk_bin(), "autoclose"],
+        cmd,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -141,7 +104,7 @@ def run_autoclose() -> dict:
         raise RuntimeError(f"tusk autoclose failed (exit {result.returncode}): {msg}")
     payload = json.loads(result.stdout)
     return {
-        "applied": True,
+        "applied": payload.get("applied", not dry_run),
         "expired_deferred": payload.get(
             "expired_deferred", {"count": 0, "task_ids": []}
         ),
@@ -198,8 +161,8 @@ def main(argv: list[str]) -> int:
         print(USAGE, file=sys.stderr)
         return 1
 
-    db_path = argv[0]
-    # argv[1] is config_path — reserved for future use
+    # argv[0] (db_path) and argv[1] (config_path) are passed by the bash wrapper
+    # but consumed only by the subprocess'd tusk subcommands, not here directly.
     flags = argv[2:]
 
     if "--help" in flags or "-h" in flags:
@@ -215,18 +178,11 @@ def main(argv: list[str]) -> int:
 
     dry_run = "--dry-run" in flags
 
-    if dry_run:
-        conn = get_connection(db_path)
-        try:
-            autoclose_candidates = query_autoclose_candidates(conn)
-        finally:
-            conn.close()
-    else:
-        try:
-            autoclose_candidates = run_autoclose()
-        except (RuntimeError, json.JSONDecodeError) as exc:
-            print(f"groom: {exc}", file=sys.stderr)
-            return 2
+    try:
+        autoclose_candidates = run_autoclose(dry_run=dry_run)
+    except (RuntimeError, json.JSONDecodeError) as exc:
+        print(f"groom: {exc}", file=sys.stderr)
+        return 2
 
     try:
         scan = run_backlog_scan()
