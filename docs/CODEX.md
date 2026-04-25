@@ -40,11 +40,29 @@ Claude mode installs a `setup-path.sh` hook that prepends `.claude/bin/` to `PAT
 
 ## Feature parity
 
-The Claude-only components (skills, hooks, settings merge, `/review-commits` permissions) are skipped in Codex mode because Codex has no primitives for them. That means Codex users do not get:
+Every Claude skill has a corresponding Codex prompt under [`.codex/prompts/`](../codex-prompts/) (sourced from `codex-prompts/` in this repo and copied to `<repo_root>/.codex/prompts/` on install). The mechanical pipelines that previously lived inline in skill bodies have been migrated into `tusk` CLI orchestrators where it made sense — `tusk groom`, `tusk retro`, `tusk init-wizard`, `tusk loop`, and the `tusk review …` family — so the Codex prompts can drive the same logic the Claude skills do, plus the interactive layer.
 
-- The `/tusk`, `/create-task`, `/groom-backlog`, `/retro`, `/chain`, `/loop`, `/review-commits`, `/tusk-init`, `/tusk-update`, `/tusk-insights`, `/investigate`, `/investigate-directory`, `/resume-task`, `/address-issue` skills — these are Claude Code slash commands that only load when `.claude/skills/` is populated.
-- The PreToolUse/PostToolUse hooks (e.g. `conventions-preflight.sh`) that fire on tool invocations.
-- The permissions allowlist entries required for `/review-commits`.
+| Claude skill              | Codex equivalent                                       | Notes |
+| ------------------------- | ------------------------------------------------------ | ----- |
+| `/tusk`                   | `.codex/prompts/tusk.md`                               | Sequential — no parallel sub-agents |
+| `/create-task`            | `.codex/prompts/create-task.md`                        |       |
+| `/groom-backlog`          | `tusk groom` + `.codex/prompts/groom-backlog.md`       | CLI runs autoclose + backlog-scan + lint; prompt adds analysis |
+| `/retro`                  | `tusk retro` + `.codex/prompts/retro.md`               | CLI emits per-task signals + cross-retro themes |
+| `/chain`                  | `.codex/prompts/chain.md`                              | Sequential — one task at a time, no parallel waves |
+| `/loop`                   | `tusk loop` + `.codex/prompts/loop.md`                 | Sequential — one task at a time |
+| `/review-commits`         | `tusk review …` + `.codex/prompts/review-commits.md`   | Sequential — runs inline (no Task tool / no parallel reviewer agent) |
+| `/tusk-init`              | `tusk init-wizard` + `.codex/prompts/tusk-init.md`     | CLI is canonical entry point; prompt orchestrates seeding |
+| `/tusk-update`            | `.codex/prompts/tusk-update.md`                        |       |
+| `/tusk-insights`          | `.codex/prompts/tusk-insights.md`                      |       |
+| `/investigate`            | `.codex/prompts/investigate.md`                        |       |
+| `/investigate-directory`  | `.codex/prompts/investigate-directory.md`              |       |
+| `/resume-task`            | `.codex/prompts/resume-task.md`                        |       |
+| `/address-issue`          | `.codex/prompts/address-issue.md`                      |       |
+
+The Codex-only gaps that remain:
+
+- The PreToolUse/PostToolUse hooks (e.g. `conventions-preflight.sh`) that fire on tool invocations — Codex has no hook primitive.
+- The permissions allowlist entries required for Claude's `/review-commits` parallel-reviewer flow — Codex has no Task tool, so its review runs inline in the active session (see `.codex/prompts/review-commits.md` for the tradeoff note).
 
 Everything else works identically: the `tusk` CLI, task database, criteria tracking, workflows, migrations, and `tusk upgrade`.
 
