@@ -52,7 +52,25 @@ else
   exit 1
 fi
 
-echo "Installing tusker into $REPO_ROOT (mode: $INSTALL_MODE, install dir: $INSTALL_DIR)"
+# ── Role detection: tusk source repo vs consumer install ────────────
+# install.sh runs from inside the tusk source repo (developer workflow) when
+# SCRIPT_DIR equals REPO_ROOT. Otherwise install.sh was extracted from a
+# tarball or cloned alongside a downstream project — i.e., a consumer install.
+# Source-only hooks (auto-lint.sh, version-bump-check.sh) filter on paths that
+# only exist in the source repo, so they're skipped from settings.json and the
+# pre-push dispatcher in consumer mode rather than silently no-opping forever.
+if [[ "$SCRIPT_DIR" == "$REPO_ROOT" ]]; then
+  INSTALL_ROLE="source"
+else
+  INSTALL_ROLE="consumer"
+fi
+
+# Hooks whose path filters target the tusk source layout (skills/*, bin/*) and
+# are silent no-ops in any other repo. Skipped from settings.json registration
+# and pre-push dispatcher when INSTALL_ROLE=consumer.
+SOURCE_ONLY_HOOK_BASENAMES="auto-lint.sh version-bump-check.sh"
+
+echo "Installing tusker into $REPO_ROOT (mode: $INSTALL_MODE, role: $INSTALL_ROLE, install dir: $INSTALL_DIR)"
 
 # ── 1. Copy bin + support files ──────────────────────────────────────
 mkdir -p "$REPO_ROOT/$INSTALL_DIR"
@@ -93,9 +111,12 @@ echo "  Installed $INSTALL_DIR/VERSION"
 cp "$SCRIPT_DIR/pricing.json" "$REPO_ROOT/$INSTALL_DIR/pricing.json"
 echo "  Installed $INSTALL_DIR/pricing.json"
 
-# Stamp install-mode marker so tusk-upgrade.py can apply the right mode-specific logic.
-echo "$INSTALL_MODE" > "$REPO_ROOT/$INSTALL_DIR/install-mode"
-echo "  Stamped $INSTALL_DIR/install-mode ($INSTALL_MODE)"
+# Stamp install-mode marker so tusk-upgrade.py can apply the right mode-specific
+# logic. Compound form "<mode>-<role>" lets readers distinguish a tusk-source
+# install from a consumer install. Legacy plain "claude" / "codex" markers
+# (pre-role) are treated as source for backward compatibility by readers.
+echo "${INSTALL_MODE}-${INSTALL_ROLE}" > "$REPO_ROOT/$INSTALL_DIR/install-mode"
+echo "  Stamped $INSTALL_DIR/install-mode (${INSTALL_MODE}-${INSTALL_ROLE})"
 
 # ── 3. Copy skills (claude mode) or codex prompts (codex mode) ───────
 if [[ "$INSTALL_MODE" == "claude" ]]; then
@@ -150,6 +171,8 @@ import json, os
 
 source_settings_path = os.path.join('$SCRIPT_DIR', '.claude', 'settings.json')
 target_settings_path = os.path.join('$REPO_ROOT', '.claude', 'settings.json')
+install_role = '$INSTALL_ROLE'
+source_only_hooks = set(filter(None, '$SOURCE_ONLY_HOOK_BASENAMES'.split()))
 
 # Skip merge if source settings.json is absent
 if not os.path.isfile(source_settings_path):
@@ -170,6 +193,21 @@ if os.path.exists(target_settings_path):
 else:
     target_settings = {}
 
+
+def _is_source_only(group):
+    # Filter hook groups whose command basename matches a source-only script.
+    # Hooks like auto-lint.sh and version-bump-check.sh path-filter on skills/
+    # and bin/, which only exist in tusk's source repo — registering them in a
+    # consumer is dead weight that silently exits 0 on every invocation.
+    for h in group.get('hooks', []):
+        cmd = h.get('command', '')
+        if not cmd:
+            continue
+        if os.path.basename(cmd) in source_only_hooks:
+            return True
+    return False
+
+
 # Merge hook registrations
 target_hooks = target_settings.setdefault('hooks', {})
 for event_type, source_groups in source_hooks.items():
@@ -186,6 +224,11 @@ for event_type, source_groups in source_hooks.items():
     # Add missing hook groups from source
     for group in source_groups:
         group_commands = [h.get('command', '') for h in group.get('hooks', [])]
+        if install_role == 'consumer' and _is_source_only(group):
+            for cmd in group_commands:
+                if cmd:
+                    print(f'  Skipped source-only hook (consumer install): {cmd}')
+            continue
         if not any(cmd in existing_commands for cmd in group_commands if cmd):
             target_groups.append(group)
             for cmd in group_commands:
@@ -308,8 +351,17 @@ if [[ -d "$GIT_HOOKS_DIR" ]]; then
     fi
   }
 
+  # version-bump-check guards changes to bin/, skills/, config.default.json,
+  # and install.sh — paths that only exist in the tusk source repo. In a
+  # consumer install it is a silent no-op on every push, so omit it from the
+  # dispatcher rather than wire up dead code.
+  if [[ "$INSTALL_ROLE" == "consumer" ]]; then
+    pre_push_guards="branch-naming"
+  else
+    pre_push_guards="branch-naming version-bump-check"
+  fi
   write_dispatcher pre-commit "block-raw-sqlite block-sql-neq dupe-gate"
-  write_dispatcher pre-push   "branch-naming version-bump-check"
+  write_dispatcher pre-push   "$pre_push_guards"
   write_dispatcher commit-msg "commit-msg-format"
 else
   echo "  Warning: $REPO_ROOT/.git/hooks/ not found — skipping git-event dispatcher install"

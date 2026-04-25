@@ -60,20 +60,50 @@ INSTALL_MODES = {
 }
 
 
+INSTALL_ROLES = ("source", "consumer")
+
+
+def _read_marker(script_dir: str) -> str:
+    """Return the raw install-mode marker text, or '' on absence/error."""
+    marker = os.path.join(script_dir, "install-mode")
+    if not os.path.isfile(marker):
+        return ""
+    try:
+        return Path(marker).read_text().strip()
+    except OSError:
+        return ""
+
+
 def detect_install_mode(script_dir: str) -> str:
     """Return install mode from the <script_dir>/install-mode marker.
 
+    Accepts both the legacy plain form ('claude' / 'codex') and the compound
+    '<mode>-<role>' form written by install.sh once role detection landed.
     Absent or malformed → 'claude' (legacy pre-Codex installs and dev envs).
     """
-    marker = os.path.join(script_dir, "install-mode")
-    if os.path.isfile(marker):
-        try:
-            value = Path(marker).read_text().strip()
-        except OSError:
-            return "claude"
-        if value in INSTALL_MODES:
-            return value
+    value = _read_marker(script_dir)
+    if not value:
+        return "claude"
+    mode = value.split("-", 1)[0]
+    if mode in INSTALL_MODES:
+        return mode
     return "claude"
+
+
+def detect_install_role(script_dir: str) -> str:
+    """Return install role ('source' | 'consumer') from the install-mode marker.
+
+    The role is the suffix in the compound marker '<mode>-<role>'. Legacy
+    markers without a suffix predate role detection and are treated as 'source'
+    so existing tusk-source installs continue to upgrade unchanged.
+    """
+    value = _read_marker(script_dir)
+    if not value or "-" not in value:
+        return "source"
+    role = value.split("-", 1)[1]
+    if role in INSTALL_ROLES:
+        return role
+    return "source"
 
 
 def translate_manifest_for_mode(files, mode: str) -> list:

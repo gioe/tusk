@@ -86,7 +86,9 @@ def test_codex_install_stamps_marker(codex_project):
     _run_install(codex_project)
     marker = codex_project / "tusk" / "bin" / "install-mode"
     assert marker.exists(), "install-mode marker must be stamped by install.sh"
-    assert marker.read_text().strip() == "codex"
+    # Marker is the compound form '<mode>-<role>'. Running install.sh from
+    # tmp_path means SCRIPT_DIR != REPO_ROOT, i.e. consumer role.
+    assert marker.read_text().strip() == "codex-consumer"
 
 
 def test_codex_install_skips_skills_and_hooks(codex_project):

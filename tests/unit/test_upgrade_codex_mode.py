@@ -45,6 +45,51 @@ class TestDetectInstallMode:
         (tmp_path / "install-mode").write_text("gemini\n")
         assert upgrade_mod.detect_install_mode(str(tmp_path)) == "claude"
 
+    def test_compound_marker_returns_mode_prefix(self, tmp_path, upgrade_mod):
+        # Compound "<mode>-<role>" markers must yield just the mode for
+        # callers that pre-date role awareness.
+        (tmp_path / "install-mode").write_text("claude-consumer\n")
+        assert upgrade_mod.detect_install_mode(str(tmp_path)) == "claude"
+
+    def test_compound_codex_consumer(self, tmp_path, upgrade_mod):
+        (tmp_path / "install-mode").write_text("codex-consumer\n")
+        assert upgrade_mod.detect_install_mode(str(tmp_path)) == "codex"
+
+    def test_compound_marker_unknown_mode_falls_back(self, tmp_path, upgrade_mod):
+        (tmp_path / "install-mode").write_text("gemini-source\n")
+        assert upgrade_mod.detect_install_mode(str(tmp_path)) == "claude"
+
+
+class TestDetectInstallRole:
+    def test_absent_marker_defaults_to_source(self, tmp_path, upgrade_mod):
+        # Pre-role legacy installs and dev envs are treated as source so they
+        # keep registering source-only hooks unchanged.
+        assert upgrade_mod.detect_install_role(str(tmp_path)) == "source"
+
+    def test_legacy_plain_marker_defaults_to_source(self, tmp_path, upgrade_mod):
+        (tmp_path / "install-mode").write_text("claude\n")
+        assert upgrade_mod.detect_install_role(str(tmp_path)) == "source"
+
+    def test_compound_source(self, tmp_path, upgrade_mod):
+        (tmp_path / "install-mode").write_text("claude-source\n")
+        assert upgrade_mod.detect_install_role(str(tmp_path)) == "source"
+
+    def test_compound_consumer(self, tmp_path, upgrade_mod):
+        (tmp_path / "install-mode").write_text("claude-consumer\n")
+        assert upgrade_mod.detect_install_role(str(tmp_path)) == "consumer"
+
+    def test_codex_consumer(self, tmp_path, upgrade_mod):
+        (tmp_path / "install-mode").write_text("codex-consumer\n")
+        assert upgrade_mod.detect_install_role(str(tmp_path)) == "consumer"
+
+    def test_unknown_role_falls_back_to_source(self, tmp_path, upgrade_mod):
+        (tmp_path / "install-mode").write_text("claude-stranger\n")
+        assert upgrade_mod.detect_install_role(str(tmp_path)) == "source"
+
+    def test_whitespace_tolerated(self, tmp_path, upgrade_mod):
+        (tmp_path / "install-mode").write_text("  codex-consumer  \n\n")
+        assert upgrade_mod.detect_install_role(str(tmp_path)) == "consumer"
+
 
 class TestTranslateManifestForMode:
     SAMPLE = [

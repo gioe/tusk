@@ -75,10 +75,12 @@ INSTALL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Detect install mode (claude vs codex) so gitignore and agent-doc updates
 # target the right locations. Driven by the install-mode marker stamped by
-# install.sh / tusk-upgrade.py. Absent marker → claude (legacy installs and
-# tusk's own source-repo dev env).
+# install.sh / tusk-upgrade.py. Marker may be plain ("claude" / "codex") or
+# compound ("<mode>-<role>") — only the mode prefix matters here. Absent
+# marker → claude (legacy installs and tusk's own source-repo dev env).
 if [[ -f "$SCRIPT_DIR/install-mode" ]]; then
-  INSTALL_MODE="$(tr -d '[:space:]' < "$SCRIPT_DIR/install-mode")"
+  INSTALL_MODE_RAW="$(tr -d '[:space:]' < "$SCRIPT_DIR/install-mode")"
+  INSTALL_MODE="${INSTALL_MODE_RAW%%-*}"
 else
   INSTALL_MODE="claude"
 fi

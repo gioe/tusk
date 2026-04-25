@@ -269,7 +269,13 @@ def test_dupe_gate_blocks_staged_duplicate_insert(codex_sandbox):
 
 
 def test_version_bump_check_blocks_missing_bump(codex_sandbox, tmp_path_factory):
-    """pre-push rejects a push that changes distributable files without bumping VERSION."""
+    """version-bump-check guard rejects distributable change without VERSION bump.
+
+    The guard is only wired into the pre-push dispatcher in source-mode installs
+    (issue #558) — codex_sandbox is a consumer install — so this test invokes
+    the guard script directly to verify its logic is intact. The guard *file*
+    is still copied unconditionally in both roles.
+    """
     bare = tmp_path_factory.mktemp("bare") / "origin.git"
     _run(["git", "init", "--bare", str(bare)], codex_sandbox.parent)
     _git(["remote", "add", "origin", str(bare)], codex_sandbox)
@@ -287,9 +293,48 @@ def test_version_bump_check_blocks_missing_bump(codex_sandbox, tmp_path_factory)
     _git(["add", "install.sh"], codex_sandbox)
     _git(["commit", "--no-verify", "-m", "[TASK-9] modify install.sh"], codex_sandbox)
 
-    result = _invoke_hook(codex_sandbox, "pre-push", "origin", str(bare),
-                          input_bytes="")
+    guard = codex_sandbox / "tusk" / "bin" / "hooks" / "git" / "version-bump-check.sh"
+    assert guard.exists(), "version-bump-check guard file must still be installed"
+    result = subprocess.run(
+        [str(guard), "origin", str(bare)],
+        cwd=str(codex_sandbox),
+        capture_output=True,
+        text=True,
+        input="",
+    )
     assert result.returncode != 0, (
-        "pre-push should reject distributable change without VERSION bump"
+        "version-bump-check guard should reject distributable change without VERSION bump"
     )
     assert "VERSION" in result.stderr
+
+
+def test_consumer_pre_push_dispatcher_does_not_invoke_version_bump_check(
+    codex_sandbox, tmp_path_factory,
+):
+    """Issue #558 regression: pre-push in a consumer install must not run version-bump-check.
+
+    Same setup as the guard-direct test above, but invokes the dispatcher. The
+    push should pass through because version-bump-check is omitted from the
+    consumer-mode dispatcher — it would otherwise silently no-op on every push
+    in any consumer that lacks the source-repo path layout.
+    """
+    bare = tmp_path_factory.mktemp("bare") / "origin.git"
+    _run(["git", "init", "--bare", str(bare)], codex_sandbox.parent)
+    _git(["remote", "add", "origin", str(bare)], codex_sandbox)
+    (codex_sandbox / "install.sh").write_text("# placeholder\n")
+    (codex_sandbox / "VERSION").write_text("1\n")
+    _git(["add", "install.sh", "VERSION"], codex_sandbox)
+    _git(["commit", "--no-verify", "-m", "[TASK-0] seed"], codex_sandbox)
+    _git(["push", "--no-verify", "-u", "origin", "main"], codex_sandbox)
+
+    _git(["checkout", "-b", "feature/TASK-9-change"], codex_sandbox)
+    (codex_sandbox / "install.sh").write_text("# placeholder\n# change\n")
+    _git(["add", "install.sh"], codex_sandbox)
+    _git(["commit", "--no-verify", "-m", "[TASK-9] modify install.sh"], codex_sandbox)
+
+    result = _invoke_hook(codex_sandbox, "pre-push", "origin", str(bare),
+                          input_bytes="")
+    assert result.returncode == 0, (
+        "consumer-mode pre-push should not block on missing VERSION bump; "
+        f"stderr was: {result.stderr!r}"
+    )
