@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [722] - 2026-04-25
+
+- [TASK-174] Promote Rule 24 (subprocess encoding) from advisory to blocking
+
 ## [721] - 2026-04-25
 
 - [TASK-173] Extend Rule 24 to cover subprocess.check_call/call and universal_newlines=True
