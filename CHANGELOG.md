@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [721] - 2026-04-25
+
+- [TASK-173] Extend Rule 24 to cover subprocess.check_call/call and universal_newlines=True
+
 ## [720] - 2026-04-25
 
 - [TASK-172] Add AST-based tusk-lint rule for subprocess encoding kwarg
