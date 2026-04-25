@@ -161,7 +161,7 @@ Two external library repos ship their own `tusk-bootstrap.json` and are pre-conf
 
 ### Skills (Claude Code only)
 
-> These skills are installed to `.claude/skills/` in Claude Code target projects. Codex consumers receive no skill equivalents today; a `.codex/prompts/` port is pending.
+> These skills are installed to `.claude/skills/` in Claude Code target projects. Codex consumers receive `.codex/prompts/<name>.md` ports — pilot ports for `tusk-init` and `create-task` ship today via `install.sh` and `tusk upgrade`; the bulk port of the remaining skills is in progress.
 
 - **`/tusk`** — Full dev workflow: pick task, implement, commit, review, done, retro
 - **`/groom-backlog`** — Auto-close expired tasks, dedup, re-prioritize backlog
