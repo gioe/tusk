@@ -2,8 +2,22 @@
 # Stop hook: warns about in-progress tasks with incomplete acceptance criteria.
 # Advisory only — always exits 0 so it never blocks Claude from stopping.
 
+# Resolve repo root and tusk binary. Stop hooks fire after Claude finishes,
+# when setup-path.sh's PATH exports may already be gone — bare 'tusk' would
+# silently no-op via the 2>/dev/null swallow below.
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+if [ -x "$repo_root/bin/tusk" ]; then
+  TUSK="$repo_root/bin/tusk"
+elif [ -x "$repo_root/.claude/bin/tusk" ]; then
+  TUSK="$repo_root/.claude/bin/tusk"
+elif command -v tusk &>/dev/null; then
+  TUSK=tusk
+else
+  exit 0
+fi
+
 # Query for in-progress tasks that have at least one incomplete criterion
-result=$(tusk -json "
+result=$("$TUSK" -json "
 SELECT t.id, t.summary,
        COUNT(ac.id) AS total_criteria,
        SUM(CASE WHEN ac.is_completed = 0 THEN 1 ELSE 0 END) AS incomplete
