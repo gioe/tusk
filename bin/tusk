@@ -766,7 +766,9 @@ CREATE TABLE skill_runs (
     model TEXT,
     metadata TEXT,
     request_count INTEGER,
-    task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL
+    task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+    user_prompt_tokens INTEGER,
+    user_prompt_count INTEGER
 );
 CREATE INDEX idx_skill_runs_skill_name ON skill_runs(skill_name);
 SR_SCHEMA
@@ -899,7 +901,7 @@ PILLARS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 59;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 60;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."

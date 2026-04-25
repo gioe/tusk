@@ -584,7 +584,9 @@ CREATE TABLE skill_runs (
     model TEXT,
     metadata TEXT,
     request_count INTEGER,
-    task_id INTEGER
+    task_id INTEGER,
+    user_prompt_tokens INTEGER,
+    user_prompt_count INTEGER
 );
 """
 
