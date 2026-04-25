@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [731] - 2026-04-25
+
+- [TASK-180] Fix: tusk merge prints misleading 'already on main — diverged' when feature branch has no new commits
+
 ## [730] - 2026-04-25
 
 - [TASK-179] Fix: hooks silently no-op in consumer repos due to source-only path filters
