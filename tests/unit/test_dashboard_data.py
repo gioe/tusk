@@ -1639,6 +1639,87 @@ class TestFetchCostTrendMonthly:
 
 
 # ---------------------------------------------------------------------------
+# fetch_cost_per_user_prompt_trend()
+# ---------------------------------------------------------------------------
+
+
+class TestFetchCostPerUserPromptTrend:
+    def test_groups_by_week_and_divides(self):
+        conn = _make_conn()
+        _add_skill_runs_table(conn)
+        # Two runs in week of 2026-01-05 (Mon): cost $0.10 + $0.20, prompts 5 + 5
+        conn.execute(
+            "INSERT INTO skill_runs (skill_name, started_at, cost_dollars, "
+            "user_prompt_tokens, user_prompt_count) VALUES (?, ?, ?, ?, ?)",
+            ("tusk", "2026-01-05 10:00:00", 0.10, 100, 5),
+        )
+        conn.execute(
+            "INSERT INTO skill_runs (skill_name, started_at, cost_dollars, "
+            "user_prompt_tokens, user_prompt_count) VALUES (?, ?, ?, ?, ?)",
+            ("tusk", "2026-01-08 10:00:00", 0.20, 200, 5),
+        )
+        conn.commit()
+
+        rows = dashboard_data.fetch_cost_per_user_prompt_trend(conn)
+        assert len(rows) == 1
+        assert rows[0]["weekly_prompts"] == 10
+        assert abs(rows[0]["weekly_cost"] - 0.30) < 1e-9
+        assert abs(rows[0]["cost_per_prompt"] - 0.03) < 1e-6
+
+    def test_excludes_runs_with_null_count(self):
+        conn = _make_conn()
+        _add_skill_runs_table(conn)
+        conn.execute(
+            "INSERT INTO skill_runs (skill_name, started_at, cost_dollars) "
+            "VALUES (?, ?, ?)",
+            ("tusk", "2026-01-05 10:00:00", 0.50),
+        )
+        conn.commit()
+
+        rows = dashboard_data.fetch_cost_per_user_prompt_trend(conn)
+        assert rows == []
+
+    def test_excludes_runs_with_zero_count(self):
+        conn = _make_conn()
+        _add_skill_runs_table(conn)
+        # cancelled run with user_prompt_count = 0 (set by cmd_cancel)
+        conn.execute(
+            "INSERT INTO skill_runs (skill_name, started_at, cost_dollars, "
+            "user_prompt_tokens, user_prompt_count) VALUES (?, ?, ?, ?, ?)",
+            ("tusk", "2026-01-05 10:00:00", 0.0, 0, 0),
+        )
+        conn.commit()
+
+        rows = dashboard_data.fetch_cost_per_user_prompt_trend(conn)
+        assert rows == []
+
+    def test_empty_database_returns_empty_list(self):
+        conn = _make_conn()
+        _add_skill_runs_table(conn)
+        rows = dashboard_data.fetch_cost_per_user_prompt_trend(conn)
+        assert rows == []
+
+    def test_ordered_oldest_first(self):
+        conn = _make_conn()
+        _add_skill_runs_table(conn)
+        conn.execute(
+            "INSERT INTO skill_runs (skill_name, started_at, cost_dollars, "
+            "user_prompt_tokens, user_prompt_count) VALUES (?, ?, ?, ?, ?)",
+            ("tusk", "2026-03-01 00:00:00", 0.10, 100, 4),
+        )
+        conn.execute(
+            "INSERT INTO skill_runs (skill_name, started_at, cost_dollars, "
+            "user_prompt_tokens, user_prompt_count) VALUES (?, ?, ?, ?, ?)",
+            ("tusk", "2026-01-01 00:00:00", 0.05, 50, 2),
+        )
+        conn.commit()
+
+        rows = dashboard_data.fetch_cost_per_user_prompt_trend(conn)
+        assert len(rows) == 2
+        assert rows[0]["week_start"] < rows[1]["week_start"]
+
+
+# ---------------------------------------------------------------------------
 # Schema sync guards: in-file fixtures vs bin/tusk CREATE TABLE blocks
 # ---------------------------------------------------------------------------
 

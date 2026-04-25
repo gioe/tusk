@@ -53,6 +53,7 @@ fetch_tool_call_stats_global = _data.fetch_tool_call_stats_global
 fetch_cost_trend = _data.fetch_cost_trend
 fetch_cost_trend_daily = _data.fetch_cost_trend_daily
 fetch_cost_trend_monthly = _data.fetch_cost_trend_monthly
+fetch_cost_per_user_prompt_trend = _data.fetch_cost_per_user_prompt_trend
 fetch_hourly_cost = _data.fetch_hourly_cost
 fetch_dow_hour_heatmap = _data.fetch_dow_hour_heatmap
 fetch_cost_scatter_data = _data.fetch_cost_scatter_data
@@ -65,6 +66,7 @@ generate_footer = _html.generate_footer
 generate_skill_runs_section = _html.generate_skill_runs_section
 
 generate_cost_trend_section = _html.generate_cost_trend_section
+generate_cost_per_user_prompt_section = _html.generate_cost_per_user_prompt_section
 generate_hourly_cost_section = _html.generate_hourly_cost_section
 generate_dow_hour_heatmap_section = _html.generate_dow_hour_heatmap_section
 generate_cost_scatter_section = _html.generate_cost_scatter_section
@@ -90,6 +92,7 @@ def _tz_label(offset_minutes: int) -> str:
 def generate_html(task_metrics: list[dict],
                   cost_trend: list[dict] = None, all_criteria: dict[int, list[dict]] = None,
                   cost_trend_daily: list[dict] = None, cost_trend_monthly: list[dict] = None,
+                  cost_per_user_prompt: list[dict] = None,
                   task_deps: dict[int, dict] = None,
                   version: str = "",
                   dag_tasks: list[dict] = None, dag_edges: list[dict] = None,
@@ -198,6 +201,11 @@ def generate_html(task_metrics: list[dict],
         skill_runs or []
     )
 
+    # Cost-per-user-prompt weekly trend (→ Cost tab, after trend)
+    cost_per_user_prompt_html = generate_cost_per_user_prompt_section(
+        cost_per_user_prompt or []
+    )
+
     # Hour of day cost bar chart (→ Cost tab, after trend)
     hourly_cost_html = generate_hourly_cost_section()
 
@@ -293,6 +301,7 @@ def generate_html(task_metrics: list[dict],
 <div id="tab-cost" class="tab-panel">
   <div class="container">
     {cost_trend_html}
+    {cost_per_user_prompt_html}
     {hourly_cost_html}
     {cost_scatter_html}
     {dow_hour_heatmap_html}
@@ -355,6 +364,7 @@ def main():
         cost_trend = fetch_cost_trend(conn, utc_offset_minutes)
         cost_trend_daily = fetch_cost_trend_daily(conn, utc_offset_minutes)
         cost_trend_monthly = fetch_cost_trend_monthly(conn, utc_offset_minutes)
+        cost_per_user_prompt = fetch_cost_per_user_prompt_trend(conn, utc_offset_minutes)
         all_criteria = fetch_all_criteria(conn)
         task_deps = fetch_task_dependencies(conn)
         # DAG data
@@ -404,11 +414,16 @@ def main():
     # Generate HTML
     html_content = generate_html(
         task_metrics, cost_trend, all_criteria,
-        cost_trend_daily, cost_trend_monthly, task_deps,
-        version,
-        dag_tasks, dag_edges, dag_blockers, skill_runs,
-        tool_call_per_task, tool_call_per_skill_run,
-        tool_call_per_criterion, tool_call_global,
+        cost_trend_daily, cost_trend_monthly,
+        cost_per_user_prompt=cost_per_user_prompt,
+        task_deps=task_deps,
+        version=version,
+        dag_tasks=dag_tasks, dag_edges=dag_edges,
+        dag_blockers=dag_blockers, skill_runs=skill_runs,
+        tool_call_per_task=tool_call_per_task,
+        tool_call_per_skill_run=tool_call_per_skill_run,
+        tool_call_per_criterion=tool_call_per_criterion,
+        tool_call_global=tool_call_global,
         tool_call_events_per_criterion=tool_call_events_per_criterion,
         utc_offset_minutes=utc_offset_minutes,
         hourly_cost=hourly_cost,

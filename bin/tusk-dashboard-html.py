@@ -748,6 +748,104 @@ window.__tuskSkillTrend = {skill_trend_data};
 </script>"""
 
 
+def generate_cost_per_user_prompt_section(weekly_rows: list[dict]) -> str:
+    """Generate the Cost Per User Prompt weekly trend panel.
+
+    weekly_rows: list of {week_start, weekly_cost, weekly_prompts, cost_per_prompt}
+    from fetch_cost_per_user_prompt_trend. Tracks user prompting efficiency
+    over time — flat or rising means costlier prompting, falling means
+    more efficient.
+    """
+    rows = weekly_rows or []
+    labels = [r["week_start"] for r in rows]
+    values = [r.get("cost_per_prompt") or 0 for r in rows]
+    prompts = [r.get("weekly_prompts") or 0 for r in rows]
+    payload = json.dumps({
+        "labels": labels,
+        "values": values,
+        "prompts": prompts,
+    }).replace("</", "<\\/")
+
+    has_data = any(values)
+    empty_msg = (
+        '<p class="empty" style="padding:var(--sp-4) 0;">'
+        'No skill runs with user-prompt data yet — the metric needs at least '
+        'one finished /tusk run after the v60 migration.'
+        '</p>'
+        if not has_data else ''
+    )
+    chart_hidden = ' display:none;' if not has_data else ''
+
+    return f"""\
+<script>window.__tuskCostPerUserPrompt = {payload};</script>
+<div class="panel" style="margin-bottom: var(--sp-6);">
+  <div class="section-header">Cost Per User Prompt (Weekly)</div>
+  <p class="muted" style="padding:0 var(--sp-4) var(--sp-3);font-size:0.85em;">
+    Weekly average dollars per user prompt across all skill runs.
+    Optimize this — not raw token count. A clear-but-verbose prompt that prevents
+    three rounds of clarification beats a cryptic one-liner that triggers iteration.
+  </p>
+  <div style="padding:0 var(--sp-4) var(--sp-4);">
+    {empty_msg}
+    <canvas id="costPerUserPromptChart" height="220" style="max-width:100%;width:100%;{chart_hidden}"></canvas>
+  </div>
+</div>
+<script>
+(function() {{
+  if (typeof Chart === 'undefined') return;
+  var data = window.__tuskCostPerUserPrompt;
+  if (!data || !data.values || !data.values.length) return;
+  var canvas = document.getElementById('costPerUserPromptChart');
+  if (!canvas) return;
+  var style = getComputedStyle(document.documentElement);
+  var textMuted = style.getPropertyValue('--text-muted').trim() || '#94a3b8';
+  var border = style.getPropertyValue('--border').trim() || '#e2e8f0';
+  var accent = style.getPropertyValue('--accent').trim() || '#3b82f6';
+  new Chart(canvas, {{
+    type: 'line',
+    data: {{
+      labels: data.labels,
+      datasets: [{{
+        label: 'Cost / User Prompt',
+        data: data.values,
+        borderColor: accent,
+        backgroundColor: accent + '33',
+        tension: 0.25,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        fill: true
+      }}]
+    }},
+    options: {{
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {{
+        legend: {{ labels: {{ color: textMuted, usePointStyle: true, padding: 16 }} }},
+        tooltip: {{
+          callbacks: {{
+            label: function(ctx) {{
+              var v = ctx.parsed.y || 0;
+              var n = (data.prompts && data.prompts[ctx.dataIndex]) || 0;
+              return '$' + v.toFixed(4) + ' / prompt (' + n + ' prompts)';
+            }}
+          }}
+        }}
+      }},
+      scales: {{
+        x: {{ ticks: {{ color: textMuted, font: {{ size: 11 }}, maxTicksLimit: 12 }}, grid: {{ color: border, borderDash: [3,3] }} }},
+        y: {{
+          title: {{ display: true, text: 'Cost / Prompt ($)', color: textMuted }},
+          ticks: {{ color: textMuted, font: {{ size: 11 }}, callback: function(v) {{ return '$' + v.toFixed(4); }} }},
+          grid: {{ color: border, borderDash: [3,3] }},
+          beginAtZero: true
+        }}
+      }}
+    }}
+  }});
+}})();
+</script>"""
+
+
 def generate_hourly_cost_section() -> str:
     """Generate Hour of Day Cost panel with Tasks vs Skills toggle."""
     return """\

@@ -489,6 +489,41 @@ def fetch_cost_trend_daily(conn: sqlite3.Connection, offset_minutes: int = 0) ->
     return result
 
 
+def fetch_cost_per_user_prompt_trend(
+    conn: sqlite3.Connection, offset_minutes: int = 0
+) -> list[dict]:
+    """Fetch weekly cost-per-user-prompt aggregations from skill_runs.
+
+    Bucket by ISO week (Sunday → Sunday-minus-6 = Monday) in local time.
+    Within each bucket, sum ``cost_dollars`` and ``user_prompt_count`` across
+    all rows that recorded at least one user prompt, then divide. Rows where
+    ``user_prompt_count`` is NULL or 0 are excluded so legacy rows from
+    pre-migration runs don't drag the average toward zero.
+    """
+    log.debug("Querying cost-per-user-prompt trend (offset_minutes=%d)", offset_minutes)
+    sign = "+" if offset_minutes >= 0 else ""
+    offset_mod = f"{sign}{offset_minutes} minutes"
+    rows = conn.execute(
+        f"""SELECT date(started_at, '{offset_mod}', 'weekday 0', '-6 days') as week_start,
+                  SUM(COALESCE(cost_dollars, 0)) as weekly_cost,
+                  SUM(user_prompt_count) as weekly_prompts
+           FROM skill_runs
+           WHERE user_prompt_count IS NOT NULL AND user_prompt_count > 0
+           GROUP BY week_start
+           HAVING weekly_prompts > 0
+           ORDER BY week_start"""
+    ).fetchall()
+    result = []
+    for r in rows:
+        d = dict(r)
+        prompts = d.get("weekly_prompts") or 0
+        cost = d.get("weekly_cost") or 0
+        d["cost_per_prompt"] = round(cost / prompts, 6) if prompts else None
+        result.append(d)
+    log.debug("Fetched %d weekly cost-per-user-prompt buckets", len(result))
+    return result
+
+
 def fetch_cost_trend_monthly(conn: sqlite3.Connection, offset_minutes: int = 0) -> list[dict]:
     """Fetch monthly cost aggregations from task_sessions, grouped by local month."""
     log.debug("Querying monthly cost trend data (offset_minutes=%d)", offset_minutes)
