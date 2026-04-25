@@ -49,8 +49,8 @@ Break the input into discrete, actionable tasks. For each task, determine:
 
 | Field | How to Determine |
 |-------|-----------------|
-| **summary** | Clear, imperative sentence describing the deliverable (e.g., "Add login endpoint with JWT authentication"). Max ~100 chars. |
-| **description** | Expanded context from the input — acceptance criteria, technical notes, relevant quotes from the source text. |
+| **summary** | Clear, imperative sentence describing the deliverable (e.g., "Add login endpoint with JWT authentication"). Aim for ~100 chars; hard cap **150 chars** (enforced in Step 3.7). |
+| **description** | Expanded context from the input — motivation, constraints, links to source material. Hard cap **1200 chars** (enforced in Step 3.7) — move acceptance criteria and step-by-step details out into the criteria list. |
 | **priority** | Infer from language cues: "critical"/"urgent"/"blocking" → `Highest`/`High`; "nice to have"/"eventually" → `Low`/`Lowest`; default to `Medium`. Must be one of the configured priorities. |
 | **domain** | Match to a configured domain based on the task's subject area. Leave NULL if no domains are configured or none fit. |
 | **task_type** | Categorize as one of the configured task types (bug, feature, refactor, test, docs, infrastructure). Default to `feature` for new work, `bug` for fixes. For `test` and `docs`: use as `task_type` only when writing tests or docs **is the primary deliverable** — otherwise use acceptance criteria. See **Task Type Decision Guide** below. |
@@ -153,6 +153,29 @@ Case-insensitive. When a match is found:
 Apply the user's answer to that task's `fixes_task_id` and continue.
 
 **Borderline phrasing** — mere mentions like "see TASK-N" or "related to TASK-N" (without `fixes`, `follow-up from`, or `retro follow-up from`) do **not** qualify. Leave `fixes_task_id` unset in those cases.
+
+## Step 3.7: Validate Length Limits
+
+Before presenting the task list, verify every proposed task complies with the hard length caps:
+
+- **summary** — at most **150 characters**
+- **description** — at most **1200 characters**
+
+These caps prevent bloated text from being re-sent on every `tusk task-list` and `tusk task-get` call. An audit found tasks where the entire description had been pasted verbatim into the summary field, producing 600+ char summaries that polluted every subsequent listing.
+
+For each proposed task, count `len(summary)` and `len(description)`. If **either** exceeds its cap, refuse to insert that task — surface the violation and prompt the user before continuing:
+
+> **Length violation in task #<i>** ("<short title>"):
+> - summary: <S> chars (max 150) — over by <S - 150>
+> - description: <D> chars (max 1200) — over by <D - 1200>
+>
+> How would you like to fix this? You can:
+> - **Trim** — propose a shorter version (suggest one if useful)
+> - **Split** — break the task into multiple smaller tasks (helpful when the description is long because it covers multiple deliverables)
+> - **Move** detail from description into acceptance criteria (the criteria list has no length cap and is the right home for HOW-style content)
+> - **Cancel** this task
+
+Apply the user's chosen fix, recount lengths against the same caps (150 / 1200), and only proceed to Step 4 once **every** task is within both limits. Do not skip this validation — a task that exceeds either cap must not reach `tusk task-insert`.
 
 ## Step 4: Present Task List for Review
 
