@@ -45,6 +45,7 @@
   ".claude/bin/tusk-retro-finding.py",
   ".claude/bin/tusk-retro-signals.py",
   ".claude/bin/tusk-retro-themes.py",
+  ".claude/bin/tusk-retro.py",
   ".claude/bin/tusk-review-check-perms.py",
   ".claude/bin/tusk-review-defer.py",
   ".claude/bin/tusk-review-diff-range.py",

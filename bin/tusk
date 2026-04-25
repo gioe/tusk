@@ -1410,6 +1410,7 @@ case "${1:-}" in
   retro-signals) shift; exec python3 "$SCRIPT_DIR/tusk-retro-signals.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   retro-themes) shift; exec python3 "$SCRIPT_DIR/tusk-retro-themes.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   retro-finding) shift; exec python3 "$SCRIPT_DIR/tusk-retro-finding.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  retro) shift; exec python3 "$SCRIPT_DIR/tusk-retro.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   test-detect) shift; exec python3 "$SCRIPT_DIR/tusk-test-detect.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   test-precheck) shift; exec python3 "$SCRIPT_DIR/tusk-test-precheck.py" "$REPO_ROOT" "$(resolve_config)" "$@" ;;
   add-lib) shift; exec python3 "$SCRIPT_DIR/tusk-add-lib.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
