@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [712] - 2026-04-25
+
+- [TASK-162] Promote typed criteria as first-class in /create-task and soften criteria-count guidance
+
 ## [711] - 2026-04-25
 
 - [TASK-164] Add length guards on summary and description in /create-task
