@@ -203,12 +203,26 @@ def cmd_cancel(conn, run_id: int) -> None:
     print(f"Skill run {run_id} ({row['skill_name']}) cancelled.")
 
 
+def _tokens_per_user_msg(user_prompt_tokens, user_prompt_count):
+    """Compute tokens / count, returning None when count is 0 or NULL.
+
+    Matches the SQL semantics of NULLIF(user_prompt_count, 0) division: zero
+    counts become NULL so the list output shows '-' instead of an inf/zero.
+    """
+    if not user_prompt_count:
+        return None
+    if user_prompt_tokens is None:
+        return None
+    return user_prompt_tokens // user_prompt_count
+
+
 def cmd_list(conn, skill_name: str | None, limit: int) -> None:
     """Print recent skill runs, optionally filtered by skill name."""
     if skill_name:
         rows = conn.execute(
             """SELECT id, skill_name, started_at, ended_at,
-                      cost_dollars, tokens_in, tokens_out, model, metadata, task_id
+                      cost_dollars, tokens_in, tokens_out, model, metadata, task_id,
+                      user_prompt_tokens, user_prompt_count
                FROM skill_runs
                WHERE skill_name = ?
                ORDER BY id DESC
@@ -218,7 +232,8 @@ def cmd_list(conn, skill_name: str | None, limit: int) -> None:
     else:
         rows = conn.execute(
             """SELECT id, skill_name, started_at, ended_at,
-                      cost_dollars, tokens_in, tokens_out, model, metadata, task_id
+                      cost_dollars, tokens_in, tokens_out, model, metadata, task_id,
+                      user_prompt_tokens, user_prompt_count
                FROM skill_runs
                ORDER BY id DESC
                LIMIT ?""",
@@ -230,21 +245,23 @@ def cmd_list(conn, skill_name: str | None, limit: int) -> None:
         return
 
     # Header
-    print(f"{'ID':<6} {'Task':<10} {'Skill':<20} {'Started':<20} {'Cost':>8}  {'Tokens In':>10}  {'Model':<25}  Metadata")
-    print("-" * 110)
+    print(f"{'ID':<6} {'Task':<10} {'Skill':<20} {'Started':<20} {'Cost':>8}  {'Tokens In':>10}  {'T/Msg':>7}  {'Model':<25}  Metadata")
+    print("-" * 120)
     for r in rows:
         cost_str = f"${r['cost_dollars']:.4f}" if r["cost_dollars"] is not None else "pending"
         tokens_str = f"{r['tokens_in']:,}" if r["tokens_in"] is not None else "-"
         meta_str = r["metadata"] or ""
         started = (r["started_at"] or "")[:16]
         task_str = f"TASK-{r['task_id']}" if r["task_id"] is not None else "-"
+        per_msg = _tokens_per_user_msg(r["user_prompt_tokens"], r["user_prompt_count"])
+        per_msg_str = f"{per_msg:,}" if per_msg is not None else "-"
         if not r["ended_at"]:
             status = "(open)"
         elif r["cost_dollars"] == 0 and (r["model"] or "") == "" and r["metadata"] is None:
             status = "(cancelled)"
         else:
             status = ""
-        print(f"{r['id']:<6} {task_str:<10} {r['skill_name']:<20} {started:<20} {cost_str:>8}  {tokens_str:>10}  {(r['model'] or '-'):<25}  {meta_str} {status}")
+        print(f"{r['id']:<6} {task_str:<10} {r['skill_name']:<20} {started:<20} {cost_str:>8}  {tokens_str:>10}  {per_msg_str:>7}  {(r['model'] or '-'):<25}  {meta_str} {status}")
 
 
 def main():
