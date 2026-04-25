@@ -77,13 +77,16 @@ def detect_install_mode(script_dir: str) -> str:
 
 
 def translate_manifest_for_mode(files, mode: str) -> list:
-    """Rewrite tarball MANIFEST entries (claude-shaped) for the local install mode.
+    """Rewrite tarball MANIFEST entries (mode-shaped) for the local install mode.
 
-    Claude mode is a pass-through. Codex mode rewrites .claude/bin/ → tusk/bin/
-    and drops .claude/skills/ and .claude/hooks/ entries (no Codex equivalents).
+    The tarball MANIFEST may contain both .claude/* (claude-only) and .codex/* (codex-only)
+    paths since a single tarball ships both. Translation:
+    - Claude mode: keep .claude/* and pass-through; drop .codex/* (no Claude equivalents).
+    - Codex mode: rewrite .claude/bin/ → tusk/bin/, drop .claude/skills/ and .claude/hooks/
+      (no Codex equivalents), keep .codex/* unchanged.
     """
     if mode == "claude":
-        return list(files)
+        return [f for f in files if not f.startswith(".codex/")]
     bin_prefix = INSTALL_MODES[mode]["bin_prefix"]
     out = []
     for f in files:
@@ -281,6 +284,24 @@ def copy_skills(src: str, repo_root: str) -> int:
                 shutil.copy2(src_file, dest_dir)
         count += 1
         _vprint(f"  Updated skill: {skill_name}")
+    return count
+
+
+def copy_prompts(src: str, repo_root: str) -> int:
+    prompts_src = os.path.join(src, "codex-prompts")
+    if not os.path.isdir(prompts_src):
+        return 0
+    dest_dir = os.path.join(repo_root, ".codex", "prompts")
+    os.makedirs(dest_dir, exist_ok=True)
+    count = 0
+    for fname in os.listdir(prompts_src):
+        if not fname.endswith(".md"):
+            continue
+        src_file = os.path.join(prompts_src, fname)
+        if os.path.isfile(src_file):
+            shutil.copy2(src_file, dest_dir)
+            count += 1
+            _vprint(f"  Updated codex prompt: {fname}")
     return count
 
 
@@ -652,11 +673,13 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
         added_perms = ensure_review_commits_permissions(repo_root)
         for entry in added_perms:
             _vprint(f"  Added required permission: {entry}")
+        prompt_count = 0
     else:
         skill_count = 0
         hook_count = 0
         hook_summary = {"registered": 0, "dedup_removed": 0, "permissions_added": 0}
         added_perms = []
+        prompt_count = copy_prompts(src, repo_root)
     script_count = copy_scripts(src, repo_root)
     backfilled_keys = merge_config_defaults(src, repo_root, script_dir)
 
@@ -691,6 +714,7 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
         "hook_count": hook_count,
         "hook_summary": hook_summary,
         "added_perms": added_perms,
+        "prompt_count": prompt_count,
         "script_count": script_count,
         "backfilled_keys": backfilled_keys,
         "migrate_summary": migrate_summary,

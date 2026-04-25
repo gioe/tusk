@@ -913,6 +913,13 @@ def rule18_manifest_drift(root):
             if os.path.isfile(full):
                 expected.append(".claude/bin/hooks/git/" + fname)
 
+    prompts_src = os.path.join(root, "codex-prompts")
+    if os.path.isdir(prompts_src):
+        for fname in sorted(os.listdir(prompts_src)):
+            full = os.path.join(prompts_src, fname)
+            if os.path.isfile(full) and fname.endswith(".md"):
+                expected.append(".codex/prompts/" + fname)
+
     expected_set = set(expected)
     violations = []
     for path in sorted(expected_set - on_disk):

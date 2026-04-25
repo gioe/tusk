@@ -73,6 +73,16 @@ def build_manifest(root):
             if os.path.isfile(full):
                 files.append(".claude/bin/hooks/git/" + fname)
 
+    # Codex-only prompts. The tarball MANIFEST always lists the canonical
+    # tarball-shaped path; translate_manifest_for_mode() in tusk-upgrade.py
+    # drops these entries in claude mode and keeps them in codex mode.
+    prompts_src = os.path.join(root, "codex-prompts")
+    if os.path.isdir(prompts_src):
+        for fname in sorted(os.listdir(prompts_src)):
+            full = os.path.join(prompts_src, fname)
+            if os.path.isfile(full) and fname.endswith(".md"):
+                files.append(".codex/prompts/" + fname)
+
     return files
 
 

@@ -21,6 +21,7 @@ The chosen mode is persisted to `<install_dir>/install-mode` (contents: `claude`
 | Install-mode marker    | `.claude/bin/install-mode`      | `tusk/bin/install-mode`          |
 | Manifest               | `.claude/tusk-manifest.json`    | `tusk/tusk-manifest.json`        |
 | Skills                 | `.claude/skills/<name>/`        | Not installed (no Codex primitive) |
+| Codex prompts          | Not installed (no Claude primitive) | `.codex/prompts/<name>.md` |
 | Hooks                  | `.claude/hooks/<name>`          | Not installed (no Codex primitive) |
 | Settings merge         | `.claude/settings.json`         | Not performed (no file to merge into) |
 | Agent-doc update       | `CLAUDE.md` (created if absent) | `AGENTS.md` (created if absent)  |
@@ -51,9 +52,10 @@ Everything else works identically: the `tusk` CLI, task database, criteria track
 
 `tusk upgrade` works the same way in both modes — it downloads the latest tarball, copies files into the install dir resolved from `$SCRIPT_DIR`, and runs `tusk migrate`. In Codex mode it additionally:
 
-1. Reads `install-mode` from the install dir and translates the tarball's `MANIFEST` (which is claude-shaped) to the local `tusk/bin/` layout before running orphan detection.
+1. Reads `install-mode` from the install dir and translates the tarball's `MANIFEST` to the local `tusk/bin/` layout before running orphan detection. The translation rewrites `.claude/bin/` → `tusk/bin/`, drops `.claude/skills/` and `.claude/hooks/` entries (no Codex equivalents), and **keeps `.codex/prompts/*.md` entries** so prompts ship in codex mode. Claude-mode upgrades inversely drop `.codex/prompts/` so those files don't land where there's no consumer.
 2. Skips the skills copy, hooks copy, `setup-path.sh` override, settings merge, and `/review-commits` permissions check.
-3. Writes the translated manifest to `tusk/tusk-manifest.json` so future upgrades see the correct baseline.
+3. Copies `codex-prompts/*.md` from the tarball to `<repo_root>/.codex/prompts/<name>.md` (Codex-only step; mirrors how Claude mode copies `skills/`).
+4. Writes the translated manifest to `tusk/tusk-manifest.json` so future upgrades see the correct baseline.
 
 ## Limitations
 
