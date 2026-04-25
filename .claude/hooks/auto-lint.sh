@@ -25,13 +25,18 @@ case "$rel_path" in
   *) exit 0 ;;
 esac
 
-# Resolve tusk binary — don't rely on PATH (SessionStart hook may not have run yet)
-if command -v tusk &>/dev/null; then
-  TUSK=tusk
+# Resolve tusk binary — prefer in-repo paths so the hook always runs the
+# same lint version as the source tree it's editing. A PATH-resolved tusk
+# can point at another project's installed copy (e.g. via ~/.local/bin
+# wrappers), and a stale rule18 there reports phantom MANIFEST 'extra'
+# entries against the current MANIFEST. Source repo: bin/tusk first.
+# Target project: .claude/bin/tusk first. PATH is the last resort.
+if [ -x "$repo_root/bin/tusk" ]; then
+  TUSK="$repo_root/bin/tusk"
 elif [ -x "$repo_root/.claude/bin/tusk" ]; then
   TUSK="$repo_root/.claude/bin/tusk"
-elif [ -x "$repo_root/bin/tusk" ]; then
-  TUSK="$repo_root/bin/tusk"
+elif command -v tusk &>/dev/null; then
+  TUSK=tusk
 else
   exit 0
 fi
