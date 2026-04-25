@@ -133,6 +133,7 @@ def run_autoclose() -> dict:
         [_tusk_bin(), "autoclose"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if result.returncode != 0:
         # Surface failure rather than producing a misleading summary.
@@ -164,6 +165,7 @@ def run_backlog_scan() -> dict:
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     if result.returncode != 0:
         msg = (result.stderr or result.stdout or "tusk backlog-scan failed").strip()
@@ -184,6 +186,7 @@ def run_lint() -> dict:
         [_tusk_bin(), "lint", "--quiet"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
     )
     lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
     summary = lines[-1] if lines else ""
