@@ -1089,7 +1089,7 @@ RULES = [
     ("Rule 21: Skill files with multiple trailing newlines", rule21_skills_trailing_newlines, False),
     ("Rule 22: Issue tasks missing a test-type criterion (advisory)", rule22_issue_tasks_missing_test_criterion, True),
     ("Rule 23: CLAUDE.md exceeds line limit (advisory)", rule23_claude_md_size, True),
-    ("Rule 24: subprocess.run/check_output/Popen text=True without encoding (advisory)", rule24_subprocess_encoding, True),
+    ("Rule 24: subprocess.run/check_output/Popen text=True without encoding", rule24_subprocess_encoding, False),
 ]
 
 # Load project-specific rules from tusk-lint-extra.py if it exists alongside this script.
