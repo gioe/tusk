@@ -97,7 +97,7 @@ echo "  Installed $INSTALL_DIR/pricing.json"
 echo "$INSTALL_MODE" > "$REPO_ROOT/$INSTALL_DIR/install-mode"
 echo "  Stamped $INSTALL_DIR/install-mode ($INSTALL_MODE)"
 
-# ── 3. Copy skills (claude mode only) ────────────────────────────────
+# ── 3. Copy skills (claude mode) or codex prompts (codex mode) ───────
 if [[ "$INSTALL_MODE" == "claude" ]]; then
   for skill_dir in "$SCRIPT_DIR"/skills/*/; do
     skill_name="$(basename "$skill_dir")"
@@ -107,6 +107,15 @@ if [[ "$INSTALL_MODE" == "claude" ]]; then
   done
 else
   echo "  Skipping skills (Codex mode has no skills primitive)"
+  if [[ -d "$SCRIPT_DIR/codex-prompts" ]]; then
+    mkdir -p "$REPO_ROOT/.codex/prompts"
+    for prompt_file in "$SCRIPT_DIR"/codex-prompts/*.md; do
+      [[ -f "$prompt_file" ]] || continue
+      prompt_name="$(basename "$prompt_file")"
+      cp "$prompt_file" "$REPO_ROOT/.codex/prompts/$prompt_name"
+      echo "  Installed .codex/prompts/$prompt_name"
+    done
+  fi
 fi
 
 # ── 4. Copy hooks + merge settings (claude mode only) ────────────────
@@ -330,7 +339,7 @@ for p in sorted(glob.glob(os.path.join(script_dir, 'bin', 'tusk-*.py'))):
 for name in ['config.default.json', 'VERSION', 'pricing.json']:
     files.append(install_dir + '/' + name)
 
-# Skills/hooks only exist in claude mode
+# Skills/hooks only exist in claude mode; codex prompts only in codex mode
 if install_mode == 'claude':
     for skill_dir in sorted(glob.glob(os.path.join(script_dir, 'skills', '*/'))):
         skill_name = os.path.basename(skill_dir.rstrip('/'))
@@ -345,6 +354,13 @@ if install_mode == 'claude':
             full = os.path.join(hooks_src, fname)
             if os.path.isfile(full):
                 files.append('.claude/hooks/' + fname)
+else:
+    prompts_src = os.path.join(script_dir, 'codex-prompts')
+    if os.path.isdir(prompts_src):
+        for fname in sorted(os.listdir(prompts_src)):
+            full = os.path.join(prompts_src, fname)
+            if os.path.isfile(full) and fname.endswith('.md'):
+                files.append('.codex/prompts/' + fname)
 
 # hooks/git/*.sh ships in both install modes
 git_hooks_src = os.path.join(script_dir, 'hooks', 'git')
