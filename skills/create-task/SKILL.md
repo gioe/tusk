@@ -57,6 +57,25 @@ Break the input into discrete, actionable tasks. For each task, determine:
 | **assignee** | Match to a configured agent if the task clearly falls in their area. Leave NULL if unsure. |
 | **complexity** | Estimate effort: `XS` = partial session, `S` = 1 session, `M` = 2-3 sessions, `L` = 3-5 sessions, `XL` = 5+. Default to `M` if unclear. Must be one of the configured complexity values. |
 
+### Description shape
+
+Each task carries three text fields with distinct intents — keep them sharp. Blurring them produces brittle tasks that rot the moment any code edit lands:
+
+| Field | Intent | Contains |
+|-------|--------|----------|
+| **summary** | **WHAT** — the deliverable in one imperative sentence | "Add JWT login endpoint", "Fix race in session-close" |
+| **description** | **WHY** — motivation, constraints, links to source material | The user complaint, the audit finding, the design decision; links to RFCs, retros, PRs |
+| **criteria** | **HOW** — testable conditions that prove the WHAT was delivered | "POST /auth/login returns 401 on bad password", "tests/integration/test_login.py passes" |
+
+**Forbidden in descriptions:** file-and-line references (e.g. `bin/tusk:1234`, `skills/foo/SKILL.md:88`) and step-by-step implementation plans. Line numbers rot the moment any edit lands above them, and step-by-step plans over-anchor `/tusk` to a stale approach when the implementer should re-derive from current code. The description should explain *why* the work matters, not encode *how* a single past reading of the codebase suggested doing it.
+
+**Encouraged:** stable identifiers as anchors — function and class names, config keys, table and column names, environment variables, constant names, and file paths *without* line numbers. These survive refactors and let the implementer use grep/LSP to locate current call sites:
+
+- ✅ "The `cmd_init` function in `bin/tusk` stamps `PRAGMA user_version` on fresh installs"
+- ❌ "bin/tusk:1456 sets the user_version pragma"
+- ✅ "Migration 55 added `tasks.fixes_task_id`; views need to be recreated to pick it up"
+- ❌ "See line 88 of bin/tusk-migrate.py for the migration logic"
+
 ### Task Type Decision Guide
 
 The key question: **Is this type the primary deliverable, or is it proof that another deliverable is done?**
