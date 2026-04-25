@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [714] - 2026-04-25
+
+- [TASK-169] Fix conventions-preflight.sh TUSK PATH preference (mirror TASK-166 fix)
+
 ## [713] - 2026-04-25
 
 - [TASK-166] Investigate auto-lint hook phantom MANIFEST extra violations
