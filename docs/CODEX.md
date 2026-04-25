@@ -10,7 +10,31 @@ tusk supports installation in both Claude Code projects (the original target) an
 2. `AGENTS.md` present and no `.claude/` → **codex** mode.
 3. Neither present → hard error with a message pointing at both supported markers.
 
-The chosen mode is persisted to `<install_dir>/install-mode` (contents: `claude` or `codex`). `bin/tusk` reads this marker to route gitignore and agent-doc writes; `bin/tusk-upgrade.py` reads it to decide which steps to run during an upgrade.
+The chosen mode is persisted to `<install_dir>/install-mode` in the compound form `<mode>-<role>` (e.g. `claude-source`, `claude-consumer`, `codex-consumer`). `bin/tusk` reads this marker to route gitignore and agent-doc writes; `bin/tusk-upgrade.py` reads it to decide which steps to run during an upgrade. Legacy plain-form markers (`claude` / `codex`) written by older installs are accepted and treated as `<mode>-source`.
+
+## Source-vs-consumer role
+
+In addition to mode, install.sh detects a **role** — whether the install target is the tusk source repo itself or a downstream consumer project — by comparing `$SCRIPT_DIR` (the install.sh location) against `$REPO_ROOT` (the install target). When they match, the role is `source`; otherwise `consumer`.
+
+Two Claude hooks path-filter on the tusk source layout (`skills/*`, `bin/*`, `config.default.json`, `install.sh`) and would silently no-op on every invocation in a consumer install. They are skipped from `.claude/settings.json` and from the `pre-push` git dispatcher in consumer mode rather than registered as dead code:
+
+| Hook | Event | Source role | Consumer role |
+| --- | --- | --- | --- |
+| `setup-path.sh` | SessionStart | registered | registered |
+| `inject-task-context.sh` | SessionStart | registered | registered |
+| `block-raw-sqlite.sh` | PreToolUse(Bash) | registered | registered |
+| `dupe-gate.sh` | PreToolUse(Bash) | registered | registered |
+| `block-sql-neq.sh` | PreToolUse(Bash) | registered | registered |
+| `commit-msg-format.sh` | PreToolUse(Bash) | registered | registered |
+| `branch-naming.sh` | PreToolUse(Bash) | registered | registered |
+| `version-bump-check.sh` | PreToolUse(Bash) | registered | **skipped** |
+| `conventions-preflight.sh` | PreToolUse(Edit\|Write) | registered | registered |
+| `auto-lint.sh` | PostToolUse(Edit\|Write) | registered | **skipped** |
+| `check-criteria-on-stop.sh` | Stop | registered | registered |
+
+The `pre-push` git-event dispatcher is similarly trimmed: it runs `branch-naming` in both roles, and `version-bump-check` only in source-role installs. The `pre-commit` and `commit-msg` dispatchers are unchanged across roles.
+
+The hook *files* are still copied to `.claude/hooks/` in both roles — only the settings.json registration and the dispatcher wiring are skipped. This keeps a future role transition cheap: a reinstall just rewrites settings.json. Source-only hooks logged as `Skipped source-only hook (consumer install): <path>` during install make the choice auditable.
 
 ## What Codex mode installs
 
