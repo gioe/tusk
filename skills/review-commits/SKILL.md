@@ -389,8 +389,10 @@ Once the list is reconciled, stage, commit, and push in a single pass:
 ```bash
 git add -- "${REVIEW_FIX_FILES[@]}"
 git commit -m "[TASK-<task_id>] Apply review fixes"
-git push
+git push --set-upstream origin HEAD
 ```
+
+`--set-upstream origin HEAD` is required on the **first** push of a brand-new feature branch when `push.autoSetupRemote` is not set in the user's git config — bare `git push` aborts with "no upstream branch". The flag is idempotent on subsequent pushes (just re-binds the existing tracking ref), so it is safe to use unconditionally.
 
 ## Step 10: Final Summary
 
