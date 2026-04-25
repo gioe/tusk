@@ -48,16 +48,30 @@ lint_rc=$?
 # Exit code 0 = no violations, nothing to report
 [ "$lint_rc" -eq 0 ] && exit 0
 
+# Resolve provenance: the directory packaging tusk-lint.py (and its VERSION)
+# sits next to the resolved tusk binary. When $TUSK fell through to PATH,
+# resolve the absolute path so the stamp names the install that actually ran.
+case "$TUSK" in
+  /*) tusk_real="$TUSK" ;;
+  *)  tusk_real=$(command -v "$TUSK" 2>/dev/null) ;;
+esac
+tusk_dir=$(dirname "$tusk_real" 2>/dev/null)
+tusk_version=$(cat "$tusk_dir/VERSION" 2>/dev/null || echo unknown)
+
 # Return violations as additionalContext
 python3 -c "
 import json, sys
 ctx = sys.argv[1]
+path = sys.argv[2]
+tusk_path = sys.argv[3]
+version = sys.argv[4]
+header = 'tusk lint found convention violations after editing ' + path + ' (via ' + tusk_path + ', lint VERSION ' + version + '):'
 print(json.dumps({
     'hookSpecificOutput': {
         'hookEventName': 'PostToolUse',
-        'additionalContext': 'tusk lint found convention violations after editing ' + sys.argv[2] + ':\n' + ctx
+        'additionalContext': header + '\n' + ctx
     }
 }))
-" "$lint_output" "$rel_path"
+" "$lint_output" "$rel_path" "${tusk_real:-$TUSK}" "$tusk_version"
 
 exit 0
