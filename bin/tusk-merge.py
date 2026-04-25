@@ -745,31 +745,52 @@ def main(argv: list[str]) -> int:
                 file=sys.stderr,
             )
 
-        # Detect if the task commit was already applied directly on the default branch
-        # (e.g. a rebase conflict resolved by re-applying the fix on main). When true,
-        # the feature branch is diverged and cannot be fast-forwarded — skip the
-        # rebase/ff-merge steps and proceed directly to push + cleanup.
-        #
-        # Scoped to commits reachable from the feature branch but NOT from the default
-        # branch (<branch> --not <default>). This prevents false-positives when task IDs
-        # are recycled after a DB reset: an old [TASK-N] commit on the default branch
-        # would be matched by a naïve `git log <default> --grep` but is irrelevant to the
-        # current feature branch. If the feature branch has no exclusive [TASK-N] commits
-        # (empty result), the task's changes must already be on the default branch.
-        _log_check = run(
-            ["git", "log", branch_name, "--not", default_branch, "--oneline",
-             task_grep_arg(task_id)],
+        # Detect zero-new-commits case first: feature branch has no exclusive commits
+        # over the default branch. Legitimate for triage-only tasks whose deliverable
+        # was a follow-up task creation (or any task that closed without code changes).
+        # Without this check, the branch falls into the task_on_default path below with
+        # a misleading "feature branch is diverged" message — the branch isn't diverged,
+        # it's identical to default.
+        _count_check = run(
+            ["git", "rev-list", "--count", f"{default_branch}..{branch_name}"],
             check=False,
         )
-        task_on_default = (
-            _log_check.returncode == 0 and not bool(_log_check.stdout.strip())
+        no_new_commits = (
+            _count_check.returncode == 0 and _count_check.stdout.strip() == "0"
         )
-        if task_on_default:
+        if no_new_commits:
             print(
-                f"Note: TASK-{task_id} commit already on {default_branch} — "
-                "feature branch is diverged. Skipping ff-only merge.",
+                f"Note: TASK-{task_id} has no new commits on the feature branch — "
+                "closing without merge.",
                 file=sys.stderr,
             )
+            task_on_default = True
+        else:
+            # Detect if the task commit was already applied directly on the default branch
+            # (e.g. a rebase conflict resolved by re-applying the fix on main). When true,
+            # the feature branch is diverged and cannot be fast-forwarded — skip the
+            # rebase/ff-merge steps and proceed directly to push + cleanup.
+            #
+            # Scoped to commits reachable from the feature branch but NOT from the default
+            # branch (<branch> --not <default>). This prevents false-positives when task IDs
+            # are recycled after a DB reset: an old [TASK-N] commit on the default branch
+            # would be matched by a naïve `git log <default> --grep` but is irrelevant to the
+            # current feature branch. If the feature branch has no exclusive [TASK-N] commits
+            # (empty result), the task's changes must already be on the default branch.
+            _log_check = run(
+                ["git", "log", branch_name, "--not", default_branch, "--oneline",
+                 task_grep_arg(task_id)],
+                check=False,
+            )
+            task_on_default = (
+                _log_check.returncode == 0 and not bool(_log_check.stdout.strip())
+            )
+            if task_on_default:
+                print(
+                    f"Note: TASK-{task_id} commit already on {default_branch} — "
+                    "feature branch is diverged. Skipping ff-only merge.",
+                    file=sys.stderr,
+                )
 
         # Secondary check: use git cherry to detect commits that were cherry-picked
         # onto the default branch (same patch content, different hash). The log-scoped
