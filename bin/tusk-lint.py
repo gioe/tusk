@@ -994,7 +994,8 @@ def rule23_claude_md_size(root):
 
 
 def rule24_subprocess_encoding(root):
-    """subprocess.run/check_output/Popen with text=True must also pass encoding='utf-8'.
+    """subprocess.run/check_output/Popen/check_call/call with text=True (or
+    universal_newlines=True) must also pass encoding='utf-8'.
 
     Convention 25 — omitting encoding falls back to locale.getpreferredencoding(),
     which raises UnicodeDecodeError on non-UTF-8 systems when output contains
@@ -1035,19 +1036,26 @@ def rule24_subprocess_encoding(root):
             if not (isinstance(func, ast.Attribute)
                     and isinstance(func.value, ast.Name)
                     and func.value.id == "subprocess"
-                    and func.attr in ("run", "check_output", "Popen")):
+                    and func.attr in ("run", "check_output", "Popen", "check_call", "call")):
                 continue
             kwargs = {kw.arg: kw for kw in node.keywords if kw.arg}
             text_kw = kwargs.get("text")
-            if text_kw is None:
-                continue
-            if not (isinstance(text_kw.value, ast.Constant) and text_kw.value.value is True):
+            un_kw = kwargs.get("universal_newlines")
+            trigger_kw = None
+            trigger_name = None
+            if text_kw is not None and isinstance(text_kw.value, ast.Constant) and text_kw.value.value is True:
+                trigger_kw = text_kw
+                trigger_name = "text=True"
+            elif un_kw is not None and isinstance(un_kw.value, ast.Constant) and un_kw.value.value is True:
+                trigger_kw = un_kw
+                trigger_name = "universal_newlines=True"
+            if trigger_kw is None:
                 continue
             if "encoding" in kwargs:
                 continue
-            lineno = text_kw.value.lineno
+            lineno = trigger_kw.value.lineno
             violations.append(
-                f"  {rel}:{lineno}: subprocess.{func.attr}(text=True) without encoding='utf-8' "
+                f"  {rel}:{lineno}: subprocess.{func.attr}({trigger_name}) without encoding='utf-8' "
                 f"(Convention 25)"
             )
 
