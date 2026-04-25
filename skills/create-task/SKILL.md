@@ -259,7 +259,7 @@ One per non-manual type. These are valid arguments to `tusk task-insert` — cop
 --typed-criteria '{"text":"Migration test passes","type":"test","spec":"python3 -m pytest tests/integration/test_migrate_56.py -q"}'
 
 # file type — auto-checks the glob matches at least one path
---typed-criteria '{"text":"CHANGELOG entry exists for this version","type":"file","spec":"CHANGELOG.md"}'
+--typed-criteria '{"text":"Migration test file present","type":"file","spec":"tests/integration/test_migrate_*.py"}'
 
 # code type — auto-greps for presence (or absence) of a symbol or pattern
 --typed-criteria '{"text":"cmd_init stamps user_version 56","type":"code","spec":"grep -q \"PRAGMA user_version = 56\" bin/tusk"}'
