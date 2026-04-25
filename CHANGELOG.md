@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [716] - 2026-04-25
+
+- [TASK-157] Add tusk retro CLI orchestrator for session retrospective
+
 ## [715] - 2026-04-25
 
 - [TASK-170] Surface resolved TUSK binary in auto-lint hook violation output
