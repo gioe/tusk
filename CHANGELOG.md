@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [720] - 2026-04-25
+
+- [TASK-172] Add AST-based tusk-lint rule for subprocess encoding kwarg
+
 ## [719] - 2026-04-25
 
 - [TASK-171] Extend encoding='utf-8' to subprocess.check_output / Popen and broaden Convention 25
