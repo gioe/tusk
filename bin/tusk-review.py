@@ -42,6 +42,14 @@ def load_review_config(config_path: str) -> dict:
 
 def cmd_start(args: argparse.Namespace, db_path: str, config_path: str) -> int:
     """Create one code_reviews row for the configured reviewer (or unassigned)."""
+    if args.diff_summary is not None and not args.diff_summary.strip():
+        print(
+            "Error: --diff-summary must not be empty or whitespace-only. "
+            "Either omit the flag or pass a non-empty summary.",
+            file=sys.stderr,
+        )
+        return 1
+
     conn = get_connection(db_path)
     try:
         task = conn.execute("SELECT id, summary FROM tasks WHERE id = ?", (args.task_id,)).fetchone()
