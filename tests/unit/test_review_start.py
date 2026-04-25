@@ -169,6 +169,63 @@ class TestCmdStartUnassignedFallback:
         assert rows[0]["reviewer"] is None
 
 
+# ── tests: --diff-summary validation ─────────────────────────────────────────
+
+
+class TestCmdStartDiffSummaryValidation:
+    """The empty-string guard added for issue #565.
+
+    Rationale: agents (e.g. /review-commits Step 3) sometimes pipe an empty
+    string through to --diff-summary when an upstream jq parse fails. The CLI
+    used to swallow this silently and store an empty diff_summary, rotting
+    review records invisibly. The guard rejects the call with exit code 1 so
+    the upstream failure surfaces immediately. None (omitted flag) still
+    flows through unchanged — only an explicit empty/whitespace value is
+    rejected.
+    """
+
+    def test_empty_string_rejected(self, tmp_path, capsys):
+        db_path = _make_db(tmp_path)
+        config_path = _make_config(tmp_path, {"name": "general", "description": "..."})
+
+        rc = review.cmd_start(_args(diff_summary=""), db_path, config_path)
+
+        assert rc == 1
+        assert "must not be empty" in capsys.readouterr().err
+        assert _get_reviews(db_path) == []
+
+    def test_whitespace_only_rejected(self, tmp_path, capsys):
+        db_path = _make_db(tmp_path)
+        config_path = _make_config(tmp_path, {"name": "general", "description": "..."})
+
+        rc = review.cmd_start(_args(diff_summary="   \t \n  "), db_path, config_path)
+
+        assert rc == 1
+        assert "must not be empty" in capsys.readouterr().err
+        assert _get_reviews(db_path) == []
+
+    def test_non_empty_inserts_row(self, tmp_path):
+        db_path = _make_db(tmp_path)
+        config_path = _make_config(tmp_path, {"name": "general", "description": "..."})
+
+        rc = review.cmd_start(_args(diff_summary="real diff text"), db_path, config_path)
+
+        assert rc == 0
+        rows = _get_reviews(db_path)
+        assert len(rows) == 1
+
+    def test_none_inserts_row(self, tmp_path):
+        """Omitting --diff-summary (argparse default None) must still succeed."""
+        db_path = _make_db(tmp_path)
+        config_path = _make_config(tmp_path, {"name": "general", "description": "..."})
+
+        rc = review.cmd_start(_args(diff_summary=None), db_path, config_path)
+
+        assert rc == 0
+        rows = _get_reviews(db_path)
+        assert len(rows) == 1
+
+
 # ── tests: superseded prior pending reviews ──────────────────────────────────
 
 
