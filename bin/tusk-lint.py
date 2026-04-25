@@ -8,6 +8,7 @@ Checks the tusk codebase against Key Conventions from CLAUDE.md.
 Prints results grouped by rule and exits with status 1 if any violations found.
 """
 
+import ast
 import json
 import os
 import re
@@ -992,6 +993,67 @@ def rule23_claude_md_size(root):
     ]
 
 
+def rule24_subprocess_encoding(root):
+    """subprocess.run/check_output/Popen with text=True must also pass encoding='utf-8'.
+
+    Convention 25 — omitting encoding falls back to locale.getpreferredencoding(),
+    which raises UnicodeDecodeError on non-UTF-8 systems when output contains
+    non-ASCII bytes (e.g. emoji in git commit messages).
+
+    Source-repo guard: only scans bin/tusk-*.py inside the tusk source repo.
+    """
+    if not os.path.isfile(os.path.join(root, "bin", "tusk")):
+        return []
+
+    bin_dir = os.path.join(root, "bin")
+    if not os.path.isdir(bin_dir):
+        return []
+
+    try:
+        scripts = sorted(
+            f for f in os.listdir(bin_dir)
+            if re.match(r"^tusk-.+\.py$", f)
+        )
+    except OSError:
+        return []
+
+    violations = []
+    for script in scripts:
+        full = os.path.join(bin_dir, script)
+        rel = os.path.relpath(full, root)
+        try:
+            with open(full, encoding="utf-8") as f:
+                source = f.read()
+            tree = ast.parse(source, filename=full)
+        except (OSError, SyntaxError):
+            continue
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not (isinstance(func, ast.Attribute)
+                    and isinstance(func.value, ast.Name)
+                    and func.value.id == "subprocess"
+                    and func.attr in ("run", "check_output", "Popen")):
+                continue
+            kwargs = {kw.arg: kw for kw in node.keywords if kw.arg}
+            text_kw = kwargs.get("text")
+            if text_kw is None:
+                continue
+            if not (isinstance(text_kw.value, ast.Constant) and text_kw.value.value is True):
+                continue
+            if "encoding" in kwargs:
+                continue
+            lineno = text_kw.value.lineno
+            violations.append(
+                f"  {rel}:{lineno}: subprocess.{func.attr}(text=True) without encoding='utf-8' "
+                f"(Convention 25)"
+            )
+
+    return violations
+
+
 # Each entry: (display_name, check_function, advisory)
 # advisory=True  → violations are printed but do NOT count toward exit code
 # advisory=False → violations count toward the non-zero exit code
@@ -1019,6 +1081,7 @@ RULES = [
     ("Rule 21: Skill files with multiple trailing newlines", rule21_skills_trailing_newlines, False),
     ("Rule 22: Issue tasks missing a test-type criterion (advisory)", rule22_issue_tasks_missing_test_criterion, True),
     ("Rule 23: CLAUDE.md exceeds line limit (advisory)", rule23_claude_md_size, True),
+    ("Rule 24: subprocess.run/check_output/Popen text=True without encoding (advisory)", rule24_subprocess_encoding, True),
 ]
 
 # Load project-specific rules from tusk-lint-extra.py if it exists alongside this script.
