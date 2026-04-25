@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [728] - 2026-04-25
+
+- [TASK-177] Fix hooks to resolve tusk binary via REPO_ROOT fallback
+
 ## [727] - 2026-04-25
 
 - [TASK-175] Fix groom-backlog SKILL.md to remove non-existent merged_prs and flagged_for_review keys
