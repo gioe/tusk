@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [723] - 2026-04-25
+
+- [TASK-154] Port remaining Claude skills to .codex/prompts/ equivalents
+
 ## [722] - 2026-04-25
 
 - [TASK-174] Promote Rule 24 (subprocess encoding) from advisory to blocking
