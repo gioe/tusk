@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [729] - 2026-04-25
+
+- [TASK-178] [Deferred] Extract hook-common.sh helper to dedupe tusk-binary resolution across hooks
+
 ## [728] - 2026-04-25
 
 - [TASK-177] Fix hooks to resolve tusk binary via REPO_ROOT fallback
