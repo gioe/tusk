@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [727] - 2026-04-25
+
+- [TASK-175] Fix groom-backlog SKILL.md to remove non-existent merged_prs and flagged_for_review keys
+
 ## [726] - 2026-04-25
 
 - [TASK-176] Fix: tusk commit crashes with TypeError when test command times out
