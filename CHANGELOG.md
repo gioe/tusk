@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [725] - 2026-04-25
+
+- [TASK-165] [Deferred] query_autoclose_candidates() duplicates the SELECT halves of tusk-autoclose.py's autoclose_expired_deferred and autoclose_moot_contingent queries. These two definitions now have to stay hand-synced forever. A cleaner factoring is to add --dry-run to tusk autoclose itself and make the orchestrator a pure subprocess wrapper, but that refactor affects autoclose's own callers and is larger than TASK-156's scope.
+
 ## [724] - 2026-04-25
 
 - [Retro] Fix duplicate/out-of-order step numbering in skills/tusk/SKILL.md (Step 5 → 5b for Scope check) and skills/chain/SKILL.md (consolidation sub-step 5 → 4)
