@@ -470,6 +470,41 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
     return 0
 
 
+def _has_new_commits_over_default() -> bool:
+    """True iff HEAD has commits not reachable from the default branch.
+
+    Used to suppress stamping ``commit_hash`` on criteria when the current branch
+    has no exclusive commits over default — otherwise HEAD's inherited tip leaks
+    into ``acceptance_criteria.commit_hash`` and the shared-commit warning fires
+    against unrelated criteria. Fails open: any error returns True so existing
+    behavior is preserved when detection is impossible.
+    """
+    try:
+        tusk_bin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
+        default_proc = subprocess.run(
+            [tusk_bin, "git-default-branch"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+        default = default_proc.stdout.strip() if default_proc.returncode == 0 else ""
+        if not default:
+            return True
+        count_proc = subprocess.run(
+            ["git", "rev-list", "--count", f"{default}..HEAD"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+        if count_proc.returncode != 0:
+            return True
+        return int(count_proc.stdout.strip() or "0") > 0
+    except Exception:
+        return True
+
+
 def cmd_done(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn = get_connection(db_path)
     try:
@@ -480,14 +515,24 @@ def cmd_done(args: argparse.Namespace, db_path: str, config: dict) -> int:
             commit_hash = subprocess.check_output(
                 ["git", "rev-parse", "--short", "HEAD"],
                 stderr=subprocess.DEVNULL,
-            ).decode().strip() or None
+                encoding="utf-8",
+            ).strip() or None
             if commit_hash:
                 committed_at = subprocess.check_output(
                     ["git", "log", "-1", "--format=%cI", "HEAD"],
                     stderr=subprocess.DEVNULL,
-                ).decode().strip() or None
+                    encoding="utf-8",
+                ).strip() or None
         except Exception:
             pass  # Non-git environment — leave as NULL
+
+        # If the current branch has zero exclusive commits over default, HEAD is the
+        # inherited default-branch tip — not a commit produced by this task. Stamping
+        # criteria with that hash leaks an unrelated commit into the audit trail and
+        # triggers spurious "shares commit" warnings between unrelated criteria.
+        if commit_hash is not None and not _has_new_commits_over_default():
+            commit_hash = None
+            committed_at = None
 
         criterion_ids = args.criterion_ids
         allow_shared = getattr(args, "allow_shared_commit", False)
