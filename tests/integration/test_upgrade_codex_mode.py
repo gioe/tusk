@@ -56,6 +56,11 @@ def _make_fake_src(tmp_path: Path) -> Path:
     (src / "skills" / "tusk" / "SKILL.md").write_text("# placeholder skill\n")
     (src / ".claude" / "hooks").mkdir(parents=True)
     (src / ".claude" / "hooks" / "setup-path.sh").write_text("#!/bin/bash\nexit 0\n")
+    # codex-prompts ship in codex mode; the tarball MANIFEST lists them so
+    # codex installs see them and claude installs drop them via translation.
+    (src / "codex-prompts").mkdir(parents=True)
+    (src / "codex-prompts" / "tusk-init.md").write_text("# tusk-init prompt\n")
+    (src / "codex-prompts" / "create-task.md").write_text("# create-task prompt\n")
     (src / "MANIFEST").write_text(json.dumps([
         ".claude/bin/tusk",
         ".claude/bin/tusk-upgrade.py",
@@ -66,6 +71,8 @@ def _make_fake_src(tmp_path: Path) -> Path:
         ".claude/bin/VERSION",
         ".claude/skills/tusk/SKILL.md",
         ".claude/hooks/setup-path.sh",
+        ".codex/prompts/tusk-init.md",
+        ".codex/prompts/create-task.md",
     ]))
     return src
 
@@ -215,3 +222,38 @@ class TestCodexUpgradeEndToEnd:
         assert orphan_rel not in updated_entries, (
             "Post-upgrade manifest should no longer reference the removed orphan"
         )
+
+    def test_upgrade_copies_codex_prompts(
+        self, tmp_path, upgrade_mod, monkeypatch
+    ):
+        """Codex-mode upgrade copies codex-prompts/*.md → .codex/prompts/, exposes
+        prompt_count in the summary, and writes the prompt entries to the
+        translated manifest (so future upgrades treat them as known files)."""
+        repo_root, script_dir = _make_codex_install(tmp_path)
+        src = _make_fake_src(tmp_path)
+        tmpdir = tmp_path / "scratch"
+        tmpdir.mkdir()
+        _stub_side_effects(monkeypatch, upgrade_mod)
+
+        summary = upgrade_mod._run_upgrade_steps(
+            str(src), str(repo_root), str(script_dir), str(tmpdir)
+        )
+
+        prompts_dir = repo_root / ".codex" / "prompts"
+        assert prompts_dir.is_dir(), "Codex upgrade must create .codex/prompts/"
+        for fname in ("tusk-init.md", "create-task.md"):
+            target = prompts_dir / fname
+            assert target.is_file(), f"{fname} should be copied into .codex/prompts/"
+            assert target.read_text() == (src / "codex-prompts" / fname).read_text(), (
+                f"{fname} content should match the tarball copy"
+            )
+
+        assert summary["prompt_count"] == 2, (
+            f"Expected prompt_count=2 (tusk-init.md + create-task.md), got "
+            f"{summary['prompt_count']}"
+        )
+
+        manifest_path = repo_root / "tusk" / "tusk-manifest.json"
+        entries = json.loads(manifest_path.read_text())
+        assert ".codex/prompts/tusk-init.md" in entries
+        assert ".codex/prompts/create-task.md" in entries

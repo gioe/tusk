@@ -154,3 +154,46 @@ def test_codex_install_updates_gitignore_with_tusk_bin(codex_project):
     assert ".claude/bin/" not in gitignore, (
         "Codex-mode .gitignore must not reference .claude/ paths"
     )
+
+
+def test_codex_install_copies_prompts(codex_project):
+    """Codex-mode install.sh copies codex-prompts/*.md to .codex/prompts/<name>.md."""
+    result = _run_install(codex_project)
+    prompts_dir = codex_project / ".codex" / "prompts"
+    assert prompts_dir.is_dir(), ".codex/prompts/ should be created in Codex mode"
+
+    expected_prompts = ["tusk-init.md", "create-task.md"]
+    for prompt_name in expected_prompts:
+        prompt_file = prompts_dir / prompt_name
+        assert prompt_file.is_file(), f"{prompt_name} missing from .codex/prompts/"
+        assert prompt_file.stat().st_size > 0, f"{prompt_name} is empty"
+        # Each install must announce the file in summary output.
+        assert f".codex/prompts/{prompt_name}" in result.stdout, (
+            f"install.sh should announce installed .codex/prompts/{prompt_name}; "
+            f"stdout was:\n{result.stdout}"
+        )
+
+
+def test_codex_install_writes_prompts_to_manifest(codex_project):
+    """tusk/tusk-manifest.json includes .codex/prompts/*.md entries in codex mode."""
+    _run_install(codex_project)
+    manifest_path = codex_project / "tusk" / "tusk-manifest.json"
+    entries = json.loads(manifest_path.read_text())
+    assert ".codex/prompts/tusk-init.md" in entries
+    assert ".codex/prompts/create-task.md" in entries
+
+
+@pytest.fixture()
+def claude_project(tmp_path):
+    """A tmp git repo with .claude/ — a Claude-only layout."""
+    _git_init(tmp_path)
+    (tmp_path / ".claude").mkdir()
+    return tmp_path
+
+
+def test_claude_install_skips_codex_prompts(claude_project):
+    """Claude-mode install.sh must not create .codex/prompts/ — it's a Codex primitive."""
+    _run_install(claude_project)
+    assert not (claude_project / ".codex").exists(), (
+        "Claude mode should not create .codex/ in a Claude-only project"
+    )

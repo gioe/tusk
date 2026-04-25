@@ -78,3 +78,30 @@ class TestTranslateManifestForMode:
             "scripts/extra.py",
             "tusk/config.json",
         ]
+
+    def test_codex_mode_keeps_codex_prompts(self, upgrade_mod):
+        # Codex prompts ship in codex mode and must survive translation.
+        files = [
+            ".claude/bin/tusk",
+            ".codex/prompts/tusk-init.md",
+            ".codex/prompts/create-task.md",
+        ]
+        assert upgrade_mod.translate_manifest_for_mode(files, "codex") == [
+            "tusk/bin/tusk",
+            ".codex/prompts/tusk-init.md",
+            ".codex/prompts/create-task.md",
+        ]
+
+    def test_claude_mode_drops_codex_prompts(self, upgrade_mod):
+        # Codex prompts have no Claude equivalent — claude installs must drop
+        # them so they don't land as orphaned files in .codex/prompts/.
+        files = [
+            ".claude/bin/tusk",
+            ".claude/skills/tusk/SKILL.md",
+            ".codex/prompts/tusk-init.md",
+            ".codex/prompts/create-task.md",
+        ]
+        assert upgrade_mod.translate_manifest_for_mode(files, "claude") == [
+            ".claude/bin/tusk",
+            ".claude/skills/tusk/SKILL.md",
+        ]
