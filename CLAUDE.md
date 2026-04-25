@@ -242,6 +242,12 @@ Commit the bump in the same branch as the feature. Also update `CHANGELOG.md` in
 
 > **Heads up — `tusk version-bump` and `tusk changelog-add` stage their files automatically.** After running either command, `VERSION` and `CHANGELOG.md` are already in the git index. The next `tusk commit` you run will bundle them into whatever commit you name, even if you only pass the feature files explicitly. To split the bump into its own commit, run `tusk commit <task_id> "Bump VERSION to N and update CHANGELOG" "VERSION" "CHANGELOG.md"` immediately after the bump and before any other `tusk commit` call.
 
+## Prompting Efficiency Metric
+
+The `tusk dashboard` Cost tab includes a "Cost Per User Prompt (Weekly)" trend that reads from `skill_runs.user_prompt_tokens` and `skill_runs.user_prompt_count`. **The metric to optimize is `cost_per_user_prompt`, not raw token count.** Terse is not better: a clear-but-verbose prompt that prevents three rounds of clarification beats a cryptic one-liner that triggers iteration. Watch the dollar trend, not the token count — falling cost-per-prompt over time means your prompts are doing more work per turn.
+
+`tusk skill-run list` surfaces the per-run companion as `T/Msg` (tokens per user message). It's an estimate (chars/4), so the absolute number is rough — the trend is what matters.
+
 ## Reference Docs
 
 - **`docs/SCRIPTS.md`** — Reference for all `bin/tusk-*.py` helper scripts: purpose, inputs, outputs, and usage examples.
