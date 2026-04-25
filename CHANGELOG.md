@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [707] - 2026-04-24
+
+- [TASK-153] Scaffold .codex/prompts/ distribution with install, upgrade, and pilot ports
+
 ## [706] - 2026-04-24
 
 - [TASK-155] Port the six guard hooks (block-raw-sqlite, block-sql-neq, branch-naming, commit-msg-format, version-bump-check, dupe-gate) to standalone scripts under `hooks/git/*.sh` and wire `install.sh` to stamp idempotent dispatchers at `.git/hooks/{pre-commit,pre-push,commit-msg}` in both Claude and Codex install modes. Dispatchers carry a `TUSK_HOOK_DISPATCHER_V1` marker and preserve any pre-existing non-tusk hook by renaming it to `<event>.pre-tusk` and invoking it after the tusk guards. Claude mode keeps the PreToolUse wrappers for agent-time feedback; both modes now enforce the guards at git-event time. Integration tests in `tests/integration/test_git_hooks.py` exercise all six guards end-to-end in a Codex sandbox.
