@@ -5,16 +5,7 @@
 # Resolve repo root and tusk binary. Stop hooks fire after Claude finishes,
 # when setup-path.sh's PATH exports may already be gone — bare 'tusk' would
 # silently no-op via the 2>/dev/null swallow below.
-repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-if [ -x "$repo_root/bin/tusk" ]; then
-  TUSK="$repo_root/bin/tusk"
-elif [ -x "$repo_root/.claude/bin/tusk" ]; then
-  TUSK="$repo_root/.claude/bin/tusk"
-elif command -v tusk &>/dev/null; then
-  TUSK=tusk
-else
-  exit 0
-fi
+source "$(dirname "$0")/hook-common.sh"
 
 # Query for in-progress tasks that have at least one incomplete criterion
 result=$("$TUSK" -json "

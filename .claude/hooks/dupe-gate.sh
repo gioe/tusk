@@ -5,16 +5,7 @@
 # Resolve repo root and tusk binary. PreToolUse hooks can fire before
 # setup-path.sh has populated PATH for the session — bare 'tusk' would
 # silently no-op via the 2>&1 swallow below and let the duplicate slip in.
-repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-if [ -x "$repo_root/bin/tusk" ]; then
-  TUSK="$repo_root/bin/tusk"
-elif [ -x "$repo_root/.claude/bin/tusk" ]; then
-  TUSK="$repo_root/.claude/bin/tusk"
-elif command -v tusk &>/dev/null; then
-  TUSK=tusk
-else
-  exit 0
-fi
+source "$(dirname "$0")/hook-common.sh"
 
 # Read JSON from stdin
 input=$(cat)

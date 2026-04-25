@@ -4,17 +4,10 @@
 
 [ "$TUSK_NO_SESSION_CONTEXT" = "1" ] && exit 0
 
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-
-# Resolve tusk binary — PATH isn't set up yet during SessionStart hooks.
-# Check source-repo path first, then installed path.
-if [ -x "$REPO_ROOT/bin/tusk" ]; then
-  TUSK="$REPO_ROOT/bin/tusk"
-elif [ -x "$REPO_ROOT/.claude/bin/tusk" ]; then
-  TUSK="$REPO_ROOT/.claude/bin/tusk"
-else
-  exit 0
-fi
+# Resolve REPO_ROOT and TUSK via the shared helper. PATH isn't set up yet
+# during SessionStart hooks, so the helper's command-v fallback usually
+# misses — but the in-repo paths cover both source and installed layouts.
+source "$(dirname "$0")/hook-common.sh"
 
 result=$("$TUSK" -json "
 SELECT t.id, t.summary, t.complexity

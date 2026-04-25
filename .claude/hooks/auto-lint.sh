@@ -2,6 +2,8 @@
 # PostToolUse hook: runs tusk lint when skills/ or bin/ files are edited.
 # Non-blocking — always exits 0. Violations surface as additionalContext.
 
+source "$(dirname "$0")/hook-common.sh"
+
 input=$(cat)
 
 # Extract the file path from tool_input
@@ -13,33 +15,14 @@ print(data.get('tool_input', {}).get('file_path', ''))
 
 [ -z "$file_path" ] && exit 0
 
-# Resolve repo root for relative-path matching
-repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
-
 # Strip repo root to get the relative path
-rel_path="${file_path#"$repo_root"/}"
+rel_path="${file_path#"$REPO_ROOT"/}"
 
 # Only lint when the file is under skills/ or bin/
 case "$rel_path" in
   skills/*|bin/*) ;;
   *) exit 0 ;;
 esac
-
-# Resolve tusk binary — prefer in-repo paths so the hook always runs the
-# same lint version as the source tree it's editing. A PATH-resolved tusk
-# can point at another project's installed copy (e.g. via ~/.local/bin
-# wrappers), and a stale rule18 there reports phantom MANIFEST 'extra'
-# entries against the current MANIFEST. Source repo: bin/tusk first.
-# Target project: .claude/bin/tusk first. PATH is the last resort.
-if [ -x "$repo_root/bin/tusk" ]; then
-  TUSK="$repo_root/bin/tusk"
-elif [ -x "$repo_root/.claude/bin/tusk" ]; then
-  TUSK="$repo_root/.claude/bin/tusk"
-elif command -v tusk &>/dev/null; then
-  TUSK=tusk
-else
-  exit 0
-fi
 
 # Run tusk lint and capture output; use exit code to detect violations
 lint_output=$("$TUSK" lint 2>&1)
