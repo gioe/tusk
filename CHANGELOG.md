@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [745] - 2026-04-26
+
+- [TASK-195] Fix: tusk commit accepts rename source paths in 'R'/'RM' index state
+
 ## [744] - 2026-04-26
 
 - [TASK-194] Document tusk commit exit code 5 (test_command timeout) in /tusk SKILL.md
