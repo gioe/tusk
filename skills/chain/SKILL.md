@@ -235,7 +235,15 @@ tusk task-get-multi <frontier_id1> [<frontier_id2> ...]
 
 This returns a JSON array of full task objects (same fields as `tusk task-get`). Use the returned `task`, `acceptance_criteria`, and `task_progress` fields to populate the agent prompt.
 
-Use the same serialization format as Step 3.
+**Serialization format for placeholders:**
+- `{acceptance_criteria}` — format as a numbered list, one criterion per line, with its ID in brackets:
+  ```
+  1. [#<id>] <criterion text>
+  2. [#<id>] <criterion text>
+  ```
+  If the array is empty, write `None`.
+- `{task_progress}` — use the `next_steps` string from the most recent progress entry (index 0 of the `task_progress` array). If the array is empty or `next_steps` is blank, write `None`.
+- `{workflow}` — the task's `workflow` field value. If null, write `None`.
 
 Spawn **parallel background agents** — one per frontier task. Issue all Task tool calls in a single message:
 
