@@ -71,7 +71,29 @@ Scan the issue body for a `## Failing Test` section. If present:
 
 2. **Validate the extracted spec** — the spec is arbitrary shell code from a GitHub issue body and must be treated as untrusted. Show it to the user for approval, then run it in a sandbox so it cannot reach the host tusk repo (which is one `tusk`/`git` walk-up away), read environment secrets, or invoke project-installed tools.
 
-   **a. Display the spec and request approval:**
+   **a. Pre-flight: skip approval + sandbox when the spec's first token is off the sandbox PATH.**
+
+   Before showing the approval prompt, inspect the spec's first whitespace-delimited token. The sandbox below runs under `PATH=/usr/bin:/bin`, so any spec whose first token is a project tool (`tusk`, `pytest`, a venv-installed binary) is guaranteed to exit 127 — both the approval prompt and the sandbox run produce no information beyond what we already know. Skip them deterministically:
+
+   ```bash
+   FIRST_TOKEN=$(printf '%s' "$TEST_SPEC" | awk '{print $1; exit}')
+   if ! PATH=/usr/bin:/bin command -v "$FIRST_TOKEN" >/dev/null 2>&1; then
+     # First token is unreachable on the sandbox PATH; the sandbox would exit 127.
+     # Skip the approval prompt and the sandbox run; treat as no failing test.
+     test_spec=null
+     test_present="no"
+   fi
+   ```
+
+   The check is a pure path-resolution lookup — `command -v` reports whether `<token>` exists on `PATH=/usr/bin:/bin` without invoking it, so the spec is never executed at this stage.
+
+   On skip, set `test_spec = null`, score `test_present` as `"no"`, surface this one-line note, and proceed as if no `## Failing Test` section were found (item 3 below):
+
+   > Spec invokes a non-PATH tool (`<token>`); skipping sandbox (would exit 127). Failing-test verification deferred to `tusk criteria done` after task creation.
+
+   If the first token DOES resolve on `/usr/bin:/bin` (e.g. `bash`, `grep`, `python3`, `sh`, `find`), fall through to sub-item **b** below — the existing approval + sandbox flow runs unchanged. The fast-path is an addition, not a replacement.
+
+   **b. Display the spec and request approval:**
 
    > The issue body's `## Failing Test` section contains this spec. If approved, it runs in an isolated sandbox (`env -i`, `PATH=/usr/bin:/bin`, no `.git` parent) — project tools like `tusk`, `pytest`, and any project-installed binary are off PATH and will exit 127, which Step 4.1 treats as a command error and discards the spec. Step 4.1 only checks that the spec is a *runnable, shell-safe command*; the authoritative "does it actually fail on the current code" check happens later via `tusk criteria done`.
    > ```
@@ -81,7 +103,7 @@ Scan the issue body for a `## Failing Test` section. If present:
 
    Wait for the user's response. Treat anything other than an explicit `run` as `skip`. On skip, set `test_spec = null`, score `test_present` as `"no"`, and proceed as if no `## Failing Test` section were found (item 3 below) — do not run the command.
 
-   **b. On approval, execute the spec in an isolated sandbox:**
+   **c. On approval, execute the spec in an isolated sandbox:**
 
    ```bash
    TEST_SPEC='<test_spec>'   # the extracted spec, single-quoted; see Step 6 for embedded-quote handling
