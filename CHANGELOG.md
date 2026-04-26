@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [751] - 2026-04-26
+
+- [TASK-198] Inline chain/SKILL.md Step 4d monitoring loop and recovery body (currently a Step 3 cross-reference)
+
 ## [750] - 2026-04-26
 
 - [TASK-201] Fix: tusk merge normal path prints contradictory 'Error:' before --force retry on task-done

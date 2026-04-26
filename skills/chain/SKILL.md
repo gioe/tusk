@@ -252,11 +252,65 @@ Task tool call (for EACH frontier task):
 
 Build a map of **tusk task ID → agent task ID → output file path** for every agent spawned in this wave. Add each output file path to your running list for the post-chain retro (Step 6).
 
-Follow the same **Monitoring loop** and **Recovery** procedure as Step 3, with these substitutions:
-- Replace head task IDs with wave task IDs throughout.
-- The DB status query checks wave task IDs; if all are Done, go back to **4a** instead of proceeding to Step 4.
-- For **skip** (both `--on-failure skip` and interactive): proceed to **4a** for the next frontier, and note that downstream tasks depending on skipped tasks will never become ready — if the chain gets stuck later, report this to the user.
-- In the interactive recovery prompt, list each stuck task with its summary, status, and agent output path.
+**Monitoring loop:**
+
+The Task tool spawned each wave agent with `run_in_background: true`, so the runtime emits an automatic completion notification when each agent exits. **Do not chain `sleep 30 && tusk ...`** — the runtime blocks long leading sleeps and emits a tool error every time, even though the agents still complete via the auto-notification.
+
+**Primary path: wait for auto-completion notifications.**
+
+No active polling required — the runtime delivers a notification when each background agent exits. As notifications arrive, fall through to the **Resolve state** sub-step below.
+
+**Stall detection (no notification within ~2.5 min):**
+
+If you have been waiting without a completion notification for ~2.5 minutes, an agent may be looping or running a long-running command. Use a short-sleep until-loop — the runtime sleep guard allows `sleep 2` inside an `until` body — that exits as soon as no wave task IDs remain in non-Done status OR the wall-clock deadline elapses:
+
+```bash
+WAVE_IDS="<comma-separated wave task IDs>"
+DEADLINE=$(($(date +%s) + 150))
+until [ -z "$(tusk "SELECT id FROM tasks WHERE id IN ($WAVE_IDS) AND status <> 'Done'")" ] || [ "$(date +%s)" -ge "$DEADLINE" ]; do
+  sleep 2
+done
+```
+
+After the loop exits, fall through to the **Resolve state** sub-step.
+
+**Resolve state:**
+
+Re-query DB status and decide how to proceed:
+
+```bash
+tusk "SELECT id, status FROM tasks WHERE id IN (<wave_ids>) AND status <> 'Done'"
+```
+
+- **No rows** → all wave tasks completed successfully. Exit the loop and go back to **4a** for the next frontier.
+
+- **Rows returned** (some tasks not Done) → check whether each agent has finished using `TaskOutput` with `block: false` and the agent task ID:
+  - If **any agent is still running**, return to the primary path (wait for the next notification or the next stall window).
+  - If **all agents have completed** but some task statuses are NOT `Done`, those agents likely exhausted turn limits or hit unrecoverable errors. **Break out of the loop** and proceed to recovery below.
+
+**Recovery (agents completed, tasks not Done):**
+
+Read the agents' output files to capture any final messages.
+
+**If `on_failure_strategy` is set**, apply it automatically without prompting:
+- **skip**: Log a warning for each stuck task — "Warning: Task `<id>` (`<summary>`) did not complete (status: `<status>`). Skipping due to `--on-failure skip`." — then proceed to **4a** for the next frontier. Note that downstream tasks depending on skipped tasks will never become ready — if the chain gets stuck later, report this to the user.
+- **abort**: Run `tusk skill-run cancel <run_id>`, then stop immediately. Report that the chain was aborted due to `--on-failure abort` and list which tasks completed vs. which did not.
+
+**Otherwise (interactive)**, report to the user, listing each stuck task with its summary, status, and agent output path:
+
+> Agent(s) for the following wave task(s) have finished, but the task status is still not `Done`:
+>
+> - Task `<id>` (`<summary>`) — status `<status>` — agent output: `<output_file_path>`
+> - Task `<id>` (`<summary>`) — status `<status>` — agent output: `<output_file_path>`
+>
+> How would you like to proceed?
+> 1. **Resume** — spawn new agents to continue where the previous ones left off
+> 2. **Skip** — leave these tasks as-is and proceed to the next frontier (downstream tasks depending on skipped tasks will never become ready; if the chain gets stuck later, this is why)
+> 3. **Abort** — stop the entire chain
+
+- **Resume**: spawn new background agents using the same Agent Prompt Template (the new agents will pick up prior progress via `tusk task-start`) and restart the monitoring loop.
+- **Skip**: proceed to **4a** for the next frontier. Note that downstream tasks depending on skipped tasks will never become ready — if the chain gets stuck later, report this to the user.
+- **Abort**: run `tusk skill-run cancel <run_id>`, stop entirely. Report that the chain was aborted.
 
 ## Step 5: VERSION & CHANGELOG Consolidation
 
