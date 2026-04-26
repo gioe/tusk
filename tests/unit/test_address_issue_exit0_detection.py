@@ -71,3 +71,87 @@ class TestAddressIssueStep41ExitDetection:
         assert "Exit nonzero" in text or "exit nonzero" in text.lower(), (
             "Step 4.1 must explicitly state that an exit-nonzero spec is stored and used normally"
         )
+
+
+class TestAddressIssueStep41WrapperHandling:
+    """Step 4.1 fast-path must peel `bash -c '<body>'` / `sh -c '<body>'`
+    wrappers before the PATH-resolution check (Issue #583, TASK-203).
+
+    Without this peeling, every issue whose `## Failing Test` is wrapped in
+    `bash -c '...'` (a recurring pattern in tusk's own issue templates — any
+    regression spec that chains `tusk init && tusk task-insert ...` ends up
+    wrapped this way) flows into the sandbox, which then runs the wrapper,
+    which then invokes off-PATH project tools that exit 127. The skill
+    misreads `bash: tusk: command not found` as a command error per the
+    documented rule, sets test_spec=null, and scores test_present='no' —
+    flipping addressable bugs into Defer purely because the sandbox cannot
+    reach the project tools the spec uses.
+    """
+
+    def test_skill_documents_wrapper_detection(self):
+        """Step 4.1 fast-path must call out the `bash -c` / `sh -c` wrapper case."""
+        text = _skill_text()
+        assert re.search(r"`bash -c\b", text), (
+            "Step 4.1 must mention `bash -c` wrapper handling"
+        )
+        assert re.search(r"`sh -c\b", text), (
+            "Step 4.1 must mention `sh -c` wrapper handling"
+        )
+
+    def test_skill_inspects_wrapper_body_first_token(self):
+        """Wrapper-detected specs must check the body's first token, not bash/sh."""
+        text = _skill_text()
+        assert re.search(
+            r"wrapper body|body'?s first token|inner.{0,20}token|peel",
+            text,
+            re.IGNORECASE,
+        ), (
+            "Step 4.1 must instruct inspecting the wrapper body's first token "
+            "(not the outer bash/sh) for the PATH-resolution check"
+        )
+
+    def test_skill_wrapper_branch_uses_fast_path_skip(self):
+        """A `bash -c '<tusk-using>'` spec must take the same fast-path skip
+        (test_spec=null, test_present='no') as a bare off-PATH spec — never
+        falling through to the sandbox stderr-parse path."""
+        text = _skill_text()
+        # The fast-path skip block must mention wrapper detection alongside
+        # the existing skip semantics (test_spec=null, test_present="no").
+        section_match = re.search(
+            r'(bash -c|sh -c|wrapper).*?test_spec\s*=\s*null.*?test_present\s*=\s*"?no"?',
+            text,
+            re.DOTALL | re.IGNORECASE,
+        )
+        assert section_match is not None, (
+            "Step 4.1 must score test_present='no' via the fast-path when the "
+            "wrapper body's first token is off the sandbox PATH (same skip "
+            "semantics as a bare off-PATH spec — never via the sandbox "
+            "stderr-parse path)"
+        )
+
+    def test_skill_drops_bash_sh_from_on_path_examples(self):
+        """The 'effective token DOES resolve' fall-through example must not
+        treat bare `bash`/`sh` as a sandbox-fall-through case anymore — that
+        was the original bug. The wrapper-detection branch handles them now."""
+        text = _skill_text()
+        # Find the fall-through paragraph (the one that lists on-PATH examples
+        # for falling through to sub-item b).
+        fall_through_match = re.search(
+            r"effective token DOES resolve.*?(\n\n|\Z)",
+            text,
+            re.DOTALL | re.IGNORECASE,
+        )
+        assert fall_through_match is not None, (
+            "Step 4.1 must contain the 'effective token DOES resolve' fall-through paragraph"
+        )
+        fall_through_text = fall_through_match.group(0)
+        # The example list must not present bare `bash` or `sh` as fall-through
+        # cases — they are now handled by the wrapper-detection branch above.
+        assert not re.search(r"e\.g\.[^)]*`bash`[,)]", fall_through_text), (
+            "Fall-through examples must not list bare `bash` — wrapper detection "
+            "now handles `bash -c` before the fall-through is reached"
+        )
+        assert not re.search(r"e\.g\.[^)]*`sh`[,)]", fall_through_text), (
+            "Fall-through examples must not list bare `sh` — wrapper detection "
+            "now handles `sh -c` before the fall-through is reached"
+        )
