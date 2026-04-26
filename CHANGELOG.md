@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [742] - 2026-04-26
+
+- [TASK-191] Raise default `test_command_timeout_sec` from 120s to 240s. Tusk's own unit suite runs in ~53–57s; consumer suites in the 60–110s band were hitting the prior 120s ceiling under load (Issue #575). The new default gives ~2x headroom on typical runs while keeping the worst-case wait on a hung suite under 5 minutes. `TUSK_TEST_COMMAND_TIMEOUT` env var and `test_command_timeout_sec` config key still override.
+
 ## [741] - 2026-04-26
 
 - [TASK-190] Anchor [TASK-N] regex in _head_task_id() to start of commit message
