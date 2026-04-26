@@ -222,6 +222,29 @@ _CODE_TIMEOUT_SECS = 120
 _TEST_TIMEOUT_SECS = 300
 
 
+def _get_repo_root() -> Optional[str]:
+    """Resolve the git repo root so verification specs run from a stable cwd.
+
+    Specs are written with paths relative to the repo root (e.g.
+    ``grep -c X ios/Foo.swift``). The verifier may be invoked from any cwd —
+    a sub-skill that ``cd``s into a subdirectory, a worktree, etc. — so we
+    anchor at the repo root before running. Returns None when not inside a
+    git repo (no .git, missing git binary); callers fall back to the current
+    cwd in that case so non-git test fixtures keep working.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, encoding="utf-8", check=False,
+        )
+    except (FileNotFoundError, OSError):
+        return None
+    if result.returncode != 0:
+        return None
+    root = result.stdout.strip()
+    return root or None
+
+
 def run_verification(criterion_type: str, spec: str) -> dict:
     """Run automated verification based on criterion type.
 
@@ -230,6 +253,8 @@ def run_verification(criterion_type: str, spec: str) -> dict:
     if criterion_type == "manual" or not spec:
         return {"passed": True, "output": ""}
 
+    repo_root = _get_repo_root()
+
     if criterion_type in ("code", "test"):
         timeout = _TEST_TIMEOUT_SECS if criterion_type == "test" else _CODE_TIMEOUT_SECS
         t0 = time.monotonic()
@@ -237,6 +262,7 @@ def run_verification(criterion_type: str, spec: str) -> dict:
             result = subprocess.run(
                 _GREP_EXCLUDE_PREFIX + spec,
                 shell=True, capture_output=True, text=True, encoding="utf-8", timeout=timeout,
+                cwd=repo_root,
             )
             elapsed = time.monotonic() - t0
             output = result.stdout.strip()
@@ -260,12 +286,22 @@ def run_verification(criterion_type: str, spec: str) -> dict:
             return {"passed": False, "output": f"Error running verification: {e}"}
 
     if criterion_type == "file":
-        # Check if file(s) matching the spec exist
-        matches = globmod.glob(spec, recursive=True)
+        # Anchor relative glob patterns at the repo root so specs work the
+        # same way no matter where the caller invoked tusk from. Absolute
+        # patterns are passed through untouched. Falls back to caller cwd
+        # when not in a git repo (preserves prior behavior for non-repo
+        # test fixtures).
+        base = repo_root or os.getcwd()
+        if os.path.isabs(spec):
+            matches = globmod.glob(spec, recursive=True)
+            display = matches
+        else:
+            matches = globmod.glob(os.path.join(base, spec), recursive=True)
+            display = [os.path.relpath(m, base) for m in matches]
         if matches:
-            file_list = ", ".join(matches[:10])
-            if len(matches) > 10:
-                file_list += f" ... ({len(matches)} total)"
+            file_list = ", ".join(display[:10])
+            if len(display) > 10:
+                file_list += f" ... ({len(display)} total)"
             return {"passed": True, "output": f"Found: {file_list}"}
         return {"passed": False, "output": f"No files matching: {spec}"}
 
