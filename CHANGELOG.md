@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [748] - 2026-04-26
+
+- [TASK-199] Add 'show' as an alias for 'list' in tusk deps
+
 ## [747] - 2026-04-26
 
 - [TASK-197] Apply auto-notification + until-loop fix to skills/chain/SKILL.md monitoring loop
