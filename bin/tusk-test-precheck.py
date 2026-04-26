@@ -19,8 +19,10 @@ This CLI wraps the logic safely:
 
 Resolution order for the test command:
   1. ``--command <cmd>`` argument
-  2. ``config["test_command"]``
-  3. ``tusk test-detect`` result (when confidence != "none")
+  2. ``config["path_test_commands"]`` — first pattern matching every path
+  3. ``config["domain_test_commands"][--domain]`` when ``--domain`` is set
+  4. ``config["test_command"]``
+  5. ``tusk test-detect`` result (when confidence != "none")
 
 Output JSON (stdout):
     {
@@ -159,7 +161,7 @@ def _detect_changed_paths(repo_root: str) -> list:
 
 
 def resolve_test_command(explicit: str, config_path: str, repo_root: str,
-                         script_dir: str, paths=None) -> str:
+                         script_dir: str, paths=None, domain: str = "") -> str:
     """Resolve the test command.
 
     Resolution order:
@@ -169,8 +171,13 @@ def resolve_test_command(explicit: str, config_path: str, repo_root: str,
          ``git diff --name-only HEAD`` + untracked files so the precheck flow
          lines up with the commit-time resolver without callers needing to
          replay the path list.
-      3. ``config["test_command"]`` (global).
-      4. ``tusk test-detect`` when confidence is not "none".
+      3. ``domain_test_commands[domain]`` — when ``domain`` is set and a
+         matching entry exists.  Mirrors the resolution order in
+         ``bin/tusk-commit.py::load_test_command`` so a frontend-only commit
+         doesn't trigger the full multi-suite global command on the
+         pre-existing-failure check.
+      4. ``config["test_command"]`` (global).
+      5. ``tusk test-detect`` when confidence is not "none".
     """
     if explicit:
         return explicit
@@ -187,6 +194,10 @@ def resolve_test_command(explicit: str, config_path: str, repo_root: str,
         if path_patterns:
             effective_paths = paths if paths is not None else _detect_changed_paths(repo_root)
             cmd = _match_path_test_command(path_patterns, effective_paths, repo_root)
+            if cmd:
+                return cmd
+        if domain:
+            cmd = (cfg.get("domain_test_commands") or {}).get(domain)
             if cmd:
                 return cmd
         cmd = cfg.get("test_command") or ""
@@ -251,6 +262,14 @@ def main(argv):
             "When omitted, precheck auto-detects changed + untracked paths from git."
         ),
     )
+    parser.add_argument(
+        "--domain",
+        default="",
+        help=(
+            "Task domain used to resolve domain_test_commands[domain]. "
+            "Falls through to the global test_command when unset or no entry matches."
+        ),
+    )
     args = parser.parse_args(argv[2:])
 
     repo_root = argv[0]
@@ -263,6 +282,7 @@ def main(argv):
         repo_root=repo_root,
         script_dir=script_dir,
         paths=args.paths,
+        domain=args.domain,
     )
     if not test_command:
         print(
