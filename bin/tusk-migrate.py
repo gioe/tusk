@@ -2261,6 +2261,53 @@ def migrate_61(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 61: removed is_deferred filter from v_ready_tasks and v_chain_heads")
 
 
+def migrate_62(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add test_runs table for auto-scaling test_command_timeout_sec from history.
+
+    Path B of Issue #575: instead of relying on the static 240s default (Path A,
+    landed in TASK-191 / migration n/a), record every successful test_command
+    elapsed time so the timeout resolver can auto-scale per-repo from the p95
+    of recent runs. The DB is single-node and per-repo, so no project_root
+    column is needed — every row in this table belongs to the repo that owns
+    the database file.
+
+    Stores one row per successful test_command invocation in tusk-commit.py.
+    Failed runs are deliberately NOT recorded: a failing test may abort early
+    (or run longer than usual when traversing error paths), and including
+    those samples would skew the p95 estimate of what a healthy run takes.
+
+    Idempotent: guarded with has_table; re-running is a no-op after the
+    table exists.
+    """
+    if get_version(db_path) >= 62:
+        _progress("  Migration 62: added test_runs table")
+        return
+
+    ddl_stmts = []
+    if not has_table(db_path, "test_runs"):
+        ddl_stmts.append("""
+            CREATE TABLE test_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER,
+                session_id INTEGER,
+                test_command TEXT NOT NULL,
+                elapsed_seconds REAL NOT NULL,
+                succeeded INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL,
+                FOREIGN KEY (session_id) REFERENCES task_sessions(id) ON DELETE SET NULL
+            );
+            CREATE INDEX idx_test_runs_command_succeeded_id
+                ON test_runs(test_command, succeeded, id DESC);
+        """)
+
+    script = "\n".join(ddl_stmts) + """
+        PRAGMA user_version = 62;
+    """
+    run_script(db_path, script)
+    _progress("  Migration 62: added test_runs table")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -2325,6 +2372,7 @@ MIGRATIONS = [
     (59, migrate_59),
     (60, migrate_60),
     (61, migrate_61),
+    (62, migrate_62),
 ]
 
 

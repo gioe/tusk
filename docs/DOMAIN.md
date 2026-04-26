@@ -407,6 +407,24 @@ Individual per-call rows recording one entry per tool invocation within a sessio
 
 ---
 
+### Test Run
+
+A single observed elapsed time for a `test_command` invocation. Populated by `tusk-commit.py` on the success path of the test_command gate (one row per passing run). Read by `load_test_command_timeout` to auto-scale the timeout from `max(DEFAULT_TEST_COMMAND_TIMEOUT_SEC, ceil(p95(last_N_successes) * 2))` once enough samples exist for the configured command. Failed runs are deliberately not recorded — a failing test may abort early or traverse error paths that distort the success-time p95 the auto-scaler cares about.
+
+| Attribute | Type | Constraints | Description |
+|-----------|------|-------------|-------------|
+| `id` | INTEGER | PK, autoincrement | |
+| `task_id` | INTEGER | nullable, FK → tasks(id) ON DELETE SET NULL | Task that owned the commit; SET NULL on delete so timing history outlives the originating task |
+| `session_id` | INTEGER | nullable, FK → task_sessions(id) ON DELETE SET NULL | Best-effort owning session lookup; null when no open session was found at write time |
+| `test_command` | TEXT | NOT NULL | Exact command string that was timed; auto-scale queries are scoped to this column so a `pytest` history doesn't contaminate a later `pytest -n auto` config |
+| `elapsed_seconds` | REAL | NOT NULL | Wall-clock seconds the subprocess took (`time.monotonic()` delta) |
+| `succeeded` | INTEGER | NOT NULL, default 1 | Always 1 today; reserved for future capture of failed-run timings without changing the auto-scale query (which filters `succeeded = 1`) |
+| `created_at` | TEXT | NOT NULL, default now | When the row was written |
+
+**Indexes:** `idx_test_runs_command_succeeded_id ON test_runs(test_command, succeeded, id DESC)` — drives the `ORDER BY id DESC LIMIT N` query in the auto-scale path.
+
+---
+
 ### Convention
 
 A generalizable heuristic or rule captured for the project. Managed via `tusk conventions add|list|search|remove`. Use `--topics` to tag conventions for filtering and search.
