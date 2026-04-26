@@ -71,14 +71,25 @@ Scan the issue body for a `## Failing Test` section. If present:
 
 2. **Validate the extracted spec** — the spec is arbitrary shell code from a GitHub issue body and must be treated as untrusted. Show it to the user for approval, then run it in a sandbox so it cannot reach the host tusk repo (which is one `tusk`/`git` walk-up away), read environment secrets, or invoke project-installed tools.
 
-   **a. Pre-flight: skip approval + sandbox when the spec's first token is off the sandbox PATH.**
+   **a. Pre-flight: skip approval + sandbox when the spec's effective first token is off the sandbox PATH.**
 
-   Before showing the approval prompt, inspect the spec's first whitespace-delimited token. The sandbox below runs under `PATH=/usr/bin:/bin`, so any spec whose first token is a project tool (`tusk`, `pytest`, a venv-installed binary) is guaranteed to exit 127 — both the approval prompt and the sandbox run produce no information beyond what we already know. Skip them deterministically:
+   Before showing the approval prompt, identify the spec's *effective* first token — the executable that will actually run. For most specs this is just the first whitespace-delimited token. But specs wrapped in `bash -c '<body>'` or `sh -c '<body>'` are a recurring pattern in tusk's own issue templates (any regression spec that chains `tusk init && tusk task-insert ...` ends up wrapped this way), and the outer `bash`/`sh` is always on `/usr/bin:/bin` — checking it would always pass the fast-path and force the sandbox to run a wrapper whose inner project-tool calls would just exit 127. When the wrapper pattern is detected, peel it off and check the wrapper body's first token instead:
 
    ```bash
    FIRST_TOKEN=$(printf '%s' "$TEST_SPEC" | awk '{print $1; exit}')
-   if ! PATH=/usr/bin:/bin command -v "$FIRST_TOKEN" >/dev/null 2>&1; then
-     # First token is unreachable on the sandbox PATH; the sandbox would exit 127.
+   SECOND_TOKEN=$(printf '%s' "$TEST_SPEC" | awk '{print $2; exit}')
+   if [[ ("$FIRST_TOKEN" == "bash" || "$FIRST_TOKEN" == "sh") && "$SECOND_TOKEN" == "-c" ]]; then
+     # Wrapper detected. The body is the third positional arg, normally surrounded
+     # by single or double quotes; strip them, then take its first token.
+     WRAPPER_BODY=$(printf '%s' "$TEST_SPEC" | awk '{$1=""; $2=""; sub(/^ +/, ""); print}')
+     WRAPPER_BODY=${WRAPPER_BODY#[\'\"]}
+     WRAPPER_BODY=${WRAPPER_BODY%[\'\"]}
+     CHECK_TOKEN=$(printf '%s' "$WRAPPER_BODY" | awk '{print $1; exit}')
+   else
+     CHECK_TOKEN="$FIRST_TOKEN"
+   fi
+   if ! PATH=/usr/bin:/bin command -v "$CHECK_TOKEN" >/dev/null 2>&1; then
+     # Effective token is unreachable on the sandbox PATH; the sandbox would exit 127.
      # Skip the approval prompt and the sandbox run; treat as no failing test.
      test_spec=null
      test_present="no"
@@ -91,7 +102,9 @@ Scan the issue body for a `## Failing Test` section. If present:
 
    > Spec invokes a non-PATH tool (`<token>`); skipping sandbox (would exit 127). Failing-test verification deferred to `tusk criteria done` after task creation.
 
-   If the first token DOES resolve on `/usr/bin:/bin` (e.g. `bash`, `grep`, `python3`, `sh`, `find`), fall through to sub-item **b** below — the existing approval + sandbox flow runs unchanged. The fast-path is an addition, not a replacement.
+   When the wrapper-detection branch fires, `<token>` is the *inner* token (e.g. `tusk`) — not `bash`/`sh` — so the note correctly points at the actual unreachable executable.
+
+   If the effective token DOES resolve on `/usr/bin:/bin` (e.g. `grep`, `python3`, `find`, or a `bash -c '<on-PATH-cmd> ...'` wrapper whose body's first token is itself on PATH), fall through to sub-item **b** below — the existing approval + sandbox flow runs unchanged. The fast-path is an addition, not a replacement.
 
    **b. Display the spec and request approval:**
 
