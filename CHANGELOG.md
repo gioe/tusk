@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [754] - 2026-04-26
+
+- [TASK-205] Fix: tusk criteria done success line is gated on isatty, hidden in non-TTY contexts
+
 ## [753] - 2026-04-26
 
 - [TASK-204] Fix: Deferred tasks should be eligible for selection in v_ready_tasks
