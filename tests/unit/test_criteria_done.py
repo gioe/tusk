@@ -174,7 +174,8 @@ class TestDoneSingle:
              patch.object(criteria_mod, "capture_criterion_cost"):
             rc = criteria_mod._done_single(conn, 2, skip_verify=False,
                                            suppress_shared_commit=False,
-                                           commit_hash="abc1234", committed_at=None)
+                                           commit_hash="abc1234", committed_at=None,
+                                           head_task_id=1)
         assert rc == 0
         assert "Warning" in err.getvalue()
 
@@ -193,7 +194,8 @@ class TestDoneSingle:
              patch.object(criteria_mod, "capture_criterion_cost"):
             rc = criteria_mod._done_single(conn, 2, skip_verify=False,
                                            suppress_shared_commit=True,
-                                           commit_hash="abc1234", committed_at=None)
+                                           commit_hash="abc1234", committed_at=None,
+                                           head_task_id=1)
         assert rc == 0
         assert "Warning" not in err.getvalue()
 

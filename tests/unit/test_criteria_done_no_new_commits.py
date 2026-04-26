@@ -171,6 +171,7 @@ class TestNoNewCommitsSuppression:
         with patch.object(criteria_mod, "get_connection", return_value=proxy), \
              patch.object(criteria_mod, "capture_criterion_cost"), \
              patch.object(criteria_mod, "_has_new_commits_over_default", return_value=True), \
+             patch.object(criteria_mod, "_head_task_id", return_value=1), \
              patch("subprocess.check_output", side_effect=self._patch_git_head("abc1234")), \
              redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             rc = criteria_mod.cmd_done(args, ":memory:", {})
@@ -190,6 +191,7 @@ class TestNoNewCommitsSuppression:
         with patch.object(criteria_mod, "get_connection", return_value=proxy), \
              patch.object(criteria_mod, "capture_criterion_cost"), \
              patch.object(criteria_mod, "_has_new_commits_over_default", return_value=True), \
+             patch.object(criteria_mod, "_head_task_id", return_value=1), \
              patch("subprocess.check_output", side_effect=self._patch_git_head("feedbac")), \
              redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             criteria_mod.cmd_done(args, ":memory:", {})
