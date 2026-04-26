@@ -2192,6 +2192,75 @@ def migrate_60(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 60: added user_prompt_tokens and user_prompt_count columns to skill_runs")
 
 
+def migrate_61(db_path: str, config_path: str, script_dir: str) -> None:
+    """Stop filtering deferred tasks out of v_ready_tasks and v_chain_heads.
+
+    Migration 59 added ``(is_deferred = 0 OR is_deferred IS NULL)`` to both
+    views to keep deferred tasks out of the ready queue, which created a
+    hidden third state: deferred tasks were ``status='To Do'`` but invisible
+    to ``/tusk`` (next-task), invisible to ``/tusk blocked`` (they have no
+    real dependency blocker), and only surfaced via raw SELECT on the tasks
+    table. Issue #584 reported 13 deferred tasks silently skipped over for
+    days because the user reasonably expected ``blocked`` to surface them;
+    instead it said zero while the picker also returned "No ready tasks
+    found." Deferred is just a historical breadcrumb meaning "set this aside
+    earlier" — it should not hide tasks from any surface. Removes the filter
+    from both views so deferred tasks are picked up like any other To Do
+    task. WSJF still applies the ``non_deferred_bonus`` so non-deferred
+    tasks rank higher; deferred tasks now compete on score rather than
+    being silently hidden.
+
+    Idempotent: ``DROP VIEW IF EXISTS`` + ``CREATE VIEW`` reconstructs each
+    view from scratch regardless of prior state.
+    """
+    if get_version(db_path) >= 61:
+        _progress("  Migration 61: removed is_deferred filter from v_ready_tasks and v_chain_heads")
+        return
+
+    script = """
+        DROP VIEW IF EXISTS v_ready_tasks;
+        CREATE VIEW v_ready_tasks AS
+        SELECT t.*
+        FROM tasks t
+        WHERE t.status = 'To Do'
+          AND t.bakeoff_shadow = 0
+          AND NOT EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks blocker ON d.depends_on_id = blocker.id
+            WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM external_blockers eb
+            WHERE eb.task_id = t.id AND eb.is_resolved = 0
+          );
+
+        DROP VIEW IF EXISTS v_chain_heads;
+        CREATE VIEW v_chain_heads AS
+        SELECT t.*
+        FROM tasks t
+        WHERE t.status <> 'Done'
+          AND t.bakeoff_shadow = 0
+          AND EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks downstream ON d.task_id = downstream.id
+            WHERE d.depends_on_id = t.id AND downstream.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks blocker ON d.depends_on_id = blocker.id
+            WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM external_blockers eb
+            WHERE eb.task_id = t.id AND eb.is_resolved = 0
+          );
+
+        PRAGMA user_version = 61;
+    """
+    run_script(db_path, script)
+    _progress("  Migration 61: removed is_deferred filter from v_ready_tasks and v_chain_heads")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -2255,6 +2324,7 @@ MIGRATIONS = [
     (58, migrate_58),
     (59, migrate_59),
     (60, migrate_60),
+    (61, migrate_61),
 ]
 
 
