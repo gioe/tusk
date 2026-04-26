@@ -271,7 +271,7 @@ def load_test_command(config_path: str, domain: str = "", paths=None,
         return ""
 
 
-DEFAULT_TEST_COMMAND_TIMEOUT_SEC = 120
+DEFAULT_TEST_COMMAND_TIMEOUT_SEC = 240
 
 
 def load_test_command_timeout(config_path: str) -> tuple[int, str]:
@@ -280,7 +280,7 @@ def load_test_command_timeout(config_path: str) -> tuple[int, str]:
     Resolution order:
       1. TUSK_TEST_COMMAND_TIMEOUT env var (must parse as a positive int)
       2. config["test_command_timeout_sec"] (must parse as a positive int)
-      3. DEFAULT_TEST_COMMAND_TIMEOUT_SEC (120)
+      3. DEFAULT_TEST_COMMAND_TIMEOUT_SEC (240)
 
     source is one of: "env", "config", "default".  Invalid values at any layer
     fall through to the next layer — the timeout is advisory infrastructure,

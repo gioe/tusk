@@ -42,6 +42,15 @@ class TestLoadTestCommandTimeout:
         assert timeout == mod.DEFAULT_TEST_COMMAND_TIMEOUT_SEC
         assert source == "default"
 
+    def test_default_value_is_240_seconds(self):
+        # Pins the static default value (Issue #575). Tusk's own unit suite
+        # runs in ~53–57s; consumer suites in the 60–110s band were hitting
+        # the prior 120s ceiling under load. 240s gives ~2x headroom on
+        # typical runs while keeping the worst-case wait on a hung suite to
+        # under 5 minutes.
+        mod = _load_module()
+        assert mod.DEFAULT_TEST_COMMAND_TIMEOUT_SEC == 240
+
     def test_config_value_used_when_env_unset(self, tmp_path, monkeypatch):
         mod = _load_module()
         monkeypatch.delenv("TUSK_TEST_COMMAND_TIMEOUT", raising=False)

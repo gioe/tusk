@@ -39,7 +39,7 @@
     "thresholds": { "address": 4, "decline": 0 }
   },
   "test_command": "",
-  "test_command_timeout_sec": 120,
+  "test_command_timeout_sec": 240,
   "path_test_commands": {},
   "project_type": null,
   "project_libs": {
