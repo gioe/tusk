@@ -1,8 +1,12 @@
 """Unit tests for test_command timeout behavior in tusk-commit.py (Issue #483).
 
 Covers:
-  - load_test_command_timeout resolution (env var > config > default)
+  - load_test_command_timeout resolution (env var > config > auto > default)
   - Fallback behavior for invalid values (negative, zero, non-numeric, missing)
+  - Auto-scale layer (Issue #575 / TASK-192): once enough successful test_runs
+    rows exist for a given test_command, the resolver returns
+    max(DEFAULT_TEST_COMMAND_TIMEOUT_SEC, ceil(p95 * 2)). Cold-starts (fewer
+    samples than the configured threshold) fall through to the static default.
   - main() returns exit code 5 when the test_command subprocess raises
     subprocess.TimeoutExpired, with a message that names the configured timeout
     and the source hint (config key or env var).
@@ -12,6 +16,7 @@ import importlib.util
 import io
 import json
 import os
+import sqlite3
 import subprocess
 
 import pytest
@@ -278,3 +283,238 @@ class TestTimeoutPath:
         assert exit_code == 5
         assert "str stdout payload" in captured.out
         assert "str stderr payload" in captured.err
+
+
+# ── Auto-scale (TASK-192 / Issue #575) ──────────────────────────────────────
+
+
+def _make_db_with_test_runs(tmp_path) -> str:
+    """Create a temp DB containing only the test_runs table.
+
+    Mirrors the migration-62 schema verbatim so tests don't depend on the
+    full bin/tusk init pipeline. Returns the absolute path.
+    """
+    db_path = tmp_path / "tasks.db"
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.executescript("""
+            CREATE TABLE test_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER,
+                session_id INTEGER,
+                test_command TEXT NOT NULL,
+                elapsed_seconds REAL NOT NULL,
+                succeeded INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX idx_test_runs_command_succeeded_id
+                ON test_runs(test_command, succeeded, id DESC);
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+    return str(db_path)
+
+
+def _seed_test_runs(db_path: str, test_command: str, elapsed_seconds: list[float],
+                    succeeded: bool = True) -> None:
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executemany(
+            "INSERT INTO test_runs (test_command, elapsed_seconds, succeeded) "
+            "VALUES (?, ?, ?)",
+            [(test_command, e, 1 if succeeded else 0) for e in elapsed_seconds],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+class TestAutoScale:
+    """Auto-scale layer: p95(last_N_successes) * multiplier, floored at default."""
+
+    def test_cold_start_fewer_than_n_samples_returns_default(self, tmp_path, monkeypatch):
+        mod = _load_module()
+        monkeypatch.delenv("TUSK_TEST_COMMAND_TIMEOUT", raising=False)
+        cfg = _write_config(tmp_path, {"test_command": "pytest"})
+        db_path = _make_db_with_test_runs(tmp_path)
+        # Seed 5 runs; threshold is AUTO_TIMEOUT_SAMPLE_COUNT (20).
+        _seed_test_runs(db_path, "pytest", [5.0] * 5)
+        timeout, source = mod.load_test_command_timeout(cfg, db_path, "pytest")
+        assert timeout == mod.DEFAULT_TEST_COMMAND_TIMEOUT_SEC
+        assert source == "default"
+
+    def test_cold_start_exactly_one_below_threshold_returns_default(self, tmp_path, monkeypatch):
+        mod = _load_module()
+        monkeypatch.delenv("TUSK_TEST_COMMAND_TIMEOUT", raising=False)
+        cfg = _write_config(tmp_path, {"test_command": "pytest"})
+        db_path = _make_db_with_test_runs(tmp_path)
+        _seed_test_runs(db_path, "pytest",
+                        [5.0] * (mod.AUTO_TIMEOUT_SAMPLE_COUNT - 1))
+        timeout, source = mod.load_test_command_timeout(cfg, db_path, "pytest")
+        assert source == "default"
+        assert timeout == mod.DEFAULT_TEST_COMMAND_TIMEOUT_SEC
+
+    def test_warm_state_returns_auto_when_p95_times_multiplier_exceeds_default(
+            self, tmp_path, monkeypatch):
+        mod = _load_module()
+        monkeypatch.delenv("TUSK_TEST_COMMAND_TIMEOUT", raising=False)
+        cfg = _write_config(tmp_path, {"test_command": "pytest"})
+        db_path = _make_db_with_test_runs(tmp_path)
+        # 20 samples in [100..200]s — p95 ≈ 200s, *2 = 400s, exceeds the 240 default.
+        samples = [100.0 + 5.0 * i for i in range(mod.AUTO_TIMEOUT_SAMPLE_COUNT)]
+        _seed_test_runs(db_path, "pytest", samples)
+        timeout, source = mod.load_test_command_timeout(cfg, db_path, "pytest")
+        # p95 of 20 sorted samples = sorted[ceil(0.95*20)-1] = sorted[18] = 190.0
+        # ceil(190.0 * 2.0) = 380
+        assert source == "auto"
+        assert timeout == 380
+
+    def test_warm_state_floors_at_default_when_p95_low(self, tmp_path, monkeypatch):
+        mod = _load_module()
+        monkeypatch.delenv("TUSK_TEST_COMMAND_TIMEOUT", raising=False)
+        cfg = _write_config(tmp_path, {"test_command": "pytest"})
+        db_path = _make_db_with_test_runs(tmp_path)
+        # Fast suite: 20 samples around 30s. ceil(30 * 2) = 60s, well under 240.
+        _seed_test_runs(db_path, "pytest", [30.0] * mod.AUTO_TIMEOUT_SAMPLE_COUNT)
+        timeout, source = mod.load_test_command_timeout(cfg, db_path, "pytest")
+        # Auto layer DID fire — but the floor wins. The source label is still
+        # "auto" because the auto layer is what produced the value (just
+        # clamped to the floor); rerunning auto-scale would give the same
+        # answer until samples grow.
+        assert source == "auto"
+        assert timeout == mod.DEFAULT_TEST_COMMAND_TIMEOUT_SEC
+
+    def test_env_overrides_auto(self, tmp_path, monkeypatch):
+        mod = _load_module()
+        monkeypatch.setenv("TUSK_TEST_COMMAND_TIMEOUT", "77")
+        cfg = _write_config(tmp_path, {"test_command": "pytest"})
+        db_path = _make_db_with_test_runs(tmp_path)
+        # Seed enough samples that auto WOULD fire if env weren't set.
+        _seed_test_runs(db_path, "pytest", [200.0] * mod.AUTO_TIMEOUT_SAMPLE_COUNT)
+        timeout, source = mod.load_test_command_timeout(cfg, db_path, "pytest")
+        assert timeout == 77
+        assert source == "env"
+
+    def test_config_overrides_auto(self, tmp_path, monkeypatch):
+        mod = _load_module()
+        monkeypatch.delenv("TUSK_TEST_COMMAND_TIMEOUT", raising=False)
+        cfg = _write_config(tmp_path, {
+            "test_command": "pytest", "test_command_timeout_sec": 99,
+        })
+        db_path = _make_db_with_test_runs(tmp_path)
+        _seed_test_runs(db_path, "pytest", [200.0] * mod.AUTO_TIMEOUT_SAMPLE_COUNT)
+        timeout, source = mod.load_test_command_timeout(cfg, db_path, "pytest")
+        assert timeout == 99
+        assert source == "config"
+
+    def test_test_command_scoping_isolates_histories(self, tmp_path, monkeypatch):
+        mod = _load_module()
+        monkeypatch.delenv("TUSK_TEST_COMMAND_TIMEOUT", raising=False)
+        cfg = _write_config(tmp_path, {"test_command": "pytest -n auto"})
+        db_path = _make_db_with_test_runs(tmp_path)
+        # Bulk samples for plain `pytest`; the resolver query is for a different
+        # command and must NOT see them.
+        _seed_test_runs(db_path, "pytest", [200.0] * mod.AUTO_TIMEOUT_SAMPLE_COUNT)
+        timeout, source = mod.load_test_command_timeout(cfg, db_path, "pytest -n auto")
+        assert source == "default"
+        assert timeout == mod.DEFAULT_TEST_COMMAND_TIMEOUT_SEC
+
+    def test_failed_runs_excluded_from_p95(self, tmp_path, monkeypatch):
+        mod = _load_module()
+        monkeypatch.delenv("TUSK_TEST_COMMAND_TIMEOUT", raising=False)
+        cfg = _write_config(tmp_path, {"test_command": "pytest"})
+        db_path = _make_db_with_test_runs(tmp_path)
+        # 5 successful + 20 failed. Auto query filters succeeded=1, so only 5
+        # successes are visible — under threshold → fall through to default.
+        _seed_test_runs(db_path, "pytest", [10.0] * 5, succeeded=True)
+        _seed_test_runs(db_path, "pytest", [500.0] * 20, succeeded=False)
+        timeout, source = mod.load_test_command_timeout(cfg, db_path, "pytest")
+        assert source == "default"
+        assert timeout == mod.DEFAULT_TEST_COMMAND_TIMEOUT_SEC
+
+    def test_omitting_db_path_disables_auto(self, tmp_path, monkeypatch):
+        """Backward-compat: existing callers that pass only config_path
+        behave identically to the pre-auto resolver."""
+        mod = _load_module()
+        monkeypatch.delenv("TUSK_TEST_COMMAND_TIMEOUT", raising=False)
+        cfg = _write_config(tmp_path, {"test_command": "pytest"})
+        timeout, source = mod.load_test_command_timeout(cfg)
+        assert source == "default"
+        assert timeout == mod.DEFAULT_TEST_COMMAND_TIMEOUT_SEC
+
+    def test_missing_db_file_falls_through_to_default(self, tmp_path, monkeypatch):
+        mod = _load_module()
+        monkeypatch.delenv("TUSK_TEST_COMMAND_TIMEOUT", raising=False)
+        cfg = _write_config(tmp_path, {"test_command": "pytest"})
+        timeout, source = mod.load_test_command_timeout(
+            cfg, str(tmp_path / "does-not-exist.db"), "pytest")
+        assert source == "default"
+        assert timeout == mod.DEFAULT_TEST_COMMAND_TIMEOUT_SEC
+
+    def test_missing_test_runs_table_falls_through(self, tmp_path, monkeypatch):
+        """Pre-migration installs (DB exists, table doesn't) must not break
+        the commit path."""
+        mod = _load_module()
+        monkeypatch.delenv("TUSK_TEST_COMMAND_TIMEOUT", raising=False)
+        cfg = _write_config(tmp_path, {"test_command": "pytest"})
+        db_path = str(tmp_path / "tasks.db")
+        # Empty DB — no test_runs table.
+        sqlite3.connect(db_path).close()
+        timeout, source = mod.load_test_command_timeout(cfg, db_path, "pytest")
+        assert source == "default"
+        assert timeout == mod.DEFAULT_TEST_COMMAND_TIMEOUT_SEC
+
+    def test_compute_auto_timeout_respects_sample_count_window(self, tmp_path):
+        """Verify the resolver uses the most recent N samples, not all rows."""
+        mod = _load_module()
+        db_path = _make_db_with_test_runs(tmp_path)
+        # Old slow runs followed by a window of fast runs equal to the threshold.
+        _seed_test_runs(db_path, "pytest", [500.0] * 10)
+        _seed_test_runs(db_path, "pytest", [40.0] * mod.AUTO_TIMEOUT_SAMPLE_COUNT)
+        result = mod._compute_auto_timeout(db_path, "pytest")
+        # Fast window: p95 = 40, *2 = 80, floored at 240.
+        assert result == mod.DEFAULT_TEST_COMMAND_TIMEOUT_SEC
+
+    def test_record_test_run_inserts_row(self, tmp_path):
+        mod = _load_module()
+        db_path = _make_db_with_test_runs(tmp_path)
+        mod._record_test_run(db_path, task_id=42, test_command="pytest",
+                             elapsed_seconds=12.5, succeeded=True)
+        conn = sqlite3.connect(db_path)
+        try:
+            row = conn.execute(
+                "SELECT task_id, test_command, elapsed_seconds, succeeded "
+                "FROM test_runs"
+            ).fetchone()
+        finally:
+            conn.close()
+        assert row == (42, "pytest", 12.5, 1)
+
+    def test_record_test_run_silent_on_missing_db(self, tmp_path):
+        """Persistence is best-effort — must never raise."""
+        mod = _load_module()
+        # No exception should propagate.
+        mod._record_test_run(str(tmp_path / "missing.db"), task_id=1,
+                             test_command="pytest", elapsed_seconds=1.0)
+
+    def test_record_test_run_silent_on_missing_table(self, tmp_path):
+        """Pre-migration install with a DB but no test_runs table — silent skip."""
+        mod = _load_module()
+        db_path = str(tmp_path / "empty.db")
+        sqlite3.connect(db_path).close()
+        # No exception should propagate.
+        mod._record_test_run(db_path, task_id=1, test_command="pytest",
+                             elapsed_seconds=1.0)
+
+    def test_record_test_run_skips_empty_command(self, tmp_path):
+        mod = _load_module()
+        db_path = _make_db_with_test_runs(tmp_path)
+        mod._record_test_run(db_path, task_id=1, test_command="",
+                             elapsed_seconds=1.0)
+        conn = sqlite3.connect(db_path)
+        try:
+            count = conn.execute("SELECT COUNT(*) FROM test_runs").fetchone()[0]
+        finally:
+            conn.close()
+        assert count == 0
