@@ -51,8 +51,10 @@ Exit codes:
 
 import fnmatch
 import json
+import math
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import time
@@ -288,19 +290,123 @@ def load_test_command(config_path: str, domain: str = "", paths=None,
 
 
 DEFAULT_TEST_COMMAND_TIMEOUT_SEC = 240
+AUTO_TIMEOUT_SAMPLE_COUNT = 20
+AUTO_TIMEOUT_MULTIPLIER = 2.0
 
 
-def load_test_command_timeout(config_path: str) -> tuple[int, str]:
+def _resolve_db_path(repo_root: str) -> str:
+    """Best-effort DB path lookup mirroring bin/tusk's resolution.
+
+    bin/tusk invokes tusk-commit.py with the CWD-resolved repo_root but does
+    not pass DB_PATH explicitly. Reconstruct it here so the auto-scale layer
+    and persistence helper can find the right database. Order matches the
+    bash side: TUSK_DB > TUSK_REPO_ROOT/tusk/tasks.db > repo_root/tusk/tasks.db.
+    """
+    env_db = os.environ.get("TUSK_DB")
+    if env_db:
+        return env_db
+    project_root = os.environ.get("TUSK_REPO_ROOT") or repo_root
+    return os.path.join(project_root, "tusk", "tasks.db")
+
+
+def _compute_auto_timeout(
+    db_path: str,
+    test_command: str,
+    sample_count: int = AUTO_TIMEOUT_SAMPLE_COUNT,
+    multiplier: float = AUTO_TIMEOUT_MULTIPLIER,
+) -> int | None:
+    """Return ceil(p95(last N successful elapsed times) * multiplier) or None.
+
+    Cold start: returns None when fewer than ``sample_count`` successful runs
+    of this exact ``test_command`` exist in the ``test_runs`` table — caller
+    falls through to the static default. Scoping by the literal command
+    string keeps a `pytest` history from contaminating a later
+    `pytest -n auto` config.
+
+    The caller decides what to do with the result: this helper never raises;
+    a missing DB, missing table (pre-migration install), schema mismatch, or
+    locked DB all return None so the commit path stays advisory.
+    """
+    if not test_command or not os.path.exists(db_path):
+        return None
+    try:
+        conn = sqlite3.connect(db_path, timeout=2.0)
+        try:
+            rows = conn.execute(
+                "SELECT elapsed_seconds FROM test_runs "
+                "WHERE test_command = ? AND succeeded = 1 "
+                "ORDER BY id DESC LIMIT ?",
+                (test_command, sample_count),
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+    if len(rows) < sample_count:
+        return None
+    samples = sorted(float(r[0]) for r in rows)
+    # p95 of N samples: index = ceil(0.95 * N) - 1, clamped to a valid index.
+    idx = max(0, math.ceil(0.95 * len(samples)) - 1)
+    p95 = samples[idx]
+    return max(DEFAULT_TEST_COMMAND_TIMEOUT_SEC, math.ceil(p95 * multiplier))
+
+
+def _record_test_run(
+    db_path: str,
+    task_id: int | None,
+    test_command: str,
+    elapsed_seconds: float,
+    succeeded: bool = True,
+) -> None:
+    """Best-effort persistence of one test_command timing sample.
+
+    Silent on any error — the auto-scale layer is advisory infrastructure and
+    must never abort a commit. If the insert fails (DB locked, missing
+    table on a pre-migration install, etc.), auto-scale just stays
+    cold-started until the next successful write.
+    """
+    if not test_command:
+        return
+    try:
+        conn = sqlite3.connect(db_path, timeout=2.0)
+        try:
+            conn.execute(
+                "INSERT INTO test_runs (task_id, test_command, elapsed_seconds, succeeded) "
+                "VALUES (?, ?, ?, ?)",
+                (task_id, test_command, float(elapsed_seconds), 1 if succeeded else 0),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        pass
+
+
+def load_test_command_timeout(
+    config_path: str,
+    db_path: str | None = None,
+    test_command: str | None = None,
+) -> tuple[int, str]:
     """Return (timeout_seconds, source) for the test_command subprocess.
 
     Resolution order:
       1. TUSK_TEST_COMMAND_TIMEOUT env var (must parse as a positive int)
       2. config["test_command_timeout_sec"] (must parse as a positive int)
-      3. DEFAULT_TEST_COMMAND_TIMEOUT_SEC (240)
+      3. Auto-scale from p95 of the last AUTO_TIMEOUT_SAMPLE_COUNT successful
+         runs of this exact test_command (only when db_path and test_command
+         are provided, AND the test_runs table holds enough samples)
+      4. DEFAULT_TEST_COMMAND_TIMEOUT_SEC (240)
 
-    source is one of: "env", "config", "default".  Invalid values at any layer
-    fall through to the next layer — the timeout is advisory infrastructure,
-    not worth aborting the commit over a bad config value.
+    source is one of: "env", "config", "auto", "default". Invalid values at
+    any layer fall through to the next layer — the timeout is advisory
+    infrastructure, not worth aborting the commit over a bad config value.
+
+    Cold-start behavior: when fewer than AUTO_TIMEOUT_SAMPLE_COUNT successful
+    samples exist for ``test_command``, the auto layer returns no value and
+    the resolver falls through to the static default. Each successful run
+    appends a row, so a fresh repo crosses the threshold after N healthy
+    commits. Older callers that omit ``db_path``/``test_command`` skip the
+    auto layer entirely and behave identically to the pre-auto resolver.
     """
     env_val = os.environ.get("TUSK_TEST_COMMAND_TIMEOUT")
     if env_val is not None:
@@ -320,6 +426,10 @@ def load_test_command_timeout(config_path: str) -> tuple[int, str]:
                 return n, "config"
     except (OSError, ValueError, json.JSONDecodeError):
         pass
+    if db_path is not None and test_command:
+        auto_val = _compute_auto_timeout(db_path, test_command)
+        if auto_val is not None:
+            return auto_val, "auto"
     return DEFAULT_TEST_COMMAND_TIMEOUT_SEC, "default"
 
 
@@ -740,7 +850,10 @@ def _run_commit(argv: list[str], state: dict) -> int:
         config_path, task_domain, resolved_files, repo_root=real_repo_root,
     )
     if test_cmd and not skip_verify:
-        timeout_sec, timeout_source = load_test_command_timeout(config_path)
+        db_path = _resolve_db_path(repo_root)
+        timeout_sec, timeout_source = load_test_command_timeout(
+            config_path, db_path, test_cmd,
+        )
         # Only announce the command up-front in verbose mode.  In quiet mode
         # (the default) we keep stdout short so background-task callers can find
         # the final summary line with `tail -1` instead of scrolling through
@@ -780,6 +893,9 @@ def _run_commit(argv: list[str], state: dict) -> int:
             source_hint = {
                 "env": "TUSK_TEST_COMMAND_TIMEOUT env var",
                 "config": 'config key "test_command_timeout_sec"',
+                "auto": 'auto-scaled from p95 of recent successful runs '
+                        '(override with "test_command_timeout_sec" in tusk/config.json '
+                        'or TUSK_TEST_COMMAND_TIMEOUT env var)',
                 "default": 'default (override with "test_command_timeout_sec" in tusk/config.json '
                            'or TUSK_TEST_COMMAND_TIMEOUT env var)',
             }[timeout_source]
@@ -807,6 +923,7 @@ def _run_commit(argv: list[str], state: dict) -> int:
             return 2
         print(f"tests passed ({elapsed:.1f}s)")
         sys.stdout.flush()
+        _record_test_run(db_path, task_id, test_cmd, elapsed, succeeded=True)
 
     # ── Step 2.5: Stage unstaged deletions of tracked files ─────────
     # GitHub Issue #474: when tracked files are removed via `rm`/`rm -rf`
