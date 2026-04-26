@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [757] - 2026-04-26
+
+- [TASK-208] Fix: tusk criterion verification should run spec from repo root, not caller cwd
+
 ## [756] - 2026-04-26
 
 - [TASK-207] Fix: /address-issue Step 4.1 fast-path misclassifies project-tool relative-path specs (Issue #589)
