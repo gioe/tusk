@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [758] - 2026-04-26
+
+- [TASK-202] Inline chain/SKILL.md Step 4c serialization-format cross-reference
+
 ## [757] - 2026-04-26
 
 - [TASK-208] Fix: tusk criterion verification should run spec from repo root, not caller cwd
