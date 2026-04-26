@@ -581,20 +581,20 @@ def main(argv: list[str]) -> int:
                 file=sys.stderr,
             )
         print(f"Closing task {task_id}...", file=sys.stderr)
+        # Auto-complete path implicitly grants --force: the feature branch was
+        # previously merged so the criteria-without-commit-hash check, run
+        # without --force, would print a misleading "Error:" before the call
+        # site retried with --force. Pass --force up front so task-done emits
+        # "Warning:" instead — diagnostic preserved, no contradiction.
         result = run(
-            [tusk_bin, "task-done", str(task_id), "--reason", "completed"],
+            [tusk_bin, "task-done", str(task_id), "--reason", "completed", "--force"],
             check=False,
         )
-        if result.returncode == 3:
-            if result.stderr.strip():
-                print(result.stderr.strip(), file=sys.stderr)
-            result = run(
-                [tusk_bin, "task-done", str(task_id), "--reason", "completed", "--force"],
-                check=False,
-            )
         if result.returncode != 0:
             print(f"Error: task-done failed:\n{result.stderr.strip()}", file=sys.stderr)
             return 2
+        if result.stderr.strip():
+            print(result.stderr.strip(), file=sys.stderr)
         try:
             task_done_result = json.loads(result.stdout)
         except json.JSONDecodeError:
