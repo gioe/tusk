@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [739] - 2026-04-25
+
+- [TASK-188] Scope Rule 6 incomplete-criteria commit lint to the current task
+
 ## [738] - 2026-04-25
 
 - [TASK-187] Fix: tusk test-precheck should prefer domain_test_commands[task.domain] over global test_command
