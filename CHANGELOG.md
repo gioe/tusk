@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [735] - 2026-04-25
+
+- [TASK-184] Narrow lint rule 5 file_glob to skill/prompt dirs to stop self-triggering on CHANGELOG.md. Rule 5 (added in TASK-181 to flag `echo "$VAR_JSON" | jq` in skill files) used `**/*.md` and would fire on its own description in CHANGELOG entries — TASK-181 and TASK-183 retros both had to reword to dodge the linter. Added comma-separated multi-glob support to `_run_lint_rules` so a single rule can target multiple scoped paths, and changed rule 5's `file_glob` to `skills/**/*.md,codex-prompts/**/*.md`. Documentation outside those dirs can now describe the bug (this very entry quotes `echo "$VAR_JSON" | jq` verbatim) without self-triggering.
+
 ## [734] - 2026-04-25
 
 - [TASK-183] Fix: codex-prompts/review-commits.md mangles tusk review-diff-range JSON in zsh
