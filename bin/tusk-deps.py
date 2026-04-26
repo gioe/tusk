@@ -376,8 +376,8 @@ Examples:
     remove_parser.add_argument("task_id", type=int, help="Task that has the dependency")
     remove_parser.add_argument("depends_on_id", type=int, help="Task to remove from dependencies")
 
-    # list command
-    list_parser = subparsers.add_parser("list", help="List dependencies for a task")
+    # list command (alias: show)
+    list_parser = subparsers.add_parser("list", aliases=["show"], help="List dependencies for a task")
     list_parser.add_argument("task_id", type=int, help="Task to list dependencies for")
     list_parser.add_argument("--json", action="store_true", help="Output JSON")
 
@@ -399,6 +399,9 @@ Examples:
     all_parser.add_argument("--json", action="store_true", help="Output JSON")
 
     args = parser.parse_args(sys.argv[3:])
+
+    if args.command == "show":
+        args.command = "list"
 
     logging.basicConfig(
         level=logging.DEBUG if args.debug else logging.WARNING,
