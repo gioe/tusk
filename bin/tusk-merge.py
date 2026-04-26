@@ -964,21 +964,18 @@ def main(argv: list[str]) -> int:
         if did_stash:
             _try_pop_stash(task_id)
 
-    # Step 7: Close the task — run without --force first to surface any warnings
+    # Step 7: Close the task — pass --force up front so task-done emits
+    # "Warning:" (not "Error:") for criteria that legitimately lack a commit
+    # hash (e.g. completed via `tusk criteria done --skip-verify` for non-git-
+    # trackable side effects). The user has explicitly chosen to ship the
+    # merge, so implicit --force on close is consistent with that decision.
+    # Diagnostic preserved, no contradiction (issue #582; mirrors the
+    # auto-complete path's TASK-200 fix).
     print(f"Closing task {task_id}...", file=sys.stderr)
     result = run(
-        [tusk_bin, "task-done", str(task_id), "--reason", "completed"],
+        [tusk_bin, "task-done", str(task_id), "--reason", "completed", "--force"],
         check=False,
     )
-    if result.returncode == 3:
-        # task-done has warnings (uncompleted criteria or missing commit hashes);
-        # print them so the user is aware, then close with --force
-        if result.stderr.strip():
-            print(result.stderr.strip(), file=sys.stderr)
-        result = run(
-            [tusk_bin, "task-done", str(task_id), "--reason", "completed", "--force"],
-            check=False,
-        )
     if result.returncode != 0:
         if result.returncode == 2 and f"task {task_id} not found" in result.stderr.lower():
             # Task row missing — likely lost to a WAL revert that the checkpoint
@@ -1026,6 +1023,12 @@ def main(argv: list[str]) -> int:
             return 0
         print(f"Error: task-done failed:\n{result.stderr.strip()}", file=sys.stderr)
         return 2
+
+    # Surface task-done's "Warning:" diagnostic (e.g. listing criteria that
+    # were force-closed without a backing commit) so the audit trail still
+    # reaches the user. Mirrors the auto-complete path's pattern.
+    if result.stderr.strip():
+        print(result.stderr.strip(), file=sys.stderr)
 
     # Step 8: Forward the task-done JSON to stdout
     try:
