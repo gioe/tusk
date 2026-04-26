@@ -331,6 +331,9 @@ def cmd_request_changes(args: argparse.Namespace, db_path: str) -> int:
 
         set_clauses = ["status = 'changes_requested'", "review_pass = 0", "updated_at = datetime('now')"]
         params: list = []
+        if args.note:
+            set_clauses.append("note = ?")
+            params.append(args.note)
         if args.model:
             set_clauses.append("model = ?")
             params.append(args.model)
@@ -344,7 +347,8 @@ def cmd_request_changes(args: argparse.Namespace, db_path: str) -> int:
         conn.close()
 
     reviewer_str = f" by {review['reviewer']}" if review["reviewer"] else ""
-    print(f"Review #{args.review_id} changes requested{reviewer_str} for task #{review['task_id']}")
+    note_str = f" ({args.note})" if args.note else ""
+    print(f"Review #{args.review_id} changes requested{reviewer_str} for task #{review['task_id']}{note_str}")
     return 0
 
 
@@ -608,6 +612,7 @@ def main():
     # request-changes
     req_changes_p = subparsers.add_parser("request-changes", help="Request changes on a review")
     req_changes_p.add_argument("review_id", type=int, help="Review ID")
+    req_changes_p.add_argument("--note", help="Optional reason or note to store with the changes-requested verdict")
     req_changes_p.add_argument("--model", help="Reviewer model ID (e.g. claude-opus-4-7)")
 
     # status

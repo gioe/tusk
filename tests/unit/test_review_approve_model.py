@@ -119,7 +119,7 @@ class TestApproveModel:
 class TestRequestChangesModel:
     def test_request_changes_with_model_persists(self, tmp_path):
         db = _make_db(tmp_path)
-        args = argparse.Namespace(review_id=1, model="claude-opus-4-7")
+        args = argparse.Namespace(review_id=1, note=None, model="claude-opus-4-7")
 
         assert review.cmd_request_changes(args, db) == 0
 
@@ -129,10 +129,51 @@ class TestRequestChangesModel:
 
     def test_request_changes_without_model_leaves_model_null(self, tmp_path):
         db = _make_db(tmp_path)
-        args = argparse.Namespace(review_id=1, model=None)
+        args = argparse.Namespace(review_id=1, note=None, model=None)
 
         assert review.cmd_request_changes(args, db) == 0
 
         row = _fetch(db)
         assert row["status"] == "changes_requested"
         assert row["model"] is None
+
+
+class TestRequestChangesNote:
+    def test_request_changes_with_note_persists(self, tmp_path):
+        db = _make_db(tmp_path)
+        args = argparse.Namespace(review_id=1, note="2 findings to fix", model=None)
+
+        assert review.cmd_request_changes(args, db) == 0
+
+        row = _fetch(db)
+        assert row["status"] == "changes_requested"
+        assert row["note"] == "2 findings to fix"
+        assert row["model"] is None
+
+    def test_request_changes_with_note_and_model_persists_both(self, tmp_path):
+        db = _make_db(tmp_path)
+        args = argparse.Namespace(
+            review_id=1, note="needs more tests", model="claude-opus-4-7"
+        )
+
+        assert review.cmd_request_changes(args, db) == 0
+
+        row = _fetch(db)
+        assert row["status"] == "changes_requested"
+        assert row["note"] == "needs more tests"
+        assert row["model"] == "claude-opus-4-7"
+
+    def test_request_changes_without_note_does_not_clobber_existing(self, tmp_path):
+        """A subsequent request-changes without --note should not null out a prior note value."""
+        db = _make_db(tmp_path)
+        review.cmd_request_changes(
+            argparse.Namespace(review_id=1, note="first pass", model=None),
+            db,
+        )
+        review.cmd_request_changes(
+            argparse.Namespace(review_id=1, note=None, model=None),
+            db,
+        )
+
+        row = _fetch(db)
+        assert row["note"] == "first pass"
