@@ -141,24 +141,43 @@ Task tool call (for EACH head task):
   prompt: <AGENT-PROMPT.md content with {placeholders} filled from task details>
 ```
 
-After spawning, store the **agent task ID** and **output file path** returned by the Task tool (this is separate from the tusk task ID). Keep a running list of all output file paths across the entire chain — these are needed for the post-chain retro in Step 6. Monitor until all head tasks reach Done status or all agents have finished:
+After spawning, store the **agent task ID** and **output file path** returned by the Task tool (this is separate from the tusk task ID). Keep a running list of all output file paths across the entire chain — these are needed for the post-chain retro in Step 6. Monitor until all head tasks reach Done status or all agents have finished.
 
 **Monitoring loop:**
 
-1. Wait 30 seconds:
-   ```bash
-   sleep 30
-   ```
+The Task tool spawned each head agent with `run_in_background: true`, so the runtime emits an automatic completion notification when each agent exits. **Do not chain `sleep 30 && tusk ...`** — the runtime blocks long leading sleeps and emits a tool error every time, even though the agents still complete via the auto-notification.
 
-2. Check the task's DB status:
-   ```bash
-   tusk "SELECT id, status FROM tasks WHERE id IN (<head_ids>) AND status <> 'Done'"
-   ```
-   If the query returns no rows, all head tasks completed successfully — exit the loop and proceed to Step 4.
+**Primary path: wait for auto-completion notifications.**
 
-3. Check whether each agent has finished using `TaskOutput` with `block: false` and the agent task ID:
-   - If **any agent is still running** (task not yet complete), go back to step 1.
-   - If **all agents have completed** but some task statuses are NOT `Done`, those agents likely exhausted turn limits or hit unrecoverable errors. **Break out of the loop** and proceed to recovery below.
+No active polling required — the runtime delivers a notification when each background agent exits. As notifications arrive, fall through to the **Resolve state** sub-step below.
+
+**Stall detection (no notification within ~2.5 min):**
+
+If you have been waiting without a completion notification for ~2.5 minutes, an agent may be looping or running a long-running command. Use a short-sleep until-loop — the runtime sleep guard allows `sleep 2` inside an `until` body — that exits as soon as no head tasks remain in non-Done status OR the wall-clock deadline elapses:
+
+```bash
+HEAD_IDS="<comma-separated head task IDs>"
+DEADLINE=$(($(date +%s) + 150))
+until [ -z "$(tusk "SELECT id FROM tasks WHERE id IN ($HEAD_IDS) AND status <> 'Done'")" ] || [ "$(date +%s)" -ge "$DEADLINE" ]; do
+  sleep 2
+done
+```
+
+After the loop exits, fall through to the **Resolve state** sub-step.
+
+**Resolve state:**
+
+Re-query DB status and decide how to proceed:
+
+```bash
+tusk "SELECT id, status FROM tasks WHERE id IN (<head_ids>) AND status <> 'Done'"
+```
+
+- **No rows** → all head tasks completed successfully. Exit the loop and proceed to Step 4.
+
+- **Rows returned** (some tasks not Done) → check whether each agent has finished using `TaskOutput` with `block: false` and the agent task ID:
+  - If **any agent is still running**, return to the primary path (wait for the next notification or the next stall window).
+  - If **all agents have completed** but some task statuses are NOT `Done`, those agents likely exhausted turn limits or hit unrecoverable errors. **Break out of the loop** and proceed to recovery below.
 
 **Recovery (agents completed, tasks not Done):**
 

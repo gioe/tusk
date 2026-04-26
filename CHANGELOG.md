@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [747] - 2026-04-26
+
+- [TASK-197] Apply auto-notification + until-loop fix to skills/chain/SKILL.md monitoring loop
+
 ## [746] - 2026-04-26
 
 - [TASK-196] Fix: /review-commits Step 6 polling loop blocked by runtime sleep guard
