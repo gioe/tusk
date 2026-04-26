@@ -585,7 +585,6 @@ SELECT t.*
 FROM tasks t
 WHERE t.status = 'To Do'
   AND t.bakeoff_shadow = 0
-  AND (t.is_deferred = 0 OR t.is_deferred IS NULL)
   AND NOT EXISTS (
     SELECT 1 FROM task_dependencies d
     JOIN tasks blocker ON d.depends_on_id = blocker.id
@@ -602,7 +601,6 @@ SELECT t.*
 FROM tasks t
 WHERE t.status <> 'Done'
   AND t.bakeoff_shadow = 0
-  AND (t.is_deferred = 0 OR t.is_deferred IS NULL)
   AND EXISTS (
     SELECT 1 FROM task_dependencies d
     JOIN tasks downstream ON d.task_id = downstream.id
@@ -903,7 +901,7 @@ PILLARS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 60;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 61;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."
