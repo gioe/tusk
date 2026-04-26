@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [756] - 2026-04-26
+
+- [TASK-207] Fix: /address-issue Step 4.1 fast-path misclassifies project-tool relative-path specs (Issue #589)
+
 ## [755] - 2026-04-26
 
 - [TASK-206] Project is_deferred column in tusk task-list --format json output
