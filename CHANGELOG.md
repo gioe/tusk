@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [749] - 2026-04-26
+
+- [TASK-200] Fix: tusk merge auto-complete path prints contradictory 'Error: criteria without commit hash'
+
 ## [748] - 2026-04-26
 
 - [TASK-199] Add 'show' as an alias for 'list' in tusk deps
