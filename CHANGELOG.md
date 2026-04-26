@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [753] - 2026-04-26
+
+- [TASK-204] Fix: Deferred tasks should be eligible for selection in v_ready_tasks
+
 ## [752] - 2026-04-26
 
 - [TASK-203] Fix: address-issue Step 4.1 sandbox mishandles bash -c / sh -c wrappers (Issue #583)
