@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [741] - 2026-04-26
+
+- [TASK-190] Anchor [TASK-N] regex in _head_task_id() to start of commit message
+
 ## [740] - 2026-04-25
 
 - [TASK-189] Fix: tusk criteria done stamps unrelated HEAD commits onto manual criteria
