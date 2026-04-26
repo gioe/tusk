@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [760] - 2026-04-26
+
+- [TASK-209] Add --note flag to tusk review request-changes for parity with approve
+
 ## [759] - 2026-04-26
 
 - [TASK-192] [Deferred] Auto-scale test_command_timeout_sec from observed p95 history (Issue #575 follow-up)
