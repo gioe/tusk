@@ -192,6 +192,12 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     ```
     Lint output during commit is now filtered: only rules with violations print — passing rules are suppressed. If the last lint pass was clean, you won't see any lint output at all.
 
+    **If `tusk commit` exits 5 (test_command timeout)** — the configured `test_command` exceeded its timeout and was killed before producing an exit code. The stderr message names the resolved timeout and source. The resolution chain is `TUSK_TEST_COMMAND_TIMEOUT` env var > `config.test_command_timeout_sec` in `tusk/config.json` > default (240s). If the failure is just slow first-run compilation (cold xcodebuild, Bazel cold cache, large Rust compile), retry with a per-invocation override:
+    ```bash
+    TUSK_TEST_COMMAND_TIMEOUT=600 tusk commit <id> "<message>" "<file>" --criteria <cid>
+    ```
+    If the slow path is permanent for this project, raise `test_command_timeout_sec` in `tusk/config.json` instead of overriding on every call. **Do not blindly raise the timeout** when the command genuinely hangs (e.g. waiting on interactive input or a missing dependency) — make the command non-interactive and fix the underlying hang first.
+
     **If `tusk commit` hard-fails because tests fail** (exit code 2 — `test_command` is set and returned non-zero), **first verify the failure is not pre-existing** before entering the diagnosis loop:
 
     **Pre-existing failure check** — run the tests against HEAD with any local changes safely set aside:
