@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [737] - 2026-04-25
+
+- [TASK-186] Skip Step 4.1 sandbox approval when failing-test spec invokes a non-PATH tool
+
 ## [736] - 2026-04-25
 
 - [TASK-185] Add 'tusk lint-rule update' subcommand for in-place edits
