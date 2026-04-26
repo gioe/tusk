@@ -46,7 +46,9 @@ A single acceptance condition attached to a task, defining what must be true for
 
 ## deferred
 
-A task (or criterion) that has been intentionally postponed rather than completed in the current session. Deferred tasks have `is_deferred = 1`, a `[Deferred]` summary prefix, and a 60-day `expires_at`. Deferred tasks receive no `non_deferred_bonus` in WSJF scoring.
+A task (or criterion) that has been intentionally postponed rather than completed in the current session. Deferred tasks have `is_deferred = 1`, a `[Deferred]` summary prefix, and a 60-day `expires_at`. Deferred tasks receive no `non_deferred_bonus` in WSJF scoring, so non-deferred tasks rank higher when both are ready.
+
+`is_deferred` is an **advisory breadcrumb**, not a hidden state. Deferred tasks remain eligible for `/tusk`, `/chain`, and `/loop` — they appear in `v_ready_tasks` and `v_chain_heads` like any other To Do task. (Migration 59 briefly hid them from both views; migration 61 removed that filter after Issue #584 reported 13 deferred tasks silently skipped over for days.)
 
 → See [`DOMAIN.md`](DOMAIN.md#wsjf-priority-scoring) and `tusk task-insert --deferred`.
 
