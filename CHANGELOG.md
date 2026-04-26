@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [738] - 2026-04-25
+
+- [TASK-187] Fix: tusk test-precheck should prefer domain_test_commands[task.domain] over global test_command
+
 ## [737] - 2026-04-25
 
 - [TASK-186] Skip Step 4.1 sandbox approval when failing-test spec invokes a non-PATH tool
