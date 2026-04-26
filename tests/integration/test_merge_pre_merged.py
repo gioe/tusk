@@ -233,8 +233,17 @@ class TestMergePreMergedNoErrorContradiction:
                     "sessions_closed": 0,
                     "unblocked_tasks": [],
                 })
+                # task-done with --force still prints a diagnostic Warning to
+                # stderr listing the uncommitted criteria. The merge auto-
+                # complete path is expected to surface that stderr verbatim
+                # so the audit trail (which criteria were force-closed)
+                # survives to the user.
+                warning = (
+                    f"Warning: Task {task_id} has 1 completed criteria "
+                    f"without a commit hash:\n  [1] test criterion"
+                )
                 return subprocess.CompletedProcess(
-                    args, 0, stdout=result_json, stderr=""
+                    args, 0, stdout=result_json, stderr=warning
                 )
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
@@ -278,4 +287,11 @@ class TestMergePreMergedNoErrorContradiction:
         assert "--force" in task_done_invocations[0], (
             f"task-done must be called with --force on the auto-complete path: "
             f"{task_done_invocations[0]}"
+        )
+
+        # Diagnostic preserved: task-done's "Warning:" output is surfaced to
+        # the caller so the user still sees which criteria were force-closed.
+        assert "Warning: Task" in stderr_out, (
+            f"Expected task-done's 'Warning:' diagnostic to be surfaced in "
+            f"stderr:\n{stderr_out}"
         )
