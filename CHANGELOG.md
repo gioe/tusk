@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [740] - 2026-04-25
+
+- [TASK-189] Fix: tusk criteria done stamps unrelated HEAD commits onto manual criteria
+
 ## [739] - 2026-04-25
 
 - [TASK-188] Scope Rule 6 incomplete-criteria commit lint to the current task
