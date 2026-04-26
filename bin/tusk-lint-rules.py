@@ -95,7 +95,10 @@ def main(argv: list[str]) -> int:
     if subcommand == "add":
         parser = argparse.ArgumentParser(prog="tusk lint-rule add")
         parser.add_argument("pattern", help="grep pattern to search for")
-        parser.add_argument("file_glob", help="file glob to search (e.g. '**/*.py')")
+        parser.add_argument("file_glob",
+                            help="file glob to search (e.g. '**/*.py'). Pass a comma-separated"
+                                 " list to scope multiple paths"
+                                 " (e.g. 'skills/**/*.md,codex-prompts/**/*.md').")
         parser.add_argument("message", help="violation message to display")
         parser.add_argument("--blocking", action="store_true",
                             help="make this rule blocking (counts toward lint exit code)")

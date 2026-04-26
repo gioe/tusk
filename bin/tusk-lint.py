@@ -807,7 +807,12 @@ def _load_lint_rules(root, is_blocking):
 
 
 def _run_lint_rules(root, rules):
-    """Run a list of DB rule dicts as grep checks. Returns a list of violation strings."""
+    """Run a list of DB rule dicts as grep checks. Returns a list of violation strings.
+
+    file_glob may be a single glob (e.g. ``skills/**/*.md``) or a
+    comma-separated list of globs (e.g. ``skills/**/*.md,codex-prompts/**/*.md``).
+    Whitespace around each entry is stripped; empty entries are ignored.
+    """
     import glob as _glob
     violations = []
     for rule in rules:
@@ -815,10 +820,18 @@ def _run_lint_rules(root, rules):
         pattern = rule["grep_pattern"]
         file_glob = rule["file_glob"]
         message = rule["message"]
-        try:
-            matching = _glob.glob(os.path.join(root, file_glob), recursive=True)
-        except Exception:
-            continue
+        globs = [g.strip() for g in file_glob.split(",") if g.strip()]
+        matching = []
+        seen = set()
+        for g in globs:
+            try:
+                expanded = _glob.glob(os.path.join(root, g), recursive=True)
+            except Exception:
+                continue
+            for f in expanded:
+                if f not in seen:
+                    seen.add(f)
+                    matching.append(f)
         for filepath in sorted(matching):
             if not os.path.isfile(filepath):
                 continue
