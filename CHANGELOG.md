@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [761] - 2026-04-26
+
+- [TASK-210] Fix: tusk review --note '' silently ignored (cannot clear existing note)
+
 ## [760] - 2026-04-26
 
 - [TASK-209] Add --note flag to tusk review request-changes for parity with approve
