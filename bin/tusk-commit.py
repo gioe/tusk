@@ -688,7 +688,13 @@ def _run_commit(argv: list[str], state: dict) -> int:
         if announce_status:
             print("=== Running tusk lint ===")
             sys.stdout.flush()
-        lint = subprocess.run([tusk_bin, "lint", "--quiet"], capture_output=False)
+        # `--task <task_id>` narrows Rule 6 (Done with incomplete acceptance
+        # criteria) to the current task so unrelated historical state cannot
+        # block this commit (Issue #568). All other rules ignore the flag.
+        lint = subprocess.run(
+            [tusk_bin, "lint", "--quiet", "--task", str(task_id)],
+            capture_output=False,
+        )
         if lint.returncode != 0:
             _print_error(
                 "\nError: tusk lint reported non-advisory violations — aborting commit.\n"
