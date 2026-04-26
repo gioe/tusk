@@ -415,7 +415,7 @@ A single observed elapsed time for a `test_command` invocation. Populated by `tu
 |-----------|------|-------------|-------------|
 | `id` | INTEGER | PK, autoincrement | |
 | `task_id` | INTEGER | nullable, FK → tasks(id) ON DELETE SET NULL | Task that owned the commit; SET NULL on delete so timing history outlives the originating task |
-| `session_id` | INTEGER | nullable, FK → task_sessions(id) ON DELETE SET NULL | Best-effort owning session lookup; null when no open session was found at write time |
+| `session_id` | INTEGER | nullable, FK → task_sessions(id) ON DELETE SET NULL | Always null in the current implementation; reserved for future best-effort session attribution without changing the schema |
 | `test_command` | TEXT | NOT NULL | Exact command string that was timed; auto-scale queries are scoped to this column so a `pytest` history doesn't contaminate a later `pytest -n auto` config |
 | `elapsed_seconds` | REAL | NOT NULL | Wall-clock seconds the subprocess took (`time.monotonic()` delta) |
 | `succeeded` | INTEGER | NOT NULL, default 1 | Always 1 today; reserved for future capture of failed-run timings without changing the auto-scale query (which filters `succeeded = 1`) |

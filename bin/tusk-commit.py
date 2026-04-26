@@ -365,7 +365,7 @@ def _record_test_run(
     table on a pre-migration install, etc.), auto-scale just stays
     cold-started until the next successful write.
     """
-    if not test_command:
+    if not test_command or not os.path.exists(db_path):
         return
     try:
         conn = sqlite3.connect(db_path, timeout=2.0)
