@@ -10,6 +10,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import sqlite3
 import subprocess
 from contextlib import redirect_stderr, redirect_stdout
@@ -169,3 +170,112 @@ class TestMergePreMergedAutoComplete:
         result = json.loads(stdout_out)
         assert result["task"]["status"] == "Done"
         assert result["sessions_closed"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Issue #581 — auto-complete must not print contradictory "Error:" line
+# ---------------------------------------------------------------------------
+
+
+class TestMergePreMergedNoErrorContradiction:
+    """Regression for issue #581.
+
+    On the no-commits closure path the merge auto-complete branch used to
+    invoke ``tusk task-done`` without ``--force``, get exit code 3, print the
+    verbatim ``Error: ... Use --force to close anyway`` stderr, then retry
+    with ``--force`` and succeed. Consumers saw an ``Error:`` line on stderr
+    but the task closed cleanly, forcing them to drop into SQL to verify
+    state. The fix passes ``--force`` on the first call so ``task-done``
+    emits ``Warning:`` instead — diagnostic preserved, no contradiction.
+    """
+
+    def test_task_done_called_with_force_on_first_attempt(
+        self, db_path, config_path, monkeypatch, tmp_path
+    ):
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        monkeypatch.setattr(
+            tusk_merge, "find_task_branch", lambda tid: (None, None, True)
+        )
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        monkeypatch.setattr(tusk_merge, "_has_remote", lambda name="origin": False)
+
+        task_done_invocations = []
+
+        def _mock_run(args, check=True):
+            if "session-close" in args:
+                return subprocess.CompletedProcess(args, 0, stdout="{}", stderr="")
+            if "task-done" in args:
+                task_done_invocations.append(list(args))
+                # Simulate the previously-buggy world: without --force, exit 3
+                # with the misleading Error stderr. The fix MUST pass --force
+                # on the first call so this branch is never reached.
+                if "--force" not in args:
+                    err = (
+                        f"Error: Task {task_id} has 1 completed criteria "
+                        f"without a commit hash:\n  [1] test criterion\n\n"
+                        "Criteria must be backed by a commit before closing. "
+                        "Use --force to close anyway."
+                    )
+                    return subprocess.CompletedProcess(args, 3, stdout="", stderr=err)
+                result_json = json.dumps({
+                    "task": {
+                        "id": task_id,
+                        "status": "Done",
+                        "closed_reason": "completed",
+                    },
+                    "sessions_closed": 0,
+                    "unblocked_tasks": [],
+                })
+                return subprocess.CompletedProcess(
+                    args, 0, stdout=result_json, stderr=""
+                )
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(tusk_merge, "run", _mock_run)
+
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+            exit_code = tusk_merge.main(
+                [
+                    str(db_path),
+                    str(config_path),
+                    str(task_id),
+                    "--session",
+                    str(session_id),
+                ]
+            )
+
+        stderr_out = stderr_buf.getvalue()
+
+        assert exit_code == 0, (
+            f"Expected exit 0, got {exit_code}\nstderr: {stderr_out}"
+        )
+
+        # Issue #581 regression: the misleading "Error: Task N has K
+        # completed criteria without a commit hash" line must NOT appear
+        # on stderr when the task is being auto-closed and the JSON shows
+        # status: Done.
+        assert not re.search(
+            r"^Error: Task \d+ has \d+ completed criteria without a commit hash",
+            stderr_out,
+            re.MULTILINE,
+        ), f"Found contradictory Error: line in stderr:\n{stderr_out}"
+
+        # Positive: task-done was invoked exactly once, with --force on the
+        # first (and only) call.
+        assert len(task_done_invocations) == 1, (
+            f"Expected exactly one task-done call, got {len(task_done_invocations)}: "
+            f"{task_done_invocations}"
+        )
+        assert "--force" in task_done_invocations[0], (
+            f"task-done must be called with --force on the auto-complete path: "
+            f"{task_done_invocations[0]}"
+        )
