@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [746] - 2026-04-26
+
+- [TASK-196] Fix: /review-commits Step 6 polling loop blocked by runtime sleep guard
+
 ## [745] - 2026-04-26
 
 - [TASK-195] Fix: tusk commit accepts rename source paths in 'R'/'RM' index state
