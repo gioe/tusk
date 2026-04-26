@@ -113,10 +113,12 @@ On success the helper prints a single JSON object with four keys
 exits 0. Capture:
 
 ```bash
-DIFF_RANGE=$(echo "$DIFF_RANGE_JSON" | jq -r .range)
-DIFF_LINES=$(echo "$DIFF_RANGE_JSON" | jq -r .diff_lines)
-DIFF_SUMMARY=$(echo "$DIFF_RANGE_JSON" | jq -r .summary)
+DIFF_RANGE=$(printf '%s' "$DIFF_RANGE_JSON" | jq -r .range)
+DIFF_LINES=$(printf '%s' "$DIFF_RANGE_JSON" | jq -r .diff_lines)
+DIFF_SUMMARY=$(printf '%s' "$DIFF_RANGE_JSON" | jq -r .summary)
 ```
+
+> Use `printf '%s'` rather than `echo "$VAR"`. In zsh — and in bash with `xpg_echo` enabled — `echo` interprets the literal `\n` escape sequences inside the captured JSON as real newlines, breaking jq with `Invalid string: control characters from U+0000 through U+001F must be escaped` and silently leaving `$DIFF_SUMMARY` empty.
 
 If the helper exits non-zero, no diff is recoverable — either no
 `[TASK-<id>]` commits were found in recent history, or the recovered

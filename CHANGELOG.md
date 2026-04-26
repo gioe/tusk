@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [734] - 2026-04-25
+
+- [TASK-183] Fix: codex-prompts/review-commits.md mangles tusk review-diff-range JSON in zsh
+
 ## [733] - 2026-04-25
 
 - [TASK-182] Reject empty --diff-summary in tusk review start
