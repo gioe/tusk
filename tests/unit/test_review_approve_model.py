@@ -177,3 +177,119 @@ class TestRequestChangesNote:
 
         row = _fetch(db)
         assert row["note"] == "first pass"
+
+
+class TestApproveClearEmpty:
+    """--note '' / --model '' must clear the existing column to NULL."""
+
+    def test_approve_with_empty_note_clears_existing_note(self, tmp_path):
+        db = _make_db(tmp_path)
+        # Seed a note and model
+        review.cmd_approve(
+            argparse.Namespace(review_id=1, note="LGTM", model="claude-opus-4-7"),
+            db,
+        )
+        # Explicit empty string clears note only
+        review.cmd_approve(
+            argparse.Namespace(review_id=1, note="", model=None),
+            db,
+        )
+
+        row = _fetch(db)
+        assert row["note"] is None
+        assert row["model"] == "claude-opus-4-7"
+
+    def test_approve_with_empty_model_clears_existing_model(self, tmp_path):
+        db = _make_db(tmp_path)
+        review.cmd_approve(
+            argparse.Namespace(review_id=1, note="LGTM", model="claude-opus-4-7"),
+            db,
+        )
+        review.cmd_approve(
+            argparse.Namespace(review_id=1, note=None, model=""),
+            db,
+        )
+
+        row = _fetch(db)
+        assert row["note"] == "LGTM"
+        assert row["model"] is None
+
+    def test_approve_with_both_empty_clears_both(self, tmp_path):
+        db = _make_db(tmp_path)
+        review.cmd_approve(
+            argparse.Namespace(review_id=1, note="LGTM", model="claude-opus-4-7"),
+            db,
+        )
+        review.cmd_approve(
+            argparse.Namespace(review_id=1, note="", model=""),
+            db,
+        )
+
+        row = _fetch(db)
+        assert row["note"] is None
+        assert row["model"] is None
+
+    def test_approve_with_empty_note_does_not_clobber_other_columns(self, tmp_path):
+        """Clearing one column must not touch the other (parity with no-clobber when omitted)."""
+        db = _make_db(tmp_path)
+        review.cmd_approve(
+            argparse.Namespace(review_id=1, note=None, model="claude-opus-4-7"),
+            db,
+        )
+        review.cmd_approve(
+            argparse.Namespace(review_id=1, note="", model=None),
+            db,
+        )
+
+        row = _fetch(db)
+        assert row["note"] is None
+        assert row["model"] == "claude-opus-4-7"
+
+
+class TestRequestChangesClearEmpty:
+    """Parity for cmd_request_changes."""
+
+    def test_request_changes_with_empty_note_clears_existing_note(self, tmp_path):
+        db = _make_db(tmp_path)
+        review.cmd_request_changes(
+            argparse.Namespace(review_id=1, note="needs work", model="claude-opus-4-7"),
+            db,
+        )
+        review.cmd_request_changes(
+            argparse.Namespace(review_id=1, note="", model=None),
+            db,
+        )
+
+        row = _fetch(db)
+        assert row["note"] is None
+        assert row["model"] == "claude-opus-4-7"
+
+    def test_request_changes_with_empty_model_clears_existing_model(self, tmp_path):
+        db = _make_db(tmp_path)
+        review.cmd_request_changes(
+            argparse.Namespace(review_id=1, note="needs work", model="claude-opus-4-7"),
+            db,
+        )
+        review.cmd_request_changes(
+            argparse.Namespace(review_id=1, note=None, model=""),
+            db,
+        )
+
+        row = _fetch(db)
+        assert row["note"] == "needs work"
+        assert row["model"] is None
+
+    def test_request_changes_with_both_empty_clears_both(self, tmp_path):
+        db = _make_db(tmp_path)
+        review.cmd_request_changes(
+            argparse.Namespace(review_id=1, note="needs work", model="claude-opus-4-7"),
+            db,
+        )
+        review.cmd_request_changes(
+            argparse.Namespace(review_id=1, note="", model=""),
+            db,
+        )
+
+        row = _fetch(db)
+        assert row["note"] is None
+        assert row["model"] is None
