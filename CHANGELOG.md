@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [744] - 2026-04-26
+
+- [TASK-194] Document tusk commit exit code 5 (test_command timeout) in /tusk SKILL.md
+
 ## [743] - 2026-04-26
 
 - [TASK-193] Add dupe-check guard to /tusk no-commits follow-up task creation flow
