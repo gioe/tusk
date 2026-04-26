@@ -14,6 +14,7 @@ they require fault injection into the stash-ref-lookup path:
 
 import importlib.util
 import io
+import json
 import os
 import subprocess
 import sys
@@ -165,6 +166,82 @@ class TestSilentDataLossRegression:
 
         assert rc == 1
         assert "disk gone" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# resolve_test_command: domain_test_commands resolution order
+# ---------------------------------------------------------------------------
+
+
+class TestResolveTestCommandDomain:
+    """domain_test_commands[domain] sits between path_test_commands and the
+    global test_command. Mirrors bin/tusk-commit.py::load_test_command so a
+    frontend-only commit doesn't trigger the multi-suite global command on
+    the pre-existing-failure check."""
+
+    def _write_cfg(self, tmp_path, payload):
+        cfg = tmp_path / "config.json"
+        cfg.write_text(json.dumps(payload))
+        return str(cfg)
+
+    def test_domain_match_wins_over_global(self, tmp_path):
+        cfg = self._write_cfg(tmp_path, {
+            "test_command": "global",
+            "domain_test_commands": {"frontend": "npm test"},
+        })
+        cmd = mod.resolve_test_command(
+            explicit="", config_path=cfg, repo_root=str(tmp_path),
+            script_dir="/nonexistent", paths=None, domain="frontend",
+        )
+        assert cmd == "npm test"
+
+    def test_domain_set_but_no_entry_falls_through_to_global(self, tmp_path):
+        cfg = self._write_cfg(tmp_path, {
+            "test_command": "global",
+            "domain_test_commands": {"frontend": "npm test"},
+        })
+        cmd = mod.resolve_test_command(
+            explicit="", config_path=cfg, repo_root=str(tmp_path),
+            script_dir="/nonexistent", paths=None, domain="backend",
+        )
+        assert cmd == "global"
+
+    def test_no_domain_unchanged_path_then_global(self, tmp_path):
+        cfg = self._write_cfg(tmp_path, {
+            "test_command": "global",
+            "domain_test_commands": {"frontend": "npm test"},
+        })
+        # Default-arg form (no domain kwarg) — proves the existing call
+        # sites that never pass `domain` keep their original resolution.
+        cmd = mod.resolve_test_command(
+            explicit="", config_path=cfg, repo_root=str(tmp_path),
+            script_dir="/nonexistent", paths=None,
+        )
+        assert cmd == "global"
+
+    def test_explicit_command_beats_domain(self, tmp_path):
+        cfg = self._write_cfg(tmp_path, {
+            "test_command": "global",
+            "domain_test_commands": {"frontend": "npm test"},
+        })
+        cmd = mod.resolve_test_command(
+            explicit="pytest -x", config_path=cfg, repo_root=str(tmp_path),
+            script_dir="/nonexistent", paths=None, domain="frontend",
+        )
+        assert cmd == "pytest -x"
+
+    def test_empty_domain_string_skips_lookup(self, tmp_path):
+        # Regression guard: argparse default is "" — must behave identically
+        # to omitting the kwarg so every existing caller is regression-safe.
+        cfg = self._write_cfg(tmp_path, {
+            "test_command": "global",
+            "domain_test_commands": {"": "should-not-match"},
+        })
+        cmd = mod.resolve_test_command(
+            explicit="", config_path=cfg, repo_root=str(tmp_path),
+            script_dir="/nonexistent", paths=None, domain="",
+        )
+        assert cmd == "global"
 
 
 # ---------------------------------------------------------------------------
