@@ -88,7 +88,14 @@ Scan the issue body for a `## Failing Test` section. If present:
    else
      CHECK_TOKEN="$FIRST_TOKEN"
    fi
-   if ! PATH=/usr/bin:/bin command -v "$CHECK_TOKEN" >/dev/null 2>&1; then
+   # GOTCHA (Issue #589): `command -v` special-cases path-containing names
+   # (anything with a `/`) by checking the file relative to cwd — bypassing PATH
+   # entirely. For relative paths like `bin/tusk`, `command -v` resolves against
+   # the orchestrator's cwd (the project root) and reports success, but the
+   # sandbox tempdir won't have that file and would exit 127. Short-circuit any
+   # `/`-containing token to skip the sandbox directly without consulting
+   # `command -v`.
+   if [[ "$CHECK_TOKEN" == */* ]] || ! PATH=/usr/bin:/bin command -v "$CHECK_TOKEN" >/dev/null 2>&1; then
      # Effective token is unreachable on the sandbox PATH; the sandbox would exit 127.
      # Skip the approval prompt and the sandbox run; treat as no failing test.
      test_spec=null
@@ -96,11 +103,11 @@ Scan the issue body for a `## Failing Test` section. If present:
    fi
    ```
 
-   The check is a pure path-resolution lookup — `command -v` reports whether `<token>` exists on `PATH=/usr/bin:/bin` without invoking it, so the spec is never executed at this stage.
+   The check is a pure path-resolution lookup. The `*/*` glob short-circuits any token containing `/` (relative path like `bin/tusk` or absolute path) before invoking `command -v` — without it, `command -v bin/tusk` from the project root would report success against the cwd-relative file and bypass PATH entirely, even though the sandbox tempdir cannot reach that path (Issue #589). For bare command names, `command -v` reports whether `<token>` exists on `PATH=/usr/bin:/bin` without invoking it, so the spec is never executed at this stage.
 
    On skip, set `test_spec = null`, score `test_present` as `"no"`, surface this one-line note, and proceed as if no `## Failing Test` section were found (item 3 below):
 
-   > Spec invokes a non-PATH tool (`<token>`); skipping sandbox (would exit 127). Failing-test verification deferred to `tusk criteria done` after task creation.
+   > Spec invokes a non-PATH tool or path-referenced executable (`<token>`); skipping sandbox (would exit 127). Failing-test verification deferred to `tusk criteria done` after task creation.
 
    When the wrapper-detection branch fires, `<token>` is the *inner* token (e.g. `tusk`) — not `bash`/`sh` — so the note correctly points at the actual unreachable executable.
 

@@ -155,3 +155,67 @@ class TestAddressIssueStep41WrapperHandling:
             "Fall-through examples must not list bare `sh` — wrapper detection "
             "now handles `sh -c` before the fall-through is reached"
         )
+
+
+class TestAddressIssueStep41RelativePathFastPath:
+    """Step 4.1 fast-path must short-circuit any `/`-containing token (Issue
+    #589, TASK-207). `command -v` special-cases path-containing names by
+    checking the file relative to cwd — bypassing PATH entirely. For relative
+    project paths like `bin/tusk`, `command -v` resolves against the
+    orchestrator's project root and reports success, even though the sandbox
+    tempdir won't have that file and would exit 127. Without the short-circuit,
+    valid relative-path specs flow into the sandbox, get classified as command
+    errors, and incorrectly push the Step 4.7 verdict to Defer.
+    """
+
+    def test_skill_short_circuits_path_containing_tokens(self):
+        """The fast-path conditional must include a `*/*` glob test that fires
+        before `command -v` is consulted."""
+        text = _skill_text()
+        # The conditional must combine the path-containing glob with the
+        # existing command -v check, with the glob FIRST (so command -v never
+        # sees a path-containing token).
+        assert re.search(
+            r'\[\[\s*"\$CHECK_TOKEN"\s*==\s*\*/\*\s*\]\]\s*\|\|\s*!\s*PATH=/usr/bin:/bin\s+command\s+-v',
+            text,
+        ), (
+            "Step 4.1 fast-path conditional must short-circuit any `/`-containing "
+            "token via `[[ \"$CHECK_TOKEN\" == */* ]] || ! PATH=/usr/bin:/bin command -v ...`"
+        )
+
+    def test_skill_documents_relative_path_gotcha(self):
+        """An inline comment must explain why `command -v` cannot be trusted
+        for path-containing tokens, so future edits don't regress."""
+        text = _skill_text()
+        # The gotcha block must mention Issue #589 and the cwd-resolution
+        # behavior of `command -v` on path-containing names.
+        assert re.search(r"Issue #589", text), (
+            "Step 4.1 must reference Issue #589 in the inline gotcha comment"
+        )
+        assert re.search(
+            r"command -v.*(path-containing|relative.{0,10}path|bypass.{0,10}PATH|cwd)",
+            text,
+            re.DOTALL | re.IGNORECASE,
+        ), (
+            "Step 4.1 must explain that `command -v` bypasses PATH for "
+            "path-containing names (the root cause of Issue #589)"
+        )
+
+    def test_skill_skip_note_mentions_path_referenced(self):
+        """The user-facing skip note must describe the new condition (relative
+        path or path-referenced executable), not just 'non-PATH tool'."""
+        text = _skill_text()
+        # Find the skip-note quoted line and confirm it mentions path/relative.
+        skip_note_match = re.search(
+            r"^\s*>\s*Spec invokes.*?skipping sandbox.*$",
+            text,
+            re.MULTILINE,
+        )
+        assert skip_note_match is not None, (
+            "Step 4.1 must contain the user-facing skip note line"
+        )
+        skip_note = skip_note_match.group(0)
+        assert re.search(r"path", skip_note, re.IGNORECASE), (
+            "Skip note must mention path-referenced executables (relative or "
+            "absolute), not just 'non-PATH tool' — Issue #589"
+        )
