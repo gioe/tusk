@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [750] - 2026-04-26
+
+- [TASK-201] Fix: tusk merge normal path prints contradictory 'Error:' before --force retry on task-done
+
 ## [749] - 2026-04-26
 
 - [TASK-200] Fix: tusk merge auto-complete path prints contradictory 'Error: criteria without commit hash'
