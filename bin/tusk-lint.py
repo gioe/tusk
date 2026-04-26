@@ -2,10 +2,14 @@
 """
 tusk-lint — run tusk convention checks non-interactively.
 
-Usage: tusk-lint.py <repo_root>
+Usage: tusk-lint.py <repo_root> [--verbose|--quiet] [--task <task_id>]
 
 Checks the tusk codebase against Key Conventions from CLAUDE.md.
 Prints results grouped by rule and exits with status 1 if any violations found.
+
+The optional ``--task <task_id>`` flag narrows DB-backed rules that support
+scoping (currently Rule 6) to a single task ID. Used by ``tusk commit`` so
+unrelated historical task state cannot block the active commit (Issue #568).
 """
 
 import ast
@@ -247,39 +251,69 @@ def rule5_done_without_closed_reason(root):
 # `tusk commit` in its lint phase for minutes at a time.
 RULE6_RECENT_DAYS = 30
 
+# When non-None, Rule 6 narrows its query to a single task ID instead of
+# scanning every recently-closed task. Set by main() from the --task CLI
+# flag and consumed by rule6_done_incomplete_criteria. `tusk commit` passes
+# the active task ID so a commit cannot be blocked by unrelated historical
+# Done-task state (Issue #568); standalone `tusk lint` invocations leave it
+# at None and retain the global health-check behavior.
+_TASK_SCOPE = None
+
 
 def rule6_done_incomplete_criteria(root):
-    """Done tasks closed in the last 30 days with incomplete acceptance criteria.
+    """Done tasks with incomplete acceptance criteria.
 
-    Scoped to recently-closed tasks so retroactive criteria added to historical
-    Done tasks (closed before criteria enforcement) are not reported.  See
-    RULE6_RECENT_DAYS above for rationale.
+    Two invocation modes:
 
-    Tasks closed with closed_reason IN ('duplicate', 'wont_do') are exempt:
-    a duplicate closure means another task owns the criteria, and wont_do
-    closures are intentional abandonments — neither indicates premature
-    completion, which is what this rule is meant to catch.
+    - **Global** (default, used by standalone `tusk lint`): scans every Done
+      task closed within the last RULE6_RECENT_DAYS days. Acts as a backlog
+      health check — surfaces tasks that were closed prematurely without
+      finishing their criteria.
+    - **Scoped** (used by `tusk commit` via the `--task <id>` flag, which
+      sets the module-level `_TASK_SCOPE`): narrows the query to the single
+      task being committed. The 30-day recency window is dropped because the
+      caller already knows which task it cares about. This prevents a commit
+      on TASK-A from being blocked by unrelated TASK-B's incomplete criteria
+      (Issue #568).
+
+    Tasks closed with closed_reason IN ('duplicate', 'wont_do') are exempt
+    in both modes: a duplicate closure means another task owns the criteria,
+    and wont_do closures are intentional abandonments — neither indicates
+    premature completion, which is what this rule is meant to catch.
     """
     db_path = _db_path_from_root(root)
     if not db_path:
         return []
 
-    cutoff = f"-{RULE6_RECENT_DAYS} days"
     try:
         conn = tusk_loader.load("tusk-db-lib").get_connection(db_path)
         try:
-            rows = conn.execute(
-                "SELECT t.id, t.summary, COUNT(ac.id) AS incomplete "
-                "FROM tasks t "
-                "JOIN acceptance_criteria ac ON ac.task_id = t.id "
-                "WHERE t.status = 'Done' "
-                "  AND COALESCE(t.closed_reason, '') NOT IN ('duplicate', 'wont_do') "
-                "  AND ac.is_completed = 0 AND ac.is_deferred = 0 "
-                "  AND COALESCE(t.closed_at, t.updated_at) >= date('now', ?) "
-                "GROUP BY t.id "
-                "ORDER BY t.id",
-                (cutoff,),
-            ).fetchall()
+            if _TASK_SCOPE is not None:
+                rows = conn.execute(
+                    "SELECT t.id, t.summary, COUNT(ac.id) AS incomplete "
+                    "FROM tasks t "
+                    "JOIN acceptance_criteria ac ON ac.task_id = t.id "
+                    "WHERE t.id = ? "
+                    "  AND t.status = 'Done' "
+                    "  AND COALESCE(t.closed_reason, '') NOT IN ('duplicate', 'wont_do') "
+                    "  AND ac.is_completed = 0 AND ac.is_deferred = 0 "
+                    "GROUP BY t.id",
+                    (_TASK_SCOPE,),
+                ).fetchall()
+            else:
+                cutoff = f"-{RULE6_RECENT_DAYS} days"
+                rows = conn.execute(
+                    "SELECT t.id, t.summary, COUNT(ac.id) AS incomplete "
+                    "FROM tasks t "
+                    "JOIN acceptance_criteria ac ON ac.task_id = t.id "
+                    "WHERE t.status = 'Done' "
+                    "  AND COALESCE(t.closed_reason, '') NOT IN ('duplicate', 'wont_do') "
+                    "  AND ac.is_completed = 0 AND ac.is_deferred = 0 "
+                    "  AND COALESCE(t.closed_at, t.updated_at) >= date('now', ?) "
+                    "GROUP BY t.id "
+                    "ORDER BY t.id",
+                    (cutoff,),
+                ).fetchall()
         except sqlite3.OperationalError:
             return []
         finally:
@@ -1124,7 +1158,10 @@ if os.path.isfile(_extra_path):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: tusk-lint.py <repo_root> [--verbose|--quiet]", file=sys.stderr)
+        print(
+            "Usage: tusk-lint.py <repo_root> [--verbose|--quiet] [--task <task_id>]",
+            file=sys.stderr,
+        )
         sys.exit(2)
 
     root = sys.argv[1]
@@ -1140,7 +1177,35 @@ def main():
     #   --quiet / -q   — print only rules with violations; silent on clean
     #                    success. Used by `tusk commit` where the caller
     #                    already prints its own banners.
-    flags = sys.argv[2:]
+    #
+    # `--task <task_id>` narrows DB-backed rules that opt into scoping
+    # (currently Rule 6) to a single task ID — see _TASK_SCOPE comment above.
+    raw_flags = sys.argv[2:]
+    flags = []
+    task_scope = None
+    i = 0
+    while i < len(raw_flags):
+        arg = raw_flags[i]
+        if arg == "--task":
+            if i + 1 >= len(raw_flags):
+                print("Error: --task requires a task ID", file=sys.stderr)
+                sys.exit(2)
+            try:
+                task_scope = int(raw_flags[i + 1])
+            except ValueError:
+                print(
+                    f"Error: --task expects an integer task ID, got {raw_flags[i + 1]!r}",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+            i += 2
+            continue
+        flags.append(arg)
+        i += 1
+
+    global _TASK_SCOPE
+    _TASK_SCOPE = task_scope
+
     verbose = "--verbose" in flags or "-v" in flags
     quiet = "--quiet" in flags or "-q" in flags
     if verbose and quiet:
