@@ -151,6 +151,12 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     tusk criteria done <cid> --skip-verify
     ```
 
+    **If a criterion requires filing follow-up tasks** (typical for investigation/triage tasks whose criteria read "file focused follow-up tasks covering each distinct break"), do NOT call `tusk task-insert` directly. Dupe-check first so a freshly-filed sibling task isn't immediately superseded by an existing one:
+    ```bash
+    tusk dupes check "<proposed summary>"
+    ```
+    If the check returns a match, amend the existing task (e.g., `tusk criteria add <id> "<criterion>"` or `tusk task-update <id>`) instead of creating a new one. If no match is found, prefer `/create-task` over a raw `tusk task-insert` — `/create-task` runs the same dedup check, decomposes scope, and applies the project's task conventions in one call. Use `tusk task-insert` only when scripting bulk inserts where the dedup step has already been done.
+
     **After each `tusk commit` in foreground mode**, run `git status --short` to confirm your files were staged and committed — a zero-exit commit that produced no diff (e.g. all files were already tracked with no changes) will silently succeed without staging anything.
 
     **If `tusk commit` fails with `pathspec did not match any files`** (exit code 3, git-add error), first check whether the file was already committed in a prior `tusk commit` call for this task (e.g., when all changes go into a single file committed with earlier criteria), or whether the file was removed via `git rm` (which stages the deletion — `tusk commit` then can't find the path to re-add). In either case, `git add && git commit` would also fail — just mark the remaining criteria done directly:
