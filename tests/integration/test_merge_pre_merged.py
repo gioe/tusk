@@ -295,3 +295,165 @@ class TestMergePreMergedNoErrorContradiction:
             f"Expected task-done's 'Warning:' diagnostic to be surfaced in "
             f"stderr:\n{stderr_out}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Issue #582 — normal merge path must not print contradictory "Error:" line
+# ---------------------------------------------------------------------------
+
+
+class TestMergeNormalPathNoErrorContradiction:
+    """Regression for issue #582 (sibling of #581).
+
+    Same root cause as TASK-200 / issue #581 — different code path. The
+    normal merge path (Step 7 in ``main()``, formerly lines 967-981) used
+    to invoke ``tusk task-done`` without ``--force``, get exit code 3,
+    print the verbatim ``Error: ... Use --force to close anyway`` stderr,
+    then retry with ``--force`` and succeed. The fix passes ``--force`` on
+    the first call so ``task-done`` emits ``Warning:`` instead — diagnostic
+    preserved, no contradiction.
+    """
+
+    def test_task_done_called_with_force_on_first_attempt(
+        self, db_path, config_path, monkeypatch, tmp_path
+    ):
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        branch_name = f"feature/TASK-{task_id}-fix"
+
+        # Drive main() down the normal-merge path: find_task_branch returns
+        # a real branch name, no error, and pre_merged=False.
+        monkeypatch.setattr(
+            tusk_merge,
+            "find_task_branch",
+            lambda tid: (branch_name, None, False),
+        )
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        # Skip push/pull entirely — exercises the same Step 7 task-done path
+        # without needing to mock remote interactions.
+        monkeypatch.setattr(tusk_merge, "_has_remote", lambda name="origin": False)
+
+        task_done_invocations = []
+
+        def _mock_run(args, check=True):
+            # tusk subcommands
+            if "session-close" in args:
+                return subprocess.CompletedProcess(args, 0, stdout="{}", stderr="")
+            if "task-done" in args:
+                task_done_invocations.append(list(args))
+                # Simulate the previously-buggy world: without --force, exit 3
+                # with the misleading Error stderr. The fix MUST pass --force
+                # on the first call so this branch is never reached.
+                if "--force" not in args:
+                    err = (
+                        f"Error: Task {task_id} has 1 completed criteria "
+                        f"without a commit hash:\n  [1] test criterion\n\n"
+                        "Criteria must be backed by a commit before closing. "
+                        "Use --force to close anyway."
+                    )
+                    return subprocess.CompletedProcess(args, 3, stdout="", stderr=err)
+                result_json = json.dumps({
+                    "task": {
+                        "id": task_id,
+                        "status": "Done",
+                        "closed_reason": "completed",
+                    },
+                    "sessions_closed": 0,
+                    "unblocked_tasks": [],
+                })
+                # task-done with --force still emits a Warning listing the
+                # uncommitted criteria. The merge normal path must surface
+                # that stderr so the audit trail survives.
+                warning = (
+                    f"Warning: Task {task_id} has 1 completed criteria "
+                    f"without a commit hash:\n  [1] test criterion"
+                )
+                return subprocess.CompletedProcess(
+                    args, 0, stdout=result_json, stderr=warning
+                )
+
+            # git plumbing — return whatever each call site needs to keep
+            # main() flowing into Step 7 with the feature branch treated as
+            # a normal, fast-forward-able branch.
+            if args[:3] == ["git", "diff", "--name-only"]:
+                # Clean working tree → no auto-stash
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:3] == ["git", "diff", "--cached"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:2] == ["git", "checkout"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:3] == ["git", "rev-list", "--count"]:
+                # Non-zero so no_new_commits stays False
+                return subprocess.CompletedProcess(args, 0, stdout="1\n", stderr="")
+            if args[:2] == ["git", "log"]:
+                # Non-empty so task_on_default stays False (feature branch
+                # has its own [TASK-N] commit unique to the branch)
+                return subprocess.CompletedProcess(
+                    args, 0, stdout="abc1234 [TASK-N] feature commit\n", stderr=""
+                )
+            if args[:2] == ["git", "cherry"]:
+                # "+ ..." marks an unapplied commit — cherry-pick skip path
+                # does not engage
+                return subprocess.CompletedProcess(
+                    args, 0, stdout="+ abc1234 feature commit\n", stderr=""
+                )
+            if args[:3] == ["git", "merge", "--ff-only"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:2] == ["git", "branch"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            # Fallback: succeed silently for any other plumbing call
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(tusk_merge, "run", _mock_run)
+
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+            exit_code = tusk_merge.main(
+                [
+                    str(db_path),
+                    str(config_path),
+                    str(task_id),
+                    "--session",
+                    str(session_id),
+                ]
+            )
+
+        stderr_out = stderr_buf.getvalue()
+
+        assert exit_code == 0, (
+            f"Expected exit 0, got {exit_code}\nstderr: {stderr_out}"
+        )
+
+        # Issue #582 regression: the misleading "Error: Task N has K
+        # completed criteria without a commit hash" line must NOT appear
+        # on stderr when the merge succeeds and the task closes cleanly.
+        assert not re.search(
+            r"^Error: Task \d+ has \d+ completed criteria without a commit hash",
+            stderr_out,
+            re.MULTILINE,
+        ), f"Found contradictory Error: line in stderr:\n{stderr_out}"
+
+        # Positive: task-done was invoked exactly once, with --force on the
+        # first (and only) call.
+        assert len(task_done_invocations) == 1, (
+            f"Expected exactly one task-done call, got {len(task_done_invocations)}: "
+            f"{task_done_invocations}"
+        )
+        assert "--force" in task_done_invocations[0], (
+            f"task-done must be called with --force on the normal-merge path: "
+            f"{task_done_invocations[0]}"
+        )
+
+        # Diagnostic preserved: task-done's "Warning:" output is surfaced to
+        # the caller so the user still sees which criteria were force-closed.
+        assert "Warning: Task" in stderr_out, (
+            f"Expected task-done's 'Warning:' diagnostic to be surfaced in "
+            f"stderr:\n{stderr_out}"
+        )
