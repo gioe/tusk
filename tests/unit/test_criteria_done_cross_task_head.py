@@ -193,9 +193,17 @@ class TestHeadTaskIdHelper:
             assert criteria_mod._head_task_id() is None
 
     def test_parses_first_task_prefix_in_message(self):
-        """If the message references multiple [TASK-N] tags, return the first match."""
+        """The regex anchors to start-of-message: a position-zero [TASK-N] is parsed
+        even when later body text references another [TASK-M], and a body-only
+        reference (no position-zero prefix) returns None."""
         with patch(
             "subprocess.check_output",
             return_value="[TASK-50] Refer to [TASK-99] context\n",
         ):
             assert criteria_mod._head_task_id() == 50
+
+        with patch(
+            "subprocess.check_output",
+            return_value="Initial commit (relates to [TASK-99])\n",
+        ):
+            assert criteria_mod._head_task_id() is None

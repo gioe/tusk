@@ -497,7 +497,7 @@ def _head_task_id() -> Optional[int]:
         )
     except Exception:
         return None
-    m = re.search(r"\[TASK-(\d+)\]", msg)
+    m = re.match(r"\[TASK-(\d+)\]", msg)
     if not m:
         return None
     try:
