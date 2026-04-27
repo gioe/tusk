@@ -3,7 +3,6 @@
 Covers:
 - Guard fires on the rebase path when local <default> is ahead of origin/<default>
 - Guard fires on the ff-only path (no --rebase) for the same condition
-- Guard fires on the task_on_default path (cherry-picked / already-on-default)
 - In a non-interactive context (no TTY on stdin) the merge aborts with exit 2
 - Surfaced commits include the diverging SHA + subject lines
 - Push is NOT attempted after the abort
@@ -46,7 +45,6 @@ def _mock_run_factory(
     unpushed_commits: list[tuple[str, str]] | None,
     use_rebase_succeeds: bool = True,
     ff_only_succeeds: bool = True,
-    task_on_default: bool = False,
     record_calls: list | None = None,
 ):
     """Build a mock run() with knobs for the unpushed-default scenarios.
@@ -103,9 +101,6 @@ def _mock_run_factory(
         if args[:2] == ["git", "log"] and any(
             f"--grep=\\[TASK-{task_id}\\]" in a for a in args
         ):
-            if task_on_default:
-                # Empty result → task_on_default=True branch
-                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
             return subprocess.CompletedProcess(
                 args, 0, stdout=f"abc1234 [TASK-{task_id}] implement\n", stderr=""
             )
