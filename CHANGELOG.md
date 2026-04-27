@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [769] - 2026-04-27
+
+- [TASK-220] Fix: tusk upgrade should prune files now in bin/dist-excluded.txt
+
 ## [768] - 2026-04-27
 
 - [TASK-219] Document zsh/bash backtick and $ hazard in tusk commit message guidance
