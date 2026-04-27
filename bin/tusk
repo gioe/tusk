@@ -293,7 +293,7 @@ cmd_validate() {
   echo "Config is valid ($(resolve_config))."
 
   # Check that all three DB gitignore patterns are present
-  local gitignore="$REPO_ROOT/.gitignore"
+  local gitignore="$PROJECT_ROOT/.gitignore"
   local -a db_patterns=("tusk/tasks.db" "tusk/tasks.db-wal" "tusk/tasks.db-shm")
   local missing=0
   for pattern in "${db_patterns[@]}"; do
@@ -308,7 +308,7 @@ cmd_validate() {
 }
 
 update_gitignore() {
-  local gitignore="$REPO_ROOT/.gitignore"
+  local gitignore="$PROJECT_ROOT/.gitignore"
   # Entries that were previously added by tusk but should now be removed.
   # .claude/skills/ was removed so that skill file edits made during /tusk
   # or /retro sessions can be committed and tracked in git.
@@ -372,8 +372,8 @@ update_claude_md() {
   # preserving the long-standing behavior where tusk init creates CLAUDE.md
   # when absent (issue #322).
   local sentinel="<!-- tusk-task-tools -->"
-  local claude_md="$REPO_ROOT/CLAUDE.md"
-  local agents_md="$REPO_ROOT/AGENTS.md"
+  local claude_md="$PROJECT_ROOT/CLAUDE.md"
+  local agents_md="$PROJECT_ROOT/AGENTS.md"
   local target="" label=""
   if [[ "$INSTALL_MODE" == "codex" ]]; then
     if [[ -f "$agents_md" ]]; then target="$agents_md"; label="AGENTS.md"
