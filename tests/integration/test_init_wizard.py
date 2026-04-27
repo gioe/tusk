@@ -179,3 +179,103 @@ def test_no_auto_scan_leaves_domains_empty_when_no_overrides(codex_like_project)
     # The merge step in init-write-config preserves unspecified keys, so the
     # config should be unchanged when nothing is passed.
     assert after == before
+
+
+def test_scaffold_spec_invokes_init_scaffold(codex_like_project):
+    """`--scaffold-spec '<json>'` runs `tusk init-scaffold` after writing config,
+    creating each directory with .gitkeep + AGENTS.md (codex mode), and embeds
+    the scaffold result under the `scaffold` key in the wizard payload."""
+    spec = json.dumps([
+        {"name": "frontend", "purpose": "UI sources", "agent": "frontend"},
+        {"name": "backend",  "purpose": "API code",   "agent": "backend"},
+    ])
+    result = _run(
+        codex_like_project,
+        "--non-interactive",
+        "--no-auto-scan",
+        "--scaffold-spec", spec,
+    )
+    assert result.returncode == 0, f"wizard failed:\n{result.stderr}"
+    payload = json.loads(result.stdout)
+    assert payload["success"] is True
+    scaffold = payload["scaffold"]
+    assert scaffold is not None and scaffold["success"] is True
+    assert scaffold["mode"] == "codex"
+    assert {c["directory"] for c in scaffold["created"]} == {"frontend", "backend"}
+
+    for sub in ("frontend", "backend"):
+        assert (codex_like_project / sub / ".gitkeep").exists()
+        assert (codex_like_project / sub / "AGENTS.md").exists()
+
+
+def test_no_scaffold_explicit_opt_out(codex_like_project):
+    """`--no-scaffold` succeeds with `scaffold: null` and creates no directories."""
+    result = _run(
+        codex_like_project,
+        "--non-interactive",
+        "--no-auto-scan",
+        "--no-scaffold",
+    )
+    assert result.returncode == 0, f"wizard failed:\n{result.stderr}"
+    payload = json.loads(result.stdout)
+    assert payload["success"] is True
+    assert payload["scaffold"] is None
+    assert not (codex_like_project / "frontend").exists()
+
+
+def test_non_interactive_default_no_scaffold(codex_like_project):
+    """`--non-interactive` without either scaffold flag defaults to no-scaffold:
+    `scaffold: null` and no directories created."""
+    result = _run(codex_like_project, "--non-interactive", "--no-auto-scan")
+    assert result.returncode == 0, f"wizard failed:\n{result.stderr}"
+    payload = json.loads(result.stdout)
+    assert payload["success"] is True
+    assert payload["scaffold"] is None
+
+
+def test_scaffold_flags_mutually_exclusive(codex_like_project):
+    """Passing both `--scaffold-spec` and `--no-scaffold` exits non-zero with a
+    clear JSON error and does not mutate config or create scaffolded dirs."""
+    before = _read_config(codex_like_project)
+    result = _run(
+        codex_like_project,
+        "--non-interactive",
+        "--no-auto-scan",
+        "--scaffold-spec", "[]",
+        "--no-scaffold",
+    )
+    assert result.returncode != 0
+    payload = json.loads(result.stdout)
+    assert payload["success"] is False
+    assert "mutually exclusive" in payload["error"].lower()
+    assert _read_config(codex_like_project) == before
+
+
+def test_scaffold_spec_invalid_json_fails_clean(codex_like_project):
+    """A non-JSON `--scaffold-spec` value fails fast (before init-write-config
+    runs) with a clear error and leaves config untouched."""
+    before = _read_config(codex_like_project)
+    result = _run(
+        codex_like_project,
+        "--non-interactive",
+        "--no-auto-scan",
+        "--scaffold-spec", "not-json",
+    )
+    assert result.returncode != 0
+    payload = json.loads(result.stdout)
+    assert payload["success"] is False
+    assert "scaffold-spec" in payload["error"].lower()
+    assert _read_config(codex_like_project) == before
+
+
+def test_help_documents_scaffold_flags(codex_like_project):
+    """`tusk init-wizard --help` exits 0, prints documentation for both new
+    flags, and does NOT mutate config.json (regression: the wizard's
+    `parse_known_args` previously dropped --help silently, then ran the wizard
+    with side effects)."""
+    before = _read_config(codex_like_project)
+    result = _run(codex_like_project, "--help")
+    assert result.returncode == 0, f"--help failed:\n{result.stderr}"
+    assert "--scaffold-spec" in result.stdout
+    assert "--no-scaffold" in result.stdout
+    assert _read_config(codex_like_project) == before
