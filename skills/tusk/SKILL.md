@@ -140,6 +140,8 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
        **Always quote file paths** — zsh expands unquoted brackets (`[id]`, `[slug]`) as glob patterns before the shell passes arguments to `tusk commit`. Any path component containing `[`, `]`, `*`, `?`, or spaces must be wrapped in double quotes (e.g., `"apps/api/[id]/route.ts"`).
 
+       **Avoid backticks and unescaped `$` in commit messages** — even inside double quotes, zsh and bash treat backticks as command substitution and `$VAR` / `$(…)` as variable expansion. A message that references code (e.g. explaining a `flatMap { $0.isEmpty ? nil : $0 } ?? "US"` change) fails with `zsh: parse error near '}'` before tusk ever sees the args. Drop the backticks (use plain identifiers) or escape every metacharacter — double-quoting alone does not protect them. This is the same class of zsh-quoting hazard as the file-paths note above, just hitting the message argument instead.
+
        **Grouping criteria:** 2–3 genuinely co-located criteria (e.g., a schema change and its migration) may share one commit — use one `--criteria` flag per ID:
        ```bash
        tusk commit <id> "<message>" "<file1>" ["<file2>" ...] --criteria <cid1> --criteria <cid2>

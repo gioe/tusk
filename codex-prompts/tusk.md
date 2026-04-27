@@ -265,6 +265,17 @@ JSON blob and the `skill_run.run_id` you already captured.
       arguments to `tusk commit`. Any path component containing `[`,
       `]`, `*`, `?`, or spaces must be wrapped in double quotes.
 
+      **Avoid backticks and unescaped `$` in commit messages** — even
+      inside double quotes, zsh and bash treat backticks as command
+      substitution and `$VAR` / `$(…)` as variable expansion. A
+      message that references code (e.g. explaining a
+      `flatMap { $0.isEmpty ? nil : $0 } ?? "US"` change) fails with
+      `zsh: parse error near '}'` before tusk ever sees the args.
+      Drop the backticks (use plain identifiers) or escape every
+      metacharacter — double-quoting alone does not protect them.
+      This is the same class of zsh-quoting hazard as the file-paths
+      note above, just hitting the message argument instead.
+
       **Grouping criteria:** 2–3 genuinely co-located criteria (e.g.,
       a schema change and its migration) may share one commit — use
       one `--criteria` flag per ID:
