@@ -38,8 +38,13 @@ Output (JSON):
 import argparse
 import json
 import os
-import re
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tusk_loader  # loads tusk-path-lib.py
+
+_path_lib = tusk_loader.load("tusk-path-lib")
+validate_relative_path = _path_lib.validate_relative_path
 
 
 VALID_MODES = {"create_only", "append_if_missing"}
@@ -48,21 +53,6 @@ VALID_MODES = {"create_only", "append_if_missing"}
 def _emit(payload: dict, exit_code: int = 0) -> None:
     print(json.dumps(payload))
     sys.exit(exit_code)
-
-
-def _validate_path(path) -> str | None:
-    """Reject absolute paths, traversal, and unsafe characters. Mirrors
-    tusk-init-fetch-bootstrap.py:_validate_manifest_path."""
-    if not isinstance(path, str) or not path.strip():
-        return "path must be a non-empty string"
-    cleaned = path.strip()
-    if os.path.isabs(cleaned):
-        return "path must be relative, not absolute"
-    if ".." in cleaned.split("/") or ".." in cleaned.split(os.sep):
-        return "path contains '..' segment"
-    if not re.match(r"^[a-zA-Z0-9._/-]+$", cleaned):
-        return "path contains invalid characters"
-    return None
 
 
 def _summary(wrote: list, skipped: list) -> str:
@@ -79,7 +69,7 @@ def _write_one(repo_root: str, entry: dict) -> dict:
         return {"error": "entry is not an object"}
 
     raw_path = entry.get("path")
-    path_err = _validate_path(raw_path)
+    path_err = validate_relative_path(raw_path)
     if path_err:
         return {"error": f"path: {path_err}"}
 

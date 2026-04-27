@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [766] - 2026-04-27
+
+- [TASK-217] Extract shared path validator into bin/tusk-path-lib.py and use it from tusk-init-fetch-bootstrap.py and tusk-init-write-manifest-files.py
+
 ## [765] - 2026-04-27
 
 - [TASK-214] Wire manifest_files writes into /tusk-init Step 8.5 and tusk add-lib

@@ -33,29 +33,19 @@ Each lib entry always has: name, repo, tasks (list), manifest_files (list), erro
 import base64
 import json
 import os
-import re
 import subprocess
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tusk_loader  # loads tusk-path-lib.py
+
+_path_lib = tusk_loader.load("tusk-path-lib")
+validate_relative_path = _path_lib.validate_relative_path
 
 
 REQUIRED_TOP_LEVEL = {"version", "project_type", "tasks"}
 REQUIRED_TASK_FIELDS = {"summary", "description", "priority", "task_type", "complexity", "criteria"}
 VALID_MANIFEST_MODES = {"create_only", "append_if_missing"}
-
-
-def _validate_manifest_path(path: str) -> str | None:
-    """Reject absolute paths, traversal, and unsafe characters. Mirrors the checks
-    in bin/tusk-init-scaffold.py:_validate_dir_name. Returns an error string or None."""
-    if not isinstance(path, str) or not path.strip():
-        return "path must be a non-empty string"
-    cleaned = path.strip()
-    if os.path.isabs(cleaned):
-        return "path must be relative, not absolute"
-    if ".." in cleaned.split("/") or ".." in cleaned.split(os.sep):
-        return "path contains '..' segment"
-    if not re.match(r"^[a-zA-Z0-9._/-]+$", cleaned):
-        return "path contains invalid characters"
-    return None
 
 
 def _fetch_bootstrap(repo: str, ref: str) -> tuple:
@@ -134,7 +124,7 @@ def _validate(data: dict) -> str | None:
                 return f"manifest_files[{i}] is not an object"
             if "path" not in entry:
                 return f"manifest_files[{i}] missing required field 'path'"
-            path_err = _validate_manifest_path(entry["path"])
+            path_err = validate_relative_path(entry["path"])
             if path_err:
                 return f"manifest_files[{i}].path: {path_err}"
             if "content" not in entry:
