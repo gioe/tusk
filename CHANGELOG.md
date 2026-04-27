@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [762] - 2026-04-26
+
+- [TASK-211] Fix: tusk init must respect TUSK_PROJECT for .gitignore / CLAUDE.md / AGENTS.md edits
+
 ## [761] - 2026-04-26
 
 - [TASK-210] Fix: tusk review --note '' silently ignored (cannot clear existing note)
