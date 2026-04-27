@@ -175,17 +175,17 @@ def main():
         ref = lib_cfg.get("ref", "main")
 
         if not repo:
-            libs_out.append({"name": name, "repo": repo, "tasks": [], "error": "missing repo in config"})
+            libs_out.append({"name": name, "repo": repo, "tasks": [], "manifest_files": [], "error": "missing repo in config"})
             continue
 
         data, fetch_err = _fetch_bootstrap(repo, ref)
         if fetch_err:
-            libs_out.append({"name": name, "repo": repo, "tasks": [], "error": fetch_err})
+            libs_out.append({"name": name, "repo": repo, "tasks": [], "manifest_files": [], "error": fetch_err})
             continue
 
         val_err = _validate(data)
         if val_err:
-            libs_out.append({"name": name, "repo": repo, "tasks": [], "error": f"invalid bootstrap: {val_err}"})
+            libs_out.append({"name": name, "repo": repo, "tasks": [], "manifest_files": [], "error": f"invalid bootstrap: {val_err}"})
             continue
 
         libs_out.append({
