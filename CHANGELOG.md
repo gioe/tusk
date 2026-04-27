@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [768] - 2026-04-27
+
+- [TASK-219] Document zsh/bash backtick and $ hazard in tusk commit message guidance
+
 ## [767] - 2026-04-27
 
 - [TASK-218] Add --spec-file flag to tusk init-write-manifest-files for large content
