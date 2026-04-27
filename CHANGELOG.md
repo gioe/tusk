@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [765] - 2026-04-27
+
+- [TASK-214] Wire manifest_files writes into /tusk-init Step 8.5 and tusk add-lib
+
 ## [764] - 2026-04-27
 
 - [TASK-213] Extend tusk-bootstrap.json schema with optional manifest_files block
