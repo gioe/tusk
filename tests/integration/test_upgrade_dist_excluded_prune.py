@@ -46,6 +46,12 @@ def _make_fake_src(tmp_path: Path, dist_excluded: list[str]) -> Path:
     (src / "bin" / "tusk-upgrade.py").write_text("# new upgrader\n")
     (src / "bin" / "tusk-keep.py").write_text("# kept across upgrade\n")
     (src / "bin" / "tusk_loader.py").write_text("# new loader\n")
+    # GitHub release tarballs include every bin/tusk-*.py from the source repo,
+    # including the ones listed in dist-excluded.txt — so the upgrade flow has
+    # to skip them in copy_bin_files() *and* prune them from the install bin/.
+    # Mirror that here so removing either guard would fail an assertion below.
+    for excluded in dist_excluded:
+        (src / "bin" / excluded).write_text("# present in tarball but excluded from distribution\n")
     (src / "bin" / "dist-excluded.txt").write_text(
         "\n".join(dist_excluded) + ("\n" if dist_excluded else "")
     )
@@ -128,7 +134,10 @@ class TestDistExcludedPrune:
             f"got {summary['pruned_count']}"
         )
         assert not orphan_path.exists(), (
-            "Orphan dist-excluded file should have been pruned by upgrade"
+            "Orphan dist-excluded file should have been pruned by upgrade. "
+            "If pruned_count is correct but the file is back, copy_bin_files() "
+            "is re-installing it from the tarball — the dist-excluded skip in "
+            "copy_bin_files must run alongside prune_dist_excluded."
         )
 
     def test_files_outside_install_bin_are_never_touched(
