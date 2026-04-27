@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [774] - 2026-04-27
+
+- [TASK-226] Add [d] drop option to tusk merge unpushed-default guard prompt
+
 ## [773] - 2026-04-27
 
 - [TASK-225] Fix: tusk merge --rebase silently pushes unpushed commits on local default branch
