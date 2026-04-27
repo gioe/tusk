@@ -394,6 +394,40 @@ class TestInProgressCriterionMatch:
         # The single match is the summary one, not the criterion one.
         assert payload["duplicates"][0]["match_type"] == "summary"
 
+    def test_multiple_open_criteria_on_one_task_yield_one_match(self, monkeypatch):
+        """One in-progress task with N open criteria all clearing the threshold
+        must surface as exactly one duplicate entry — the highest-scoring
+        criterion. Without this guard, a task with 5 broad criteria all
+        matching a proposed summary would emit 5 duplicate rows pointing at
+        the same task, swamping /create-task semantic-dedup output."""
+        # Both criteria match the proposed input; #244 is a closer textual
+        # match (one extra word), so it should win the per-task tie.
+        proposed = "Add iOS networking layer with URLSession and Bearer auth"
+        weaker = "Add iOS networking layer with URLSession Bearer auth"
+        stronger = "Add iOS networking layer with URLSession and Bearer auth"
+
+        # Pre-condition: both clear the criterion threshold (otherwise the
+        # test devolves to the single-match case and proves nothing).
+        assert dupes.similarity(proposed, weaker) >= dupes.DEFAULT_CRITERION_CHECK_THRESHOLD
+        assert dupes.similarity(proposed, stronger) >= dupes.DEFAULT_CRITERION_CHECK_THRESHOLD
+
+        conn = _make_dupes_db(
+            tasks=[(70, "iOS networking spine", "In Progress", None)],
+            criteria=[
+                (243, 70, weaker, 0),
+                (244, 70, stronger, 0),
+            ],
+        )
+        rc, payload = _run_cmd_check(monkeypatch, conn, proposed)
+        assert rc == 1
+        assert len(payload["duplicates"]) == 1
+        match = payload["duplicates"][0]
+        assert match["match_type"] == "criterion"
+        assert match["id"] == 70
+        # Highest-scoring criterion (#244, the verbatim match) wins the tie.
+        assert match["criterion_id"] == 244
+        assert match["criterion"] == stronger
+
     def test_summary_only_matches_keep_existing_shape(self, monkeypatch):
         """Regression guard: existing summary-only matches gain match_type
         but otherwise keep their JSON shape (id, summary, domain, similarity)."""
@@ -428,3 +462,63 @@ class TestCriterionThresholdConfig:
             dupes.DEFAULT_CRITERION_CHECK_THRESHOLD
             > dupes.DEFAULT_CHECK_THRESHOLD
         )
+
+
+class TestInProgressStatusResolution:
+    """load_config must resolve IN_PROGRESS_STATUS by name match, not by index.
+    The earlier statuses[1] heuristic broke for taxonomies that prepend a
+    stage (review finding #60)."""
+
+    def _write_and_load(self, tmp_path, payload):
+        cfg_path = tmp_path / "config.json"
+        cfg_path.write_text(json.dumps(payload))
+        dupes.load_config(str(cfg_path))
+        return dupes.IN_PROGRESS_STATUS
+
+    def teardown_method(self):
+        # Reset module globals back to the canonical config so other tests
+        # in this module don't see the test-local config bleed through.
+        dupes.load_config(CONFIG_PATH)
+
+    def test_default_three_state_taxonomy(self, tmp_path):
+        result = self._write_and_load(
+            tmp_path, {"statuses": ["To Do", "In Progress", "Done"]}
+        )
+        assert result == "In Progress"
+
+    def test_four_state_taxonomy_with_prepended_stage(self, tmp_path):
+        """Reviewer's example: a four-state list that prepends Backlog
+        used to incorrectly resolve to 'To Do' under statuses[1]."""
+        result = self._write_and_load(
+            tmp_path, {"statuses": ["Backlog", "To Do", "In Progress", "Done"]}
+        )
+        assert result == "In Progress"
+
+    def test_explicit_in_progress_status_config_wins(self, tmp_path):
+        """An explicit dupes.in_progress_status overrides the name match —
+        useful for projects that rename the active stage entirely."""
+        result = self._write_and_load(
+            tmp_path,
+            {
+                "statuses": ["queued", "active", "shipped"],
+                "dupes": {"in_progress_status": "active"},
+            },
+        )
+        assert result == "active"
+
+    def test_falls_back_to_literal_when_no_name_match(self, tmp_path):
+        """When the statuses list has no entry literally named 'In Progress'
+        and no explicit override, fall back to the literal 'In Progress'.
+        This preserves the historical contract (the schema invariant)."""
+        result = self._write_and_load(
+            tmp_path, {"statuses": ["queued", "active", "shipped"]}
+        )
+        assert result == "In Progress"
+
+    def test_name_match_is_case_insensitive(self, tmp_path):
+        """Status taxonomy capitalisation is project-defined; match by
+        canonical lowercase form so 'in progress' / 'IN PROGRESS' both bind."""
+        result = self._write_and_load(
+            tmp_path, {"statuses": ["To Do", "in progress", "Done"]}
+        )
+        assert result == "in progress"

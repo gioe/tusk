@@ -71,12 +71,17 @@ def load_config(config_path: str) -> None:
     # Terminal status is the last entry in the statuses list
     statuses = cfg.get("statuses", ["To Do", "In Progress", "Done"])
     TERMINAL_STATUS = statuses[-1] if statuses else "Done"
-    # In-Progress status is the middle of a 3-state list when present;
-    # fall back to the literal "In Progress" otherwise.
-    if len(statuses) >= 3:
-        IN_PROGRESS_STATUS = statuses[1]
+    # In-Progress status: prefer an explicit dupes.in_progress_status config
+    # key, then a name match in statuses, then the literal default. The
+    # earlier statuses[1] heuristic was wrong for taxonomies that prepend
+    # a stage (e.g. ["Backlog", "To Do", "In Progress", "Done"] would yield
+    # "To Do" and silently scan the wrong tasks).
+    explicit = dupes.get("in_progress_status")
+    if explicit:
+        IN_PROGRESS_STATUS = explicit
     else:
-        IN_PROGRESS_STATUS = "In Progress"
+        named = next((s for s in statuses if s.lower() == "in progress"), None)
+        IN_PROGRESS_STATUS = named or "In Progress"
     log.debug("Terminal status: %s, in-progress status: %s",
               TERMINAL_STATUS, IN_PROGRESS_STATUS)
 
@@ -242,11 +247,14 @@ def cmd_check(args: argparse.Namespace, db_path: str) -> int:
 
     # Criterion-aware scan: in-progress tasks' open criteria, stricter threshold.
     # See get_in_progress_criteria for the rationale on why we filter here.
+    # matched_task_ids is shared across both passes so each in-progress task
+    # surfaces at most once: a summary match suppresses any criterion match
+    # on the same task, and within the criterion loop the highest-scoring
+    # criterion wins (criteria arrive in id order — for ties this resolves
+    # to the first-defined criterion, which matches user intuition).
     matched_task_ids = {m["id"] for m in matches}
+    best_criterion: dict[int, dict] = {}
     for row in criteria:
-        # Skip criteria whose parent task already matched on summary —
-        # surfacing both rows for the same task would just duplicate the
-        # signal without adding information.
         if row["task_id"] in matched_task_ids:
             continue
         score = similarity_cached(norm_input, normalize_summary(row["criterion"]))
@@ -254,18 +262,21 @@ def cmd_check(args: argparse.Namespace, db_path: str) -> int:
             "  Criterion #%d (task %d): score=%.3f text=%r",
             row["criterion_id"], row["task_id"], score, row["criterion"],
         )
-        if score >= args.criterion_threshold:
-            matches.append(
-                {
-                    "id": row["task_id"],
-                    "summary": row["task_summary"],
-                    "domain": row["task_domain"],
-                    "similarity": round(score, 3),
-                    "match_type": "criterion",
-                    "criterion_id": row["criterion_id"],
-                    "criterion": row["criterion"],
-                }
-            )
+        if score < args.criterion_threshold:
+            continue
+        candidate = {
+            "id": row["task_id"],
+            "summary": row["task_summary"],
+            "domain": row["task_domain"],
+            "similarity": round(score, 3),
+            "match_type": "criterion",
+            "criterion_id": row["criterion_id"],
+            "criterion": row["criterion"],
+        }
+        prev = best_criterion.get(row["task_id"])
+        if prev is None or candidate["similarity"] > prev["similarity"]:
+            best_criterion[row["task_id"]] = candidate
+    matches.extend(best_criterion.values())
 
     matches.sort(key=lambda m: m["similarity"], reverse=True)
 
