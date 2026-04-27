@@ -27,13 +27,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Must be run from a git repo root
-if ! git rev-parse --show-toplevel &>/dev/null; then
-  echo "Error: Run this from a git repository root." >&2
-  exit 1
+# Resolve REPO_ROOT — prefer the git toplevel when one exists, otherwise fall
+# back to $PWD so install.sh can run in fresh, not-yet-initialised projects.
+# /tusk-init's fresh-project flow prompts for `git init` after install.
+if REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+  :
+else
+  REPO_ROOT="$PWD"
 fi
-
-REPO_ROOT="$(git rev-parse --show-toplevel)"
 
 # ── Agent-mode detection ─────────────────────────────────────────────
 if [[ -d "$REPO_ROOT/.claude" ]]; then
