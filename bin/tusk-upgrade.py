@@ -234,6 +234,56 @@ def get_remote_version(tag: str) -> int:
 
 # ── Upgrade steps ─────────────────────────────────────────────────────────────
 
+def _load_dist_excluded(src: str) -> set:
+    """Read the new tarball's bin/dist-excluded.txt into a set of basenames.
+
+    Older tarballs predate dist-excluded.txt — a missing file returns an empty
+    set so callers degrade to a no-op. Same-file source for install.sh (TUSK_SKIP_SCRIPTS),
+    tusk-generate-manifest.py, and tusk-lint.py.
+    """
+    path = os.path.join(src, "bin", "dist-excluded.txt")
+    if not os.path.isfile(path):
+        return set()
+    try:
+        with open(path, encoding="utf-8") as f:
+            return {line.strip() for line in f if line.strip()}
+    except OSError:
+        return set()
+
+
+def prune_dist_excluded(src: str, repo_root: str, install_mode: str) -> int:
+    """Remove files now in bin/dist-excluded.txt from the consumer's install bin/.
+
+    Closes the orphan-on-upgrade gap: when a script is added to dist-excluded.txt,
+    fresh installs skip it (install.sh:83-84) but consumers that installed an older
+    tusk version retain the now-excluded file forever. Read the new (post-fetch)
+    dist-excluded.txt and 'rm -f' any matches under <repo_root>/<bin_prefix>/ so
+    the orphan disappears on the next upgrade.
+
+    Operates only on basenames inside the install bin/ — entries containing '/'
+    or starting with '..' are ignored as a defense-in-depth check, since
+    dist-excluded.txt is only ever read from inside bin/ and was never intended
+    to address paths outside it.
+    """
+    excluded = _load_dist_excluded(src)
+    if not excluded:
+        return 0
+    bin_prefix = INSTALL_MODES[install_mode]["bin_prefix"]
+    install_bin = os.path.join(repo_root, bin_prefix)
+    if not os.path.isdir(install_bin):
+        return 0
+    removed = 0
+    for name in sorted(excluded):
+        if "/" in name or name.startswith(".."):
+            continue
+        target = os.path.join(install_bin, name)
+        if os.path.isfile(target):
+            os.remove(target)
+            removed += 1
+            _vprint(f"  Pruned dist-excluded: {bin_prefix}{name}")
+    return removed
+
+
 def remove_orphans(old_manifest_path: str, new_manifest_path: str, repo_root: str) -> int:
     with open(old_manifest_path) as f:
         old_files = set(json.load(f))
@@ -261,11 +311,14 @@ def remove_orphans(old_manifest_path: str, new_manifest_path: str, repo_root: st
 
 def copy_bin_files(src: str, script_dir: str) -> None:
     """Copy CLI and support files; use atomic rename for the running tusk binary."""
+    excluded = _load_dist_excluded(src)
     tusk_tmp = os.path.join(script_dir, "tusk.tmp")
     shutil.copy2(os.path.join(src, "bin", "tusk"), tusk_tmp)
     os.chmod(tusk_tmp, 0o755)
     os.replace(tusk_tmp, os.path.join(script_dir, "tusk"))
     for pyfile in Path(os.path.join(src, "bin")).glob("tusk-*.py"):
+        if pyfile.name in excluded:
+            continue
         dest = os.path.join(script_dir, pyfile.name)
         if pyfile.name == "tusk-lint.py":
             src_hash = hashlib.md5(pyfile.read_bytes()).hexdigest()
@@ -691,6 +744,8 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
     else:
         print("  Warning: new release has no MANIFEST file; skipping orphan removal")
 
+    pruned_count = prune_dist_excluded(src, repo_root, install_mode)
+
     copy_bin_files(src, script_dir)
     # Skills, hooks, setup-path, settings.json merge, and review-commits
     # permissions are Claude-only concepts. Codex has no equivalents, so
@@ -740,6 +795,7 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
         "install_mode": install_mode,
         "manifest_rel": manifest_rel,
         "orphan_count": orphan_count,
+        "pruned_count": pruned_count,
         "skill_count": skill_count,
         "hook_count": hook_count,
         "hook_summary": hook_summary,
@@ -918,6 +974,8 @@ def main() -> None:
         cleanup_bits = []
         if summary["orphan_count"]:
             cleanup_bits.append(f"{summary['orphan_count']} orphan(s)")
+        if summary["pruned_count"]:
+            cleanup_bits.append(f"{summary['pruned_count']} dist-excluded")
         if summary["deprecated_count"]:
             cleanup_bits.append(f"{summary['deprecated_count']} deprecated file(s)")
         if summary["newline_fixes"]:
