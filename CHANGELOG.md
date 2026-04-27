@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [776] - 2026-04-27
+
+- [TASK-228] Fix: skip leading shell-comment lines in /address-issue Step 4.1 first-token detection
+
 ## [775] - 2026-04-27
 
 - [TASK-227] Fix: tusk check-deliverables 'merged_not_closed' false positive on prefix-only match
