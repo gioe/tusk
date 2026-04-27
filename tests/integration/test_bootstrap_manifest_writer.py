@@ -22,11 +22,24 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 TUSK_BIN = os.path.join(REPO_ROOT, "bin", "tusk")
 
 
-def _write_manifest(tmp_path, spec, *, repo_root=None):
-    """Run `tusk init-write-manifest-files` with the given JSON spec; return parsed stdout JSON."""
+def _write_manifest(tmp_path, spec, *, repo_root=None, via="spec"):
+    """Run `tusk init-write-manifest-files` with the given JSON spec; return parsed stdout JSON.
+
+    `via` selects how the spec is delivered to the writer:
+      - "spec" (default) — passed inline with --spec '<json>'
+      - "spec-file"      — written to a tmp file and passed with --spec-file <path>
+    """
     db_file = tmp_path / "tusk" / "tasks.db"
     env = {**os.environ, "TUSK_DB": str(db_file)}
-    args = [TUSK_BIN, "init-write-manifest-files", "--spec", json.dumps(spec)]
+    args = [TUSK_BIN, "init-write-manifest-files"]
+    if via == "spec":
+        args += ["--spec", json.dumps(spec)]
+    elif via == "spec-file":
+        spec_path = tmp_path / "manifest-spec.json"
+        spec_path.write_text(json.dumps(spec), encoding="utf-8")
+        args += ["--spec-file", str(spec_path)]
+    else:
+        raise ValueError(f"unknown via mode: {via!r}")
     if repo_root is not None:
         args += ["--repo-root", str(repo_root)]
     result = subprocess.run(
@@ -166,3 +179,49 @@ def test_bootstrap_manifest_rejects_path_traversal(project_root):
     payload = json.loads(result.stdout)
     assert payload["success"] is False
     assert ".." in payload["error"]
+
+
+def test_bootstrap_manifest_spec_file_writes_file(project_root):
+    """--spec-file reads the JSON spec from a file and writes the same way --spec does.
+
+    Pins the contract for callers passing manifest content too large for argv (multi-KB
+    convention templates can otherwise approach the platform's ARG_MAX limit)."""
+    spec = [
+        {"path": "tusk/conventions/large.md", "content": "# Conventions\n\n" + ("- rule\n" * 200)},
+    ]
+    result = _write_manifest(project_root, spec, repo_root=project_root, via="spec-file")
+    assert result.returncode == 0, f"writer failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+    payload = json.loads(result.stdout)
+
+    assert payload["success"] is True
+    assert [w["path"] for w in payload["wrote"]] == ["tusk/conventions/large.md"]
+    written = (project_root / "tusk" / "conventions" / "large.md").read_text(encoding="utf-8")
+    assert written == "# Conventions\n\n" + ("- rule\n" * 200)
+
+
+def test_bootstrap_manifest_spec_and_spec_file_are_mutually_exclusive(project_root):
+    """argparse must reject passing both --spec and --spec-file."""
+    db_file = project_root / "tusk" / "tasks.db"
+    env = {**os.environ, "TUSK_DB": str(db_file)}
+    spec_path = project_root / "manifest-spec.json"
+    spec_path.write_text("[]", encoding="utf-8")
+    result = subprocess.run(
+        [
+            TUSK_BIN, "init-write-manifest-files",
+            "--spec", "[]",
+            "--spec-file", str(spec_path),
+            "--repo-root", str(project_root),
+        ],
+        cwd=str(project_root),
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert result.returncode == 1, f"expected failure, got:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+    payload = json.loads(result.stdout)
+    assert payload["success"] is False
+    assert "--spec" in payload["error"] and "--spec-file" in payload["error"]
+    # argparse's own error message also lands on stderr — confirm the mutual-exclusion
+    # branch fired (rather than some unrelated argparse failure).
+    assert "not allowed with argument" in result.stderr
