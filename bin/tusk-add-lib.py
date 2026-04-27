@@ -9,9 +9,14 @@ the lib's repo and ref are loaded from config.default.json.
 
 When --repo is provided, a custom lib entry is added using the given name (--lib required).
 
+Any manifest_files entries in the lib's bootstrap are written immediately via
+`tusk init-write-manifest-files` so the post-init add-lib path produces the
+same files as a fresh `/tusk-init`. The writer is idempotent — re-running
+against an existing tree skips already-present files.
+
 Output (JSON):
-    {"lib": "<name>", "tasks": [...], "error": null}
-    {"lib": "<name>", "tasks": [], "error": "<error message>"}
+    {"lib": "<name>", "tasks": [...], "manifest_files": [...], "manifest_result": {...}, "error": null}
+    {"lib": "<name>", "tasks": [], "manifest_files": [], "manifest_result": null, "error": "<error message>"}
 """
 
 import argparse
@@ -135,12 +140,61 @@ def main():
         None,
     )
     if lib_result is None:
-        print(json.dumps({"lib": lib_name, "tasks": [], "error": "lib not found in bootstrap output"}))
+        print(json.dumps({
+            "lib": lib_name,
+            "tasks": [],
+            "manifest_files": [],
+            "manifest_result": None,
+            "error": "lib not found in bootstrap output",
+        }))
         sys.exit(1)
+
+    manifest_files = lib_result.get("manifest_files") or []
+    manifest_result = None
+    if manifest_files and not lib_result.get("error"):
+        try:
+            mf_proc = subprocess.run(
+                ["tusk", "init-write-manifest-files", "--spec", json.dumps(manifest_files)],
+                capture_output=True, text=True, encoding="utf-8", timeout=30,
+            )
+        except FileNotFoundError:
+            print(json.dumps({
+                "lib": lib_name,
+                "tasks": lib_result.get("tasks", []),
+                "manifest_files": manifest_files,
+                "manifest_result": None,
+                "error": "tusk not found in PATH (manifest_files write)",
+            }))
+            sys.exit(1)
+        except subprocess.TimeoutExpired:
+            print(json.dumps({
+                "lib": lib_name,
+                "tasks": lib_result.get("tasks", []),
+                "manifest_files": manifest_files,
+                "manifest_result": None,
+                "error": "init-write-manifest-files timed out",
+            }))
+            sys.exit(1)
+        try:
+            manifest_result = json.loads(mf_proc.stdout) if mf_proc.stdout.strip() else None
+        except json.JSONDecodeError as e:
+            manifest_result = {"success": False, "error": f"failed to parse writer output: {e}"}
+        if mf_proc.returncode != 0:
+            err = (manifest_result or {}).get("error") or mf_proc.stderr.strip() or f"writer exited {mf_proc.returncode}"
+            print(json.dumps({
+                "lib": lib_name,
+                "tasks": lib_result.get("tasks", []),
+                "manifest_files": manifest_files,
+                "manifest_result": manifest_result,
+                "error": err,
+            }))
+            sys.exit(1)
 
     print(json.dumps({
         "lib": lib_name,
         "tasks": lib_result.get("tasks", []),
+        "manifest_files": manifest_files,
+        "manifest_result": manifest_result,
         "error": lib_result.get("error"),
     }))
 

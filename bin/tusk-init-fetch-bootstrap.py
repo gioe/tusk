@@ -14,18 +14,20 @@ Output (JSON):
           "name": "ios_app",
           "repo": "gioe/ios-libs",
           "tasks": [...],
+          "manifest_files": [...],
           "error": null
         },
         {
           "name": "bad_lib",
           "repo": "owner/repo",
           "tasks": [],
+          "manifest_files": [],
           "error": "404: tusk-bootstrap.json not found"
         }
       ]
     }
 
-Each lib entry always has: name, repo, tasks (list), error (str or null).
+Each lib entry always has: name, repo, tasks (list), manifest_files (list), error (str or null).
 """
 
 import base64
@@ -186,7 +188,13 @@ def main():
             libs_out.append({"name": name, "repo": repo, "tasks": [], "error": f"invalid bootstrap: {val_err}"})
             continue
 
-        libs_out.append({"name": name, "repo": repo, "tasks": data["tasks"], "error": None})
+        libs_out.append({
+            "name": name,
+            "repo": repo,
+            "tasks": data["tasks"],
+            "manifest_files": data.get("manifest_files") or [],
+            "error": None,
+        })
 
     print(json.dumps({"libs": libs_out}))
 
