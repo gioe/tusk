@@ -27,9 +27,11 @@ log = logging.getLogger(__name__)
 # ── Config-driven globals (set in main()) ────────────────────────────
 
 DEFAULT_CHECK_THRESHOLD = 0.82
+DEFAULT_CRITERION_CHECK_THRESHOLD = 0.88
 DEFAULT_SIMILAR_THRESHOLD = 0.6
 PREFIX_PATTERN: re.Pattern = re.compile(r"$^")  # replaced at startup
 TERMINAL_STATUS = "Done"
+IN_PROGRESS_STATUS = "In Progress"
 
 
 def load_config(config_path: str) -> None:
@@ -39,8 +41,9 @@ def load_config(config_path: str) -> None:
     module-level globals (thresholds, patterns) and does not return a dict
     like tusk-db-lib.load_config does.
     """
-    global DEFAULT_CHECK_THRESHOLD, DEFAULT_SIMILAR_THRESHOLD
-    global PREFIX_PATTERN, TERMINAL_STATUS
+    global DEFAULT_CHECK_THRESHOLD, DEFAULT_CRITERION_CHECK_THRESHOLD
+    global DEFAULT_SIMILAR_THRESHOLD
+    global PREFIX_PATTERN, TERMINAL_STATUS, IN_PROGRESS_STATUS
 
     log.debug("Loading config from %s", config_path)
     with open(config_path) as f:
@@ -48,9 +51,13 @@ def load_config(config_path: str) -> None:
 
     dupes = cfg.get("dupes", {})
     DEFAULT_CHECK_THRESHOLD = dupes.get("check_threshold", DEFAULT_CHECK_THRESHOLD)
+    DEFAULT_CRITERION_CHECK_THRESHOLD = dupes.get(
+        "criterion_check_threshold", DEFAULT_CRITERION_CHECK_THRESHOLD
+    )
     DEFAULT_SIMILAR_THRESHOLD = dupes.get("similar_threshold", DEFAULT_SIMILAR_THRESHOLD)
-    log.debug("Thresholds — check: %s, similar: %s",
-              DEFAULT_CHECK_THRESHOLD, DEFAULT_SIMILAR_THRESHOLD)
+    log.debug("Thresholds — check: %s, criterion: %s, similar: %s",
+              DEFAULT_CHECK_THRESHOLD, DEFAULT_CRITERION_CHECK_THRESHOLD,
+              DEFAULT_SIMILAR_THRESHOLD)
 
     # Build prefix pattern from config + generic JIRA pattern
     prefixes = dupes.get("strip_prefixes", ["Deferred", "Enhancement", "Optional"])
@@ -64,7 +71,14 @@ def load_config(config_path: str) -> None:
     # Terminal status is the last entry in the statuses list
     statuses = cfg.get("statuses", ["To Do", "In Progress", "Done"])
     TERMINAL_STATUS = statuses[-1] if statuses else "Done"
-    log.debug("Terminal status: %s", TERMINAL_STATUS)
+    # In-Progress status is the middle of a 3-state list when present;
+    # fall back to the literal "In Progress" otherwise.
+    if len(statuses) >= 3:
+        IN_PROGRESS_STATUS = statuses[1]
+    else:
+        IN_PROGRESS_STATUS = "In Progress"
+    log.debug("Terminal status: %s, in-progress status: %s",
+              TERMINAL_STATUS, IN_PROGRESS_STATUS)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -162,14 +176,48 @@ def get_open_tasks(
     return tasks
 
 
+def get_in_progress_criteria(
+    conn: sqlite3.Connection,
+    domain: str | None = None,
+) -> list[sqlite3.Row]:
+    """Return open acceptance criteria from In-Progress tasks.
+
+    Issue #603: dupe-check needs to surface near-matches against active
+    in-flight criteria, not just task summaries — that's what TASK-86–90
+    duplicated against TASK-70's open criteria. Completed criteria are
+    excluded because their work is already shipped; flagging them as
+    duplicates of follow-up tasks would be a false positive.
+    """
+    query = (
+        "SELECT ac.id AS criterion_id, ac.criterion AS criterion, "
+        "       ac.task_id AS task_id, t.summary AS task_summary, "
+        "       t.domain AS task_domain "
+        "FROM acceptance_criteria ac "
+        "JOIN tasks t ON ac.task_id = t.id "
+        "WHERE t.status = ? AND ac.is_completed = 0"
+    )
+    params: list[str] = [IN_PROGRESS_STATUS]
+    if domain:
+        query += " AND t.domain = ?"
+        params.append(domain)
+    query += " ORDER BY ac.id"
+    log.debug("SQL: %s  params: %s", query, params)
+    rows = conn.execute(query, params).fetchall()
+    log.debug("Loaded %d open criteria from In-Progress tasks", len(rows))
+    return rows
+
+
 # ── Subcommands ──────────────────────────────────────────────────────
 
 def cmd_check(args: argparse.Namespace, db_path: str) -> int:
-    log.debug("cmd_check: summary=%r, domain=%s, threshold=%s",
-              args.summary, args.domain, args.threshold)
+    log.debug(
+        "cmd_check: summary=%r, domain=%s, threshold=%s, criterion_threshold=%s",
+        args.summary, args.domain, args.threshold, args.criterion_threshold,
+    )
     conn = get_connection(db_path)
     try:
         tasks = get_open_tasks(conn, domain=args.domain)
+        criteria = get_in_progress_criteria(conn, domain=args.domain)
     finally:
         conn.close()
 
@@ -188,6 +236,34 @@ def cmd_check(args: argparse.Namespace, db_path: str) -> int:
                     "summary": task["summary"],
                     "domain": task["domain"],
                     "similarity": round(score, 3),
+                    "match_type": "summary",
+                }
+            )
+
+    # Criterion-aware scan: in-progress tasks' open criteria, stricter threshold.
+    # See get_in_progress_criteria for the rationale on why we filter here.
+    matched_task_ids = {m["id"] for m in matches}
+    for row in criteria:
+        # Skip criteria whose parent task already matched on summary —
+        # surfacing both rows for the same task would just duplicate the
+        # signal without adding information.
+        if row["task_id"] in matched_task_ids:
+            continue
+        score = similarity_cached(norm_input, normalize_summary(row["criterion"]))
+        log.debug(
+            "  Criterion #%d (task %d): score=%.3f text=%r",
+            row["criterion_id"], row["task_id"], score, row["criterion"],
+        )
+        if score >= args.criterion_threshold:
+            matches.append(
+                {
+                    "id": row["task_id"],
+                    "summary": row["task_summary"],
+                    "domain": row["task_domain"],
+                    "similarity": round(score, 3),
+                    "match_type": "criterion",
+                    "criterion_id": row["criterion_id"],
+                    "criterion": row["criterion"],
                 }
             )
 
@@ -197,10 +273,17 @@ def cmd_check(args: argparse.Namespace, db_path: str) -> int:
         print(dumps({"duplicates": matches}))
     elif matches:
         print(f"Duplicates found for: {args.summary!r}")
-        print(f"{'ID':<6} {'Score':<7} {'Summary'}")
-        print("-" * 70)
+        print(f"{'ID':<6} {'Score':<7} {'Type':<10} {'Summary / Criterion'}")
+        print("-" * 80)
         for m in matches:
-            print(f"{m['id']:<6} {m['similarity']:<7.3f} {m['summary']}")
+            if m["match_type"] == "criterion":
+                detail = (
+                    f"{m['summary']}  "
+                    f"[criterion #{m['criterion_id']}: {m['criterion']}]"
+                )
+            else:
+                detail = m["summary"]
+            print(f"{m['id']:<6} {m['similarity']:<7.3f} {m['match_type']:<10} {detail}")
     else:
         print(f"No duplicates found for: {args.summary!r}")
 
@@ -332,7 +415,14 @@ def main():
     check_p.add_argument("--domain", help="Filter to a specific domain")
     check_p.add_argument(
         "--threshold", type=float, default=DEFAULT_CHECK_THRESHOLD,
-        help=f"Similarity threshold (default: {DEFAULT_CHECK_THRESHOLD})",
+        help=f"Similarity threshold for task summaries (default: {DEFAULT_CHECK_THRESHOLD})",
+    )
+    check_p.add_argument(
+        "--criterion-threshold", type=float, default=DEFAULT_CRITERION_CHECK_THRESHOLD,
+        help=(
+            "Stricter similarity threshold for in-progress task criteria "
+            f"(default: {DEFAULT_CRITERION_CHECK_THRESHOLD})"
+        ),
     )
     check_p.add_argument("--json", action="store_true", help="Output JSON")
 
