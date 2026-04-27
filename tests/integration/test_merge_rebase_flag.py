@@ -3,7 +3,8 @@
 Covers:
 - --rebase flag accepted without error
 - Rebase succeeds: git rebase and checkout calls made in correct order, ff-only merge proceeds
-- Rebase fails: git rebase --abort called, error message includes resolution steps, exits non-zero
+- Rebase fails: rebase is left in progress on the feature branch (issue #605), error message
+  includes resolution steps, exits non-zero
 - ff-only merge error message (without --rebase) includes exact rebase commands
 """
 
@@ -178,10 +179,16 @@ class TestRebaseSuccess:
 
 
 class TestRebaseFailure:
-    """When --rebase is passed and rebase fails, git rebase --abort is called and exit is non-zero."""
+    """When --rebase is passed and rebase fails, the rebase is left in progress on the feature branch.
+
+    Issue #605: previously the code auto-aborted the rebase before showing instructions
+    that referenced `git rebase --continue`, leaving users with impossible-to-follow
+    recovery steps. The current behavior leaves the rebase mid-flight so the printed
+    instructions actually work.
+    """
 
     def test_rebase_conflict_exits_nonzero(self, db_path, config_path, monkeypatch):
-        """Rebase conflict: exits 2, calls git rebase --abort, stderr includes resolution steps."""
+        """Rebase conflict: exits 2, no auto-abort, stderr includes resolution steps."""
         conn = sqlite3.connect(str(db_path))
         try:
             task_id = _insert_task(conn)
@@ -207,11 +214,105 @@ class TestRebaseFailure:
 
         stderr = stderr_buf.getvalue()
         assert "rebase" in stderr.lower(), "Expected rebase-related message in stderr"
-        assert "rebase --abort" in stderr, "Expected git rebase --abort instruction in stderr"
         assert "git rebase --continue" in stderr, "Expected git rebase --continue instruction"
+        assert "git rebase --abort" in stderr, \
+            "Expected the optional 'git rebase --abort' bail-out instruction in stderr"
+        assert "rebase in progress" in stderr, \
+            "Expected explicit confirmation that rebase is left in progress"
+
+    def test_rebase_conflict_does_not_auto_abort(self, db_path, config_path, monkeypatch):
+        """Issue #605: rebase failure must NOT call git rebase --abort or switch back to default."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        branch = f"feature/TASK-{task_id}-my-branch"
+        record = []
+
+        monkeypatch.setattr(tusk_merge, "find_task_branch", lambda tid: (branch, None, False))
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        mock_run, _ = _make_base_run(branch, rebase_rc=1, task_id=task_id, record_calls=record)
+        monkeypatch.setattr(tusk_merge, "run", mock_run)
+
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            tusk_merge.main([str(db_path), str(config_path), str(task_id),
+                             "--session", str(session_id), "--rebase"])
 
         abort_calls = [c for c in record if c[:3] == ["git", "rebase", "--abort"]]
-        assert abort_calls, "Expected git rebase --abort to be called on conflict"
+        assert not abort_calls, (
+            "git rebase --abort must not be called automatically — printed instructions "
+            "reference 'git rebase --continue' which requires the rebase to remain in progress"
+        )
+
+        # The last checkout (after the rebase) must still be the feature branch — we
+        # must not switch back to the default branch behind the user's back.
+        rebase_idx = next(
+            i for i, c in enumerate(record)
+            if c[:2] == ["git", "rebase"] and c[2:3] != ["--abort"]
+        )
+        post_rebase_checkouts = [
+            c for i, c in enumerate(record)
+            if i > rebase_idx and c[:2] == ["git", "checkout"] and len(c) >= 3
+        ]
+        assert not post_rebase_checkouts, (
+            "No git checkout should occur after the failed rebase — the user must be "
+            f"left on the feature branch. Found: {post_rebase_checkouts}"
+        )
+
+    def test_rebase_conflict_with_stash_mentions_stash_entry(self, db_path, config_path, monkeypatch):
+        """When the merge auto-stashed changes, the rebase-failure message must surface the stash label."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        branch = f"feature/TASK-{task_id}-my-branch"
+
+        def _mock_run(args, check=True):
+            # Report a dirty working tree so auto-stash kicks in
+            if args[:3] == ["git", "diff", "--name-only"]:
+                return subprocess.CompletedProcess(args, 0, stdout="some_file.txt\n", stderr="")
+            if args[:4] == ["git", "diff", "--cached", "--name-only"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:3] == ["git", "stash", "push"]:
+                return subprocess.CompletedProcess(
+                    args, 0, stdout=f"Saved working directory and index state On main: tusk-merge: auto-stash for TASK-{task_id}", stderr=""
+                )
+            if args[:2] == ["git", "checkout"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if "pull" in args and "origin" in args:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:2] == ["git", "log"] and any(f"--grep=\\[TASK-{task_id}\\]" in a for a in args):
+                return subprocess.CompletedProcess(
+                    args, 0, stdout=f"abc1234 [TASK-{task_id}] implement fix\n", stderr=""
+                )
+            if args[:3] == ["git", "rebase", "main"]:
+                return subprocess.CompletedProcess(args, 1, stdout="", stderr="CONFLICT (content)")
+            if "session-close" in args:
+                return subprocess.CompletedProcess(args, 0, stdout="{}", stderr="")
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(tusk_merge, "find_task_branch", lambda tid: (branch, None, False))
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        monkeypatch.setattr(tusk_merge, "run", _mock_run)
+
+        stderr_buf = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(stderr_buf):
+            tusk_merge.main([str(db_path), str(config_path), str(task_id),
+                             "--session", str(session_id), "--rebase"])
+
+        stderr = stderr_buf.getvalue()
+        assert f"tusk-merge: auto-stash for TASK-{task_id}" in stderr, (
+            f"Expected stash entry label to be surfaced when did_stash=True\nstderr: {stderr}"
+        )
+        assert "git stash" in stderr, "Expected guidance for restoring the stash"
 
     def test_rebase_conflict_no_ff_merge(self, db_path, config_path, monkeypatch):
         """When rebase fails, ff-only merge is NOT attempted."""

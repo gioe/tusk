@@ -851,27 +851,26 @@ def main(argv: list[str]) -> int:
             if rebase_result.returncode != 0:
                 if rebase_result.stderr.strip():
                     print(rebase_result.stderr.strip(), file=sys.stderr)
+                stash_note = ""
+                if did_stash:
+                    stash_note = (
+                        f"\nNote: your pre-merge working-tree changes are saved in stash "
+                        f"entry 'tusk-merge: auto-stash for TASK-{task_id}'. "
+                        "Restore them with `git stash list` + `git stash pop <ref>` "
+                        "after the rebase completes."
+                    )
                 print(
                     f"Error: git rebase {default_branch} failed — conflicts must be resolved manually.\n"
-                    "To resolve:\n"
-                    "  1. Fix the conflicting files\n"
+                    f"You are on '{branch_name}' with the rebase in progress. To finish:\n"
+                    "  1. Fix the conflicting files (git status lists them)\n"
                     "  2. git add <resolved files>\n"
                     "  3. git rebase --continue\n"
-                    f"  4. Repeat until rebase completes, then re-run: tusk merge {task_id}\n"
-                    "To abort and return to the pre-rebase state:\n"
-                    "  git rebase --abort",
+                    "  4. Repeat steps 1–3 until the rebase completes\n"
+                    f"  5. Re-run: tusk merge {task_id}\n"
+                    "To abort the rebase and return to the pre-rebase state:\n"
+                    f"  git rebase --abort{stash_note}",
                     file=sys.stderr,
                 )
-                run(["git", "rebase", "--abort"], check=False)
-                for src, dst in zip(db_siblings, db_tmp):
-                    if os.path.exists(src):
-                        os.rename(src, dst)
-                run(["git", "checkout", default_branch], check=False)
-                for src, dst in zip(db_siblings, db_tmp):
-                    if os.path.exists(dst):
-                        os.rename(dst, src)
-                if did_stash:
-                    _try_pop_stash(task_id)
                 return 2
 
             # Rebase succeeded — switch back to default branch for ff-only merge
