@@ -86,6 +86,11 @@ def _make_run(pull_rc: int, pull_stderr: str, task_id: int = 1):
         if "pull" in args:
             pull_calls.append(args)
             return _cp(pull_rc, stderr=pull_stderr)
+        # unpushed-default guard probes (issue #607) — pretend origin/<default>
+        # ref isn't tracked locally so the guard short-circuits silently
+        if args[:3] == ["git", "rev-parse", "--verify"] and len(args) == 4 \
+                and args[3].startswith("refs/remotes/origin/"):
+            return _cp(1, stderr="fatal: bad ref")
         if args[:2] == ["git", "log"]:
             return _cp(0, stdout=f"abc123 [TASK-{task_id}] test\n")
         if args[:2] == ["git", "cherry"]:

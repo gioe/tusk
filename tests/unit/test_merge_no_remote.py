@@ -113,6 +113,11 @@ class TestMergeNoRemote:
                 if has_remote:
                     return _cp(0)
                 return _cp(128, stderr="fatal: 'origin' does not appear to be a git repository")
+            # unpushed-default guard probes (issue #607) — pretend origin/<default>
+            # ref isn't tracked locally so the guard short-circuits silently
+            if args[:3] == ["git", "rev-parse", "--verify"] and len(args) == 4 \
+                    and args[3].startswith("refs/remotes/origin/"):
+                return _cp(1, stderr="fatal: bad ref")
             # git log for cherry/diverge checks
             if args[:2] == ["git", "log"]:
                 return _cp(0, stdout=f"abc123 [TASK-{task_id}] test\n")
