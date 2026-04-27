@@ -97,17 +97,18 @@ Scan the issue body for a `## Failing Test` section. If present:
    # `command -v`.
    if [[ "$CHECK_TOKEN" == */* ]] || ! PATH=/usr/bin:/bin command -v "$CHECK_TOKEN" >/dev/null 2>&1; then
      # Effective token is unreachable on the sandbox PATH; the sandbox would exit 127.
-     # Skip the approval prompt and the sandbox run; treat as no failing test.
+     # Skip the approval prompt and the sandbox run, but score as "unverifiable" — the
+     # author still supplied a concrete reproducer; we just can't validate it here.
      test_spec=null
-     test_present="no"
+     test_present="unverifiable"
    fi
    ```
 
    The check is a pure path-resolution lookup. The `*/*` glob short-circuits any token containing `/` (relative path like `bin/tusk` or absolute path) before invoking `command -v` — without it, `command -v bin/tusk` from the project root would report success against the cwd-relative file and bypass PATH entirely, even though the sandbox tempdir cannot reach that path (Issue #589). For bare command names, `command -v` reports whether `<token>` exists on `PATH=/usr/bin:/bin` without invoking it, so the spec is never executed at this stage.
 
-   On skip, set `test_spec = null`, score `test_present` as `"no"`, surface this one-line note, and proceed as if no `## Failing Test` section were found (item 3 below):
+   On skip, set `test_spec = null`, score `test_present` as `"unverifiable"`, do not add a test criterion in Step 6, and surface this one-line note. Do **not** route to item 3 below — that path is reserved for the section-absent case (`test_present="no"`). The `"unverifiable"` value exists because the author still supplied a concrete reproducer; we just can't run it under the sandbox's safety constraints, so the score sits between `"yes"` and `"no"` in `config.default.json` (`issue_scoring.factors.test_present`).
 
-   > Spec invokes a non-PATH tool or path-referenced executable (`<token>`); skipping sandbox (would exit 127). Failing-test verification deferred to `tusk criteria done` after task creation.
+   > Spec invokes a non-PATH tool or path-referenced executable (`<token>`); skipping sandbox (would exit 127). Scoring `test_present` as `unverifiable` (the spec exists but can't be validated here). Failing-test verification deferred to `tusk criteria done` after task creation.
 
    When the wrapper-detection branch fires, `<token>` is the *inner* token (e.g. `tusk`) — not `bash`/`sh` — so the note correctly points at the actual unreachable executable.
 
@@ -121,7 +122,7 @@ Scan the issue body for a `## Failing Test` section. If present:
    > ```
    > **Options:** `run` (execute in sandbox), `skip` (do not execute — treat as `test_spec = null`).
 
-   Wait for the user's response. Treat anything other than an explicit `run` as `skip`. On skip, set `test_spec = null`, score `test_present` as `"no"`, and proceed as if no `## Failing Test` section were found (item 3 below) — do not run the command.
+   Wait for the user's response. Treat anything other than an explicit `run` as `skip`. On skip, set `test_spec = null`, score `test_present` as `"unverifiable"`, do not add a test criterion in Step 6, and do not run the command. The `"unverifiable"` value applies because the `## Failing Test` section was syntactically present in the issue body — the user simply chose not to sandbox-validate it; the score (defined in `config.default.json` `issue_scoring.factors.test_present`) sits between `"yes"` (sandbox-validated) and `"no"` (section absent). Do **not** route to item 3 below — that path is reserved for the section-absent case (`test_present="no"`).
 
    **c. On approval, execute the spec in an isolated sandbox:**
 
