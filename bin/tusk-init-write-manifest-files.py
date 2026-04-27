@@ -16,7 +16,12 @@ Existing files are never overwritten. Re-running against an unchanged tree
 is a no-op.
 
 Usage:
-    tusk init-write-manifest-files --spec '<json>' [--repo-root <path>]
+    tusk init-write-manifest-files (--spec '<json>' | --spec-file <path>) [--repo-root <path>]
+
+`--spec` accepts the JSON spec on argv (convenient for small bootstraps).
+`--spec-file` reads the same JSON from a file — use this when the content is
+large enough to risk the platform's ARG_MAX limit (~256KB on macOS, ~2MB on
+Linux). The two flags are mutually exclusive.
 
 Spec format (matches the manifest_files block from tusk-bootstrap.json):
     [
@@ -124,18 +129,37 @@ def main():
         )
 
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--spec", required=True)
+    spec_group = parser.add_mutually_exclusive_group(required=True)
+    spec_group.add_argument("--spec")
+    spec_group.add_argument("--spec-file", dest="spec_file")
     parser.add_argument("--repo-root", dest="repo_root", default=None)
-    args, _ = parser.parse_known_args(sys.argv[3:])
+    try:
+        args, _ = parser.parse_known_args(sys.argv[3:])
+    except SystemExit:
+        _emit(
+            {"success": False, "error": "exactly one of --spec or --spec-file is required"},
+            exit_code=1,
+        )
 
     repo_root = os.path.abspath(args.repo_root or os.environ.get("TUSK_REPO_ROOT") or os.getcwd())
     if not os.path.isdir(repo_root):
         _emit({"success": False, "error": f"repo-root does not exist: {repo_root}"}, exit_code=1)
 
+    if args.spec_file is not None:
+        try:
+            with open(args.spec_file, "r", encoding="utf-8") as f:
+                spec_raw = f.read()
+        except OSError as e:
+            _emit({"success": False, "error": f"failed to read --spec-file: {e}"}, exit_code=1)
+        spec_source = "--spec-file"
+    else:
+        spec_raw = args.spec
+        spec_source = "--spec"
+
     try:
-        spec = json.loads(args.spec)
+        spec = json.loads(spec_raw)
     except json.JSONDecodeError as e:
-        _emit({"success": False, "error": f"--spec is not valid JSON: {e}"}, exit_code=1)
+        _emit({"success": False, "error": f"{spec_source} is not valid JSON: {e}"}, exit_code=1)
 
     if not isinstance(spec, list):
         _emit({"success": False, "error": "--spec must be a JSON array"}, exit_code=1)
@@ -163,6 +187,6 @@ def main():
 if __name__ == "__main__":
     if len(sys.argv) < 2 or not sys.argv[1].endswith(".db"):
         print("Error: This script must be invoked via the tusk wrapper.", file=sys.stderr)
-        print("Use: tusk init-write-manifest-files --spec '<json>' [--repo-root <path>]", file=sys.stderr)
+        print("Use: tusk init-write-manifest-files (--spec '<json>' | --spec-file <path>) [--repo-root <path>]", file=sys.stderr)
         sys.exit(1)
     main()

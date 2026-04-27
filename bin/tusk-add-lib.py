@@ -24,6 +24,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -152,29 +153,46 @@ def main():
     manifest_files = lib_result.get("manifest_files") or []
     manifest_result = None
     if manifest_files and not lib_result.get("error"):
+        # Pass the spec via --spec-file so manifest content of any size stays
+        # off the argv. Some entries (e.g. multi-KB convention templates) can
+        # otherwise approach the platform's ARG_MAX.
+        spec_file_path = None
         try:
-            mf_proc = subprocess.run(
-                ["tusk", "init-write-manifest-files", "--spec", json.dumps(manifest_files)],
-                capture_output=True, text=True, encoding="utf-8", timeout=30,
-            )
-        except FileNotFoundError:
-            print(json.dumps({
-                "lib": lib_name,
-                "tasks": lib_result.get("tasks", []),
-                "manifest_files": manifest_files,
-                "manifest_result": None,
-                "error": "tusk not found in PATH (manifest_files write)",
-            }))
-            sys.exit(1)
-        except subprocess.TimeoutExpired:
-            print(json.dumps({
-                "lib": lib_name,
-                "tasks": lib_result.get("tasks", []),
-                "manifest_files": manifest_files,
-                "manifest_result": None,
-                "error": "init-write-manifest-files timed out",
-            }))
-            sys.exit(1)
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".json", prefix="tusk-manifest-",
+                encoding="utf-8", delete=False,
+            ) as spec_fp:
+                json.dump(manifest_files, spec_fp)
+                spec_file_path = spec_fp.name
+            try:
+                mf_proc = subprocess.run(
+                    ["tusk", "init-write-manifest-files", "--spec-file", spec_file_path],
+                    capture_output=True, text=True, encoding="utf-8", timeout=30,
+                )
+            except FileNotFoundError:
+                print(json.dumps({
+                    "lib": lib_name,
+                    "tasks": lib_result.get("tasks", []),
+                    "manifest_files": manifest_files,
+                    "manifest_result": None,
+                    "error": "tusk not found in PATH (manifest_files write)",
+                }))
+                sys.exit(1)
+            except subprocess.TimeoutExpired:
+                print(json.dumps({
+                    "lib": lib_name,
+                    "tasks": lib_result.get("tasks", []),
+                    "manifest_files": manifest_files,
+                    "manifest_result": None,
+                    "error": "init-write-manifest-files timed out",
+                }))
+                sys.exit(1)
+        finally:
+            if spec_file_path is not None:
+                try:
+                    os.unlink(spec_file_path)
+                except OSError:
+                    pass
         try:
             manifest_result = json.loads(mf_proc.stdout) if mf_proc.stdout.strip() else None
         except json.JSONDecodeError as e:
