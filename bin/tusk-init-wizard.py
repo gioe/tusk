@@ -35,6 +35,16 @@ Behaviour flags:
                                    project_libs bootstrap. Default: none in
                                    non-interactive mode.
 
+Scaffolding flags (mutually exclusive):
+    --scaffold-spec <json>   JSON array of {name, purpose, agent} objects;
+                             after writing config, invokes `tusk init-scaffold`
+                             with the spec. Lets one-shot CI runs do the full
+                             bootstrap (config + scaffolding + bootstrap tasks)
+                             in a single init-wizard invocation.
+    --no-scaffold            Explicit opt-out marker. Equivalent to omitting
+                             --scaffold-spec; included for symmetry with the
+                             /tusk-init SKILL.md flow.
+
 Output (JSON):
     {
       "success": true,
@@ -42,6 +52,7 @@ Output (JSON):
       "config_path": "/path/to/tusk/config.json",
       "written": {"domains": [...], "agents": {...}, ...},
       "scan": {"manifests": [...], "detected_domains": [...]},
+      "scaffold": null | {"success": true, "mode": ..., "created": [...], "skipped": [...]},
       "seeded_tasks": [{"task_id": 42, "summary": "..."}],
       "skipped_tasks": [{"summary": "...", "reason": "..."}]
     }
@@ -398,6 +409,14 @@ def main():
             "tusk-init-wizard.py requires <db_path> and <config_path> as the "
             "first two positional arguments (invoked via `tusk init-wizard`)."
         )
+
+    # Print help and exit before any side effects. parse_known_args silently
+    # drops --help when add_help=False, so the wizard would otherwise run and
+    # rewrite tusk/config.json on `tusk init-wizard --help`.
+    forwarded = sys.argv[3:]
+    if any(arg in ("--help", "-h") for arg in forwarded):
+        print(__doc__)
+        sys.exit(0)
 
     config_path = sys.argv[2]
 
