@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [763] - 2026-04-26
+
+- [TASK-212] Add fresh-project scaffolding to /tusk-init: git init prompt + directory skeleton + per-directory CLAUDE.md/AGENTS.md stubs
+
 ## [762] - 2026-04-26
 
 - [TASK-211] Fix: tusk init must respect TUSK_PROJECT for .gitignore / CLAUDE.md / AGENTS.md edits
