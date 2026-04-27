@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [775] - 2026-04-27
+
+- [TASK-227] Fix: tusk check-deliverables 'merged_not_closed' false positive on prefix-only match
+
 ## [774] - 2026-04-27
 
 - [TASK-226] Add [d] drop option to tusk merge unpushed-default guard prompt
