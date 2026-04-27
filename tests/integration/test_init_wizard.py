@@ -268,6 +268,74 @@ def test_scaffold_spec_invalid_json_fails_clean(codex_like_project):
     assert _read_config(codex_like_project) == before
 
 
+def test_wizard_preserves_existing_task_data(codex_like_project):
+    """Regression for issue #604: running the wizard against a populated DB
+    must preserve every row in tasks, acceptance_criteria, task_sessions, and
+    skill_runs. Earlier behaviour called `tusk init --force` from
+    init-write-config, which silently wiped the DB on every wizard run."""
+    db_file = codex_like_project / "tusk" / "tasks.db"
+    env = {**os.environ, "TUSK_DB": str(db_file)}
+
+    def run(*args):
+        return subprocess.run(
+            [TUSK_BIN, *args],
+            cwd=str(codex_like_project),
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+
+    insert = run(
+        "task-insert",
+        "Sentinel task — must survive init-wizard",
+        "Should still exist after init-wizard runs",
+        "--priority", "Low",
+        "--task-type", "feature",
+        "--complexity", "XS",
+        "--criteria", "Sentinel criterion",
+    )
+    assert insert.returncode == 0, f"task-insert failed:\n{insert.stderr}"
+    task_id = json.loads(insert.stdout)["task_id"]
+
+    # task-start opens a task_sessions row and (with --skill) a skill_runs row,
+    # so the assertion below can verify all four tables stay populated.
+    start = run("task-start", str(task_id), "--force", "--skill", "tusk")
+    assert start.returncode == 0, f"task-start failed:\n{start.stderr}"
+
+    def counts():
+        out = {}
+        for table in ("tasks", "acceptance_criteria", "task_sessions", "skill_runs"):
+            r = subprocess.run(
+                [TUSK_BIN, "shell"],
+                cwd=str(codex_like_project),
+                env=env,
+                input=f"SELECT COUNT(*) FROM {table};",
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+            assert r.returncode == 0, f"shell failed for {table}:\n{r.stderr}"
+            out[table] = int(r.stdout.strip().splitlines()[-1].strip())
+        return out
+
+    before = counts()
+    assert before["tasks"] >= 1
+    assert before["acceptance_criteria"] >= 1
+    assert before["task_sessions"] >= 1
+    assert before["skill_runs"] >= 1
+
+    wizard = _run(codex_like_project, "--non-interactive", "--auto-scan")
+    assert wizard.returncode == 0, f"wizard failed:\n{wizard.stderr}"
+    payload = json.loads(wizard.stdout)
+    assert payload["success"] is True
+
+    after = counts()
+    assert after == before, (
+        f"init-wizard mutated row counts: before={before}, after={after}"
+    )
+
+
 def test_help_documents_scaffold_flags(codex_like_project):
     """`tusk init-wizard --help` exits 0, prints documentation for both new
     flags, and does NOT mutate config.json (regression: the wizard's
