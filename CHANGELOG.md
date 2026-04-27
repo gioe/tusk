@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [779] - 2026-04-27
+
+- [TASK-231] Fix: /address-issue scores test_present=no when sandbox-skip applies, biasing tusk-self issues toward Defer
+
 ## [778] - 2026-04-27
 
 - [TASK-230] Make tusk dupes check consider in-progress tasks' acceptance criteria
