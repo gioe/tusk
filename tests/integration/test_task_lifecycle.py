@@ -61,11 +61,12 @@ def insert_criterion(
     *,
     is_completed: int = 0,
     commit_hash: str | None = None,
+    criterion_type: str = "manual",
 ) -> int:
     cur = conn.execute(
-        "INSERT INTO acceptance_criteria (task_id, criterion, source, is_completed, commit_hash)"
-        " VALUES (?, ?, 'original', ?, ?)",
-        (task_id, text, is_completed, commit_hash),
+        "INSERT INTO acceptance_criteria (task_id, criterion, source, is_completed, commit_hash, criterion_type)"
+        " VALUES (?, ?, 'original', ?, ?, ?)",
+        (task_id, text, is_completed, commit_hash, criterion_type),
     )
     conn.commit()
     return cur.lastrowid
@@ -238,13 +239,21 @@ class TestTaskLifecycle:
         assert result["task"]["closed_reason"] == "wont_do"
 
     def test_completed_reason_blocked_when_criterion_lacks_commit_hash(self, db_path, config_path):
-        """CID 1535: completed closure is blocked (exit code 3) when a completed criterion has no commit_hash."""
+        """CID 1535: completed closure is blocked (exit code 3) when a completed typed criterion has no commit_hash.
+
+        Manual criteria are excluded from this check (Issue #609) — a code/test/file
+        criterion is required to exercise the block.
+        """
         conn = sqlite3.connect(str(db_path))
         conn.execute("PRAGMA foreign_keys = ON")
         try:
             task_id = insert_task(conn, "Completed no-hash task")
-            # Criterion is completed but has no commit_hash
-            insert_criterion(conn, task_id, "Done but uncommitted", is_completed=1, commit_hash=None)
+            # Typed criterion (code) is completed but has no commit_hash — this is the
+            # case the check is designed to flag. Manual criteria are excluded entirely.
+            insert_criterion(
+                conn, task_id, "Done but uncommitted",
+                is_completed=1, commit_hash=None, criterion_type="code",
+            )
             conn.execute(
                 "UPDATE tasks SET status = 'In Progress' WHERE id = ?", (task_id,)
             )
@@ -257,6 +266,104 @@ class TestTaskLifecycle:
         assert rc == 3
         assert result is None
         assert "commit_hash" in stderr or "commit" in stderr.lower()
+
+    def test_manual_criterion_without_commit_hash_does_not_block_completed(
+        self, db_path, config_path
+    ):
+        """Issue #609: a completed manual criterion with no commit_hash must NOT
+        block 'completed' closure — manual criteria carry no code by definition,
+        so binding them to a commit hash is conceptually wrong. The query in
+        bin/tusk-task-done.py excludes criterion_type='manual'.
+        """
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            task_id = insert_task(conn, "Verification-only manual task")
+            insert_criterion(
+                conn, task_id, "Manual verification step",
+                is_completed=1, commit_hash=None, criterion_type="manual",
+            )
+            conn.execute(
+                "UPDATE tasks SET status = 'In Progress' WHERE id = ?", (task_id,)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        rc, result, stderr = call_done(db_path, config_path, task_id, "completed")
+
+        assert rc == 0, f"Expected exit 0, got {rc}\nstderr: {stderr}"
+        assert result["task"]["status"] == "Done"
+        assert result["task"]["closed_reason"] == "completed"
+        # No diagnostic about missing commit hashes — the manual criterion is excluded.
+        assert "criteria without a commit hash" not in stderr
+
+    def test_manual_criterion_does_not_warn_even_with_force(
+        self, db_path, config_path
+    ):
+        """Issue #609: --force must also produce no 'criteria without a commit hash'
+        diagnostic when the only completed-but-uncommitted criteria are manual.
+        Mirrors the merge auto-complete / normal path which always passes --force.
+        """
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            task_id = insert_task(conn, "Force close manual-only task")
+            insert_criterion(
+                conn, task_id, "Manual one",
+                is_completed=1, commit_hash=None, criterion_type="manual",
+            )
+            insert_criterion(
+                conn, task_id, "Manual two",
+                is_completed=1, commit_hash=None, criterion_type="manual",
+            )
+            conn.execute(
+                "UPDATE tasks SET status = 'In Progress' WHERE id = ?", (task_id,)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        rc, result, stderr = call_done(
+            db_path, config_path, task_id, "completed", "--force"
+        )
+
+        assert rc == 0
+        assert result["task"]["status"] == "Done"
+        assert "criteria without a commit hash" not in stderr
+
+    def test_typed_criterion_without_commit_hash_with_force_still_warns(
+        self, db_path, config_path
+    ):
+        """Issue #609 regression guard: the manual-exclusion change must not
+        silence the warning for typed criteria — a code/test/file criterion that
+        legitimately lacks a commit hash should still emit the 'Warning:' diagnostic
+        on --force closure so the audit trail survives.
+        """
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            task_id = insert_task(conn, "Force close typed-uncommitted task")
+            insert_criterion(
+                conn, task_id, "Typed but uncommitted",
+                is_completed=1, commit_hash=None, criterion_type="code",
+            )
+            conn.execute(
+                "UPDATE tasks SET status = 'In Progress' WHERE id = ?", (task_id,)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        rc, result, stderr = call_done(
+            db_path, config_path, task_id, "completed", "--force"
+        )
+
+        assert rc == 0
+        assert result["task"]["status"] == "Done"
+        # Warning still printed for typed criteria — diagnostic preserved.
+        assert "Warning" in stderr
+        assert "criteria without a commit hash" in stderr
 
     def test_already_done_task_returns_exit_code_2(self, db_path, config_path):
         """CID 1528: calling task-done on an already-Done task returns exit code 2."""
