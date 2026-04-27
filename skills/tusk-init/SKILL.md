@@ -423,8 +423,8 @@ This reads `project_libs` from config, fetches each lib's `tusk-bootstrap.json` 
 ```json
 {
   "libs": [
-    { "name": "ios_app", "repo": "gioe/ios-libs", "tasks": [...], "error": null },
-    { "name": "bad_lib", "repo": "owner/repo", "tasks": [], "error": "404: tusk-bootstrap.json not found" }
+    { "name": "ios_app", "repo": "gioe/ios-libs", "tasks": [...], "manifest_files": [...], "error": null },
+    { "name": "bad_lib", "repo": "owner/repo", "tasks": [], "manifest_files": [], "error": "404: tusk-bootstrap.json not found" }
   ]
 }
 ```
@@ -435,6 +435,14 @@ For each lib entry:
 
 - If `error` is non-null, print a one-line warning and skip:
   > Warning: could not fetch bootstrap for `<repo>` — <error>.
+- If `error` is null and `manifest_files` is non-empty, write the deterministic files first via:
+
+  ```bash
+  tusk init-write-manifest-files --spec '<json array of manifest_files>'
+  ```
+
+  This creates files that don't exist yet (`mode: create_only`, the default) and idempotently appends lines to existing files (`mode: append_if_missing`). The writer returns `{wrote: [...], skipped: [...], summary: "wrote N files, skipped M existing"}` — surface the `summary` line to the user before the seed-tasks prompt below.
+
 - If `error` is null and `tasks` is non-empty, present the task list to the user:
 
   > **`<lib-name>` bootstrap tasks found** — `tusk-bootstrap.json` from `<owner>/<repo>` contains N tasks to help you set up <lib-name> integration:
