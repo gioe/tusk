@@ -1,11 +1,17 @@
 """Unit tests for tusk-dupes.py similarity functions.
 
 Covers normalize_summary, tokenize, char_similarity, token_similarity,
-and combined_similarity, including threshold boundary cases.
+and combined_similarity, including threshold boundary cases. Also covers
+the in-progress-criterion match path added in TASK-230 (Issue #603).
 """
 
+import argparse
 import importlib.util
+import io
+import json
 import os
+import sqlite3
+from contextlib import redirect_stdout
 
 import pytest
 
@@ -206,3 +212,219 @@ class TestSimilarity:
             "add unit tests for similarity module",
         )
         assert score >= dupes.DEFAULT_CHECK_THRESHOLD
+
+
+# ── In-progress-criterion match path (Issue #603) ─────────────────────
+
+
+def _make_dupes_db(tasks, criteria):
+    """Build an in-memory DB with the minimal schema cmd_check queries.
+
+    tasks: list of (id, summary, status, domain) tuples.
+    criteria: list of (id, task_id, criterion, is_completed) tuples.
+    """
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute(
+        "CREATE TABLE tasks ("
+        " id INTEGER PRIMARY KEY, summary TEXT, status TEXT,"
+        " domain TEXT, priority TEXT DEFAULT 'Medium')"
+    )
+    conn.execute(
+        "CREATE TABLE acceptance_criteria ("
+        " id INTEGER PRIMARY KEY, task_id INTEGER, criterion TEXT,"
+        " is_completed INTEGER DEFAULT 0)"
+    )
+    for tid, summary, status, domain in tasks:
+        conn.execute(
+            "INSERT INTO tasks (id, summary, status, domain) VALUES (?, ?, ?, ?)",
+            (tid, summary, status, domain),
+        )
+    for cid, tid, text, done in criteria:
+        conn.execute(
+            "INSERT INTO acceptance_criteria (id, task_id, criterion, is_completed)"
+            " VALUES (?, ?, ?, ?)",
+            (cid, tid, text, done),
+        )
+    conn.commit()
+    return conn
+
+
+def _run_cmd_check(monkeypatch, conn, summary, *, json_out=True,
+                   threshold=None, criterion_threshold=None, domain=None):
+    """Invoke dupes.cmd_check against an in-memory connection and return parsed JSON."""
+    monkeypatch.setattr(dupes, "get_connection", lambda _path: conn)
+    args = argparse.Namespace(
+        summary=summary,
+        domain=domain,
+        threshold=dupes.DEFAULT_CHECK_THRESHOLD if threshold is None else threshold,
+        criterion_threshold=(
+            dupes.DEFAULT_CRITERION_CHECK_THRESHOLD
+            if criterion_threshold is None else criterion_threshold
+        ),
+        json=json_out,
+    )
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = dupes.cmd_check(args, db_path="ignored-by-monkeypatch")
+    return rc, json.loads(buf.getvalue()) if json_out else buf.getvalue()
+
+
+class TestInProgressCriterionMatch:
+    """Issue #603: cmd_check must surface near-matches against open criteria
+    of In-Progress tasks, not just task summaries.
+    """
+
+    def test_repro_scenario_matches_in_progress_criterion(self, monkeypatch):
+        """The exact repro from Issue #603: in-progress parent + open criterion,
+        proposed summary identical to the criterion text → exit 1, criterion match.
+        """
+        conn = _make_dupes_db(
+            tasks=[(70, "Wire up the iOS app's networking spine", "In Progress", "ios")],
+            criteria=[
+                (243, 70,
+                 "Add iOS networking layer with URLSession and Bearer auth", 0),
+            ],
+        )
+        rc, payload = _run_cmd_check(
+            monkeypatch, conn,
+            "Add iOS networking layer with URLSession and Bearer auth",
+        )
+        assert rc == 1
+        assert len(payload["duplicates"]) == 1
+        match = payload["duplicates"][0]
+        assert match["match_type"] == "criterion"
+        assert match["id"] == 70
+        assert match["criterion_id"] == 243
+        assert match["criterion"] == (
+            "Add iOS networking layer with URLSession and Bearer auth"
+        )
+        assert match["similarity"] >= dupes.DEFAULT_CRITERION_CHECK_THRESHOLD
+
+    def test_completed_criterion_is_not_matched(self, monkeypatch):
+        """Completed criteria represent already-shipped work — surfacing them as
+        duplicates of follow-up tasks would be a false positive (Issue #603 fix
+        scope: incomplete criteria only)."""
+        conn = _make_dupes_db(
+            tasks=[(70, "Some unrelated parent", "In Progress", None)],
+            criteria=[
+                (243, 70,
+                 "Add iOS networking layer with URLSession and Bearer auth", 1),
+            ],
+        )
+        rc, payload = _run_cmd_check(
+            monkeypatch, conn,
+            "Add iOS networking layer with URLSession and Bearer auth",
+        )
+        assert rc == 0
+        assert payload["duplicates"] == []
+
+    def test_done_task_criterion_is_not_matched(self, monkeypatch):
+        """Criteria of Done tasks are out of scope — only In-Progress tasks
+        represent active duplicate-of-work risk."""
+        conn = _make_dupes_db(
+            tasks=[(70, "Some shipped parent", "Done", None)],
+            criteria=[
+                (243, 70,
+                 "Add iOS networking layer with URLSession and Bearer auth", 0),
+            ],
+        )
+        rc, payload = _run_cmd_check(
+            monkeypatch, conn,
+            "Add iOS networking layer with URLSession and Bearer auth",
+        )
+        assert rc == 0
+        assert payload["duplicates"] == []
+
+    def test_criterion_below_stricter_threshold_is_not_matched(self, monkeypatch):
+        """The criterion threshold gates which criterion-text matches surface.
+        A score above the summary threshold but below the criterion threshold
+        is rejected — that gap is what protects against broad-scope criteria
+        false-matching narrow proposed summaries."""
+        proposed = "add unit tests for the similarity module"
+        criterion_text = "add unit tests for similarity module"
+        # Pin the score (used in the existing TestCombinedSimilarity case) and
+        # bracket criterion_threshold strictly above it so the gating is
+        # provable regardless of future tuning of the default thresholds.
+        score = dupes.similarity(proposed, criterion_text)
+        criterion_threshold = score + 0.01
+        assert score < criterion_threshold
+
+        # cmd_check closes its connection in a finally — each invocation
+        # needs its own fresh DB.
+        def fresh_db():
+            return _make_dupes_db(
+                tasks=[(70, "Some unrelated parent summary", "In Progress", None)],
+                criteria=[(243, 70, criterion_text, 0)],
+            )
+
+        rc, payload = _run_cmd_check(
+            monkeypatch, fresh_db(), proposed,
+            criterion_threshold=criterion_threshold,
+        )
+        assert rc == 0
+        assert payload["duplicates"] == []
+
+        # And confirm that lowering the threshold below the score does match.
+        rc2, payload2 = _run_cmd_check(
+            monkeypatch, fresh_db(), proposed,
+            criterion_threshold=score - 0.01,
+        )
+        assert rc2 == 1
+        assert payload2["duplicates"][0]["match_type"] == "criterion"
+
+    def test_summary_and_criterion_match_does_not_double_report(self, monkeypatch):
+        """When the parent task already matches on summary, its criteria are
+        skipped to avoid surfacing the same task twice."""
+        conn = _make_dupes_db(
+            tasks=[(70,
+                    "Add iOS networking layer with URLSession and Bearer auth",
+                    "In Progress", None)],
+            criteria=[
+                (243, 70,
+                 "Add iOS networking layer with URLSession and Bearer auth", 0),
+            ],
+        )
+        rc, payload = _run_cmd_check(
+            monkeypatch, conn,
+            "Add iOS networking layer with URLSession and Bearer auth",
+        )
+        assert rc == 1
+        assert len(payload["duplicates"]) == 1
+        # The single match is the summary one, not the criterion one.
+        assert payload["duplicates"][0]["match_type"] == "summary"
+
+    def test_summary_only_matches_keep_existing_shape(self, monkeypatch):
+        """Regression guard: existing summary-only matches gain match_type
+        but otherwise keep their JSON shape (id, summary, domain, similarity)."""
+        conn = _make_dupes_db(
+            tasks=[(50, "Add unit tests for similarity module", "To Do", "cli")],
+            criteria=[],
+        )
+        rc, payload = _run_cmd_check(
+            monkeypatch, conn,
+            "Add unit tests for similarity module",
+        )
+        assert rc == 1
+        match = payload["duplicates"][0]
+        assert match == {
+            "id": 50,
+            "summary": "Add unit tests for similarity module",
+            "domain": "cli",
+            "similarity": pytest.approx(1.0),
+            "match_type": "summary",
+        }
+
+
+class TestCriterionThresholdConfig:
+    def test_default_criterion_threshold_loaded_from_config(self):
+        """Module global is sourced from config.dupes.criterion_check_threshold."""
+        assert dupes.DEFAULT_CRITERION_CHECK_THRESHOLD == 0.88
+
+    def test_criterion_threshold_is_stricter_than_summary_threshold(self):
+        """Per-issue rationale: criteria are usually broader-scope text than
+        summaries, so a higher threshold is needed to keep false positives down."""
+        assert (
+            dupes.DEFAULT_CRITERION_CHECK_THRESHOLD
+            > dupes.DEFAULT_CHECK_THRESHOLD
+        )
