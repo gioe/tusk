@@ -21,7 +21,7 @@
   "review_severities": ["critical", "major", "minor"],
   "issue_scoring": {
     "factors": {
-      "test_present":   { "yes": 2, "no": -1 },
+      "test_present":   { "yes": 2, "no": -1, "unverifiable": 1 },
       "pillar_aligned": { "yes": 2, "no": -3 },
       "duplicate":      { "yes": -5, "no": 0 },
       "in_scope":       { "yes": 1, "no": -3 },
