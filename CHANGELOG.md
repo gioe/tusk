@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [778] - 2026-04-27
+
+- [TASK-230] Make tusk dupes check consider in-progress tasks' acceptance criteria
+
 ## [777] - 2026-04-27
 
 - [TASK-229] Fix: tusk merge emits 'criteria without commit hash' warning for manual criteria during merge
