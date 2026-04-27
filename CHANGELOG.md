@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [764] - 2026-04-27
+
+- [TASK-213] Extend tusk-bootstrap.json schema with optional manifest_files block
+
 ## [763] - 2026-04-26
 
 - [TASK-212] Add fresh-project scaffolding to /tusk-init: git init prompt + directory skeleton + per-directory CLAUDE.md/AGENTS.md stubs
