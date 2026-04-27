@@ -726,3 +726,52 @@ The two `migration_hints` entries above will be seeded as additional acceptance 
 ```
 
 These appear alongside the task's normal criteria in `tusk criteria list` and are treated identically — they must be checked off before the task can be marked done.
+
+**`tusk-bootstrap.json` `manifest_files` block (top-level, optional):**
+
+`manifest_files` is an optional top-level array (sibling of `tasks`, not a per-task field) listing files the bootstrap step writes into the consuming project's working tree. Use it for files the integration assumes exist but that no individual task is the right home for — skeleton config files, `.gitignore` additions, or dependency-manifest entries. Each element is an object:
+
+| Field | Type | Required | Default | Purpose |
+|-------|------|----------|---------|---------|
+| `path` | `string` | yes | — | Repo-root-relative file path. Must not be absolute, must not contain `..` segments, and may only contain `[a-zA-Z0-9._/-]` characters. |
+| `content` | `string` | yes | — | Exact bytes to write or append. |
+| `mode` | `string` | no | `create_only` | Conflict-handling mode. One of `create_only` or `append_if_missing`. |
+
+**Modes and conflict behavior:**
+
+- **`create_only`** (default) — writes `path` only if it does not already exist. If the file is already present, the entry is silently skipped — no overwrite, no error. Use this for skeleton files the consuming project takes ownership of after the first integration.
+- **`append_if_missing`** — appends `content` to `path` only if `content` is not already a substring of the existing file. Idempotent: re-running the bootstrap step does not produce duplicate appends. If `path` does not exist, it is created with `content` as the initial body. Use this for line-oriented additions like `requirements.txt` entries or `.gitignore` patterns.
+
+**Minimal `tusk-bootstrap.json` example showing both `manifest_files` modes:**
+
+```json
+{
+  "version": 1,
+  "project_type": "python_service",
+  "manifest_files": [
+    {
+      "path": "tusk/conventions/python.md",
+      "content": "# Python conventions\n\n- Prefer structured logging via aiq_logging.\n"
+    },
+    {
+      "path": "requirements.txt",
+      "content": "gioe-libs>=0.4\n",
+      "mode": "append_if_missing"
+    }
+  ],
+  "tasks": [
+    {
+      "summary": "Install gioe-libs and configure structured logging",
+      "description": "Add the gioe-libs package and replace ad-hoc logging setup with gioe_libs.aiq_logging.",
+      "priority": "High",
+      "task_type": "feature",
+      "complexity": "S",
+      "criteria": [
+        "gioe-libs is listed in requirements.txt or pyproject.toml"
+      ]
+    }
+  ]
+}
+```
+
+The first entry omits `mode`, so it defaults to `create_only` — `tusk/conventions/python.md` is written on first integration and skipped on subsequent runs. The second uses `append_if_missing`, so `gioe-libs>=0.4` is added to `requirements.txt` exactly once even if the bootstrap step runs again later.
