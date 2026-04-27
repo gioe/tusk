@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [777] - 2026-04-27
+
+- [TASK-229] Fix: tusk merge emits 'criteria without commit hash' warning for manual criteria during merge
+
 ## [776] - 2026-04-27
 
 - [TASK-228] Fix: skip leading shell-comment lines in /address-issue Step 4.1 first-token detection
