@@ -1437,6 +1437,7 @@ case "${1:-}" in
   init-scan-todos) shift; exec python3 "$SCRIPT_DIR/tusk-init-scan-todos.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   init-fetch-bootstrap) shift; exec python3 "$SCRIPT_DIR/tusk-init-fetch-bootstrap.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   init-write-config) shift; exec python3 "$SCRIPT_DIR/tusk-init-write-config.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  init-write-manifest-files) shift; exec python3 "$SCRIPT_DIR/tusk-init-write-manifest-files.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   init-wizard) shift; exec python3 "$SCRIPT_DIR/tusk-init-wizard.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   init-scaffold) shift; exec python3 "$SCRIPT_DIR/tusk-init-scaffold.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   review-check-perms) shift; exec python3 "$SCRIPT_DIR/tusk-review-check-perms.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
