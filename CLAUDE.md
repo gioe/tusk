@@ -270,3 +270,13 @@ tusk conventions search <topic>
 - Before adding a migration → `tusk conventions search migration`
 
 Use `tusk conventions list` (no filter) sparingly — only when you want a full overview of all conventions.
+
+<!-- tusk-task-tools -->
+## Tusk Task Lookup
+
+**Do NOT use your agent's built-in `TaskList`, `TaskGet`, or `TaskUpdate` tools to look up or manage tasks.** Those tools manage background agent subprocesses, not tusk tasks.
+
+Use the tusk CLI instead:
+- `tusk task-list` — list tasks
+- `tusk task-get <id>` — get a task by ID (accepts `506` or `TASK-506`)
+- `tusk task-update <id>` — update a task

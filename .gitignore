@@ -16,3 +16,4 @@ config.default.json.bak
 .claude/settings.json
 .claude/tusk-manifest.json
 .claude/scheduled_tasks.lock
+tusk/backups/
