@@ -15,14 +15,16 @@ Output JSON:
         "files_found": bool,
         "files": ["path/that/exists", ...],
         "default_branch_commits": ["sha1", ...],
-        "recommendation": "commits_found" | "merged_not_closed" | "mark_done" | "implement_fresh"
+        "default_branch_commit_files": ["path/changed/by/default/commits", ...],
+        "recommendation": "commits_found" | "merged_not_closed" | "merged_not_closed_low_confidence" | "mark_done" | "implement_fresh"
     }
 
 Recommendations:
-    "commits_found"      — commits referencing this task exist on a non-default branch — normal path
-    "merged_not_closed"  — commits already on the default branch (orphaned-task case) — skip implementation, go straight to finalize
-    "mark_done"          — no commits, but deliverable files found on disk — mark criteria done and merge
-    "implement_fresh"    — no commits, no files found — proceed with implementation
+    "commits_found"                       — commits referencing this task exist on a non-default branch — normal path
+    "merged_not_closed"                   — commits already on the default branch and their diff overlaps with task scope (or there is no scope signal to compare) — skip implementation, go straight to finalize
+    "merged_not_closed_low_confidence"    — commits exist on the default branch but their diff doesn't overlap with files referenced in the task or with files modified on any feature branch — likely a [TASK-N] prefix-match false positive — verify before acting
+    "mark_done"                           — no commits, but deliverable files found on disk — mark criteria done and merge
+    "implement_fresh"                     — no commits, no files found — proceed with implementation
 
 Exit codes:
     0 — success (always, even if no commits/files)
@@ -109,8 +111,33 @@ def check_default_branch_commits(task_id: int, repo_root: str) -> list:
     return find_task_commits(task_id, repo_root, [_default_branch(repo_root)])
 
 
-def find_existing_files(task_id: int, conn: sqlite3.Connection, repo_root: str) -> list:
-    """Return paths referenced in task text / criteria specs that exist on disk."""
+def _feature_branch_commits(task_id: int, repo_root: str, default_branch: str) -> list:
+    """Return [TASK-<id>] commit SHAs reachable from any ref EXCEPT the default branch."""
+    return find_task_commits(task_id, repo_root, ["--all", "--not", default_branch])
+
+
+def _commit_changed_files(commits: list, repo_root: str) -> set:
+    """Return the union of changed file paths across the given commits."""
+    files: set = set()
+    for sha in commits:
+        result = subprocess.run(
+            ["git", "show", "--name-only", "--format=", sha],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=repo_root,
+        )
+        if result.returncode != 0:
+            continue
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if line:
+                files.add(line)
+    return files
+
+
+def _task_referenced_paths(task_id: int, conn: sqlite3.Connection) -> list:
+    """Return paths referenced in task summary/description/criteria/specs (no existence check)."""
     row = conn.execute(
         "SELECT summary, description FROM tasks WHERE id = ?", (task_id,)
     ).fetchone()
@@ -134,13 +161,16 @@ def find_existing_files(task_id: int, conn: sqlite3.Connection, repo_root: str) 
             if p not in seen:
                 seen.add(p)
                 candidates.append(p)
+    return candidates
 
+
+def find_existing_files(task_id: int, conn: sqlite3.Connection, repo_root: str) -> list:
+    """Return paths referenced in task text / criteria specs that exist on disk."""
     found = []
-    for p in candidates:
+    for p in _task_referenced_paths(task_id, conn):
         abs_path = p if os.path.isabs(p) else os.path.join(repo_root, p)
         if os.path.exists(abs_path):
             found.append(p)
-
     return found
 
 
@@ -167,14 +197,27 @@ def main(argv: list) -> int:
             print(f"Task {task_id} not found", file=sys.stderr)
             return 1
 
-        default_commits = check_default_branch_commits(task_id, repo_root)
+        default_branch = _default_branch(repo_root)
+        default_commits = find_task_commits(task_id, repo_root, [default_branch])
         if default_commits:
+            default_files = _commit_changed_files(default_commits, repo_root)
+            task_paths = set(_task_referenced_paths(task_id, conn))
+            feature_commits = _feature_branch_commits(task_id, repo_root, default_branch)
+            feature_files = _commit_changed_files(feature_commits, repo_root)
+            scope = task_paths | feature_files
+            # Downgrade only when we have a positive scope signal that fails to overlap.
+            # Empty scope = no signal, not a downgrade trigger — preserve existing behavior.
+            if scope and not (scope & default_files):
+                recommendation = "merged_not_closed_low_confidence"
+            else:
+                recommendation = "merged_not_closed"
             output = {
                 "commits_found": True,
                 "files_found": False,
                 "files": [],
                 "default_branch_commits": default_commits,
-                "recommendation": "merged_not_closed",
+                "default_branch_commit_files": sorted(default_files),
+                "recommendation": recommendation,
             }
         elif check_commits(task_id, repo_root):
             output = {
@@ -182,6 +225,7 @@ def main(argv: list) -> int:
                 "files_found": False,
                 "files": [],
                 "default_branch_commits": [],
+                "default_branch_commit_files": [],
                 "recommendation": "commits_found",
             }
         else:
@@ -192,6 +236,7 @@ def main(argv: list) -> int:
                 "files_found": files_found,
                 "files": files,
                 "default_branch_commits": [],
+                "default_branch_commit_files": [],
                 "recommendation": "mark_done" if files_found else "implement_fresh",
             }
 

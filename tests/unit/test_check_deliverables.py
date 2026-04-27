@@ -237,6 +237,7 @@ class TestMainRecommendations:
             "files_found",
             "files",
             "default_branch_commits",
+            "default_branch_commit_files",
             "recommendation",
         }
 
@@ -260,6 +261,7 @@ class TestMainRecommendations:
         data = json.loads(stdout)
         assert data["recommendation"] == "implement_fresh"
         assert data["default_branch_commits"] == []
+        assert data["default_branch_commit_files"] == []
 
     def test_mark_done_includes_empty_default_branch_commits(self, tmp_path):
         """The existing mark_done path must still emit an empty default_branch_commits list."""
@@ -272,6 +274,7 @@ class TestMainRecommendations:
         data = json.loads(stdout)
         assert data["recommendation"] == "mark_done"
         assert data["default_branch_commits"] == []
+        assert data["default_branch_commit_files"] == []
 
     def test_direct_invocation_guard(self):
         """Direct invocation without .db first arg should exit nonzero with usage hint."""
@@ -324,6 +327,30 @@ def _git_commit(repo_root, message):
     ).stdout.strip()
 
 
+def _git_commit_with_files(repo_root, message, file_specs):
+    """Write each (relpath, contents) in file_specs and commit them.
+
+    Returns the new commit's SHA. Each path is repo-relative.
+    """
+    for relpath, contents in file_specs:
+        abs_path = os.path.join(str(repo_root), relpath)
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        with open(abs_path, "w", encoding="utf-8") as fh:
+            fh.write(contents)
+        subprocess.run(
+            ["git", "-C", str(repo_root), "add", relpath],
+            check=True, capture_output=True,
+        )
+    subprocess.run(
+        ["git", "-C", str(repo_root), "commit", "-m", message],
+        check=True, capture_output=True,
+    )
+    return subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=True, encoding="utf-8",
+    ).stdout.strip()
+
+
 class TestMergedNotClosed:
     def test_merged_not_closed_when_task_commit_on_default(self, tmp_path):
         """[TASK-N] commit on the default branch → merged_not_closed with the SHA listed."""
@@ -352,3 +379,113 @@ class TestMergedNotClosed:
         assert data["recommendation"] == "commits_found"
         assert data["commits_found"] is True
         assert data["default_branch_commits"] == []
+
+
+# ── merged_not_closed_low_confidence (prefix-match false-positive case) ──
+
+
+class TestMergedNotClosedLowConfidence:
+    """Regression tests for issue #606 — prefix-only [TASK-N] match on default
+    branch must not blindly return merged_not_closed when the on-default
+    commit's diff has no overlap with task scope."""
+
+    def test_low_confidence_when_default_commit_diff_unrelated_to_task_paths(self, tmp_path):
+        """Issue #606 reproducer: task description names file A; on-main [TASK-N] commit
+        modifies an unrelated file B → low_confidence, not merged_not_closed."""
+        _init_git_repo(tmp_path)
+        sha = _git_commit_with_files(
+            tmp_path,
+            "[TASK-6606] unrelated cleanup",
+            [("prisma/migrations/0042_cleanup.sql", "DELETE FROM scraping_url WHERE id IN (...);\n")],
+        )
+        db_path = _make_db(
+            tmp_path,
+            task_id=6606,
+            summary="Fix PlaywrightBrowser deadlock",
+            description="The fix lives in apps/scraper/src/laughtrack/foundation/infrastructure/http/client.py",
+        )
+        rc, stdout, _ = _run_main(db_path, 6606)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "merged_not_closed_low_confidence"
+        assert sha in data["default_branch_commits"]
+        assert "prisma/migrations/0042_cleanup.sql" in data["default_branch_commit_files"]
+
+    def test_high_confidence_when_default_commit_diff_overlaps_task_paths(self, tmp_path):
+        """Default-branch commit's changed file appears in task description → keep merged_not_closed."""
+        _init_git_repo(tmp_path)
+        sha = _git_commit_with_files(
+            tmp_path,
+            "[TASK-6607] real fix",
+            [("apps/api/src/handlers/auth.py", "def authenticate(): ...\n")],
+        )
+        db_path = _make_db(
+            tmp_path,
+            task_id=6607,
+            summary="Fix auth handler",
+            description="Patch apps/api/src/handlers/auth.py to handle expired tokens.",
+        )
+        rc, stdout, _ = _run_main(db_path, 6607)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "merged_not_closed"
+        assert sha in data["default_branch_commits"]
+        assert "apps/api/src/handlers/auth.py" in data["default_branch_commit_files"]
+
+    def test_high_confidence_preserved_when_no_scope_signal(self, tmp_path):
+        """No task path refs and no feature-branch [TASK-N] commits → keep
+        merged_not_closed (no signal is not a downgrade trigger). Preserves
+        existing behavior for tasks whose descriptions don't name any files."""
+        _init_git_repo(tmp_path)
+        sha = _git_commit_with_files(
+            tmp_path,
+            "[TASK-6608] orphaned implementation",
+            [("src/new_feature.py", "def feature(): ...\n")],
+        )
+        # summary/description name no paths and no feature branch exists
+        db_path = _make_db(
+            tmp_path,
+            task_id=6608,
+            summary="Add new feature",
+            description="Implement the thing the team agreed on Tuesday.",
+        )
+        rc, stdout, _ = _run_main(db_path, 6608)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "merged_not_closed"
+        assert sha in data["default_branch_commits"]
+
+    def test_low_confidence_when_diff_unrelated_to_feature_branch_files(self, tmp_path):
+        """Default-branch [TASK-N] commit changes file A; feature branch has [TASK-N]
+        commits that change file B (the real work) → low_confidence. Mirrors
+        the exact TASK-1691 incident from issue #606."""
+        _init_git_repo(tmp_path)
+        # The on-main false-positive commit (Prisma migration)
+        default_sha = _git_commit_with_files(
+            tmp_path,
+            "[TASK-6609] Clean up stale scraping_url",
+            [("prisma/migrations/0099_cleanup.sql", "DELETE FROM scraping_url;\n")],
+        )
+        # The real fix lives unmerged on a feature branch
+        subprocess.run(
+            ["git", "-C", str(tmp_path), "checkout", "-b", "feature/TASK-6609-real"],
+            check=True, capture_output=True,
+        )
+        _git_commit_with_files(
+            tmp_path,
+            "[TASK-6609] real PlaywrightBrowser deadlock fix",
+            [("apps/scraper/http_client.py", "class PlaywrightBrowser: ...\n")],
+        )
+        # Task description has no explicit paths — scope signal comes from feature branch
+        db_path = _make_db(
+            tmp_path,
+            task_id=6609,
+            summary="Fix PlaywrightBrowser deadlock",
+            description="Investigation pending.",
+        )
+        rc, stdout, _ = _run_main(db_path, 6609)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "merged_not_closed_low_confidence"
+        assert default_sha in data["default_branch_commits"]
+        assert "prisma/migrations/0099_cleanup.sql" in data["default_branch_commit_files"]
