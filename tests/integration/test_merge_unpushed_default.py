@@ -8,6 +8,8 @@ Covers:
 - Push is NOT attempted after the abort
 - When local default == origin/default the guard is silent and the merge proceeds
 - When the origin ref is missing (never-fetched repo) the guard is silent
+- Interactive [d] drop path requires typing the full word 'drop' (issue #608)
+- Mistyped drop confirmation aborts without touching state
 """
 
 import importlib.util
@@ -325,3 +327,148 @@ class TestGuardSilentWhenClean:
 
         assert rc == 0
         assert "ahead of 'origin/main'" not in stderr_buf.getvalue()
+
+
+class _FakeStdin:
+    """Scripted stdin replacement: feeds canned readline() answers and pretends to be a TTY.
+
+    The guard only consults stdin via .isatty() and .readline(); any other access
+    raises so the test fails loudly rather than silently returning an empty string.
+    """
+
+    def __init__(self, lines: list[str]):
+        self._lines = list(lines)
+
+    def isatty(self) -> bool:
+        return True
+
+    def readline(self) -> str:
+        if not self._lines:
+            raise AssertionError("FakeStdin exhausted: more readline() calls than scripted answers")
+        return self._lines.pop(0)
+
+
+class TestInteractiveDropPath:
+    """[d] drop branch added in TASK-226 / issue #608.
+
+    The drop path is destructive (`git reset --hard`), so the prompt requires the
+    user to type the full word 'drop' before any state changes — a single keypress
+    confirmation would silently lose work on a typo.
+    """
+
+    def _make_run(self, calls):
+        def _run(args, check=True):
+            calls.append(list(args))
+            if args[:2] == ["git", "rev-parse"] and args[2:] == ["HEAD"]:
+                return subprocess.CompletedProcess(args, 0, stdout="cafef00d\n", stderr="")
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        return _run
+
+    def test_drop_then_drop_runs_fetch_and_reset_hard(self, monkeypatch):
+        """Typing 'd' then 'drop' invokes git fetch + git reset --hard and returns False."""
+        unpushed = [("deadbeef", "[TASK-9999] Stale commit")]
+        calls: list[list[str]] = []
+
+        monkeypatch.setattr(tusk_merge, "run", self._make_run(calls))
+        monkeypatch.setattr("sys.stdin", _FakeStdin(["d\n", "drop\n"]))
+
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            result = tusk_merge._confirm_proceed_with_unpushed(unpushed, "main", 226)
+
+        assert result is False, "drop path must return False so caller does not push"
+        assert ["git", "fetch", "origin"] in calls
+        assert ["git", "reset", "--hard", "origin/main"] in calls
+        stderr = stderr_buf.getvalue()
+        assert "Dropped 1 unpushed commit(s)" in stderr
+        assert "cafef00d" in stderr  # new HEAD reported
+
+    def test_drop_then_mistype_aborts_without_state_change(self, monkeypatch):
+        """Typing 'd' then anything other than 'drop' must NOT invoke fetch/reset."""
+        unpushed = [("deadbeef", "[TASK-9999] Stale commit")]
+        calls: list[list[str]] = []
+
+        monkeypatch.setattr(tusk_merge, "run", self._make_run(calls))
+        monkeypatch.setattr("sys.stdin", _FakeStdin(["d\n", "yes please\n"]))
+
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            result = tusk_merge._confirm_proceed_with_unpushed(unpushed, "main", 226)
+
+        assert result is False
+        assert not any(c[:2] == ["git", "fetch"] for c in calls), \
+            "fetch must not run when drop confirmation is mistyped"
+        assert not any(c[:2] == ["git", "reset"] for c in calls), \
+            "reset --hard must not run when drop confirmation is mistyped"
+        stderr = stderr_buf.getvalue()
+        assert "expected 'drop'" in stderr
+
+    def test_drop_uppercase_confirmation_accepted(self, monkeypatch):
+        """'DROP' is case-insensitively accepted — typo protection, not case strictness."""
+        unpushed = [("deadbeef", "[TASK-9999] Stale commit")]
+        calls: list[list[str]] = []
+
+        monkeypatch.setattr(tusk_merge, "run", self._make_run(calls))
+        monkeypatch.setattr("sys.stdin", _FakeStdin(["d\n", "DROP\n"]))
+
+        with redirect_stderr(io.StringIO()):
+            result = tusk_merge._confirm_proceed_with_unpushed(unpushed, "main", 226)
+
+        assert result is False
+        assert ["git", "reset", "--hard", "origin/main"] in calls
+
+    def test_yes_still_returns_true(self, monkeypatch):
+        """Existing [y] push path must continue to work."""
+        unpushed = [("deadbeef", "[TASK-9999] Stale commit")]
+        calls: list[list[str]] = []
+
+        monkeypatch.setattr(tusk_merge, "run", self._make_run(calls))
+        monkeypatch.setattr("sys.stdin", _FakeStdin(["y\n"]))
+
+        with redirect_stderr(io.StringIO()):
+            result = tusk_merge._confirm_proceed_with_unpushed(unpushed, "main", 226)
+
+        assert result is True
+        # 'y' must not trigger any destructive plumbing
+        assert not any(c[:2] == ["git", "reset"] for c in calls)
+        assert not any(c[:2] == ["git", "fetch"] for c in calls)
+
+    def test_no_aborts_without_dropping(self, monkeypatch):
+        """Existing [n]/empty abort path must continue to work."""
+        unpushed = [("deadbeef", "[TASK-9999] Stale commit")]
+        calls: list[list[str]] = []
+
+        monkeypatch.setattr(tusk_merge, "run", self._make_run(calls))
+        monkeypatch.setattr("sys.stdin", _FakeStdin(["n\n"]))
+
+        with redirect_stderr(io.StringIO()):
+            result = tusk_merge._confirm_proceed_with_unpushed(unpushed, "main", 226)
+
+        assert result is False
+        assert not calls, "abort path must invoke no git plumbing"
+
+    def test_drop_fetch_failure_surfaces_error(self, monkeypatch):
+        """A failing `git fetch origin` aborts the drop and skips reset --hard."""
+        unpushed = [("deadbeef", "[TASK-9999] Stale commit")]
+        calls: list[list[str]] = []
+
+        def _run_fetch_fails(args, check=True):
+            calls.append(list(args))
+            if args[:3] == ["git", "fetch", "origin"]:
+                return subprocess.CompletedProcess(
+                    args, 1, stdout="", stderr="fatal: unable to access remote\n"
+                )
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(tusk_merge, "run", _run_fetch_fails)
+        monkeypatch.setattr("sys.stdin", _FakeStdin(["d\n", "drop\n"]))
+
+        stderr_buf = io.StringIO()
+        with redirect_stderr(stderr_buf):
+            result = tusk_merge._confirm_proceed_with_unpushed(unpushed, "main", 226)
+
+        assert result is False
+        assert ["git", "fetch", "origin"] in calls
+        assert not any(c[:2] == ["git", "reset"] for c in calls), \
+            "reset --hard must not run if the prerequisite fetch failed"
+        assert "git fetch origin' failed" in stderr_buf.getvalue()

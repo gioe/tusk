@@ -96,11 +96,15 @@ def _confirm_proceed_with_unpushed(
     commits: list[tuple[str, str]], default_branch: str, task_id: int
 ) -> bool:
     """Surface unpushed commits on local default and ask whether to push them
-    alongside this merge.
+    alongside this merge, abort, or drop them.
 
-    Returns True to proceed, False to abort. In a non-interactive context (no TTY
-    on stdin) always returns False — silently shipping unaudited commits is the
-    bug this guard exists to prevent (issue #607).
+    Returns True to proceed with the merge, False to abort. The 'd' (drop) branch
+    runs `git fetch origin && git reset --hard origin/<default>` after the user
+    types the full word 'drop' to confirm, then returns False so the caller
+    re-runs `tusk merge` against the now-clean default.
+
+    In a non-interactive context (no TTY on stdin) always returns False — silently
+    shipping unaudited commits is the bug this guard exists to prevent (issue #607).
     """
     print(
         f"\nWarning: local '{default_branch}' is ahead of "
@@ -125,23 +129,89 @@ def _confirm_proceed_with_unpushed(
         return False
 
     print(
-        f"\nPush them as part of this TASK-{task_id} merge? [y/N] ",
+        f"\nProceed with this TASK-{task_id} merge?\n"
+        f"  [y] push the commits above as part of this merge\n"
+        f"  [n] abort (default)\n"
+        f"  [d] drop the commits — runs git fetch origin && "
+        f"git reset --hard origin/{default_branch}\n"
+        f"[y/n/d] ",
         end="",
         file=sys.stderr,
         flush=True,
     )
     answer = sys.stdin.readline().strip().lower()
-    if answer != "y":
+    if answer in ("y", "yes"):
+        return True
+    if answer == "d":
+        return _drop_unpushed_commits(commits, default_branch, task_id)
+    print(
+        f"Aborting. To resolve manually:\n"
+        f"  - Push them: git push origin {default_branch}\n"
+        f"  - Drop them: git fetch origin && "
+        f"git reset --hard origin/{default_branch}\n"
+        f"Then re-run: tusk merge {task_id}",
+        file=sys.stderr,
+    )
+    return False
+
+
+def _drop_unpushed_commits(
+    commits: list[tuple[str, str]], default_branch: str, task_id: int
+) -> bool:
+    """Run the destructive drop path after a typed-word confirmation.
+
+    Requires the user to type the full word 'drop' (case-insensitive) before
+    invoking `git fetch origin && git reset --hard origin/<default>`. Always
+    returns False — even on success the merge does not proceed; the caller
+    re-runs `tusk merge` against the now-clean default branch.
+    """
+    print(
+        f"\nThis will run: git fetch origin && "
+        f"git reset --hard origin/{default_branch}\n"
+        f"It will permanently discard the {len(commits)} unpushed commit(s) above "
+        f"on local '{default_branch}'.\n"
+        f"Type 'drop' to confirm (anything else aborts): ",
+        end="",
+        file=sys.stderr,
+        flush=True,
+    )
+    confirmation = sys.stdin.readline().strip()
+    if confirmation.lower() != "drop":
         print(
-            f"Aborting. To resolve manually:\n"
-            f"  - Push them: git push origin {default_branch}\n"
-            f"  - Drop them: git fetch origin && "
-            f"git reset --hard origin/{default_branch}\n"
-            f"Then re-run: tusk merge {task_id}",
+            f"Aborted — typed {confirmation!r}, expected 'drop'. "
+            f"No changes made.",
             file=sys.stderr,
         )
         return False
-    return True
+
+    fetch = run(["git", "fetch", "origin"], check=False)
+    if fetch.returncode != 0:
+        print(
+            f"Aborted — 'git fetch origin' failed:\n{fetch.stderr}",
+            file=sys.stderr,
+        )
+        return False
+
+    reset = run(
+        ["git", "reset", "--hard", f"origin/{default_branch}"], check=False
+    )
+    if reset.returncode != 0:
+        print(
+            f"Aborted — 'git reset --hard origin/{default_branch}' failed:\n"
+            f"{reset.stderr}",
+            file=sys.stderr,
+        )
+        return False
+
+    head = run(["git", "rev-parse", "HEAD"], check=False)
+    new_head = head.stdout.strip() if head.returncode == 0 else "(unknown)"
+    print(
+        f"Dropped {len(commits)} unpushed commit(s) on local "
+        f"'{default_branch}'. HEAD is now {new_head}.\n"
+        f"Re-run: tusk merge {task_id}",
+        file=sys.stderr,
+    )
+    return False
 
 
 # Generated lockfiles whose conflicts are always safe to auto-resolve by preferring
