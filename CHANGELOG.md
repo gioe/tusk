@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [771] - 2026-04-27
+
+- [TASK-222] Fix: tusk init-wizard wipes existing task DB on populated projects
+
 ## [770] - 2026-04-27
 
 - [TASK-221] Add --scaffold-spec / --no-scaffold flags to tusk init-wizard
