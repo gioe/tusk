@@ -76,15 +76,15 @@ Scan the issue body for a `## Failing Test` section. If present:
    Before showing the approval prompt, identify the spec's *effective* first token — the executable that will actually run. For most specs this is just the first whitespace-delimited token. But specs wrapped in `bash -c '<body>'` or `sh -c '<body>'` are a recurring pattern in tusk's own issue templates (any regression spec that chains `tusk init && tusk task-insert ...` ends up wrapped this way), and the outer `bash`/`sh` is always on `/usr/bin:/bin` — checking it would always pass the fast-path and force the sandbox to run a wrapper whose inner project-tool calls would just exit 127. When the wrapper pattern is detected, peel it off and check the wrapper body's first token instead:
 
    ```bash
-   FIRST_TOKEN=$(printf '%s' "$TEST_SPEC" | awk '{print $1; exit}')
-   SECOND_TOKEN=$(printf '%s' "$TEST_SPEC" | awk '{print $2; exit}')
+   FIRST_TOKEN=$(printf '%s' "$TEST_SPEC" | awk '!/^[[:space:]]*#/ {print $1; exit}')
+   SECOND_TOKEN=$(printf '%s' "$TEST_SPEC" | awk '!/^[[:space:]]*#/ {print $2; exit}')
    if [[ ("$FIRST_TOKEN" == "bash" || "$FIRST_TOKEN" == "sh") && "$SECOND_TOKEN" == "-c" ]]; then
      # Wrapper detected. The body is the third positional arg, normally surrounded
      # by single or double quotes; strip them, then take its first token.
      WRAPPER_BODY=$(printf '%s' "$TEST_SPEC" | awk '{$1=""; $2=""; sub(/^ +/, ""); print}')
      WRAPPER_BODY=${WRAPPER_BODY#[\'\"]}
      WRAPPER_BODY=${WRAPPER_BODY%[\'\"]}
-     CHECK_TOKEN=$(printf '%s' "$WRAPPER_BODY" | awk '{print $1; exit}')
+     CHECK_TOKEN=$(printf '%s' "$WRAPPER_BODY" | awk '!/^[[:space:]]*#/ {print $1; exit}')
    else
      CHECK_TOKEN="$FIRST_TOKEN"
    fi
