@@ -17,6 +17,26 @@ tusk "SELECT COUNT(*) FROM tasks;"
 - **Non-zero task count**: offer backup (`cp "$(tusk path)" "$(tusk path).bak"`), warn that `tusk init --force` destroys all existing tasks. Stop if user declines.
 - **Zero tasks**: proceed without warning.
 
+## Step 1.5: Detect / Initialize Git Repository
+
+Tusk works best inside a git repository — branch-per-task, commit history, and hooks all assume one. `install.sh` no longer requires a git repo to run, so fresh projects may reach this skill without one.
+
+Detect:
+
+```bash
+git rev-parse --show-toplevel >/dev/null 2>&1 && echo "git" || echo "no-git"
+```
+
+- **`git`** — proceed to Step 2 silently.
+- **`no-git`** — ask the user a single yes/no:
+
+  > No git repository detected at the project root. Tusk relies on git for branch-per-task tracking, commit hashing, and hooks. Run `git init` here?
+  >
+  > Options: **yes** (init now) · **no** (continue without git — branch/commit/merge features will be limited)
+
+  - **yes** — run `git init` and continue to Step 2.
+  - **no** — print a one-line warning and continue to Step 2: `Skipped git init — branch/commit features will fail until a repo exists.`
+
 ## Step 2: Scan the Codebase
 
 Gather project context silently using parallel tool calls. Do not ask the user anything yet.
@@ -125,7 +145,69 @@ Also derive a `project_type` key from question 1 using this table and store it f
 | monorepo | `monorepo` |
 | other | `null` |
 
-Once you have a proposed domain, agent list, and `project_type`, proceed to **Step 3** and **Step 4** using these suggestions. In Step 3, substitute the user's stated plans as the evidence string (e.g., "planned React + FastAPI stack" instead of a scanned directory path).
+Once you have a proposed domain, agent list, and `project_type`, proceed to **Step 2f** for directory scaffolding, then to **Step 3** and **Step 4** using these suggestions. In Step 3, substitute the user's stated plans as the evidence string (e.g., "planned React + FastAPI stack" instead of a scanned directory path).
+
+### 2f: Fresh-project directory scaffolding
+
+**Run only when Step 2e was reached** — i.e., Step 2c/2d found no codebase signals. Existing-codebase paths skip this entire step; tusk does not propose directories or write stubs into projects that already have code.
+
+Tusk does not run language-specific scaffolders (`npm init`, `cargo new`, `xcodegen`). It only creates the directory plus a `.gitkeep` and a per-directory routing stub (`CLAUDE.md` in Claude installs, `AGENTS.md` in Codex installs) so future agents know what each directory is for and which agent owns it.
+
+Map the domains and agents confirmed in Step 2e to a directory layout using the table below. Each row produces one directory entry — combine entries from every row whose signal applies. Use plural/canonical names (`backend`, not `api-server-v1`).
+
+| Domain (from 2e) | Directory | Purpose stub | Agent |
+|---|---|---|---|
+| `frontend` | `frontend` | UI / client-side sources | `frontend` |
+| `api` | `backend` | API and service code | `backend` |
+| `database` | (covered by `backend`) | — | — |
+| `mobile` (iOS) | `ios` | iOS app sources (Swift, UIKit, SwiftUI) | `mobile` |
+| `mobile` (Android) | `android` | Android app sources (Kotlin/Java) | `mobile` |
+| `mobile` (cross-platform) | `mobile` | React Native / Flutter sources | `mobile` |
+| `infrastructure` | `infra` | Terraform / Docker / CI configs | `infrastructure` |
+| `data` / `ml` | `data` | Pipelines, notebooks, ML models | `data` |
+| `docs` | `docs` | User-facing documentation | `docs` |
+| `cli` | `cli` | CLI command sources | `cli` |
+
+Present the proposed layout to the user as **a single batch**, not one directory at a time:
+
+> **Proposed project skeleton:**
+>
+> - `frontend/` — UI / client-side sources (agent: `frontend`)
+> - `backend/`  — API and service code (agent: `backend`)
+> - `docs/`     — User-facing documentation (agent: `docs`)
+>
+> Options: **accept all** · **edit list** (specify which to keep, rename, or drop) · **skip** (no directories created)
+
+- **accept all** — proceed to the scaffolding call below with the full list.
+- **edit list** — incorporate the user's edits, then proceed.
+- **skip** — print `Skipped directory scaffolding — run /tusk-init again later if you want it.` and proceed to Step 3.
+
+Build a JSON spec from the confirmed list (one object per directory) and call `tusk init-scaffold`:
+
+```bash
+tusk init-scaffold --spec '[
+  {"name": "frontend", "purpose": "UI / client-side sources",         "agent": "frontend"},
+  {"name": "backend",  "purpose": "API and service code",             "agent": "backend"},
+  {"name": "docs",     "purpose": "User-facing documentation",        "agent": "docs"}
+]'
+```
+
+`init-scaffold` auto-detects the install mode (`.claude/` present → Claude / writes `CLAUDE.md`; `AGENTS.md` present → Codex / writes `AGENTS.md`). For each entry it creates the directory, writes a `.gitkeep`, and writes the routing-stub file. Existing directories that already contain files are skipped — your code is never overwritten.
+
+The command returns JSON describing what was created and what was skipped:
+
+```json
+{
+  "success": true,
+  "mode": "claude",
+  "created": [{"directory": "frontend", "stub": "frontend/CLAUDE.md", "files": [".gitkeep", "CLAUDE.md"]}],
+  "skipped": []
+}
+```
+
+Surface a one-line summary to the user (e.g., `Scaffolded 3 directories — frontend/, backend/, docs/`) and proceed to Step 3.
+
+**Non-interactive opt-out:** Callers that want the rest of the wizard but no scaffolding (CI seeds, automation) should skip this step entirely — there is no scaffold prompt unless Step 2e was reached.
 
 ## Step 3: Suggest and Confirm Domains
 
@@ -407,6 +489,6 @@ If no tasks were seeded during this run, omit the next-steps block — finish wi
 
 ## Edge Cases
 
-- **Fresh project (no code)**: Skip Steps 2a–2d. Run the **Step 2e fresh-project interview** to collect domain/agent signals from the user's stated plans. After Steps 3–4 confirm the domain and agent list, direct the user to **Step 9** (seed from project description) as the primary task-seeding path — there are no TODOs to scan, so Step 9 is both the first and most important seeding route.
+- **Fresh project (no code)**: Skip Steps 2a–2d. Run the **Step 2e fresh-project interview** to collect domain/agent signals from the user's stated plans, then **Step 2f** to propose and (optionally) write the directory skeleton with per-directory `CLAUDE.md` / `AGENTS.md` routing stubs. After Steps 3–4 confirm the domain and agent list, direct the user to **Step 9** (seed from project description) as the primary task-seeding path — there are no TODOs to scan, so Step 9 is both the first and most important seeding route.
 - **Monorepo** (`packages/*/` or `apps/*/`): One domain per package; let user trim.
 - **>20 TODOs**: Summarize by file/category; let user pick which to seed.

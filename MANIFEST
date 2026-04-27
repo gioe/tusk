@@ -27,6 +27,7 @@
   ".claude/bin/tusk-git-helpers.py",
   ".claude/bin/tusk-groom.py",
   ".claude/bin/tusk-init-fetch-bootstrap.py",
+  ".claude/bin/tusk-init-scaffold.py",
   ".claude/bin/tusk-init-scan-codebase.py",
   ".claude/bin/tusk-init-scan-todos.py",
   ".claude/bin/tusk-init-wizard.py",
