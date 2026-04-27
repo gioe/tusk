@@ -997,13 +997,18 @@ cmd_query() {
 import difflib, sys
 candidates = [
   'init','path','config','validate','sql-quote','branch','commit',
-  'lint','lint-rule','dupes','criteria','dashboard','chain','blockers',
-  'review','deps','session-stats','session-recalc','skill-run',
-  'call-breakdown','session-close','task-get','task-get-multi','task-select','task-start',
-  'task-done','task-insert','task-update','task-reopen','task-list','task-summary',
-  'audit','autoclose','backlog-scan','test-detect','test-precheck','init-scan-codebase','init-scan-todos','init-fetch-bootstrap','init-write-config','init-wizard','init-scaffold','review-check-perms','loop','merge','progress',
-  'setup','token-audit','sync-skills','generate-manifest','pricing-update','wsjf','shell',
-  'version','version-bump','changelog-add','migrate','regen-triggers','upgrade',
+  'lint','lint-rule','dupes','conventions','pillars','criteria','dashboard','chain','blockers',
+  'review','review-verdict','review-pass-status','review-final-summary','review-diff-range','review-defer','review-wait','review-check-perms',
+  'deps','session-stats','session-recalc','session-close','skill-run','call-breakdown',
+  'active-project','git-default-branch','branch-parse',
+  'task-get','task-get-multi','task-select','task-start','task-done','task-insert','task-update','task-reopen','task-list','task-summary',
+  'audit','autoclose','backlog-scan','groom','check-deliverables',
+  'retro','retro-signals','retro-themes','retro-finding',
+  'test-detect','test-precheck','add-lib',
+  'init-scan-codebase','init-scan-todos','init-fetch-bootstrap','init-write-config','init-write-manifest-files','init-wizard','init-scaffold',
+  'loop','merge','abandon','bakeoff','progress','setup',
+  'token-audit','sync-skills','generate-manifest','pricing-update','wsjf','shell',
+  'version','version-bump','report-issue','changelog-add','migrate','update-gitignore','regen-triggers','upgrade',
 ]
 matches = difflib.get_close_matches(sys.argv[1], candidates, n=1, cutoff=0.6)
 print(matches[0] if matches else '')
@@ -1461,6 +1466,6 @@ case "${1:-}" in
   update-gitignore) cmd_update_gitignore ;;
   regen-triggers) cmd_regen_triggers ;;
   upgrade) shift; cmd_upgrade "$@" ;;
-  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|commit|lint|lint-rule|dupes|deps|blockers|review|conventions|pillars|criteria|dag|dashboard|wsjf|audit|setup|autoclose|backlog-scan|init-scan-codebase|review-check-perms|token-audit|sync-skills|pricing-update|session-stats|session-recalc|session-close|git-default-branch|branch-parse|skill-run|call-breakdown|task-get|task-get-multi|task-select|task-start|task-done|task-insert|task-update|task-reopen|task-list|task-summary|merge|abandon|progress|shell|version|version-bump|changelog-add|migrate|update-gitignore|upgrade|regen-triggers|report-issue|\"SQL ...\"}" >&2; exit 1 ;;
+  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|branch|commit|lint|lint-rule|dupes|conventions|pillars|criteria|dashboard|chain|blockers|review|review-verdict|review-pass-status|review-final-summary|review-diff-range|review-defer|review-wait|review-check-perms|deps|session-stats|session-recalc|session-close|skill-run|call-breakdown|active-project|git-default-branch|branch-parse|task-get|task-get-multi|task-select|task-start|task-done|task-insert|task-update|task-reopen|task-list|task-summary|audit|autoclose|backlog-scan|groom|check-deliverables|retro|retro-signals|retro-themes|retro-finding|test-detect|test-precheck|add-lib|init-scan-codebase|init-scan-todos|init-fetch-bootstrap|init-write-config|init-write-manifest-files|init-wizard|init-scaffold|loop|merge|abandon|bakeoff|progress|setup|token-audit|sync-skills|generate-manifest|pricing-update|wsjf|shell|version|version-bump|report-issue|changelog-add|migrate|update-gitignore|regen-triggers|upgrade|\"SQL ...\"}" >&2; exit 1 ;;
   *)      cmd_query "$@" ;;
 esac

@@ -371,6 +371,98 @@ def rule10_criteria_type_mismatch(root):
     return [f"  criterion {row[0]} (task {row[1]}): {row[2]}" for row in rows]
 
 
+def rule25_subcommand_dispatcher_drift(root):
+    """Subcommand drift between dispatcher case, `candidates = [...]`, and Usage message in bin/tusk.
+
+    bin/tusk maintains three parallel lists of subcommand names: the dispatcher
+    `case "${1:-}" in ... esac` block, the `candidates = [...]` Python list used
+    by the "did you mean?" fuzzy matcher, and the Usage message printed in the
+    empty-input case. Rule 8 catches `tusk-*.py` scripts orphaned from the
+    dispatcher; this rule catches the inverse — dispatcher entries missing from
+    `candidates` or Usage, and stale entries present in `candidates`/Usage but
+    no longer wired into the dispatcher.
+    """
+    violations = []
+    tusk_path = os.path.join(root, "bin", "tusk")
+    if not os.path.isfile(tusk_path):
+        return []
+    try:
+        with open(tusk_path, encoding="utf-8") as f:
+            lines = f.readlines()
+    except OSError:
+        return []
+
+    # Locate the dispatch block: `case "${1:-}" in` ... matching `esac`.
+    dispatch_start = None
+    dispatch_end = None
+    for i, line in enumerate(lines):
+        if dispatch_start is None and re.match(r'^case "\$\{1:-\}" in\b', line):
+            dispatch_start = i
+            continue
+        if dispatch_start is not None and re.match(r'^esac\b', line):
+            dispatch_end = i
+            break
+    if dispatch_start is None or dispatch_end is None:
+        return []
+
+    dispatcher_set = set()
+    for line in lines[dispatch_start + 1 : dispatch_end]:
+        m = re.match(r'^  ([a-z][a-z0-9-]*)\)', line)
+        if m:
+            dispatcher_set.add(m.group(1))
+
+    # Locate the candidates list: `candidates = [` ... matching `]`.
+    cand_start = None
+    cand_end = None
+    for i, line in enumerate(lines):
+        if cand_start is None and re.match(r'^\s*candidates\s*=\s*\[', line):
+            cand_start = i
+            continue
+        if cand_start is not None and re.match(r'^\s*\]\s*$', line):
+            cand_end = i
+            break
+    candidates_set = set()
+    if cand_start is not None and cand_end is not None:
+        block = "".join(lines[cand_start : cand_end + 1])
+        for m in re.finditer(r"'([a-z][a-z0-9-]*)'", block):
+            candidates_set.add(m.group(1))
+
+    # Locate the Usage message: the line containing `Usage: tusk {...}`.
+    usage_set = set()
+    for line in lines:
+        m = re.search(r'Usage: tusk \{([^}]*)\}', line)
+        if m:
+            for token in m.group(1).split('|'):
+                token = token.strip().strip('\\').strip('"').strip()
+                if re.fullmatch(r'[a-z][a-z0-9-]*', token):
+                    usage_set.add(token)
+            break
+
+    if not dispatcher_set:
+        return []
+
+    for s in sorted(dispatcher_set - candidates_set):
+        violations.append(
+            f"  bin/tusk: subcommand '{s}' in dispatcher but missing from candidates = [...] (fuzzy-match list)"
+        )
+    for s in sorted(dispatcher_set - usage_set):
+        violations.append(
+            f"  bin/tusk: subcommand '{s}' in dispatcher but missing from Usage message (empty/default case)"
+        )
+    if candidates_set:
+        for s in sorted(candidates_set - dispatcher_set):
+            violations.append(
+                f"  bin/tusk: '{s}' in candidates = [...] but not in dispatcher case statement (stale entry)"
+            )
+    if usage_set:
+        for s in sorted(usage_set - dispatcher_set):
+            violations.append(
+                f"  bin/tusk: '{s}' in Usage message but not in dispatcher case statement (stale entry)"
+            )
+
+    return violations
+
+
 def rule8_orphaned_python_scripts(root):
     """tusk-*.py files on disk not referenced in bin/tusk or other tusk-*.py files."""
     violations = []
@@ -1137,6 +1229,7 @@ RULES = [
     ("Rule 22: Issue tasks missing a test-type criterion (advisory)", rule22_issue_tasks_missing_test_criterion, True),
     ("Rule 23: CLAUDE.md exceeds line limit (advisory)", rule23_claude_md_size, True),
     ("Rule 24: subprocess.run/check_output/Popen text=True without encoding", rule24_subprocess_encoding, False),
+    ("Rule 25: bin/tusk subcommand drift across dispatcher, candidates list, and Usage message", rule25_subcommand_dispatcher_drift, False),
 ]
 
 # Load project-specific rules from tusk-lint-extra.py if it exists alongside this script.
