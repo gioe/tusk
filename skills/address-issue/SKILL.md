@@ -199,7 +199,7 @@ Evaluate each factor and look up its score contribution from `factors`:
 
 | Factor key | Condition to evaluate | Value key |
 |---|---|---|
-| `test_present` | Was a `## Failing Test` section found in Step 4.1? **Only evaluate for `bug` and `defect` task types.** For all other task types (`docs`, `feature`, `refactor`, etc.), treat as N/A: contribution = 0 regardless of presence or absence. | `"yes"` / `"no"` |
+| `test_present` | Result from Step 4.1. Section absent → `"no"`. Section present and the spec was sandbox-executed to a non-zero exit → `"yes"`. Section present but the spec was *not* sandbox-executed (Step 4.1.a fast-path skip for an off-PATH effective first token, or Step 4.1.b user-typed skip) → `"unverifiable"` — the issue author supplied a concrete reproducer but it can't be validated under the sandbox's safety constraints. **Only evaluate for `bug` and `defect` task types.** For all other task types (`docs`, `feature`, `refactor`, etc.), treat as N/A: contribution = 0 regardless of value. | `"yes"` / `"no"` / `"unverifiable"` |
 | `pillar_aligned` | Does the issue align with the project pillars (run `tusk pillars list` to fetch `[{id, name, core_claim}]`)? If the list is empty, skip (contribution = 0). | `"yes"` / `"no"` |
 | `duplicate` | Is an open task already covering this issue (from Step 3 backlog)? Include the task ID in the rationale if yes. | `"yes"` / `"no"` |
 | `in_scope` | Does the issue fit the project's stated purpose? | `"yes"` / `"no"` |
@@ -227,6 +227,8 @@ Open with a **Model Recommendation** block (including the score breakdown from S
 > **Recommendation: <Address / Defer / Decline>** — <1–2 sentence rationale from Step 4.7>
 >
 > **Score:** test_present: <±N>, pillar_aligned: <±N>, duplicate: <±N>, in_scope: <±N>, severity_high: <±N>, issue_quality: <±N> → **total: <N>** (Address ≥ <thresholds.address>, Decline ≤ <thresholds.decline>)
+
+When `test_present` is `"unverifiable"`, suffix that contribution with the value key in the rendered Score line — e.g. `test_present: +1 (unverifiable)` — so readers can tell it apart from the binary `"yes"` (+2) and `"no"` (-1) cases. The other factors are binary and need no annotation.
 
 ## Proposed Task from Issue #<N>
 
