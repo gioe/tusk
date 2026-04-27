@@ -12,7 +12,7 @@ Arguments received from tusk:
 Performs all closure steps for a task:
   1. Validate the task exists and is not already Done
   2. Check for uncompleted acceptance criteria (warns and exits non-zero unless --force)
-  2b. Check for completed criteria without a commit hash (warns and exits non-zero unless --force)
+  2b. Check for completed non-manual criteria without a commit hash (warns and exits non-zero unless --force)
   3. Close all open sessions for the task
   4. Update task status to Done with closed_reason
   5. Find and report newly unblocked tasks
@@ -150,12 +150,17 @@ def main(argv: list[str]) -> int:
             _print_open_criteria_error()
             return 3
 
-        # 2b. Check for completed criteria without a commit hash (only for completed tasks)
-        # Skipped for wont_do/duplicate/expired — commit traceability only matters for completed work
+        # 2b. Check for completed non-manual criteria without a commit hash (only for completed tasks)
+        # Skipped for wont_do/duplicate/expired — commit traceability only matters for completed work.
+        # Manual criteria carry no code by definition (they're verification-only) so binding them to a
+        # commit hash is not meaningful — exclude them so verification-only tasks (e.g. all-manual
+        # criteria closed via `tusk criteria done --skip-verify`, then `tusk merge`) close cleanly
+        # without a misleading "criteria without a commit hash" diagnostic (Issue #609).
         if reason == "completed":
             uncommitted_criteria = conn.execute(
                 "SELECT id, criterion FROM acceptance_criteria "
-                "WHERE task_id = ? AND is_completed = 1 AND commit_hash IS NULL",
+                "WHERE task_id = ? AND is_completed = 1 AND commit_hash IS NULL "
+                "AND criterion_type <> 'manual'",
                 (task_id,),
             ).fetchall()
 
