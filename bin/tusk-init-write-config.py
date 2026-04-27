@@ -1,10 +1,23 @@
 #!/usr/bin/env python3
-"""Merge config values and reinitialize tusk atomically.
+"""Merge config values and refresh validation triggers.
 
 Reads the existing tusk/config.json, merges the provided values (carrying
 forward any key the user has not explicitly set), backs up the existing
-config, writes the new config, runs `tusk init --force`, and on failure
-restores the backup — all in one atomic operation.
+config, writes the new config, then refreshes the DB's validation triggers
+to match the new config — without touching task data. On any failure, the
+config backup is restored.
+
+Trigger refresh dispatch:
+- DB exists  → `tusk regen-triggers` (drops and recreates `validate_*`
+  triggers from the updated config; preserves all rows in `tasks`,
+  `acceptance_criteria`, `task_sessions`, `skill_runs`, etc.).
+- DB missing → `tusk init` (creates a fresh DB; the wizard's normal
+  prerequisite is that the DB already exists, but this fallback keeps
+  init-write-config usable even if the DB has been deleted manually).
+
+This is a config-only operation. It must never destroy task history —
+issue #604 was filed when an earlier implementation called
+`tusk init --force` unconditionally and silently wiped populated DBs.
 
 Usage:
     tusk-init-write-config.py <db_path> <config_path> [options]
@@ -214,10 +227,21 @@ def main():
         }))
         return
 
-    # ── Run tusk init --force ──
+    # ── Refresh validation triggers from the new config ──
+    # When the DB already exists, use `tusk regen-triggers` so existing task
+    # data is preserved (issue #604). Only fall back to `tusk init` when the
+    # DB is missing entirely — and then without --force, which is reserved
+    # for the explicit "destroy and recreate" path that the wizard must
+    # never invoke implicitly.
+    db_path = sys.argv[1]
+    if os.path.isfile(db_path):
+        refresh_cmd = ["tusk", "regen-triggers"]
+    else:
+        refresh_cmd = ["tusk", "init"]
+
     try:
         result = subprocess.run(
-            ["tusk", "init", "--force"],
+            refresh_cmd,
             capture_output=True,
             text=True, encoding="utf-8",
         )
@@ -237,7 +261,7 @@ def main():
         return
 
     if result.returncode != 0:
-        error_msg = (result.stderr or result.stdout or "tusk init --force failed").strip()
+        error_msg = (result.stderr or result.stdout or f"{' '.join(refresh_cmd)} failed").strip()
         # Restore config backup
         if backed_up:
             try:

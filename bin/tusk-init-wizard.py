@@ -3,11 +3,16 @@
 
 Ports the /tusk-init Claude Code skill into a CLI subcommand so Codex users
 (and non-interactive automation) can configure tusk/config.json without
-hand-editing. Orchestrates the existing helper scripts:
+hand-editing. Safe to re-run on an existing project: the wizard updates
+`tusk/config.json` and refreshes validation triggers via
+`tusk regen-triggers`, but never touches task data — rows in `tasks`,
+`acceptance_criteria`, `task_sessions`, and `skill_runs` are preserved
+across runs (issue #604). Orchestrates the existing helper scripts:
 
   - tusk init-scan-codebase  → propose domains
   - tusk test-detect         → propose test_command
-  - tusk init-write-config   → merge config, back up, reinit DB
+  - tusk init-write-config   → merge config, back up, refresh validation
+                                triggers (non-destructive when DB exists)
   - tusk init-fetch-bootstrap → fetch project_libs bootstrap tasks
   - tusk task-insert         → seed tasks
 
