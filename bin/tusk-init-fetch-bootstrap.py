@@ -30,12 +30,30 @@ Each lib entry always has: name, repo, tasks (list), error (str or null).
 
 import base64
 import json
+import os
+import re
 import subprocess
 import sys
 
 
 REQUIRED_TOP_LEVEL = {"version", "project_type", "tasks"}
 REQUIRED_TASK_FIELDS = {"summary", "description", "priority", "task_type", "complexity", "criteria"}
+VALID_MANIFEST_MODES = {"create_only", "append_if_missing"}
+
+
+def _validate_manifest_path(path: str) -> str | None:
+    """Reject absolute paths, traversal, and unsafe characters. Mirrors the checks
+    in bin/tusk-init-scaffold.py:_validate_dir_name. Returns an error string or None."""
+    if not isinstance(path, str) or not path.strip():
+        return "path must be a non-empty string"
+    cleaned = path.strip()
+    if os.path.isabs(cleaned):
+        return "path must be relative, not absolute"
+    if ".." in cleaned.split("/") or ".." in cleaned.split(os.sep):
+        return "path contains '..' segment"
+    if not re.match(r"^[a-zA-Z0-9._/-]+$", cleaned):
+        return "path contains invalid characters"
+    return None
 
 
 def _fetch_bootstrap(repo: str, ref: str) -> tuple:
@@ -104,6 +122,27 @@ def _validate(data: dict) -> str | None:
             or any(not isinstance(h, str) for h in migration_hints)
         ):
             return f"tasks[{i}].migration_hints must be an array of strings"
+
+    manifest_files = data.get("manifest_files")
+    if manifest_files is not None:
+        if not isinstance(manifest_files, list):
+            return "manifest_files must be an array"
+        for i, entry in enumerate(manifest_files):
+            if not isinstance(entry, dict):
+                return f"manifest_files[{i}] is not an object"
+            if "path" not in entry:
+                return f"manifest_files[{i}] missing required field 'path'"
+            path_err = _validate_manifest_path(entry["path"])
+            if path_err:
+                return f"manifest_files[{i}].path: {path_err}"
+            if "content" not in entry:
+                return f"manifest_files[{i}] missing required field 'content'"
+            if not isinstance(entry["content"], str):
+                return f"manifest_files[{i}].content must be a string"
+            mode = entry.get("mode", "create_only")
+            if mode not in VALID_MANIFEST_MODES:
+                valid_list = sorted(VALID_MANIFEST_MODES)
+                return f"manifest_files[{i}].mode must be one of {valid_list}"
 
     return None
 
