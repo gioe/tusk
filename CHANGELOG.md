@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [773] - 2026-04-27
+
+- [TASK-225] Fix: tusk merge --rebase silently pushes unpushed commits on local default branch
+
 ## [772] - 2026-04-27
 
 - [TASK-224] Fix: tusk merge --rebase aborts rebase before showing 'continue' instructions
