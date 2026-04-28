@@ -31,6 +31,7 @@ DB_PATH_SCRIPTS = [
     ("tusk-task-reopen.py", "tusk task-reopen"),
     ("tusk-task-select.py", "tusk task-select"),
     ("tusk-task-start.py", "tusk task-start"),
+    ("tusk-task-unstart.py", "tusk task-unstart"),
     ("tusk-task-update.py", "tusk task-update"),
     ("tusk-test-detect.py", "tusk test-detect"),
 ]
