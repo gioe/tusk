@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [781] - 2026-04-27
+
+- [TASK-233] Auto-generate bin/tusk Usage message from dispatcher to eliminate that drift source
+
 ## [780] - 2026-04-27
 
 - [TASK-232] Add lint rule to detect subcommand drift between dispatcher, candidates, and Usage in bin/tusk
