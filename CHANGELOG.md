@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [789] - 2026-04-28
+
+- [TASK-244] Add actual-vs-baseline cost comparison to `tusk task-summary` (median cost per complexity bucket)
+
 ## [788] - 2026-04-28
 
 - [TASK-241] Add model: sonnet frontmatter to read-only skills
