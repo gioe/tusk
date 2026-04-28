@@ -132,6 +132,22 @@ class TestCompared:
         assert result["n"] == 3
         assert result["median_cost"] == 0.20
 
+    def test_zero_current_cost_suppresses_ratio(self):
+        # In-progress / not-yet-started tasks have current_cost == 0; the
+        # bucket median + n should still ship in compared status, but the
+        # multiplier is suppressed so the markdown does not mislead with
+        # "0.0x baseline".
+        conn = _db()
+        _insert_peer(conn, 2, "M", 0.10)
+        _insert_peer(conn, 3, "M", 0.20)
+        _insert_peer(conn, 4, "M", 0.30)
+        result = mod.fetch_baseline_comparison(conn, task_id=1, complexity="M",
+                                               current_cost=0.0, threshold=3)
+        assert result["status"] == "compared"
+        assert result["n"] == 3
+        assert result["median_cost"] == 0.20
+        assert result["ratio"] is None
+
 
 # ── status='pending' ──────────────────────────────────────────────────
 

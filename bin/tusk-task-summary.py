@@ -197,7 +197,12 @@ def fetch_baseline_comparison(
             "status": "pending",
         }
 
-    ratio = current_cost / median if median > 0 else None
+    # Suppress the multiplier for in-progress / not-yet-started tasks: a zero
+    # current_cost would otherwise render as "0.0x baseline", which reads as
+    # "this task was cheap" rather than "this task hasn't accumulated cost yet".
+    # The bucket median + n still ship in compared status — useful context even
+    # before the run finishes.
+    ratio = current_cost / median if (median > 0 and current_cost > 0) else None
     return {
         "bucket": complexity,
         "median_cost": round(median, 4),
@@ -414,11 +419,14 @@ def _render_cost_line(cost: dict, baseline: dict) -> str:
     )
     status = baseline.get("status")
     if status == "compared":
-        return (
-            f"{base} — {baseline['ratio']:.1f}x baseline "
-            f"({baseline['bucket']} median: ${baseline['median_cost']:.4f}, "
-            f"n={baseline['n']})"
+        bucket_info = (
+            f"{baseline['bucket']} median: ${baseline['median_cost']:.4f}, "
+            f"n={baseline['n']}"
         )
+        if baseline.get("ratio") is None:
+            # Zero-cost current task: show the bucket context but skip the multiplier
+            return f"{base} ({bucket_info})"
+        return f"{base} — {baseline['ratio']:.1f}x baseline ({bucket_info})"
     if status in ("pending", "no_peers"):
         return (
             f"{base} (baseline pending — {baseline['bucket']} bucket has "

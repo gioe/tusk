@@ -525,3 +525,48 @@ class TestRenderMarkdown:
         ))
         assert "1 skip-verify" in out_with
         assert "2 deferred" in out_with
+
+    def test_baseline_compared_renders_multiplier_and_bucket(self):
+        out = mod.render_markdown(self._sample(
+            cost={"total": 0.30, "skill_run_count": 1},
+            baseline_comparison={
+                "bucket": "M", "median_cost": 0.20, "n": 12, "ratio": 1.5,
+                "threshold": 10, "status": "compared",
+            },
+        ))
+        assert "1.5x baseline" in out
+        assert "M median: $0.2000" in out
+        assert "n=12" in out
+
+    def test_baseline_compared_zero_cost_suppresses_multiplier(self):
+        out = mod.render_markdown(self._sample(
+            cost={"total": 0.0, "skill_run_count": 1},
+            baseline_comparison={
+                "bucket": "M", "median_cost": 0.20, "n": 12, "ratio": None,
+                "threshold": 10, "status": "compared",
+            },
+        ))
+        assert "x baseline" not in out  # no multiplier in either form
+        assert "(M median: $0.2000, n=12)" in out
+
+    def test_baseline_pending_renders_M_over_N(self):
+        out = mod.render_markdown(self._sample(
+            cost={"total": 0.30, "skill_run_count": 1},
+            baseline_comparison={
+                "bucket": "L", "median_cost": 0.15, "n": 4, "ratio": None,
+                "threshold": 10, "status": "pending",
+            },
+        ))
+        assert "baseline pending" in out
+        assert "L bucket has 4/10 closed tasks" in out
+        assert "x baseline" not in out
+
+    def test_baseline_no_peers_renders_zero_over_N(self):
+        out = mod.render_markdown(self._sample(
+            cost={"total": 1.00, "skill_run_count": 1},
+            baseline_comparison={
+                "bucket": "XL", "median_cost": None, "n": 0, "ratio": None,
+                "threshold": 10, "status": "no_peers",
+            },
+        ))
+        assert "XL bucket has 0/10 closed tasks" in out
