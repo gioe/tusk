@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [787] - 2026-04-28
+
+- [TASK-240] Add tusk task-unstart to revert cleanly-orphaned In Progress tasks
+
 ## [786] - 2026-04-28
 
 - [TASK-239] Document Step 4.7 scoring for sandbox exit-0 (self-skipped) test specs
