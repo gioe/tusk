@@ -83,7 +83,7 @@ def cmd_validate(config_path: str) -> int:
         if not isinstance(dupes, dict):
             errors.append(f'"dupes" must be an object (got {type(dupes).__name__}).')
         else:
-            KNOWN_DUPE_KEYS = {'strip_prefixes', 'check_threshold', 'similar_threshold'}
+            KNOWN_DUPE_KEYS = {'strip_prefixes', 'check_threshold', 'criterion_check_threshold', 'similar_threshold'}
             known_dupe_list = ', '.join(sorted(KNOWN_DUPE_KEYS))
             unknown_dupe = set(dupes.keys()) - KNOWN_DUPE_KEYS
             if unknown_dupe:
