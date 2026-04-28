@@ -41,6 +41,7 @@ CREATE TABLE tasks (
     summary TEXT,
     status TEXT DEFAULT 'To Do',
     closed_reason TEXT,
+    complexity TEXT,
     started_at TEXT,
     closed_at TEXT
 );
@@ -94,11 +95,12 @@ def _make_db(tmp_path):
 
 
 def _insert_task(conn, *, task_id, summary="Test", status="Done",
-                 closed_reason="completed", started_at=None, closed_at=None):
+                 closed_reason="completed", complexity=None,
+                 started_at=None, closed_at=None):
     conn.execute(
-        "INSERT INTO tasks (id, summary, status, closed_reason, started_at, closed_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (task_id, summary, status, closed_reason, started_at, closed_at),
+        "INSERT INTO tasks (id, summary, status, closed_reason, complexity, started_at, closed_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (task_id, summary, status, closed_reason, complexity, started_at, closed_at),
     )
     conn.commit()
 
@@ -475,6 +477,10 @@ class TestRenderMarkdown:
             "status": "Done",
             "closed_reason": "completed",
             "cost": {"total": 0.0, "skill_run_count": 1},
+            "baseline_comparison": {
+                "bucket": None, "median_cost": None, "n": 0, "ratio": None,
+                "threshold": 10, "status": "no_complexity",
+            },
             "duration": {"wall_seconds": 60, "active_seconds": 30, "session_count": 1,
                          "started_at": None, "closed_at": None},
             "diff": {"commits": 1, "files_changed": 1, "lines_added": 5, "lines_removed": 2},

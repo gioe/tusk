@@ -21,6 +21,14 @@ Output shape (JSON, default):
         "status": "Done",
         "closed_reason": "completed" | "wont_do" | "duplicate" | "expired" | null,
         "cost": {"total": 0.1234, "skill_run_count": N},
+        "baseline_comparison": {
+            "bucket": "M" | null,
+            "median_cost": 0.0612 | null,
+            "n": N,
+            "ratio": 2.5 | null,
+            "threshold": N,
+            "status": "compared" | "pending" | "no_complexity" | "no_peers"
+        },
         "tokens": {"tokens_in": N, "tokens_out": N, "request_count": N},
         "duration": {
             "wall_seconds": N | null,
@@ -61,6 +69,7 @@ Exit codes:
 """
 
 import argparse
+import json
 import os
 import re
 import sqlite3
@@ -86,7 +95,7 @@ def _resolve_task_id(raw: str) -> int:
 
 def fetch_identity(conn: sqlite3.Connection, task_id: int) -> dict | None:
     row = conn.execute(
-        "SELECT id, summary, status, closed_reason, started_at, closed_at "
+        "SELECT id, summary, status, closed_reason, complexity, started_at, closed_at "
         "FROM tasks WHERE id = ?",
         (task_id,),
     ).fetchone()
@@ -97,6 +106,7 @@ def fetch_identity(conn: sqlite3.Connection, task_id: int) -> dict | None:
         "summary": row["summary"],
         "status": row["status"],
         "closed_reason": row["closed_reason"],
+        "complexity": row["complexity"],
         "started_at": row["started_at"],
         "closed_at": row["closed_at"],
     }
@@ -112,6 +122,89 @@ def fetch_cost(conn: sqlite3.Connection, task_id: int) -> dict:
     return {
         "total": round(float(row["total"] or 0.0), 4),
         "skill_run_count": int(row["cnt"] or 0),
+    }
+
+
+def fetch_baseline_comparison(
+    conn: sqlite3.Connection,
+    task_id: int,
+    complexity: str | None,
+    current_cost: float,
+    threshold: int,
+) -> dict:
+    """Median cost of completed peers in the same complexity bucket.
+
+    Median is robust to outlier sessions (a single runaway agent run won't skew
+    the baseline). Peers are restricted to status='Done' AND closed_reason='completed'
+    so wont_do/duplicate stubs don't dilute the bucket. Per-task cost is summed
+    from skill_runs to match fetch_cost; tasks with zero recorded cost are excluded
+    via HAVING so empty/orphaned rows don't drag the median to zero.
+
+    Status values:
+        no_complexity — current task has no complexity assigned (cannot bucket)
+        no_peers      — bucket has zero qualifying peers (first task in bucket)
+        pending       — bucket has 1..threshold-1 peers (sample too small to compare)
+        compared      — bucket has >= threshold peers; ratio is populated
+    """
+    if not complexity:
+        return {
+            "bucket": None,
+            "median_cost": None,
+            "n": 0,
+            "ratio": None,
+            "threshold": threshold,
+            "status": "no_complexity",
+        }
+
+    rows = conn.execute(
+        "SELECT COALESCE(SUM(sr.cost_dollars), 0.0) AS total "
+        "FROM tasks t "
+        "LEFT JOIN skill_runs sr ON sr.task_id = t.id "
+        "WHERE t.status = 'Done' "
+        "  AND t.closed_reason = 'completed' "
+        "  AND t.complexity = ? "
+        "  AND t.id <> ? "
+        "GROUP BY t.id "
+        "HAVING total > 0",
+        (complexity, task_id),
+    ).fetchall()
+
+    peer_costs = sorted(float(r["total"]) for r in rows)
+    n = len(peer_costs)
+
+    if n == 0:
+        return {
+            "bucket": complexity,
+            "median_cost": None,
+            "n": 0,
+            "ratio": None,
+            "threshold": threshold,
+            "status": "no_peers",
+        }
+
+    if n % 2 == 1:
+        median = peer_costs[n // 2]
+    else:
+        median = (peer_costs[n // 2 - 1] + peer_costs[n // 2]) / 2
+
+    if n < threshold:
+        return {
+            "bucket": complexity,
+            "median_cost": round(median, 4),
+            "n": n,
+            "ratio": None,
+            "threshold": threshold,
+            "status": "pending",
+        }
+
+    ratio = current_cost / median if median > 0 else None
+    return {
+        "bucket": complexity,
+        "median_cost": round(median, 4),
+        "n": n,
+        "ratio": round(ratio, 2) if ratio is not None else None,
+        "threshold": threshold,
+        "status": "compared",
     }
 
 
@@ -272,17 +365,26 @@ def fetch_reopen_count(conn: sqlite3.Connection, task_id: int) -> int:
     return int(row["cnt"] or 0)
 
 
-def build_summary(conn: sqlite3.Connection, task_id: int, repo_root: str) -> dict | None:
+def build_summary(
+    conn: sqlite3.Connection,
+    task_id: int,
+    repo_root: str,
+    baseline_threshold: int = 10,
+) -> dict | None:
     identity = fetch_identity(conn, task_id)
     if identity is None:
         return None
+    cost = fetch_cost(conn, task_id)
     return {
         "task_id": identity["id"],
         "prefixed_id": f"TASK-{identity['id']}",
         "summary": identity["summary"],
         "status": identity["status"],
         "closed_reason": identity["closed_reason"],
-        "cost": fetch_cost(conn, task_id),
+        "cost": cost,
+        "baseline_comparison": fetch_baseline_comparison(
+            conn, task_id, identity["complexity"], cost["total"], baseline_threshold
+        ),
         "tokens": fetch_tokens(conn, task_id),
         "duration": fetch_duration(conn, task_id, identity),
         "diff": fetch_diff(task_id, repo_root, since=identity["started_at"]),
@@ -304,9 +406,31 @@ def _format_duration(seconds: int | None) -> str:
     return f"{hours}h {mins}m" if mins else f"{hours}h"
 
 
+def _render_cost_line(cost: dict, baseline: dict) -> str:
+    plural = "s" if cost["skill_run_count"] != 1 else ""
+    base = (
+        f"- **Cost:** ${cost['total']:.4f} across "
+        f"{cost['skill_run_count']} skill run{plural}"
+    )
+    status = baseline.get("status")
+    if status == "compared":
+        return (
+            f"{base} — {baseline['ratio']:.1f}x baseline "
+            f"({baseline['bucket']} median: ${baseline['median_cost']:.4f}, "
+            f"n={baseline['n']})"
+        )
+    if status in ("pending", "no_peers"):
+        return (
+            f"{base} (baseline pending — {baseline['bucket']} bucket has "
+            f"{baseline['n']}/{baseline['threshold']} closed tasks)"
+        )
+    return base
+
+
 def render_markdown(data: dict) -> str:
     closed = data["closed_reason"] or "—"
     cost = data["cost"]
+    baseline = data["baseline_comparison"]
     dur = data["duration"]
     diff = data["diff"]
     crit = data["criteria"]
@@ -314,8 +438,7 @@ def render_markdown(data: dict) -> str:
     lines = [
         f"## {data['prefixed_id']} — {data['summary']} ({data['status']} / {closed})",
         "",
-        f"- **Cost:** ${cost['total']:.4f} across {cost['skill_run_count']} skill run"
-        f"{'s' if cost['skill_run_count'] != 1 else ''}",
+        _render_cost_line(cost, baseline),
         f"- **Duration:** {_format_duration(dur['wall_seconds'])} wall / "
         f"{_format_duration(dur['active_seconds'])} active "
         f"({dur['session_count']} session{'s' if dur['session_count'] != 1 else ''})",
@@ -337,9 +460,22 @@ def render_markdown(data: dict) -> str:
     return "\n".join(lines)
 
 
+def _load_baseline_threshold(config_path: str) -> int:
+    """Read baseline_min_sample_size from config; default to 10 if missing/invalid/unreadable."""
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            cfg = json.load(f)
+        val = cfg.get("baseline_min_sample_size", 10)
+        if isinstance(val, int) and not isinstance(val, bool) and val > 0:
+            return val
+    except (OSError, json.JSONDecodeError, ValueError, TypeError):
+        pass
+    return 10
+
+
 def main(argv: list) -> int:
     db_path = argv[0]
-    # argv[1] is config_path — reserved for future use
+    config_path = argv[1]
     parser = argparse.ArgumentParser(
         prog="tusk task-summary",
         description="Emit an end-of-run summary for a task (identity, cost, duration, diff, criteria).",
@@ -361,10 +497,11 @@ def main(argv: list) -> int:
 
     # repo_root is two levels up from the DB: tusk/tasks.db → tusk/ → repo_root
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+    threshold = _load_baseline_threshold(config_path)
 
     conn = get_connection(db_path)
     try:
-        data = build_summary(conn, task_id, repo_root)
+        data = build_summary(conn, task_id, repo_root, baseline_threshold=threshold)
         if data is None:
             print(f"Task {task_id} not found", file=sys.stderr)
             return 1
