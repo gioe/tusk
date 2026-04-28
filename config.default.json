@@ -41,6 +41,7 @@
   },
   "test_command": "",
   "test_command_timeout_sec": 240,
+  "baseline_min_sample_size": 10,
   "path_test_commands": {},
   "project_type": null,
   "project_libs": {

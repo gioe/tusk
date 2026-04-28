@@ -31,7 +31,7 @@ def cmd_validate(config_path: str) -> int:
     errors = []
 
     # ── Check for unknown top-level keys ──
-    KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'complexity', 'blocker_types', 'criterion_types', 'workflows', 'agents', 'dupes', 'review', 'review_categories', 'review_severities', 'merge', 'test_command', 'test_command_timeout_sec', 'domain_test_commands', 'path_test_commands', 'project_type', 'project_libs', 'issue_scoring'}
+    KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'complexity', 'blocker_types', 'criterion_types', 'workflows', 'agents', 'dupes', 'review', 'review_categories', 'review_severities', 'merge', 'test_command', 'test_command_timeout_sec', 'baseline_min_sample_size', 'domain_test_commands', 'path_test_commands', 'project_type', 'project_libs', 'issue_scoring'}
     known_list = ', '.join(sorted(KNOWN_KEYS))
     unknown = set(cfg.keys()) - KNOWN_KEYS
     if unknown:
@@ -186,6 +186,15 @@ def cmd_validate(config_path: str) -> int:
             errors.append(
                 f'"test_command_timeout_sec" must be a positive integer '
                 f'(got {type(tt).__name__}: {tt!r}).'
+            )
+
+    # ── Validate baseline_min_sample_size (optional positive integer) ──
+    if 'baseline_min_sample_size' in cfg:
+        bms = cfg['baseline_min_sample_size']
+        if not isinstance(bms, int) or isinstance(bms, bool) or bms <= 0:
+            errors.append(
+                f'"baseline_min_sample_size" must be a positive integer '
+                f'(got {type(bms).__name__}: {bms!r}).'
             )
 
     # ── Validate path_test_commands (optional object of glob→command strings) ──
