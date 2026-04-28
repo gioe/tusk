@@ -9,9 +9,8 @@ Arguments received from tusk:
     sys.argv[2] — config path
     sys.argv[3:] — flags (--dry-run)
 
-Runs two pre-checks in one call:
-  1. Expired deferred tasks → closed_reason = 'expired'
-  2. Moot contingent tasks → closed_reason = 'wont_do'
+Runs one pre-check:
+  - Moot contingent tasks → closed_reason = 'wont_do'
 
 For each closure, appends an annotation to the description and closes open sessions.
 Prints a JSON summary with counts per category and closed task IDs.
@@ -61,35 +60,6 @@ def close_task(conn: sqlite3.Connection, task_id: int, reason: str, annotation: 
         "WHERE id = ?",
         (reason, annotation, task_id),
     )
-
-
-def autoclose_expired_deferred(conn: sqlite3.Connection, dry_run: bool = False) -> list[int]:
-    """Close deferred tasks past their expiry date. Returns list of (would-be) closed task IDs.
-
-    With dry_run=True, runs only the SELECT and skips close_task / close_sessions
-    so callers can preview candidates without mutating the DB.
-    """
-    rows = conn.execute(
-        "SELECT id FROM tasks "
-        "WHERE is_deferred = 1 "
-        "  AND status = 'To Do' "
-        "  AND expires_at IS NOT NULL "
-        "  AND expires_at < datetime('now')"
-    ).fetchall()
-
-    candidate_ids = [row["id"] for row in rows]
-    if dry_run:
-        return candidate_ids
-
-    for task_id in candidate_ids:
-        close_task(
-            conn, task_id, "expired",
-            "Auto-closed: Deferred task expired after 60 days without action.",
-        )
-        close_sessions(conn, task_id)
-
-    return candidate_ids
-
 
 
 def autoclose_moot_contingent(conn: sqlite3.Connection, dry_run: bool = False) -> list[dict]:
@@ -157,7 +127,6 @@ def main(argv: list[str]) -> int:
 
     conn = get_connection(db_path)
     try:
-        expired_ids = autoclose_expired_deferred(conn, dry_run=dry_run)
         moot_closed = autoclose_moot_contingent(conn, dry_run=dry_run)
 
         if not dry_run:
@@ -165,9 +134,8 @@ def main(argv: list[str]) -> int:
 
         summary = {
             "applied": not dry_run,
-            "expired_deferred": {"count": len(expired_ids), "task_ids": expired_ids},
             "moot_contingent": {"count": len(moot_closed), "task_ids": [c["id"] for c in moot_closed]},
-            "total_closed": len(expired_ids) + len(moot_closed),
+            "total_closed": len(moot_closed),
         }
 
         if not dry_run and moot_closed:

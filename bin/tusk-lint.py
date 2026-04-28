@@ -327,28 +327,6 @@ def rule6_done_incomplete_criteria(root):
     ]
 
 
-def rule9_deferred_missing_expiry(root):
-    """Deferred tasks (is_deferred=1) with no expires_at set."""
-    db_path = _db_path_from_root(root)
-    if not db_path:
-        return []
-    try:
-        conn = tusk_loader.load("tusk-db-lib").get_connection(db_path)
-        try:
-            rows = conn.execute(
-                "SELECT id, summary FROM tasks"
-                " WHERE is_deferred = 1 AND expires_at IS NULL AND status <> 'Done'"
-                " ORDER BY id"
-            ).fetchall()
-        except sqlite3.OperationalError:
-            return []
-        finally:
-            conn.close()
-    except Exception:
-        return []
-    return [f"  TASK-{row[0]}  {row[1]}" for row in rows]
-
-
 def rule10_criteria_type_mismatch(root):
     """acceptance_criteria with verification_spec set but criterion_type='manual'."""
     db_path = _db_path_from_root(root)
@@ -667,30 +645,6 @@ def rule12_python_syntax(root):
             pass  # Skip file if py_compile invocation fails
 
     return violations
-
-
-def rule14_deferred_prefix_mismatch(root):
-    """Open tasks where is_deferred flag and [Deferred] summary prefix disagree."""
-    db_path = _db_path_from_root(root)
-    if not db_path:
-        return []
-    try:
-        conn = tusk_loader.load("tusk-db-lib").get_connection(db_path)
-        try:
-            rows = conn.execute(
-                "SELECT id, is_deferred, summary FROM tasks "
-                "WHERE status <> 'Done' AND ("
-                "  (summary LIKE '[Deferred]%' AND is_deferred = 0) OR "
-                "  (summary NOT LIKE '[Deferred]%' AND is_deferred = 1)"
-                ") ORDER BY id"
-            ).fetchall()
-        except sqlite3.OperationalError:
-            return []
-        finally:
-            conn.close()
-    except Exception:
-        return []
-    return [f"  TASK-{row[0]}  is_deferred={row[1]}  {row[2]}" for row in rows]
 
 
 def rule15_big_bang_commits(root):
@@ -1222,12 +1176,10 @@ RULES = [
     ("Rule 6: Done with incomplete acceptance criteria", rule6_done_incomplete_criteria, False),
     ("Rule 7: config.default.json keys match KNOWN_KEYS", rule7_config_keys_match_known_keys, False),
     ("Rule 8: Orphaned tusk-*.py scripts (in bin/ but not in dispatcher)", rule8_orphaned_python_scripts, False),
-    ("Rule 9: Deferred tasks missing expires_at", rule9_deferred_missing_expiry, False),
     ("Rule 10: acceptance_criteria with verification_spec but criterion_type='manual'", rule10_criteria_type_mismatch, False),
     ("Rule 11: SKILL.md frontmatter validation", rule11_skill_frontmatter, False),
     ("Rule 12: Python syntax check (py_compile) for bin/tusk-*.py", rule12_python_syntax, False),
     ("Rule 13: bin/tusk-*.py modified without VERSION bump (advisory)", rule13_version_bump_missing, True),
-    ("Rule 14: is_deferred flag / [Deferred] prefix mismatch (advisory)", rule14_deferred_prefix_mismatch, True),
     ("Rule 15: Big-bang commits (all criteria on one commit) (advisory)", rule15_big_bang_commits, True),
     ("Rule 16: DB-backed blocking lint rules", rule16_db_rules_blocking, False),
     ("Rule 17: DB-backed advisory lint rules (advisory)", rule17_db_rules_advisory, True),

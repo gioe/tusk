@@ -10,13 +10,12 @@ Arguments received from tusk:
 
 Scoring formula:
     score = ROUND(
-        (base_priority + source_bonus + unblocks_bonus + contingent_penalty)
+        (base_priority + unblocks_bonus + contingent_penalty)
         / complexity_weight
     )
 
 Where:
     base_priority     — numeric value from priority label (Highest=100 … Lowest=20)
-    source_bonus      — +10 if not deferred
     unblocks_bonus    — MIN(count_of_tasks_this_unblocks * 5, 15)
     contingent_penalty— -10 if task has only contingent (not blocks) dependencies
     complexity_weight — XS=1, S=2, M=3, L=5, XL=8
@@ -46,7 +45,6 @@ def recalculate_wsjf(db_path: str) -> int:
                     WHEN 'Lowest'  THEN 20
                     ELSE 40
                 END
-                + CASE WHEN is_deferred = 0 THEN 10 ELSE 0 END
                 + MIN(COALESCE((
                     SELECT COUNT(*) * 5
                     FROM task_dependencies d

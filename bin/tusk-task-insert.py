@@ -90,7 +90,6 @@ def main(argv: list[str]) -> int:
                         dest="typed_criteria", metavar="JSON",
                         help='Typed criterion as JSON, e.g. \'{"text":"...","type":"...","spec":"..."}\' (repeatable)')
     parser.add_argument("--workflow", default=None, help="Workflow (validated against config)")
-    parser.add_argument("--deferred", action="store_true", help="Mark task as deferred (+60d expiry)")
     parser.add_argument("--expires-in", type=int, default=None, dest="expires_in_days", metavar="DAYS",
                         help="Set expires_at to +N days")
     parser.add_argument("--fixes-task-id", type=int, default=None, dest="fixes_task_id", metavar="ID",
@@ -107,7 +106,6 @@ def main(argv: list[str]) -> int:
     workflow = args.workflow
     criteria: list[str] = args.criteria
     typed_criteria: list[dict] = args.typed_criteria
-    deferred = args.deferred
     expires_in_days = args.expires_in_days
     fixes_task_id = args.fixes_task_id
 
@@ -116,16 +114,6 @@ def main(argv: list[str]) -> int:
             "at least one acceptance criterion is required. "
             "Use --criteria \"...\" or --typed-criteria '{\"text\":\"...\"}' to add one."
         )
-
-    # Apply --deferred: prefix summary and set default expiry
-    if deferred:
-        if not summary.startswith("[Deferred]"):
-            summary = f"[Deferred] {summary}"
-        if expires_in_days is None:
-            expires_in_days = 60
-
-    # is_deferred=1 whenever summary starts with [Deferred] (covers --deferred flag and manual prefix)
-    is_deferred = 1 if summary.startswith("[Deferred]") else 0
 
     # Load and validate against config
     config = load_config(config_path)
@@ -208,21 +196,21 @@ def main(argv: list[str]) -> int:
         if expires_at_expr:
             conn.execute(
                 "INSERT INTO tasks (summary, description, status, priority, domain, "
-                "task_type, assignee, complexity, is_deferred, workflow, fixes_task_id, "
+                "task_type, assignee, complexity, workflow, fixes_task_id, "
                 "expires_at, created_at, updated_at) "
-                "VALUES (?, ?, 'To Do', ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', ?), "
+                "VALUES (?, ?, 'To Do', ?, ?, ?, ?, ?, ?, ?, datetime('now', ?), "
                 "datetime('now'), datetime('now'))",
                 (summary, description, priority, domain, task_type, assignee,
-                 complexity, is_deferred, workflow, fixes_task_id, expires_at_expr),
+                 complexity, workflow, fixes_task_id, expires_at_expr),
             )
         else:
             conn.execute(
                 "INSERT INTO tasks (summary, description, status, priority, domain, "
-                "task_type, assignee, complexity, is_deferred, workflow, fixes_task_id, "
+                "task_type, assignee, complexity, workflow, fixes_task_id, "
                 "created_at, updated_at) "
-                "VALUES (?, ?, 'To Do', ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+                "VALUES (?, ?, 'To Do', ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
                 (summary, description, priority, domain, task_type, assignee,
-                 complexity, is_deferred, workflow, fixes_task_id),
+                 complexity, workflow, fixes_task_id),
             )
 
         task_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]

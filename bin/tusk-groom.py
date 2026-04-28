@@ -25,7 +25,6 @@ Output JSON shape:
         "unsized":    [ {id, summary, domain, task_type}, ... ],
         "autoclose_candidates": {
             "applied":          bool,                    # false in --dry-run
-            "expired_deferred": {"count": N, "task_ids": [...]},
             "moot_contingent":  {"count": N, "task_ids": [...]},
             "total":            N
         },
@@ -74,7 +73,7 @@ Output JSON keys:
   duplicates           Heuristic duplicate pairs among open tasks
   unassigned           To Do tasks with no assignee
   unsized              To Do tasks with no complexity estimate
-  autoclose_candidates {expired_deferred, moot_contingent, total, applied}
+  autoclose_candidates {moot_contingent, total, applied}
   lint                 {exit_code, summary} from `tusk lint --quiet`
 """
 
@@ -105,9 +104,6 @@ def run_autoclose(dry_run: bool = False) -> dict:
     payload = json.loads(result.stdout)
     return {
         "applied": payload.get("applied", not dry_run),
-        "expired_deferred": payload.get(
-            "expired_deferred", {"count": 0, "task_ids": []}
-        ),
         "moot_contingent": payload.get(
             "moot_contingent", {"count": 0, "task_ids": []}
         ),

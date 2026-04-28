@@ -17,8 +17,6 @@ Flags:
     --task-type <t>       Update task_type
     --assignee <a>        Update assignee
     --complexity <c>      Update complexity
-    --deferred            Set is_deferred=1, prefix summary with [Deferred], set expires_at +60d if unset
-    --no-deferred         Set is_deferred=0, strip [Deferred] prefix from summary
 
 Only specified fields are updated; unspecified fields are left unchanged.
 Always sets updated_at = datetime('now').
@@ -35,7 +33,6 @@ import os
 import sqlite3
 import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
 from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -67,11 +64,6 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--assignee", default=None, help="Update assignee")
     parser.add_argument("--complexity", default=None, help="Update complexity")
     parser.add_argument("--workflow", default=None, help="Update workflow (empty string clears to NULL)")
-    deferred_group = parser.add_mutually_exclusive_group()
-    deferred_group.add_argument("--deferred", action="store_true", default=False,
-                                help="Mark task deferred (+60d expiry, [Deferred] prefix)")
-    deferred_group.add_argument("--no-deferred", action="store_true", default=False, dest="no_deferred",
-                                help="Clear deferred flag and strip [Deferred] prefix")
     args = parser.parse_args(argv[2:])
 
     task_id = args.task_id
@@ -87,15 +79,7 @@ def main(argv: list[str]) -> int:
     if args.workflow is not None:
         updates["workflow"] = None if args.workflow == "" else args.workflow
 
-    # Resolve deferred mode: True = --deferred, False = --no-deferred, None = not specified
-    if args.deferred:
-        deferred: bool | None = True
-    elif args.no_deferred:
-        deferred = False
-    else:
-        deferred = None
-
-    if not updates and deferred is None:
+    if not updates:
         parser.error("at least one field flag is required")
 
     # Validate enum fields against config
@@ -147,25 +131,6 @@ def main(argv: list[str]) -> int:
         if not task:
             print(f"Error: Task {task_id} not found", file=sys.stderr)
             return 1
-
-        # Apply --deferred / --no-deferred logic using current task values as base
-        if deferred is True:
-            current_summary = updates.get("summary", task["summary"])
-            if not current_summary.startswith("[Deferred]"):
-                updates["summary"] = f"[Deferred] {current_summary}"
-            updates["is_deferred"] = 1
-            if task["expires_at"] is None and "expires_at" not in updates:
-                expires_dt = datetime.now(timezone.utc) + timedelta(days=60)
-                updates["expires_at"] = expires_dt.strftime("%Y-%m-%d %H:%M:%S")
-        elif deferred is False:
-            current_summary = updates.get("summary", task["summary"])
-            if current_summary.startswith("[Deferred] "):
-                updates["summary"] = current_summary[len("[Deferred] "):]
-            elif current_summary.startswith("[Deferred]"):
-                updates["summary"] = current_summary[len("[Deferred]"):]
-            updates["is_deferred"] = 0
-            if "expires_at" not in updates:
-                updates["expires_at"] = None
 
         # Build dynamic SET clause
         set_parts = []

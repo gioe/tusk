@@ -136,7 +136,7 @@ def main(argv: list[str]) -> int:
 
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     sql = f"""
-SELECT id, summary, status, priority, priority_score, domain, assignee, complexity, task_type, is_deferred, created_at
+SELECT id, summary, status, priority, priority_score, domain, assignee, complexity, task_type, created_at
 FROM tasks
 {where_clause}
 ORDER BY priority_score DESC, id

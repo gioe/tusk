@@ -2308,6 +2308,144 @@ def migrate_62(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 62: added test_runs table")
 
 
+def migrate_63(db_path: str, config_path: str, script_dir: str) -> None:
+    """Drop tasks.is_deferred column and recreate tasks-projecting views.
+
+    The task-deferral concept (closed-but-deferred or open-but-deferred via
+    is_deferred=1) was removed (TASK-234): in practice, deferred tasks either
+    got worked on prematurely (no trigger had fired) or sat with stale
+    context. Filing a fresh task referencing the original is cleaner — and
+    'tusk abandon --reason wont_do' covers the close-and-recreate pattern.
+
+    Existing rows with is_deferred=1 simply lose the flag (no data loss; the
+    [Deferred] summary prefix, if present, is left intact and benign).
+
+    Per CLAUDE.md's tasks-column migration rule, every view that projects
+    tasks columns must DROP+CREATE: SQLite freezes the column list of
+    'SELECT t.*' views at CREATE time, so ALTER TABLE ... DROP COLUMN does
+    not propagate. Affected views: task_metrics, v_ready_tasks,
+    v_chain_heads (all SELECT t.*), and v_criteria_coverage (per the
+    uniformity convention; it never projected t.* but is recreated for
+    bit-for-bit parity with cmd_init).
+
+    SQLite further refuses ALTER TABLE DROP COLUMN while any view in the
+    schema references the column (and SELECT t.* counts), so the views must
+    be DROPped *before* the ALTER and recreated after. v_velocity depends on
+    task_metrics, so dropping task_metrics turns v_velocity into a broken
+    reference that also blocks the ALTER — v_velocity is dropped and
+    recreated alongside the four task-projecting views.
+
+    The acceptance_criteria.is_deferred column is unrelated (criterion-level
+    deferral used by 'tusk criteria skip --reason chain') and is left intact.
+
+    Idempotent: column drop guarded by has_column(); DROP VIEW IF EXISTS +
+    CREATE VIEW reconstructs each view from scratch regardless of prior
+    state. Fresh installs ship at v63+ with the column already absent.
+    """
+    if get_version(db_path) >= 63:
+        _progress("  Migration 63: dropped tasks.is_deferred and recreated tasks-projecting views")
+        return
+
+    # Drop views first — SQLite refuses DROP COLUMN while any view references
+    # the column (SELECT t.* counts as a reference). v_velocity depends on
+    # task_metrics, so dropping the latter without the former leaves a
+    # dangling reference that also blocks DROP COLUMN.
+    run_script(
+        db_path,
+        """
+        DROP VIEW IF EXISTS v_velocity;
+        DROP VIEW IF EXISTS task_metrics;
+        DROP VIEW IF EXISTS v_ready_tasks;
+        DROP VIEW IF EXISTS v_chain_heads;
+        DROP VIEW IF EXISTS v_criteria_coverage;
+        """,
+    )
+
+    if has_column(db_path, "tasks", "is_deferred"):
+        run_script(db_path, "ALTER TABLE tasks DROP COLUMN is_deferred;")
+
+    # Recreate views — bodies mirror cmd_init in bin/tusk verbatim as of v63.
+    script = """
+        CREATE VIEW task_metrics AS
+        SELECT t.*,
+            COUNT(s.id) as session_count,
+            SUM(s.duration_seconds) as total_duration_seconds,
+            SUM(s.cost_dollars) as total_cost,
+            SUM(s.tokens_in) as total_tokens_in,
+            SUM(s.tokens_out) as total_tokens_out,
+            SUM(s.lines_added) as total_lines_added,
+            SUM(s.lines_removed) as total_lines_removed,
+            SUM(s.request_count) as total_request_count,
+            (SELECT COUNT(*) FROM task_status_transitions tst
+              WHERE tst.task_id = t.id AND tst.to_status = 'To Do') as reopen_count
+        FROM tasks t
+        LEFT JOIN task_sessions s ON t.id = s.task_id
+        WHERE t.bakeoff_shadow = 0
+        GROUP BY t.id;
+
+        CREATE VIEW v_ready_tasks AS
+        SELECT t.*
+        FROM tasks t
+        WHERE t.status = 'To Do'
+          AND t.bakeoff_shadow = 0
+          AND NOT EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks blocker ON d.depends_on_id = blocker.id
+            WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM external_blockers eb
+            WHERE eb.task_id = t.id AND eb.is_resolved = 0
+          );
+
+        CREATE VIEW v_chain_heads AS
+        SELECT t.*
+        FROM tasks t
+        WHERE t.status <> 'Done'
+          AND t.bakeoff_shadow = 0
+          AND EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks downstream ON d.task_id = downstream.id
+            WHERE d.depends_on_id = t.id AND downstream.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks blocker ON d.depends_on_id = blocker.id
+            WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM external_blockers eb
+            WHERE eb.task_id = t.id AND eb.is_resolved = 0
+          );
+
+        CREATE VIEW v_criteria_coverage AS
+        SELECT t.id AS task_id,
+               t.summary,
+               COUNT(CASE WHEN ac.is_deferred = 0 OR ac.is_deferred IS NULL THEN 1 END) AS total_criteria,
+               COALESCE(SUM(CASE WHEN ac.is_completed = 1 AND (ac.is_deferred = 0 OR ac.is_deferred IS NULL) THEN 1 ELSE 0 END), 0) AS completed_criteria,
+               COUNT(CASE WHEN ac.is_deferred = 0 OR ac.is_deferred IS NULL THEN 1 END) - COALESCE(SUM(CASE WHEN ac.is_completed = 1 AND (ac.is_deferred = 0 OR ac.is_deferred IS NULL) THEN 1 ELSE 0 END), 0) AS remaining_criteria
+        FROM tasks t
+        LEFT JOIN acceptance_criteria ac ON ac.task_id = t.id
+        WHERE t.bakeoff_shadow = 0
+        GROUP BY t.id, t.summary;
+
+        CREATE VIEW v_velocity AS
+        SELECT
+            strftime('%Y-W%W', COALESCE(closed_at, updated_at)) AS week,
+            COUNT(id) AS task_count,
+            AVG(total_cost) AS avg_cost,
+            AVG(total_tokens_in) AS avg_tokens_in,
+            AVG(total_tokens_out) AS avg_tokens_out
+        FROM task_metrics
+        WHERE status = 'Done' AND closed_reason = 'completed'
+        GROUP BY strftime('%Y-W%W', COALESCE(closed_at, updated_at));
+
+        PRAGMA user_version = 63;
+    """
+    run_script(db_path, script)
+    _progress("  Migration 63: dropped tasks.is_deferred and recreated tasks-projecting views")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -2373,6 +2511,7 @@ MIGRATIONS = [
     (60, migrate_60),
     (61, migrate_61),
     (62, migrate_62),
+    (63, migrate_63),
 ]
 
 
