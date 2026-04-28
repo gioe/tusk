@@ -772,11 +772,15 @@ def _version_bump_check(root, path_re, label):
 
 
 def rule13_version_bump_missing(root):
-    """bin/tusk-*.py modified in working tree or recent commits without VERSION bump.
+    """bin/tusk or bin/tusk-*.py modified in working tree or recent commits without VERSION bump.
+
+    The bash dispatcher `bin/tusk` is distributed alongside its Python helpers
+    (copied into `.claude/bin/` on install), so dispatcher-only changes must
+    also bump VERSION or `tusk upgrade`'s local-vs-remote gate goes blind.
 
     Advisory only — violations are printed but do not contribute to the exit code.
     """
-    return _version_bump_check(root, re.compile(r"^bin/tusk-.+\.py$"), "script")
+    return _version_bump_check(root, re.compile(r"^bin/tusk(?:-.+\.py)?$"), "script")
 
 
 def rule20_skills_version_bump_missing(root):
@@ -1179,7 +1183,7 @@ RULES = [
     ("Rule 10: acceptance_criteria with verification_spec but criterion_type='manual'", rule10_criteria_type_mismatch, False),
     ("Rule 11: SKILL.md frontmatter validation", rule11_skill_frontmatter, False),
     ("Rule 12: Python syntax check (py_compile) for bin/tusk-*.py", rule12_python_syntax, False),
-    ("Rule 13: bin/tusk-*.py modified without VERSION bump (advisory)", rule13_version_bump_missing, True),
+    ("Rule 13: bin/tusk or bin/tusk-*.py modified without VERSION bump (advisory)", rule13_version_bump_missing, True),
     ("Rule 15: Big-bang commits (all criteria on one commit) (advisory)", rule15_big_bang_commits, True),
     ("Rule 16: DB-backed blocking lint rules", rule16_db_rules_blocking, False),
     ("Rule 17: DB-backed advisory lint rules (advisory)", rule17_db_rules_advisory, True),
