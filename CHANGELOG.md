@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [783] - 2026-04-28
+
+- [TASK-235] Add dupes.criterion_check_threshold to KNOWN_KEYS to fix tusk init and install tests
+
 ## [782] - 2026-04-28
 
 - [TASK-234] Remove the deferral concept from tusk
