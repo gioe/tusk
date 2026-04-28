@@ -69,6 +69,7 @@
   ".claude/bin/tusk-task-select.py",
   ".claude/bin/tusk-task-start.py",
   ".claude/bin/tusk-task-summary.py",
+  ".claude/bin/tusk-task-unstart.py",
   ".claude/bin/tusk-task-update.py",
   ".claude/bin/tusk-test-detect.py",
   ".claude/bin/tusk-test-precheck.py",

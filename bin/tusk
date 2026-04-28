@@ -1000,7 +1000,7 @@ candidates = [
   'review','review-verdict','review-pass-status','review-final-summary','review-diff-range','review-defer','review-wait','review-check-perms',
   'deps','session-stats','session-recalc','session-close','skill-run','call-breakdown',
   'active-project','git-default-branch','branch-parse',
-  'task-get','task-get-multi','task-select','task-start','task-done','task-insert','task-update','task-reopen','task-list','task-summary',
+  'task-get','task-get-multi','task-select','task-start','task-done','task-insert','task-update','task-reopen','task-unstart','task-list','task-summary',
   'audit','autoclose','backlog-scan','groom','check-deliverables',
   'retro','retro-signals','retro-themes','retro-finding',
   'test-detect','test-precheck','add-lib',
@@ -1423,6 +1423,7 @@ case "${1:-}" in
   task-insert) shift; exec python3 "$SCRIPT_DIR/tusk-task-insert.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   task-update) shift; exec python3 "$SCRIPT_DIR/tusk-task-update.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   task-reopen) shift; exec python3 "$SCRIPT_DIR/tusk-task-reopen.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  task-unstart) shift; exec python3 "$SCRIPT_DIR/tusk-task-unstart.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   task-list) shift; exec python3 "$SCRIPT_DIR/tusk-task-list.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   task-summary) shift; exec python3 "$SCRIPT_DIR/tusk-task-summary.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   audit) shift; exec python3 "$SCRIPT_DIR/tusk-audit.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
