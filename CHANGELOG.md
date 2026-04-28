@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [782] - 2026-04-28
+
+- [TASK-234] Remove the deferral concept from tusk
+
 ## [781] - 2026-04-27
 
 - [TASK-233] Auto-generate bin/tusk Usage message from dispatcher to eliminate that drift source
