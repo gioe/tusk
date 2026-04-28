@@ -99,7 +99,7 @@ def cmd_validate(config_path: str) -> int:
                         if not isinstance(item, str):
                             errors.append(f'"dupes.strip_prefixes[{i}]" must be a string (got {type(item).__name__}: {item!r}).')
 
-            for thresh in ('check_threshold', 'similar_threshold'):
+            for thresh in ('check_threshold', 'criterion_check_threshold', 'similar_threshold'):
                 if thresh in dupes:
                     tv = dupes[thresh]
                     if not isinstance(tv, (int, float)):
