@@ -34,9 +34,6 @@ dupes.load_config(CONFIG_PATH)
 
 
 class TestNormalizeSummary:
-    def test_strips_deferred_prefix(self):
-        assert dupes.normalize_summary("[Deferred] add tests") == "add tests"
-
     def test_strips_enhancement_prefix(self):
         assert dupes.normalize_summary("[Enhancement] improve logging") == "improve logging"
 
@@ -47,7 +44,7 @@ class TestNormalizeSummary:
         assert dupes.normalize_summary("[PROJ-123] fix bug") == "fix bug"
 
     def test_strips_multiple_prefixes(self):
-        result = dupes.normalize_summary("[Deferred][Enhancement] refactor init")
+        result = dupes.normalize_summary("[Optional][Enhancement] refactor init")
         assert result == "refactor init"
 
     def test_case_folding(self):
@@ -63,7 +60,7 @@ class TestNormalizeSummary:
         assert dupes.normalize_summary("add unit tests for similarity") == "add unit tests for similarity"
 
     def test_prefix_case_insensitive(self):
-        assert dupes.normalize_summary("[deferred] lowercase prefix") == "lowercase prefix"
+        assert dupes.normalize_summary("[enhancement] lowercase prefix") == "lowercase prefix"
 
 
 # ── tokenize ─────────────────────────────────────────────────────────
@@ -200,8 +197,8 @@ class TestSimilarity:
         assert dupes.similarity("Fix Bug In Tusk", "Fix Bug In Tusk") == pytest.approx(1.0)
 
     def test_strips_prefixes_before_comparing(self):
-        # [Deferred] prefix should be normalized away so score equals un-prefixed pair
-        score_with_prefix = dupes.similarity("[Deferred] add unit tests", "add unit tests")
+        # [Enhancement] prefix should be normalized away so score equals un-prefixed pair
+        score_with_prefix = dupes.similarity("[Enhancement] add unit tests", "add unit tests")
         score_without = dupes.similarity("add unit tests", "add unit tests")
         assert score_with_prefix == pytest.approx(score_without)
 

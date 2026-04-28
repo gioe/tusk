@@ -6,12 +6,11 @@ then queries priority_score and asserts exact expected values.
 
 Formula (from cmd_wsjf in bin/tusk):
   priority_score = ROUND(
-    (base_priority + deferred_bonus + unblocks_bonus + contingent_penalty)
+    (base_priority + unblocks_bonus + contingent_penalty)
     / complexity_weight
   )
 
   base_priority    : Highest=100, High=80, Medium=60, Low=40, Lowest=20
-  deferred_bonus   : is_deferred=0 → +10, is_deferred=1 → +0
   unblocks_bonus   : MIN(COUNT(dependents) * 5, 15)  [all relationship types]
   contingent_penalty: -10 if task has ≥1 contingent dep AND no blocks dep
   complexity_weight: XS=1, S=2, M=3, L=5, XL=8
@@ -54,15 +53,14 @@ def insert_task(
     status: str = "To Do",
     priority: str = "Medium",
     complexity: str = "M",
-    is_deferred: int = 0,
 ) -> int:
     """Insert a task and return its id."""
     cur = conn.execute(
         """
-        INSERT INTO tasks (summary, status, priority, complexity, task_type, is_deferred, priority_score)
-        VALUES (?, ?, ?, ?, 'feature', ?, 0)
+        INSERT INTO tasks (summary, status, priority, complexity, task_type, priority_score)
+        VALUES (?, ?, ?, ?, 'feature', 0)
         """,
-        (summary, status, priority, complexity, is_deferred),
+        (summary, status, priority, complexity),
     )
     conn.commit()
     return cur.lastrowid
@@ -90,20 +88,20 @@ def get_score(conn: sqlite3.Connection, task_id: int) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Parameterised: priority × complexity (8 cases, no deps, non-deferred)
+# Parameterised: priority × complexity (8 cases, no deps)
 # ---------------------------------------------------------------------------
 
 # (priority, complexity, expected_score)
-# score = ROUND((base + 10) / weight)
+# score = ROUND(base / weight)
 PRIORITY_COMPLEXITY_CASES = [
-    ("Highest", "XS", 110),   # ROUND((100+10)/1) = 110
-    ("High",    "S",   45),   # ROUND((80+10)/2)  = 45
-    ("Medium",  "M",   23),   # ROUND((60+10)/3)  = 23  (70/3=23.33→23)
-    ("Low",     "L",   10),   # ROUND((40+10)/5)  = 10
-    ("Lowest",  "XL",   4),   # ROUND((20+10)/8)  = 4   (30/8=3.75→4)
-    ("Medium",  "XS",  70),   # ROUND((60+10)/1)  = 70
-    ("High",    "XL",  11),   # ROUND((80+10)/8)  = 11  (90/8=11.25→11)
-    ("Low",     "S",   25),   # ROUND((40+10)/2)  = 25
+    ("Highest", "XS", 100),   # ROUND(100/1) = 100
+    ("High",    "S",   40),   # ROUND(80/2)  = 40
+    ("Medium",  "M",   20),   # ROUND(60/3)  = 20
+    ("Low",     "L",    8),   # ROUND(40/5)  = 8
+    ("Lowest",  "XL",   3),   # ROUND(20/8)  = 3 (2.5→3 banker's? sqlite ROUND → 3)
+    ("Medium",  "XS",  60),   # ROUND(60/1)  = 60
+    ("High",    "XL",  10),   # ROUND(80/8)  = 10
+    ("Low",     "S",   20),   # ROUND(40/2)  = 20
 ]
 
 
@@ -126,46 +124,6 @@ def test_priority_complexity_score(db_path, priority, complexity, expected):
 
 
 # ---------------------------------------------------------------------------
-# Deferred bonus
-# ---------------------------------------------------------------------------
-
-class TestDeferredBonus:
-    def test_non_deferred_receives_bonus(self, db_path):
-        """is_deferred=0 adds +10 to the numerator."""
-        conn = sqlite3.connect(str(db_path))
-        try:
-            tid = insert_task(conn, "non-deferred task", priority="Medium", complexity="M", is_deferred=0)
-        finally:
-            conn.close()
-
-        run_wsjf(db_path)
-
-        conn = sqlite3.connect(str(db_path))
-        try:
-            # (60 + 10) / 3 = 23
-            assert get_score(conn, tid) == 23
-        finally:
-            conn.close()
-
-    def test_deferred_receives_no_bonus(self, db_path):
-        """is_deferred=1 does not add the +10 bonus."""
-        conn = sqlite3.connect(str(db_path))
-        try:
-            tid = insert_task(conn, "deferred task", priority="Medium", complexity="M", is_deferred=1)
-        finally:
-            conn.close()
-
-        run_wsjf(db_path)
-
-        conn = sqlite3.connect(str(db_path))
-        try:
-            # (60 + 0) / 3 = 20
-            assert get_score(conn, tid) == 20
-        finally:
-            conn.close()
-
-
-# ---------------------------------------------------------------------------
 # Unblocks bonus
 # ---------------------------------------------------------------------------
 
@@ -185,8 +143,8 @@ class TestUnblocksBonus:
 
         conn = sqlite3.connect(str(db_path))
         try:
-            # head: (60 + 10 + 5) / 3 = 25
-            assert get_score(conn, head) == 25
+            # head: (60 + 5) / 3 = ROUND(21.67) = 22
+            assert get_score(conn, head) == 22
         finally:
             conn.close()
 
@@ -205,8 +163,8 @@ class TestUnblocksBonus:
 
         conn = sqlite3.connect(str(db_path))
         try:
-            # head: (60 + 10 + 10) / 3 = ROUND(26.67) = 27
-            assert get_score(conn, head) == 27
+            # head: (60 + 10) / 3 = ROUND(23.33) = 23
+            assert get_score(conn, head) == 23
         finally:
             conn.close()
 
@@ -225,8 +183,8 @@ class TestUnblocksBonus:
 
         conn = sqlite3.connect(str(db_path))
         try:
-            # head: (60 + 10 + 15) / 3 = ROUND(28.33) = 28
-            assert get_score(conn, head) == 28
+            # head: (60 + 15) / 3 = 25
+            assert get_score(conn, head) == 25
         finally:
             conn.close()
 
@@ -246,8 +204,8 @@ class TestUnblocksBonus:
         conn = sqlite3.connect(str(db_path))
         try:
             # head unblocks 1 contingent dep → +5; head itself has no deps → no penalty
-            # (60 + 10 + 5) / 3 = 25
-            assert get_score(conn, head) == 25
+            # (60 + 5) / 3 = ROUND(21.67) = 22
+            assert get_score(conn, head) == 22
         finally:
             conn.close()
 
@@ -272,8 +230,8 @@ class TestContingentOnlyPenalty:
 
         conn = sqlite3.connect(str(db_path))
         try:
-            # contingent_task: (60 + 10 + 0 - 10) / 3 = ROUND(20.0) = 20
-            assert get_score(conn, contingent_task) == 20
+            # contingent_task: (60 + 0 - 10) / 3 = ROUND(16.67) = 17
+            assert get_score(conn, contingent_task) == 17
         finally:
             conn.close()
 
@@ -294,8 +252,8 @@ class TestContingentOnlyPenalty:
         conn = sqlite3.connect(str(db_path))
         try:
             # mixed_task has both blocks and contingent → no penalty
-            # (60 + 10 + 0 + 0) / 3 = 23
-            assert get_score(conn, mixed_task) == 23
+            # (60 + 0 + 0) / 3 = 20
+            assert get_score(conn, mixed_task) == 20
         finally:
             conn.close()
 
@@ -311,8 +269,8 @@ class TestContingentOnlyPenalty:
 
         conn = sqlite3.connect(str(db_path))
         try:
-            # (60 + 10 + 0 + 0) / 3 = 23
-            assert get_score(conn, tid) == 23
+            # (60 + 0 + 0) / 3 = 20
+            assert get_score(conn, tid) == 20
         finally:
             conn.close()
 
@@ -336,8 +294,8 @@ class TestElseBranchDefaults:
     def test_unknown_priority_defaults_to_40(self, db_path):
         """An unrecognised priority value falls through to ELSE → base 40 (same as Low).
 
-        Formula: ROUND((40 + 10) / 3) = ROUND(16.67) = 17
-        Using complexity=M (weight=3) and is_deferred=0 (+10 bonus).
+        Formula: ROUND(40 / 3) = ROUND(13.33) = 13
+        Using complexity=M (weight=3).
         """
         conn = sqlite3.connect(str(db_path))
         try:
@@ -350,16 +308,16 @@ class TestElseBranchDefaults:
 
         conn = sqlite3.connect(str(db_path))
         try:
-            assert get_score(conn, tid) == 17
+            assert get_score(conn, tid) == 13
         finally:
             conn.close()
 
     def test_unknown_complexity_defaults_to_weight_3(self, db_path):
         """An unrecognised complexity value falls through to ELSE → weight 3 (same as M).
 
-        Formula: ROUND((100 + 10) / 3) = ROUND(36.67) = 37
-        Using priority=Highest (100) and is_deferred=0 (+10 bonus).
-        Score would be 110 for XS, 55 for S, 22 for L, 14 for XL — 37 confirms weight=3.
+        Formula: ROUND(100 / 3) = ROUND(33.33) = 33
+        Using priority=Highest (100).
+        Score would be 100 for XS, 50 for S, 20 for L, 13 for XL — 33 confirms weight=3.
         """
         conn = sqlite3.connect(str(db_path))
         try:
@@ -372,16 +330,16 @@ class TestElseBranchDefaults:
 
         conn = sqlite3.connect(str(db_path))
         try:
-            assert get_score(conn, tid) == 37
+            assert get_score(conn, tid) == 33
         finally:
             conn.close()
 
     def test_unknown_priority_and_complexity_both_use_defaults(self, db_path):
         """Both unknown priority (→40) and unknown complexity (→weight 3) apply together.
 
-        Formula: ROUND((40 + 10) / 3) = ROUND(16.67) = 17
+        Formula: ROUND(40 / 3) = ROUND(13.33) = 13
 
-        Note: the expected score (17) is the same as the priority-only-unknown test because
+        Note: the expected score (13) is the same as the priority-only-unknown test because
         the complexity ELSE default (weight=3) equals the weight for 'M'. The test still
         exercises the combined code path — both CASE expressions hit their ELSE branch.
         """
@@ -396,7 +354,7 @@ class TestElseBranchDefaults:
 
         conn = sqlite3.connect(str(db_path))
         try:
-            assert get_score(conn, tid) == 17
+            assert get_score(conn, tid) == 13
         finally:
             conn.close()
 
@@ -440,7 +398,7 @@ class TestDoneTasksExcluded:
 
         conn = sqlite3.connect(str(db_path))
         try:
-            # (60 + 10) / 3 = 23
-            assert get_score(conn, tid) == 23
+            # 60 / 3 = 20
+            assert get_score(conn, tid) == 20
         finally:
             conn.close()

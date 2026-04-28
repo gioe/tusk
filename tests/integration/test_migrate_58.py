@@ -59,7 +59,10 @@ def db_at_v57(db_path, config_path):
         "v_criteria_coverage",
     ):
         conn.execute(f"DROP VIEW IF EXISTS {view}")
-    # Rebuild tasks without the bakeoff columns.
+    # Rebuild tasks without the bakeoff columns. is_deferred was present at
+    # v57 but was later dropped in migration 63; the literal ``0`` in the
+    # SELECT supplies the v57-era default rather than reading from a column
+    # that fresh installs no longer have.
     conn.executescript(
         """
         CREATE TABLE tasks_premigration (
@@ -86,7 +89,7 @@ def db_at_v57(db_path, config_path):
         INSERT INTO tasks_premigration SELECT
             id, summary, description, status, priority, domain, assignee,
             task_type, priority_score, expires_at, closed_reason, complexity,
-            is_deferred, workflow, created_at, updated_at, started_at,
+            0, workflow, created_at, updated_at, started_at,
             closed_at, fixes_task_id
         FROM tasks;
         DROP TABLE tasks;

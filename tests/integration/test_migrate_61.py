@@ -59,8 +59,15 @@ def db_at_v60_with_v59_views(db_path):
     """
     db = str(db_path)
     conn = sqlite3.connect(db)
+    # is_deferred was present at v60 but was later dropped in migration 63;
+    # add it back so the v59-era view shape (which references the column)
+    # and INSERTs against tasks(is_deferred) work. ALTER TABLE ADD COLUMN
+    # does not interact with existing views.
     conn.executescript(
         """
+        ALTER TABLE tasks ADD COLUMN is_deferred INTEGER NOT NULL DEFAULT 0
+            CHECK (is_deferred IN (0, 1));
+
         DROP VIEW IF EXISTS v_ready_tasks;
         CREATE VIEW v_ready_tasks AS
         SELECT t.*

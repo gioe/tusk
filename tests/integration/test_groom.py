@@ -27,7 +27,7 @@ JSON_KEYS = {
     "autoclose_candidates",
     "lint",
 }
-AUTOCLOSE_KEYS = {"applied", "expired_deferred", "moot_contingent", "total"}
+AUTOCLOSE_KEYS = {"applied", "moot_contingent", "total"}
 
 
 def _run_groom(db_path, *flags):
@@ -50,14 +50,14 @@ def _insert_task(
     status="To Do",
     complexity=None,
     assignee=None,
-    is_deferred=0,
     expires_at=None,
+    closed_reason=None,
 ):
     cur = conn.execute(
         "INSERT INTO tasks (summary, status, task_type, priority, complexity, "
-        "priority_score, assignee, is_deferred, expires_at) "
+        "priority_score, assignee, expires_at, closed_reason) "
         "VALUES (?, ?, 'feature', 'Medium', ?, 50, ?, ?, ?)",
-        (summary, status, complexity, assignee, is_deferred, expires_at),
+        (summary, status, complexity, assignee, expires_at, closed_reason),
     )
     conn.commit()
     return cur.lastrowid
@@ -68,7 +68,8 @@ def _populate_backlog(db_file):
     conn = sqlite3.connect(db_file)
     conn.row_factory = sqlite3.Row
     try:
-        # Expired open task (not deferred — surfaces in `expired`, not autoclose).
+        # Expired open task — surfaces in `expired` (autoclose no longer
+        # touches expired tasks now that task-deferral is gone).
         expired_id = _insert_task(
             conn,
             summary="Expired evaluation task",
@@ -76,15 +77,29 @@ def _populate_backlog(db_file):
             assignee="cli-engineer",
             expires_at="2000-01-01 00:00:00",
         )
-        # Expired + deferred — autoclose should claim this one in non-dry-run.
-        expired_deferred_id = _insert_task(
+        # Moot-contingent: an upstream Done(wont_do) task and a downstream
+        # task contingent on it. autoclose should claim the downstream in
+        # non-dry-run.
+        upstream_id = _insert_task(
             conn,
-            summary="Old deferred spike",
+            summary="Upstream that will not ship",
+            status="Done",
             complexity="S",
             assignee="cli-engineer",
-            is_deferred=1,
-            expires_at="2000-01-01 00:00:00",
+            closed_reason="wont_do",
         )
+        moot_contingent_id = _insert_task(
+            conn,
+            summary="Contingent on upstream",
+            complexity="S",
+            assignee="cli-engineer",
+        )
+        conn.execute(
+            "INSERT INTO task_dependencies (task_id, depends_on_id, relationship_type) "
+            "VALUES (?, ?, 'contingent')",
+            (moot_contingent_id, upstream_id),
+        )
+        conn.commit()
         # Unassigned + unsized — one row to exercise both categories.
         unassigned_unsized_id = _insert_task(
             conn, summary="Add a brand-new dashboard panel for WSJF scoring"
@@ -105,7 +120,7 @@ def _populate_backlog(db_file):
         )
         return {
             "expired": expired_id,
-            "expired_deferred": expired_deferred_id,
+            "moot_contingent": moot_contingent_id,
             "unassigned_unsized": unassigned_unsized_id,
             "dup_a": dup_a,
             "dup_b": dup_b,
@@ -136,7 +151,6 @@ class TestGroomDryRun:
 
         expired_ids = {row["id"] for row in payload["expired"]}
         assert ids["expired"] in expired_ids
-        assert ids["expired_deferred"] in expired_ids
 
         unassigned_ids = {row["id"] for row in payload["unassigned"]}
         assert ids["unassigned_unsized"] in unassigned_ids
@@ -163,8 +177,8 @@ class TestGroomDryRun:
         payload = json.loads(result.stdout)
 
         candidates = payload["autoclose_candidates"]
-        assert ids["expired_deferred"] in candidates["expired_deferred"]["task_ids"]
-        assert candidates["expired_deferred"]["count"] >= 1
+        assert ids["moot_contingent"] in candidates["moot_contingent"]["task_ids"]
+        assert candidates["moot_contingent"]["count"] >= 1
         assert candidates["applied"] is False
 
         # The DB must still show the candidate as open (dry-run is read-only).
@@ -172,7 +186,7 @@ class TestGroomDryRun:
         try:
             row = conn.execute(
                 "SELECT status, closed_reason FROM tasks WHERE id = ?",
-                (ids["expired_deferred"],),
+                (ids["moot_contingent"],),
             ).fetchone()
         finally:
             conn.close()
@@ -180,7 +194,7 @@ class TestGroomDryRun:
 
 
 class TestGroomApply:
-    def test_autoclose_runs_and_closes_expired_deferred_row(self, db_path):
+    def test_autoclose_runs_and_closes_moot_contingent_row(self, db_path):
         ids = _populate_backlog(str(db_path))
         result = _run_groom(db_path)  # no --dry-run
         assert result.returncode == 0, result.stderr
@@ -188,20 +202,21 @@ class TestGroomApply:
 
         assert payload["dry_run"] is False
         assert payload["autoclose_candidates"]["applied"] is True
-        assert ids["expired_deferred"] in payload["autoclose_candidates"][
-            "expired_deferred"
+        assert ids["moot_contingent"] in payload["autoclose_candidates"][
+            "moot_contingent"
         ]["task_ids"]
 
-        # Row is now Done/expired in the DB.
+        # Row is now Done in the DB with a closed_reason set.
         conn = sqlite3.connect(str(db_path))
         try:
             row = conn.execute(
                 "SELECT status, closed_reason FROM tasks WHERE id = ?",
-                (ids["expired_deferred"],),
+                (ids["moot_contingent"],),
             ).fetchone()
         finally:
             conn.close()
-        assert row == ("Done", "expired")
+        assert row[0] == "Done"
+        assert row[1] is not None
 
     def test_same_keys_emitted_whether_or_not_dry_run(self, db_path):
         _populate_backlog(str(db_path))

@@ -1,8 +1,8 @@
-"""Unit tests for rule14_deferred_prefix_mismatch and rule15_big_bang_commits.
+"""Unit tests for rule15_big_bang_commits.
 
 Covers the migration from subprocess-based tusk CLI calls to direct SQLite
-connections via tusk_loader + tusk-db-lib. Confirms the rules return the same
-violation set for the same input and degrade gracefully when the DB is
+connections via tusk_loader + tusk-db-lib. Confirms the rule returns the same
+violation set for the same input and degrades gracefully when the DB is
 unavailable or the expected tables don't exist.
 """
 
@@ -22,24 +22,13 @@ lint = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(lint)
 
 
-def _make_tasks_db(tmp_dir, tasks):
-    """tasks: list of (id, summary, status, is_deferred)."""
-    db_path = os.path.join(tmp_dir, "tasks.db")
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "CREATE TABLE tasks"
-        " (id INTEGER PRIMARY KEY, summary TEXT, status TEXT, is_deferred INTEGER)"
-    )
-    conn.executemany("INSERT INTO tasks VALUES (?, ?, ?, ?)", tasks)
-    conn.commit()
-    conn.close()
-    return db_path
-
-
 def _make_big_bang_db(tmp_dir, tasks, criteria):
     """
     tasks:    list of (id, summary, status)
     criteria: list of (id, task_id, is_completed, is_deferred, commit_hash)
+
+    Note: ``is_deferred`` here is acceptance_criteria.is_deferred — the
+    criterion-level deferral that survives the task-deferral removal.
     """
     db_path = os.path.join(tmp_dir, "tasks.db")
     conn = sqlite3.connect(db_path)
@@ -59,87 +48,6 @@ def _make_big_bang_db(tmp_dir, tasks, criteria):
     conn.commit()
     conn.close()
     return db_path
-
-
-class TestRule14DeferredPrefixMismatch:
-    def test_prefix_without_flag_is_flagged(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            db_path = _make_tasks_db(
-                tmp,
-                tasks=[(1, "[Deferred] Forgot flag", "To Do", 0)],
-            )
-            with patch.object(lint, "_db_path_from_root", return_value=db_path):
-                violations = lint.rule14_deferred_prefix_mismatch(tmp)
-        assert len(violations) == 1
-        assert "TASK-1" in violations[0]
-        assert "[Deferred] Forgot flag" in violations[0]
-
-    def test_flag_without_prefix_is_flagged(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            db_path = _make_tasks_db(
-                tmp,
-                tasks=[(2, "Forgot prefix", "To Do", 1)],
-            )
-            with patch.object(lint, "_db_path_from_root", return_value=db_path):
-                violations = lint.rule14_deferred_prefix_mismatch(tmp)
-        assert len(violations) == 1
-        assert "TASK-2" in violations[0]
-        assert "Forgot prefix" in violations[0]
-
-    def test_consistent_prefix_and_flag_not_flagged(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            db_path = _make_tasks_db(
-                tmp,
-                tasks=[(3, "[Deferred] Consistent", "To Do", 1)],
-            )
-            with patch.object(lint, "_db_path_from_root", return_value=db_path):
-                assert lint.rule14_deferred_prefix_mismatch(tmp) == []
-
-    def test_neither_prefix_nor_flag_not_flagged(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            db_path = _make_tasks_db(
-                tmp,
-                tasks=[(4, "Normal task", "To Do", 0)],
-            )
-            with patch.object(lint, "_db_path_from_root", return_value=db_path):
-                assert lint.rule14_deferred_prefix_mismatch(tmp) == []
-
-    def test_done_task_not_flagged(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            db_path = _make_tasks_db(
-                tmp,
-                tasks=[(5, "Closed mismatch", "Done", 1)],
-            )
-            with patch.object(lint, "_db_path_from_root", return_value=db_path):
-                assert lint.rule14_deferred_prefix_mismatch(tmp) == []
-
-    def test_multiple_violations_ordered_by_id(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            db_path = _make_tasks_db(
-                tmp,
-                tasks=[
-                    (10, "[Deferred] Second", "To Do", 0),
-                    (5, "Flag only first", "To Do", 1),
-                ],
-            )
-            with patch.object(lint, "_db_path_from_root", return_value=db_path):
-                violations = lint.rule14_deferred_prefix_mismatch(tmp)
-        assert len(violations) == 2
-        assert "TASK-5" in violations[0]
-        assert "TASK-10" in violations[1]
-
-    def test_db_unavailable_returns_empty(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            with patch.object(lint, "_db_path_from_root", return_value=None):
-                assert lint.rule14_deferred_prefix_mismatch(tmp) == []
-
-    def test_missing_table_returns_empty(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            db_path = os.path.join(tmp, "tasks.db")
-            conn = sqlite3.connect(db_path)
-            conn.close()
-            with patch.object(lint, "_db_path_from_root", return_value=db_path):
-                assert lint.rule14_deferred_prefix_mismatch(tmp) == []
 
 
 class TestRule15BigBangCommits:
