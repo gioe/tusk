@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [788] - 2026-04-28
+
+- [TASK-241] Add model: sonnet frontmatter to read-only skills
+
 ## [787] - 2026-04-28
 
 - [TASK-240] Add tusk task-unstart to revert cleanly-orphaned In Progress tasks

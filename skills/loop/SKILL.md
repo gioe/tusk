@@ -2,6 +2,7 @@
 name: loop
 description: Autonomously work through the backlog — dispatches /chain for chain heads, /tusk for standalone tasks, repeating until empty
 allowed-tools: Bash
+model: sonnet
 ---
 
 # Loop

@@ -2,6 +2,7 @@
 name: tusk-insights
 description: Read-only DB health audit with interactive recommendations, plus on-demand HTML task dashboard generation
 allowed-tools: Bash, Read
+model: sonnet
 ---
 
 # Tusk Insights

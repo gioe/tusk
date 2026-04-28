@@ -2,6 +2,7 @@
 name: tusk-update
 description: Update domains, agents, task types, and other config settings post-install without losing data
 allowed-tools: Bash, Read, Write, Edit
+model: sonnet
 ---
 
 # Tusk Update Skill

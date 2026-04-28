@@ -2,6 +2,7 @@
 name: groom-backlog
 description: Groom the backlog by closing completed tickets, removing redundant/stale tickets, reprioritizing, and assigning agents
 allowed-tools: Bash, Glob, Grep, Read
+model: sonnet
 ---
 
 # Groom Backlog Skill
