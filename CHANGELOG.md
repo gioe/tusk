@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [786] - 2026-04-28
+
+- [TASK-239] Document Step 4.7 scoring for sandbox exit-0 (self-skipped) test specs
+
 ## [785] - 2026-04-28
 
 - [TASK-238] Fix: Rule 13 VERSION-bump check misses bin/tusk dispatcher
