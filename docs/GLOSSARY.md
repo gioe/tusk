@@ -44,16 +44,6 @@ A single acceptance condition attached to a task, defining what must be true for
 
 ---
 
-## deferred
-
-A task (or criterion) that has been intentionally postponed rather than completed in the current session. Deferred tasks have `is_deferred = 1`, a `[Deferred]` summary prefix, and a 60-day `expires_at`. Deferred tasks receive no `non_deferred_bonus` in WSJF scoring, so non-deferred tasks rank higher when both are ready.
-
-`is_deferred` is an **advisory breadcrumb**, not a hidden state. Deferred tasks remain eligible for `/tusk`, `/chain`, and `/loop` — they appear in `v_ready_tasks` and `v_chain_heads` like any other To Do task. (Migration 59 briefly hid them from both views; migration 61 removed that filter after Issue #584 reported 13 deferred tasks silently skipped over for days.)
-
-→ See [`DOMAIN.md`](DOMAIN.md#wsjf-priority-scoring) and `tusk task-insert --deferred`.
-
----
-
 ## session
 
 A bounded work unit on a task, tracking timestamps, token usage, and cost. One task can accumulate multiple sessions across days or agents. At most one session per task may be open at a time; `tusk task-start` opens a session and `tusk merge` closes it.
@@ -80,6 +70,6 @@ The canonical view of tasks that are eligible to be worked on: status `To Do`, a
 
 ## WSJF
 
-Weighted Shortest Job First — the priority scoring formula tusk uses to rank tasks. Computed as `ROUND((base_priority + non_deferred_bonus + unblocks_bonus + contingent_adjustment) / complexity_weight)` and stored in `tasks.priority_score`. Recomputed on demand via `tusk wsjf`.
+Weighted Shortest Job First — the priority scoring formula tusk uses to rank tasks. Computed as `ROUND((base_priority + unblocks_bonus + contingent_adjustment) / complexity_weight)` and stored in `tasks.priority_score`. Recomputed on demand via `tusk wsjf`.
 
 → See [`DOMAIN.md`](DOMAIN.md#wsjf-priority-scoring).

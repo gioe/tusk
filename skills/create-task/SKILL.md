@@ -21,16 +21,6 @@ If the user didn't provide any text after the command, ask:
 
 > What would you like to turn into tasks? Paste any text — feature specs, meeting notes, bug reports, requirements, etc.
 
-### Deferred Mode Detection
-
-Check whether deferred insertion was requested before proceeding:
-- **Caller flag**: The invocation includes `--deferred` (e.g., `/create-task --deferred <text>`)
-- **Inline request**: The input text contains an explicit deferred intent phrase such as "add as deferred", "add these as deferred", "insert as deferred", or "create as deferred"
-
-If either condition is met, set **deferred mode = on** and strip the `--deferred` flag (if present) from the input text before proceeding. Do not ask the user to confirm deferred mode — it was explicitly requested.
-
-If neither condition is met, **deferred mode = off** and all tasks are inserted as active (existing behavior, no change).
-
 ## Step 2: Fetch Config and Backlog
 
 Fetch everything needed for analysis in a single call:
@@ -223,14 +213,6 @@ Then ask:
 > - **Edit** a task (e.g., "change 2 priority to High")
 > - **Add** a task you think is missing
 
-### Deferred mode notice
-
-If **deferred mode = on**, add a notice directly below the task list (before asking for confirmation):
-
-> **Note: deferred mode is on — all tasks will be inserted with `--deferred` (60-day expiry, `[Deferred]` prefix).**
-
-This lets the user opt out (e.g., by editing or cancelling) before insertion.
-
 ### For both paths
 
 Wait for explicit user approval before proceeding. Do NOT insert anything until the user confirms.
@@ -325,21 +307,6 @@ tusk task-insert "<summary>" "<description>" \
   --fixes-task-id <N>
 ```
 
-When **deferred mode = on**, append `--deferred` to every `tusk task-insert` call. This flag applies uniformly to all tasks in the batch — it cannot be set per-task mid-flow:
-
-```bash
-tusk task-insert "<summary>" "<description>" \
-  --priority "<priority>" \
-  --domain "<domain>" \
-  --task-type "<task_type>" \
-  --assignee "<assignee>" \
-  --complexity "<complexity>" \
-  --criteria "<criterion 1>" \
-  --criteria "<criterion 2>" \
-  --criteria "<criterion 3>" \
-  --deferred
-```
-
 Mix `--criteria` (manual) and `--typed-criteria` (test/file/code) freely in the same call — one flag per criterion. `--typed-criteria` takes a JSON object `{"text": "...", "type": "test|file|code|manual", "spec": "..."}`; non-manual types require `spec`. Pick the type using the rubric in this step: `test` → spec is the test-runner command (exit 0 = pass); `file` → spec is a glob (passes if any file matches); `code` → spec is a `grep -q` (or `! grep -q`) command (exit 0 = pass).
 
 Omit `--domain` or `--assignee` entirely if the value is NULL/empty — do not pass empty strings.
@@ -388,12 +355,6 @@ After processing all tasks, show a summary:
 | 14 | Add signup page with form validation | Medium | frontend |
 | 15 | Fix broken CSS on mobile nav | High | frontend |
 | 16 | Add rate limiting middleware | Medium | api |
-```
-
-When **deferred mode = on**, label the created line as `**Created (deferred)**` instead of `**Created**`:
-
-```markdown
-**Created (deferred)**: 3 tasks (#14, #15, #16)
 ```
 
 Include the **Dependencies added** line only when Step 7 was executed (i.e., two or more tasks were created). If Step 7 was skipped (all duplicates, single-task fast path, or user skipped all dependencies), omit the line. If dependencies were proposed but the user removed some, only list the ones actually inserted.

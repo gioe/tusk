@@ -36,14 +36,13 @@ This returns a JSON object with two keys:
 
 ## Pre-Check: Auto-Close Stale Tasks
 
-Run both auto-close checks (expired deferred, moot contingent) in a single command:
+Run the auto-close check for moot contingent tasks:
 
 ```bash
 tusk autoclose
 ```
 
 This returns a JSON summary with counts and task IDs per category:
-- `expired_deferred` — deferred tasks past their 60-day expiry (closed as `expired`)
 - `moot_contingent` — tasks contingent on upstream work that closed as `wont_do`/`expired` (closed as `wont_do`)
 
 If `total_closed` is 0, report "No auto-close candidates found" and proceed to Step 1. Otherwise, report the counts before continuing.
@@ -261,4 +260,4 @@ claude -p /groom-backlog
 
 ## Important Guideline
 
-**Keep the backlog lean (< 20 open tasks)**: The full backlog dump scales at ~700 tokens/task and is repeated across ~15+ agentic turns during grooming. A 30-task backlog can consume over 300k tokens in a single session. Aggressively close, merge, or defer tasks to stay under 20 open items.
+**Keep the backlog lean (< 20 open tasks)**: The full backlog dump scales at ~700 tokens/task and is repeated across ~15+ agentic turns during grooming. A 30-task backlog can consume over 300k tokens in a single session. Aggressively close or merge tasks to stay under 20 open items.

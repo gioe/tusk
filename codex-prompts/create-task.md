@@ -17,18 +17,6 @@ ask:
 > What would you like to turn into tasks? Paste any text — feature specs,
 > meeting notes, bug reports, requirements, etc.
 
-### Deferred Mode Detection
-
-Before doing anything, decide whether tasks should be inserted as deferred:
-
-- **Caller flag** — invocation includes `--deferred`.
-- **Inline request** — input contains a phrase like "add as deferred",
-  "insert as deferred", or "create as deferred".
-
-If either condition is met, set **deferred mode = on** and strip the
-`--deferred` flag from the input text. Do not ask the user to confirm —
-they already asked. Otherwise **deferred mode = off**.
-
 ## Step 2: Fetch Config and Backlog
 
 ```bash
@@ -184,14 +172,6 @@ If two or more tasks were produced, show a numbered table:
 Ask: **Confirm**, **remove N**, **edit N field=value**, or **add a
 missing task**.
 
-### Deferred mode notice
-
-If deferred mode = on, add directly below the list before asking for
-confirmation:
-
-> **Note: deferred mode is on — all tasks will be inserted with
-> `--deferred` (60-day expiry, `[Deferred]` prefix).**
-
 ### Both paths
 
 Wait for explicit user approval before inserting. Never insert without
@@ -244,9 +224,7 @@ tusk task-insert "<summary>" "<description>" \
   --criteria "<criterion 3>"
 ```
 
-Append `--fixes-task-id <N>` if Step 3.6 found a linkage. Append
-`--deferred` to every call when deferred mode = on (it's a per-call flag,
-not per-task — the whole batch shares it).
+Append `--fixes-task-id <N>` if Step 3.6 found a linkage.
 
 For typed criteria with automated verification, use `--typed-criteria`
 with a JSON object:
@@ -315,9 +293,8 @@ Don't propose more than necessary — most independent tasks need no edges.
 | 16 | Add rate limiting middleware | Medium | api |
 ```
 
-When deferred mode = on, label the line as `**Created (deferred)**`. Show
-the **Dependencies added** line only when Step 7 inserted edges — omit
-when skipped or when the user removed all proposals.
+Show the **Dependencies added** line only when Step 7 inserted edges —
+omit when skipped or when the user removed all proposals.
 
 ### Zero-criteria check
 

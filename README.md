@@ -159,7 +159,7 @@ The database has three tables:
 | assignee | TEXT | Agent name |
 | task_type | TEXT | `bug`, `feature`, `refactor`, etc. |
 | priority_score | INTEGER | Pre-computed score for task selection |
-| expires_at | TEXT | Auto-close date for deferred tasks |
+| expires_at | TEXT | Optional auto-close date |
 | closed_reason | TEXT | `completed`, `expired`, `wont_do`, `duplicate` |
 | created_at | TEXT | Creation timestamp |
 | updated_at | TEXT | Last update timestamp |

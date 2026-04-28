@@ -152,7 +152,7 @@ Scan the issue body for a `## Failing Test` section. If present:
    - **Exit 0** — spec passes before any fix (self-contained demo or already-resolved issue). Ask the implementer: discard (`test_spec=null`, `test_present="no"`) or keep with a `(warning: passed before fix)` note appended?
    - **Command error** (exit 126/127, or stderr contains "command not found" / "syntax error") — not a runnable shell command. Set `test_spec=null`, score `test_present="no"`, and inform: > The `## Failing Test` spec produced a command error (`<first line of SPEC_STDERR>`). Treating as no failing test.
 
-3. **If no `## Failing Test` section is found**, set `test_spec = null`. No test criterion is added in Step 6. For `bug`/`defect` task types, this biases the Step 4.7 verdict toward Defer via `test_present`; for other task types, `test_present` is N/A.
+3. **If no `## Failing Test` section is found**, set `test_spec = null`. No test criterion is added in Step 6. For `bug`/`defect` task types, this lowers the Step 4.7 score via `test_present`; for other task types, `test_present` is N/A.
 
 ## Step 4.5: Optional Codebase Investigation
 
@@ -213,7 +213,7 @@ Compute: `total = sum of all factor contributions`
 Assign verdict from thresholds:
 - `total >= thresholds["address"]` → **Address**
 - `total <= thresholds["decline"]` → **Decline**
-- Otherwise → **Defer**
+- Otherwise → **Address** (borderline — still create and work the task; the score breakdown surfaces the uncertainty for the user)
 
 Record the verdict, per-factor contributions, total, and a 1–2 sentence rationale for display in Step 5.
 
@@ -224,7 +224,7 @@ Open with a **Model Recommendation** block (including the score breakdown from S
 ```markdown
 ### Model Recommendation
 
-> **Recommendation: <Address / Defer / Decline>** — <1–2 sentence rationale from Step 4.7>
+> **Recommendation: <Address / Decline>** — <1–2 sentence rationale from Step 4.7>
 >
 > **Score:** test_present: <±N>, pillar_aligned: <±N>, duplicate: <±N>, in_scope: <±N>, severity_high: <±N>, issue_quality: <±N> → **total: <N>** (Address ≥ <thresholds.address>, Decline ≤ <thresholds.decline>)
 
@@ -243,13 +243,13 @@ When `test_present` is `"unverifiable"`, suffix that contribution with the value
 
 Then ask the user to choose, **bolding the option that matches the Model Recommendation**. For a Decline recommendation, replace "confirm" with "proceed anyway" in the prompt:
 
-> Create this task? You can confirm (implement now), defer (add to backlog, no immediate work), edit (e.g., "change priority to High"), decline (close the issue without creating a task), or cancel.
+> Create this task? You can confirm (implement now), edit (e.g., "change priority to High"), decline (close the issue without creating a task), or cancel.
 
 The user retains full veto power — any option may be chosen regardless of the recommendation. Wait for explicit approval before inserting.
 
 ### Shared gh Failure Handling
 
-Referenced by the Decline Path, Defer Path, and Step 9. When a `gh issue close` or `gh issue comment` call fails:
+Referenced by the Decline Path and Step 9. When a `gh issue close` or `gh issue comment` call fails:
 
 1. If the error contains `already in a 'closed'` state, retry the action as `gh issue comment <number> --repo <owner/repo> --body "<same body>"`.
 2. If the retry also fails, or the original error was something else (permissions, locked issue, etc.), surface the manual URL and the message to paste:
@@ -271,29 +271,6 @@ If the user types **decline** (optionally followed by an inline rationale, e.g. 
    - Failure → apply **Shared gh Failure Handling**; on the already-closed retry path, the summary becomes: > Issue #<N> is already closed. Reason recorded: <rationale>. No task created.
 
 3. **Do NOT insert a task.** Stop — do not proceed to Step 6.
-
-### Defer Path
-
-If the user types **defer**:
-
-1. Proceed to Step 6 to deduplicate and insert the task (same insert flow as the implement-now path). Do NOT call `tusk task-start` or create a branch after insertion.
-
-2. After insertion, try to apply the `accepted` label so the decision is visible in the issue list:
-   ```bash
-   gh label list --repo <owner/repo> --json name   # check availability
-   gh issue edit <number> --repo <owner/repo> --add-label "accepted"   # only if label exists
-   ```
-   If the label is missing or either call fails, skip silently — labeling is advisory.
-
-3. Post a comment on the issue:
-   ```bash
-   gh issue comment <number> --repo <owner/repo> --body "Tracked as tusk task #<task_id>. No timeline yet — will be addressed in a future session."
-   ```
-   On failure, apply **Shared gh Failure Handling**.
-
-4. End with: > **Deferred** — tusk task #<task_id> created. Issue #<N> commented (and labeled `accepted` if the label exists). No work started yet.
-
-5. **Do NOT proceed to Step 7.** Stop after the comment.
 
 ## Step 6: Deduplicate and Insert
 
@@ -344,9 +321,7 @@ This criterion will be validated by running the spec as a shell command when `tu
 
 **Exit code 2** — error. Report and stop.
 
-## Step 7: Begin Work (Steps 1–11 Only — implement-now path only)
-
-**Skip this step entirely if the user chose defer.** Only proceed here when the user chose confirm (implement now).
+## Step 7: Begin Work (Steps 1–11 Only)
 
 Immediately invoke the `/tusk` workflow for the newly created task. Follow the "Begin Work on a Task" instructions from the tusk skill:
 

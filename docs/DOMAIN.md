@@ -42,7 +42,6 @@ The core unit of work. Every piece of planned work is a task.
 | `expires_at` | TEXT | nullable | ISO datetime; task auto-closed when past this date |
 | `closed_reason` | TEXT | validated; required when status=Done | Why the task was closed |
 | `complexity` | TEXT | validated if config non-empty | T-shirt size estimate (XS, S, M, L, XL) |
-| `is_deferred` | INTEGER | CHECK IN (0, 1); NOT NULL DEFAULT 0 | 1 if this is a deferred task (set by `tusk task-insert --deferred` or when summary starts with `[Deferred]`). Advisory breadcrumb only — deferred tasks are still surfaced by `v_ready_tasks` and `v_chain_heads` and remain eligible for `/tusk` and `/loop`. WSJF applies a `non_deferred_bonus` so non-deferred tasks rank higher; deferred tasks compete on score rather than being silently hidden. (Migration 59 added a hiding filter; migration 61 removed it after Issue #584 reported deferred tasks vanishing from every surface.) |
 | `workflow` | TEXT | nullable; validated if config non-empty | Custom workflow skill name; when set, `/tusk` and `/chain` route to `.claude/skills/<workflow>/SKILL.md` instead of the default dev cycle |
 | `created_at` | TEXT | default now | Creation timestamp |
 | `updated_at` | TEXT | default now | Last-modified timestamp |
@@ -532,7 +531,6 @@ Business rules and their enforcement mechanisms:
 | All active criteria done before task closure | Warning + non-zero exit unless `--force` | `bin/tusk-task-done.py` |
 | Non-`manual` criteria run automated verification on `done` | Shell exec (code/test) or glob check (file); blocks unless `--skip-verify` | `bin/tusk-criteria.py` |
 | `closed_reason = duplicate` used for dupes | Convention enforced by skills | `tusk dupes check`, `/groom-backlog`, `/retro` |
-| Deferred tasks have `is_deferred = 1`, `[Deferred]` prefix, and `expires_at` | `is_deferred` set by `tusk task-insert --deferred`; both prefix and column required | `bin/tusk-task-insert.py`, `skills/review-commits/SKILL.md` |
 
 Config-driven triggers are regenerated from `config.json` by `tusk regen-triggers` and after each trigger-only migration. They enforce whatever values are in the config at regen time.
 
@@ -575,8 +573,8 @@ Task A **contingently blocks** Task B means: B can theoretically proceed, but it
 | View | Purpose | Used By |
 |------|---------|---------|
 | `task_metrics` | Aggregates session cost/tokens/lines/request_count per task (exposes `total_request_count` = SUM of `task_sessions.request_count`, plus `reopen_count` = count of `task_status_transitions` rows whose `to_status` is `'To Do'` — a forward-looking rework signal capturing both `In Progress → To Do` mid-task rework and `Done → To Do` post-Done reopens via `tusk task-reopen --force`; always `0` for tasks that were already closed before migration 53, since migration 53's backfill produces no `to_status='To Do'` rows). Projects `t.*` from `tasks`, so its column list is frozen at CREATE VIEW time; recreated in migration 56 to pick up `fixes_task_id` and again in migration 58 to pick up the `bakeoff_*` columns and apply `WHERE t.bakeoff_shadow = 0`. | `tusk-dashboard.py`, reporting |
-| `v_ready_tasks` | Canonical "ready to work" definition: To Do, all `blocks`-type deps Done, no open external blockers (contingent deps do not prevent readiness), and not a bake-off shadow. Deferred tasks ARE surfaced (the `is_deferred` column is advisory, not gating). Projects `t.*`; recreated in migration 56 alongside `task_metrics`, in migration 58 to add the `bakeoff_shadow = 0` filter, in migration 59 to add an `(is_deferred = 0 OR is_deferred IS NULL)` filter, and in migration 61 to remove that filter again after Issue #584. | `/tusk`, `tusk-loop.py`, `tusk deps ready` |
-| `v_chain_heads` | Non-Done tasks with unfinished downstream dependents and no unmet upstream deps, excluding bake-off shadows. Deferred tasks ARE surfaced as chain heads. Projects `t.*`; recreated in migration 56, in migration 58 for the shadow filter, in migration 59 for the deferred filter, and in migration 61 to remove that deferred filter. | `/chain` |
+| `v_ready_tasks` | Canonical "ready to work" definition: To Do, all `blocks`-type deps Done, no open external blockers (contingent deps do not prevent readiness), and not a bake-off shadow. Projects `t.*`; recreated in migration 56 alongside `task_metrics` and in migration 58 to add the `bakeoff_shadow = 0` filter. | `/tusk`, `tusk-loop.py`, `tusk deps ready` |
+| `v_chain_heads` | Non-Done tasks with unfinished downstream dependents and no unmet upstream deps, excluding bake-off shadows. Projects `t.*`; recreated in migration 56 and in migration 58 for the shadow filter. | `/chain` |
 | `v_blocked_tasks` | Non-Done tasks blocked by dependency or external blocker, with `block_reason` and `blocking_summary`. Excludes bake-off shadows (both UNION branches filter on `t.bakeoff_shadow = 0`) since the shadow's own dependency status is not meaningful for the parent backlog. | `/tusk blocked`, `tusk deps blocked` |
 | `v_criteria_coverage` | Per-task counts of total, completed, and remaining criteria (deferred excluded). Projects specific `tasks` columns (not `t.*`), so ALTER additions do not silently drop out of its projection, but it was recreated in migration 56 to keep the set of tasks-dependent views uniform, and again in migration 58 to apply `WHERE t.bakeoff_shadow = 0`. | Reporting, `/tusk-insights` |
 | `v_velocity` | Completed tasks (closed_reason=completed) grouped by calendar week (Mon-start, `%Y-W%W`) using `closed_at` (falls back to `updated_at`) with task_count, avg_cost, avg_tokens_in, avg_tokens_out | `/tusk-insights`, dashboard velocity card |
@@ -622,14 +620,13 @@ Session-close paths have historically stamped both sentinels, and displaying two
 
 ```
 priority_score = ROUND(
-  (base_priority + non_deferred_bonus + unblocks_bonus + contingent_adjustment) / complexity_weight
+  (base_priority + unblocks_bonus + contingent_adjustment) / complexity_weight
 )
 ```
 
 | Component | Value |
 |-----------|-------|
 | `base_priority` | Highest=100, High=80, Medium=60, Low=40, Lowest=20 |
-| `non_deferred_bonus` | +10 if `is_deferred = 0`; 0 if `is_deferred = 1` (deferred tasks get no bonus) |
 | `unblocks_bonus` | +5 per downstream dependent (any type), capped at +15 |
 | `contingent_adjustment` | −10 if task has at least one `contingent` dependency and no `blocks` dependencies; 0 otherwise |
 | `complexity_weight` (divisor) | XS=1, S=2, M=3, L=5, XL=8; default=3 if no complexity set |
@@ -673,7 +670,7 @@ Non-enum config keys that control runtime behavior (not column validation). All 
 | `review.reviewer` | `object \| absent` | (general) | Single reviewer object with `name` and `description`. `/review-commits` spawns at most one background reviewer agent; absent means inline review only. |
 | `dupes.check_threshold` | `float` | `0.82` | Similarity score above which a candidate is flagged as a likely duplicate during task insertion. |
 | `dupes.similar_threshold` | `float` | `0.6` | Lower similarity threshold used for "possibly related" warnings (below `check_threshold`). |
-| `dupes.strip_prefixes` | `array` | `["Deferred", ...]` | Prefixes stripped from task summaries before duplicate comparison (e.g. `[Deferred]` prefix added to PR-deferred tasks). |
+| `dupes.strip_prefixes` | `array` | `[]` | Prefixes stripped from task summaries before duplicate comparison. |
 | `merge.mode` | `string` | `"local"` | `"local"` fast-forward merges locally; `"pr"` squash-merges via `gh pr merge`. |
 
 **`project_type` + `project_libs` relationship:** `project_type` is the lookup key into `project_libs`. When `/tusk-init` reaches the bootstrap step, it reads `project_libs[project_type]` to find the `repo` and `ref`, then fetches `tusk-bootstrap.json` from that repo at the pinned ref and seeds the listed tasks. If `project_type` is `null` or has no matching entry in `project_libs`, bootstrap seeding is skipped entirely. Pinning `ref` to a tag or commit SHA freezes which tasks get seeded, preventing unintended additions if the library repo's default branch changes later.

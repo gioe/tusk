@@ -194,7 +194,7 @@ LIFECYCLE
   merge --pr          open GitHub PR → gh pr merge --squash         (Ask path)
   task-update         (modify fields mid-flight)
   task-reopen         (reset stuck In Progress / Done → To Do)
-  autoclose           (expire deferred, close moot contingent, close merged PRs)
+  autoclose           (close moot contingent, close merged PRs)
   wsjf                (recompute priority_score for all open tasks)
 
 WORK CAPTURE

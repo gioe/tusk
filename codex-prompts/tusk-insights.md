@@ -71,7 +71,7 @@ from the category names — common follow-ups include:
 
 - **config_fitness** — list disabled validation arrays, missing domains, agent
   orphans.
-- **task_hygiene** — list `Done` tasks with no `closed_reason`, deferred
+- **task_hygiene** — list `Done` tasks with no `closed_reason`, open
   tasks past `expires_at`, criteria with no commit hash.
 - **dependency_health** — list cycles, dangling FKs, contingent edges where
   the upstream is closed but child is open.
@@ -153,8 +153,8 @@ After presenting the audit report, present 5 discussion topics:
    assigned to them? Compare assignee → done counts and cost-per-task.
 3. **Workflow patterns** — average wall vs active duration, criteria
    coverage rates, review pass counts. Identify common failure modes.
-4. **Backlog strategy** — open task age distribution, deferred vs active
-   ratio, expiring tasks, dependency depth.
+4. **Backlog strategy** — open task age distribution, expiring tasks,
+   dependency depth.
 5. **Free-form exploration** — let the user ask any DB question; respond
    with a `tusk -header -column "<sql>"` query and a one-paragraph
    interpretation.

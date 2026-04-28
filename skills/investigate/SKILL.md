@@ -133,26 +133,23 @@ Use `ExitPlanMode` to present the investigation report for user review. Set `all
 [{"tool": "Bash", "prompt": "run /create-task to create tasks if the user approves"}]
 ```
 
-After presenting the report, ask the user **two separate questions**:
+After presenting the report, ask the user:
 
-> 1. Should I create tasks for the proposed remediation?
-> 2. Should I capture any Out of Scope items as deferred tasks so they're not lost?
+> Should I create tasks for the proposed remediation?
 
-Wait for the user to respond. They may answer the two questions independently, ask follow-ups, request a deeper look (re-investigate only if genuinely new ground is needed), remove specific tasks, or decline entirely.
+Wait for the user to respond. They may ask follow-ups, request a deeper look (re-investigate only if genuinely new ground is needed), remove specific tasks, or decline entirely.
 
-## Step 7: Hand Off to /create-task *(conditional — skip if user declined both prompts)*
+## Step 7: Hand Off to /create-task *(conditional — skip if user declined)*
 
-If the user approved any Proposed Remediation items and/or any Out of Scope items, invoke `/create-task` **once** via the Skill tool with both sets combined in a single payload:
+If the user approved any Proposed Remediation items, invoke `/create-task` via the Skill tool with the approved items as the payload:
 
 ```
-Skill(skill="create-task", args="<approved remediation items>\n\n[Deferred]\n<approved Out of Scope items>")
+Skill(skill="create-task", args="<approved remediation items>")
 ```
 
-Mark deferred items with a `[Deferred]` header (or an inline "add as deferred" intent phrase) so `/create-task` inserts them with `is_deferred=1`, `[Deferred]` prefix, and `expires_at = now + 60 days`. `/create-task` handles decomposition review, acceptance criteria generation, duplicate detection, metadata assignment, and dependency proposals for both sets in one pass.
+`/create-task` handles decomposition review, acceptance criteria generation, duplicate detection, metadata assignment, and dependency proposals.
 
-**Fallback:** If the mixed payload does not parse cleanly (e.g. `/create-task` misreads the active/deferred split), retry with two sequential `Skill(skill="create-task", ...)` calls — first the active items, then the deferred items.
-
-Track the total number of tasks created (active + deferred) from the `/create-task` results — you will need it in Step 8.
+Track the total number of tasks created from the `/create-task` results — you will need it in Step 8.
 
 ## Step 8: Finish Cost Tracking
 

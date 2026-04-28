@@ -42,7 +42,7 @@ sequence. It returns one JSON document with these keys:
 - `duplicates` — heuristic duplicate pairs among open tasks
 - `unassigned` — To Do tasks with no assignee
 - `unsized` — To Do tasks with no complexity estimate
-- `autoclose_candidates` — `{expired_deferred, moot_contingent, total, applied}`
+- `autoclose_candidates` — `{moot_contingent, total, applied}`
 - `lint` — `{exit_code, summary}` from `tusk lint --quiet`
 
 Hold this JSON in memory for the rest of the flow. **Do not** run
@@ -59,9 +59,9 @@ is healthy — skip to Step 7 and report.
 > tusk groom --dry-run
 > ```
 > The `autoclose_candidates.applied` flag is `false` and the same
-> candidate IDs appear under `autoclose_candidates.expired_deferred` /
-> `moot_contingent` for review. The backlog-scan and lint steps run
-> unchanged either way.
+> candidate IDs appear under `autoclose_candidates.moot_contingent`
+> for review. The backlog-scan and lint steps run unchanged either
+> way.
 
 ## Step 1: Fetch Config, Backlog, and Dependency Data
 
@@ -304,5 +304,4 @@ mode.
 **Keep the backlog lean (< 20 open tasks):** The full backlog dump
 scales at ~700 tokens/task and is repeated across many turns during
 grooming. A 30-task backlog can consume over 300k tokens in a single
-session. Aggressively close, merge, or defer tasks to stay under 20 open
-items.
+session. Aggressively close or merge tasks to stay under 20 open items.
