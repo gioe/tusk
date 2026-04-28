@@ -62,6 +62,28 @@ Claude mode installs a `setup-path.sh` hook that prepends `.claude/bin/` to `PAT
 
 `install.sh` prints a reminder with the exact `export PATH=...` line after a successful Codex install.
 
+## Model routing for read-only prompts
+
+Codex prompt files have no `model:` frontmatter — the Codex CLI resolves the model from `~/.codex/config.toml`, named profiles activated via `--config-profile`, or the per-invocation `--model` flag. The Claude side of tusk pins read-only/orchestration skills (`groom-backlog`, `tusk-insights`, `tusk-update`, `loop`) to a cheaper model via SKILL.md frontmatter; Codex users can get the same effect with a named profile.
+
+Add a profile to `~/.codex/config.toml`:
+
+```toml
+[profiles.cheap]
+model = "gpt-4.1-mini"
+```
+
+Then invoke the four prompts above with `--config-profile cheap`:
+
+```bash
+codex --config-profile cheap exec /loop
+codex --config-profile cheap exec /groom-backlog
+codex --config-profile cheap exec /tusk-insights
+codex --config-profile cheap exec /tusk-update
+```
+
+Leave the other prompts (`/tusk`, `/chain`, `/investigate`, `/create-task`, `/retro`, `/review-commits`, `/address-issue`, `/resume-task`, `/tusk-init`, `/investigate-directory`) on your default (top-tier) model — they do real reasoning and benefit from the bigger model. Choose any model name your Codex install supports; `gpt-4.1-mini` is the cheap-tier default suggestion, swap as needed.
+
 ## Feature parity
 
 Every Claude skill has a corresponding Codex prompt under [`.codex/prompts/`](../codex-prompts/) (sourced from `codex-prompts/` in this repo and copied to `<repo_root>/.codex/prompts/` on install). The mechanical pipelines that previously lived inline in skill bodies have been migrated into `tusk` CLI orchestrators where it made sense — `tusk groom`, `tusk retro`, `tusk init-wizard`, `tusk loop`, and the `tusk review …` family — so the Codex prompts can drive the same logic the Claude skills do, plus the interactive layer.
