@@ -428,10 +428,18 @@ def rule25_subcommand_dispatcher_drift(root):
             candidates_set.add(m.group(1))
 
     # Locate the Usage message: the line containing `Usage: tusk {...}`.
+    # If the captured group contains a `$` (shell parameter expansion), the
+    # Usage message is built dynamically from the dispatcher at runtime — the
+    # Usage leg of the drift triangle is structurally eliminated, so skip both
+    # Usage-direction checks (TASK-233).
     usage_set = set()
+    usage_dynamic = False
     for line in lines:
         m = re.search(r'Usage: tusk \{([^}]*)\}', line)
         if m:
+            if '$' in m.group(1):
+                usage_dynamic = True
+                break
             for token in m.group(1).split('|'):
                 token = token.strip().strip('\\').strip('"').strip()
                 if re.fullmatch(r'[a-z][a-z0-9-]*', token):
@@ -445,10 +453,11 @@ def rule25_subcommand_dispatcher_drift(root):
         violations.append(
             f"  bin/tusk: subcommand '{s}' in dispatcher but missing from candidates = [...] (fuzzy-match list)"
         )
-    for s in sorted(dispatcher_set - usage_set):
-        violations.append(
-            f"  bin/tusk: subcommand '{s}' in dispatcher but missing from Usage message (empty/default case)"
-        )
+    if not usage_dynamic:
+        for s in sorted(dispatcher_set - usage_set):
+            violations.append(
+                f"  bin/tusk: subcommand '{s}' in dispatcher but missing from Usage message (empty/default case)"
+            )
     if candidates_set:
         for s in sorted(candidates_set - dispatcher_set):
             violations.append(

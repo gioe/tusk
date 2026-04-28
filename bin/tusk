@@ -1466,6 +1466,17 @@ case "${1:-}" in
   update-gitignore) cmd_update_gitignore ;;
   regen-triggers) cmd_regen_triggers ;;
   upgrade) shift; cmd_upgrade "$@" ;;
-  "")     echo "Usage: tusk {init|path|config|validate|sql-quote|branch|commit|lint|lint-rule|dupes|conventions|pillars|criteria|dashboard|chain|blockers|review|review-verdict|review-pass-status|review-final-summary|review-diff-range|review-defer|review-wait|review-check-perms|deps|session-stats|session-recalc|session-close|skill-run|call-breakdown|active-project|git-default-branch|branch-parse|task-get|task-get-multi|task-select|task-start|task-done|task-insert|task-update|task-reopen|task-list|task-summary|audit|autoclose|backlog-scan|groom|check-deliverables|retro|retro-signals|retro-themes|retro-finding|test-detect|test-precheck|add-lib|init-scan-codebase|init-scan-todos|init-fetch-bootstrap|init-write-config|init-write-manifest-files|init-wizard|init-scaffold|loop|merge|abandon|bakeoff|progress|setup|token-audit|sync-skills|generate-manifest|pricing-update|wsjf|shell|version|version-bump|report-issue|changelog-add|migrate|update-gitignore|regen-triggers|upgrade|\"SQL ...\"}" >&2; exit 1 ;;
+  "")
+          # Build the subcommand list from the dispatcher case-arms in $0 itself
+          # so the Usage message cannot drift away from the dispatcher (TASK-233).
+          _usage_subcmds="$(sed -n '/^case "\${1:-}" in$/,/^esac$/p' "$0" \
+            | sed -n 's/^  \([a-z][a-z0-9-]*\)).*/\1/p' \
+            | paste -sd '|' -)"
+          if [[ -z "$_usage_subcmds" ]]; then
+            echo "Usage: tusk <subcommand> [args...]" >&2
+          else
+            echo "Usage: tusk {${_usage_subcmds}|\"SQL ...\"}" >&2
+          fi
+          exit 1 ;;
   *)      cmd_query "$@" ;;
 esac
