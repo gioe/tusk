@@ -2537,6 +2537,15 @@ def main() -> None:
             func(db_path, config_path, script_dir)
 
     final = get_version(db_path)
+
+    # Always regenerate validation triggers from the current config as the
+    # final step. cmd_gen_triggers is idempotent (DROP all validate_* + CREATE
+    # from config), so it heals any drift — newly-added trigger coverage in
+    # tusk-config-tools.py, manually-DROPped triggers, or unexpected validators
+    # left over from older configs — without a separate `tusk regen-triggers`.
+    # Pairs with `tusk validate`'s trigger-drift detection (TASK-246).
+    regen_triggers(db_path, config_path, script_dir)
+
     if final == current:
         print(f"Schema is up to date (version {final}).")
     else:
