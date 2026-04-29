@@ -73,12 +73,10 @@ REVIEW_BEGIN_JSON=$(tusk review begin $TASK_ID)
 On success the helper prints a single JSON object with `review_id`, `task_id`, `reviewer`, `range`, `diff_lines`, and `recovered_from_task_commits`, and exits 0. Capture:
 
 ```bash
-REVIEW_ID=$(echo "$REVIEW_BEGIN_JSON" | jq -r .review_id)
-DIFF_RANGE=$(echo "$REVIEW_BEGIN_JSON" | jq -r .range)
-DIFF_LINES=$(echo "$REVIEW_BEGIN_JSON" | jq -r .diff_lines)
+REVIEW_ID=$(printf '%s' "$REVIEW_BEGIN_JSON" | jq -r .review_id)
+DIFF_RANGE=$(printf '%s' "$REVIEW_BEGIN_JSON" | jq -r .range)
+DIFF_LINES=$(printf '%s' "$REVIEW_BEGIN_JSON" | jq -r .diff_lines)
 ```
-
-Plain `echo` is safe here — none of the returned fields contain raw diff output, so the literal-`\n` quoting hazard does not apply.
 
 If the helper exits non-zero, it means no diff is recoverable — either no `[TASK-<id>]` commits were found in recent history, or the recovered range is still empty. The helper's stderr message is the same one Step 3 used to print inline. Run `tusk skill-run cancel <run_id>` and stop, surfacing the helper's stderr verbatim.
 
