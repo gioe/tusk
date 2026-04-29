@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [791] - 2026-04-28
+
+- [TASK-247] Run tusk regen-triggers automatically from tusk migrate
+
 ## [790] - 2026-04-28
 
 - [TASK-246] Add trigger-drift detection to tusk validate
