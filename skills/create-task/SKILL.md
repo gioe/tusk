@@ -219,15 +219,25 @@ Wait for explicit user approval before proceeding. Do NOT insert anything until 
 
 ## Step 5: Deduplicate, Insert, and Generate Criteria
 
-For each approved task, generate **2–5 acceptance criteria** — concrete, testable conditions that define "done." **Prefer typed criteria** over manual ones whenever the check is mechanical. Typed criteria auto-verify on `tusk criteria done`, removing reasoning cost from /tusk's output tokens; fewer-but-sharper typed criteria beat long manual checklists.
+For each approved task, generate **2–5 acceptance criteria** — concrete, testable conditions that define "done."
 
-### Type-inference rubric (apply this first)
+### Test-first default
 
-For each criterion you draft, ask: *can this be checked mechanically?* If yes, give it a `type` and a `spec`. Default to `manual` only when none of the rules below fit.
+**Default to `criterion_type=test` with a proposed pytest node ID** (e.g. `tests/integration/test_foo.py::TestBar::test_baz`) for any criterion that names a behavior, output shape, edge case, or invariant. The test does not need to exist yet — pinning the node ID at planning time forces the author to enumerate input cases before any code is written, and the criterion's contract becomes executable rather than prose.
+
+Prose criteria can be satisfied by partial implementations that match the wording but miss edge cases. Pinning a test name forecloses that gap: `/tusk` cannot mark the criterion done until the named pytest invocation exits 0, so the implementer either writes the test or amends the criterion deliberately. There is no quiet path from "looks plausible" to "marked done."
+
+The only criteria that should remain `manual` are genuine judgment calls: exploratory spikes, prose/UX/visual review, PR-description quality, design tradeoffs, and one-off manual operations. The **Manual fallback** subsection below enumerates these in detail.
+
+Other typed criteria — `code` (presence/absence grep) and `file` (path glob) — remain useful for non-behavioral checks. All typed criteria auto-verify on `tusk criteria done`, removing reasoning cost from /tusk's output tokens; fewer-but-sharper typed criteria beat long manual checklists.
+
+### Type-inference rubric
+
+After drafting each criterion, pick its verification type. Most criteria become `test` (per the test-first default above) — the table below covers the remaining cases. Default to `manual` only when none of the rows fit *and* the criterion belongs in the Manual fallback list.
 
 | Signal in the criterion text | Type | `spec` is | How verification runs |
 |---|---|---|---|
-| Mentions a **test command, test file, or test name** (e.g. "tests/integration/test_foo.py passes", "the auth pytest suite passes") | `test` | The exact shell command that runs the test | Runs `spec`; pass = exit 0; 300s timeout |
+| Names a **behavior, output shape, edge case, or invariant** that could be expressed as a pytest assertion (default per the test-first rule above) — or already mentions a test command, file, or name | `test` | The exact shell command that runs the test, typically a pytest node ID like `python3 -m pytest tests/foo/test_bar.py::TestBaz::test_quux -q` | Runs `spec`; pass = exit 0; 300s timeout |
 | Mentions a **file path that should exist** (e.g. "CHANGELOG.md has an entry", "migration file in bin/ exists") | `file` | A glob pattern matching the expected path | Pass if **any** file matches |
 | Mentions a **code symbol, string, or pattern that must (or must not) appear** (e.g. "`PRAGMA user_version = 56` stamped in cmd_init", "no raw `sqlite3` call in skills/") | `code` | A shell command (typically `grep -q …` or `! grep -q …`) whose exit code answers the question | Runs `spec`; pass = exit 0; 120s timeout |
 | Anything else — visual review, design judgment, prose correctness, behavior in a UI | `manual` | — | None; /tusk asserts it during work |
