@@ -62,49 +62,31 @@ If no row is returned, run `tusk skill-run cancel <run_id>` to close the open ro
 
 Store the task's `domain` value — Step 7 uses it when dupe-checking and creating deferred tasks.
 
-## Step 3: Get the Git Diff
+## Step 3: Compute Diff Range and Start the Review
 
-Compute the diff range in one call — the helper handles the default-branch resolution (`tusk git-default-branch`), the `<default>...HEAD` primary range, and the `[TASK-<id>]` commit-range recovery fallback used when the feature branch has already been merged and deleted:
-
-```bash
-DIFF_RANGE_JSON=$(tusk review-diff-range $TASK_ID)
-```
-
-On success the helper prints a single JSON object with four keys (`range`, `diff_lines`, `summary`, `recovered_from_task_commits`) and exits 0. Capture:
+Bundle the diff-range computation and the `code_reviews` row creation into one call. The helper handles the default-branch resolution (`tusk git-default-branch`), the `<default>...HEAD` primary range, the `[TASK-<id>]` commit-range recovery fallback used when the feature branch has already been merged and deleted, and stamps the captured diff summary onto the new review row internally — so the dangerous summary string never has to round-trip through shell variables:
 
 ```bash
-DIFF_RANGE=$(printf '%s' "$DIFF_RANGE_JSON" | jq -r .range)
-DIFF_LINES=$(printf '%s' "$DIFF_RANGE_JSON" | jq -r .diff_lines)
-DIFF_SUMMARY=$(printf '%s' "$DIFF_RANGE_JSON" | jq -r .summary)
+REVIEW_BEGIN_JSON=$(tusk review begin $TASK_ID)
 ```
 
-> Use `printf '%s'` rather than `echo "$VAR"`. In zsh — and in bash with `xpg_echo` enabled — `echo` interprets the literal `\n` escape sequences inside the captured JSON as real newlines, breaking jq with `Invalid string: control characters from U+0000 through U+001F must be escaped` and silently leaving `$DIFF_SUMMARY` empty.
+On success the helper prints a single JSON object with `review_id`, `task_id`, `reviewer`, `range`, `diff_lines`, and `recovered_from_task_commits`, and exits 0. Capture:
+
+```bash
+REVIEW_ID=$(echo "$REVIEW_BEGIN_JSON" | jq -r .review_id)
+DIFF_RANGE=$(echo "$REVIEW_BEGIN_JSON" | jq -r .range)
+DIFF_LINES=$(echo "$REVIEW_BEGIN_JSON" | jq -r .diff_lines)
+```
+
+Plain `echo` is safe here — none of the returned fields contain raw diff output, so the literal-`\n` quoting hazard does not apply.
 
 If the helper exits non-zero, it means no diff is recoverable — either no `[TASK-<id>]` commits were found in recent history, or the recovered range is still empty. The helper's stderr message is the same one Step 3 used to print inline. Run `tusk skill-run cancel <run_id>` and stop, surfacing the helper's stderr verbatim.
 
-Use `$DIFF_RANGE` for any subsequent `git diff` call in this skill, and pass `$DIFF_SUMMARY` to `tusk review start` (Step 4). **Do not pass the diff to reviewer agents** — they will fetch it themselves via `git diff` to avoid transcription errors.
-
-## Step 4: Start the Review
-
-Start a review record for the task. This creates one `code_reviews` row using the configured reviewer (or unassigned if `review.reviewer` is absent):
-
-```bash
-tusk review start <task_id> --diff-summary "$DIFF_SUMMARY"
-```
-
-`$DIFF_SUMMARY` was captured from the `tusk review-diff-range` JSON in Step 3 — already truncated to the first 120 characters of the diff.
-
-The command prints a single line, for example:
-
-```
-Started review #12 for task #42 (reviewer: general): Fix login bug
-```
-
-Capture the printed `review_id`.
+Use `$DIFF_RANGE` for any subsequent `git diff` call in this skill. **Do not pass the diff to reviewer agents** — they will fetch it themselves via `git diff` to avoid transcription errors.
 
 ## Step 5: Spawn the Reviewer Agent
 
-Only when the diff is non-empty and a review has been started in Step 4, proceed with the steps below.
+Only when the diff is non-empty and a review has been started in Step 3, proceed with the steps below.
 
 ### Step 5.1: Choose review strategy and verify permissions
 
@@ -158,7 +140,7 @@ Task tool call:
 
 Fill in these placeholders from the template:
 - `{task_id}` — the task ID
-- `{review_id}` — the review ID captured in Step 4
+- `{review_id}` — the review ID captured in Step 3
 - `{reviewer_name}` — `review.reviewer.name` from config
 - `{reviewer_focus}` — `review.reviewer.description` from config
 - `{review_categories}` — comma-separated list from config (e.g., `must_fix, suggest, defer`)
