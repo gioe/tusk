@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [790] - 2026-04-28
+
+- [TASK-246] Add trigger-drift detection to tusk validate
+
 ## [789] - 2026-04-28
 
 - [TASK-244] Add actual-vs-baseline cost comparison to `tusk task-summary` (median cost per complexity bucket)
