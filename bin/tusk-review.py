@@ -2,7 +2,7 @@
 """Manage code reviews for tusk tasks.
 
 Called by the tusk wrapper:
-    tusk review start|add-comment|list|resolve|approve|request-changes|status|summary ...
+    tusk review start|begin|add-comment|list|resolve|approve|request-changes|status|summary ...
 
 Arguments received from tusk:
     sys.argv[1] — DB path
@@ -17,7 +17,7 @@ import sqlite3
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader
+import tusk_loader  # loads tusk-db-lib.py, tusk-json-lib.py, tusk-review-diff-range.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
@@ -98,6 +98,76 @@ def cmd_start(args: argparse.Namespace, db_path: str, config_path: str) -> int:
     reviewer_str = f" (reviewer: {reviewer_name})" if reviewer_name else ""
     print(f"Started review #{rid} for task #{args.task_id}{reviewer_str}: {task['summary']}")
 
+    return 0
+
+
+def cmd_begin(args: argparse.Namespace, db_path: str, config_path: str) -> int:
+    """Bundle review-diff-range and review start into one call.
+
+    Computes the diff range for the task, then creates a code_reviews row with
+    the captured summary baked in. Returns combined JSON on stdout so callers
+    never have to extract the diff summary from JSON in shell — the field most
+    likely to break the `echo "$VAR" | jq` quoting hazard is no longer in the
+    output. Output keys: review_id, task_id, reviewer, range, diff_lines,
+    recovered_from_task_commits.
+    """
+    diff_range_mod = tusk_loader.load("tusk-review-diff-range")
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+
+    try:
+        diff_payload = diff_range_mod.compute_range(args.task_id, repo_root)
+    except SystemExit as exc:
+        if isinstance(exc.code, str):
+            print(exc.code, file=sys.stderr)
+        return 1
+
+    diff_summary = diff_payload["summary"]
+
+    conn = get_connection(db_path)
+    try:
+        task = conn.execute(
+            "SELECT id, summary FROM tasks WHERE id = ?", (args.task_id,)
+        ).fetchone()
+        if not task:
+            print(f"Error: Task {args.task_id} not found", file=sys.stderr)
+            return 2
+
+        conn.execute(
+            "UPDATE code_reviews SET status = 'superseded', updated_at = datetime('now')"
+            " WHERE task_id = ? AND status = 'pending'",
+            (args.task_id,),
+        )
+        conn.commit()
+
+        cfg = load_review_config(config_path)
+        reviewer_item = cfg["reviewer"]
+        if args.reviewer:
+            reviewer_name = args.reviewer
+        elif isinstance(reviewer_item, dict):
+            reviewer_name = reviewer_item.get("name")
+        elif isinstance(reviewer_item, str):
+            reviewer_name = reviewer_item
+        else:
+            reviewer_name = None
+
+        conn.execute(
+            "INSERT INTO code_reviews (task_id, reviewer, status, review_pass, diff_summary, agent_name)"
+            " VALUES (?, ?, 'pending', ?, ?, ?)",
+            (args.task_id, reviewer_name, args.pass_num, diff_summary, args.agent),
+        )
+        conn.commit()
+        rid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    finally:
+        conn.close()
+
+    print(dumps({
+        "review_id": rid,
+        "task_id": args.task_id,
+        "reviewer": reviewer_name,
+        "range": diff_payload["range"],
+        "diff_lines": diff_payload["diff_lines"],
+        "recovered_from_task_commits": diff_payload["recovered_from_task_commits"],
+    }))
     return 0
 
 
@@ -567,7 +637,7 @@ def cmd_summary(args: argparse.Namespace, db_path: str) -> int:
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: tusk review {start|add-comment|list|resolve|approve|request-changes|status|summary} ...", file=sys.stderr)
+        print("Usage: tusk review {start|begin|add-comment|list|resolve|approve|request-changes|status|summary} ...", file=sys.stderr)
         sys.exit(1)
 
     db_path = sys.argv[1]
@@ -586,6 +656,16 @@ def main():
     start_p.add_argument("--pass-num", type=int, default=1, help="Review pass number (default: 1)")
     start_p.add_argument("--diff-summary", default=None, help="Optional diff summary text")
     start_p.add_argument("--agent", default=None, help="Agent name that ran the review (e.g. from /chain)")
+
+    # begin
+    begin_p = subparsers.add_parser(
+        "begin",
+        help="Bundle review-diff-range and review start in one call (returns JSON)",
+    )
+    begin_p.add_argument("task_id", type=int, help="Task ID")
+    begin_p.add_argument("--reviewer", default=None, help="Reviewer name (overrides config reviewers)")
+    begin_p.add_argument("--pass-num", type=int, default=1, help="Review pass number (default: 1)")
+    begin_p.add_argument("--agent", default=None, help="Agent name that ran the review (e.g. from /chain)")
 
     # add-comment
     add_comment_p = subparsers.add_parser("add-comment", help="Add a finding comment to a review")
@@ -662,6 +742,8 @@ def main():
     try:
         if args.command == "start":
             sys.exit(cmd_start(args, db_path, config_path))
+        elif args.command == "begin":
+            sys.exit(cmd_begin(args, db_path, config_path))
         elif args.command == "add-comment":
             sys.exit(cmd_add_comment(args, db_path, config_path))
         elif args.command == "list":
