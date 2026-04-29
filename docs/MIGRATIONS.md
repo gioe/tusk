@@ -2,6 +2,8 @@
 
 Reference for writing schema migrations inside `cmd_migrate()` in `bin/tusk`.
 
+> **Auto-regen of validation triggers.** `tusk migrate` calls the trigger-regen logic (`regen_triggers` in `bin/tusk-migrate.py`) as its final step, after all migrations have applied. The regen DROPs every `validate_*` trigger and recreates the set from the current `config.json`, so any new trigger coverage in `tusk-config-tools.py` and any drift introduced since the last migrate get installed without a separate `tusk regen-triggers` call. Because regen is idempotent and runs unconditionally, individual migrations no longer need to regenerate triggers themselves — keep the trigger-recreation steps below for completeness, but the final-step auto-regen is the safety net. Pairs with `tusk validate`'s trigger-drift detection.
+
 ---
 
 ## Table-Recreation Migration
