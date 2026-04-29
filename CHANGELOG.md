@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [793] - 2026-04-28
+
+- [TASK-252] Add `tusk review begin` to bundle diff-range and review start
+
 ## [792] - 2026-04-28
 
 - [TASK-245] Default /create-task to test-typed criteria with proposed pytest node IDs
