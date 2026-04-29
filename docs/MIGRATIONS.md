@@ -8,111 +8,129 @@ Reference for writing schema migrations as `migrate_N(db_path, config_path, scri
 
 ## Table-Recreation Migration
 
-SQLite does not support `ALTER COLUMN` or `DROP COLUMN` (on older versions). Any migration that changes column constraints, renames a column, or removes a column requires recreating the table.
+SQLite does not support `ALTER COLUMN` or `DROP COLUMN` (on older versions). Any migration that changes column constraints, renames a column, or removes a column requires recreating the table. Add the function to `bin/tusk-migrate.py` and register it in the `MIGRATIONS` list near the bottom of that file.
 
-```bash
-# Migration N→N+1: <describe what changed and why>
-if [[ "$current" -lt <N+1> ]]; then
-  sqlite3 "$DB_PATH" "
-    BEGIN;
+```python
+def migrate_N(db_path: str, config_path: str, script_dir: str) -> None:
+    """<one-line summary of what changed and why>
 
-    -- 1. Drop validation triggers (they reference the table)
-    $(sqlite3 "$DB_PATH" "SELECT 'DROP TRIGGER IF EXISTS ' || name || ';' FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'validate_%';")
+    <Optional longer rationale: links to the issue/task that motivated the
+    change, edge cases, idempotency notes. Mirror the docstring style of the
+    other migrate_X functions in bin/tusk-migrate.py.>
 
-    -- 2. Drop dependent views
-    DROP VIEW IF EXISTS task_metrics;
+    Idempotent: <how a re-run on an already-migrated DB is a no-op — typically
+    the get_version() guard at the top of the function.>
+    """
+    if get_version(db_path) >= N:
+        _progress("  Migration N: <one-line summary>")
+        return
 
-    -- 3. Create the new table with the updated schema
-    CREATE TABLE tasks_new (
-        -- ... full column definitions with updated constraints ...
-    );
+    drop_triggers = drop_validate_triggers(db_path)
 
-    -- 4. Copy data from the old table
-    INSERT INTO tasks_new SELECT * FROM tasks;
-    --   If columns were added/removed/reordered, list them explicitly:
-    --   INSERT INTO tasks_new (col1, col2, ...) SELECT col1, col2, ... FROM tasks;
+    run_script(db_path, f"""
+        BEGIN;
 
-    -- 5. Drop the old table
-    DROP TABLE tasks;
+        -- 1. Drop validation triggers (they reference the table being recreated).
+        {drop_triggers}
 
-    -- 6. Rename the new table
-    ALTER TABLE tasks_new RENAME TO tasks;
+        -- 2. Drop every view that projects columns from the table being
+        --    recreated. SQLite freezes ``SELECT t.*`` column lists at CREATE
+        --    VIEW time, so views must be DROPped and re-CREATEd to pick up
+        --    column additions, renames, or removals. The currently-affected
+        --    set is task_metrics, v_ready_tasks, v_chain_heads, and
+        --    v_criteria_coverage — drop whichever of these reference the
+        --    table you are recreating.
+        DROP VIEW IF EXISTS task_metrics;
+        DROP VIEW IF EXISTS v_ready_tasks;
+        DROP VIEW IF EXISTS v_chain_heads;
+        DROP VIEW IF EXISTS v_criteria_coverage;
 
-    -- 7. Recreate any indexes that were on the original table
-    --   (indexes are dropped automatically when the old table is dropped)
+        -- 3. Create the new table with the updated schema.
+        CREATE TABLE tasks_new (
+            -- ... full column definitions with updated constraints ...
+        );
 
-    -- 8. Recreate dependent views
-    CREATE VIEW task_metrics AS
-    SELECT t.*,
-        COUNT(s.id) as session_count,
-        SUM(s.duration_seconds) as total_duration_seconds,
-        SUM(s.cost_dollars) as total_cost,
-        SUM(s.tokens_in) as total_tokens_in,
-        SUM(s.tokens_out) as total_tokens_out,
-        SUM(s.lines_added) as total_lines_added,
-        SUM(s.lines_removed) as total_lines_removed
-    FROM tasks t
-    LEFT JOIN task_sessions s ON t.id = s.task_id
-    GROUP BY t.id;
+        -- 4. Copy data from the old table. If columns were added, removed, or
+        --    reordered, list them explicitly on both sides:
+        INSERT INTO tasks_new (col1, col2, ...) SELECT col1, col2, ... FROM tasks;
 
-    -- 9. Bump schema version
-    PRAGMA user_version = <N+1>;
+        -- 5. Drop the old table.
+        DROP TABLE tasks;
 
-    COMMIT;
-  "
+        -- 6. Rename the new table.
+        ALTER TABLE tasks_new RENAME TO tasks;
 
-  -- 10. Regenerate validation triggers from config
-  local triggers
-  triggers="$(generate_triggers)"
-  if [[ -n "$triggers" ]]; then
-    sqlite3 "$DB_PATH" "$triggers"
-  fi
+        -- 7. Recreate any indexes that were on the original table.
+        --    (Indexes are dropped automatically when the old table is dropped.)
 
-  # 11. Update DOMAIN.md to reflect new/modified tables, views, or triggers
+        -- 8. Recreate dependent views — copy each CREATE VIEW statement
+        --    verbatim from cmd_init in bin/tusk so migrated DBs match fresh
+        --    installs bit-for-bit. See migrate_56 in bin/tusk-migrate.py for
+        --    a full worked example of view recreation.
+        CREATE VIEW task_metrics AS
+        SELECT t.*,
+            COUNT(s.id) as session_count,
+            -- ... see cmd_init for the full canonical column list ...
+        FROM tasks t
+        LEFT JOIN task_sessions s ON t.id = s.task_id
+        GROUP BY t.id;
 
-  echo "  Migration <N+1>: <describe change>"
-fi
+        -- (... recreate v_ready_tasks, v_chain_heads, v_criteria_coverage too ...)
+
+        -- 9. Bump schema version.
+        PRAGMA user_version = N;
+
+        COMMIT;
+    """)
+
+    # 10. Update DOMAIN.md to reflect new/modified tables, views, or triggers.
+    #
+    # Validation triggers do NOT need to be recreated here — the auto-regen
+    # note at the top of this file describes how tusk migrate's final-step
+    # regen_triggers() rebuilds the entire validate_* set from the current
+    # config.json after every migration run. New migrations should drop
+    # validation triggers (step 1) but rely on the final-step auto-regen
+    # to recreate them. Older migrations in bin/tusk-migrate.py still call
+    # regen_triggers() explicitly; the call is idempotent and harmless.
+
+    _progress("  Migration N: <one-line summary>")
 ```
 
 **Key points:**
 
-- Wrap the entire table-recreation DDL block inside an explicit `BEGIN;` / `COMMIT;` block within the `sqlite3` call. SQLite does not wrap multi-statement scripts in a single implicit transaction — each statement auto-commits independently. Without `BEGIN`/`COMMIT`, a kill between `DROP TABLE` and `ALTER TABLE ... RENAME` permanently destroys the original table. (This requirement applies to table-recreation migrations only; trigger-only migrations do not need `BEGIN`/`COMMIT`.)
-- Steps 1 (drop triggers), 10 (regenerate triggers), and 11 (update DOMAIN.md) are separated: triggers are dropped inside the SQL transaction, regenerated afterward via the `generate_triggers` bash function, and DOMAIN.md is updated last as a manual step.
-- Always update `PRAGMA user_version` inside the SQL block, and update the `tusk init` fresh-DB version to match.
-- If the table has foreign keys pointing to it, SQLite will remap them automatically on `RENAME` as long as `PRAGMA foreign_keys` is OFF (the default for raw `sqlite3` calls).
+- The `BEGIN;` / `COMMIT;` block is required. SQLite does not wrap multi-statement scripts in a single implicit transaction — each statement auto-commits independently. Without `BEGIN`/`COMMIT`, a kill between `DROP TABLE` and `ALTER TABLE ... RENAME` permanently destroys the original table.
+- Validation triggers are **dropped** inside the SQL transaction (because they reference the table being recreated) but are **not** recreated by the migration itself. The final-step `regen_triggers()` call in `main()` of `bin/tusk-migrate.py` (see the auto-regen note at the top of this file) recreates the full `validate_*` set from the current `config.json` after every migrate run, so an explicit per-migration regen call is no longer required.
+- Always update `PRAGMA user_version` inside the SQL block, and bump the fresh-DB stamp in `cmd_init()` of `bin/tusk` to match. See the migration-N checklist in `CLAUDE.md` for the full set of files to touch.
+- If the table has foreign keys pointing to it, SQLite will remap them automatically on `RENAME` as long as `PRAGMA foreign_keys` is OFF (the default for the `sqlite3.Connection` opened by `db_connect()` / `run_script()`).
 - Test the migration on a copy of the database before merging: `cp tusk/tasks.db /tmp/test.db && TUSK_DB=/tmp/test.db tusk migrate`.
 
 ---
 
 ## Trigger-Only Migration
 
-Some migrations only need to recreate validation triggers (e.g., after adding a new valid enum value to a config-driven column). These don't require table recreation, but they still need a version bump.
+Most "trigger-only" migrations are no longer needed at all. The auto-regen note at the top of this file describes how `tusk migrate` regenerates every `validate_*` trigger from the current `config.json` as its final step on every invocation. So a config-driven enum addition (e.g., a new domain value, a new task_type) is picked up without any migration: edit `config.default.json` and run `tusk migrate`.
 
-**Critical rule: bump `user_version` inside the same `sqlite3` call as trigger recreation — never before it.**
+You only need a true trigger-only migration when you must **bump `user_version`** for an unrelated reason — e.g., to fence off a downstream behavior change, or to mark a config-schema break that cannot be inferred from the trigger set alone. In that case:
 
-```bash
-# Migration N→N+1: <describe what changed — e.g., add new domain value>
-if [[ "$current" -lt <N+1> ]]; then
-  local triggers
-  triggers="$(generate_triggers)"
-  sqlite3 "$DB_PATH" "
-    -- 1. Drop existing validation triggers
-    $(sqlite3 "$DB_PATH" "SELECT 'DROP TRIGGER IF EXISTS ' || name || ';' FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'validate_%';")
+```python
+def migrate_N(db_path: str, config_path: str, script_dir: str) -> None:
+    """<one-line summary — e.g., bump version to fence off behavior change X>"""
+    if get_version(db_path) >= N:
+        _progress("  Migration N: <one-line summary>")
+        return
 
-    -- 2. Recreate triggers with updated config
-    $triggers
+    set_version(db_path, N)
 
-    -- 3. Bump schema version (MUST be in the same call as trigger recreation)
-    PRAGMA user_version = <N+1>;
-  "
+    # Validation triggers are regenerated by tusk migrate's final-step
+    # regen_triggers() call (see the auto-regen note at the top of this file)
+    # — no explicit per-migration regen required.
 
-  # 4. Update DOMAIN.md to reflect any schema or validation rule changes
+    # Update DOMAIN.md if the change has documentation consequences.
 
-  echo "  Migration <N+1>: <describe change>"
-fi
+    _progress("  Migration N: <one-line summary>")
 ```
 
-**Why ordering matters:** If you bump `user_version` in a prior `sqlite3` call and the trigger recreation call subsequently fails, the DB is stuck at the new version with the trigger missing. Future `tusk migrate` runs will skip the migration while the trigger remains absent. Keep the version bump and trigger recreation atomic in the same call.
+The previous "bump `user_version` and recreate triggers in the same `sqlite3` call" hazard is gone, because trigger recreation now lives outside the per-migration scope (in `main()`'s final-step auto-regen). If your migration also needs a small DDL change (e.g. `ALTER TABLE ... ADD COLUMN`), see `migrate_60` in `bin/tusk-migrate.py` for a worked `run_script()` pattern that bundles the DDL with the version bump in a single transaction.
 
 ---
 
