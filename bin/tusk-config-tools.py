@@ -3,14 +3,18 @@
 
 Called by the tusk wrapper:
     tusk validate         → tusk-config-tools.py validate <config_path>
+                          → tusk-config-tools.py validate-triggers <config_path> <db_path>
     tusk regen-triggers   → tusk-config-tools.py gen-triggers <config_path>
 
 Arguments:
-    sys.argv[1] — subcommand: 'validate' or 'gen-triggers'
+    sys.argv[1] — subcommand: 'validate', 'gen-triggers', or 'validate-triggers'
     sys.argv[2] — path to the resolved config JSON file
+    sys.argv[3] — db_path (validate-triggers only)
 """
 
 import json
+import os
+import sqlite3
 import sys
 
 
@@ -222,70 +226,11 @@ def cmd_validate(config_path: str) -> int:
     return 0
 
 
-def cmd_gen_triggers(config_path: str) -> int:
-    with open(config_path) as f:
-        cfg = json.load(f)
-
-    def trigger_sql(column, values, table='tasks'):
-        if not values:
-            return ''
-        quoted = ', '.join(f"'{v}'" for v in values)
-        label = ', '.join(values)
-        prefix = f'{table}_{column}' if table != 'tasks' else column
-        return f'''
-CREATE TRIGGER validate_{prefix}_insert
-BEFORE INSERT ON {table} FOR EACH ROW
-WHEN NEW.{column} IS NOT NULL AND NEW.{column} NOT IN ({quoted})
-BEGIN SELECT RAISE(ABORT, 'Invalid {column}. Must be one of: {label}'); END;
-
-CREATE TRIGGER validate_{prefix}_update
-BEFORE UPDATE OF {column} ON {table} FOR EACH ROW
-WHEN NEW.{column} IS NOT NULL AND NEW.{column} NOT IN ({quoted})
-BEGIN SELECT RAISE(ABORT, 'Invalid {column}. Must be one of: {label}'); END;
-'''
-
-    # Always enforce these
-    print(trigger_sql('status', cfg.get('statuses', ['To Do', 'In Progress', 'Done'])))
-    print(trigger_sql('priority', cfg.get('priorities', ['Highest', 'High', 'Medium', 'Low', 'Lowest'])))
-    print(trigger_sql('closed_reason', cfg.get('closed_reasons', ['completed', 'expired', 'wont_do', 'duplicate'])))
-
-    # Only enforce if configured
-    domains = cfg.get('domains', [])
-    if domains:
-        print(trigger_sql('domain', domains))
-
-    task_types = cfg.get('task_types', [])
-    if task_types:
-        print(trigger_sql('task_type', task_types))
-
-    complexity = cfg.get('complexity', [])
-    if complexity:
-        print(trigger_sql('complexity', complexity))
-
-    blocker_types = cfg.get('blocker_types', [])
-    if blocker_types:
-        print(trigger_sql('blocker_type', blocker_types, 'external_blockers'))
-
-    workflows = cfg.get('workflows', [])
-    if workflows:
-        print(trigger_sql('workflow', workflows))
-
-    criterion_types = cfg.get('criterion_types', [])
-    if criterion_types:
-        print(trigger_sql('criterion_type', criterion_types, 'acceptance_criteria'))
-
-    review_categories = cfg.get('review_categories', [])
-    if review_categories:
-        print(trigger_sql('category', review_categories, 'review_comments'))
-
-    review_severities = cfg.get('review_severities', [])
-    if review_severities:
-        print(trigger_sql('severity', review_severities, 'review_comments'))
-
-    # Status transition constraint (separate from value validation)
-    # Allowed: To Do->In Progress, To Do->Done, In Progress->Done; same-status no-ops always allowed
-    print('''
-CREATE TRIGGER validate_status_transition
+# Status transition constraint (separate from value validation).
+# Allowed: To Do->In Progress, To Do->Done, In Progress->Done; same-status
+# no-ops always allowed. Stored as a constant so both gen-triggers and the
+# drift detector use the exact same source text.
+_STATUS_TRANSITION_SQL = """CREATE TRIGGER validate_status_transition
 BEFORE UPDATE OF status ON tasks
 FOR EACH ROW
 WHEN NOT (
@@ -295,15 +240,154 @@ WHEN NOT (
 )
 BEGIN
   SELECT RAISE(ABORT, 'Invalid status transition. Done is terminal. Allowed: To Do->In Progress, To Do->Done, In Progress->Done');
-END;
-''')
+END"""
 
+
+def _value_triggers(column, values, table='tasks'):
+    """Build the (insert, update) validation trigger pair for a column.
+
+    Returns a list of (trigger_name, create_trigger_sql) tuples. Each SQL
+    string omits the leading newline and trailing semicolon so it matches
+    the canonical form sqlite_master.sql stores after CREATE TRIGGER.
+    """
+    if not values:
+        return []
+    quoted = ', '.join(f"'{v}'" for v in values)
+    label = ', '.join(values)
+    prefix = f'{table}_{column}' if table != 'tasks' else column
+    insert_name = f'validate_{prefix}_insert'
+    update_name = f'validate_{prefix}_update'
+    insert_sql = (
+        f'CREATE TRIGGER {insert_name}\n'
+        f'BEFORE INSERT ON {table} FOR EACH ROW\n'
+        f'WHEN NEW.{column} IS NOT NULL AND NEW.{column} NOT IN ({quoted})\n'
+        f"BEGIN SELECT RAISE(ABORT, 'Invalid {column}. Must be one of: {label}'); END"
+    )
+    update_sql = (
+        f'CREATE TRIGGER {update_name}\n'
+        f'BEFORE UPDATE OF {column} ON {table} FOR EACH ROW\n'
+        f'WHEN NEW.{column} IS NOT NULL AND NEW.{column} NOT IN ({quoted})\n'
+        f"BEGIN SELECT RAISE(ABORT, 'Invalid {column}. Must be one of: {label}'); END"
+    )
+    return [(insert_name, insert_sql), (update_name, update_sql)]
+
+
+def compute_expected_triggers(cfg):
+    """Compute the full set of validation triggers the live DB *should* have.
+
+    Returns an ordered list of (trigger_name, create_trigger_sql) tuples.
+    Driven entirely by config so the same config edits that change
+    cmd_gen_triggers also change what cmd_validate_triggers expects.
+    """
+    triggers = []
+    triggers.extend(_value_triggers(
+        'status', cfg.get('statuses', ['To Do', 'In Progress', 'Done'])))
+    triggers.extend(_value_triggers(
+        'priority', cfg.get('priorities', ['Highest', 'High', 'Medium', 'Low', 'Lowest'])))
+    triggers.extend(_value_triggers(
+        'closed_reason', cfg.get('closed_reasons', ['completed', 'expired', 'wont_do', 'duplicate'])))
+
+    if cfg.get('domains'):
+        triggers.extend(_value_triggers('domain', cfg['domains']))
+    if cfg.get('task_types'):
+        triggers.extend(_value_triggers('task_type', cfg['task_types']))
+    if cfg.get('complexity'):
+        triggers.extend(_value_triggers('complexity', cfg['complexity']))
+    if cfg.get('blocker_types'):
+        triggers.extend(_value_triggers('blocker_type', cfg['blocker_types'], 'external_blockers'))
+    if cfg.get('workflows'):
+        triggers.extend(_value_triggers('workflow', cfg['workflows']))
+    if cfg.get('criterion_types'):
+        triggers.extend(_value_triggers('criterion_type', cfg['criterion_types'], 'acceptance_criteria'))
+    if cfg.get('review_categories'):
+        triggers.extend(_value_triggers('category', cfg['review_categories'], 'review_comments'))
+    if cfg.get('review_severities'):
+        triggers.extend(_value_triggers('severity', cfg['review_severities'], 'review_comments'))
+
+    triggers.append(('validate_status_transition', _STATUS_TRANSITION_SQL))
+    return triggers
+
+
+def _normalize_sql(sql):
+    """Collapse whitespace and strip trailing semicolons for comparison.
+
+    SQLite stores CREATE TRIGGER text in sqlite_master.sql verbatim, but
+    minor whitespace differences (e.g. tabs vs spaces, blank lines) would
+    otherwise produce false drift positives. Comparing whitespace-collapsed
+    forms keeps the check resilient to harmless formatting changes.
+    """
+    if not sql:
+        return ''
+    return ' '.join(sql.split()).rstrip(';').strip()
+
+
+def cmd_gen_triggers(config_path: str) -> int:
+    with open(config_path) as f:
+        cfg = json.load(f)
+    for _name, sql in compute_expected_triggers(cfg):
+        # Add the trailing semicolon for sqlite3 to parse the statement
+        # boundary; sqlite_master.sql then stores the SQL up to (but not
+        # including) the semicolon — matching _normalize_sql's rstrip.
+        print(sql + ';')
+        print()
     return 0
+
+
+def cmd_validate_triggers(config_path: str, db_path: str) -> int:
+    """Detect drift between the validation triggers config says should
+    exist and the triggers actually present in the live SQLite DB.
+
+    Exit codes:
+        0 — no drift, or DB does not exist (nothing to compare against)
+        1 — at least one missing, stale, or unexpected validate_* trigger
+    """
+    if not os.path.exists(db_path):
+        return 0
+
+    with open(config_path) as f:
+        cfg = json.load(f)
+    expected = {name: _normalize_sql(sql) for name, sql in compute_expected_triggers(cfg)}
+
+    conn = sqlite3.connect(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT name, sql FROM sqlite_master "
+            "WHERE type = 'trigger' AND name LIKE 'validate_%'"
+        ).fetchall()
+    finally:
+        conn.close()
+    actual = {name: _normalize_sql(sql) for name, sql in rows}
+
+    missing = sorted(set(expected) - set(actual))
+    extra = sorted(set(actual) - set(expected))
+    stale = sorted(
+        name for name in (set(expected) & set(actual))
+        if expected[name] != actual[name]
+    )
+
+    if not (missing or extra or stale):
+        return 0
+
+    print(f'Trigger drift detected ({db_path}):', file=sys.stderr)
+    for name in missing:
+        print(f'  - missing trigger: {name}', file=sys.stderr)
+    for name in stale:
+        print(f'  - stale trigger: {name} (live SQL differs from config)', file=sys.stderr)
+    for name in extra:
+        print(f'  - unexpected trigger: {name} (not produced by current config)', file=sys.stderr)
+    print(
+        "Run 'tusk regen-triggers' to rebuild validation triggers from config.",
+        file=sys.stderr,
+    )
+    return 1
 
 
 def main() -> int:
     if len(sys.argv) < 3:
-        print(f'Usage: {sys.argv[0]} <validate|gen-triggers> <config_path>', file=sys.stderr)
+        print(
+            f'Usage: {sys.argv[0]} <validate|gen-triggers|validate-triggers> <config_path> [db_path]',
+            file=sys.stderr,
+        )
         return 1
 
     subcmd = sys.argv[1]
@@ -313,8 +397,19 @@ def main() -> int:
         return cmd_validate(config_path)
     elif subcmd == 'gen-triggers':
         return cmd_gen_triggers(config_path)
+    elif subcmd == 'validate-triggers':
+        if len(sys.argv) < 4:
+            print(
+                f'Usage: {sys.argv[0]} validate-triggers <config_path> <db_path>',
+                file=sys.stderr,
+            )
+            return 1
+        return cmd_validate_triggers(config_path, sys.argv[3])
     else:
-        print(f'Unknown subcommand: {subcmd!r}. Expected validate or gen-triggers.', file=sys.stderr)
+        print(
+            f'Unknown subcommand: {subcmd!r}. Expected validate, gen-triggers, or validate-triggers.',
+            file=sys.stderr,
+        )
         return 1
 
 
