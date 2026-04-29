@@ -262,10 +262,22 @@ For `test` and `code`, `spec` is a shell command — exit 0 = pass; use `! …` 
 
 ### Manual fallback
 
-Use plain `--criteria` for things that genuinely need human judgment — visual review, design correctness, prose quality:
+Reach for plain `--criteria` only when the check requires genuine human judgment and cannot be encoded as a test, code grep, or file glob. The test-first default does **not** apply in these cases:
+
+- **Exploratory spikes / investigations** — the deliverable is a written takeaway, recommendation, or decision document, not code. There is nothing to assert on. The criterion is "the writeup answers the question" and only a human can judge that.
+- **Prose / UX / visual review** — e.g. "the error message reads naturally to a non-technical user", "the screenshot looks right on mobile at 320px", "the README explains the migration clearly to someone seeing it for the first time". Wording quality and visual fidelity have no automated proxy.
+- **PR descriptions and other prose deliverables** — the bar is the quality of the writing itself; no test substitutes for a careful read.
+- **Design judgment calls** — whether an architectural choice is the right tradeoff, whether an API shape feels idiomatic, whether a refactor's diff size is justified by the win.
+- **One-off manual operations** — a one-time DB inspection, environment check, or vendor-portal click-through that won't recur in CI.
+
+For everything else — behaviors, output shapes, edge cases, regression coverage, file presence, code patterns, schema invariants — pin a test name (or a `code` / `file` spec). If a check feels like it should be manual but the *consequence* of getting it wrong is a recurring bug, write the test instead.
+
+Examples:
 
 ```bash
 --criteria "DOMAIN.md updated with schema entry for <table_name>"
+--criteria "Error message in confirm dialog reads naturally to a non-technical user"
+--criteria "PR description summarizes the migration steps and rollback plan"
 ```
 
 For **bug** tasks, include a criterion that the failure case is resolved (often expressible as a typed `test` criterion — the failing test now passes). For **feature** tasks, include the happy path and at least one edge case. For any task that creates a new database table (or is in a schema-related domain), always include the manual criterion: "DOMAIN.md updated with schema entry for `<table_name>`".
