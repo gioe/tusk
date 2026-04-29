@@ -305,6 +305,16 @@ cmd_validate() {
   if [[ $missing -eq 0 ]]; then
     echo "  .gitignore DB patterns OK."
   fi
+
+  # Detect trigger drift: live SQLite triggers must match what config says
+  # they should be. Skip when the DB does not exist yet (e.g. pre-init).
+  if [[ -f "$DB_PATH" ]]; then
+    if python3 "$SCRIPT_DIR/tusk-config-tools.py" validate-triggers "$(resolve_config)" "$DB_PATH"; then
+      echo "  Validation triggers OK."
+    else
+      return 1
+    fi
+  fi
 }
 
 update_gitignore() {
