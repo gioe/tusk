@@ -115,6 +115,12 @@ Ask the user these three questions in a single message:
 > 3. **Which areas of work do you expect? (pick all that apply)**
 >    UI / frontend · backend / API · database · infrastructure / CI-CD · data / ML · mobile · docs · CLI · auth · other
 
+**Mobile follow-up — fires only when Q1 is "mobile app".** Ask this single question before continuing to Q2/Q3 mapping:
+
+> **Which platform — iOS, Android, or cross-platform (React Native / Flutter)?**
+
+Map the answer to `project_type` using the table below. The Q1 "mobile app" row in the project_type table uses this answer to pick the right key.
+
 Map answers to domain and agent suggestions using these rules. Evaluate all three answers together:
 
 | Signal | Domain | Agent |
@@ -131,12 +137,14 @@ Map answers to domain and agent suggestions using these rules. Evaluate all thre
 
 Always include `general` agent regardless of answers.
 
-Also derive a `project_type` key from question 1 using this table and store it for Step 6:
+Also derive a `project_type` key from question 1 (and the mobile follow-up, when Q1 = "mobile app") using this table and store it for Step 6:
 
 | Answer | `project_type` |
 |---|---|
 | web app | `web_app` |
-| mobile app | `ios_app` |
+| mobile app — iOS | `ios_app` |
+| mobile app — Android | `android_app` |
+| mobile app — cross-platform (React Native / Flutter) | `mobile_cross_platform` |
 | CLI tool | `cli_tool` |
 | API / backend service | `python_service` |
 | data pipeline / ML | `data_pipeline` |
@@ -144,6 +152,8 @@ Also derive a `project_type` key from question 1 using this table and store it f
 | library / package | `library` |
 | monorepo | `monorepo` |
 | other | `null` |
+
+> **Note:** `config.default.json:project_libs` ships entries only for `ios_app` and `python_service` today. `android_app` and `mobile_cross_platform` are valid `project_type` values but have no auto-populated `project_libs` entry — those are deferred until corresponding lib repos exist. Step 8.5 will simply skip lib-fetching for those types until then.
 
 Once you have a proposed domain, agent list, and `project_type`, proceed to **Step 2f** for directory scaffolding, then to **Step 3** and **Step 4** using these suggestions. In Step 3, substitute the user's stated plans as the evidence string (e.g., "planned React + FastAPI stack" instead of a scanned directory path).
 
@@ -155,18 +165,20 @@ Tusk does not run language-specific scaffolders (`npm init`, `cargo new`, `xcode
 
 Map the domains and agents confirmed in Step 2e to a directory layout using the table below. Each row produces one directory entry — combine entries from every row whose signal applies. Use plural/canonical names (`backend`, not `api-server-v1`).
 
-| Domain (from 2e) | Directory | Purpose stub | Agent |
-|---|---|---|---|
-| `frontend` | `frontend` | UI / client-side sources | `frontend` |
-| `api` | `backend` | API and service code | `backend` |
-| `database` | (covered by `backend`) | — | — |
-| `mobile` (iOS) | `ios` | iOS app sources (Swift, UIKit, SwiftUI) | `mobile` |
-| `mobile` (Android) | `android` | Android app sources (Kotlin/Java) | `mobile` |
-| `mobile` (cross-platform) | `mobile` | React Native / Flutter sources | `mobile` |
-| `infrastructure` | `infra` | Terraform / Docker / CI configs | `infrastructure` |
-| `data` / `ml` | `data` | Pipelines, notebooks, ML models | `data` |
-| `docs` | `docs` | User-facing documentation | `docs` |
-| `cli` | `cli` | CLI command sources | `cli` |
+| Domain (from 2e) | `project_type` (from 2e) | Directory | Purpose stub | Agent |
+|---|---|---|---|---|
+| `frontend` | (any) | `frontend` | UI / client-side sources | `frontend` |
+| `api` | (any) | `backend` | API and service code | `backend` |
+| `database` | (any) | (covered by `backend`) | — | — |
+| `mobile` | `ios_app` | `ios` | iOS app sources (Swift, UIKit, SwiftUI) | `mobile` |
+| `mobile` | `android_app` | `android` | Android app sources (Kotlin/Java) | `mobile` |
+| `mobile` | `mobile_cross_platform` | `mobile` | React Native / Flutter sources | `mobile` |
+| `infrastructure` | (any) | `infra` | Terraform / Docker / CI configs | `infrastructure` |
+| `data` / `ml` | (any) | `data` | Pipelines, notebooks, ML models | `data` |
+| `docs` | (any) | `docs` | User-facing documentation | `docs` |
+| `cli` | (any) | `cli` | CLI command sources | `cli` |
+
+When `domain = mobile`, pick exactly one row using the `project_type` value derived from Step 2e's mobile follow-up — never combine multiple mobile rows. If `project_type` is unset for a mobile project (the user skipped the follow-up), default to the `mobile_cross_platform` row.
 
 Present the proposed layout to the user as **a single batch**, not one directory at a time:
 
