@@ -339,6 +339,8 @@ def copy_bin_files(src: str, script_dir: str) -> None:
             Path(hash_sidecar).write_text(src_hash + "\n")
     # tusk_loader.py uses an underscore filename — copy explicitly (missed by glob above).
     shutil.copy2(os.path.join(src, "bin", "tusk_loader.py"), script_dir)
+    # tusk_skill_filter.py — same underscore-filename rationale; powers applies_to_project_types gating.
+    shutil.copy2(os.path.join(src, "bin", "tusk_skill_filter.py"), script_dir)
     shutil.copy2(
         os.path.join(src, "config.default.json"),
         os.path.join(script_dir, "config.default.json"),
@@ -350,14 +352,39 @@ def copy_bin_files(src: str, script_dir: str) -> None:
     _vprint("  Updated CLI and support files")
 
 
+def _import_skill_filter(src: str):
+    """Import tusk_skill_filter from the unpacked tarball, not the existing install.
+
+    Loads from `src/bin/` so the filtering logic running here matches the version
+    being installed. Cleans up sys.path on its way out.
+    """
+    bin_dir = os.path.join(src, "bin")
+    sys.path.insert(0, bin_dir)
+    try:
+        import tusk_skill_filter as _sf  # type: ignore
+        return _sf
+    finally:
+        try:
+            sys.path.remove(bin_dir)
+        except ValueError:
+            pass
+
+
 def copy_skills(src: str, repo_root: str) -> int:
     skills_src = os.path.join(src, "skills")
     if not os.path.isdir(skills_src):
         return 0
+    sf = _import_skill_filter(src)
+    project_type = sf.get_project_type(repo_root)
     count = 0
     for skill_name in os.listdir(skills_src):
         skill_dir = os.path.join(skills_src, skill_name)
         if not os.path.isdir(skill_dir):
+            continue
+        if not sf.should_install_skill(skill_dir, project_type):
+            _vprint(
+                f"  Skipped skill (project_type={project_type or 'unset'}): {skill_name}"
+            )
             continue
         dest_dir = os.path.join(repo_root, ".claude", "skills", skill_name)
         os.makedirs(dest_dir, exist_ok=True)
@@ -726,15 +753,26 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
     # In non-claude modes, the tarball's MANIFEST is claude-shaped; translate
     # to the local install layout before comparing so orphan detection doesn't
     # treat every file as {orphan, new}.
+    # In claude mode, filter the manifest by applies_to_project_types so the
+    # local tusk-manifest.json reflects only the skills that actually shipped
+    # — keeps rule18/19 and orphan removal honest after a project_type change.
     translated_new_manifest = new_manifest
-    if install_mode != "claude" and os.path.isfile(new_manifest):
-        with open(new_manifest) as _f:
+    if os.path.isfile(new_manifest):
+        with open(new_manifest, encoding="utf-8") as _f:
             _raw_files = json.load(_f)
-        translated_files = translate_manifest_for_mode(_raw_files, install_mode)
-        translated_new_manifest = os.path.join(tmpdir, "MANIFEST.translated")
-        with open(translated_new_manifest, "w") as _f:
-            json.dump(translated_files, _f, indent=2)
-            _f.write("\n")
+        if install_mode != "claude":
+            translated_files = translate_manifest_for_mode(_raw_files, install_mode)
+        else:
+            sf = _import_skill_filter(src)
+            project_type = sf.get_project_type(repo_root)
+            translated_files = sf.filter_manifest(
+                _raw_files, os.path.join(src, "skills"), project_type
+            )
+        if translated_files != _raw_files:
+            translated_new_manifest = os.path.join(tmpdir, "MANIFEST.translated")
+            with open(translated_new_manifest, "w", encoding="utf-8") as _f:
+                json.dump(translated_files, _f, indent=2)
+                _f.write("\n")
 
     orphan_count = 0
     if os.path.isfile(old_manifest) and os.path.isfile(translated_new_manifest):

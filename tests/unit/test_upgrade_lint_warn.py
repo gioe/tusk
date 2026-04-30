@@ -31,6 +31,7 @@ class TestCopyBinFilesLintWarning:
         (src_bin / "tusk").chmod(0o755)
         (src_bin / "tusk-lint.py").write_text(lint_content)
         (src_bin / "tusk_loader.py").write_text("# loader\n")
+        (src_bin / "tusk_skill_filter.py").write_text("# skill filter\n")
         (tmp_path / "src" / "config.default.json").write_text("{}\n")
         (tmp_path / "src" / "pricing.json").write_text("{}\n")
         return tmp_path / "src"

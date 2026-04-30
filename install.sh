@@ -102,6 +102,11 @@ echo "  Recorded $INSTALL_DIR/tusk-lint.py.hash"
 cp "$SCRIPT_DIR/bin/tusk_loader.py" "$REPO_ROOT/$INSTALL_DIR/tusk_loader.py"
 echo "  Installed $INSTALL_DIR/tusk_loader.py"
 
+# tusk_skill_filter.py — same underscore-filename pattern as tusk_loader.py.
+# Provides applies_to_project_types gating used by install.sh below and tusk-upgrade.py.
+cp "$SCRIPT_DIR/bin/tusk_skill_filter.py" "$REPO_ROOT/$INSTALL_DIR/tusk_skill_filter.py"
+echo "  Installed $INSTALL_DIR/tusk_skill_filter.py"
+
 # ── 2. Copy config, VERSION ─────────────────────────────────────────
 cp "$SCRIPT_DIR/config.default.json" "$REPO_ROOT/$INSTALL_DIR/config.default.json"
 echo "  Installed $INSTALL_DIR/config.default.json"
@@ -120,9 +125,28 @@ echo "${INSTALL_MODE}-${INSTALL_ROLE}" > "$REPO_ROOT/$INSTALL_DIR/install-mode"
 echo "  Stamped $INSTALL_DIR/install-mode (${INSTALL_MODE}-${INSTALL_ROLE})"
 
 # ── 3. Copy skills (claude mode) or codex prompts (codex mode) ───────
+# Skills that declare `applies_to_project_types` in their SKILL.md frontmatter
+# install only when the target's tusk/config.json:project_type matches one of
+# the listed types. Universal skills (no field) always install. Gated skills
+# are deferred when project_type is unset — typical for fresh installs before
+# /tusk-init runs.
 if [[ "$INSTALL_MODE" == "claude" ]]; then
+  PROJECT_TYPE="$(python3 -c "
+import json, os
+p = os.path.join('$REPO_ROOT', 'tusk', 'config.json')
+if os.path.isfile(p):
+    try:
+        v = json.load(open(p, encoding='utf-8')).get('project_type')
+        print(v if v is not None else '')
+    except Exception:
+        print('')
+")"
   for skill_dir in "$SCRIPT_DIR"/skills/*/; do
     skill_name="$(basename "$skill_dir")"
+    if ! python3 "$SCRIPT_DIR/bin/tusk_skill_filter.py" --skill "$skill_dir" --project-type "$PROJECT_TYPE"; then
+      echo "  Skipped skill (project_type-gated): $skill_name"
+      continue
+    fi
     mkdir -p "$REPO_ROOT/.claude/skills/$skill_name"
     cp "$skill_dir"* "$REPO_ROOT/.claude/skills/$skill_name/" 2>/dev/null || true
     echo "  Installed skill: $skill_name"
@@ -394,8 +418,16 @@ for name in ['config.default.json', 'VERSION', 'pricing.json']:
 
 # Skills/hooks only exist in claude mode; codex prompts only in codex mode
 if install_mode == 'claude':
+    # Filter skills by applies_to_project_types — see bin/tusk_skill_filter.py.
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(script_dir, 'bin'))
+    import tusk_skill_filter as _sf
+    _sys.path.pop(0)
+    _project_type = _sf.get_project_type(repo_root)
     for skill_dir in sorted(glob.glob(os.path.join(script_dir, 'skills', '*/'))):
         skill_name = os.path.basename(skill_dir.rstrip('/'))
+        if not _sf.should_install_skill(skill_dir, _project_type):
+            continue
         for fname in sorted(os.listdir(skill_dir)):
             full = os.path.join(skill_dir, fname)
             if os.path.isfile(full):

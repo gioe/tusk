@@ -996,6 +996,10 @@ def rule18_manifest_drift(root):
     if os.path.isfile(os.path.join(root, "bin", "tusk_loader.py")):
         expected.append(".claude/bin/tusk_loader.py")
 
+    # tusk_skill_filter.py — same underscore-filename rationale as tusk_loader.py.
+    if os.path.isfile(os.path.join(root, "bin", "tusk_skill_filter.py")):
+        expected.append(".claude/bin/tusk_skill_filter.py")
+
     for name in ["config.default.json", "VERSION", "pricing.json"]:
         expected.append(".claude/bin/" + name)
 

@@ -49,6 +49,10 @@ def build_manifest(root):
     if os.path.isfile(os.path.join(root, "bin", "tusk_loader.py")):
         files.append(".claude/bin/tusk_loader.py")
 
+    # tusk_skill_filter.py — same underscore-filename rationale as tusk_loader.py.
+    if os.path.isfile(os.path.join(root, "bin", "tusk_skill_filter.py")):
+        files.append(".claude/bin/tusk_skill_filter.py")
+
     for name in ["config.default.json", "VERSION", "pricing.json"]:
         files.append(".claude/bin/" + name)
 
