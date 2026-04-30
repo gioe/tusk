@@ -45,6 +45,7 @@ def _make_fake_src(tmp_path: Path) -> Path:
     (src / "bin" / "tusk-upgrade.py").write_text("# new upgrader\n")
     (src / "bin" / "tusk-example.py").write_text("# new helper\n")
     (src / "bin" / "tusk_loader.py").write_text("# new loader\n")
+    (src / "bin" / "tusk_skill_filter.py").write_text("# new skill filter\n")
     (src / "config.default.json").write_text(json.dumps({"domains": [], "agents": []}))
     (src / "pricing.json").write_text("{}\n")
     (src / "VERSION").write_text("999\n")
@@ -66,6 +67,7 @@ def _make_fake_src(tmp_path: Path) -> Path:
         ".claude/bin/tusk-upgrade.py",
         ".claude/bin/tusk-example.py",
         ".claude/bin/tusk_loader.py",
+        ".claude/bin/tusk_skill_filter.py",
         ".claude/bin/config.default.json",
         ".claude/bin/pricing.json",
         ".claude/bin/VERSION",

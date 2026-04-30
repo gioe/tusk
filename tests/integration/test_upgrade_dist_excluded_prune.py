@@ -46,6 +46,13 @@ def _make_fake_src(tmp_path: Path, dist_excluded: list[str]) -> Path:
     (src / "bin" / "tusk-upgrade.py").write_text("# new upgrader\n")
     (src / "bin" / "tusk-keep.py").write_text("# kept across upgrade\n")
     (src / "bin" / "tusk_loader.py").write_text("# new loader\n")
+    # Minimal stub satisfying the API tusk-upgrade.py imports during the
+    # claude-mode manifest filter step.
+    (src / "bin" / "tusk_skill_filter.py").write_text(
+        "def get_project_type(_):\n    return None\n"
+        "def filter_manifest(files, _src, _pt):\n    return list(files)\n"
+        "def should_install_skill(_dir, _pt):\n    return True\n"
+    )
     # GitHub release tarballs include every bin/tusk-*.py from the source repo,
     # including the ones listed in dist-excluded.txt — so the upgrade flow has
     # to skip them in copy_bin_files() *and* prune them from the install bin/.
@@ -67,6 +74,7 @@ def _make_fake_src(tmp_path: Path, dist_excluded: list[str]) -> Path:
         ".claude/bin/tusk-upgrade.py",
         ".claude/bin/tusk-keep.py",
         ".claude/bin/tusk_loader.py",
+        ".claude/bin/tusk_skill_filter.py",
         ".claude/bin/config.default.json",
         ".claude/bin/pricing.json",
         ".claude/bin/VERSION",

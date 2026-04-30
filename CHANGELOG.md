@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [794] - 2026-04-30
+
+- [TASK-255] Add applies_to_project_types frontmatter to gate skill install on project_type
+
 ## [793] - 2026-04-28
 
 - [TASK-252] Add `tusk review begin` to bundle diff-range and review start
