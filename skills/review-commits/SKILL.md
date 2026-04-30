@@ -303,16 +303,15 @@ If `can_retry` is false (either no open `must_fix` items, or `current_pass >= ma
 
 Otherwise, loop while `can_retry` is true:
 
-1. Start a new review pass:
+1. Start a new review pass and capture the diff size in one call. `tusk review begin` resolves the default branch (`tusk git-default-branch`), computes the `<default>...HEAD` primary range, falls back to the `[TASK-<id>]` commit-range recovery when the feature branch has already been merged and deleted, stamps the captured diff summary onto the new `code_reviews` row internally, and prints a single JSON object with `review_id`, `task_id`, `reviewer`, `range`, `diff_lines`, and `recovered_from_task_commits`. Pass `--pass-num` to bump the pass counter:
    ```bash
-   tusk review start <task_id> --pass-num <current_pass + 1> --diff-summary "Re-review pass <n>"
+   REVIEW_BEGIN_JSON=$(tusk review begin $TASK_ID --pass-num <current_pass + 1>)
+   DIFF_LINES=$(printf '%s' "$REVIEW_BEGIN_JSON" | jq -r .diff_lines)
    ```
 
-2. **Check diff size before deciding review strategy.** Recompute the range with the same helper used in Step 3 — it transparently handles both the default-branch (TASK-commit recovery) and feature-branch (`<default>...HEAD`) cases:
+   If the helper exits non-zero, no diff is recoverable for this pass — surface its stderr verbatim and stop the loop.
 
-   ```bash
-   DIFF_LINES=$(tusk review-diff-range $TASK_ID | jq -r .diff_lines)
-   ```
+2. **Branch on diff size to decide review strategy.**
 
    **For small or documentation-only diffs (`$DIFF_LINES` below ~200, or only non-code files), or when `review.reviewer` is absent from config:** skip agent spawning and perform an inline review. Read the diff yourself, evaluate it against the reviewer focus area, and record the result directly (approve or request-changes + add-comment). After recording the inline decision, skip to step 3.
 
