@@ -29,6 +29,7 @@ Every `SKILL.md` must start with YAML frontmatter:
 name: my-skill
 description: One-line description shown in the skill picker
 allowed-tools: Bash, Read, Edit     # Comma-separated list of tools the skill needs
+applies_to_project_types: [ios_app] # Optional — gate install on project_type
 ---
 ```
 
@@ -38,6 +39,7 @@ allowed-tools: Bash, Read, Edit     # Comma-separated list of tools the skill ne
   - Read-only skills: `Bash`
   - Skills that modify files: `Bash, Read, Write, Edit`
   - Skills that search the codebase: `Bash, Read, Glob, Grep`
+- **`applies_to_project_types`** (optional): YAML flow-style list of `project_type` values. Skills that declare this field install only when `tusk/config.json:project_type` matches one of the listed values. Skills without the field stay universal (current behavior preserved). When `project_type` is unset (fresh install before `/tusk-init` runs), gated skills are deferred and install on a future upgrade once a `project_type` is written.
 
 ## Naming Conventions
 
