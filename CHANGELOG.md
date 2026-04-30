@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [796] - 2026-04-30
+
+- [TASK-260] Fix: tusk reconcile-skills tarball-fetch fallback for consumer installs
+
 ## [795] - 2026-04-30
 
 - [TASK-256] Add tusk reconcile-skills subcommand and call it from /tusk-init and /tusk-update
