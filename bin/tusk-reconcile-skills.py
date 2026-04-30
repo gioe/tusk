@@ -10,7 +10,10 @@ against the current project_type and copies/removes skill directories under
 `.claude/skills/` to match.
 
 Behavior:
-  - Locates a skills source (local <repo_root>/skills/, or `--source-dir`).
+  - Locates a skills source: explicit `--source-dir`, or local
+    `<repo_root>/skills/` (source-role installs), or — for consumer
+    installs that have no source tree — downloads the latest GitHub
+    tarball and uses its embedded `skills/` directory.
   - Reads project_type from <repo_root>/tusk/config.json.
   - For each gated skill in source:
       - If it should install and isn't currently in .claude/skills/, install it.
@@ -25,9 +28,14 @@ to match install.sh.
 CLI:
     tusk reconcile-skills [--source-dir <path>] [--dry-run] [--quiet] [--json]
 
+Env overrides (testing):
+    TUSK_RECONCILE_TARBALL_URL — fetch the tarball from this URL instead of
+        the GitHub release endpoint. file:// URLs are honored. When set, the
+        GitHub release-API call is skipped entirely.
+
 Exit codes:
     0  success (or no changes — both report on stdout)
-    2  could not locate skills source
+    2  could not locate skills source (and the tarball fetch fallback failed)
     3  not inside a git repository
 """
 
@@ -36,11 +44,14 @@ import json
 import os
 import shutil
 import sys
+import tarfile
+import tempfile
 
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 import tusk_skill_filter as sf  # noqa: E402
+import tusk_github as gh  # noqa: E402
 
 
 def _find_local_source(repo_root: str) -> str | None:
@@ -50,6 +61,46 @@ def _find_local_source(repo_root: str) -> str | None:
         return None
     for name in os.listdir(candidate):
         if os.path.isfile(os.path.join(candidate, name, "SKILL.md")):
+            return candidate
+    return None
+
+
+def _fetch_remote_source(dest_dir: str) -> str | None:
+    """Download the GitHub tarball into dest_dir and return the unpacked skills/ path.
+
+    Resolves the tarball URL from `TUSK_RECONCILE_TARBALL_URL` if set (used by
+    tests to point at a local file:// tarball), otherwise calls the GitHub
+    release API for the latest tag and constructs the standard tarball URL.
+
+    Returns None when the download or extract fails, or the tarball doesn't
+    contain a skills/ tree under its top-level directory.
+    """
+    url = os.environ.get("TUSK_RECONCILE_TARBALL_URL")
+    if not url:
+        try:
+            tag = gh.get_latest_tag()
+        except SystemExit:
+            return None
+        url = gh.tarball_url(tag)
+
+    tarball_path = os.path.join(dest_dir, "tusk-source.tar.gz")
+    try:
+        data = gh.fetch_bytes(url, timeout=gh.DL_TIMEOUT)
+    except SystemExit:
+        return None
+    with open(tarball_path, "wb") as f:
+        f.write(data)
+    try:
+        with tarfile.open(tarball_path) as tar:
+            tar.extractall(dest_dir, filter="data")
+    except (tarfile.TarError, OSError):
+        return None
+
+    # GitHub's archive layout puts everything under a single top-level dir
+    # (e.g. tusk-v795/). Find the first subdirectory that contains skills/.
+    for entry in sorted(os.listdir(dest_dir)):
+        candidate = os.path.join(dest_dir, entry, "skills")
+        if os.path.isdir(candidate):
             return candidate
     return None
 
@@ -195,20 +246,35 @@ def main() -> None:
         print("Error: not inside a git repository", file=sys.stderr)
         sys.exit(3)
 
-    source = args.source_dir or _find_local_source(repo_root)
-    if source is None:
-        print(
-            "Error: could not locate skills/ source. "
-            "Pass --source-dir <path>, or run `tusk upgrade` to refresh the source tree.",
-            file=sys.stderr,
-        )
-        sys.exit(2)
-    if not os.path.isdir(source):
-        print(f"Error: --source-dir does not exist: {source}", file=sys.stderr)
-        sys.exit(2)
+    if args.source_dir:
+        source = args.source_dir
+        if not os.path.isdir(source):
+            print(f"Error: --source-dir does not exist: {source}", file=sys.stderr)
+            sys.exit(2)
+        fetch_tmpdir = None
+    else:
+        source = _find_local_source(repo_root)
+        fetch_tmpdir = None
+        if source is None:
+            # Consumer installs have no <repo_root>/skills/ tree. Fall back to
+            # downloading the GitHub tarball and using its embedded skills/ dir.
+            fetch_tmpdir = tempfile.mkdtemp(prefix="tusk-reconcile-")
+            source = _fetch_remote_source(fetch_tmpdir)
+            if source is None:
+                shutil.rmtree(fetch_tmpdir, ignore_errors=True)
+                print(
+                    "Error: could not locate skills/ source. "
+                    "Pass --source-dir <path>, or run `tusk upgrade` to refresh the source tree.",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
 
-    role = _detect_role(SCRIPT_DIR)
-    result = reconcile(repo_root, source, role, args.dry_run)
+    try:
+        role = _detect_role(SCRIPT_DIR)
+        result = reconcile(repo_root, source, role, args.dry_run)
+    finally:
+        if fetch_tmpdir is not None:
+            shutil.rmtree(fetch_tmpdir, ignore_errors=True)
 
     if args.json:
         print(json.dumps(result))
