@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [801] - 2026-04-30
+
+- [TASK-262] Populate code_reviews.cost_dollars/tokens_in/tokens_out per-review
+
 ## [800] - 2026-04-30
 
 - [TASK-258] Ship ios-libs-issue skill that files an issue against the configured iOS lib
