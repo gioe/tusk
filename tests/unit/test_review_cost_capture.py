@@ -256,3 +256,77 @@ class TestResolveCostColumns:
         monkeypatch.setattr(review, "_compute_review_cost_from_window", _StubCompute(None))
         result = review._resolve_cost_columns(_ns(), "2026-04-30 12:00:00")
         assert result == (None, None, None)
+
+
+class TestBackfillCost:
+    def test_backfill_populates_null_row(self, tmp_path, monkeypatch):
+        db = _make_db(tmp_path)
+        monkeypatch.setattr(
+            review,
+            "_compute_review_cost_from_window",
+            _StubCompute({"cost_dollars": 0.123, "tokens_in": 1000, "tokens_out": 200, "model": "x"}),
+        )
+
+        args = argparse.Namespace(review_id=1, force=False)
+        assert review.cmd_backfill_cost(args, db) == 0
+
+        row = _fetch_cost(db)
+        assert row["cost_dollars"] == 0.123
+        assert row["tokens_in"] == 1000
+        assert row["tokens_out"] == 200
+
+    def test_backfill_refuses_to_overwrite_without_force(self, tmp_path, monkeypatch):
+        db = _make_db(tmp_path)
+        # Seed an already-populated row.
+        conn = sqlite3.connect(db)
+        conn.execute("UPDATE code_reviews SET cost_dollars = 0.5 WHERE id = 1")
+        conn.commit()
+        conn.close()
+
+        monkeypatch.setattr(
+            review,
+            "_compute_review_cost_from_window",
+            _StubCompute({"cost_dollars": 9.99, "tokens_in": 1, "tokens_out": 2, "model": "x"}),
+        )
+
+        args = argparse.Namespace(review_id=1, force=False)
+        assert review.cmd_backfill_cost(args, db) == 1
+
+        row = _fetch_cost(db)
+        assert row["cost_dollars"] == 0.5  # untouched
+
+    def test_backfill_with_force_overwrites_existing(self, tmp_path, monkeypatch):
+        db = _make_db(tmp_path)
+        conn = sqlite3.connect(db)
+        conn.execute("UPDATE code_reviews SET cost_dollars = 0.5 WHERE id = 1")
+        conn.commit()
+        conn.close()
+
+        monkeypatch.setattr(
+            review,
+            "_compute_review_cost_from_window",
+            _StubCompute({"cost_dollars": 9.99, "tokens_in": 11, "tokens_out": 22, "model": "x"}),
+        )
+
+        args = argparse.Namespace(review_id=1, force=True)
+        assert review.cmd_backfill_cost(args, db) == 0
+
+        row = _fetch_cost(db)
+        assert row["cost_dollars"] == 9.99
+        assert row["tokens_in"] == 11
+        assert row["tokens_out"] == 22
+
+    def test_backfill_returns_1_when_no_transcript(self, tmp_path, monkeypatch):
+        db = _make_db(tmp_path)
+        monkeypatch.setattr(review, "_compute_review_cost_from_window", _StubCompute(None))
+
+        args = argparse.Namespace(review_id=1, force=False)
+        assert review.cmd_backfill_cost(args, db) == 1
+
+        row = _fetch_cost(db)
+        assert row["cost_dollars"] is None  # untouched
+
+    def test_backfill_returns_2_when_review_not_found(self, tmp_path):
+        db = _make_db(tmp_path)
+        args = argparse.Namespace(review_id=999, force=False)
+        assert review.cmd_backfill_cost(args, db) == 2

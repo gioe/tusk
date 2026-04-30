@@ -2,7 +2,7 @@
 """Manage code reviews for tusk tasks.
 
 Called by the tusk wrapper:
-    tusk review start|begin|add-comment|list|resolve|approve|request-changes|status|summary ...
+    tusk review start|begin|add-comment|list|resolve|approve|request-changes|backfill-cost|status|summary ...
 
 Arguments received from tusk:
     sys.argv[1] — DB path
@@ -553,6 +553,62 @@ def cmd_request_changes(args: argparse.Namespace, db_path: str) -> int:
     return 0
 
 
+def cmd_backfill_cost(args: argparse.Namespace, db_path: str) -> int:
+    """Recompute cost/tokens columns for an existing review row.
+
+    Used to repair rows that finalized without cost data — e.g. rows
+    written under an older code path or a `--skip-cost` call. Best-effort:
+    if no transcript with requests is discoverable for the row's
+    `[created_at, now]` window (transcript rotated, ran on another host),
+    leaves the row unchanged and returns 1. The historical pre-v802 NULL
+    rows are out of scope — their transcripts may no longer exist on
+    disk.
+    """
+    conn = get_connection(db_path)
+    try:
+        review = conn.execute(
+            "SELECT id, task_id, created_at, cost_dollars, tokens_in, tokens_out"
+            " FROM code_reviews WHERE id = ?",
+            (args.review_id,),
+        ).fetchone()
+        if not review:
+            print(f"Error: Review {args.review_id} not found", file=sys.stderr)
+            return 2
+
+        if not getattr(args, "force", False) and review["cost_dollars"] is not None:
+            print(
+                f"Review #{args.review_id} already has cost_dollars=${review['cost_dollars']:.4f}. "
+                "Pass --force to overwrite.",
+                file=sys.stderr,
+            )
+            return 1
+
+        computed = _compute_review_cost_from_window(review["created_at"])
+        if computed is None:
+            print(
+                f"Warning: No transcript with requests in window "
+                f"[{review['created_at']}, now] for review #{args.review_id} — leaving columns unchanged.",
+                file=sys.stderr,
+            )
+            return 1
+
+        conn.execute(
+            "UPDATE code_reviews SET cost_dollars = ?, tokens_in = ?, tokens_out = ?,"
+            " updated_at = datetime('now') WHERE id = ?",
+            (computed["cost_dollars"], computed["tokens_in"], computed["tokens_out"], args.review_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    print(
+        f"Review #{args.review_id} backfilled: "
+        f"cost=${computed['cost_dollars']:.4f}, "
+        f"tokens_in={computed['tokens_in']:,}, tokens_out={computed['tokens_out']:,}"
+    )
+    return 0
+
+
 def cmd_status(args: argparse.Namespace, db_path: str) -> int:
     """Return JSON with per-reviewer status and comment counts for a task."""
     conn = get_connection(db_path)
@@ -840,6 +896,18 @@ def main():
     )
     _add_cost_flags(req_changes_p)
 
+    # backfill-cost
+    backfill_cost_p = subparsers.add_parser(
+        "backfill-cost",
+        help="Recompute cost/tokens for an existing review row from its created_at window",
+    )
+    backfill_cost_p.add_argument("review_id", type=int, help="Review ID")
+    backfill_cost_p.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing cost_dollars even if it is already populated",
+    )
+
     # status
     status_p = subparsers.add_parser("status", help="Show current review status for a task (JSON)")
     status_p.add_argument("task_id", type=int, help="Task ID")
@@ -877,6 +945,8 @@ def main():
             sys.exit(cmd_approve(args, db_path))
         elif args.command == "request-changes":
             sys.exit(cmd_request_changes(args, db_path))
+        elif args.command == "backfill-cost":
+            sys.exit(cmd_backfill_cost(args, db_path))
         elif args.command == "status":
             sys.exit(cmd_status(args, db_path))
         elif args.command == "summary":
