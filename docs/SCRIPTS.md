@@ -116,6 +116,7 @@ require it).
 | **tusk-generate-manifest.py** | `tusk generate-manifest` (also used by `tusk-lint.py` rule18) | `skills/`, `bin/`, `config.default.json`, `VERSION`, `install.sh` | `MANIFEST` (sorted JSON array) |
 | **tusk-pricing-update.py** | `tusk pricing-update [--dry-run]` | Anthropic pricing page (HTTPS) | `pricing.json` |
 | **tusk-sync-skills.py** | `tusk sync-skills` | `skills/`, `skills-internal/` | `.claude/skills/` (recreates symlinks) |
+| **tusk-reconcile-skills.py** | `tusk reconcile-skills [--source-dir <p>] [--dry-run] [--quiet] [--json]` | `tusk/config.json:project_type`, source `skills/` (local or `--source-dir`) | installs / removes `applies_to_project_types`-gated entries under `.claude/skills/` to match the current `project_type` |
 | **tusk-upgrade.py** | `tusk upgrade [--no-commit] [--force]` | GitHub releases tarball, `VERSION` | copies updated files to `.claude/bin/` and `.claude/skills/`; runs `tusk migrate` |
 
 ---
