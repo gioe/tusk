@@ -107,6 +107,11 @@ echo "  Installed $INSTALL_DIR/tusk_loader.py"
 cp "$SCRIPT_DIR/bin/tusk_skill_filter.py" "$REPO_ROOT/$INSTALL_DIR/tusk_skill_filter.py"
 echo "  Installed $INSTALL_DIR/tusk_skill_filter.py"
 
+# tusk_github.py — same underscore-filename pattern; shared GitHub-fetch helpers
+# used by tusk-upgrade.py and tusk-reconcile-skills.py.
+cp "$SCRIPT_DIR/bin/tusk_github.py" "$REPO_ROOT/$INSTALL_DIR/tusk_github.py"
+echo "  Installed $INSTALL_DIR/tusk_github.py"
+
 # ── 2. Copy config, VERSION ─────────────────────────────────────────
 cp "$SCRIPT_DIR/config.default.json" "$REPO_ROOT/$INSTALL_DIR/config.default.json"
 echo "  Installed $INSTALL_DIR/config.default.json"

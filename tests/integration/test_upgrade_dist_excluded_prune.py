@@ -53,6 +53,7 @@ def _make_fake_src(tmp_path: Path, dist_excluded: list[str]) -> Path:
         "def filter_manifest(files, _src, _pt):\n    return list(files)\n"
         "def should_install_skill(_dir, _pt):\n    return True\n"
     )
+    (src / "bin" / "tusk_github.py").write_text("# stub github helpers\n")
     # GitHub release tarballs include every bin/tusk-*.py from the source repo,
     # including the ones listed in dist-excluded.txt — so the upgrade flow has
     # to skip them in copy_bin_files() *and* prune them from the install bin/.
@@ -75,6 +76,7 @@ def _make_fake_src(tmp_path: Path, dist_excluded: list[str]) -> Path:
         ".claude/bin/tusk-keep.py",
         ".claude/bin/tusk_loader.py",
         ".claude/bin/tusk_skill_filter.py",
+        ".claude/bin/tusk_github.py",
         ".claude/bin/config.default.json",
         ".claude/bin/pricing.json",
         ".claude/bin/VERSION",

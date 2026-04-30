@@ -53,6 +53,10 @@ def build_manifest(root):
     if os.path.isfile(os.path.join(root, "bin", "tusk_skill_filter.py")):
         files.append(".claude/bin/tusk_skill_filter.py")
 
+    # tusk_github.py — same underscore-filename rationale; shared GitHub-fetch helpers.
+    if os.path.isfile(os.path.join(root, "bin", "tusk_github.py")):
+        files.append(".claude/bin/tusk_github.py")
+
     for name in ["config.default.json", "VERSION", "pricing.json"]:
         files.append(".claude/bin/" + name)
 

@@ -17,33 +17,22 @@ import json
 import os
 import re
 import shutil
-import ssl
 import subprocess
 import sys
 import tarfile
 import tempfile
 from pathlib import Path
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
-
-def _ssl_context() -> ssl.SSLContext:
-    """Return an SSL context with system/certifi certs, falling back to default."""
-    try:
-        import certifi
-        return ssl.create_default_context(cafile=certifi.where())
-    except ImportError:
-        pass
-    ctx = ssl.create_default_context()
-    try:
-        ctx.load_verify_locations(capath="/etc/ssl/certs")
-    except (FileNotFoundError, ssl.SSLError):
-        pass
-    return ctx
-
-GITHUB_REPO = "gioe/tusk"
-API_TIMEOUT = 15   # seconds for GitHub API calls
-DL_TIMEOUT = 60    # seconds for tarball download
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, SCRIPT_DIR)
+from tusk_github import (  # noqa: E402
+    API_TIMEOUT,
+    DL_TIMEOUT,
+    GITHUB_REPO,
+    fetch_bytes,
+    get_latest_tag,
+    get_remote_version,
+)
 
 # Supported install modes and their canonical directory layouts. The marker
 # file <script_dir>/install-mode is stamped by install.sh; absent → claude
@@ -199,39 +188,6 @@ def _should_rexec(src: str, script_dir: str) -> bool:
     return hashlib.md5(Path(old).read_bytes()).hexdigest() != hashlib.md5(Path(new).read_bytes()).hexdigest()
 
 
-# ── HTTP helpers ─────────────────────────────────────────────────────────────
-
-def fetch_bytes(url: str, timeout: int = API_TIMEOUT) -> bytes:
-    req = Request(url, headers={"User-Agent": "tusk-upgrade"})
-    try:
-        with urlopen(req, timeout=timeout, context=_ssl_context()) as resp:
-            return resp.read()
-    except HTTPError as e:
-        raise SystemExit(f"Error: HTTP {e.code} fetching {url}") from e
-    except URLError as e:
-        raise SystemExit(f"Error: Could not reach {url}: {e.reason}") from e
-
-
-def get_latest_tag() -> str:
-    data = fetch_bytes(
-        f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-    )
-    try:
-        return json.loads(data)["tag_name"]
-    except (KeyError, json.JSONDecodeError) as e:
-        raise SystemExit(f"Error: Could not parse latest release from GitHub: {e}") from e
-
-
-def get_remote_version(tag: str) -> int:
-    raw = fetch_bytes(
-        f"https://raw.githubusercontent.com/{GITHUB_REPO}/refs/tags/{tag}/VERSION"
-    )
-    try:
-        return int(raw.strip())
-    except ValueError as e:
-        raise SystemExit(f"Error: Could not parse remote VERSION: {e}") from e
-
-
 # ── Upgrade steps ─────────────────────────────────────────────────────────────
 
 def _load_dist_excluded(src: str) -> set:
@@ -341,6 +297,8 @@ def copy_bin_files(src: str, script_dir: str) -> None:
     shutil.copy2(os.path.join(src, "bin", "tusk_loader.py"), script_dir)
     # tusk_skill_filter.py — same underscore-filename rationale; powers applies_to_project_types gating.
     shutil.copy2(os.path.join(src, "bin", "tusk_skill_filter.py"), script_dir)
+    # tusk_github.py — same underscore-filename rationale; shared GitHub-fetch helpers.
+    shutil.copy2(os.path.join(src, "bin", "tusk_github.py"), script_dir)
     shutil.copy2(
         os.path.join(src, "config.default.json"),
         os.path.join(script_dir, "config.default.json"),
