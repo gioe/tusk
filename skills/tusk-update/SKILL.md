@@ -211,6 +211,18 @@ This drops all existing `validate_*` triggers and recreates them from the update
 
 If only non-trigger fields changed (`agents`, `dupes`, `test_command`, `review`), skip this step.
 
+## Step 6b: Reconcile project_type-Gated Skills (if `project_type` changed)
+
+If `project_type` was changed in Step 5 (set, cleared, or replaced), re-run the `applies_to_project_types` filter so `.claude/skills/` matches the new value:
+
+```bash
+tusk reconcile-skills
+```
+
+This installs any skills now matching the new `project_type` and removes any skills that no longer match. Universal skills (no `applies_to_project_types` frontmatter) are left untouched. Print the one-line summary the command emits — typically either `Skills already in sync (project_type=<pt>).` or `Reconciled skills (project_type=<pt>): Installed N: <names>` / `Removed N: <names>`.
+
+If `project_type` was not changed in this run, skip this step.
+
 ## Step 7: Verify
 
 Confirm the changes took effect:

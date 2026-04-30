@@ -383,6 +383,14 @@ The command returns JSON: `{"success": true, "config_path": "...", "backed_up": 
 
 **On `"success": true`:** Print summary: confirmed domains, agents, task types, DB reinitialized.
 
+Then reconcile project_type-gated skills against the freshly-written config:
+
+```bash
+tusk reconcile-skills
+```
+
+`applies_to_project_types`-gated skills are deferred when `project_type` is unset, so the initial `install.sh` run on a fresh project skipped them. With `project_type` now persisted, this call installs any newly-matching skills (and removes any that no longer match if a previous value was overwritten). Print the one-line summary the command emits — typically either `Skills already in sync (project_type=<pt>).` or `Reconciled skills (project_type=<pt>): Installed N: <names>`.
+
 ## Step 7: CLAUDE.md Snippet
 
 1. Glob for `CLAUDE.md` at repo root
