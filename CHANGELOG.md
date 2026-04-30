@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [797] - 2026-04-30
+
+- [TASK-261] Fix: install.sh embedded-Python manifest builder omits underscore-named bin/ files
+
 ## [796] - 2026-04-30
 
 - [TASK-260] Fix: tusk reconcile-skills tarball-fetch fallback for consumer installs
