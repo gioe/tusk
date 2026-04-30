@@ -176,6 +176,7 @@ Two external library repos ship their own `tusk-bootstrap.json` and are pre-conf
 - **`/loop`** — Autonomous backlog loop; dispatches `/chain` or `/tusk` until empty
 - **`/review-commits`** — Parallel AI code review; fixes must_fix, defers suggest/defer findings
 - **`/address-issue`** — Fetch a GitHub issue, score it, create a tusk task, and work through it
+- **`/ios-libs-issue`** — File an issue against the configured iOS lib repo (`project_type=ios_app` only); auto-attaches originating tusk task
 
 ### Database Schema
 
