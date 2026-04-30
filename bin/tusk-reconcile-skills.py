@@ -70,11 +70,16 @@ def _detect_role(script_dir: str) -> str:
 
 
 def _resolve_repo_root() -> str | None:
-    """Walk up from CWD (or TUSK_PROJECT) to the nearest .git dir."""
+    """Walk up from CWD (or TUSK_PROJECT) to the nearest .git entry.
+
+    Matches `bin/tusk`'s `find_repo_root` semantics: `.git` may be a directory
+    (normal clone) or a file (git worktree pointing at the real gitdir). Use
+    `os.path.exists` to cover both, not `os.path.isdir`.
+    """
     start = os.path.realpath(os.environ.get("TUSK_PROJECT") or os.getcwd())
     cur = start
     while True:
-        if os.path.isdir(os.path.join(cur, ".git")):
+        if os.path.exists(os.path.join(cur, ".git")):
             return cur
         parent = os.path.dirname(cur)
         if parent == cur:
