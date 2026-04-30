@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [799] - 2026-04-30
+
+- [TASK-254] Add mobile-platform disambiguation question to /tusk-init Step 2e
+
 ## [798] - 2026-04-30
 
 - [TASK-253] Migrate /review-commits Step 5.2 re-review pass to tusk review begin --pass-num
