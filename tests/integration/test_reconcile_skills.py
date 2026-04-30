@@ -1,4 +1,4 @@
-"""Integration tests for `tusk reconcile-skills` (TASK-256).
+"""Integration tests for `tusk reconcile-skills` (TASK-256, TASK-260).
 
 Skills declaring `applies_to_project_types` should install only when the
 target project's `tusk/config.json:project_type` matches one of the listed
@@ -13,11 +13,19 @@ universal control skill plus two gated skills targeting different
 project_types) and a `tusk/config.json` derived from `config.default.json`.
 The reconcile subcommand is invoked via `--source-dir` to keep the tests
 hermetic (no GitHub round-trip).
+
+`test_consumer_install_tarball_fallback` covers TASK-260's regression: when
+a real consumer project has no `<repo_root>/skills/` source (install.sh
+copies skills into `.claude/skills/` and never leaves a source tree), the
+reconcile command falls back to fetching the GitHub tarball. The test
+exercises that path using `TUSK_RECONCILE_TARBALL_URL=file://...` so no
+GitHub round-trip happens.
 """
 
 import json
 import os
 import subprocess
+import tarfile
 
 import pytest
 
@@ -164,3 +172,98 @@ def test_project_type_change_to_null_removes_all_gated(fake_repo):
     assert out["installed"] == []
     assert not (skills_dir / "_test_ios").exists()
     assert not (skills_dir / "_test_python").exists()
+
+
+def test_consumer_install_tarball_fallback(tmp_path):
+    """No local skills/ tree → reconcile fetches the tarball and uses its skills/.
+
+    Reproduces issue #629 (TASK-260): install.sh copies skills into
+    .claude/skills/ without leaving a <repo_root>/skills/ source. Before the
+    fix, reconcile-skills exited 2 with "could not locate skills/ source".
+    The fallback fetches the GitHub tarball and uses its embedded skills/.
+    Here we point TUSK_RECONCILE_TARBALL_URL at a local file:// tarball so the
+    test stays hermetic.
+    """
+    # Build a synthetic GitHub-shaped tarball: top-level tusk-test/skills/...
+    tarball_root = tmp_path / "tarball-src"
+    skills_root = tarball_root / "tusk-test" / "skills"
+    skills_root.mkdir(parents=True)
+    _write_skill(str(skills_root), "_test_uni")
+    _write_skill(str(skills_root), "_test_ios", gates=["ios_app"])
+    _write_skill(str(skills_root), "_test_python", gates=["python_service"])
+    tarball_path = tmp_path / "tusk-test.tar.gz"
+    with tarfile.open(tarball_path, "w:gz") as tar:
+        tar.add(str(tarball_root / "tusk-test"), arcname="tusk-test")
+
+    # Stand up a consumer-style tmp repo: .claude/, tusk/config.json, NO skills/.
+    consumer = tmp_path / "consumer"
+    consumer.mkdir()
+    subprocess.run(
+        ["git", "init", str(consumer)],
+        capture_output=True, check=True, encoding="utf-8",
+    )
+    (consumer / ".claude").mkdir()
+    _write_config(str(consumer), "ios_app")
+    assert not (consumer / "skills").exists(), "consumer install must have no skills/"
+
+    env = os.environ.copy()
+    env["TUSK_RECONCILE_TARBALL_URL"] = f"file://{tarball_path}"
+    r = subprocess.run(
+        [TUSK_BIN, "reconcile-skills", "--json"],
+        cwd=str(consumer),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=env,
+    )
+
+    assert r.returncode == 0, (
+        f"consumer-mode reconcile must succeed via tarball fallback; "
+        f"exit={r.returncode} stderr={r.stderr!r}"
+    )
+    out = json.loads(r.stdout)
+    assert "_test_ios" in out["installed"], (
+        f"ios_app skill should install via tarball fallback; got {out!r}"
+    )
+    assert "_test_python" not in out["installed"]
+    assert "_test_uni" in out["skipped_universal"]
+    assert (consumer / ".claude" / "skills" / "_test_ios" / "SKILL.md").is_file()
+    assert not (consumer / ".claude" / "skills" / "_test_python").exists()
+
+
+def test_source_dir_override_skips_fetch(tmp_path):
+    """`--source-dir` short-circuits the fallback — no fetch attempted.
+
+    If the override were ignored, the test would fail because the bogus
+    TUSK_RECONCILE_TARBALL_URL points at a non-existent file:// path. Honoring
+    --source-dir means that env var is never consulted.
+    """
+    consumer = tmp_path / "consumer"
+    consumer.mkdir()
+    subprocess.run(
+        ["git", "init", str(consumer)],
+        capture_output=True, check=True, encoding="utf-8",
+    )
+    (consumer / ".claude").mkdir()
+    _write_config(str(consumer), "ios_app")
+
+    skills = tmp_path / "explicit-skills"
+    skills.mkdir()
+    _write_skill(str(skills), "_test_ios", gates=["ios_app"])
+
+    env = os.environ.copy()
+    env["TUSK_RECONCILE_TARBALL_URL"] = "file:///nonexistent/should-not-be-fetched.tar.gz"
+    r = subprocess.run(
+        [TUSK_BIN, "reconcile-skills", "--json", "--source-dir", str(skills)],
+        cwd=str(consumer),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=env,
+    )
+
+    assert r.returncode == 0, (
+        f"--source-dir should bypass fetch entirely; exit={r.returncode} stderr={r.stderr!r}"
+    )
+    out = json.loads(r.stdout)
+    assert "_test_ios" in out["installed"]

@@ -246,6 +246,7 @@ def main() -> None:
         print("Error: not inside a git repository", file=sys.stderr)
         sys.exit(3)
 
+    role = _detect_role(SCRIPT_DIR)
     if args.source_dir:
         source = args.source_dir
         if not os.path.isdir(source):
@@ -258,6 +259,8 @@ def main() -> None:
         if source is None:
             # Consumer installs have no <repo_root>/skills/ tree. Fall back to
             # downloading the GitHub tarball and using its embedded skills/ dir.
+            # Force copy-mode regardless of role: the fetched tree is ephemeral,
+            # so symlinks into it would dangle once we clean it up below.
             fetch_tmpdir = tempfile.mkdtemp(prefix="tusk-reconcile-")
             source = _fetch_remote_source(fetch_tmpdir)
             if source is None:
@@ -268,9 +271,9 @@ def main() -> None:
                     file=sys.stderr,
                 )
                 sys.exit(2)
+            role = "consumer"
 
     try:
-        role = _detect_role(SCRIPT_DIR)
         result = reconcile(repo_root, source, role, args.dry_run)
     finally:
         if fetch_tmpdir is not None:
