@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [795] - 2026-04-30
+
+- [TASK-256] Add tusk reconcile-skills subcommand and call it from /tusk-init and /tusk-update
+
 ## [794] - 2026-04-30
 
 - [TASK-255] Add applies_to_project_types frontmatter to gate skill install on project_type

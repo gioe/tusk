@@ -35,6 +35,7 @@
 #   tusk regen-triggers        Drop and recreate validation triggers from config
 #   tusk token-audit [--summary|--json]  Analyze skill token consumption
 #   tusk sync-skills            Regenerate .claude/skills/ symlinks from skills/ + skills-internal/
+#   tusk reconcile-skills       Re-run applies_to_project_types filter and sync .claude/skills/
 #   tusk pricing-update [--dry-run]  Fetch and update pricing.json from Anthropic docs
 #   tusk upgrade               Upgrade tusk from GitHub
 #
@@ -1016,7 +1017,7 @@ candidates = [
   'test-detect','test-precheck','add-lib',
   'init-scan-codebase','init-scan-todos','init-fetch-bootstrap','init-write-config','init-write-manifest-files','init-wizard','init-scaffold',
   'loop','merge','abandon','bakeoff','progress','setup',
-  'token-audit','sync-skills','generate-manifest','pricing-update','wsjf','shell',
+  'token-audit','sync-skills','reconcile-skills','generate-manifest','pricing-update','wsjf','shell',
   'version','version-bump','report-issue','changelog-add','migrate','update-gitignore','regen-triggers','upgrade',
 ]
 matches = difflib.get_close_matches(sys.argv[1], candidates, n=1, cutoff=0.6)
@@ -1354,7 +1355,7 @@ is_readonly_subcmd() {
   case "${1:-}" in
     ""|path|config|validate|sql-quote|version|version-bump|\
     git-default-branch|branch-parse|report-issue|\
-    sync-skills|generate-manifest|pricing-update|token-audit|\
+    sync-skills|reconcile-skills|generate-manifest|pricing-update|token-audit|\
     task-get|task-get-multi|task-list|task-select|task-summary|setup|\
     backlog-scan|blockers|check-deliverables|test-detect|test-precheck|review-check-perms|review-diff-range|review-final-summary|\
     init-fetch-bootstrap|init-scan-codebase|init-scan-todos)
@@ -1464,6 +1465,7 @@ case "${1:-}" in
   setup) shift; exec python3 "$SCRIPT_DIR/tusk-setup.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   token-audit) shift; exec python3 "$SCRIPT_DIR/tusk-token-audit.py" "$REPO_ROOT" "$@" ;;
   sync-skills) shift; exec python3 "$SCRIPT_DIR/tusk-sync-skills.py" "$@" ;;
+  reconcile-skills) shift; exec python3 "$SCRIPT_DIR/tusk-reconcile-skills.py" "$@" ;;
   generate-manifest) shift; exec python3 "$SCRIPT_DIR/tusk-generate-manifest.py" "$@" ;;
   pricing-update) shift; exec python3 "$SCRIPT_DIR/tusk-pricing-update.py" "$@" ;;
   wsjf) shift; exec python3 "$SCRIPT_DIR/tusk-wsjf.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
