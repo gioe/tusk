@@ -17,12 +17,111 @@ import sqlite3
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader  # loads tusk-db-lib.py, tusk-json-lib.py, tusk-review-diff-range.py
+import tusk_loader  # loads tusk-db-lib.py, tusk-json-lib.py, tusk-review-diff-range.py, tusk-pricing-lib.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
+
+_pricing_lib = None  # populated lazily by _load_pricing_lib()
+
+
+def _load_pricing_lib():
+    """Load the pricing library on first use.
+
+    Lazy so test paths that never touch cost capture don't pay for the
+    import (and so we can monkeypatch this hook in tests to inject a stub).
+    """
+    global _pricing_lib
+    if _pricing_lib is None:
+        _pricing_lib = tusk_loader.load("tusk-pricing-lib")
+        _pricing_lib.load_pricing()
+    return _pricing_lib
+
+
+def _compute_review_cost_from_window(created_at: str) -> dict | None:
+    """Aggregate the transcript between *created_at* and now; return cost+tokens.
+
+    Mirrors the cost computation in `tusk skill-run finish` but uses the
+    review row's `created_at` as the window start. Returns None when no
+    transcript is discoverable or the window contains zero requests —
+    callers leave the columns NULL in that case rather than writing zeros,
+    so a missing transcript stays distinguishable from a real $0 review.
+    """
+    lib = _load_pricing_lib()
+    started_at = lib.parse_sqlite_timestamp(created_at)
+    transcript_path = lib.find_transcript()
+    if not transcript_path or not os.path.isfile(transcript_path):
+        return None
+    totals = lib.aggregate_session(transcript_path, started_at, None)
+    if totals.get("request_count", 0) == 0:
+        return None
+    return {
+        "cost_dollars": lib.compute_cost(totals),
+        "tokens_in": lib.compute_tokens_in(totals),
+        "tokens_out": totals["output_tokens"],
+        "model": totals.get("model"),
+    }
+
+
+def _add_cost_flags(parser: argparse.ArgumentParser) -> None:
+    """Wire the cost-capture flags onto an approve/request-changes subparser."""
+    parser.add_argument(
+        "--cost-dollars",
+        dest="cost_dollars",
+        type=float,
+        default=None,
+        help="Override the auto-computed cost (USD) for this review row.",
+    )
+    parser.add_argument(
+        "--tokens-in",
+        dest="tokens_in",
+        type=int,
+        default=None,
+        help="Override the auto-computed tokens_in count for this review row.",
+    )
+    parser.add_argument(
+        "--tokens-out",
+        dest="tokens_out",
+        type=int,
+        default=None,
+        help="Override the auto-computed tokens_out count for this review row.",
+    )
+    parser.add_argument(
+        "--skip-cost",
+        dest="skip_cost",
+        action="store_true",
+        help="Skip transcript-based cost auto-compute on this call.",
+    )
+
+
+def _resolve_cost_columns(args, created_at: str) -> tuple:
+    """Return (cost_dollars, tokens_in, tokens_out) to set on the review row.
+
+    Per-column priority: explicit --cost-dollars/--tokens-in/--tokens-out
+    flags override; otherwise auto-compute from the transcript window. A
+    None in any slot means "leave the column alone." `--skip-cost` short-
+    circuits the auto-compute so callers (bakeoffs, manual fixes) can
+    disable it without passing all three explicit values.
+    """
+    explicit_cost = getattr(args, "cost_dollars", None)
+    explicit_tin = getattr(args, "tokens_in", None)
+    explicit_tout = getattr(args, "tokens_out", None)
+    skip_cost = getattr(args, "skip_cost", False)
+
+    if skip_cost or all(x is not None for x in (explicit_cost, explicit_tin, explicit_tout)):
+        return explicit_cost, explicit_tin, explicit_tout
+
+    computed = _compute_review_cost_from_window(created_at)
+    if computed is None:
+        return explicit_cost, explicit_tin, explicit_tout
+
+    return (
+        explicit_cost if explicit_cost is not None else computed["cost_dollars"],
+        explicit_tin if explicit_tin is not None else computed["tokens_in"],
+        explicit_tout if explicit_tout is not None else computed["tokens_out"],
+    )
 
 
 def load_review_config(config_path: str) -> dict:
@@ -357,12 +456,14 @@ def cmd_approve(args: argparse.Namespace, db_path: str) -> int:
     conn = get_connection(db_path)
     try:
         review = conn.execute(
-            "SELECT id, task_id, reviewer, status FROM code_reviews WHERE id = ?",
+            "SELECT id, task_id, reviewer, status, created_at FROM code_reviews WHERE id = ?",
             (args.review_id,),
         ).fetchone()
         if not review:
             print(f"Error: Review {args.review_id} not found", file=sys.stderr)
             return 2
+
+        cost_dollars, tokens_in, tokens_out = _resolve_cost_columns(args, review["created_at"])
 
         set_clauses = ["status = 'approved'", "review_pass = 1", "updated_at = datetime('now')"]
         params: list = []
@@ -372,6 +473,15 @@ def cmd_approve(args: argparse.Namespace, db_path: str) -> int:
         if args.model is not None:
             set_clauses.append("model = ?")
             params.append(args.model or None)
+        if cost_dollars is not None:
+            set_clauses.append("cost_dollars = ?")
+            params.append(cost_dollars)
+        if tokens_in is not None:
+            set_clauses.append("tokens_in = ?")
+            params.append(tokens_in)
+        if tokens_out is not None:
+            set_clauses.append("tokens_out = ?")
+            params.append(tokens_out)
         params.append(args.review_id)
         conn.execute(
             f"UPDATE code_reviews SET {', '.join(set_clauses)} WHERE id = ?",
@@ -397,12 +507,14 @@ def cmd_request_changes(args: argparse.Namespace, db_path: str) -> int:
     conn = get_connection(db_path)
     try:
         review = conn.execute(
-            "SELECT id, task_id, reviewer, status FROM code_reviews WHERE id = ?",
+            "SELECT id, task_id, reviewer, status, created_at FROM code_reviews WHERE id = ?",
             (args.review_id,),
         ).fetchone()
         if not review:
             print(f"Error: Review {args.review_id} not found", file=sys.stderr)
             return 2
+
+        cost_dollars, tokens_in, tokens_out = _resolve_cost_columns(args, review["created_at"])
 
         set_clauses = ["status = 'changes_requested'", "review_pass = 0", "updated_at = datetime('now')"]
         params: list = []
@@ -412,6 +524,15 @@ def cmd_request_changes(args: argparse.Namespace, db_path: str) -> int:
         if args.model is not None:
             set_clauses.append("model = ?")
             params.append(args.model or None)
+        if cost_dollars is not None:
+            set_clauses.append("cost_dollars = ?")
+            params.append(cost_dollars)
+        if tokens_in is not None:
+            set_clauses.append("tokens_in = ?")
+            params.append(tokens_in)
+        if tokens_out is not None:
+            set_clauses.append("tokens_out = ?")
+            params.append(tokens_out)
         params.append(args.review_id)
         conn.execute(
             f"UPDATE code_reviews SET {', '.join(set_clauses)} WHERE id = ?",
@@ -704,6 +825,7 @@ def main():
         "--model",
         help="Reviewer model ID (e.g. claude-opus-4-7). Pass --model '' to clear an existing model.",
     )
+    _add_cost_flags(approve_p)
 
     # request-changes
     req_changes_p = subparsers.add_parser("request-changes", help="Request changes on a review")
@@ -716,6 +838,7 @@ def main():
         "--model",
         help="Reviewer model ID (e.g. claude-opus-4-7). Pass --model '' to clear an existing model.",
     )
+    _add_cost_flags(req_changes_p)
 
     # status
     status_p = subparsers.add_parser("status", help="Show current review status for a task (JSON)")

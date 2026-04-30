@@ -272,9 +272,9 @@ One reviewer's assessment of a task's PR, for one pass of the fix-and-re-review 
 | `status` | TEXT | CHECK IN (pending, in_progress, approved, changes_requested, superseded) | Review outcome. `superseded` is set automatically by `tusk review start` when prior pending reviews exist for the same task — they are superseded before the new review begins. |
 | `review_pass` | INTEGER | default 1 | Which fix-and-re-review iteration (1 = first review) |
 | `diff_summary` | TEXT | nullable | Summary of the diff being reviewed |
-| `cost_dollars` | REAL | nullable | AI cost of this review pass |
-| `tokens_in` | INTEGER | nullable | |
-| `tokens_out` | INTEGER | nullable | |
+| `cost_dollars` | REAL | nullable | AI cost of this review pass. Auto-populated by `tusk review approve` / `request-changes` from the transcript window `[code_reviews.created_at, now]` (same pricing-lib helpers as `tusk skill-run finish`). Override with `--cost-dollars`; opt out with `--skip-cost`. NULL when no transcript is discoverable for the window — historical pre-v802 rows stay NULL because their transcripts may no longer exist on disk. |
+| `tokens_in` | INTEGER | nullable | Auto-populated alongside `cost_dollars`; override with `--tokens-in`. |
+| `tokens_out` | INTEGER | nullable | Auto-populated alongside `cost_dollars`; override with `--tokens-out`. |
 | `agent_name` | TEXT | nullable | Named agent that ran the review (set by /chain when spawning an agent-driven review) |
 | `model` | TEXT | nullable | Model that produced the review (e.g. `claude-opus-4-7`); set by `tusk review approve --model` / `tusk review request-changes --model` on review close. Added in migration 52; historical rows are backfilled from `task_sessions.model` by joining `code_reviews.created_at` into session windows. |
 | `note` | TEXT | nullable | Optional reason or note stored with the approval (e.g. "Auto-approved (stall): agent exceeded monitoring threshold") |
