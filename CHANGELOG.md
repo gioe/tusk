@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [800] - 2026-04-30
+
+- [TASK-258] Ship ios-libs-issue skill that files an issue against the configured iOS lib
+
 ## [799] - 2026-04-30
 
 - [TASK-254] Add mobile-platform disambiguation question to /tusk-init Step 2e
