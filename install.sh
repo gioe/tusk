@@ -418,6 +418,17 @@ for p in sorted(glob.glob(os.path.join(script_dir, 'bin', 'tusk-*.py'))):
     if os.path.basename(p) in dist_excluded:
         continue
     files.append(install_dir + '/' + os.path.basename(p))
+
+# Underscore-named bin/ files are not matched by the tusk-*.py glob above —
+# add explicit entries so the per-target manifest mirrors build_manifest() in
+# tusk-generate-manifest.py. See Convention 21 for the full list of callsites.
+if os.path.isfile(os.path.join(script_dir, 'bin', 'tusk_loader.py')):
+    files.append(install_dir + '/tusk_loader.py')
+if os.path.isfile(os.path.join(script_dir, 'bin', 'tusk_skill_filter.py')):
+    files.append(install_dir + '/tusk_skill_filter.py')
+if os.path.isfile(os.path.join(script_dir, 'bin', 'tusk_github.py')):
+    files.append(install_dir + '/tusk_github.py')
+
 for name in ['config.default.json', 'VERSION', 'pricing.json']:
     files.append(install_dir + '/' + name)
 

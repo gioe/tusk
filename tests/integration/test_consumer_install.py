@@ -119,6 +119,28 @@ def test_consumer_install_still_copies_hook_files(consumer_project):
     assert (hooks_dir / "version-bump-check.sh").exists(), "hook file should still be copied"
 
 
+def test_consumer_install_manifest_includes_underscore_bin_files(consumer_project):
+    """install.sh's embedded-Python manifest builder must list every
+    underscore-named bin/ file alongside the tusk-*.py scripts (issue #628).
+
+    The bash explicit-cp lines and tusk-generate-manifest.py both enumerate
+    these files; the per-target manifest must mirror them or upgrade-time
+    pruning misses stale copies. Convention 21 names every callsite that
+    has to stay in sync."""
+    manifest_path = consumer_project / ".claude" / "tusk-manifest.json"
+    assert manifest_path.exists(), "install.sh should write a per-target manifest"
+    files = json.loads(manifest_path.read_text(encoding="utf-8"))
+    for underscore_file in (
+        ".claude/bin/tusk_loader.py",
+        ".claude/bin/tusk_skill_filter.py",
+        ".claude/bin/tusk_github.py",
+    ):
+        assert underscore_file in files, (
+            f"{underscore_file} missing from per-target manifest; "
+            f"see install.sh's embedded-Python builder and Convention 21"
+        )
+
+
 def test_consumer_install_logs_skipped_hooks(tmp_path):
     """install.sh must surface which hooks it skipped so operators can audit."""
     _run(["git", "init"], tmp_path)
