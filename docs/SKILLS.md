@@ -86,3 +86,37 @@ Run `tusk sync-skills` to regenerate all symlinks after adding or removing a ski
 - **Stage only `skills/` or `skills-internal/` paths** — `git add .claude/skills/...` won't work. Always use `git add skills/<name>/SKILL.md` or `git add skills-internal/<name>/SKILL.md`.
 
 Target projects that install tusk get real copies (not symlinks) of `skills/` only — `skills-internal/` is never distributed.
+
+## Per-project-type companion skills
+
+A companion skill is a skill paired with a specific external library — typically `<libname>-contribute` (opens an upstream PR) and `<libname>-issue` (files an issue against the lib repo). The pair installs only on projects whose `project_type` matches, so an iOS-only skill stays out of a Python service's `.claude/skills/` and vice versa.
+
+The convention is content-only: adding a companion-skill pair for a new project type requires zero changes to `bin/tusk` or `install.sh`.
+
+**Wiring.** Three things connect a companion skill to its lib:
+
+- **`applies_to_project_types`** in the skill's frontmatter gates installation. Values are `project_type` keys (e.g. `ios_app`, `python_service`).
+- **`project_libs.<project_type>.repo`** in `tusk/config.json` tells the skill which GitHub repo to operate against. Skills read it at runtime with `tusk config project_libs.<project_type>.repo`.
+- **`project_libs.<project_type>.ref`** pins the branch/tag/sha the skill targets.
+
+### Adding a new project-type companion-skill pair
+
+End-to-end walkthrough — the example uses a hypothetical `android_app` project type with an `android-libs` companion repo:
+
+1. **Write `skills/<libname>-contribute/SKILL.md` and `skills/<libname>-issue/SKILL.md`.** Each declares `applies_to_project_types: [android_app]` in frontmatter and reads the target repo from `project_libs.android_app.repo` at runtime. Mirror the existing `ios-libs-contribute` / `ios-libs-issue` skills for structure and naming.
+
+2. **Add the `project_libs` entry** to `config.default.json`:
+   ```json
+   "project_libs": {
+     "ios_app": { "repo": "gioe/ios-libs", "ref": "main" },
+     "android_app": { "repo": "gioe/android-libs", "ref": "main" }
+   }
+   ```
+
+3. **Run `tusk sync-skills`** to create the `.claude/skills/<libname>-contribute` and `.claude/skills/<libname>-issue` symlinks in the source repo.
+
+4. **Update both Skills lists** — add one line per new skill to the **Skills** list in `CLAUDE.md` and again in `AGENTS.md`.
+
+5. **Bump `VERSION`** and add a `CHANGELOG.md` entry — `tusk version-bump` followed by `tusk changelog-add <version>` does both atomically.
+
+6. **Commit, push, PR.** Once merged, projects whose `tusk/config.json:project_type` is `android_app` pick up the new skills on their next `tusk upgrade`; other project types are unaffected.
