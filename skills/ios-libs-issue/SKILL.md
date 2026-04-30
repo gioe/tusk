@@ -79,8 +79,9 @@ Treat any non-`feature` answer as `bug`. Then prompt for:
 ## Environment
 - iOS version:
 - Xcode version:
-- Lib ref: <auto-filled in Step 4 from project_libs.ios_app.ref>
 ```
+
+(`Lib ref` is captured separately by the auto-attached footer in Step 4 — no need to fill it here.)
 
 ### Feature template
 
