@@ -15,7 +15,7 @@ Determine `project_type` by checking in order:
 | project_type | Suggested pillars |
 |---|---|
 | `web_app` | Performance, Accessibility, Reliability, Security, Maintainability |
-| `ios_app` / `mobile` | Performance, Accessibility, Privacy, Reliability, Ergonomics |
+| `ios_app` / `android_app` / `mobile_cross_platform` / `mobile` | Performance, Accessibility, Privacy, Reliability, Ergonomics |
 | `python_service` / API | Reliability, Observability, Security, Performance, Maintainability |
 | `cli_tool` | Ergonomics, Reliability, Portability, Efficiency, Transparency |
 | `data_pipeline` / ML | Reliability, Data Integrity, Observability, Efficiency, Reproducibility |
