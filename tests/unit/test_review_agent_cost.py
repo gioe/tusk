@@ -248,3 +248,38 @@ class TestMainEntrypoint:
         ])
         assert rc == 2
         assert "project dir not found" in capsys.readouterr().err
+
+    def test_main_exits_2_when_since_missing_in_aggregation_mode(self, fake_home, capsys):
+        rc = agent_cost.main(["--project-dir", str(fake_home)])
+        assert rc == 2
+        assert "--since is required" in capsys.readouterr().err
+
+
+class TestPrintOrchestratorJsonl:
+    def test_prints_path_and_exits_zero(self, fake_home, monkeypatch, capsys):
+        class _DiscoveryStub:
+            def find_transcript(self):
+                return "/fake/.claude/projects/abc/orchestrator.jsonl"
+
+        monkeypatch.setattr(agent_cost, "_load_pricing_lib", lambda: _DiscoveryStub())
+
+        rc = agent_cost.main([
+            "--print-orchestrator-jsonl",
+            "--project-dir", str(fake_home),
+        ])
+        assert rc == 0
+        assert capsys.readouterr().out.strip() == "/fake/.claude/projects/abc/orchestrator.jsonl"
+
+    def test_exits_2_when_no_transcript_found(self, fake_home, monkeypatch, capsys):
+        class _NoneStub:
+            def find_transcript(self):
+                return None
+
+        monkeypatch.setattr(agent_cost, "_load_pricing_lib", lambda: _NoneStub())
+
+        rc = agent_cost.main([
+            "--print-orchestrator-jsonl",
+            "--project-dir", str(fake_home),
+        ])
+        assert rc == 2
+        assert "no transcript found" in capsys.readouterr().err

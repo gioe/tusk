@@ -8,7 +8,12 @@ time, not the agent's API spend) is explicitly excluded.
 
 Called by the tusk wrapper:
     tusk review-agent-cost --since <epoch> [--exclude-jsonl <path>]
-                           [--project-dir <path>] [--review-id <id>]
+                           [--project-dir <path>]
+    tusk review-agent-cost --print-orchestrator-jsonl
+
+The first form aggregates cost. The second prints the path of the
+orchestrator's most-recent JSONL — call it before spawning the agent
+to capture the value passed to `--exclude-jsonl` after completion.
 
 Outputs (compact JSON unless --pretty / TUSK_PRETTY=1):
     {
@@ -23,7 +28,8 @@ Exit codes:
     0  success — aggregation succeeded; JSON printed
     1  no candidate JSONLs found (orchestrator should fall back to
        backfill-cost auto-compute or leave the row's cost as-is)
-    2  invalid arguments / project dir does not exist
+    2  invalid arguments / project dir does not exist / discovery mode
+       could not locate the orchestrator's transcript
 """
 
 import argparse
@@ -122,7 +128,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument(
         "--since",
         type=float,
-        required=True,
+        default=None,
         help="Earliest mtime (epoch seconds) for candidate JSONLs — typically the agent spawn time.",
     )
     parser.add_argument(
@@ -138,6 +144,12 @@ def main(argv: list[str]) -> int:
         help="Override the project dir used to derive the Claude transcripts hash (default: cwd).",
     )
     parser.add_argument(
+        "--print-orchestrator-jsonl",
+        dest="print_orchestrator_jsonl",
+        action="store_true",
+        help="Print the orchestrator's most-recent JSONL path and exit. Use before spawning the agent.",
+    )
+    parser.add_argument(
         "--pretty",
         action="store_true",
         help="Pretty-print JSON output (also via TUSK_PRETTY=1).",
@@ -147,6 +159,19 @@ def main(argv: list[str]) -> int:
     project_dir = args.project_dir or os.getcwd()
     if not os.path.isdir(project_dir):
         print(f"Error: project dir not found: {project_dir}", file=sys.stderr)
+        return 2
+
+    if args.print_orchestrator_jsonl:
+        lib = _load_pricing_lib()
+        path = lib.find_transcript()
+        if not path:
+            print("Error: no transcript found for current project", file=sys.stderr)
+            return 2
+        print(path)
+        return 0
+
+    if args.since is None:
+        print("Error: --since is required (omit only with --print-orchestrator-jsonl).", file=sys.stderr)
         return 2
 
     result = aggregate_agent_cost(

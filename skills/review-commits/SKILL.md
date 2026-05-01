@@ -118,6 +118,15 @@ On success the command prints `OK` and exits 0. On failure it prints a single `M
 
 Proceed to spawn the agent only if the check prints `OK`.
 
+**Capture cost-attribution anchors before spawning.** The reviewer agent runs in its own Task sandbox and writes to a separate `<session-uuid>.jsonl` under `~/.claude/projects/<project-hash>/`. The orchestrator's auto-compute path uses `find_transcript()`, which returns whichever JSONL has the most recent mtime — typically the orchestrator's own (continuously updated by tool results), so the cost recorded on `code_reviews` reflects orchestrator wait time, not the actual reviewer-agent spend. To attribute correctly, snapshot the orchestrator's JSONL path and the spawn timestamp now, before spawning:
+
+```bash
+ORCH_JSONL=$(tusk review-agent-cost --print-orchestrator-jsonl)
+SPAWN_TS=$(date +%s)
+```
+
+Hold both values for Step 6, where the orchestrator runs `tusk review-agent-cost --since "$SPAWN_TS" --exclude-jsonl "$ORCH_JSONL"` after the agent completes and pipes the result into `tusk review backfill-cost --force <review_id> --cost-dollars X --tokens-in Y --tokens-out Z`. If `tusk review-agent-cost --print-orchestrator-jsonl` exits non-zero (no transcript found), fall through without setting `ORCH_JSONL` — Step 6 will skip the cost-correction step and the row keeps its (orchestrator-only) auto-compute.
+
 Read the reviewer prompt template:
 
 ```
@@ -179,23 +188,41 @@ tusk review status <task_id>
 
 Parse the JSON.
 
-- **`status` is `"approved"` or `"changes_requested"`** → proceed to Step 7.
+- **`status` is `"approved"` or `"changes_requested"`** → the agent posted its verdict normally. Now correct the cost attribution before moving on (see "Apply agent cost" below), then proceed to Step 7.
 
 - **`status` is still `"pending"`** → check whether the agent has finished using `TaskOutput` with `block: false` and the agent task ID:
 
   **Agent has completed** (TaskOutput shows the agent is done) but the review is still `"pending"`:
-  - The agent finished without calling `tusk review approve` or `tusk review request-changes`. Log a warning and auto-approve with a note. Pass `--model <your_model_id>` (the orchestrator's own ID from its system prompt) since the orchestrator, not the silent agent, is closing this review:
+  - The agent finished without calling `tusk review approve` or `tusk review request-changes`. Log a warning and auto-approve with a note. Pass `--model <your_model_id>` (the orchestrator's own ID from its system prompt) since the orchestrator, not the silent agent, is closing this review. **Cost note:** because the orchestrator is closing the review, the row's `cost_dollars` is auto-computed from the orchestrator's transcript window and reflects only orchestrator-side spend (the agent never recorded a verdict, so its API tokens cannot be attributed via the normal flow). After the approve call, attempt the agent-cost correction below — the agent did exit, so its JSONL may exist:
     ```bash
     tusk review approve <review_id> --model <your_model_id> --note "Auto-approved (no verdict): reviewer agent completed without posting a decision. Most likely cause: Bash tool not permitted in agent sandbox. Required permissions.allow entries: Bash(git diff:*), Bash(git remote:*), Bash(git symbolic-ref:*), Bash(git branch:*), Bash(tusk review:*)"
     ```
     The most common cause is missing Bash tool permissions (the agent could not run `git diff` or `tusk review`). Run `tusk upgrade` to propagate the required `permissions.allow` entries if they are missing from `.claude/settings.json`. Continue as if the review returned no findings.
 
   **Agent is still running** after the stall deadline elapsed:
-  - Auto-approve with a stall warning note. Pass `--model <your_model_id>` (the orchestrator's own ID) since the orchestrator, not the stalled agent, is closing this review:
+  - Auto-approve with a stall warning note. Pass `--model <your_model_id>` (the orchestrator's own ID) since the orchestrator, not the stalled agent, is closing this review. **Cost note:** the row's `cost_dollars` here reflects orchestrator-only attribution — the agent is still mid-run, so its in-progress JSONL is not safe to aggregate. **Skip the agent-cost correction** in this branch and accept the orchestrator-side cost; document the gap with the stall note already on the row:
     ```bash
     tusk review approve <review_id> --model <your_model_id> --note "Auto-approved (stall): reviewer agent has been running for ≥2.5 min without posting a verdict. The agent may be looping or running a long-running command such as a full test suite. Check REVIEWER-PROMPT.md Step 2.6 constraints. To prevent stalls, ensure the agent sandbox has the required permissions.allow entries: Bash(git diff:*), Bash(git remote:*), Bash(git symbolic-ref:*), Bash(git branch:*), Bash(tusk review:*)"
     ```
     Continue as if the review returned no findings.
+
+**Apply agent cost (normal-completion path only).** When the agent posted its verdict normally — i.e. the `status` check above returned `"approved"` or `"changes_requested"` — its `tusk review approve` / `tusk review request-changes` call ran inside the agent sandbox and the auto-compute resolved against `find_transcript()`, which (because the orchestrator's JSONL is being continuously updated) typically attributed to the orchestrator's transcript window. Override the row with the agent's actual spend now:
+
+```bash
+if [ -n "$ORCH_JSONL" ]; then
+  AGENT_COST_JSON=$(tusk review-agent-cost --since "$SPAWN_TS" --exclude-jsonl "$ORCH_JSONL")
+  AGENT_COST_RC=$?
+  if [ "$AGENT_COST_RC" -eq 0 ]; then
+    AGENT_COST=$(printf '%s' "$AGENT_COST_JSON" | jq -r .cost_dollars)
+    AGENT_TIN=$(printf '%s' "$AGENT_COST_JSON"  | jq -r .tokens_in)
+    AGENT_TOUT=$(printf '%s' "$AGENT_COST_JSON" | jq -r .tokens_out)
+    tusk review backfill-cost --force "$REVIEW_ID" \
+      --cost-dollars "$AGENT_COST" --tokens-in "$AGENT_TIN" --tokens-out "$AGENT_TOUT"
+  fi
+fi
+```
+
+`tusk review-agent-cost` reads the project's Claude transcripts dir, lists JSONLs modified at or after `$SPAWN_TS`, excludes `$ORCH_JSONL`, and aggregates token usage and cost across the remaining (agent) transcripts. Exit 0 means the override flags carry the agent's actual spend; exit 1 means no agent transcripts were discoverable (subagent JSONLs may live elsewhere on this host) and the row keeps its (orchestrator-only) auto-compute. Skip the block entirely if `$ORCH_JSONL` was not captured in Step 5.1.
 
 ## Step 7: Process Findings
 
@@ -324,7 +351,14 @@ Otherwise, loop while `can_retry` is true:
    On failure the command prints a single `MISSING: …` line and exits 1. When the check fails, surface to the user:
    > Re-review agent aborted: `<captured MISSING: line>`. Create `.claude/settings.json` or add the missing entries manually, or run `tusk upgrade` to apply them, then restart the session.
 
-   Proceed to spawn the re-review agent only if the check prints `OK`. The re-review agent fetches the diff itself — no diff is passed inline.
+   Proceed to spawn the re-review agent only if the check prints `OK`. The re-review agent fetches the diff itself — no diff is passed inline. Refresh the cost-attribution anchors before spawning so Step 6's "Apply agent cost" block can correct this pass's row too:
+
+   ```bash
+   ORCH_JSONL=$(tusk review-agent-cost --print-orchestrator-jsonl)
+   SPAWN_TS=$(date +%s)
+   ```
+
+   Both variables shadow the values captured in Step 5.1 — that's intended; each pass writes a fresh `code_reviews` row, and the agent JSONL spawned for this pass is the only one that should attribute to it.
 
 3. Monitor completion (Step 6) and process findings (Step 7).
 
