@@ -1242,6 +1242,74 @@ def rule24_subprocess_encoding(root):
     return violations
 
 
+def rule26_glossary_drift(root):
+    """docs/GLOSSARY.md is out of sync with the glossary table.
+
+    Renders the glossary table to markdown via the same code path as
+    `tusk glossary export --stdout`, then compares against the on-disk
+    file. Drift means the table and the file disagree about a definition,
+    see-also pointer, term ordering, or set of entries.
+
+    Skips when:
+    - The repo has no `tusk/tasks.db` (target projects not using tusk).
+    - `docs/GLOSSARY.md` doesn't exist (project doesn't ship a glossary).
+    - The glossary table is empty (no source of truth to compare against).
+    - The DB doesn't have the glossary table yet (pre-v64 migration).
+
+    Fix when triggered: either re-run `tusk glossary export` (md is stale)
+    or `tusk glossary set-definition <term>` to push a hand-edit back into
+    the table.
+    """
+    db_path = _db_path_from_root(root)
+    if not db_path:
+        return []
+
+    glossary_md = os.path.join(root, "docs", "GLOSSARY.md")
+    if not os.path.isfile(glossary_md):
+        return []
+
+    try:
+        conn = tusk_loader.load("tusk-db-lib").get_connection(db_path)
+        try:
+            try:
+                rows = conn.execute(
+                    "SELECT term, definition, see_also, topics "
+                    "FROM glossary ORDER BY term COLLATE NOCASE"
+                ).fetchall()
+            except sqlite3.OperationalError:
+                # Pre-v64 DB or missing table.
+                return []
+        finally:
+            conn.close()
+    except Exception:
+        return []
+
+    if not rows:
+        return []
+
+    try:
+        glossary_mod = tusk_loader.load("tusk-glossary")
+    except Exception:
+        return []
+
+    expected = glossary_mod.render_glossary_md([tuple(r) for r in rows])
+    try:
+        with open(glossary_md, encoding="utf-8") as f:
+            actual = f.read()
+    except OSError as exc:
+        return [f"  docs/GLOSSARY.md could not be read: {exc}"]
+
+    if expected == actual:
+        return []
+
+    return [
+        "  docs/GLOSSARY.md is out of sync with the glossary table.",
+        "  Fix: run `tusk glossary export` to regenerate the file from the table,",
+        "       or `tusk glossary set-definition <term> --definition '...'`",
+        "       to propagate a hand-edit back into the table.",
+    ]
+
+
 # Each entry: (display_name, check_function, advisory)
 # advisory=True  → violations are printed but do NOT count toward exit code
 # advisory=False → violations count toward the non-zero exit code
@@ -1269,6 +1337,7 @@ RULES = [
     ("Rule 23: CLAUDE.md exceeds line limit (advisory)", rule23_claude_md_size, True),
     ("Rule 24: subprocess.run/check_output/Popen text=True without encoding", rule24_subprocess_encoding, False),
     ("Rule 25: bin/tusk subcommand drift across dispatcher, candidates list, and Usage message", rule25_subcommand_dispatcher_drift, False),
+    ("Rule 26: docs/GLOSSARY.md drift from glossary table", rule26_glossary_drift, False),
 ]
 
 # Load project-specific rules from tusk-lint-extra.py if it exists alongside this script.
