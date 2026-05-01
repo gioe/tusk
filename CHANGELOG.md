@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [809] - 2026-05-01
+
+- [TASK-270] Migrate docs/GLOSSARY.md to a glossary table (conventions pattern)
+
 ## [808] - 2026-05-01
 
 - [TASK-269] Fix: tusk task-start ignores dependency blocking entirely (not just under --force)
