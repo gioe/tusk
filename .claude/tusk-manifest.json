@@ -25,6 +25,7 @@
   ".claude/bin/tusk-deps.py",
   ".claude/bin/tusk-dupes.py",
   ".claude/bin/tusk-git-helpers.py",
+  ".claude/bin/tusk-glossary.py",
   ".claude/bin/tusk-groom.py",
   ".claude/bin/tusk-init-fetch-bootstrap.py",
   ".claude/bin/tusk-init-scaffold.py",

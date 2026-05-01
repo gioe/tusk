@@ -897,6 +897,19 @@ CREATE TABLE pillars (
 );
 PILLARS_SCHEMA
 
+  # Glossary (canonical term definitions; source of truth for docs/GLOSSARY.md)
+  sqlite3 "$DB_PATH" <<'GLOSSARY_SCHEMA'
+CREATE TABLE glossary (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    term TEXT NOT NULL UNIQUE,
+    definition TEXT NOT NULL,
+    see_also TEXT,
+    topics TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+GLOSSARY_SCHEMA
+
   # Test runs (per-repo successful test_command elapsed history; read by
   # tusk-commit.py to auto-scale test_command_timeout_sec from p95)
   sqlite3 "$DB_PATH" <<'TEST_RUNS_SCHEMA'
@@ -927,8 +940,14 @@ TEST_RUNS_SCHEMA
     python3 "$SCRIPT_DIR/tusk-pillars.py" "$DB_PATH" "$(resolve_config)" sync-from-md >/dev/null 2>&1 || true
   fi
 
+  # Seed glossary from docs/GLOSSARY.md when present (tusk source repo and any
+  # target project that ships its own GLOSSARY.md). Silent no-op otherwise.
+  if [[ -f "$REPO_ROOT/docs/GLOSSARY.md" ]]; then
+    python3 "$SCRIPT_DIR/tusk-glossary.py" "$DB_PATH" "$(resolve_config)" sync-from-md >/dev/null 2>&1 || true
+  fi
+
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 63;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 64;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."
@@ -1007,7 +1026,7 @@ cmd_query() {
 import difflib, sys
 candidates = [
   'init','path','config','validate','sql-quote','branch','commit',
-  'lint','lint-rule','dupes','conventions','pillars','criteria','dashboard','chain','blockers',
+  'lint','lint-rule','dupes','conventions','pillars','glossary','criteria','dashboard','chain','blockers',
   'review','review-verdict','review-pass-status','review-final-summary','review-diff-range','review-defer','review-wait','review-check-perms','review-agent-cost',
   'deps','session-stats','session-recalc','session-close','skill-run','call-breakdown',
   'active-project','git-default-branch','branch-parse',
@@ -1406,6 +1425,7 @@ case "${1:-}" in
   dupes)  shift; exec python3 "$SCRIPT_DIR/tusk-dupes.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   conventions) shift; exec python3 "$SCRIPT_DIR/tusk-conventions.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   pillars)     shift; exec python3 "$SCRIPT_DIR/tusk-pillars.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  glossary)    shift; exec python3 "$SCRIPT_DIR/tusk-glossary.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   criteria) shift; exec python3 "$SCRIPT_DIR/tusk-criteria.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   dashboard) shift; exec python3 "$SCRIPT_DIR/tusk-dashboard.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   chain) shift; exec python3 "$SCRIPT_DIR/tusk-chain.py" "$DB_PATH" "$(resolve_config)" "$@" ;;

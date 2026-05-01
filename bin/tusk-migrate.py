@@ -2446,6 +2446,92 @@ def migrate_63(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 63: dropped tasks.is_deferred and recreated tasks-projecting views")
 
 
+def migrate_64(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add the glossary table and seed it from <repo_root>/docs/GLOSSARY.md.
+
+    The glossary table becomes the source of truth for canonical term
+    definitions previously held by the static `docs/GLOSSARY.md`. After this
+    migration runs, the markdown file is regenerated from the table by
+    `tusk glossary export` and `tusk lint` rule 26 enforces drift.
+
+    Idempotent on two axes:
+    - Table creation is guarded by has_table(), so re-running on a v64+ DB
+      is a no-op for the schema step.
+    - The sync-from-md step is guarded by a row-count check; tables already
+      seeded keep their contents (matching how migration 47 handles pillars).
+
+    GLOSSARY.md is absent in target projects without their own glossary
+    doc — in that case the seed step is a silent no-op and the table stays
+    empty until entries are added via `tusk glossary add`.
+    """
+    if get_version(db_path) >= 64:
+        return
+
+    if not has_table(db_path, "glossary"):
+        run_script(db_path, """
+            CREATE TABLE glossary (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                term TEXT NOT NULL UNIQUE,
+                definition TEXT NOT NULL,
+                see_also TEXT,
+                topics TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            );
+        """)
+
+    conn = db_connect(db_path)
+    count = conn.execute("SELECT COUNT(*) FROM glossary").fetchone()[0]
+    conn.close()
+    if count == 0:
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+        md_path = os.path.join(repo_root, "docs", "GLOSSARY.md")
+        if os.path.isfile(md_path):
+            try:
+                subprocess.run(
+                    [
+                        "python3",
+                        os.path.join(script_dir, "tusk-glossary.py"),
+                        db_path,
+                        config_path,
+                        "sync-from-md",
+                    ],
+                    check=True,
+                    capture_output=True,
+                    encoding="utf-8",
+                )
+            except Exception as e:
+                print(f"  Warning: GLOSSARY.md backfill failed: {e}", file=sys.stderr)
+
+        # Seed topic tags for the canonical 9 terms so `tusk glossary search
+        # <topic>` returns useful results immediately. Only applies to terms
+        # we shipped — user-added entries set their own topics via the CLI.
+        seed_topics = {
+            "chain head": "chain,deps,view",
+            "closed_reason": "status,lifecycle,validation",
+            "compound blocking": "blockers,deps,view",
+            "contingent": "deps,wsjf",
+            "criterion": "criteria,lifecycle",
+            "session": "session,lifecycle,cost",
+            "skill run": "skill,cost,session",
+            "v_ready_tasks": "view,deps,ready",
+            "WSJF": "priority,wsjf,scoring",
+        }
+        conn = db_connect(db_path)
+        try:
+            for term, topics in seed_topics.items():
+                conn.execute(
+                    "UPDATE glossary SET topics = ? WHERE term = ? AND topics IS NULL",
+                    (topics, term),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    set_version(db_path, 64)
+    _progress("  Migration 64: added glossary table and seeded from docs/GLOSSARY.md")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -2512,6 +2598,7 @@ MIGRATIONS = [
     (61, migrate_61),
     (62, migrate_62),
     (63, migrate_63),
+    (64, migrate_64),
 ]
 
 
