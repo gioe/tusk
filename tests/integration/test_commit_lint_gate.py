@@ -281,6 +281,17 @@ class TestAdvisoryDoesNotBlock:
         subprocess.run(
             ["git", "-C", repo, "commit", "-q", "-m", "add scripts"], check=True
         )
+        # Plant an intervening commit so VERSION is no longer on HEAD; otherwise
+        # _version_bump_check's just-bumped guard (Issue #631) suppresses Rule
+        # 13 because the prior commit was the VERSION bump.
+        with open(os.path.join(repo, "README.md"), "a") as f:
+            f.write("filler\n")
+        subprocess.run(
+            ["git", "-C", repo, "add", "README.md"], check=True
+        )
+        subprocess.run(
+            ["git", "-C", repo, "commit", "-q", "-m", "intervening change"], check=True
+        )
         # Now modify tusk-sample.py WITHOUT bumping VERSION — Rule 13 (advisory).
         with open(os.path.join(bin_dir, "tusk-sample.py"), "a") as f:
             f.write("# change\n")
