@@ -112,6 +112,11 @@ echo "  Installed $INSTALL_DIR/tusk_skill_filter.py"
 cp "$SCRIPT_DIR/bin/tusk_github.py" "$REPO_ROOT/$INSTALL_DIR/tusk_github.py"
 echo "  Installed $INSTALL_DIR/tusk_github.py"
 
+# tusk_underscore_bin_files.py — canonical list of underscore-named bin/ files
+# (consumed by tusk-upgrade.py, tusk-lint.py, and tusk-generate-manifest.py).
+cp "$SCRIPT_DIR/bin/tusk_underscore_bin_files.py" "$REPO_ROOT/$INSTALL_DIR/tusk_underscore_bin_files.py"
+echo "  Installed $INSTALL_DIR/tusk_underscore_bin_files.py"
+
 # ── 2. Copy config, VERSION ─────────────────────────────────────────
 cp "$SCRIPT_DIR/config.default.json" "$REPO_ROOT/$INSTALL_DIR/config.default.json"
 echo "  Installed $INSTALL_DIR/config.default.json"
@@ -419,15 +424,13 @@ for p in sorted(glob.glob(os.path.join(script_dir, 'bin', 'tusk-*.py'))):
         continue
     files.append(install_dir + '/' + os.path.basename(p))
 
-# Underscore-named bin/ files are not matched by the tusk-*.py glob above —
-# add explicit entries so the per-target manifest mirrors build_manifest() in
-# tusk-generate-manifest.py. See Convention 21 for the full list of callsites.
-if os.path.isfile(os.path.join(script_dir, 'bin', 'tusk_loader.py')):
-    files.append(install_dir + '/tusk_loader.py')
-if os.path.isfile(os.path.join(script_dir, 'bin', 'tusk_skill_filter.py')):
-    files.append(install_dir + '/tusk_skill_filter.py')
-if os.path.isfile(os.path.join(script_dir, 'bin', 'tusk_github.py')):
-    files.append(install_dir + '/tusk_github.py')
+# Underscore-named bin/ files — canonical list lives in bin/tusk_underscore_bin_files.py.
+import sys as _sys
+_sys.path.insert(0, os.path.join(script_dir, 'bin'))
+import tusk_underscore_bin_files as _ubf
+_sys.path.pop(0)
+for _name in _ubf.get_underscore_bin_files(script_dir):
+    files.append(install_dir + '/' + _name)
 
 for name in ['config.default.json', 'VERSION', 'pricing.json']:
     files.append(install_dir + '/' + name)
