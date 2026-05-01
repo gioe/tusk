@@ -1,14 +1,21 @@
-"""Regression tests for TASK-264 / Issue #631.
+"""Regression tests for TASK-264 / Issue #631 and TASK-265 / Issue #634.
 
-`_version_bump_check` Part A (Rules 13/20 — VERSION-bump-missing advisories)
-must suppress its violation when the immediately-preceding commit on HEAD is
-the VERSION bump itself. This is the documented "split the bump into its own
-commit" workflow from CLAUDE.md — a follow-up feature commit on the same
-branch should not re-flag the advisory.
+`_version_bump_check` (Rules 13/20 — VERSION-bump-missing advisories) has two
+parts and two distinct suppression guards:
 
-The opposite case (a `bin/tusk-*.py` or `skills/` change without any prior
-bump) must continue to fire the advisory — guarded explicitly to prevent the
-suppression from over-applying.
+  * Part A (uncommitted) suppresses via ``just_bumped`` — HEAD is the most
+    recent commit that touched VERSION. Covers the moment between the
+    bump-only commit and the follow-up feature commit on the same branch
+    (Issue #631).
+  * Part B (committed since last bump) suppresses via ``bump_is_recent`` —
+    the bump is within ``_BUMP_RECENT_WINDOW`` commits of HEAD on the linear
+    history. Covers the post-merge state of a typical split-bump PR
+    (bump → feature commit(s) → merge), so Part B does not keep firing on
+    every developer's tree until the next bump (Issue #634).
+
+The over-application guards (no bump anywhere recent → Part A still fires;
+bump older than the window → Part B still fires) are exercised explicitly so
+the suppressions cannot drift into always-on.
 """
 
 import os
@@ -160,22 +167,25 @@ def test_advisory_still_fires_when_version_not_recently_bumped(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Part B unchanged — committed-since-last-bump path still flags (criterion 1170)
+# Part B suppressed inside the bump_is_recent window (TASK-265 / Issue #634)
 # ---------------------------------------------------------------------------
 
 
-def test_part_b_still_flags_committed_changes_without_bump(tmp_path):
-    """`_version_bump_check` Part B must still fire when a `bin/tusk-*.py`
-    change has been committed *since* the last VERSION bump (i.e., the bump
-    is not on HEAD).
+def test_part_b_suppressed_for_post_split_bump_committed_change(tmp_path):
+    """Updated criterion 1170 — TASK-265 / Issue #634.
+
+    `_version_bump_check` Part B must NOT fire when a `bin/tusk-*.py` change
+    is committed on top of a split-bump-pattern bump (bump-commit →
+    feature-commit, both committed) and the bump is within the
+    `bump_is_recent` window of HEAD. Pre-TASK-265 this was the persistent
+    advisory that polluted lint output on every developer's tree until the
+    next task's bump landed.
     """
     repo = str(tmp_path / "repo")
     _git_init(repo)
     _seed_minimum_repo(repo, version="1")
 
-    # Bump VERSION in its own commit, then commit an unrelated bin/tusk-*.py
-    # edit on top — that edit should trigger Part B's advisory because the
-    # bump is no longer on HEAD.
+    # Split-bump pattern: VERSION-only commit, then the feature commit on top.
     _bump_version_commit(repo, new_version="2")
     with open(os.path.join(repo, "bin", "tusk-sample.py"), "a") as f:
         f.write("# committed feature edit\n")
@@ -184,8 +194,74 @@ def test_part_b_still_flags_committed_changes_without_bump(tmp_path):
 
     result = _run_lint(repo)
 
+    assert "Committed since last VERSION bump" not in result.stdout, (
+        "Part B must suppress the advisory for a feature commit landed on top "
+        "of an immediately-preceding split-bump commit (Issue #634). Output:\n"
+        f"{result.stdout}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Issue #634 minimal repro — bump → feature, both committed (criterion 1173)
+# ---------------------------------------------------------------------------
+
+
+def test_issue_634_split_bump_repro(tmp_path):
+    """Exact scenario from Issue #634's `## Failing Test` section: after the
+    split-bump merges, `tusk lint` on the resulting tree must not emit
+    "Committed since last VERSION bump".
+    """
+    repo = str(tmp_path / "repo")
+    _git_init(repo)
+    _seed_minimum_repo(repo, version="1")
+
+    # bump → feature, exactly as the issue's failing test constructs it.
+    _bump_version_commit(repo, new_version="2")
+    with open(os.path.join(repo, "bin", "tusk-sample.py"), "a") as f:
+        f.write("# change\n")
+    _git(repo, "add", "bin/tusk-sample.py")
+    _git(repo, "commit", "-q", "-m", "feature")
+
+    result = _run_lint(repo)
+
+    assert "Committed since last VERSION bump" not in result.stdout, (
+        "Issue #634 repro: post-split-bump feature commit must not trip "
+        "Part B's advisory. Output:\n"
+        f"{result.stdout}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Window overflow — Part B still fires when the bump is far back (criterion 1174)
+# ---------------------------------------------------------------------------
+
+
+def test_part_b_still_fires_when_bump_outside_recent_window(tmp_path):
+    """The `bump_is_recent` window must not over-apply: a `bin/tusk-*.py`
+    edit committed many commits after the bump (beyond the window) must
+    still trip Part B's advisory. This is the genuine "you're way past your
+    last bump — bump again before merging" signal that Part B preserves.
+    """
+    repo = str(tmp_path / "repo")
+    _git_init(repo)
+    _seed_minimum_repo(repo, version="1")
+
+    _bump_version_commit(repo, new_version="2")
+
+    # Commit far more changes than the recent-window allows. _BUMP_RECENT_WINDOW
+    # is 10 in the source; 15 commits is comfortably beyond it without coupling
+    # the test to the exact constant.
+    sample = os.path.join(repo, "bin", "tusk-sample.py")
+    for i in range(15):
+        with open(sample, "a") as f:
+            f.write(f"# commit {i}\n")
+        _git(repo, "add", "bin/tusk-sample.py")
+        _git(repo, "commit", "-q", "-m", f"[TASK-X] feature {i}")
+
+    result = _run_lint(repo)
+
     assert "Committed since last VERSION bump" in result.stdout, (
-        "Part B must still flag bin/tusk-*.py edits committed after the "
-        "VERSION bump. Output:\n"
+        "Part B must still fire when the bump is well outside the recent "
+        "window — the suppression must not over-apply. Output:\n"
         f"{result.stdout}"
     )
