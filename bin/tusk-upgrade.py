@@ -33,6 +33,7 @@ from tusk_github import (  # noqa: E402
     get_latest_tag,
     get_remote_version,
 )
+from tusk_underscore_bin_files import get_underscore_bin_files  # noqa: E402
 
 # Supported install modes and their canonical directory layouts. The marker
 # file <script_dir>/install-mode is stamped by install.sh; absent → claude
@@ -293,12 +294,9 @@ def copy_bin_files(src: str, script_dir: str) -> None:
         if pyfile.name == "tusk-lint.py":
             # Record what tusk just wrote so future upgrades can detect local modifications.
             Path(hash_sidecar).write_text(src_hash + "\n")
-    # tusk_loader.py uses an underscore filename — copy explicitly (missed by glob above).
-    shutil.copy2(os.path.join(src, "bin", "tusk_loader.py"), script_dir)
-    # tusk_skill_filter.py — same underscore-filename rationale; powers applies_to_project_types gating.
-    shutil.copy2(os.path.join(src, "bin", "tusk_skill_filter.py"), script_dir)
-    # tusk_github.py — same underscore-filename rationale; shared GitHub-fetch helpers.
-    shutil.copy2(os.path.join(src, "bin", "tusk_github.py"), script_dir)
+    # Underscore-named bin/ files — canonical list lives in bin/tusk_underscore_bin_files.py.
+    for name in get_underscore_bin_files(src):
+        shutil.copy2(os.path.join(src, "bin", name), script_dir)
     shutil.copy2(
         os.path.join(src, "config.default.json"),
         os.path.join(script_dir, "config.default.json"),
