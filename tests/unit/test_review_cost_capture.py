@@ -330,3 +330,78 @@ class TestBackfillCost:
         db = _make_db(tmp_path)
         args = argparse.Namespace(review_id=999, force=False)
         assert review.cmd_backfill_cost(args, db) == 2
+
+
+class TestBackfillCostExplicitOverrides:
+    """Explicit --cost-dollars/--tokens-in/--tokens-out skip auto-compute."""
+
+    def _backfill_args(self, **overrides):
+        base = {
+            "review_id": 1,
+            "force": False,
+            "cost_dollars": None,
+            "tokens_in": None,
+            "tokens_out": None,
+        }
+        base.update(overrides)
+        return argparse.Namespace(**base)
+
+    def test_explicit_overrides_skip_auto_compute(self, tmp_path, monkeypatch):
+        db = _make_db(tmp_path)
+        stub = _StubCompute({"cost_dollars": 9.99, "tokens_in": 1, "tokens_out": 2, "model": "x"})
+        monkeypatch.setattr(review, "_compute_review_cost_from_window", stub)
+
+        args = self._backfill_args(cost_dollars=0.05, tokens_in=2000, tokens_out=300)
+        assert review.cmd_backfill_cost(args, db) == 0
+
+        row = _fetch_cost(db)
+        assert row["cost_dollars"] == 0.05
+        assert row["tokens_in"] == 2000
+        assert row["tokens_out"] == 300
+        assert stub.calls == 0  # auto-compute never invoked
+
+    def test_explicit_overrides_with_force_overwrite_existing(self, tmp_path, monkeypatch):
+        db = _make_db(tmp_path)
+        conn = sqlite3.connect(db)
+        conn.execute("UPDATE code_reviews SET cost_dollars = 0.5 WHERE id = 1")
+        conn.commit()
+        conn.close()
+
+        stub = _StubCompute({"cost_dollars": 9.99, "tokens_in": 1, "tokens_out": 2, "model": "x"})
+        monkeypatch.setattr(review, "_compute_review_cost_from_window", stub)
+
+        args = self._backfill_args(force=True, cost_dollars=0.07, tokens_in=500, tokens_out=50)
+        assert review.cmd_backfill_cost(args, db) == 0
+
+        row = _fetch_cost(db)
+        assert row["cost_dollars"] == 0.07
+        assert row["tokens_in"] == 500
+        assert row["tokens_out"] == 50
+        assert stub.calls == 0
+
+    def test_partial_overrides_rejected(self, tmp_path, monkeypatch, capsys):
+        db = _make_db(tmp_path)
+        stub = _StubCompute({"cost_dollars": 9.99, "tokens_in": 1, "tokens_out": 2, "model": "x"})
+        monkeypatch.setattr(review, "_compute_review_cost_from_window", stub)
+
+        args = self._backfill_args(cost_dollars=0.05, tokens_in=2000)  # tokens_out missing
+        assert review.cmd_backfill_cost(args, db) == 2
+
+        row = _fetch_cost(db)
+        assert row["cost_dollars"] is None  # untouched
+        err = capsys.readouterr().err
+        assert "must all be provided together" in err
+        assert stub.calls == 0
+
+    def test_no_overrides_falls_back_to_auto_compute(self, tmp_path, monkeypatch):
+        """Backwards-compat: omitting all three override flags still auto-computes."""
+        db = _make_db(tmp_path)
+        stub = _StubCompute({"cost_dollars": 0.123, "tokens_in": 1000, "tokens_out": 200, "model": "x"})
+        monkeypatch.setattr(review, "_compute_review_cost_from_window", stub)
+
+        args = self._backfill_args()
+        assert review.cmd_backfill_cost(args, db) == 0
+
+        row = _fetch_cost(db)
+        assert row["cost_dollars"] == 0.123
+        assert stub.calls == 1

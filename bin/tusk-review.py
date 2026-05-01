@@ -556,13 +556,17 @@ def cmd_request_changes(args: argparse.Namespace, db_path: str) -> int:
 def cmd_backfill_cost(args: argparse.Namespace, db_path: str) -> int:
     """Recompute cost/tokens columns for an existing review row.
 
-    Used to repair rows that finalized without cost data — e.g. rows
-    written under an older code path or a `--skip-cost` call. Best-effort:
-    if no transcript with requests is discoverable for the row's
-    `[created_at, now]` window (transcript rotated, ran on another host),
-    leaves the row unchanged and returns 1. The historical pre-v801 NULL
-    rows are out of scope — their transcripts may no longer exist on
-    disk.
+    Two paths:
+    - Explicit override — when `--cost-dollars`, `--tokens-in`, and
+      `--tokens-out` are all provided, skip transcript auto-compute and
+      apply the values directly. Used by /review-commits to attribute
+      a spawned reviewer agent's cost to the review row (the orchestrator's
+      transcript window doesn't see the agent's API spend).
+    - Transcript auto-compute — recompute from the row's `[created_at, now]`
+      window. Used to repair rows that finalized without cost data (e.g.
+      rows written under an older code path or via `--skip-cost`). If no
+      transcript with requests is discoverable, leaves the row unchanged
+      and returns 1. Historical pre-v801 NULL rows are out of scope.
     """
     conn = get_connection(db_path)
     try:
@@ -583,14 +587,33 @@ def cmd_backfill_cost(args: argparse.Namespace, db_path: str) -> int:
             )
             return 1
 
-        computed = _compute_review_cost_from_window(review["created_at"])
-        if computed is None:
+        explicit_cost = getattr(args, "cost_dollars", None)
+        explicit_tin = getattr(args, "tokens_in", None)
+        explicit_tout = getattr(args, "tokens_out", None)
+        explicit_provided = [x for x in (explicit_cost, explicit_tin, explicit_tout) if x is not None]
+        if explicit_provided and len(explicit_provided) < 3:
             print(
-                f"Warning: No transcript with requests in window "
-                f"[{review['created_at']}, now] for review #{args.review_id} — leaving columns unchanged.",
+                "Error: --cost-dollars, --tokens-in, and --tokens-out must all be provided together "
+                "(or omit all three to auto-compute from the transcript window).",
                 file=sys.stderr,
             )
-            return 1
+            return 2
+
+        if len(explicit_provided) == 3:
+            computed = {
+                "cost_dollars": explicit_cost,
+                "tokens_in": explicit_tin,
+                "tokens_out": explicit_tout,
+            }
+        else:
+            computed = _compute_review_cost_from_window(review["created_at"])
+            if computed is None:
+                print(
+                    f"Warning: No transcript with requests in window "
+                    f"[{review['created_at']}, now] for review #{args.review_id} — leaving columns unchanged.",
+                    file=sys.stderr,
+                )
+                return 1
 
         conn.execute(
             "UPDATE code_reviews SET cost_dollars = ?, tokens_in = ?, tokens_out = ?,"
@@ -906,6 +929,27 @@ def main():
         "--force",
         action="store_true",
         help="Overwrite existing cost_dollars even if it is already populated",
+    )
+    backfill_cost_p.add_argument(
+        "--cost-dollars",
+        dest="cost_dollars",
+        type=float,
+        default=None,
+        help="Explicit cost (USD); requires --tokens-in and --tokens-out. Skips transcript auto-compute.",
+    )
+    backfill_cost_p.add_argument(
+        "--tokens-in",
+        dest="tokens_in",
+        type=int,
+        default=None,
+        help="Explicit tokens_in count; requires --cost-dollars and --tokens-out.",
+    )
+    backfill_cost_p.add_argument(
+        "--tokens-out",
+        dest="tokens_out",
+        type=int,
+        default=None,
+        help="Explicit tokens_out count; requires --cost-dollars and --tokens-in.",
     )
 
     # status
