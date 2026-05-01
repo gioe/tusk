@@ -81,6 +81,7 @@
   ".claude/bin/tusk_loader.py",
   ".claude/bin/tusk_skill_filter.py",
   ".claude/bin/tusk_github.py",
+  ".claude/bin/tusk_underscore_bin_files.py",
   ".claude/bin/config.default.json",
   ".claude/bin/VERSION",
   ".claude/bin/pricing.json",
