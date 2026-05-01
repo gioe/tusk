@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [804] - 2026-05-01
+
+- [TASK-265] Fix: Suppress Rule 13/20 Part B advisory for committed changes between split-bump pairs
+
 ## [803] - 2026-04-30
 
 - [TASK-264] Fix: Suppress Rule 13/20 advisory when VERSION was bumped in immediately-preceding commit
