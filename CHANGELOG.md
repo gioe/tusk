@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [805] - 2026-05-01
+
+- [TASK-266] Fix: tusk-lint _db_path_from_root leaks source repo DB into integration test fixtures
+
 ## [804] - 2026-05-01
 
 - [TASK-265] Fix: Suppress Rule 13/20 Part B advisory for committed changes between split-bump pairs
