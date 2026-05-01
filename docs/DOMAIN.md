@@ -470,6 +470,22 @@ A named design principle with a one-sentence core claim. Managed via `tusk pilla
 
 ---
 
+### Glossary Entry
+
+A canonical term definition referenced across tusk documentation, skills, and CLI help. Managed via `tusk glossary list|get|search|add|remove|set-definition|sync-from-md|export`. The `glossary` table is the **source of truth** — `docs/GLOSSARY.md` is regenerated from the table by `tusk glossary export` and carries a `<!-- generated -->` header. Migration 64 and `tusk init` seed the table from `docs/GLOSSARY.md` on first run; subsequent edits go through `tusk glossary set-definition` (table → md) rather than hand-editing the markdown. `tusk lint` rule 26 fails when the file diverges from the table.
+
+| Attribute | Type | Constraints | Description |
+|-----------|------|-------------|-------------|
+| `id` | INTEGER | PK, autoincrement | Stable identifier |
+| `term` | TEXT | NOT NULL, UNIQUE | The defined term (e.g. `chain head`, `WSJF`) |
+| `definition` | TEXT | NOT NULL | Canonical one-paragraph definition |
+| `see_also` | TEXT | nullable | Optional pointer to deeper authoritative source (e.g. `` `v_blocked_tasks` view in `bin/tusk` ``) |
+| `topics` | TEXT | nullable | Comma-separated topic tags for `tusk glossary search <topic>` |
+| `created_at` | TEXT | default now | When the entry was added |
+| `updated_at` | TEXT | default now | When the entry was last modified |
+
+---
+
 ## Status Transitions
 
 Task `status` follows a one-way lifecycle. The `validate_status_transition` trigger (in `bin/tusk`, recreated by `tusk regen-triggers`) enforces this graph:
@@ -579,7 +595,7 @@ Task A **contingently blocks** Task B means: B can theoretically proceed, but it
 | `v_criteria_coverage` | Per-task counts of total, completed, and remaining criteria (deferred excluded). Projects specific `tasks` columns (not `t.*`), so ALTER additions do not silently drop out of its projection, but it was recreated in migration 56 to keep the set of tasks-dependent views uniform, and again in migration 58 to apply `WHERE t.bakeoff_shadow = 0`. | Reporting, `/tusk-insights` |
 | `v_velocity` | Completed tasks (closed_reason=completed) grouped by calendar week (Mon-start, `%Y-W%W`) using `closed_at` (falls back to `updated_at`) with task_count, avg_cost, avg_tokens_in, avg_tokens_out | `/tusk-insights`, dashboard velocity card |
 
-> **Compound blocking** — A task is _compound-blocked_ when it is held back by more than one simultaneous blocker (e.g., both an unfinished `blocks`-type dependency **and** an unresolved external blocker). Because `v_blocked_tasks` emits one row per blocking source, a compound-blocked task appears multiple times in the view. A task must clear **all** blocking sources before it surfaces in `v_ready_tasks`. See also: [`docs/GLOSSARY.md` — compound blocking](docs/GLOSSARY.md).
+> **Compound blocking** — A task is _compound-blocked_ when it is held back by more than one simultaneous blocker (e.g., both an unfinished `blocks`-type dependency **and** an unresolved external blocker). Because `v_blocked_tasks` emits one row per blocking source, a compound-blocked task appears multiple times in the view. A task must clear **all** blocking sources before it surfaces in `v_ready_tasks`. See also: `tusk glossary get "compound blocking"` (or [`docs/GLOSSARY.md`](docs/GLOSSARY.md), which is regenerated from the glossary table).
 
 ---
 

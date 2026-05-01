@@ -254,7 +254,7 @@ The `tusk dashboard` Cost tab includes a "Cost Per User Prompt (Weekly)" trend t
 
 - **`docs/SCRIPTS.md`** — Reference for all `bin/tusk-*.py` helper scripts: purpose, inputs, outputs, and usage examples.
 - **`docs/tusk-flows.md`** — Visual and narrative description of the main tusk workflows (task lifecycle, session flow, merge flow).
-- **`docs/GLOSSARY.md`** — Canonical one-sentence definitions for key tusk terms (WSJF, deferred, contingent, compound blocking, chain head, closed_reason, criterion, v_ready_tasks, session, skill run).
+- **`tusk glossary`** — Canonical one-sentence definitions for key tusk terms (WSJF, contingent, compound blocking, chain head, closed_reason, criterion, v_ready_tasks, session, skill run). Query with `tusk glossary get <term>` or `tusk glossary search <topic>`. The rendered `docs/GLOSSARY.md` is generated from the table; edit definitions via `tusk glossary set-definition`, not by hand.
 
 ## Key Conventions
 
