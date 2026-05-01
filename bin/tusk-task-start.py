@@ -2,12 +2,12 @@
 """Consolidate task-start setup into a single CLI command.
 
 Called by the tusk wrapper:
-    tusk task-start [<task_id>] [--force] [--agent <name>] [--skill <name>]
+    tusk task-start [<task_id>] [--force] [--force-deps] [--agent <name>] [--skill <name>]
 
 Arguments received from tusk:
     sys.argv[1] — DB path
     sys.argv[2] — config path
-    sys.argv[3:] — [task_id] [--force] [--agent <name>] [--skill <name>]
+    sys.argv[3:] — [task_id] [--force] [--force-deps] [--agent <name>] [--skill <name>]
 
 When task_id is omitted, the top WSJF-ranked ready task is picked from
 v_ready_tasks (same ranking logic tusk-task-select uses) and started in a
@@ -24,6 +24,7 @@ Performs all setup steps for beginning work on a task:
   6. Return a JSON blob with task details, progress, criteria, and session_id
 
 --force: bypass the zero-criteria guard (emits a warning but proceeds)
+--force-deps: bypass the unmet-`blocks`-dependency guard (emits a warning but proceeds)
 """
 
 import argparse
@@ -174,6 +175,12 @@ def main(argv: list[str]) -> int:
         help="Task ID. Omit to auto-select the top WSJF-ranked ready task.",
     )
     parser.add_argument("--force", action="store_true", help="Bypass zero-criteria guard")
+    parser.add_argument(
+        "--force-deps",
+        dest="force_deps",
+        action="store_true",
+        help="Bypass unmet 'blocks' dependency guard (use sparingly)",
+    )
     parser.add_argument("--agent", dest="agent_name", metavar="NAME", help="Agent name")
     parser.add_argument(
         "--skill",
@@ -184,6 +191,7 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv[2:])
     task_id = args.task_id
     force = args.force
+    force_deps = args.force_deps
     agent_name = args.agent_name
     skill_name = args.skill_name
 
@@ -231,7 +239,41 @@ def main(argv: list[str]) -> int:
                 file=sys.stderr,
             )
 
-        # 1c. Guard: task must not have open external blockers
+        # 1c. Guard: task must not be blocked by unmet 'blocks' dependencies.
+        # Mirrors v_ready_tasks: only blocks-type deps gate readiness; contingent
+        # deps are documented (docs/GLOSSARY.md) to NOT block, only inform priority.
+        unmet_deps = conn.execute(
+            "SELECT b.id, b.summary, b.status "
+            "FROM task_dependencies d "
+            "JOIN tasks b ON b.id = d.depends_on_id "
+            "WHERE d.task_id = ? AND d.relationship_type = 'blocks' "
+            "AND b.status <> 'Done' "
+            "ORDER BY b.id",
+            (task_id,),
+        ).fetchall()
+        if unmet_deps:
+            if not force_deps:
+                lines = [
+                    f"Error: Task {task_id} is blocked by unmet 'blocks' dependencies:"
+                ]
+                for d in unmet_deps:
+                    lines.append(
+                        f"  • TASK-{d['id']} ({d['status']}) — {d['summary']}"
+                    )
+                lines.append(
+                    "Finish the upstream task(s), or bypass with --force-deps "
+                    "(use sparingly — 'blocks' deps exist for a reason)."
+                )
+                print("\n".join(lines), file=sys.stderr)
+                return 2
+            blocker_ids = ", ".join(f"TASK-{d['id']}" for d in unmet_deps)
+            print(
+                f"Warning: Task {task_id} is blocked by unmet 'blocks' deps "
+                f"({blocker_ids}). Proceeding anyway due to --force-deps.",
+                file=sys.stderr,
+            )
+
+        # 1d. Guard: task must not have open external blockers
         open_blockers = conn.execute(
             "SELECT id, description, blocker_type FROM external_blockers "
             "WHERE task_id = ? AND is_resolved = 0",
@@ -414,6 +456,6 @@ def main(argv: list[str]) -> int:
 if __name__ == "__main__":
     if len(sys.argv) < 2 or not sys.argv[1].endswith(".db"):
         print("Error: This script must be invoked via the tusk wrapper.", file=sys.stderr)
-        print("Use: tusk task-start [<task_id>] [--force] [--agent NAME] [--skill NAME]", file=sys.stderr)
+        print("Use: tusk task-start [<task_id>] [--force] [--force-deps] [--agent NAME] [--skill NAME]", file=sys.stderr)
         sys.exit(1)
     sys.exit(main(sys.argv[1:]))
