@@ -6,14 +6,21 @@ non-actionable (e.g., a chained dep wasn't recorded, so the task isn't actually
 ready). The status-transition trigger normally blocks `In Progress -> To Do`
 because Done is terminal — this command bypasses that trigger only when the
 task is *cleanly orphaned*: no progress checkpoints, no commits referencing
-``[TASK-<id>]``, and no open session. Partially-worked tasks stay forward-only
-and must close via task-done / merge / abandon.
+``[TASK-<id>]`` (after a file-overlap prefix-collision check), and no open
+session. Partially-worked tasks stay forward-only and must close via
+task-done / merge / abandon.
+
+Historical [TASK-<id>] commits whose diff has no overlap with the task's
+description / criteria paths are treated as prefix-match false positives
+(see issue #627) and ignored — the same heuristic tusk-check-deliverables.py
+uses to downgrade `merged_not_closed` to `merged_not_closed_low_confidence`.
+When there is no scope signal to compare against, the original refusal stands.
 
 Exit codes:
   0  reverted; JSON printed on stdout
   1  --force missing (confirmation hint printed)
   2  task not found, wrong status, or a guard fired (task_progress rows,
-     [TASK-<id>] commits, or an open session)
+     [TASK-<id>] commits with task-scope overlap, or an open session)
 """
 
 import argparse
@@ -24,7 +31,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader
+import tusk_loader  # loads tusk-db-lib.py, tusk-json-lib.py, tusk-git-helpers.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
@@ -32,6 +39,35 @@ _git_helpers = tusk_loader.load("tusk-git-helpers")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 find_task_commits = _git_helpers.find_task_commits
+commit_changed_files = _git_helpers.commit_changed_files
+task_referenced_paths = _git_helpers.task_referenced_paths
+
+
+def _commits_are_prefix_collision(
+    task_id: int,
+    conn: sqlite3.Connection,
+    repo_root: str,
+    commits: list,
+) -> bool:
+    """Return True if `commits` are likely a [TASK-<id>] prefix-match false positive.
+
+    Mirrors the file-overlap heuristic in tusk-check-deliverables.py's
+    ``merged_not_closed_low_confidence`` recommendation: a set of commits is
+    suspect when its combined diff has no overlap with the task's scope (paths
+    referenced in summary, description, or acceptance criteria text/specs).
+
+    Conservative on empty signal: returns False when ``commits`` is empty or
+    the task has no scope signal — preserving the existing refusal behavior in
+    those cases. Tasks that genuinely don't reference any paths in their text
+    cannot benefit from this escape hatch and must close via task-done / merge.
+    """
+    if not commits:
+        return False
+    task_paths = set(task_referenced_paths(task_id, conn))
+    if not task_paths:
+        return False
+    files = commit_changed_files(commits, repo_root)
+    return not (task_paths & files)
 
 
 def main(argv: list[str]) -> int:
@@ -39,10 +75,25 @@ def main(argv: list[str]) -> int:
     # argv[1] is config_path (unused but kept for dispatch consistency)
     parser = argparse.ArgumentParser(
         prog="tusk task-unstart",
-        description="Revert a cleanly-orphaned In Progress task back to To Do",
+        description=(
+            "Revert a cleanly-orphaned In Progress task back to To Do. "
+            "Refuses if the task has progress checkpoints, an open session, or "
+            "[TASK-<id>] commits whose diff overlaps with files referenced by "
+            "the task. Historical [TASK-<id>] commits whose diff has no overlap "
+            "with task scope (e.g. left over from a prior task numbering) are "
+            "treated as prefix-match false positives and ignored."
+        ),
     )
     parser.add_argument("task_id", type=int, help="Task ID")
-    parser.add_argument("--force", action="store_true", help="Confirm the reversal")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "Confirm the reversal. --force does NOT bypass the [TASK-<id>] "
+            "commit-overlap, progress-checkpoint, or open-session guards — "
+            "those still refuse when triggered."
+        ),
+    )
     args = parser.parse_args(argv[2:])
     task_id = args.task_id
     force = args.force
@@ -88,7 +139,9 @@ def main(argv: list[str]) -> int:
             return 2
 
         task_commits = find_task_commits(task_id, repo_root, ["--all"])
-        if task_commits:
+        if task_commits and not _commits_are_prefix_collision(
+            task_id, conn, repo_root, task_commits
+        ):
             sample = ", ".join(c[:7] for c in task_commits[:3])
             more = f" (+{len(task_commits) - 3} more)" if len(task_commits) > 3 else ""
             print(

@@ -27,7 +27,7 @@ bin/tusk task-start [<task_id>] [--force] [--agent NAME] [--skill NAME]   # --sk
 bin/tusk task-done <task_id> --reason completed|expired|wont_do|duplicate [--force]
 bin/tusk task-update <task_id> [--priority P] [--domain D] [--task-type T] [--assignee A] [--complexity C] [--workflow W] [--summary S] [--description D]
 bin/tusk task-reopen <task_id> --force
-bin/tusk task-unstart <task_id> --force   # revert a cleanly-orphaned In Progress task back to To Do; refuses if it has any task_progress rows, [TASK-N] commits, or an open session
+bin/tusk task-unstart <task_id> --force   # revert a cleanly-orphaned In Progress task back to To Do; refuses if it has any task_progress rows, [TASK-N] commits whose diff overlaps with files referenced by the task, or an open session. Historical [TASK-N] commits whose diff has no overlap with task scope (e.g. left over from a prior task numbering, issue #627) are treated as prefix-match false positives and ignored — same file-overlap heuristic as `tusk check-deliverables`' `merged_not_closed_low_confidence`. Tasks whose description and criteria reference no paths have no scope signal and the original refusal stands.
 bin/tusk task-summary <task_id> [--format json|markdown]   # end-of-run rollup: identity, cost, duration, diff, criteria counts (JSON default; markdown for user-facing display)
 
 # Dev workflow
