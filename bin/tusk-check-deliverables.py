@@ -47,58 +47,10 @@ _git_helpers = tusk_loader.load("tusk-git-helpers")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 find_task_commits = _git_helpers.find_task_commits
-
-# Regex to extract candidate file paths from unstructured text.
-# Matches tokens that start with a path-like prefix and contain at least one dot
-# (suggesting a filename with an extension).
-_PATH_RE = re.compile(
-    r'(?:^|[\s\'"`(,])('
-    r'(?:\./|\.\./|\.claude/|\.claude\\|bin/|skills[-_]?internal/|skills/|tests?/|docs?/|src/'
-    r'|(?!\w+://)\w[\w._-]*/'  # any directory prefix that is not a URL protocol
-    r')'
-    r'[\w./_-]+'
-    r')',
-    re.MULTILINE,
-)
-
-
-def _extract_paths(text: str) -> list:
-    """Extract candidate file paths from free-form text."""
-    if not text:
-        return []
-    paths = []
-    for m in _PATH_RE.finditer(text):
-        p = m.group(1).strip().rstrip('.,;:\'"`)')
-        # Require an extension so we don't chase bare directory names
-        if p and '.' in os.path.basename(p) and '://' not in p:
-            paths.append(p)
-    return paths
-
-
-def _default_branch(repo_root: str) -> str:
-    """Detect the default branch: symbolic-ref → gh fallback → 'main'.
-
-    Mirrors cmd_git_default_branch in bin/tusk.
-    """
-    result = subprocess.run(
-        ["git", "symbolic-ref", "refs/remotes/origin/HEAD"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        cwd=repo_root,
-    )
-    if result.returncode == 0 and result.stdout.strip():
-        return result.stdout.strip().removeprefix("refs/remotes/origin/")
-    result = subprocess.run(
-        ["gh", "repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        cwd=repo_root,
-    )
-    if result.returncode == 0 and result.stdout.strip():
-        return result.stdout.strip()
-    return "main"
+extract_paths = _git_helpers.extract_paths
+default_branch_of = _git_helpers.default_branch
+commit_changed_files = _git_helpers.commit_changed_files
+task_referenced_paths = _git_helpers.task_referenced_paths
 
 
 def check_commits(task_id: int, repo_root: str) -> bool:
@@ -108,7 +60,7 @@ def check_commits(task_id: int, repo_root: str) -> bool:
 
 def check_default_branch_commits(task_id: int, repo_root: str) -> list:
     """Return commit SHAs on the default branch that reference [TASK-<id>]."""
-    return find_task_commits(task_id, repo_root, [_default_branch(repo_root)])
+    return find_task_commits(task_id, repo_root, [default_branch_of(repo_root)])
 
 
 def _feature_branch_commits(task_id: int, repo_root: str, default_branch: str) -> list:
@@ -116,58 +68,10 @@ def _feature_branch_commits(task_id: int, repo_root: str, default_branch: str) -
     return find_task_commits(task_id, repo_root, ["--all", "--not", default_branch])
 
 
-def _commit_changed_files(commits: list, repo_root: str) -> set:
-    """Return the union of changed file paths across the given commits."""
-    files: set = set()
-    for sha in commits:
-        result = subprocess.run(
-            ["git", "show", "--name-only", "--format=", sha],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            cwd=repo_root,
-        )
-        if result.returncode != 0:
-            continue
-        for line in result.stdout.splitlines():
-            line = line.strip()
-            if line:
-                files.add(line)
-    return files
-
-
-def _task_referenced_paths(task_id: int, conn: sqlite3.Connection) -> list:
-    """Return paths referenced in task summary/description/criteria/specs (no existence check)."""
-    row = conn.execute(
-        "SELECT summary, description FROM tasks WHERE id = ?", (task_id,)
-    ).fetchone()
-    if not row:
-        return []
-
-    criteria_rows = conn.execute(
-        "SELECT criterion, verification_spec FROM acceptance_criteria WHERE task_id = ?",
-        (task_id,),
-    ).fetchall()
-
-    texts = [row["summary"] or "", row["description"] or ""]
-    for cr in criteria_rows:
-        texts.append(cr["criterion"] or "")
-        texts.append(cr["verification_spec"] or "")
-
-    candidates = []
-    seen: set = set()
-    for text in texts:
-        for p in _extract_paths(text):
-            if p not in seen:
-                seen.add(p)
-                candidates.append(p)
-    return candidates
-
-
 def find_existing_files(task_id: int, conn: sqlite3.Connection, repo_root: str) -> list:
     """Return paths referenced in task text / criteria specs that exist on disk."""
     found = []
-    for p in _task_referenced_paths(task_id, conn):
+    for p in task_referenced_paths(task_id, conn):
         abs_path = p if os.path.isabs(p) else os.path.join(repo_root, p)
         if os.path.exists(abs_path):
             found.append(p)
@@ -197,13 +101,13 @@ def main(argv: list) -> int:
             print(f"Task {task_id} not found", file=sys.stderr)
             return 1
 
-        default_branch = _default_branch(repo_root)
+        default_branch = default_branch_of(repo_root)
         default_commits = find_task_commits(task_id, repo_root, [default_branch])
         if default_commits:
-            default_files = _commit_changed_files(default_commits, repo_root)
-            task_paths = set(_task_referenced_paths(task_id, conn))
+            default_files = commit_changed_files(default_commits, repo_root)
+            task_paths = set(task_referenced_paths(task_id, conn))
             feature_commits = _feature_branch_commits(task_id, repo_root, default_branch)
-            feature_files = _commit_changed_files(feature_commits, repo_root)
+            feature_files = commit_changed_files(feature_commits, repo_root)
             scope = task_paths | feature_files
             # Downgrade only when we have a positive scope signal that fails to overlap.
             # Empty scope = no signal, not a downgrade trigger — preserve existing behavior.

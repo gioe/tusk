@@ -12,6 +12,10 @@ The `_has_remote` wrapper itself is left in each caller so that it uses
 each script's module-local ``run`` (which tests patch to stub subprocess
 calls).
 
+Also hosts the shared "did this commit touch files this task is about?"
+helpers used by the prefix-collision file-overlap heuristic in
+tusk-check-deliverables.py and tusk-task-unstart.py (see issue #627).
+
 Loaded via tusk_loader:
 
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -21,9 +25,15 @@ Loaded via tusk_loader:
     _is_remote_unreachable = _git_helpers._is_remote_unreachable
     task_grep_arg = _git_helpers.task_grep_arg
     find_task_commits = _git_helpers.find_task_commits
+    extract_paths = _git_helpers.extract_paths
+    default_branch = _git_helpers.default_branch
+    commit_changed_files = _git_helpers.commit_changed_files
+    task_referenced_paths = _git_helpers.task_referenced_paths
 """
 
+import os
 import re
+import sqlite3
 import subprocess
 
 
@@ -102,3 +112,111 @@ def find_task_commits(
     if result.returncode != 0:
         return []
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+# ── Prefix-collision file-overlap heuristic ───────────────────────────
+#
+# Originally embedded in tusk-check-deliverables.py. Hoisted here so
+# tusk-task-unstart.py (and any future caller) can apply the same
+# "do these [TASK-<id>] commits actually touch files this task is about?"
+# check without reimplementing it. See issue #627.
+
+# Regex to extract candidate file paths from unstructured text.
+# Matches tokens that start with a path-like prefix and contain at least one dot
+# (suggesting a filename with an extension).
+_PATH_RE = re.compile(
+    r'(?:^|[\s\'"`(,])('
+    r'(?:\./|\.\./|\.claude/|\.claude\\|bin/|skills[-_]?internal/|skills/|tests?/|docs?/|src/'
+    r'|(?!\w+://)\w[\w._-]*/'  # any directory prefix that is not a URL protocol
+    r')'
+    r'[\w./_-]+'
+    r')',
+    re.MULTILINE,
+)
+
+
+def extract_paths(text: str) -> list:
+    """Extract candidate file paths from free-form text."""
+    if not text:
+        return []
+    paths = []
+    for m in _PATH_RE.finditer(text):
+        p = m.group(1).strip().rstrip('.,;:\'"`)')
+        # Require an extension so we don't chase bare directory names
+        if p and '.' in os.path.basename(p) and '://' not in p:
+            paths.append(p)
+    return paths
+
+
+def default_branch(repo_root: str) -> str:
+    """Detect the default branch: symbolic-ref → gh fallback → 'main'.
+
+    Mirrors cmd_git_default_branch in bin/tusk.
+    """
+    result = subprocess.run(
+        ["git", "symbolic-ref", "refs/remotes/origin/HEAD"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=repo_root,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip().removeprefix("refs/remotes/origin/")
+    result = subprocess.run(
+        ["gh", "repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=repo_root,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip()
+    return "main"
+
+
+def commit_changed_files(commits: list, repo_root: str) -> set:
+    """Return the union of changed file paths across the given commits."""
+    files: set = set()
+    for sha in commits:
+        result = subprocess.run(
+            ["git", "show", "--name-only", "--format=", sha],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=repo_root,
+        )
+        if result.returncode != 0:
+            continue
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if line:
+                files.add(line)
+    return files
+
+
+def task_referenced_paths(task_id: int, conn: sqlite3.Connection) -> list:
+    """Return paths referenced in task summary/description/criteria/specs (no existence check)."""
+    row = conn.execute(
+        "SELECT summary, description FROM tasks WHERE id = ?", (task_id,)
+    ).fetchone()
+    if not row:
+        return []
+
+    criteria_rows = conn.execute(
+        "SELECT criterion, verification_spec FROM acceptance_criteria WHERE task_id = ?",
+        (task_id,),
+    ).fetchall()
+
+    texts = [row["summary"] or "", row["description"] or ""]
+    for cr in criteria_rows:
+        texts.append(cr["criterion"] or "")
+        texts.append(cr["verification_spec"] or "")
+
+    candidates = []
+    seen: set = set()
+    for text in texts:
+        for p in extract_paths(text):
+            if p not in seen:
+                seen.add(p)
+                candidates.append(p)
+    return candidates

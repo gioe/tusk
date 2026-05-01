@@ -25,6 +25,11 @@ _spec = importlib.util.spec_from_file_location(
 mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(mod)
 
+# extract_paths and friends were hoisted into tusk-git-helpers.py (issue #627);
+# tusk-check-deliverables now imports them as public names. Tests reference the
+# public names directly via the loaded module.
+_extract_paths = mod.extract_paths
+
 
 # ── helpers ───────────────────────────────────────────────────────────
 
@@ -74,44 +79,44 @@ def _make_db(tmp_path, task_id=99, summary="Create /foo skill", description="", 
 class TestExtractPaths:
     def test_extracts_skills_path(self):
         text = "Skill lives at skills/foo/SKILL.md"
-        paths = mod._extract_paths(text)
+        paths = _extract_paths(text)
         assert "skills/foo/SKILL.md" in paths
 
     def test_extracts_dotclaude_path(self):
         text = "Install to .claude/skills/bar/SKILL.md on disk"
-        paths = mod._extract_paths(text)
+        paths = _extract_paths(text)
         assert ".claude/skills/bar/SKILL.md" in paths
 
     def test_extracts_bin_path(self):
         text = "New script at bin/tusk-foo.py"
-        paths = mod._extract_paths(text)
+        paths = _extract_paths(text)
         assert "bin/tusk-foo.py" in paths
 
     def test_ignores_bare_directory(self):
         text = "Put it in skills/foo/ with no filename"
-        paths = mod._extract_paths(text)
+        paths = _extract_paths(text)
         # A bare directory (no extension) should not appear
         assert not any(p.endswith("/") and "." not in os.path.basename(p.rstrip("/")) for p in paths)
 
     def test_returns_empty_for_empty_string(self):
-        assert mod._extract_paths("") == []
+        assert _extract_paths("") == []
 
     def test_returns_empty_for_none(self):
-        assert mod._extract_paths(None) == []
+        assert _extract_paths(None) == []
 
     def test_extracts_arbitrary_path_outside_known_prefixes(self):
         text = "See config/foo.yml for settings"
-        paths = mod._extract_paths(text)
+        paths = _extract_paths(text)
         assert "config/foo.yml" in paths
 
     def test_does_not_extract_urls(self):
         text = "See https://example.com/foo.yml for docs"
-        paths = mod._extract_paths(text)
+        paths = _extract_paths(text)
         assert not any("://" in p for p in paths)
 
     def test_extracts_nested_arbitrary_path(self):
         text = "Edit custom/app/settings.py to fix the issue"
-        paths = mod._extract_paths(text)
+        paths = _extract_paths(text)
         assert "custom/app/settings.py" in paths
 
     def test_deduplication_in_find_existing_files(self, tmp_path):
