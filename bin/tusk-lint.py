@@ -681,8 +681,31 @@ def rule15_big_bang_commits(root):
     return [f"  TASK-{row[0]}  {row[1]}  (criteria on one commit: {row[2]})" for row in rows]
 
 
+_BUMP_RECENT_WINDOW = 10
+
+
 def _version_bump_check(root, path_re, label):
     """Shared helper: check if files matching path_re were modified without a VERSION bump.
+
+    Two parts:
+      - Part A (uncommitted): files matching path_re are dirty in the working
+        tree but VERSION is not. Suppressed when ``just_bumped`` is true (HEAD
+        is the most recent commit that touched VERSION) — the documented
+        split-bump workflow from CLAUDE.md commits the bump first, then a
+        follow-up feature commit on top.
+      - Part B (committed): files matching path_re changed in
+        ``last_ver_commit..HEAD`` without a corresponding VERSION change in
+        that range. Suppressed when ``bump_is_recent`` is true — i.e. the bump
+        is within ``_BUMP_RECENT_WINDOW`` commits of HEAD on the linear
+        history. ``just_bumped`` is the N=0 special case; the broader window
+        covers the typical split-bump PR (bump → feature commit(s), all part
+        of the same task) once it has merged. Without this window the
+        advisory persisted on every developer's tree until the next task's
+        bump landed (Issue #634), polluting the lint signal between bumps.
+        The window is intentionally generous — long-running branches that
+        accumulate more than ``_BUMP_RECENT_WINDOW`` commits since their
+        single bump still trip Part B as a real "you might want another bump
+        before merging" signal.
 
     Advisory only — caller is responsible for not counting violations toward exit code.
     """
@@ -731,6 +754,24 @@ def _version_bump_check(root, path_re, label):
         pass
     just_bumped = bool(last_ver_commit) and last_ver_commit == head_sha
 
+    # bump_is_recent: extended just_bumped used by Part B only. True when the
+    # bump is within _BUMP_RECENT_WINDOW commits of HEAD on the linear history.
+    # just_bumped is the N=0 case; the window covers the post-merge state of a
+    # typical split-bump PR (bump → feature commit(s) → merge), so Part B does
+    # not keep firing on every developer's tree until the next bump (Issue #634).
+    bump_is_recent = just_bumped
+    if not bump_is_recent and last_ver_commit:
+        try:
+            r = subprocess.run(
+                ["git", "rev-list", "--count", f"{last_ver_commit}..HEAD"],
+                capture_output=True, text=True, encoding="utf-8", timeout=5, cwd=root,
+            )
+            if r.returncode == 0:
+                count = int(r.stdout.strip())
+                bump_is_recent = 0 < count <= _BUMP_RECENT_WINDOW
+        except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
+            pass
+
     # --- Part A: Uncommitted changes (staged or unstaged) ---
     dirty_files = []
     version_dirty = False
@@ -763,8 +804,9 @@ def _version_bump_check(root, path_re, label):
 
     # --- Part B: Committed changes since last VERSION bump ---
     # Skip if VERSION is currently dirty (user is already in the process of bumping it).
-    # Also skip when last_ver_commit == HEAD: the diff range is empty by construction.
-    if not version_dirty and last_ver_commit and not just_bumped:
+    # Skip when last_ver_commit == HEAD (diff range empty) — covered by bump_is_recent.
+    # Skip when the bump is within the recent-window (split-bump batch — Issue #634).
+    if not version_dirty and last_ver_commit and not bump_is_recent:
         try:
             r2 = subprocess.run(
                 ["git", "diff", "--name-only", f"{last_ver_commit}..HEAD"],
