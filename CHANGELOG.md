@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [802] - 2026-04-30
+
+- [TASK-263] Capture spawned reviewer agent cost in /review-commits agent path
+
 ## [801] - 2026-04-30
 
 - [TASK-262] Populate code_reviews.cost_dollars/tokens_in/tokens_out per-review
