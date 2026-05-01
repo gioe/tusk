@@ -921,15 +921,29 @@ def rule22_issue_tasks_missing_test_criterion(root):
 # ── DB-backed rules ──────────────────────────────────────────────────
 
 def _db_path_from_root(root):
-    """Resolve the tusk DB path by calling 'tusk path'. Returns path str or None."""
+    """Resolve the tusk DB path by calling 'tusk path'. Returns path str or None.
+
+    When the project's local ``bin/tusk`` shim is missing, we fall back to bare
+    ``tusk`` on PATH — but only accept the resolved DB if it lives under
+    ``<root>/tusk/``. Without that containment check, a tmp_path fixture
+    lacking ``bin/tusk`` would silently borrow the dev's source-repo binary
+    and lint against the source DB, leaking session state into Rules 14/15
+    (and any other DB-backed rule). See Issue #633.
+    """
     tusk_bin = os.path.join(root, "bin", "tusk")
+    used_fallback = False
     if not os.path.isfile(tusk_bin):
         tusk_bin = "tusk"
+        used_fallback = True
     try:
         r = subprocess.run([tusk_bin, "path"], capture_output=True, text=True, encoding="utf-8", timeout=5)
         if r.returncode == 0:
             p = r.stdout.strip()
             if p and os.path.isfile(p):
+                if used_fallback:
+                    expected_prefix = os.path.realpath(os.path.join(root, "tusk")) + os.sep
+                    if not os.path.realpath(p).startswith(expected_prefix):
+                        return None
                 return p
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
