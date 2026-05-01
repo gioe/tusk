@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [808] - 2026-05-01
+
+- [TASK-269] Fix: tusk task-start ignores dependency blocking entirely (not just under --force)
+
 ## [807] - 2026-05-01
 
 - [TASK-268] Fix: tusk task-unstart should ignore historical [TASK-N] commits unrelated to current task
