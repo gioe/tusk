@@ -13,6 +13,9 @@ import os
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from tusk_underscore_bin_files import get_underscore_bin_files  # noqa: E402
+
 
 def get_repo_root():
     result = subprocess.run(
@@ -45,17 +48,9 @@ def build_manifest(root):
             continue
         files.append(".claude/bin/" + os.path.basename(p))
 
-    # tusk_loader.py uses an underscore filename — not matched by the tusk-*.py glob above.
-    if os.path.isfile(os.path.join(root, "bin", "tusk_loader.py")):
-        files.append(".claude/bin/tusk_loader.py")
-
-    # tusk_skill_filter.py — same underscore-filename rationale as tusk_loader.py.
-    if os.path.isfile(os.path.join(root, "bin", "tusk_skill_filter.py")):
-        files.append(".claude/bin/tusk_skill_filter.py")
-
-    # tusk_github.py — same underscore-filename rationale; shared GitHub-fetch helpers.
-    if os.path.isfile(os.path.join(root, "bin", "tusk_github.py")):
-        files.append(".claude/bin/tusk_github.py")
+    # Underscore-named bin/ files — canonical list lives in bin/tusk_underscore_bin_files.py.
+    for name in get_underscore_bin_files(root):
+        files.append(".claude/bin/" + name)
 
     for name in ["config.default.json", "VERSION", "pricing.json"]:
         files.append(".claude/bin/" + name)
