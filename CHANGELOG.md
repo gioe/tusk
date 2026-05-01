@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [807] - 2026-05-01
+
+- [TASK-268] Fix: tusk task-unstart should ignore historical [TASK-N] commits unrelated to current task
+
 ## [806] - 2026-05-01
 
 - [TASK-267] Consolidate underscore-named bin/ file enumeration into a shared helper
