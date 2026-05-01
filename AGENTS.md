@@ -183,8 +183,6 @@ Two external library repos ship their own `tusk-bootstrap.json` and are pre-conf
 
 See `docs/DOMAIN.md` for the full schema, views, invariants, and status-transition rules.
 
-Twelve tables: `tasks`, `task_dependencies`, `task_progress`, `task_sessions`, `acceptance_criteria`, `code_reviews`, `review_comments`, `skill_runs`, `tool_call_stats`, `tool_call_events`, `conventions`, `lint_rules`. Five views: `task_metrics`, `v_ready_tasks`, `v_chain_heads`, `v_blocked_tasks`, `v_criteria_coverage`.
-
 ### Installation Model
 
 `install.sh` auto-detects the host agent layout and installs into the appropriate tree. See `docs/CODEX.md` for the full Claude-vs-Codex comparison.
