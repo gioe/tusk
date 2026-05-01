@@ -307,3 +307,92 @@ class TestAdvisoryDoesNotBlock:
             f"got {result.returncode}.\nstdout={result.stdout}"
         )
         assert "[ADVISORY]" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# DB isolation (Issue #633)
+# ---------------------------------------------------------------------------
+
+
+class TestLintDBIsolation:
+    """Regression for Issue #633: tusk-lint must not leak the source repo's
+    DB into a tmp_path fixture via the bare-``tusk``-on-PATH fallback in
+    ``_db_path_from_root``.
+    """
+
+    def test_path_fallback_db_outside_root_is_ignored(self, tmp_path):
+        """A PATH-resolved tusk binary whose DB lives outside ``<root>/tusk/``
+        must be rejected — DB-backed rules (Rule 15 here) stay silent.
+
+        Without the fix, Rule 15 reads the planted external DB (which has 2+
+        criteria sharing one commit hash) and pollutes a clean fixture's lint
+        output, breaking ``test_default_is_terse_and_verbose_is_full`` whenever
+        the dev's source repo is in that state mid-session.
+        """
+        import sqlite3
+
+        repo = str(tmp_path / "repo")
+        _git_init(repo)  # No bin/tusk shim — forces the PATH fallback.
+
+        # Plant an external DB with a Rule 15 trigger: an In Progress task
+        # whose two completed, non-deferred criteria share one commit hash.
+        ext_dir = tmp_path / "external" / "tusk"
+        ext_dir.mkdir(parents=True)
+        ext_db = ext_dir / "tasks.db"
+        conn = sqlite3.connect(str(ext_db))
+        conn.executescript(
+            """
+            CREATE TABLE tasks (
+                id INTEGER PRIMARY KEY,
+                summary TEXT,
+                status TEXT
+            );
+            CREATE TABLE acceptance_criteria (
+                id INTEGER PRIMARY KEY,
+                task_id INTEGER,
+                is_completed INTEGER,
+                is_deferred INTEGER,
+                commit_hash TEXT
+            );
+            INSERT INTO tasks VALUES (9991, 'leak demo task', 'In Progress');
+            INSERT INTO acceptance_criteria
+                VALUES (1, 9991, 1, 0, 'deadbeef');
+            INSERT INTO acceptance_criteria
+                VALUES (2, 9991, 1, 0, 'deadbeef');
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        # Fake `tusk` on PATH that prints the external DB path on `tusk path`.
+        fake_bin = tmp_path / "fakebin"
+        fake_bin.mkdir()
+        fake_tusk = fake_bin / "tusk"
+        fake_tusk.write_text(
+            f'#!/bin/bash\nif [ "$1" = "path" ]; then echo "{ext_db}"; fi\n'
+        )
+        fake_tusk.chmod(0o755)
+
+        env = os.environ.copy()
+        env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+        # Strip TUSK_PROJECT/TUSK_DB so they can't override the fallback path.
+        env.pop("TUSK_PROJECT", None)
+        env.pop("TUSK_DB", None)
+
+        result = subprocess.run(
+            ["python3", TUSK_LINT_PY, repo, "--quiet"],
+            capture_output=True, text=True, env=env,
+        )
+
+        # The external DB must NOT contribute to the lint output.
+        assert "Rule 15" not in result.stdout, (
+            f"Rule 15 leaked from external DB: stdout={result.stdout!r}"
+        )
+        assert "leak demo task" not in result.stdout
+        assert "TASK-9991" not in result.stdout
+        # And the clean-fixture invariant from
+        # test_default_is_terse_and_verbose_is_full holds.
+        assert result.stdout == "", (
+            f"--quiet on a clean fixture must produce no output; "
+            f"got {result.stdout!r}"
+        )
