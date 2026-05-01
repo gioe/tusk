@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [806] - 2026-05-01
+
+- [TASK-267] Consolidate underscore-named bin/ file enumeration into a shared helper
+
 ## [805] - 2026-05-01
 
 - [TASK-266] Fix: tusk-lint _db_path_from_root leaks source repo DB into integration test fixtures
