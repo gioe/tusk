@@ -560,7 +560,7 @@ def cmd_backfill_cost(args: argparse.Namespace, db_path: str) -> int:
     written under an older code path or a `--skip-cost` call. Best-effort:
     if no transcript with requests is discoverable for the row's
     `[created_at, now]` window (transcript rotated, ran on another host),
-    leaves the row unchanged and returns 1. The historical pre-v802 NULL
+    leaves the row unchanged and returns 1. The historical pre-v801 NULL
     rows are out of scope — their transcripts may no longer exist on
     disk.
     """
