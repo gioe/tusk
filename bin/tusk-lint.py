@@ -709,6 +709,28 @@ def _version_bump_check(root, path_re, label):
         except OSError:
             return "unknown"
 
+    # Detect whether the immediately-preceding commit was the VERSION bump.
+    # When HEAD is the most recent commit that touched VERSION, the user just
+    # bumped it in the prior commit (the documented split-bump workflow from
+    # CLAUDE.md), so a follow-up feature commit on the same branch must not
+    # trip the advisory.
+    last_ver_commit = ""
+    head_sha = ""
+    try:
+        r = subprocess.run(
+            ["git", "log", "-1", "--format=%H", "--", "VERSION"],
+            capture_output=True, text=True, encoding="utf-8", timeout=5, cwd=root,
+        )
+        last_ver_commit = r.stdout.strip() if r.returncode == 0 else ""
+        r = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, encoding="utf-8", timeout=5, cwd=root,
+        )
+        head_sha = r.stdout.strip() if r.returncode == 0 else ""
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+    just_bumped = bool(last_ver_commit) and last_ver_commit == head_sha
+
     # --- Part A: Uncommitted changes (staged or unstaged) ---
     dirty_files = []
     version_dirty = False
@@ -734,37 +756,32 @@ def _version_bump_check(root, path_re, label):
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
 
-    if dirty_files and not version_dirty:
+    if dirty_files and not version_dirty and not just_bumped:
         ver = read_version()
         for s in sorted(dirty_files):
             violations.append(f"  Uncommitted: VERSION={ver}, {label} modified without VERSION bump: {s}")
 
     # --- Part B: Committed changes since last VERSION bump ---
-    # Skip if VERSION is currently dirty (user is already in the process of bumping it)
-    if not version_dirty:
+    # Skip if VERSION is currently dirty (user is already in the process of bumping it).
+    # Also skip when last_ver_commit == HEAD: the diff range is empty by construction.
+    if not version_dirty and last_ver_commit and not just_bumped:
         try:
-            r = subprocess.run(
-                ["git", "log", "-1", "--format=%H", "--", "VERSION"],
+            r2 = subprocess.run(
+                ["git", "diff", "--name-only", f"{last_ver_commit}..HEAD"],
                 capture_output=True, text=True, encoding="utf-8", timeout=5, cwd=root,
             )
-            last_ver_commit = r.stdout.strip() if r.returncode == 0 else ""
-            if last_ver_commit:
-                r2 = subprocess.run(
-                    ["git", "diff", "--name-only", f"{last_ver_commit}..HEAD"],
-                    capture_output=True, text=True, encoding="utf-8", timeout=5, cwd=root,
-                )
-                if r2.returncode == 0:
-                    changed = r2.stdout.splitlines()
-                    committed_files = [p for p in changed if path_re.match(p)]
-                    # No need to check if VERSION is in the diff — last_ver_commit is by
-                    # definition the most recent commit that touched VERSION, so nothing
-                    # between it and HEAD can contain another VERSION change.
-                    if committed_files:
-                        ver = read_version()
-                        for s in sorted(committed_files):
-                            violations.append(
-                                f"  Committed since last VERSION bump: VERSION={ver}, {label} modified without VERSION bump: {s}"
-                            )
+            if r2.returncode == 0:
+                changed = r2.stdout.splitlines()
+                committed_files = [p for p in changed if path_re.match(p)]
+                # No need to check if VERSION is in the diff — last_ver_commit is by
+                # definition the most recent commit that touched VERSION, so nothing
+                # between it and HEAD can contain another VERSION change.
+                if committed_files:
+                    ver = read_version()
+                    for s in sorted(committed_files):
+                        violations.append(
+                            f"  Committed since last VERSION bump: VERSION={ver}, {label} modified without VERSION bump: {s}"
+                        )
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass
 
