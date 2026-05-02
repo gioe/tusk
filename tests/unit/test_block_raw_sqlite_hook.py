@@ -84,3 +84,39 @@ class TestBlockRawSqliteHook:
         """Stripping quotes must not hide a real invocation that follows."""
         result = _run_hook('echo "harmless" && sqlite3 tusk/tasks.db')
         assert result.returncode == 2
+
+    def test_heredoc_unquoted_body_with_sqlite3_not_blocked(self):
+        """Issue #638: forbidden tokens inside <<EOF heredoc bodies are data."""
+        cmd = "X=$(cat <<EOF\nsqlite3 foo.db SELECT 1\nEOF\n)"
+        result = _run_hook(cmd)
+        assert result.returncode == 0, (
+            "Hook should not fire on sqlite3 inside an unquoted heredoc body"
+        )
+
+    def test_heredoc_single_quoted_opener_with_sqlite3_not_blocked(self):
+        cmd = "cat <<'EOF'\nsqlite3 foo.db SELECT 1\nEOF"
+        result = _run_hook(cmd)
+        assert result.returncode == 0
+
+    def test_heredoc_double_quoted_opener_with_sqlite3_not_blocked(self):
+        cmd = 'cat <<"EOF"\nsqlite3 foo.db SELECT 1\nEOF'
+        result = _run_hook(cmd)
+        assert result.returncode == 0
+
+    def test_heredoc_custom_token_with_sqlite3_not_blocked(self):
+        """Closing token must match the user-chosen identifier, not just EOF."""
+        cmd = "cat <<MYDATA\nsqlite3 foo.db SELECT 1\nMYDATA"
+        result = _run_hook(cmd)
+        assert result.returncode == 0
+
+    def test_heredoc_dash_variant_with_sqlite3_not_blocked(self):
+        """`<<-TOKEN` allows leading tab on body and closer; still data."""
+        cmd = "cat <<-EOF\n\tsqlite3 foo.db SELECT 1\n\tEOF"
+        result = _run_hook(cmd)
+        assert result.returncode == 0
+
+    def test_real_sqlite3_after_heredoc_still_blocked(self):
+        """A real invocation following a heredoc must still be caught."""
+        cmd = "cat <<EOF\nsome data\nEOF\nsqlite3 foo.db SELECT 1"
+        result = _run_hook(cmd)
+        assert result.returncode == 2
