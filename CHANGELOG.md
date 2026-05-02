@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [810] - 2026-05-02
+
+- [TASK-274] Add schema-version preflight to bin/tusk to surface drift errors actionably
+
 ## [809] - 2026-05-01
 
 - [TASK-270] Migrate docs/GLOSSARY.md to a glossary table (conventions pattern)
