@@ -32,9 +32,11 @@ Default behavior (merge.mode = local):
 
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tusk_loader  # loads tusk-db-lib.py and tusk-git-helpers.py
@@ -54,6 +56,29 @@ task_grep_arg = _git_helpers.task_grep_arg
 
 def run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(args, capture_output=True, text=True, encoding="utf-8", check=check)
+
+
+_INDEX_LOCK_RE = re.compile(r"Unable to create '[^']*\.git/index\.lock'")
+
+
+def _checkout_with_index_lock_retry(
+    branch: str, sleep_seconds: float = 0.5
+) -> subprocess.CompletedProcess:
+    """Run `git checkout <branch>`; retry once after a short sleep when the
+    failure is a transient `.git/index.lock` contention (issue #620).
+
+    Other checkout failures are returned immediately with no sleep, preserving
+    the original behavior for non-transient errors.
+    """
+    result = run(["git", "checkout", branch], check=False)
+    if result.returncode == 0 or not _INDEX_LOCK_RE.search(result.stderr or ""):
+        return result
+    print(
+        f"git checkout {branch}: transient .git/index.lock contention; retrying once...",
+        file=sys.stderr,
+    )
+    time.sleep(sleep_seconds)
+    return run(["git", "checkout", branch], check=False)
 
 
 def _has_remote(name: str = "origin") -> bool:
@@ -856,7 +881,7 @@ def main(argv: list[str]) -> int:
                 os.rename(src, dst)
                 moved.append((src, dst))
 
-        result = run(["git", "checkout", default_branch], check=False)
+        result = _checkout_with_index_lock_retry(default_branch)
         if result.returncode != 0:
             for src, dst in moved:
                 os.rename(dst, src)
