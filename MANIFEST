@@ -77,6 +77,7 @@
   ".claude/bin/tusk-test-detect.py",
   ".claude/bin/tusk-test-precheck.py",
   ".claude/bin/tusk-token-audit.py",
+  ".claude/bin/tusk-typed-criteria-build.py",
   ".claude/bin/tusk-upgrade.py",
   ".claude/bin/tusk-wsjf.py",
   ".claude/bin/tusk_loader.py",

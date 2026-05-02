@@ -12,6 +12,7 @@
 #   tusk config <key>          Print config values (domains, task_types, agents, etc.)
 #   tusk validate              Validate config.json against the expected schema
 #   tusk sql-quote "text"      Escape and quote a string for safe SQL interpolation
+#   tusk typed-criteria-build  Build a properly-escaped --typed-criteria JSON from stdin (or --spec-file)
 #   tusk dupes check "..."     Check a summary for duplicates
 #   tusk dupes scan            Find all duplicate pairs among open tasks
 #   tusk dupes similar <id>    Find tasks similar to a given ID
@@ -1025,7 +1026,7 @@ cmd_query() {
         _fuzzy_match="$(python3 - "$_subcmd_lc" <<'PYEOF' 2>/dev/null  # suppress errors; no hint shown on failure
 import difflib, sys
 candidates = [
-  'init','path','config','validate','sql-quote','branch','commit',
+  'init','path','config','validate','sql-quote','typed-criteria-build','branch','commit',
   'lint','lint-rule','dupes','conventions','pillars','glossary','criteria','dashboard','chain','blockers',
   'review','review-verdict','review-pass-status','review-final-summary','review-diff-range','review-defer','review-wait','review-check-perms','review-agent-cost',
   'deps','session-stats','session-recalc','session-close','skill-run','call-breakdown',
@@ -1372,7 +1373,7 @@ is_readonly_subcmd() {
   # a snapshot. When in doubt, omit from this list — a redundant backup is
   # cheaper than a missed one.
   case "${1:-}" in
-    ""|path|config|validate|sql-quote|version|version-bump|\
+    ""|path|config|validate|sql-quote|typed-criteria-build|version|version-bump|\
     git-default-branch|branch-parse|report-issue|\
     sync-skills|reconcile-skills|generate-manifest|pricing-update|token-audit|\
     task-get|task-get-multi|task-list|task-select|task-summary|setup|\
@@ -1421,7 +1422,7 @@ preflight_schema_version() {
     # list also includes DB-reading commands (task-get, task-list, …) which
     # are exactly what this preflight needs to guard.
     ""|init|path|config|version|version-bump|upgrade|migrate|regen-triggers|\
-      sql-quote|git-default-branch|branch-parse|report-issue|update-gitignore|\
+      sql-quote|typed-criteria-build|git-default-branch|branch-parse|report-issue|update-gitignore|\
       sync-skills|reconcile-skills|generate-manifest|pricing-update|token-audit)
       return 0 ;;
   esac
@@ -1459,6 +1460,7 @@ case "${1:-}" in
   config) shift; cmd_config "$@" ;;
   validate) cmd_validate ;;
   sql-quote) shift; sql_quote "${1:-}" ;;
+  typed-criteria-build) shift; exec python3 "$SCRIPT_DIR/tusk-typed-criteria-build.py" "$@" ;;
   branch) shift; exec python3 "$SCRIPT_DIR/tusk-branch.py" "$REPO_ROOT" "$@" ;;
   commit) shift; exec python3 "$SCRIPT_DIR/tusk-commit.py" "$REPO_ROOT" "$(resolve_config)" "$@" ;;
   lint)   shift; exec python3 "$SCRIPT_DIR/tusk-lint.py" "$REPO_ROOT" "$@" ;;
