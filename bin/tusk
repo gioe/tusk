@@ -1403,6 +1403,47 @@ snapshot_db() {
   return 0
 }
 
+# Schema-version preflight: refuse to run when the DB has been migrated past
+# what this binary supports (issue #636 / closed #624). Without this guard,
+# Python helpers that reference dropped columns or views surface as raw
+# sqlite3.OperationalError instead of an actionable upgrade prompt. The
+# reverse direction (binary newer than DB) stays the responsibility of
+# `tusk migrate`.
+preflight_schema_version() {
+  # No DB on disk → nothing to compare. The subcommand will either init a
+  # fresh DB or fail with its own clearer message.
+  [[ -f "$DB_PATH" ]] || return 0
+  case "${1:-}" in
+    # Recovery and DB-less subcommands. Users MUST be able to run these when
+    # the DB is at a higher schema version than this binary supports —
+    # otherwise the very tools that fix the mismatch would themselves be
+    # blocked. Mirrors but does NOT reuse `is_readonly_subcmd` because that
+    # list also includes DB-reading commands (task-get, task-list, …) which
+    # are exactly what this preflight needs to guard.
+    ""|init|path|config|version|version-bump|upgrade|migrate|regen-triggers|\
+      sql-quote|git-default-branch|branch-parse|report-issue|update-gitignore|\
+      sync-skills|reconcile-skills|generate-manifest|pricing-update|token-audit)
+      return 0 ;;
+  esac
+  local user_version supported_max
+  user_version="$(sqlite3 "$DB_PATH" "PRAGMA user_version" 2>/dev/null)"
+  [[ -n "$user_version" ]] || return 0
+  # SUPPORTED_SCHEMA_MAX = highest version in tusk-migrate.py's MIGRATIONS
+  # registry. Single source of truth — no hardcoded duplicate. Parsing the
+  # registry tuples is O(N) over the migration count and runs once per
+  # invocation; cheaper than spawning python3 just to read a list.
+  supported_max="$(grep -E '^[[:space:]]*\([0-9]+,[[:space:]]*migrate_[0-9]+\)' "$SCRIPT_DIR/tusk-migrate.py" \
+    | sed -E 's/^[[:space:]]*\(([0-9]+),.*/\1/' \
+    | sort -n | tail -1)"
+  [[ -n "$supported_max" ]] || return 0
+  if (( user_version > supported_max )); then
+    echo "Schema mismatch: this database is at v${user_version}, but this tusk binary expects <=v${supported_max}. Run 'tusk upgrade' to update." >&2
+    exit 1
+  fi
+}
+
+preflight_schema_version "${1:-}"
+
 if [[ -z "${TUSK_NESTED_CALL:-}" ]] && ! is_readonly_subcmd "${1:-}"; then
   snapshot_db
 fi
