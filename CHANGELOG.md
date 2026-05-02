@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [814] - 2026-05-02
+
+- [TASK-279] Generalize address-issue Step 4.6 to all task types and require entry-point reads in Step 4.5
+
 ## [813] - 2026-05-02
 
 - [TASK-278] Add `tusk typed-criteria-build` helper for safe spec JSON escaping
