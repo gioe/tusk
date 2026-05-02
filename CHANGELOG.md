@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [812] - 2026-05-02
+
+- [TASK-277] Fix: block-raw-sqlite hook fires on heredoc bodies (false positive)
+
 ## [811] - 2026-05-02
 
 - [TASK-275] Fix: tusk merge retries once on transient .git/index.lock contention
