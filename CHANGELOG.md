@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [813] - 2026-05-02
+
+- [TASK-278] Add `tusk typed-criteria-build` helper for safe spec JSON escaping
+
 ## [812] - 2026-05-02
 
 - [TASK-277] Fix: block-raw-sqlite hook fires on heredoc bodies (false positive)
