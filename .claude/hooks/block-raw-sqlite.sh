@@ -8,12 +8,19 @@ input=$(cat)
 # Extract the command and strip the contents of matched quote pairs
 # (both double and single) so quoted string literals can't be mistaken for
 # shell operators + sqlite3 (e.g. grep -E "foo|sqlite3" or commit messages
-# that mention sqlite3). Strip double-quoted runs first (they can contain
-# literal single quotes), then single-quoted runs.
+# that mention sqlite3). Heredoc bodies are blanked out first (so a forbidden
+# token sitting inside <<EOF...EOF data is treated as data, not as a
+# command-position invocation). Then strip double-quoted runs, then single.
 command=$(echo "$input" | python3 -c "
 import sys, json, re
 data = json.load(sys.stdin)
 cmd = data.get('tool_input', {}).get('command', '')
+heredoc_re = re.compile(r\"<<-?\s*['\\\"]?(\w+)['\\\"]?.*?\n[ \t]*\1[ \t]*(?=\n|\$)\", re.DOTALL)
+while True:
+    new_cmd, n = heredoc_re.subn('', cmd)
+    if n == 0:
+        break
+    cmd = new_cmd
 cmd = re.sub(r'\"[^\"]*\"', '\"\"', cmd)
 cmd = re.sub(r\"'[^']*'\", \"''\", cmd)
 print(cmd)
