@@ -171,19 +171,26 @@ Treat any non-`yes` response as skip. On **yes**:
    - Any partial implementation already present
    - Related tusk tasks: `tusk task-list --format json | jq '.[] | select(.summary | ascii_downcase | contains("<keyword>"))'`
 
+   **Read entry points, not just helpers.** When inspecting a file that defines a `main()` / `if __name__ == "__main__":` block (or an analogous orchestrator/dispatcher), you must also read those entry points — not just helper definitions. A helper that looks unused in isolation may be invoked downstream by the orchestrator. Concluding "X not implemented" purely from helper reads — without checking the call sites — is the failure mode that produced TASK-276 (issue #637): `regen_triggers` was defined at line 98 of `bin/tusk-migrate.py` and looked unused, but the call site at lines 2628–2634 inside `main()` invoked it as the final step of every migrate run.
+
 2. **Summarize** findings as a short bullet list before proceeding.
 
 3. **Refine Step 4 fields**: sharpen `description` (name files/functions), tighten criteria to match real code structure, adjust `complexity` if warranted. Do **not** change `summary`, `priority`, or `domain` unless the investigation reveals a fundamental misclassification.
 
-## Step 4.6: Reproducibility Check (bug-type only)
+## Step 4.6: Already-Resolved Check (all task types)
 
-**Run this step only when `task_type = bug`.** Skip for all other task types.
+**Always run this step.** The exact question depends on `task_type`:
 
-Before presenting the proposal, quickly scan the codebase to confirm the bug is still present. Use at most 3 tool calls (Grep, Read, or Bash read-only). **Prefer invoking the affected code path directly** (e.g. running the actual command with a known input) over grepping for static markers — a live invocation surfaces regex bugs, off-by-one errors, and silent failures that grep-and-read miss. If you find clear evidence the bug is already fixed (e.g., the code path described in the issue no longer exists or has been corrected), surface this before proceeding:
+- **`bug` / `defect`** — confirm the failure is still reproducible against the current code.
+- **All other task types** (`feature`, `refactor`, `docs`, etc.) — confirm the implementation is not already shipped. Reframe the proposal as the question "is this already wired up on `main`?" before grepping or reading.
 
-> **Reproducibility note:** The issue may already be fixed — [brief explanation]. Do you still want to create a task?
+Use at most **3 tool calls** total (Grep, Read, or Bash read-only) regardless of task type. **Prefer invoking the affected code path directly** (e.g. running the actual command with a known input) over grepping for static markers — a live invocation surfaces regex bugs, off-by-one errors, and silent failures that grep-and-read miss. **When reading a source file that defines a `main()` / `if __name__ == "__main__":` block (or an analogous orchestrator/dispatcher), also read those entry points — not just helper definitions.** A helper that looks unwired in isolation is often invoked downstream by the orchestrator; concluding "X not implemented" from helper reads alone is the same failure mode that produced TASK-276 (issue #637). When the budget is tight, spend a tool call on `grep -n '<helper_name>' <file>` to locate every call site before reading.
 
-Wait for user confirmation before proceeding to Step 5. If the bug is confirmed still present, or if you cannot determine either way within 3 calls, proceed without comment.
+If you find clear evidence the issue is already addressed (the bug is fixed, the proposed feature is already shipped and wired up, or the code path described no longer exists), surface this before proceeding:
+
+> **Already-resolved note:** This issue may already be addressed — [brief explanation]. Do you still want to create a task?
+
+Wait for user confirmation before proceeding to Step 5. If the issue is confirmed still present, or if you cannot determine either way within 3 calls, proceed without comment.
 
 ## Step 4.7: Model Recommendation (Config-Driven Scoring)
 
