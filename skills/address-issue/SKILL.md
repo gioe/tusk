@@ -309,7 +309,23 @@ TEST_SPEC='tests/test_foo.py::test_it'"'"'s_broken'   # use '"'"' to embed a lit
   --typed-criteria "{\"text\":\"Failing test passes\",\"type\":\"test\",\"spec\":\"$TEST_SPEC\"}"
 ```
 
-When in doubt, always use the variable form — it is safe for any `test_spec` that does not contain a double quote or backslash (which pytest selectors never do).
+The variable form is safe for specs that contain neither `"` nor `\`.
+
+**Specs containing `"` or `\` (or both): use `tusk typed-criteria-build`.** Test specs lifted verbatim from GitHub issue bodies routinely mix single quotes, double quotes, and backslashes — for example, a heredoc reproducer like `printf %s "$JSON" | python3 -c "import json,sys; json.load(sys.stdin)"`. Both shell-quoting forms above silently produce malformed JSON in that case (issue #639). Pipe the spec through the helper instead — it lets Python's `json.dumps` handle every escape, then you embed the result via plain `$(...)` substitution:
+
+```bash
+JSON=$(printf '%s' "$TEST_SPEC" | tusk typed-criteria-build)
+  --typed-criteria "$JSON"
+```
+
+Or, when the spec lives in a file (e.g. you wrote it to a tempfile during Step 4.1 sandbox validation):
+
+```bash
+JSON=$(tusk typed-criteria-build --spec-file /tmp/spec)
+  --typed-criteria "$JSON"
+```
+
+`tusk typed-criteria-build` defaults to `text="Failing test passes"` and `type="test"`; pass `--text <text>` / `--type <type>` to override. Use this helper whenever the spec contains `"`, `\`, or any character whose shell escape isn't obvious — it removes the failure mode entirely rather than asking each caller to reinvent the escape.
 
 This criterion will be validated by running the spec as a shell command when `tusk criteria done <cid>` is called — it blocks closure if the command exits nonzero.
 
