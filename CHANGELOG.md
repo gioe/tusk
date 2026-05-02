@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [811] - 2026-05-02
+
+- [TASK-275] Fix: tusk merge retries once on transient .git/index.lock contention
+
 ## [810] - 2026-05-02
 
 - [TASK-274] Add schema-version preflight to bin/tusk to surface drift errors actionably
