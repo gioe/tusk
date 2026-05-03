@@ -105,6 +105,8 @@ case "$INSTALL_MODE" in codex-*) IS_CODEX=1 ;; *) IS_CODEX=0 ;; esac
 
 Treat the user as having opted into the agent path only when their `/review-commits` invocation explicitly contains a phrase like `use the reviewer agent`, `delegate review`, `spawn the reviewer`, or `agent review`. A bare `/review-commits` (or one with only a task ID argument) is **not** an opt-in. When `IS_CODEX=1` and no opt-in phrase is present, surface the routing decision before reading the diff — e.g. *"Codex install detected — running inline review. Re-run with `use the reviewer agent` to opt into agent-based review."* — so the operator can re-invoke with the opt-in flag if they want a full agent review.
 
+**Why install-mode and not a runtime signal?** Codex (the `openai/codex` CLI) does not document or inject a `CODEX_*` env var into subprocess environments to mark "running under Codex" — `CODEX_HOME` is a configuration input pointing at Codex's local state, not an output marker, and `shell_environment_policy` lets users strip inherited variables freely (so even if a marker existed, it would not be reliable). install-mode is therefore the most durable signal we have: `install.sh` chooses it from `.claude/` (claude) vs `AGENTS.md`-only (codex) at install time and stamps the marker once. **Mixed-mode caveat:** a repo with both `.claude/` and `AGENTS.md` is marked `claude-*` by `install.sh`. If `/review-commits` is invoked from a Codex session in such a repo, `IS_CODEX=0` and the agent path is taken — under Codex's subagent policy that spawn may fail. If it does, perform a manual inline review: read the diff yourself, then use `tusk review approve` or `tusk review request-changes` + `tusk review add-comment`.
+
 Read the diff yourself, evaluate it, and record the result directly. Always pass `--model <your_model_id>` — the canonical ID matching the format in `task_sessions.model` (e.g. `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5`). Strip any suffixes like `[1m]` or date-stamps from your system prompt's ID so the value joins cleanly against other model-tagged tables (e.g. `claude-opus-4-7[1m]` → `claude-opus-4-7`):
 
 ```bash
@@ -362,6 +364,8 @@ Otherwise, loop while `can_retry` is true:
    ```
 
    The user has opted into the agent path only when their invocation explicitly contains a phrase like `use the reviewer agent`, `delegate review`, `spawn the reviewer`, or `agent review`. A bare `/review-commits` (or one with only a task ID argument) is **not** an opt-in. When `IS_CODEX=1` without an opt-in phrase, take the inline path on this re-review pass too.
+
+   **Mixed-mode caveat:** a repo with both `.claude/` and `AGENTS.md` is marked `claude-*` by `install.sh` (install-mode is decided at install time, not at runtime, and Codex does not inject a `CODEX_*` env var into subprocess environments that we could read instead). If this re-review pass is running from a Codex session in such a repo, `IS_CODEX=0` and the agent path will be attempted — under Codex's subagent policy that spawn may fail. If it does, perform a manual inline review on this pass: read the diff yourself, then use `tusk review approve` or `tusk review request-changes` + `tusk review add-comment`, and skip to step 3.
 
    **For all other diffs:** verify the required agent sandbox permissions are configured before spawning the re-review agent. Run:
 
