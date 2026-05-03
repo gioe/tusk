@@ -785,11 +785,20 @@ def main():
     )
 
     # skip
-    skip_p = subparsers.add_parser("skip", help="Mark a criterion as deferred to chain orchestrator")
+    skip_p = subparsers.add_parser(
+        "skip",
+        help="Close a criterion without commit attribution (not applicable, deferred to chain orchestrator, etc.)",
+    )
     skip_p.add_argument("criterion_id", type=int, help="Criterion ID")
     skip_p.add_argument(
         "--reason", required=True,
-        help="Reason for deferral (e.g., 'chain' when handled by chain orchestrator)",
+        help=(
+            "Free-text reason for closing without commit attribution. Use this instead of "
+            "`done --skip-verify` whenever a criterion does not apply to the chosen "
+            "implementation path (e.g. 'not applicable: chose rate-limiting branch over "
+            "documented-exemption branch') so the criterion is not stamped with an unrelated "
+            "commit hash. Also used by chain orchestrators with reason='chain'."
+        ),
     )
 
     # reset

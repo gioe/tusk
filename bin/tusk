@@ -24,7 +24,7 @@
 #   tusk criteria add <id> "text" [--source ...] [--type ...] [--spec ...]  Add a criterion
 #   tusk criteria list <id>      List criteria for a task
 #   tusk criteria done <cid> [<cid> ...] [--skip-verify]  Mark one or more criteria as completed
-#   tusk criteria skip <cid> --reason <reason>  Mark a criterion as deferred to chain
+#   tusk criteria skip <cid> --reason <reason>  Close criterion without commit attribution (not applicable, chain-deferred, etc.)
 #   tusk criteria reset <cid>    Reset a criterion to incomplete (clears deferred flag too)
 #   tusk criteria finish-deferred --reason <r> <id...>  Mark all deferred criteria with given reason as completed
 #   tusk progress <id> [--next-steps "..."]  Log a progress checkpoint from HEAD
