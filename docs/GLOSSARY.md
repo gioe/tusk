@@ -46,6 +46,14 @@ A single acceptance condition attached to a task, defining what must be true for
 
 ---
 
+## deferred criterion
+
+An acceptance criterion closed via `tusk criteria skip --reason <text>` (sets `is_deferred=1` with the rationale recorded in `deferred_reason`). Used in two distinct scenarios: (1) a chain orchestrator marks the criterion as handled by a downstream consolidator commit (`--reason chain`), and (2) a mutually-exclusive criterion does not apply to the chosen implementation path (`--reason 'not applicable: <why>'`, e.g. one branch of an OR). The `task-done` open-criteria gate and the `v_criteria_coverage` view both exclude deferred criteria, so they close cleanly without commit attribution. Use `tusk criteria skip` instead of `tusk criteria done --skip-verify` for the not-applicable case to avoid stamping the criterion with an unrelated commit hash.
+
+→ See issue #618; `bin/tusk-criteria.py:cmd_skip`; `tusk criteria finish-deferred`.
+
+---
+
 ## session
 
 A bounded work unit on a task, tracking timestamps, token usage, and cost. One task can accumulate multiple sessions across days or agents. At most one session per task may be open at a time; `tusk task-start` opens a session and `tusk merge` closes it.
