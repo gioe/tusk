@@ -48,7 +48,11 @@ Output shape (JSON, default):
             "manual": N,
             "automated": N,
             "skip_notes": N,
-            "deferred": N
+            "deferred": N,
+            "deferred_details": [
+                {"id": N, "criterion": "...", "deferred_reason": "..."},
+                ...
+            ]
         },
         "review_passes": N,
         "reopen_count": N
@@ -326,12 +330,17 @@ def fetch_diff(task_id: int, repo_root: str, since: str | None = None) -> dict:
 
 
 def fetch_criteria(conn: sqlite3.Connection, task_id: int) -> dict:
-    """Counts by kind and skip signal.
+    """Counts by kind and skip signal, plus per-criterion deferred details.
 
     `skip_notes` captures criteria closed with `--skip-verify --note "..."` (the
     note lands in `acceptance_criteria.skip_note`). `deferred` captures the
     `tusk criteria skip --reason` path which sets `is_deferred=1`. Together they
     cover every "acknowledged gap at close" signal the schema records.
+
+    `deferred_details` is a per-row list (id, criterion, deferred_reason) so the
+    markdown rollup and downstream consumers can distinguish *why* each
+    criterion was deferred — chain orchestration vs not-applicable vs other
+    rationales — instead of seeing only an aggregate count.
     """
     row = conn.execute(
         "SELECT "
@@ -343,12 +352,25 @@ def fetch_criteria(conn: sqlite3.Connection, task_id: int) -> dict:
         "FROM acceptance_criteria WHERE task_id = ?",
         (task_id,),
     ).fetchone()
+    deferred_rows = conn.execute(
+        "SELECT id, criterion, deferred_reason FROM acceptance_criteria "
+        "WHERE task_id = ? AND is_deferred = 1 ORDER BY id",
+        (task_id,),
+    ).fetchall()
     return {
         "total": int(row["total"] or 0),
         "manual": int(row["manual"] or 0),
         "automated": int(row["automated"] or 0),
         "skip_notes": int(row["skip_notes"] or 0),
         "deferred": int(row["deferred"] or 0),
+        "deferred_details": [
+            {
+                "id": int(r["id"]),
+                "criterion": r["criterion"],
+                "deferred_reason": r["deferred_reason"],
+            }
+            for r in deferred_rows
+        ],
     }
 
 
@@ -462,9 +484,14 @@ def render_markdown(data: dict) -> str:
             else ""
         )
         + (f" · {crit['deferred']} deferred" if crit["deferred"] else ""),
-        f"- **Review passes:** {data['review_passes']}"
-        + (f" · **Reopened:** {data['reopen_count']}×" if data["reopen_count"] else ""),
     ]
+    for d in crit.get("deferred_details", []):
+        reason = d.get("deferred_reason") or "no reason given"
+        lines.append(f"  - _Deferred #{d['id']} ({reason}):_ {d['criterion']}")
+    lines.append(
+        f"- **Review passes:** {data['review_passes']}"
+        + (f" · **Reopened:** {data['reopen_count']}×" if data["reopen_count"] else "")
+    )
     return "\n".join(lines)
 
 

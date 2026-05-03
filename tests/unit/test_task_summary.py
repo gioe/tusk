@@ -63,7 +63,9 @@ CREATE TABLE acceptance_criteria (
     task_id INTEGER NOT NULL,
     criterion TEXT,
     criterion_type TEXT DEFAULT 'manual',
+    is_completed INTEGER DEFAULT 0,
     is_deferred INTEGER DEFAULT 0,
+    deferred_reason TEXT,
     skip_note TEXT
 );
 CREATE TABLE code_reviews (
@@ -312,6 +314,45 @@ class TestAbandonPath:
         }
         assert data["criteria"]["skip_notes"] == 1
         assert data["criteria"]["deferred"] == 1
+        assert data["criteria"]["deferred_details"] == [
+            {"id": data["criteria"]["deferred_details"][0]["id"],
+             "criterion": "Prototype Y", "deferred_reason": None},
+        ]
+
+
+class TestDeferredDetails:
+    """deferred_details surfaces id/criterion/deferred_reason for is_deferred=1 rows."""
+
+    def test_includes_reason_when_set(self, tmp_path):
+        db_path, conn = _make_db(tmp_path)
+        _insert_task(conn, task_id=10, summary="Mutex criteria task")
+        conn.executemany(
+            "INSERT INTO acceptance_criteria "
+            "(task_id, criterion, criterion_type, is_completed, is_deferred, deferred_reason) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                (10, "Apply rate limiting", "manual", 1, 0, None),
+                (10, "Document why exempt", "manual", 0, 1,
+                 "not applicable: chose rate-limiting branch"),
+            ],
+        )
+        conn.commit()
+        data = mod.build_summary(conn, 10, str(tmp_path))
+        details = data["criteria"]["deferred_details"]
+        assert len(details) == 1
+        assert details[0]["criterion"] == "Document why exempt"
+        assert details[0]["deferred_reason"] == "not applicable: chose rate-limiting branch"
+
+    def test_empty_when_no_deferred(self, tmp_path):
+        db_path, conn = _make_db(tmp_path)
+        _insert_task(conn, task_id=11, summary="No deferred")
+        conn.execute(
+            "INSERT INTO acceptance_criteria (task_id, criterion, criterion_type) "
+            "VALUES (11, 'A', 'manual')"
+        )
+        conn.commit()
+        data = mod.build_summary(conn, 11, str(tmp_path))
+        assert data["criteria"]["deferred_details"] == []
 
 
 # ── reopen_count > 0 ──────────────────────────────────────────────────
@@ -484,7 +525,7 @@ class TestRenderMarkdown:
             "duration": {"wall_seconds": 60, "active_seconds": 30, "session_count": 1,
                          "started_at": None, "closed_at": None},
             "diff": {"commits": 1, "files_changed": 1, "lines_added": 5, "lines_removed": 2},
-            "criteria": {"total": 1, "manual": 1, "automated": 0, "skip_notes": 0, "deferred": 0},
+            "criteria": {"total": 1, "manual": 1, "automated": 0, "skip_notes": 0, "deferred": 0, "deferred_details": []},
             "review_passes": 0,
             "reopen_count": 0,
         }
@@ -521,10 +562,31 @@ class TestRenderMarkdown:
         assert "skip-verify" not in out_zero
         assert "deferred" not in out_zero
         out_with = mod.render_markdown(self._sample(
-            criteria={"total": 3, "manual": 3, "automated": 0, "skip_notes": 1, "deferred": 2},
+            criteria={"total": 3, "manual": 3, "automated": 0, "skip_notes": 1, "deferred": 2,
+                      "deferred_details": []},
         ))
         assert "1 skip-verify" in out_with
         assert "2 deferred" in out_with
+
+    def test_deferred_details_render_as_sublist(self):
+        out = mod.render_markdown(self._sample(
+            criteria={"total": 2, "manual": 2, "automated": 0, "skip_notes": 0, "deferred": 1,
+                      "deferred_details": [
+                          {"id": 42, "criterion": "Document why exempt",
+                           "deferred_reason": "not applicable: chose rate-limiting"},
+                      ]},
+        ))
+        assert "1 deferred" in out
+        assert "_Deferred #42 (not applicable: chose rate-limiting):_ Document why exempt" in out
+
+    def test_deferred_details_handle_null_reason(self):
+        out = mod.render_markdown(self._sample(
+            criteria={"total": 1, "manual": 1, "automated": 0, "skip_notes": 0, "deferred": 1,
+                      "deferred_details": [
+                          {"id": 7, "criterion": "Legacy criterion", "deferred_reason": None},
+                      ]},
+        ))
+        assert "_Deferred #7 (no reason given):_ Legacy criterion" in out
 
     def test_baseline_compared_renders_multiplier_and_bucket(self):
         out = mod.render_markdown(self._sample(
