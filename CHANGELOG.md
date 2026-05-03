@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [815] - 2026-05-02
+
+- [TASK-280] Fix: extend index.lock retry helper to cover git merge --ff-only in tusk-merge.py
+
 ## [814] - 2026-05-02
 
 - [TASK-279] Generalize address-issue Step 4.6 to all task types and require entry-point reads in Step 4.5
