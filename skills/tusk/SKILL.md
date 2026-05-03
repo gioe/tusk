@@ -149,6 +149,12 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
        ```
        Always include a brief rationale in the commit message when grouping. **Never** bundle all criteria onto a single end-of-task commit.
 
+    **If a criterion does not apply to the implementation path you chose** (e.g., a mutually-exclusive "do X OR document why exempt" pair where you did X), use `tusk criteria skip` — NOT `tusk criteria done --skip-verify`:
+    ```bash
+    tusk criteria skip <cid> --reason "not applicable: chose <chosen-branch> over <skipped-branch>"
+    ```
+    `done --skip-verify` stamps the criterion with HEAD's commit hash, leaking an unrelated commit into the audit trail and triggering "shares commit" warnings between unrelated criteria. `skip` sets `is_deferred=1` with the rationale recorded in `deferred_reason`; the `task-done` gate and `v_criteria_coverage` view exclude deferred criteria automatically, so the task closes cleanly. Reserve `done --skip-verify` for criteria that ARE satisfied but cannot be auto-verified (the cases below).
+
     **If the task has no git-trackable file changes** (e.g., a venv install, a runtime config change, an OS-level operation), skip `tusk commit` entirely — it requires at least one file argument and will fail with exit code 1 (usage error) if none are provided. Mark criteria done directly:
     ```bash
     tusk criteria done <cid> --skip-verify
