@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [818] - 2026-05-03
+
+- [TASK-283] review-commits: document why install-mode is the durable Codex signal and the mixed-mode caveat for repos with both .claude/ and AGENTS.md
+
 ## [817] - 2026-05-03
 
 - [TASK-282] review-commits: fall back to inline review under Codex no-subagent policy
