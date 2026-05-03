@@ -1,9 +1,10 @@
-"""Unit tests for _checkout_with_index_lock_retry (Issue #620).
+"""Unit tests for _run_with_index_lock_retry (Issues #620, #640).
 
-When `git checkout <default_branch>` fails with a transient
-`Unable to create '.../.git/index.lock'` error, tusk-merge.py should sleep
-briefly and retry once before surfacing the error. Other checkout failures
-must surface immediately with no retry.
+When a git command fails with a transient `Unable to create '.../.git/index.lock'`
+error, tusk-merge.py should sleep briefly and retry once before surfacing the
+error. Other failures must surface immediately with no retry. The helper is
+shared by the `git checkout <default_branch>` step (#620) and the subsequent
+`git merge --ff-only <feature>` step (#640).
 """
 
 import importlib.util
@@ -41,8 +42,11 @@ _LOCK_STDERR = (
     "\nAnother git process seems to be running in this repository...\n"
 )
 
+_CHECKOUT_CMD = ["git", "checkout", "main"]
+_CHECKOUT_LABEL = "git checkout main"
 
-class TestCheckoutWithIndexLockRetry:
+
+class TestRunWithIndexLockRetry:
     def test_first_try_success_no_retry_no_sleep(self, capsys):
         mod = _load_module()
         calls = []
@@ -54,10 +58,10 @@ class TestCheckoutWithIndexLockRetry:
         with patch.object(mod, "run", side_effect=fake_run), patch.object(
             mod.time, "sleep"
         ) as fake_sleep:
-            result = mod._checkout_with_index_lock_retry("main")
+            result = mod._run_with_index_lock_retry(_CHECKOUT_CMD, _CHECKOUT_LABEL)
 
         assert result.returncode == 0
-        assert calls == [["git", "checkout", "main"]]
+        assert calls == [_CHECKOUT_CMD]
         fake_sleep.assert_not_called()
         # Happy path: no retry log line on stderr
         assert "transient" not in capsys.readouterr().err
@@ -75,16 +79,17 @@ class TestCheckoutWithIndexLockRetry:
         with patch.object(mod, "run", side_effect=fake_run), patch.object(
             mod.time, "sleep"
         ) as fake_sleep:
-            result = mod._checkout_with_index_lock_retry("main")
+            result = mod._run_with_index_lock_retry(_CHECKOUT_CMD, _CHECKOUT_LABEL)
 
         assert result.returncode == 0
         assert len(attempts) == 2
-        assert attempts[0] == ["git", "checkout", "main"]
-        assert attempts[1] == ["git", "checkout", "main"]
+        assert attempts[0] == _CHECKOUT_CMD
+        assert attempts[1] == _CHECKOUT_CMD
         fake_sleep.assert_called_once_with(0.5)
         captured = capsys.readouterr()
         assert "transient .git/index.lock contention" in captured.err
         assert "retrying once" in captured.err
+        assert _CHECKOUT_LABEL in captured.err
 
     def test_lock_failure_twice_returns_second_error_verbatim(self, capsys):
         mod = _load_module()
@@ -98,7 +103,7 @@ class TestCheckoutWithIndexLockRetry:
             return _cp(128, stderr=second_stderr)
 
         with patch.object(mod, "run", side_effect=fake_run), patch.object(mod.time, "sleep"):
-            result = mod._checkout_with_index_lock_retry("main")
+            result = mod._run_with_index_lock_retry(_CHECKOUT_CMD, _CHECKOUT_LABEL)
 
         assert result.returncode == 128
         # Caller surfaces result.stderr verbatim — must be the second attempt's stderr
@@ -117,7 +122,7 @@ class TestCheckoutWithIndexLockRetry:
         with patch.object(mod, "run", side_effect=fake_run), patch.object(
             mod.time, "sleep"
         ) as fake_sleep:
-            result = mod._checkout_with_index_lock_retry("main")
+            result = mod._run_with_index_lock_retry(_CHECKOUT_CMD, _CHECKOUT_LABEL)
 
         assert result.returncode == 1
         assert result.stderr == non_lock_stderr
@@ -132,6 +137,6 @@ class TestCheckoutWithIndexLockRetry:
         with patch.object(mod, "run", side_effect=responses), patch.object(
             mod.time, "sleep"
         ) as fake_sleep:
-            mod._checkout_with_index_lock_retry("main", sleep_seconds=0.01)
+            mod._run_with_index_lock_retry(_CHECKOUT_CMD, _CHECKOUT_LABEL, sleep_seconds=0.01)
 
         fake_sleep.assert_called_once_with(0.01)
