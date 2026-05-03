@@ -140,3 +140,32 @@ class TestRunWithIndexLockRetry:
             mod._run_with_index_lock_retry(_CHECKOUT_CMD, _CHECKOUT_LABEL, sleep_seconds=0.01)
 
         fake_sleep.assert_called_once_with(0.01)
+
+    def test_merge_ff_only_lock_failure_then_success_retries(self, capsys):
+        """Issue #640: the same retry path must cover `git merge --ff-only`,
+        not just `git checkout`. Transient lock contention during the merge
+        step should retry once and succeed."""
+        mod = _load_module()
+        merge_cmd = ["git", "merge", "--ff-only", "feature/TASK-640-foo"]
+        merge_label = "git merge --ff-only feature/TASK-640-foo"
+        attempts = []
+
+        def fake_run(args, check=True):
+            attempts.append(args)
+            if len(attempts) == 1:
+                return _cp(128, stderr=_LOCK_STDERR)
+            return _cp(0)
+
+        with patch.object(mod, "run", side_effect=fake_run), patch.object(
+            mod.time, "sleep"
+        ) as fake_sleep:
+            result = mod._run_with_index_lock_retry(merge_cmd, merge_label)
+
+        assert result.returncode == 0
+        assert len(attempts) == 2
+        assert attempts[0] == merge_cmd
+        assert attempts[1] == merge_cmd
+        fake_sleep.assert_called_once_with(0.5)
+        captured = capsys.readouterr()
+        assert "transient .git/index.lock contention" in captured.err
+        assert merge_label in captured.err
