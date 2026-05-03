@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [817] - 2026-05-03
+
+- [TASK-282] review-commits: fall back to inline review under Codex no-subagent policy
+
 ## [816] - 2026-05-02
 
 - [TASK-281] Generalize tusk criteria skip to support not-applicable criteria
