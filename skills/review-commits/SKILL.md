@@ -351,7 +351,17 @@ Otherwise, loop while `can_retry` is true:
 
 2. **Branch on diff size to decide review strategy.**
 
-   **For small or documentation-only diffs (`$DIFF_LINES` below ~200, or only non-code files), or when `review.reviewer` is absent from config:** skip agent spawning and perform an inline review. Read the diff yourself, evaluate it against the reviewer focus area, and record the result directly (approve or request-changes + add-comment). After recording the inline decision, skip to step 3.
+   **For small or documentation-only diffs (`$DIFF_LINES` below ~200, or only non-code files), when `review.reviewer` is absent from config, or when Tusk is running under a Codex install without an explicit subagent opt-in:** skip agent spawning and perform an inline review. Read the diff yourself, evaluate it against the reviewer focus area, and record the result directly (approve or request-changes + add-comment). After recording the inline decision, skip to step 3.
+
+   To detect the Codex case, read the `install-mode` marker (Claude installs are marked `claude-…`; Codex installs are marked `codex-…`) and check whether the user's `/review-commits` invocation contains an explicit subagent opt-in phrase:
+
+   ```bash
+   TUSK_BIN_DIR="$(dirname "$(command -v tusk)")"
+   INSTALL_MODE="$(tr -d '[:space:]' < "$TUSK_BIN_DIR/install-mode" 2>/dev/null || echo claude-source)"
+   case "$INSTALL_MODE" in codex-*) IS_CODEX=1 ;; *) IS_CODEX=0 ;; esac
+   ```
+
+   The user has opted into the agent path only when their invocation explicitly contains a phrase like `use the reviewer agent`, `delegate review`, `spawn the reviewer`, or `agent review`. A bare `/review-commits` (or one with only a task ID argument) is **not** an opt-in. When `IS_CODEX=1` without an opt-in phrase, take the inline path on this re-review pass too.
 
    **For all other diffs:** verify the required agent sandbox permissions are configured before spawning the re-review agent. Run:
 
