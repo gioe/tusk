@@ -508,3 +508,127 @@ class TestMergedNotClosedLowConfidence:
         assert data["recommendation"] == "merged_not_closed_low_confidence"
         assert default_sha in data["default_branch_commits"]
         assert "prisma/migrations/0099_cleanup.sql" in data["default_branch_commit_files"]
+
+
+# ── criteria_complete_no_commits (salvage / converged-work case) ──────
+
+
+class TestCriteriaCompleteNoCommits:
+    """Regression tests for issue #578 — when every non-deferred acceptance
+    criterion is marked is_completed=1 but there are no [TASK-N] commits
+    anywhere and no deliverable files on disk, the salvage / converged-work
+    signal must be surfaced as a distinct recommendation."""
+
+    def test_returns_criteria_complete_no_commits_when_all_done_and_no_commits_no_files(self, tmp_path):
+        """All criteria is_completed=1, no commits, no files → criteria_complete_no_commits."""
+        db_path = _make_db(
+            tmp_path,
+            task_id=5780,
+            summary="Implement salvaged feature",
+            description="No paths in description — nothing exists on disk.",
+            criteria=[
+                ("Step 1 done", None, 1, 0),
+                ("Step 2 done", None, 1, 0),
+                ("Step 3 done", None, 1, 0),
+            ],
+        )
+        rc, stdout, _ = _run_main(db_path, 5780)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "criteria_complete_no_commits"
+        assert data["commits_found"] is False
+        assert data["files_found"] is False
+        assert data["files"] == []
+        assert data["default_branch_commits"] == []
+        assert data["default_branch_commit_files"] == []
+
+    def test_returns_implement_fresh_when_one_criterion_incomplete(self, tmp_path):
+        """At least one non-deferred criterion incomplete → implement_fresh, NOT
+        criteria_complete_no_commits. This is the regression guard for the
+        partial-completion case."""
+        db_path = _make_db(
+            tmp_path,
+            task_id=5781,
+            summary="Implement partially-done feature",
+            description="No paths in description — nothing exists on disk.",
+            criteria=[
+                ("Step 1 done", None, 1, 0),
+                ("Step 2 still pending", None, 0, 0),
+                ("Step 3 done", None, 1, 0),
+            ],
+        )
+        rc, stdout, _ = _run_main(db_path, 5781)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "implement_fresh"
+
+    def test_returns_implement_fresh_when_task_has_no_criteria(self, tmp_path):
+        """Zero criteria → implement_fresh (no salvage signal — vacuous truth is
+        not informative). Preserves existing behavior for criteria-less tasks."""
+        db_path = _make_db(
+            tmp_path,
+            task_id=5782,
+            summary="Implement criteria-less feature",
+            description="No paths in description — nothing exists on disk.",
+        )
+        rc, stdout, _ = _run_main(db_path, 5782)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "implement_fresh"
+
+    def test_deferred_criteria_excluded_from_check(self, tmp_path):
+        """Deferred criteria (is_deferred=1) don't count toward the salvage
+        signal — a task whose only completed criteria are non-deferred should
+        still flip to criteria_complete_no_commits, even if a deferred one is
+        incomplete."""
+        db_path = _make_db(
+            tmp_path,
+            task_id=5783,
+            summary="Implement feature with one deferred criterion",
+            description="No paths in description — nothing exists on disk.",
+            criteria=[
+                ("Step 1 done", None, 1, 0),
+                ("Step 2 done", None, 1, 0),
+                ("Step 3 deferred", None, 0, 1),
+            ],
+        )
+        rc, stdout, _ = _run_main(db_path, 5783)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "criteria_complete_no_commits"
+
+    def test_only_deferred_criteria_returns_implement_fresh(self, tmp_path):
+        """A task whose criteria are all deferred has no active criteria, so
+        the salvage-signal check returns False → implement_fresh."""
+        db_path = _make_db(
+            tmp_path,
+            task_id=5784,
+            summary="Implement feature with all-deferred criteria",
+            description="No paths in description — nothing exists on disk.",
+            criteria=[
+                ("Step 1 deferred", None, 0, 1),
+                ("Step 2 deferred", None, 0, 1),
+            ],
+        )
+        rc, stdout, _ = _run_main(db_path, 5784)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "implement_fresh"
+
+    def test_mark_done_still_wins_when_files_found(self, tmp_path):
+        """If criteria are all complete AND a deliverable file exists, the
+        mark_done branch still takes precedence — files-on-disk are stronger
+        evidence than is_completed flags."""
+        skill_dir = tmp_path / "skills" / "salvaged"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text("# salvaged")
+        db_path = _make_db(
+            tmp_path,
+            task_id=5785,
+            summary="Create skills/salvaged/SKILL.md",
+            criteria=[("Skill exists", "skills/salvaged/SKILL.md", 1, 0)],
+        )
+        rc, stdout, _ = _run_main(db_path, 5785)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "mark_done"
