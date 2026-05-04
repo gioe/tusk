@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Close a task without merging — for wont_do / duplicate decisions.
+"""Close a task without merging — for wont_do / duplicate / convergent-completed decisions.
 
 Called by the tusk wrapper:
-    tusk abandon <task_id> --reason wont_do|duplicate
+    tusk abandon <task_id> --reason wont_do|duplicate|completed
                            [--session <session_id>] [--note "..."]
 
 Arguments received from tusk:
@@ -12,7 +12,8 @@ Arguments received from tusk:
 
 Behavior — symmetric with `tusk merge` but without any code merge:
 
-  1. Validate --reason is one of the no-commit closure reasons (wont_do / duplicate).
+  1. Validate --reason is one of the no-commit closure reasons
+     (wont_do / duplicate / completed).
   2. Auto-detect or validate the session ID, mirroring `tusk merge`.
   3. If a feature/TASK-<id>-* branch exists:
        - Refuse if it has commits not on the default branch (point at `tusk merge`).
@@ -53,10 +54,15 @@ _autodetect_session = _merge._autodetect_session
 _drop_branch_auto_stash = _merge._drop_branch_auto_stash
 
 
-# Reasons that map to the no-commit closure path. expired/completed are
-# excluded — completed must go through `tusk merge`, and expired is set by
-# `tusk autoclose`, not an interactive abandon.
-ABANDON_REASONS = ("wont_do", "duplicate")
+# Reasons that map to the no-commit closure path. `expired` is excluded — it
+# is set by `tusk autoclose`, not an interactive abandon. `completed` is
+# included for the convergent-completion case (issue #580): a task whose goal
+# was met by separate work landing on the default branch between filing and
+# pickup. `tusk merge` requires a feature branch with commits to ship; this
+# path closes the task cleanly when there is nothing left to ship. The
+# branch-safety guard below still refuses if a feature branch carries
+# unmerged commits, so `--reason completed` cannot accidentally discard work.
+ABANDON_REASONS = ("wont_do", "duplicate", "completed")
 
 
 def run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
@@ -65,7 +71,7 @@ def run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
 
 def _print_usage() -> None:
     print(
-        "Usage: tusk abandon <task_id> --reason wont_do|duplicate "
+        "Usage: tusk abandon <task_id> --reason wont_do|duplicate|completed "
         "[--session <session_id>] [--note \"...\"]",
         file=sys.stderr,
     )
@@ -176,14 +182,19 @@ def main(argv: list[str]) -> int:
             return 1
 
     if reason is None:
-        print("Error: --reason wont_do|duplicate is required", file=sys.stderr)
+        print(
+            "Error: --reason wont_do|duplicate|completed is required",
+            file=sys.stderr,
+        )
         _print_usage()
         return 1
 
     if reason not in ABANDON_REASONS:
+        allowed = "|".join(ABANDON_REASONS)
         print(
-            f"Error: --reason must be one of {'|'.join(ABANDON_REASONS)} "
-            f"(got '{reason}'). Use `tusk merge` for completed tasks.",
+            f"Error: --reason must be one of {allowed} (got '{reason}'). "
+            "Use `tusk merge` to ship code; `--reason completed` is for the "
+            "no-commit convergent-completion case (issue #580).",
             file=sys.stderr,
         )
         return 1
