@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [832] - 2026-05-04
+
+- [TASK-297] Fix: tusk criteria add/done/skip/reset emit JSON instead of plain text
+
 ## [831] - 2026-05-04
 
 - [TASK-296] Detect inverted-polarity failing-test specs in /address-issue and offer inversion

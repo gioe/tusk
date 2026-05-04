@@ -15,7 +15,6 @@ repo root using a relative path, while the test process invokes
 
 import json
 import os
-import re
 import sqlite3
 import subprocess
 
@@ -86,9 +85,7 @@ def test_code_criterion_verification_runs_from_repo_root(tmp_path):
         cwd=repo,
         env=env,
     )
-    m = re.search(r"Added criterion #(\d+)", added.stdout)
-    assert m, f"unexpected criteria add output: {added.stdout!r}"
-    criterion_id = int(m.group(1))
+    criterion_id = json.loads(added.stdout)["id"]
 
     # Invoke from a nested subdirectory — this is the scenario from issue #588.
     nested = repo / "ios" / "AIQ" / "Features"
@@ -152,9 +149,7 @@ def test_file_criterion_verification_resolves_glob_from_repo_root(tmp_path):
         cwd=repo,
         env=env,
     )
-    m = re.search(r"Added criterion #(\d+)", added.stdout)
-    assert m, f"unexpected criteria add output: {added.stdout!r}"
-    criterion_id = int(m.group(1))
+    criterion_id = json.loads(added.stdout)["id"]
 
     # Drop into a deep subdirectory and verify the glob still resolves.
     nested = repo / "ios" / "AIQ" / "Features"
