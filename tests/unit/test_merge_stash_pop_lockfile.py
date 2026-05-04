@@ -196,3 +196,26 @@ class TestTryPopStash:
         captured = capsys.readouterr()
         assert "Warning" in captured.err
         assert "could not find" in captured.err
+
+    def test_does_not_match_task_id_prefix_collision(self, capsys):
+        """TASK-2 must not match a TASK-29 line (substring would; endswith does not)."""
+        mod = _load_module()
+        calls: list[list[str]] = []
+
+        def fake_run(args, check=True):
+            calls.append(args)
+            if args[:3] == ["git", "stash", "list"]:
+                return _cp(
+                    0,
+                    stdout="stash@{0}: On main: tusk-merge: auto-stash for TASK-29\n",
+                )
+            return _cp(0)
+
+        with patch.object(mod, "run", side_effect=fake_run):
+            mod._try_pop_stash(2)
+
+        # No pop — TASK-29 is not TASK-2.
+        assert not any(c[:3] == ["git", "stash", "pop"] for c in calls)
+        captured = capsys.readouterr()
+        assert "Warning" in captured.err
+        assert "could not find" in captured.err

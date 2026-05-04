@@ -282,7 +282,9 @@ def _try_pop_stash(task_id: int) -> None:
     if stash_list.returncode == 0:
         for line in stash_list.stdout.splitlines():
             # Lines look like: "stash@{N}: On branch: <message>"
-            if label in line and line.startswith("stash@{"):
+            # Use endswith — substring `in` would false-positive on TASK-id
+            # prefix collisions (e.g. TASK-2 matching a TASK-29 entry).
+            if line.startswith("stash@{") and line.rstrip().endswith(label):
                 found_line = True
                 try:
                     stash_index = int(line.split("{")[1].split("}")[0])
