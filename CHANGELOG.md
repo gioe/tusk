@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [827] - 2026-05-04
+
+- [TASK-292] Remove deferral mechanism entirely; replace /review-commits defer flow with plain task-insert
+
 ## [826] - 2026-05-04
 
 - [TASK-291] Fix: tusk abandon leaves tusk-branch auto-stash orphaned
