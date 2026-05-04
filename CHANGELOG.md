@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [838] - 2026-05-04
+
+- [TASK-306] Add criteria_complete_no_commits branch to tusk check-deliverables and /tusk SKILL.md
+
 ## [837] - 2026-05-04
 
 - [TASK-305] Add tusk abandon --reason completed (or --reason converged) for tasks resolved by convergent work
