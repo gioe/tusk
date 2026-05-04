@@ -1149,7 +1149,7 @@ def main(argv: list[str]) -> int:
                 elif task_on_default:
                     print(
                         f"Error: git push failed:\n{result.stderr.strip()}\n"
-                        f"  Retry: git push origin {default_branch}",
+                        f"  Retry: git push origin {default_branch} && tusk merge {task_id} --session {session_id}",
                         file=sys.stderr,
                     )
                     if did_stash:
@@ -1159,7 +1159,7 @@ def main(argv: list[str]) -> int:
                     print(
                         f"Error: git push failed:\n{result.stderr.strip()}\n"
                         f"The branch has been merged locally but not pushed.\n"
-                        f"  Retry: git push origin {default_branch}\n"
+                        f"  Retry: git push origin {default_branch} && tusk merge {task_id} --session {session_id}\n"
                         f"  Undo:  git reset --hard HEAD~1 && git checkout {branch_name}",
                         file=sys.stderr,
                     )
