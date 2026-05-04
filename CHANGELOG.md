@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [834] - 2026-05-04
+
+- [TASK-299] Convert tusk deps list and tusk review list to compact JSON; add --pretty toggle
+
 ## [833] - 2026-05-04
 
 - [TASK-298] Fix: tusk criteria list emits table, not JSON (convention 32)
