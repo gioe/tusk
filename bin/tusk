@@ -278,6 +278,10 @@ generate_triggers() {
 # ── Commands ─────────────────────────────────────────────────────────
 
 cmd_path() {
+  if [[ $# -gt 0 ]]; then
+    echo "tusk path: takes no arguments — prints the resolved tusk DB path" >&2
+    return 1
+  fi
   echo "$DB_PATH"
 }
 
@@ -291,6 +295,10 @@ cmd_config() {
 }
 
 cmd_validate() {
+  if [[ $# -gt 0 ]]; then
+    echo "tusk validate: takes no arguments — validates the project's tusk config" >&2
+    return 1
+  fi
   validate_config
   echo "Config is valid ($(resolve_config))."
 
@@ -374,6 +382,10 @@ update_gitignore() {
 }
 
 cmd_update_gitignore() {
+  if [[ $# -gt 0 ]]; then
+    echo "tusk update-gitignore: takes no arguments — adds tusk's required .gitignore patterns" >&2
+    return 1
+  fi
   update_gitignore
 }
 
@@ -960,6 +972,10 @@ TEST_RUNS_SCHEMA
 }
 
 cmd_regen_triggers() {
+  if [[ $# -gt 0 ]]; then
+    echo "tusk regen-triggers: takes no arguments — regenerates SQLite validation triggers from the active config" >&2
+    return 1
+  fi
   if [[ ! -f "$DB_PATH" ]]; then
     echo "No database found at $DB_PATH — run 'tusk init' first." >&2
     exit 1
@@ -1082,6 +1098,10 @@ PYEOF
 }
 
 cmd_version() {
+  if [[ $# -gt 0 ]]; then
+    echo "tusk version: takes no arguments — prints the installed tusk distribution version" >&2
+    return 1
+  fi
   echo "tusk version $TUSK_VERSION"
 }
 
@@ -1144,6 +1164,10 @@ BODY
 }
 
 cmd_version_bump() {
+  if [[ $# -gt 0 ]]; then
+    echo "tusk version-bump: takes no arguments — increments VERSION by 1; explicit values not supported" >&2
+    return 1
+  fi
   local version_file
   if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
     version_file="$SCRIPT_DIR/VERSION"
@@ -1162,6 +1186,10 @@ cmd_version_bump() {
 }
 
 cmd_migrate() {
+  if [[ $# -gt 0 ]]; then
+    echo "tusk migrate: takes no arguments — applies all pending schema migrations in order" >&2
+    return 1
+  fi
   exec python3 "$SCRIPT_DIR/tusk-migrate.py" "$DB_PATH" "$(resolve_config)"
 }
 
@@ -1334,6 +1362,10 @@ cmd_session_close() {
 }
 
 cmd_git_default_branch() {
+  if [[ $# -gt 0 ]]; then
+    echo "tusk git-default-branch: takes no arguments — prints the repo's default branch (e.g. 'main')" >&2
+    return 1
+  fi
   local default_branch
   git remote set-head origin --auto >/dev/null 2>&1
   default_branch="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')"
@@ -1465,9 +1497,9 @@ export TUSK_NESTED_CALL=1
 
 case "${1:-}" in
   init)   shift; cmd_init "$@" ;;
-  path)   cmd_path ;;
+  path)   shift; cmd_path "$@" ;;
   config) shift; cmd_config "$@" ;;
-  validate) cmd_validate ;;
+  validate) shift; cmd_validate "$@" ;;
   sql-quote) shift; sql_quote "${1:-}" ;;
   typed-criteria-build) shift; exec python3 "$SCRIPT_DIR/tusk-typed-criteria-build.py" "$@" ;;
   branch) shift; exec python3 "$SCRIPT_DIR/tusk-branch.py" "$REPO_ROOT" "$@" ;;
@@ -1496,7 +1528,7 @@ case "${1:-}" in
   call-breakdown) shift; exec python3 "$SCRIPT_DIR/tusk-call-breakdown.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   session-close) shift; cmd_session_close "$@" ;;
   active-project) shift; cmd_active_project "$@" ;;
-  git-default-branch) cmd_git_default_branch ;;
+  git-default-branch) shift; cmd_git_default_branch "$@" ;;
   branch-parse) shift; cmd_branch_parse "$@" ;;
   task-get) shift; exec python3 "$SCRIPT_DIR/tusk-task-get.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   task-get-multi) shift; exec python3 "$SCRIPT_DIR/tusk-task-get-multi.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
@@ -1543,13 +1575,13 @@ case "${1:-}" in
   pricing-update) shift; exec python3 "$SCRIPT_DIR/tusk-pricing-update.py" "$@" ;;
   wsjf) shift; exec python3 "$SCRIPT_DIR/tusk-wsjf.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   shell)  shift; cmd_shell "$@" ;;
-  version) cmd_version ;;
-  version-bump) cmd_version_bump ;;
+  version) shift; cmd_version "$@" ;;
+  version-bump) shift; cmd_version_bump "$@" ;;
   report-issue) shift; cmd_report_issue "$@" ;;
   changelog-add) shift; exec python3 "$SCRIPT_DIR/tusk-changelog-add.py" "$REPO_ROOT" "$DB_PATH" "$@" ;;
-  migrate) cmd_migrate ;;
-  update-gitignore) cmd_update_gitignore ;;
-  regen-triggers) cmd_regen_triggers ;;
+  migrate) shift; cmd_migrate "$@" ;;
+  update-gitignore) shift; cmd_update_gitignore "$@" ;;
+  regen-triggers) shift; cmd_regen_triggers "$@" ;;
   upgrade) shift; cmd_upgrade "$@" ;;
   "")
           # Build the subcommand list from the dispatcher case-arms in $0 itself
