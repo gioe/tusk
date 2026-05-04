@@ -22,12 +22,16 @@ import time
 from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader
+import tusk_loader  # loads tusk-pricing-lib.py, tusk-db-lib.py, tusk-json-lib.py
 
 lib = tusk_loader.load("tusk-pricing-lib")
 _db_lib = tusk_loader.load("tusk-db-lib")
 get_connection = _db_lib.get_connection
 load_config = _db_lib.load_config
+
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
+pretty_requested = _json_lib.pretty_requested
 
 
 def capture_criterion_cost(conn: sqlite3.Connection, criterion_id: int, task_id: int, completed_at=None) -> None:
@@ -342,12 +346,12 @@ def cmd_add(args: argparse.Namespace, db_path: str, config: dict) -> int:
         conn.commit()
 
         cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-        print(json.dumps({
+        print(dumps({
             "id": cid,
             "task_id": args.task_id,
             "criterion_type": args.type,
             "source": args.source,
-        }, separators=(",", ":")))
+        }))
         return 0
     finally:
         conn.close()
@@ -375,11 +379,9 @@ def cmd_list(args: argparse.Namespace, db_path: str, config: dict) -> int:
     finally:
         conn.close()
 
-    pretty = os.environ.get("TUSK_PRETTY", "").strip().lower() in ("1", "true", "yes", "on")
-
-    if not pretty:
+    if not pretty_requested():
         payload = [dict(r) for r in rows]
-        print(json.dumps(payload, separators=(",", ":")))
+        print(dumps(payload))
         return 0
 
     if not rows:
@@ -438,13 +440,13 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
         return 2
 
     if row["is_completed"]:
-        print(json.dumps({
+        print(dumps({
             "id": criterion_id,
             "task_id": row["task_id"],
             "is_completed": True,
             "already_completed": True,
             "criterion": row["criterion"],
-        }, separators=(",", ":")))
+        }))
         return 0
 
     # Cross-task HEAD guard (issue #573): if HEAD's commit message references a
@@ -526,7 +528,7 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
     verification = None
     if criterion_type != "manual":
         verification = "skipped" if skip_verify else "passed"
-    print(json.dumps({
+    print(dumps({
         "id": criterion_id,
         "task_id": row["task_id"],
         "is_completed": True,
@@ -535,7 +537,7 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
         "commit_hash": commit_hash,
         "verification": verification,
         "skip_note": note,
-    }, separators=(",", ":")))
+    }))
     return 0
 
 
@@ -668,24 +670,24 @@ def cmd_skip(args: argparse.Namespace, db_path: str, config: dict) -> int:
             return 2
 
         if row["is_completed"]:
-            print(json.dumps({
+            print(dumps({
                 "id": args.criterion_id,
                 "task_id": row["task_id"],
                 "is_completed": True,
                 "already_completed": True,
                 "criterion": row["criterion"],
-            }, separators=(",", ":")))
+            }))
             return 0
 
         if row["is_deferred"]:
-            print(json.dumps({
+            print(dumps({
                 "id": args.criterion_id,
                 "task_id": row["task_id"],
                 "is_deferred": True,
                 "already_deferred": True,
                 "deferred_reason": row["deferred_reason"],
                 "criterion": row["criterion"],
-            }, separators=(",", ":")))
+            }))
             return 0
 
         conn.execute(
@@ -694,13 +696,13 @@ def cmd_skip(args: argparse.Namespace, db_path: str, config: dict) -> int:
             (args.reason, args.criterion_id),
         )
         conn.commit()
-        print(json.dumps({
+        print(dumps({
             "id": args.criterion_id,
             "task_id": row["task_id"],
             "is_deferred": True,
             "deferred_reason": args.reason,
             "criterion": row["criterion"],
-        }, separators=(",", ":")))
+        }))
         return 0
     finally:
         conn.close()
@@ -719,14 +721,14 @@ def cmd_reset(args: argparse.Namespace, db_path: str, config: dict) -> int:
             return 2
 
         if not row["is_completed"] and not row["is_deferred"]:
-            print(json.dumps({
+            print(dumps({
                 "id": args.criterion_id,
                 "task_id": row["task_id"],
                 "is_completed": False,
                 "is_deferred": False,
                 "already_incomplete": True,
                 "criterion": row["criterion"],
-            }, separators=(",", ":")))
+            }))
             return 0
 
         conn.execute(
@@ -738,13 +740,13 @@ def cmd_reset(args: argparse.Namespace, db_path: str, config: dict) -> int:
             (args.criterion_id,),
         )
         conn.commit()
-        print(json.dumps({
+        print(dumps({
             "id": args.criterion_id,
             "task_id": row["task_id"],
             "is_completed": False,
             "is_deferred": False,
             "criterion": row["criterion"],
-        }, separators=(",", ":")))
+        }))
         return 0
     finally:
         conn.close()
@@ -761,7 +763,7 @@ def cmd_finish_deferred(args: argparse.Namespace, db_path: str, config: dict) ->
             [args.reason] + args.task_ids,
         ).fetchall()
         if not rows:
-            print(json.dumps({"marked": 0}))
+            print(dumps({"marked": 0}))
             return 0
         ids = [r["id"] for r in rows]
         id_placeholders = ", ".join("?" for _ in ids)
@@ -772,7 +774,7 @@ def cmd_finish_deferred(args: argparse.Namespace, db_path: str, config: dict) ->
             ids,
         )
         conn.commit()
-        print(json.dumps({"marked": len(ids)}))
+        print(dumps({"marked": len(ids)}))
         return 0
     finally:
         conn.close()

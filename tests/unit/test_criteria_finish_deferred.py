@@ -132,7 +132,7 @@ def test_finish_deferred_no_match_returns_zero_marked():
 
     rc, output = _run_finish_deferred(conn, "chain", [1])
     assert rc == 0
-    assert '"marked": 0' in output
+    assert '"marked":0' in output
 
     row = conn.execute(
         "SELECT is_completed, is_deferred FROM acceptance_criteria WHERE id = 1"
