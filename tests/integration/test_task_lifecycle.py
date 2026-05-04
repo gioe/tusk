@@ -502,6 +502,28 @@ class TestTaskLifecycle:
         finally:
             conn.close()
 
+    def test_invalid_status_transition_error_names_escape_hatches(self, db_path, config_path):
+        """Issue #616: error message must point users at task-reopen / task-unstart."""
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            task_id = insert_task(conn, "Escape-hatch hint test")
+            insert_criterion(conn, task_id, "Some criterion")
+            conn.execute(
+                "UPDATE tasks SET status = 'In Progress' WHERE id = ?", (task_id,)
+            )
+            conn.commit()
+
+            with pytest.raises(sqlite3.IntegrityError) as exc_info:
+                conn.execute(
+                    "UPDATE tasks SET status = 'To Do' WHERE id = ?", (task_id,)
+                )
+            msg = str(exc_info.value)
+            assert "tusk task-reopen <id> --force" in msg
+            assert "tusk task-unstart <id> --force" in msg
+        finally:
+            conn.close()
+
     def test_task_start_warns_when_referenced_task_is_todo(self, db_path, config_path):
         """CID 172/173: task-start emits warning to stderr when description references a To Do task."""
         conn = sqlite3.connect(str(db_path))
