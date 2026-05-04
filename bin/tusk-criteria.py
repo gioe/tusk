@@ -661,14 +661,24 @@ def cmd_skip(args: argparse.Namespace, db_path: str, config: dict) -> int:
             return 2
 
         if row["is_completed"]:
-            print(f"Criterion #{args.criterion_id} is already completed")
+            print(json.dumps({
+                "id": args.criterion_id,
+                "task_id": row["task_id"],
+                "is_completed": True,
+                "already_completed": True,
+                "criterion": row["criterion"],
+            }, separators=(",", ":")))
             return 0
 
         if row["is_deferred"]:
-            print(
-                f"Criterion #{args.criterion_id} is already deferred "
-                f"(reason: {row['deferred_reason']}): {row['criterion']}"
-            )
+            print(json.dumps({
+                "id": args.criterion_id,
+                "task_id": row["task_id"],
+                "is_deferred": True,
+                "already_deferred": True,
+                "deferred_reason": row["deferred_reason"],
+                "criterion": row["criterion"],
+            }, separators=(",", ":")))
             return 0
 
         conn.execute(
@@ -677,7 +687,13 @@ def cmd_skip(args: argparse.Namespace, db_path: str, config: dict) -> int:
             (args.reason, args.criterion_id),
         )
         conn.commit()
-        print(f"Criterion #{args.criterion_id} marked as deferred (reason: {args.reason}): {row['criterion']}")
+        print(json.dumps({
+            "id": args.criterion_id,
+            "task_id": row["task_id"],
+            "is_deferred": True,
+            "deferred_reason": args.reason,
+            "criterion": row["criterion"],
+        }, separators=(",", ":")))
         return 0
     finally:
         conn.close()
