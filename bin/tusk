@@ -444,8 +444,13 @@ cmd_init() {
     recreate=1
   fi
 
-  # Copy default config if no project config exists
+  # Copy default config if no project config exists.
+  # Ensure the config's parent directory exists first — when TUSK_DB pins the
+  # database outside the project's tusk/ subdir (e.g. TUSK_DB=$TARGET/test.db),
+  # the earlier `mkdir -p "$DB_DIR"` only creates dirname(TUSK_DB), leaving
+  # $PROJECT_ROOT/tusk/ uncreated and breaking the cp below (issue #596).
   if [[ ! -f "$PROJECT_CONFIG" ]]; then
+    mkdir -p "$(dirname "$PROJECT_CONFIG")"
     cp "$DEFAULT_CONFIG" "$PROJECT_CONFIG"
     echo "Created config at $PROJECT_CONFIG — edit to set your project's domains and agents."
   fi
