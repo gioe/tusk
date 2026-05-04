@@ -71,6 +71,21 @@ class TestMergeDirtyRootFiles:
                     args, 0, stdout=f"stash@{{0}}: On main: {stash_label}\n", stderr=""
                 )
 
+            # git rev-parse --verify --quiet refs/stash: model whether any stash
+            # exists. tusk-merge calls this as a cheap presence check before
+            # `git stash list` (issue #658). When the simulated working tree is
+            # clean (dirty_file=""), no stash was pushed, so refs/stash does not
+            # resolve — return rc=1.
+            if (
+                args[0] == "git"
+                and subcmd == "rev-parse"
+                and "--verify" in args
+                and "refs/stash" in args
+            ):
+                return subprocess.CompletedProcess(
+                    args, 0 if dirty_file else 1, stdout="", stderr=""
+                )
+
             # git stash pop stash@{0}: succeed
             if args[0] == "git" and subcmd == "stash" and len(args) > 2 and args[2] == "pop":
                 return subprocess.CompletedProcess(
