@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [831] - 2026-05-04
+
+- [TASK-296] Detect inverted-polarity failing-test specs in /address-issue and offer inversion
+
 ## [830] - 2026-05-04
 
 - [TASK-295] Fix _try_pop_stash substring match colliding on TASK-id prefixes
