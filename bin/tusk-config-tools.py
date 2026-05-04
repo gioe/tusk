@@ -239,7 +239,7 @@ WHEN NOT (
   OR (OLD.status = 'In Progress' AND NEW.status = 'Done')
 )
 BEGIN
-  SELECT RAISE(ABORT, 'Invalid status transition. Done is terminal. Allowed: To Do->In Progress, To Do->Done, In Progress->Done');
+  SELECT RAISE(ABORT, 'Invalid status transition. Done is terminal. Allowed: To Do->In Progress, To Do->Done, In Progress->Done. Use ''tusk task-reopen <id> --force'' to reset Done -> To Do, or ''tusk task-unstart <id> --force'' to reverse a cleanly-orphaned In Progress -> To Do.');
 END"""
 
 
