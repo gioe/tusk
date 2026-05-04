@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [819] - 2026-05-03
+
+- [TASK-284] Improve validate_status_transition trigger error to point at task-reopen / task-unstart
+
 ## [818] - 2026-05-03
 
 - [TASK-283] review-commits: document why install-mode is the durable Codex signal and the mixed-mode caveat for repos with both .claude/ and AGENTS.md
