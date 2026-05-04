@@ -279,6 +279,19 @@ def _try_pop_stash(task_id: int) -> None:
     warning + manual-restore instruction is printed instead.
     """
     label = f"tusk-merge: auto-stash for TASK-{task_id}"
+    # Defensive: skip when there are no stashes at all. Callers already gate
+    # on `did_stash`, but the rev-parse check makes the function safe to call
+    # in isolation and avoids a spurious `git stash list` invocation when the
+    # repo has no stashes (issue #658).
+    if run(
+        ["git", "rev-parse", "--verify", "--quiet", "refs/stash"], check=False
+    ).returncode != 0:
+        print(
+            f"Warning: could not find auto-stash entry '{label}' — "
+            "run 'git stash list' and restore your changes manually.",
+            file=sys.stderr,
+        )
+        return
     stash_list = run(["git", "stash", "list"], check=False)
     stash_index: int | None = None
     found_line = False
@@ -369,6 +382,14 @@ def _drop_branch_auto_stash(task_id: int) -> None:
     Silent when no matching entry exists.
     """
     label = f"tusk-branch: auto-stash for TASK-{task_id}"
+    # Skip when there are no stashes — `refs/stash` is a single ref the daemon
+    # manages, so checking it is much cheaper than parsing `git stash list`
+    # output, and avoids the spurious 'stash list' invocation on clean working
+    # trees that have no orphan to clean up (issue #658).
+    if run(
+        ["git", "rev-parse", "--verify", "--quiet", "refs/stash"], check=False
+    ).returncode != 0:
+        return
     stash_list = run(["git", "stash", "list"], check=False)
     if stash_list.returncode != 0:
         return
