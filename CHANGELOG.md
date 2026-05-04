@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [843] - 2026-05-04
+
+- [TASK-304] Align address-issue Codex variant 2-value test_present scoring with Claude variant 3-value scheme
+
 ## [842] - 2026-05-04
 
 - [TASK-303] Restructure address-issue Step 4.7 test_present factor row — single cell holds 6 edge-case rules
