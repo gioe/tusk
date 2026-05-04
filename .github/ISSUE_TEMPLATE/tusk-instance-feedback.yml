@@ -62,6 +62,11 @@ body:
 
         • It must exit nonzero (i.e. fail) on the current, unfixed codebase.
 
+        • It must exit 0 (i.e. pass) once the bug is fixed. Avoid assertion-style polarity
+          (`test -z "$(...)"`, `test ! -e ...`, leading `!`) — those exit nonzero on BOTH broken and fixed
+          code, which blocks `tusk criteria done` after the fix lands. If you must use that style, wrap it:
+          `! ( test -z "$(...)" )` so the fixed-code state exits 0.
+
         • Do not paste code snippets, pseudocode, or inline demonstrations — these cannot be run and will
           be treated as no failing test.
 

@@ -61,6 +61,17 @@ Using the issue `title`, `body`, and `labels`, determine:
 
 Generate **3–7 acceptance criteria** from the issue body — concrete, testable conditions. For bug issues, always include a criterion that the failure case is resolved and a regression test criterion.
 
+### Failing Test Polarity Convention
+
+Every spec stored as a typed-criteria `test` (Step 4.1 → Step 6) must satisfy two invariants — Step 4.1 checks the first, Step 7.5 checks the second:
+
+1. **Exits nonzero against the broken codebase** (sandbox-validated at Step 4.1, when feasible).
+2. **Exits 0 against the fixed codebase** (re-run authoritatively at Step 7.5, post-implementation).
+
+Assertion-style specs — `test -z "$(...)"`, `test ! -e ...`, leading `!`, or any "negate the expected output" pattern — silently invert the polarity: they exit nonzero on broken AND fixed code, just for different reasons. Step 4.1 reads the broken-state nonzero as "fails as expected" and stores the spec verbatim, then `tusk criteria done` blocks merge indefinitely because the same spec still exits nonzero against the fix. Step 7.5 catches that mismatch authoritatively (issue #642, original incident TASK-287 / criterion #1291).
+
+If you must write an assertion-style reproducer, wrap it: `! ( test -z "$(...)" )` so the fixed-code state exits 0. The issue template's `failing_test` field describes the same convention from the author's side.
+
 ## Step 4.1: Extract Failing Test Criterion
 
 Scan the issue body for a `## Failing Test` section. If present:
