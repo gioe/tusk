@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [848] - 2026-05-04
+
+- [TASK-313] Fix: tusk merge calls git stash list unconditionally on clean working trees
+
 ## [847] - 2026-05-04
 
 - [TASK-310] Migrate bin/tusk-criteria.py to tusk_json_lib for TUSK_PRETTY detection and compact JSON serialization (10 sites)
