@@ -446,7 +446,7 @@ class TestSkipNote:
         assert "--note requires --skip-verify" in err.getvalue()
 
     def test_list_shows_skip_note(self):
-        """cmd_list surfaces skip_note inline when set on a completed criterion."""
+        """cmd_list surfaces skip_note when set on a completed criterion (JSON default)."""
         conn = make_db()
         # Mark criterion 1 done with a skip note
         with patch.object(criteria_mod, "capture_criterion_cost"):
@@ -458,9 +458,12 @@ class TestSkipNote:
 
         out = io.StringIO()
         args = argparse.Namespace(task_id=1)
-        with redirect_stdout(out), \
+        env_no_pretty = {k: v for k, v in os.environ.items() if k != "TUSK_PRETTY"}
+        with patch.dict(os.environ, env_no_pretty, clear=True), \
+             redirect_stdout(out), \
              patch.object(criteria_mod, "get_connection", return_value=conn):
             rc = criteria_mod.cmd_list(args, ":memory:", {})
         assert rc == 0
-        output = out.getvalue()
-        assert "[skip: legacy code path — refactor tracked in TASK-999]" in output
+        rows = json.loads(out.getvalue())
+        first = next(r for r in rows if r["id"] == 1)
+        assert first["skip_note"] == "legacy code path — refactor tracked in TASK-999"

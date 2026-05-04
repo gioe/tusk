@@ -375,6 +375,13 @@ def cmd_list(args: argparse.Namespace, db_path: str, config: dict) -> int:
     finally:
         conn.close()
 
+    pretty = os.environ.get("TUSK_PRETTY", "").strip().lower() in ("1", "true", "yes", "on")
+
+    if not pretty:
+        payload = [dict(r) for r in rows]
+        print(json.dumps(payload, separators=(",", ":")))
+        return 0
+
     if not rows:
         print(f"No acceptance criteria for task #{args.task_id}: {task['summary']}")
         return 0
