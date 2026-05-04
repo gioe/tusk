@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [830] - 2026-05-04
+
+- [TASK-295] Fix _try_pop_stash substring match colliding on TASK-id prefixes
+
 ## [829] - 2026-05-04
 
 - [TASK-294] Fix: tusk merge push-fail retry hint should include re-running tusk merge
