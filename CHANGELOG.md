@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [846] - 2026-05-04
+
+- [TASK-309] Audit other [TASK-N] grep call sites for prefix-match false positives
+
 ## [845] - 2026-05-04
 
 - [TASK-312] Audit and migrate eligible bare json.dumps() sites in bin/tusk-*.py to tusk_json_lib
