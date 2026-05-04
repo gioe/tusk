@@ -23,7 +23,6 @@ import argparse
 import json
 import os
 import sqlite3
-import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
