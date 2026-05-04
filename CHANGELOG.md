@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [829] - 2026-05-04
+
+- [TASK-294] Fix: tusk merge push-fail retry hint should include re-running tusk merge
+
 ## [828] - 2026-05-04
 
 - [TASK-293] Drop deferred_review_comments references from skills/retro/FULL-RETRO.md
