@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [847] - 2026-05-04
+
+- [TASK-310] Migrate bin/tusk-criteria.py to tusk_json_lib for TUSK_PRETTY detection and compact JSON serialization (10 sites)
+
 ## [846] - 2026-05-04
 
 - [TASK-309] Audit other [TASK-N] grep call sites for prefix-match false positives
