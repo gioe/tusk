@@ -159,6 +159,48 @@ Scan the issue body for a `## Failing Test` section. If present:
      Set `test_spec=null`, score `test_present="no"`, and inform:
      > The `## Failing Test` spec produced a command error
      > (`<first line of SPEC_STDERR>`). Treating as no failing test.
+   - **Interpreter wrapper bypass** (exit nonzero AND NOT 126/127,
+     with stderr containing one of the canonical missing-executable
+     signatures from a language interpreter) — the spec is wrapped
+     in a runtime (`python3 -c '<body>'`, `node -e '<body>'`,
+     `ruby -e '<body>'`, `perl -e '<body>'`, etc.) whose interpreter
+     itself runs cleanly on `/usr/bin:/bin` but whose body
+     subprocesses an unreachable project tool. The "Command error"
+     branch above only fires for exit 126/127; the language runtime
+     instead exits 1 and surfaces the missing executable through its
+     own exception machinery. Recognize this case by these stderr
+     signatures, extracting `<token>`:
+     - **Python** — `FileNotFoundError: [Errno 2] No such file or
+       directory: '<token>'`
+     - **Node** — `Error: spawn <token> ENOENT` or trailing
+       `<token> ENOENT`
+     - **Ruby** — `Errno::ENOENT: No such file or directory - <token>`
+     - **Perl** — `Can't exec "<token>": No such file or directory`
+     - **Generic child-process** — any line ending
+       `<token>: No such file or directory` where `<token>` is a bare
+       command name (no path component)
+
+     Strip any path component from `<token>` (e.g. `bin/tusk` →
+     `tusk`) and check whether the basename resolves on
+     `PATH=/usr/bin:/bin` via `command -v`. If it does NOT resolve,
+     the inner subprocess could not validate under the sandbox's
+     safety constraints — the sandbox cannot tell whether the bug
+     actually fails. Set `test_spec=null`, score `test_present="no"`,
+     and inform:
+     > The `## Failing Test` spec is an interpreter wrapper whose
+     > inner subprocess could not reach `<token>`
+     > (sandbox PATH = `/usr/bin:/bin`). The bug was not reproduced
+     > under sandbox; treating as no failing test. Failing-test
+     > verification deferred to `tusk criteria done` after task
+     > creation.
+
+     If the extracted `<token>` IS on `/usr/bin:/bin` (the inner
+     subprocess called a system tool that genuinely failed) or no
+     recognized signature matches the stderr, fall through to the
+     "Exit nonzero, no command error" bullet above (treat as a real
+     failure). Adding a new interpreter or runtime is a one-line
+     change — append the language's canonical missing-executable
+     signature to the table above.
 
 3. **If no `## Failing Test` section is found**, set
    `test_spec = null`. No test criterion is added in Step 6. For
