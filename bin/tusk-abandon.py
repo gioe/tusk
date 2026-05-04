@@ -50,6 +50,7 @@ _merge = tusk_loader.load("tusk-merge")
 find_task_branch = _merge.find_task_branch
 detect_default_branch = _merge.detect_default_branch
 _autodetect_session = _merge._autodetect_session
+_drop_branch_auto_stash = _merge._drop_branch_auto_stash
 
 
 # Reasons that map to the no-commit closure path. expired/completed are
@@ -313,6 +314,13 @@ def main(argv: list[str]) -> int:
                 f"{delete.stderr.strip()}",
                 file=sys.stderr,
             )
+
+    # Drop any leftover `tusk-branch: auto-stash for TASK-<id>` entry created
+    # by `tusk branch <id>` when the working tree was dirty at task-start.
+    # That dirty state cannot belong to this task (no work had happened yet),
+    # so it is unrelated leftover state regardless of whether the task ships
+    # via `tusk merge` or is abandoned (issue #647 — sibling of #644).
+    _drop_branch_auto_stash(task_id)
 
     # Close the session (mirrors tusk merge step 2)
     print(f"Closing session {session_id}...", file=sys.stderr)
