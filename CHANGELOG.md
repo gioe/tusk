@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [823] - 2026-05-04
+
+- [TASK-288] Reject silent positional-arg drops in remaining tusk dispatcher arms
+
 ## [822] - 2026-05-03
 
 - [TASK-287] Fix: tusk shell silently swallows positional SQL argument
