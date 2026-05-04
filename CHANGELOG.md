@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [841] - 2026-05-04
+
+- [TASK-301] Migrate bin/tusk-deps.py to tusk_json_lib for TUSK_PRETTY detection and compact JSON serialization (5 sites)
+
 ## [840] - 2026-05-04
 
 - [TASK-308] Apply prefix-collision file-overlap heuristic in tusk merge before skipping ff and deleting branch
