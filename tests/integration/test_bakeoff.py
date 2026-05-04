@@ -1199,10 +1199,10 @@ class TestDeleteShadowRowsChildCleanup:
     """TASK-127: _delete_shadow_rows must sweep the full child set.
 
     Seeds every table listed in the deferred finding — task_sessions,
-    task_progress, skill_runs, code_reviews, review_comments (both review_id
-    and deferred_task_id paths), tool_call_stats, tool_call_events — against
-    a shadow task, calls _delete_shadow_rows directly, and asserts each child
-    row is gone. Sidesteps open-session refusals and git/worktree plumbing by
+    task_progress, skill_runs, code_reviews, review_comments (via the
+    review_id path), tool_call_stats, tool_call_events — against a shadow
+    task, calls _delete_shadow_rows directly, and asserts each child row is
+    gone. Sidesteps open-session refusals and git/worktree plumbing by
     exercising the helper in isolation.
     """
 
@@ -1244,21 +1244,6 @@ class TestDeleteShadowRowsChildCleanup:
                 "INSERT INTO review_comments (review_id, comment) "
                 "VALUES (?, 'direct child via review_id')",
                 (review_id,),
-            )
-
-            # deferred_task_id back-reference: a review on the SOURCE task
-            # whose comment points at the shadow as the deferred follow-up.
-            cur = conn.execute(
-                "INSERT INTO code_reviews (task_id, reviewer, status) "
-                "VALUES (?, 'stub-reviewer', 'approved')",
-                (source_id,),
-            )
-            foreign_review_id = cur.lastrowid
-            conn.execute(
-                "INSERT INTO review_comments (review_id, comment, "
-                "resolution, deferred_task_id) "
-                "VALUES (?, 'back-ref via deferred_task_id', 'deferred', ?)",
-                (foreign_review_id, target),
             )
 
             conn.execute(
@@ -1329,10 +1314,6 @@ class TestDeleteShadowRowsChildCleanup:
                 review_id,
             ) == 0, "review_comments via review_id must be deleted"
             assert scalar(
-                "SELECT COUNT(*) FROM review_comments WHERE deferred_task_id = ?",
-                target,
-            ) == 0, "review_comments back-ref via deferred_task_id must be deleted"
-            assert scalar(
                 "SELECT COUNT(*) FROM tool_call_stats "
                 "WHERE task_id = ? OR session_id = ? OR skill_run_id = ?",
                 target, session_id, skill_run_id,
@@ -1351,13 +1332,5 @@ class TestDeleteShadowRowsChildCleanup:
             assert scalar(
                 "SELECT COUNT(*) FROM tasks WHERE id = ?", source_id
             ) == 1, "source task must remain"
-            assert scalar(
-                "SELECT COUNT(*) FROM code_reviews WHERE task_id = ?",
-                source_id,
-            ) == 1, (
-                "source-task code_review must remain — only the "
-                "review_comments row back-referencing the shadow is deleted, "
-                "the unrelated parent review stays put"
-            )
         finally:
             conn.close()

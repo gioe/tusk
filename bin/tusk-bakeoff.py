@@ -676,10 +676,10 @@ def _delete_shadow_rows(conn: sqlite3.Connection, shadow_ids: list[int]) -> None
     PRAGMA foreign_keys is a per-connection pragma (OFF by default), so other
     readers of the tusk DB cannot rely on ON DELETE CASCADE firing on the
     shadow's children. Sweep the full child set explicitly: task_sessions,
-    task_progress, skill_runs, code_reviews, review_comments (both the
-    review_id path and the deferred_task_id back-reference), tool_call_stats,
-    and tool_call_events — routed through pivot ids (session/skill_run/review)
-    so rows linked only via those intermediates are cleaned too.
+    task_progress, skill_runs, code_reviews, review_comments (via the
+    review_id path), tool_call_stats, and tool_call_events — routed through
+    pivot ids (session/skill_run/review) so rows linked only via those
+    intermediates are cleaned too.
     """
     for sid in shadow_ids:
         session_ids = [
@@ -719,11 +719,6 @@ def _delete_shadow_rows(conn: sqlite3.Connection, shadow_ids: list[int]) -> None
             conn.execute(
                 "DELETE FROM review_comments WHERE review_id = ?", (rvid,)
             )
-        # review_comments.deferred_task_id has no ON DELETE clause — the FK
-        # would otherwise block the parent DELETE under foreign_keys=ON.
-        conn.execute(
-            "DELETE FROM review_comments WHERE deferred_task_id = ?", (sid,)
-        )
         conn.execute("DELETE FROM code_reviews WHERE task_id = ?", (sid,))
 
         conn.execute("DELETE FROM skill_runs WHERE task_id = ?", (sid,))

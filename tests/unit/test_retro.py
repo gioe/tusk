@@ -73,8 +73,7 @@ CREATE TABLE review_comments (
     category TEXT,
     severity TEXT,
     comment TEXT NOT NULL,
-    resolution TEXT,
-    deferred_task_id INTEGER
+    resolution TEXT
 );
 CREATE TABLE tool_call_stats (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -154,7 +153,7 @@ class TestCombinedShape:
         # build_signals always populates the same set of keys, even when empty.
         assert set(signals.keys()) == {
             "task_id", "complexity", "reopen_count", "rework_chain",
-            "review_themes", "deferred_review_comments", "skipped_criteria",
+            "review_themes", "skipped_criteria",
             "tool_call_outliers", "tool_errors", "unconsumed_next_steps",
         }
         assert signals["task_id"] == 1

@@ -405,18 +405,11 @@ def cmd_list(args: argparse.Namespace, db_path: str) -> int:
 
 def cmd_resolve(args: argparse.Namespace, db_path: str) -> int:
     """Update a comment's resolution field."""
-    valid_resolutions = ("fixed", "deferred", "dismissed")
+    valid_resolutions = ("fixed", "dismissed")
     if args.resolution not in valid_resolutions:
+        valid_str = ", ".join(valid_resolutions)
         print(
-            f"Error: Invalid resolution '{args.resolution}'. Valid: {', '.join(valid_resolutions)}",
-            file=sys.stderr,
-        )
-        return 2
-
-    deferred_task_id = getattr(args, "deferred_task_id", None)
-    if deferred_task_id is not None and args.resolution != "deferred":
-        print(
-            "Error: --deferred-task-id is only valid with resolution='deferred'",
+            f"Error: Invalid resolution '{args.resolution}'. Valid: {valid_str}",
             file=sys.stderr,
         )
         return 2
@@ -431,23 +424,15 @@ def cmd_resolve(args: argparse.Namespace, db_path: str) -> int:
             print(f"Error: Comment {args.comment_id} not found", file=sys.stderr)
             return 2
 
-        if deferred_task_id is not None:
-            conn.execute(
-                "UPDATE review_comments SET resolution = ?, deferred_task_id = ?,"
-                " updated_at = datetime('now') WHERE id = ?",
-                (args.resolution, deferred_task_id, args.comment_id),
-            )
-        else:
-            conn.execute(
-                "UPDATE review_comments SET resolution = ?, updated_at = datetime('now') WHERE id = ?",
-                (args.resolution, args.comment_id),
-            )
+        conn.execute(
+            "UPDATE review_comments SET resolution = ?, updated_at = datetime('now') WHERE id = ?",
+            (args.resolution, args.comment_id),
+        )
         conn.commit()
     finally:
         conn.close()
 
-    suffix = f" (deferred_task_id={deferred_task_id})" if deferred_task_id is not None else ""
-    print(f"Comment #{args.comment_id} marked '{args.resolution}'{suffix}: {comment['comment'][:60]}")
+    print(f"Comment #{args.comment_id} marked '{args.resolution}': {comment['comment'][:60]}")
     return 0
 
 
@@ -648,7 +633,6 @@ def cmd_status(args: argparse.Namespace, db_path: str) -> int:
             "  COUNT(c.id) as total_comments,"
             "  SUM(CASE WHEN c.id IS NOT NULL AND c.resolution IS NULL THEN 1 ELSE 0 END) as open_comments,"
             "  SUM(CASE WHEN c.id IS NOT NULL AND c.resolution = 'fixed' THEN 1 ELSE 0 END) as fixed_comments,"
-            "  SUM(CASE WHEN c.id IS NOT NULL AND c.resolution = 'deferred' THEN 1 ELSE 0 END) as deferred_comments,"
             "  SUM(CASE WHEN c.id IS NOT NULL AND c.resolution = 'dismissed' THEN 1 ELSE 0 END) as dismissed_comments"
             " FROM code_reviews r"
             " LEFT JOIN review_comments c ON c.review_id = r.id"
@@ -674,7 +658,6 @@ def cmd_status(args: argparse.Namespace, db_path: str) -> int:
                     "total": r["total_comments"] or 0,
                     "open": r["open_comments"] or 0,
                     "fixed": r["fixed_comments"] or 0,
-                    "deferred": r["deferred_comments"] or 0,
                     "dismissed": r["dismissed_comments"] or 0,
                 },
             }
@@ -874,7 +857,7 @@ def main():
     add_comment_p.add_argument("--file", default=None, help="File path")
     add_comment_p.add_argument("--line-start", type=int, default=None, help="Starting line number")
     add_comment_p.add_argument("--line-end", type=int, default=None, help="Ending line number")
-    add_comment_p.add_argument("--category", default=None, help="Finding category (e.g., must_fix, suggest, defer)")
+    add_comment_p.add_argument("--category", default=None, help="Finding category (e.g., must_fix, suggest)")
     add_comment_p.add_argument("--severity", default=None, help="Severity (e.g., critical, major, minor)")
 
     # list
@@ -884,14 +867,7 @@ def main():
     # resolve
     resolve_p = subparsers.add_parser("resolve", help="Resolve a review comment")
     resolve_p.add_argument("comment_id", type=int, help="Comment ID")
-    resolve_p.add_argument("resolution", choices=["fixed", "deferred", "dismissed"], help="Resolution status")
-    resolve_p.add_argument(
-        "--deferred-task-id",
-        dest="deferred_task_id",
-        type=int,
-        default=None,
-        help="Task ID created from this deferred finding (only valid with resolution='deferred')",
-    )
+    resolve_p.add_argument("resolution", choices=["fixed", "dismissed"], help="Resolution status")
 
     # approve
     approve_p = subparsers.add_parser("approve", help="Approve a review")

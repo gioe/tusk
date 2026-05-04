@@ -84,8 +84,7 @@ CREATE TABLE review_comments (
     category TEXT,
     severity TEXT,
     comment TEXT NOT NULL,
-    resolution TEXT,
-    deferred_task_id INTEGER
+    resolution TEXT
 );
 CREATE TABLE tool_call_stats (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -265,87 +264,6 @@ class TestReviewThemes:
         assert t["sample"].endswith("…")  # was truncated
 
 
-# ── deferred_review_comments ──────────────────────────────────────────
-
-
-class TestDeferredReviewComments:
-    def test_empty_when_no_reviews(self, tmp_path):
-        db_path, conn = _make_db(tmp_path, task_id=1)
-        conn.close()
-        c = sqlite3.connect(db_path)
-        c.row_factory = sqlite3.Row
-        assert mod.fetch_deferred_review_comments(c, 1) == []
-
-    def test_only_deferred_resolution_is_returned(self, tmp_path):
-        db_path, conn = _make_db(tmp_path, task_id=1)
-        conn.executescript("""
-            INSERT INTO code_reviews (id, task_id) VALUES (1, 1);
-            INSERT INTO review_comments
-                (review_id, file_path, category, severity, comment, resolution, deferred_task_id)
-                VALUES (1, 'src/a.py', 'correctness', 'high', 'fixed in place', 'fixed', NULL);
-            INSERT INTO review_comments
-                (review_id, file_path, category, severity, comment, resolution, deferred_task_id)
-                VALUES (1, 'src/b.py', 'style', 'low', 'not worth it', 'dismissed', NULL);
-            INSERT INTO review_comments
-                (review_id, file_path, category, severity, comment, resolution, deferred_task_id)
-                VALUES (1, 'src/c.py', 'security', 'high', 'punted to follow-up', 'deferred', 42);
-            -- NULL resolution (unresolved) should also be excluded.
-            INSERT INTO review_comments
-                (review_id, file_path, category, severity, comment)
-                VALUES (1, 'src/d.py', 'perf', 'medium', 'still pending review');
-        """)
-        conn.commit()
-        conn.row_factory = sqlite3.Row
-        out = mod.fetch_deferred_review_comments(conn, 1)
-        assert len(out) == 1
-        row = out[0]
-        assert row["category"] == "security"
-        assert row["severity"] == "high"
-        assert row["file_path"] == "src/c.py"
-        assert row["deferred_task_id"] == 42
-        assert row["sample"] == "punted to follow-up"
-
-    def test_filters_to_task_and_truncates_sample(self, tmp_path):
-        db_path, conn = _make_db(tmp_path, task_id=1)
-        long_body = "y" * 500  # proves sample is truncated, not raw-passed
-        conn.executescript("""
-            INSERT INTO tasks (id, summary) VALUES (2, 'other');
-            INSERT INTO code_reviews (id, task_id) VALUES (1, 1);
-            INSERT INTO code_reviews (id, task_id) VALUES (2, 2);
-        """)
-        conn.execute(
-            "INSERT INTO review_comments "
-            "(review_id, file_path, category, severity, comment, resolution, deferred_task_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (1, "src/a.py", "correctness", "high", long_body, "deferred", 99),
-        )
-        conn.execute(
-            "INSERT INTO review_comments "
-            "(review_id, file_path, category, severity, comment, resolution, deferred_task_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (2, "src/z.py", "correctness", "high", "other task — ignored", "deferred", 77),
-        )
-        conn.commit()
-        conn.row_factory = sqlite3.Row
-        out = mod.fetch_deferred_review_comments(conn, 1)
-        assert len(out) == 1  # other-task row filtered out
-        assert out[0]["deferred_task_id"] == 99
-        assert len(out[0]["sample"]) <= mod.REVIEW_SAMPLE_MAX_CHARS
-        assert out[0]["sample"].endswith("…")
-
-    def test_allows_null_deferred_task_id(self, tmp_path):
-        db_path, conn = _make_db(tmp_path, task_id=1)
-        conn.executescript("""
-            INSERT INTO code_reviews (id, task_id) VALUES (1, 1);
-            INSERT INTO review_comments
-                (review_id, file_path, category, severity, comment, resolution, deferred_task_id)
-                VALUES (1, 'src/a.py', 'style', 'low', 'deferred w/o linked task', 'deferred', NULL);
-        """)
-        conn.commit()
-        conn.row_factory = sqlite3.Row
-        out = mod.fetch_deferred_review_comments(conn, 1)
-        assert len(out) == 1
-        assert out[0]["deferred_task_id"] is None
 
 
 # ── skipped_criteria ──────────────────────────────────────────────────
@@ -726,7 +644,7 @@ class TestMainOutput:
         data = json.loads(stdout)
         assert set(data.keys()) == {
             "task_id", "complexity", "reopen_count", "rework_chain",
-            "review_themes", "deferred_review_comments",
+            "review_themes",
             "skipped_criteria", "tool_call_outliers", "tool_errors",
             "unconsumed_next_steps",
         }
@@ -734,7 +652,6 @@ class TestMainOutput:
         assert data["reopen_count"] == 0
         assert data["rework_chain"] == {"fixes": [], "fixed_by": []}
         assert data["review_themes"] == []
-        assert data["deferred_review_comments"] == []
         assert data["skipped_criteria"] == []
         assert data["tool_call_outliers"] == []
         assert data["tool_errors"] == []

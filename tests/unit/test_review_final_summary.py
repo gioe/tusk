@@ -1,11 +1,9 @@
 """Unit tests for tusk-review-final-summary.py.
 
-Covers (per TASK-116 criterion 513):
+Covers:
 - APPROVED verdict rendering (no open must_fix) with a representative comment mix
 - CHANGES_REMAINING verdict rendering, including the APPROVED/CHANGES_REMAINING →
   "CHANGES REMAINING" display-label mapping (space, not underscore)
-- Deferred-task creation is distinguished from skipped-duplicates via
-  review_comments.deferred_task_id (populated = created, NULL = skipped)
 - Superseded-review comments still count toward cumulative totals but NOT
   toward the verdict (mirrors tusk-review.py cmd_verdict)
 
@@ -49,7 +47,6 @@ CREATE TABLE review_comments (
     severity TEXT,
     comment TEXT NOT NULL,
     resolution TEXT DEFAULT NULL,
-    deferred_task_id INTEGER,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -85,11 +82,11 @@ def _insert_review(conn, review_id, task_id=42, status="approved", review_pass=1
     )
 
 
-def _insert_comment(conn, comment_id, review_id, category, resolution=None, deferred_task_id=None):
+def _insert_comment(conn, comment_id, review_id, category, resolution=None):
     conn.execute(
-        "INSERT INTO review_comments (id, review_id, category, severity, comment, resolution, deferred_task_id)"
-        " VALUES (?, ?, ?, 'minor', ?, ?, ?)",
-        (comment_id, review_id, category, f"{category} #{comment_id}", resolution, deferred_task_id),
+        "INSERT INTO review_comments (id, review_id, category, severity, comment, resolution)"
+        " VALUES (?, ?, ?, 'minor', ?, ?)",
+        (comment_id, review_id, category, f"{category} #{comment_id}", resolution),
     )
 
 
@@ -105,10 +102,6 @@ class TestApprovedVerdict:
         _insert_comment(conn, 20, 1, "suggest", resolution="fixed")
         _insert_comment(conn, 21, 1, "suggest", resolution="dismissed")
         _insert_comment(conn, 22, 1, "suggest", resolution=None)
-        # defer: 3 found; 2 created tasks (deferred_task_id set), 1 skipped (NULL)
-        _insert_comment(conn, 30, 1, "defer", resolution="deferred", deferred_task_id=101)
-        _insert_comment(conn, 31, 1, "defer", resolution="deferred", deferred_task_id=102)
-        _insert_comment(conn, 32, 1, "defer", resolution="deferred", deferred_task_id=None)
         conn.commit()
 
         code, out, err = _run_cli(db_path, 1)
@@ -117,7 +110,7 @@ class TestApprovedVerdict:
         assert "Pass:      1" in out
         assert "must_fix:  2 found, 2 fixed" in out
         assert "suggest:   3 found, 1 fixed, 1 dismissed" in out
-        assert "defer:     3 found, 2 tasks created, 1 skipped (duplicate)" in out
+        assert "defer:" not in out
         assert "Verdict: APPROVED" in out
         # The machine-ID form must not leak into the display label
         assert "CHANGES_REMAINING" not in out
@@ -133,7 +126,7 @@ class TestApprovedVerdict:
         assert "Pass:      2" in out
         assert "must_fix:  0 found, 0 fixed" in out
         assert "suggest:   0 found, 0 fixed, 0 dismissed" in out
-        assert "defer:     0 found, 0 tasks created, 0 skipped (duplicate)" in out
+        assert "defer:" not in out
         assert "Verdict: APPROVED" in out
 
 
@@ -146,14 +139,13 @@ class TestChangesRemainingVerdict:
         _insert_comment(conn, 10, 1, "must_fix", resolution=None)
         _insert_comment(conn, 11, 1, "must_fix", resolution="fixed")
         _insert_comment(conn, 20, 1, "suggest", resolution="dismissed")
-        _insert_comment(conn, 30, 1, "defer", resolution="deferred", deferred_task_id=None)
         conn.commit()
 
         code, out, err = _run_cli(db_path, 1)
         assert code == 0, err
         assert "must_fix:  2 found, 1 fixed" in out
         assert "suggest:   1 found, 0 fixed, 1 dismissed" in out
-        assert "defer:     1 found, 0 tasks created, 1 skipped (duplicate)" in out
+        assert "defer:" not in out
         assert "Verdict: CHANGES REMAINING" in out
         # The raw machine form must not appear in output
         assert "CHANGES_REMAINING" not in out

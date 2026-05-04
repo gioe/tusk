@@ -10,16 +10,13 @@ across all of that task's reviews (including superseded passes) to produce:
 
     must_fix:  <found> found, <fixed> fixed
     suggest:   <found> found, <fixed> fixed, <dismissed> dismissed
-    defer:     <found> found, <created> tasks created, <skipped> skipped (duplicate)
 
     Verdict: <APPROVED | CHANGES REMAINING>
 
 The verdict matches `tusk review verdict`: APPROVED when no open must_fix
 comments remain on non-superseded reviews, CHANGES_REMAINING otherwise. The
 machine verdict is mapped to the display label ("CHANGES REMAINING" with a
-space) before printing. Deferred-task creation is distinguished from
-skipped-duplicates via `review_comments.deferred_task_id` — populated means a
-task was created, NULL means the deferred finding was skipped (dupe).
+space) before printing.
 
 Usage:
     tusk review-final-summary <review_id>
@@ -52,7 +49,7 @@ def _counts_for_task(conn: sqlite3.Connection, task_id: int) -> dict:
     review journey, not just the last pass.
     """
     rows = conn.execute(
-        "SELECT rc.category, rc.resolution, rc.deferred_task_id"
+        "SELECT rc.category, rc.resolution"
         " FROM review_comments rc"
         " JOIN code_reviews cr ON cr.id = rc.review_id"
         " WHERE cr.task_id = ?",
@@ -62,7 +59,6 @@ def _counts_for_task(conn: sqlite3.Connection, task_id: int) -> dict:
     counts = {
         "must_fix": {"found": 0, "fixed": 0},
         "suggest": {"found": 0, "fixed": 0, "dismissed": 0},
-        "defer": {"found": 0, "created": 0, "skipped": 0},
     }
     for r in rows:
         cat = r["category"]
@@ -77,13 +73,6 @@ def _counts_for_task(conn: sqlite3.Connection, task_id: int) -> dict:
                 counts["suggest"]["fixed"] += 1
             elif res == "dismissed":
                 counts["suggest"]["dismissed"] += 1
-        elif cat == "defer":
-            counts["defer"]["found"] += 1
-            if res == "deferred":
-                if r["deferred_task_id"] is not None:
-                    counts["defer"]["created"] += 1
-                else:
-                    counts["defer"]["skipped"] += 1
     return counts
 
 
@@ -130,7 +119,6 @@ def render_summary(review_id: int, db_path: str) -> int:
 
     mf = counts["must_fix"]
     sg = counts["suggest"]
-    df = counts["defer"]
 
     print(f"Review complete for Task {task_id}: {task_summary}")
     print(DIVIDER)
@@ -138,7 +126,6 @@ def render_summary(review_id: int, db_path: str) -> int:
     print()
     print(f"must_fix:  {mf['found']} found, {mf['fixed']} fixed")
     print(f"suggest:   {sg['found']} found, {sg['fixed']} fixed, {sg['dismissed']} dismissed")
-    print(f"defer:     {df['found']} found, {df['created']} tasks created, {df['skipped']} skipped (duplicate)")
     print()
     print(f"Verdict: {verdict_label}")
     return 0

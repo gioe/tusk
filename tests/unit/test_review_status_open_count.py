@@ -47,7 +47,6 @@ STATUS_QUERY = (
     "  COUNT(c.id) as total_comments,"
     "  SUM(CASE WHEN c.id IS NOT NULL AND c.resolution IS NULL THEN 1 ELSE 0 END) as open_comments,"
     "  SUM(CASE WHEN c.id IS NOT NULL AND c.resolution = 'fixed' THEN 1 ELSE 0 END) as fixed_comments,"
-    "  SUM(CASE WHEN c.id IS NOT NULL AND c.resolution = 'deferred' THEN 1 ELSE 0 END) as deferred_comments,"
     "  SUM(CASE WHEN c.id IS NOT NULL AND c.resolution = 'dismissed' THEN 1 ELSE 0 END) as dismissed_comments"
     " FROM code_reviews r"
     " LEFT JOIN review_comments c ON c.review_id = r.id"
