@@ -342,8 +342,12 @@ def cmd_add(args: argparse.Namespace, db_path: str, config: dict) -> int:
         conn.commit()
 
         cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-        type_suffix = f" (type: {args.type})" if args.type != "manual" else ""
-        print(f"Added criterion #{cid} to task #{args.task_id}{type_suffix}")
+        print(json.dumps({
+            "id": cid,
+            "task_id": args.task_id,
+            "criterion_type": args.type,
+            "source": args.source,
+        }, separators=(",", ":")))
         return 0
     finally:
         conn.close()
