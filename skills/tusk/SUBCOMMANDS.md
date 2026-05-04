@@ -11,6 +11,8 @@ tusk task-done <id> --reason completed
 ```
 
 > **Note:** This is for manual out-of-workflow use only (e.g. closing a task without a branch). When finishing a task through the normal dev workflow, always use `tusk merge <id> --session $SESSION_ID` (step 12) — it handles session close, branch merge, push, and task closure together. Never pass `--session` to `tusk task-done`.
+>
+> **Convergent-completion (no commits to ship):** If the task's goal was already satisfied by separate work landing on the default branch — there's nothing left to merge — use `tusk abandon <id> --reason completed --session $SESSION_ID --note "<which work satisfied it>"` instead of this command. That keeps closure inside the standard /tusk Step 12 flow (session-close + task-done + branch cleanup + audit-trail note) without inventing a manual sequence.
 
 ## View Task Details
 

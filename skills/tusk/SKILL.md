@@ -292,10 +292,15 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     ```
     This squash-merges via `gh pr merge` instead of a local fast-forward.
 
-    **No-commit closure (`wont_do` / `duplicate`):** If the task should be closed *without* shipping any code — an evaluation/spike whose answer is "don't do it", or a task that turns out to be a duplicate — use `tusk abandon` instead of `tusk merge`:
+    **No-commit closure (`wont_do` / `duplicate` / `completed`):** If the task should be closed *without* shipping any code, use `tusk abandon` instead of `tusk merge`:
     ```bash
-    tusk abandon <id> --reason wont_do|duplicate --session $SESSION_ID [--note "<rationale>"]
+    tusk abandon <id> --reason wont_do|duplicate|completed --session $SESSION_ID [--note "<rationale>"]
     ```
+    Three reason values are accepted:
+    - **`wont_do`** — an evaluation/spike whose answer is "don't do it".
+    - **`duplicate`** — the task turns out to overlap an already-tracked one.
+    - **`completed`** — *convergent-completion* (issue #580): the goal was met by separate work landing on the default branch between filing and pickup, so there is nothing left to ship. Pass `--note "<rationale>"` and reference the task(s) or commit(s) that satisfied the goal — `tusk abandon` records it on `task_progress` as `[abandon: completed] <note>`, which is the audit signal that distinguishes this case from a normal `tusk merge` close (no `[TASK-N]` commits will be on the default branch for this task either).
+
     `tusk abandon` switches off the feature branch, deletes it (force), closes the session, and marks the task Done with the given `closed_reason` in one call. **Refuses** if the feature branch has commits not on the default branch — in that case use `tusk merge` to ship the work, or delete the branch manually if you really want to discard it. The optional `--note` records the decision rationale on `task_progress` so the audit trail survives. After `tusk abandon` exits 0, run `/retro` exactly as you would after `tusk merge`.
 
     After `tusk merge` (or `tusk abandon`) exits 0, close out the /tusk skill-run so its cost is captured before `/retro` starts its own run:
