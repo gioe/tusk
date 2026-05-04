@@ -990,6 +990,10 @@ cmd_regen_triggers() {
 }
 
 cmd_shell() {
+  if [[ $# -gt 0 ]]; then
+    echo "tusk shell: takes no arguments — use 'tusk -column -header \"<SQL>\"' for one-off queries" >&2
+    return 1
+  fi
   exec sqlite3 -header -column -cmd "PRAGMA foreign_keys = ON;" "$DB_PATH"
 }
 
@@ -1538,7 +1542,7 @@ case "${1:-}" in
   generate-manifest) shift; exec python3 "$SCRIPT_DIR/tusk-generate-manifest.py" "$@" ;;
   pricing-update) shift; exec python3 "$SCRIPT_DIR/tusk-pricing-update.py" "$@" ;;
   wsjf) shift; exec python3 "$SCRIPT_DIR/tusk-wsjf.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
-  shell)  cmd_shell ;;
+  shell)  shift; cmd_shell "$@" ;;
   version) cmd_version ;;
   version-bump) cmd_version_bump ;;
   report-issue) shift; cmd_report_issue "$@" ;;
