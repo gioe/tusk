@@ -366,6 +366,32 @@ def cmd_list(args: argparse.Namespace, db_path: str) -> int:
     finally:
         conn.close()
 
+    if not _json_lib.pretty_requested():
+        payload = [
+            {
+                "id": rev["id"],
+                "reviewer": rev["reviewer"],
+                "status": rev["status"],
+                "review_pass": rev["review_pass"],
+                "created_at": rev["created_at"],
+                "comments": [
+                    {
+                        "id": c["id"],
+                        "file_path": c["file_path"],
+                        "line_start": c["line_start"],
+                        "category": c["category"],
+                        "severity": c["severity"],
+                        "comment": c["comment"],
+                        "resolution": c["resolution"],
+                    }
+                    for c in all_comments.get(rev["id"], [])
+                ],
+            }
+            for rev in reviews
+        ]
+        print(dumps(payload))
+        return 0
+
     if not reviews:
         print(f"No reviews for task #{args.task_id}: {task['summary']}")
         return 0

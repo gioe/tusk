@@ -108,14 +108,16 @@ def list_dependencies(conn: sqlite3.Connection, task_id: int, json_output: bool 
         ORDER BY t.id
     """, (task_id,)).fetchall()
 
-    if json_output:
+    pretty = os.environ.get("TUSK_PRETTY", "").strip().lower() in ("1", "true", "yes", "on")
+
+    if json_output or not pretty:
         print(json.dumps([{
             "id": d["id"],
             "summary": d["summary"],
             "status": d["status"],
             "priority": d["priority"],
             "relationship_type": d["relationship_type"] or "blocks",
-        } for d in deps]))
+        } for d in deps], separators=(",", ":")))
         return 0
 
     task_summary = get_task_summary(conn, task_id)
