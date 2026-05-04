@@ -16,7 +16,7 @@ Output JSON:
         "files": ["path/that/exists", ...],
         "default_branch_commits": ["sha1", ...],
         "default_branch_commit_files": ["path/changed/by/default/commits", ...],
-        "recommendation": "commits_found" | "merged_not_closed" | "merged_not_closed_low_confidence" | "mark_done" | "implement_fresh"
+        "recommendation": "commits_found" | "merged_not_closed" | "merged_not_closed_low_confidence" | "mark_done" | "criteria_complete_no_commits" | "implement_fresh"
     }
 
 Recommendations:
@@ -24,7 +24,8 @@ Recommendations:
     "merged_not_closed"                   — commits already on the default branch and their diff overlaps with task scope (or there is no scope signal to compare) — skip implementation, go straight to finalize
     "merged_not_closed_low_confidence"    — commits exist on the default branch but their diff doesn't overlap with files referenced in the task or with files modified on any feature branch — likely a [TASK-N] prefix-match false positive — verify before acting
     "mark_done"                           — no commits, but deliverable files found on disk — mark criteria done and merge
-    "implement_fresh"                     — no commits, no files found — proceed with implementation
+    "criteria_complete_no_commits"        — every non-deferred acceptance criterion is marked is_completed=1 but there are no [TASK-N] commits anywhere and no deliverable files on disk — salvage / converged-work / speculative-mark signal — investigate before re-implementing
+    "implement_fresh"                     — no commits, no files found, and at least one criterion is still incomplete (or the task has no criteria) — proceed with implementation
 
 Exit codes:
     0 — success (always, even if no commits/files)
@@ -76,6 +77,26 @@ def find_existing_files(task_id: int, conn: sqlite3.Connection, repo_root: str) 
         if os.path.exists(abs_path):
             found.append(p)
     return found
+
+
+def all_active_criteria_complete(task_id: int, conn: sqlite3.Connection) -> bool:
+    """True iff the task has at least one non-deferred criterion AND every non-deferred criterion is_completed=1.
+
+    Deferred criteria (is_deferred=1) are excluded — they're intentionally skipped per the
+    `tusk criteria skip` flow and don't count toward the salvage signal. A task with zero
+    non-deferred criteria returns False (no salvage signal — vacuous truth is not informative).
+    """
+    row = conn.execute(
+        "SELECT "
+        "  COUNT(CASE WHEN COALESCE(is_deferred, 0) = 0 THEN 1 END) AS active, "
+        "  COALESCE(SUM(CASE WHEN COALESCE(is_deferred, 0) = 0 AND is_completed = 1 THEN 1 ELSE 0 END), 0) AS done "
+        "FROM acceptance_criteria WHERE task_id = ?",
+        (task_id,),
+    ).fetchone()
+    if row is None:
+        return False
+    active, done = row[0], row[1]
+    return active > 0 and active == done
 
 
 def main(argv: list) -> int:
@@ -135,13 +156,19 @@ def main(argv: list) -> int:
         else:
             files = find_existing_files(task_id, conn, repo_root)
             files_found = bool(files)
+            if files_found:
+                recommendation = "mark_done"
+            elif all_active_criteria_complete(task_id, conn):
+                recommendation = "criteria_complete_no_commits"
+            else:
+                recommendation = "implement_fresh"
             output = {
                 "commits_found": False,
                 "files_found": files_found,
                 "files": files,
                 "default_branch_commits": [],
                 "default_branch_commit_files": [],
-                "recommendation": "mark_done" if files_found else "implement_fresh",
+                "recommendation": recommendation,
             }
 
         print(dumps(output))

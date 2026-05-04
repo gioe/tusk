@@ -39,6 +39,10 @@ def _make_db(tmp_path, task_id=99, summary="Create /foo skill", description="", 
 
     DB is placed at tmp_path/tusk/tasks.db so that repo_root resolves to
     tmp_path (two dirname() calls up), matching the real tusk layout.
+
+    Each entry in `criteria` is either a 2-tuple `(criterion, verification_spec)`
+    (defaults `is_completed=0, is_deferred=0`) or a 4-tuple
+    `(criterion, verification_spec, is_completed, is_deferred)`.
     """
     tusk_dir = tmp_path / "tusk"
     tusk_dir.mkdir(exist_ok=True)
@@ -56,17 +60,27 @@ def _make_db(tmp_path, task_id=99, summary="Create /foo skill", description="", 
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             task_id INTEGER,
             criterion TEXT,
-            verification_spec TEXT
+            verification_spec TEXT,
+            is_completed INTEGER DEFAULT 0,
+            is_deferred INTEGER DEFAULT 0
         );
     """)
     conn.execute(
         "INSERT INTO tasks (id, summary, description) VALUES (?, ?, ?)",
         (task_id, summary, description),
     )
-    for crit, spec in (criteria or []):
+    for entry in (criteria or []):
+        if len(entry) == 2:
+            crit, spec = entry
+            is_completed, is_deferred = 0, 0
+        elif len(entry) == 4:
+            crit, spec, is_completed, is_deferred = entry
+        else:
+            raise ValueError(f"criteria entry must have 2 or 4 elements: {entry!r}")
         conn.execute(
-            "INSERT INTO acceptance_criteria (task_id, criterion, verification_spec) VALUES (?, ?, ?)",
-            (task_id, crit, spec),
+            "INSERT INTO acceptance_criteria (task_id, criterion, verification_spec, is_completed, is_deferred) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (task_id, crit, spec, is_completed, is_deferred),
         )
     conn.commit()
     conn.close()
