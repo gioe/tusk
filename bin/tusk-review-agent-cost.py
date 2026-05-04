@@ -33,14 +33,16 @@ Exit codes:
 """
 
 import argparse
-import json
 import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader  # loads tusk-pricing-lib.py
+import tusk_loader  # loads tusk-pricing-lib.py and tusk-json-lib.py
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
+pretty_requested = _json_lib.pretty_requested
 
 
 def _load_pricing_lib():
@@ -180,9 +182,7 @@ def main(argv: list[str]) -> int:
         project_dir=project_dir,
     )
 
-    pretty = args.pretty or os.environ.get("TUSK_PRETTY") == "1"
-    indent = 2 if pretty else None
-    print(json.dumps(result, indent=indent))
+    print(dumps(result, pretty=args.pretty or pretty_requested()))
 
     return 0 if result["request_count"] > 0 else 1
 
