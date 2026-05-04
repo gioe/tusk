@@ -752,3 +752,199 @@ class TestCherryPickDiverged:
         assert "cherry-pick" not in stderr_buf.getvalue(), (
             "Expected NO cherry-pick note when git cherry reports unapplied commits"
         )
+
+
+def _insert_scoped_task(conn: sqlite3.Connection) -> int:
+    """Insert a task whose description references a real path so
+    task_referenced_paths returns a positive scope signal — required to
+    exercise the Case B (file-overlap mismatch) branch of the issue #656
+    override. The minimal _insert_task helper writes no description, which
+    yields an empty scope signal and routes through the conservative branch.
+    """
+    cur = conn.execute(
+        "INSERT INTO tasks (summary, description, status, task_type, priority, complexity, priority_score)"
+        " VALUES ('test task with scope', 'Refactor apps/api/scrapers/palm_beach_improv.py to use the new base class.', 'In Progress', 'feature', 'Medium', 'S', 50)"
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+class TestPrefixMatchFalsePositive:
+    """Issue #656: tusk merge must not skip ff-only and force-delete the feature
+    branch when the 'commit on default' inference rests on absent or unrelated
+    [TASK-N] commits.
+
+    Two shapes covered:
+
+    1. **Untagged feature-branch commit** (Case A) — the feature branch carries
+       a commit whose message doesn't include `[TASK-X]` (e.g. a cherry-pick
+       from another repo using a different prefix scheme). The branch-scoped
+       log-check (`git log <branch> --not <default> --grep=\\[TASK-X\\]`) returns
+       empty and `task_on_default` flips True. With no `[TASK-X]` commits on
+       the default branch to validate against, the override resets
+       `task_on_default` back to False and ff-merge proceeds. This is the exact
+       shape of the original incident (TASK-1894 / `[club-379]` cherry-pick).
+
+    2. **Unrelated [TASK-X] commits on default** (Case B) — `[TASK-X]` commits
+       exist on the default branch but their file diff doesn't touch any path
+       referenced in the task's description / criteria. The override flags it
+       as a prefix-match false-positive and resets `task_on_default` to False.
+    """
+
+    def test_untagged_feature_branch_commit_proceeds_with_ff_merge(
+        self, db_path, config_path, monkeypatch
+    ):
+        """Case A: feature branch has commits but none tagged [TASK-X], no [TASK-X]
+        commits on default — override flips task_on_default back to False."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        branch = f"feature/TASK-{task_id}-untagged"
+        record = []
+
+        monkeypatch.setattr(tusk_merge, "find_task_branch", lambda tid: (branch, None, False))
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        # task_on_default=True → branch-scoped log returns empty (no [TASK-X] on
+        # branch). cherry_pick_diverged=False → cherry returns '+' (commit not on
+        # default by patch ID either).
+        mock_run, _ = _make_run(
+            branch, task_id=task_id, task_on_default=True,
+            cherry_pick_diverged=False, record_calls=record,
+        )
+        # No [TASK-X] commits on default at all — Case A trigger.
+        _patch_overlap_helpers(monkeypatch, matched_default_shas=[])
+        monkeypatch.setattr(tusk_merge, "run", mock_run)
+
+        stderr_buf = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(stderr_buf):
+            rc = tusk_merge.main(
+                [str(db_path), str(config_path), str(task_id), "--session", str(session_id)]
+            )
+
+        assert rc == 0, f"Expected exit 0\nstderr: {stderr_buf.getvalue()}"
+
+        ff_calls = [c for c in record if c[:3] == ["git", "merge", "--ff-only"]]
+        assert ff_calls, (
+            "Expected git merge --ff-only to be called — feature branch's untagged "
+            "commits must not be orphaned by the log-check's empty-branch inference"
+        )
+
+        force_delete_calls = [c for c in record if c[:3] == ["git", "branch", "-D"]]
+        assert not force_delete_calls, (
+            f"Expected NO force-delete on the false-positive path, got: {force_delete_calls}"
+        )
+
+        assert "issue #656" in stderr_buf.getvalue(), (
+            "Expected the override's diagnostic note in stderr "
+            f"(referencing issue #656):\n{stderr_buf.getvalue()}"
+        )
+
+    def test_unrelated_taskx_on_default_no_overlap_proceeds_with_ff_merge(
+        self, db_path, config_path, monkeypatch
+    ):
+        """Case B: [TASK-X] commits exist on default but their file diff doesn't
+        overlap with the task's referenced paths — override flips
+        task_on_default back to False."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_scoped_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        branch = f"feature/TASK-{task_id}-scoped-fix"
+        record = []
+
+        monkeypatch.setattr(tusk_merge, "find_task_branch", lambda tid: (branch, None, False))
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        mock_run, _ = _make_run(
+            branch, task_id=task_id, task_on_default=True,
+            cherry_pick_diverged=False, record_calls=record,
+        )
+        # [TASK-X] commits exist on default, but their file diff is unrelated to
+        # the task's scope (apps/api/config/proxy_keys.json vs the task's
+        # apps/api/scrapers/palm_beach_improv.py).
+        _patch_overlap_helpers(
+            monkeypatch,
+            matched_default_shas=["7a2f1404" + "0" * 32],
+            matched_files={"apps/api/config/proxy_keys.json"},
+        )
+        monkeypatch.setattr(tusk_merge, "run", mock_run)
+
+        stderr_buf = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(stderr_buf):
+            rc = tusk_merge.main(
+                [str(db_path), str(config_path), str(task_id), "--session", str(session_id)]
+            )
+
+        assert rc == 0, f"Expected exit 0\nstderr: {stderr_buf.getvalue()}"
+
+        ff_calls = [c for c in record if c[:3] == ["git", "merge", "--ff-only"]]
+        assert ff_calls, (
+            "Expected git merge --ff-only to be called — unrelated [TASK-X] commits "
+            "on default must not trigger the skip+delete path"
+        )
+
+        force_delete_calls = [c for c in record if c[:3] == ["git", "branch", "-D"]]
+        assert not force_delete_calls, (
+            f"Expected NO force-delete on the false-positive path, got: {force_delete_calls}"
+        )
+
+        assert "prefix-match false positive" in stderr_buf.getvalue(), (
+            "Expected the override's prefix-match-false-positive diagnostic in "
+            f"stderr:\n{stderr_buf.getvalue()}"
+        )
+
+    def test_high_confidence_path_logs_matched_shas(
+        self, db_path, config_path, monkeypatch
+    ):
+        """When matched [TASK-X] commits exist on default and overlap with task
+        scope (or task has no scope signal), the override keeps task_on_default
+        True but logs the matched SHAs for operator visibility (criterion #4)."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)  # no scope signal → conservative path
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        branch = f"feature/TASK-{task_id}-high-confidence"
+        record = []
+
+        monkeypatch.setattr(tusk_merge, "find_task_branch", lambda tid: (branch, None, False))
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        mock_run, _ = _make_run(
+            branch, task_id=task_id, task_on_default=True,
+            cherry_pick_diverged=False, record_calls=record,
+        )
+        _patch_overlap_helpers(
+            monkeypatch,
+            matched_default_shas=["abcdef12" + "0" * 32],
+            matched_files={"some/file.py"},
+        )
+        monkeypatch.setattr(tusk_merge, "run", mock_run)
+
+        stderr_buf = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(stderr_buf):
+            tusk_merge.main(
+                [str(db_path), str(config_path), str(task_id), "--session", str(session_id)]
+            )
+
+        ff_calls = [c for c in record if c[:3] == ["git", "merge", "--ff-only"]]
+        assert not ff_calls, (
+            "Expected git merge --ff-only NOT to be called on the high-confidence path"
+        )
+
+        # The matched-SHA log line is what lets operators eyeball mismatches
+        # without git log archaeology (criterion #4).
+        err = stderr_buf.getvalue()
+        assert "matched [TASK-" in err and "abcdef1" in err, (
+            f"Expected matched-commit SHA in stderr, got:\n{err}"
+        )
