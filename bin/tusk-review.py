@@ -358,7 +358,7 @@ def cmd_list(args: argparse.Namespace, db_path: str) -> int:
         if review_ids:
             placeholders = ",".join("?" * len(review_ids))
             for c in conn.execute(
-                f"SELECT id, review_id, file_path, line_start, category, severity, comment, resolution"
+                f"SELECT id, review_id, file_path, line_start, category, severity, comment, resolution, resolution_note"
                 f" FROM review_comments WHERE review_id IN ({placeholders}) ORDER BY review_id, category, id",
                 review_ids,
             ).fetchall():
@@ -383,6 +383,7 @@ def cmd_list(args: argparse.Namespace, db_path: str) -> int:
                         "severity": c["severity"],
                         "comment": c["comment"],
                         "resolution": c["resolution"],
+                        "resolution_note": c["resolution_note"],
                     }
                     for c in all_comments.get(rev["id"], [])
                 ],
@@ -421,7 +422,11 @@ def cmd_list(args: argparse.Namespace, db_path: str) -> int:
                 if c["line_start"]:
                     loc += f":{c['line_start']}"
             sev = f"[{c['severity']}] " if c["severity"] else ""
-            res = f" ({c['resolution']})" if c["resolution"] is not None else ""
+            if c["resolution"] is not None:
+                note = f": {c['resolution_note']}" if c["resolution_note"] else ""
+                res = f" ({c['resolution']}{note})"
+            else:
+                res = ""
             print(f"    #{c['id']}{loc}: {sev}{c['comment']}{res}")
 
         print()
@@ -787,7 +792,7 @@ def cmd_summary(args: argparse.Namespace, db_path: str) -> int:
             return 2
 
         comments = conn.execute(
-            "SELECT id, file_path, line_start, line_end, category, severity, comment, resolution"
+            "SELECT id, file_path, line_start, line_end, category, severity, comment, resolution, resolution_note"
             " FROM review_comments WHERE review_id = ? ORDER BY severity, category, id",
             (args.review_id,),
         ).fetchall()
@@ -843,7 +848,8 @@ def cmd_summary(args: argparse.Namespace, db_path: str) -> int:
                 loc = f" {c['file_path']}"
                 if c["line_start"]:
                     loc += f":{c['line_start']}"
-            print(f"  #{c['id']}{loc} ({c['resolution']}): {c['comment']}")
+            note = f" — {c['resolution_note']}" if c["resolution_note"] else ""
+            print(f"  #{c['id']}{loc} ({c['resolution']}{note}): {c['comment']}")
         print()
 
     return 0

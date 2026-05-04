@@ -171,7 +171,8 @@ def _make_review_conn():
         "CREATE TABLE review_comments ("
         "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
         "  review_id INTEGER, file_path TEXT, line_start INTEGER, line_end INTEGER,"
-        "  category TEXT, severity TEXT, comment TEXT, resolution TEXT"
+        "  category TEXT, severity TEXT, comment TEXT, resolution TEXT,"
+        "  resolution_note TEXT"
         ")"
     )
     conn.execute("INSERT INTO tasks (id, summary) VALUES (1, 'Test task')")

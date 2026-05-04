@@ -37,7 +37,8 @@ def _make_db():
             category TEXT,
             severity TEXT,
             comment TEXT,
-            resolution TEXT
+            resolution TEXT,
+            resolution_note TEXT
         );
         """
     )
@@ -427,4 +428,85 @@ class TestCmdStartSupersede:
             (1,),
         ).fetchone()
         assert row["cnt"] == 0
+        conn.close()
+
+
+# ─── cmd_resolve queries (issue #657) ────────────────────────────────────────
+
+# Mirrors the queries built in cmd_resolve(). The handler conditionally appends
+# `resolution_note = ?` to the SET list when --note is non-None; both shapes
+# below cover the dynamic-SQL branches.
+_RESOLVE_NO_NOTE = "UPDATE review_comments SET resolution = ? WHERE id = ?"
+_RESOLVE_WITH_NOTE = (
+    "UPDATE review_comments SET resolution = ?, resolution_note = ?"
+    " WHERE id = ?"
+)
+
+
+class TestCmdResolve:
+    def _db_with_open_comment(self):
+        conn = _make_db()
+        conn.execute("INSERT INTO tasks (id, summary) VALUES (1, 't')")
+        conn.execute(
+            "INSERT INTO code_reviews (id, task_id, reviewer, status, review_pass)"
+            " VALUES (1, 1, 'alice', 'changes_requested', 0)"
+        )
+        conn.execute(
+            "INSERT INTO review_comments (id, review_id, category, severity, comment, resolution)"
+            " VALUES (1, 1, 'suggest', 'minor', 'rename var', NULL)"
+        )
+        conn.commit()
+        return conn
+
+    def test_resolve_without_note_leaves_resolution_note_null(self):
+        conn = self._db_with_open_comment()
+        conn.execute(_RESOLVE_NO_NOTE, ("dismissed", 1))
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT resolution, resolution_note FROM review_comments WHERE id = 1"
+        ).fetchone()
+        assert row["resolution"] == "dismissed"
+        assert row["resolution_note"] is None
+        conn.close()
+
+    def test_resolve_with_note_persists_rationale(self):
+        conn = self._db_with_open_comment()
+        conn.execute(_RESOLVE_WITH_NOTE, ("dismissed", "Tracked as TASK-42", 1))
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT resolution, resolution_note FROM review_comments WHERE id = 1"
+        ).fetchone()
+        assert row["resolution"] == "dismissed"
+        assert row["resolution_note"] == "Tracked as TASK-42"
+        conn.close()
+
+    def test_resolve_fixed_with_note_also_persists(self):
+        conn = self._db_with_open_comment()
+        conn.execute(_RESOLVE_WITH_NOTE, ("fixed", "Resolved in abc1234", 1))
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT resolution, resolution_note FROM review_comments WHERE id = 1"
+        ).fetchone()
+        assert row["resolution"] == "fixed"
+        assert row["resolution_note"] == "Resolved in abc1234"
+        conn.close()
+
+    def test_legacy_dismissals_keep_null_resolution_note_under_select(self):
+        # Regression guard for criterion #1395 (issue #657): queries that select
+        # resolution_note must still return rows whose note is NULL — the legacy
+        # rendering must not require the column to be populated.
+        conn = self._db_with_open_comment()
+        conn.execute(_RESOLVE_NO_NOTE, ("dismissed", 1))
+        conn.commit()
+
+        rows = conn.execute(
+            "SELECT id, resolution, resolution_note FROM review_comments"
+            " WHERE review_id = 1 ORDER BY id"
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["resolution"] == "dismissed"
+        assert rows[0]["resolution_note"] is None
         conn.close()
