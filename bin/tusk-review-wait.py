@@ -50,10 +50,12 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader
+import tusk_loader  # loads tusk-db-lib.py and tusk-json-lib.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
+_json_lib = tusk_loader.load("tusk-json-lib")
 get_connection = _db_lib.get_connection
+dumps = _json_lib.dumps
 
 TERMINAL_STATUSES = ("approved", "changes_requested", "superseded")
 
@@ -173,7 +175,7 @@ def main(argv: list) -> int:
         print(str(e), file=sys.stderr)
         return 1
 
-    print(json.dumps(payload))
+    print(dumps(payload))
     return 0
 
 

@@ -5,6 +5,12 @@ import json
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tusk_loader  # loads tusk-json-lib.py
+
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
+
 
 def _read_package_json(path: str) -> dict:
     """Return vitest/jest booleans parsed from package.json, or {} on error."""
@@ -118,7 +124,7 @@ def main(argv: list) -> int:
     # argv[0] = db_path (unused), argv[1] = config_path (unused), argv[2:] = optional [root_dir]
     root = argv[2] if len(argv) > 2 else os.getcwd()
     result = detect(root)
-    print(json.dumps(result))
+    print(dumps(result))
     return 0
 
 

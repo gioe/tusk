@@ -45,6 +45,12 @@ import subprocess
 import sys
 import uuid
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tusk_loader  # loads tusk-json-lib.py
+
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
+
 
 def _run(cmd_args, cwd, capture=True):
     """Run a command list in ``cwd`` and return the CompletedProcess."""
@@ -394,7 +400,7 @@ def main(argv):
         )
         return 1
 
-    print(json.dumps({
+    print(dumps({
         "pre_existing": exit_code != 0,
         "exit_code": exit_code,
         "test_command": test_command,

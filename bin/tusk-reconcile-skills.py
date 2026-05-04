@@ -52,6 +52,10 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 import tusk_skill_filter as sf  # noqa: E402
 import tusk_github as gh  # noqa: E402
+import tusk_loader  # noqa: E402  # loads tusk-json-lib.py
+
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
 
 
 def _find_local_source(repo_root: str) -> str | None:
@@ -280,7 +284,7 @@ def main() -> None:
             shutil.rmtree(fetch_tmpdir, ignore_errors=True)
 
     if args.json:
-        print(json.dumps(result))
+        print(dumps(result))
         return
     if args.quiet:
         return

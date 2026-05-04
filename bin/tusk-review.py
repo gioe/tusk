@@ -731,7 +731,7 @@ def cmd_verdict(args: argparse.Namespace, db_path: str) -> int:
 
     open_must_fix = row["cnt"] if row else 0
     verdict = "APPROVED" if open_must_fix == 0 else "CHANGES_REMAINING"
-    print(json.dumps({"verdict": verdict, "open_must_fix": open_must_fix}))
+    print(dumps({"verdict": verdict, "open_must_fix": open_must_fix}))
     return 0
 
 
@@ -767,7 +767,7 @@ def cmd_pass_status(args: argparse.Namespace, db_path: str, config_path: str) ->
     max_passes = cfg["max_passes"]
     can_retry = current_pass < max_passes and open_must_fix > 0
 
-    print(json.dumps({
+    print(dumps({
         "current_pass": current_pass,
         "max_passes": max_passes,
         "can_retry": can_retry,

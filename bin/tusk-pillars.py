@@ -84,7 +84,7 @@ def cmd_add(args: argparse.Namespace, db_path: str, config: dict) -> int:
         )
         conn.commit()
         new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-        print(json.dumps({"id": new_id}))
+        print(dumps({"id": new_id}))
         return 0
     except sqlite3.IntegrityError as e:
         if "UNIQUE constraint" in str(e):

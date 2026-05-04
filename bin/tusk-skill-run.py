@@ -22,11 +22,13 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader
+import tusk_loader  # loads tusk-pricing-lib.py, tusk-db-lib.py, and tusk-json-lib.py
 
 lib = tusk_loader.load("tusk-pricing-lib")
 _db_lib = tusk_loader.load("tusk-db-lib")
+_json_lib = tusk_loader.load("tusk-json-lib")
 get_connection = _db_lib.get_connection
+dumps = _json_lib.dumps
 
 
 def cmd_start(conn, skill_name: str, task_id: int | None = None) -> None:
@@ -48,7 +50,7 @@ def cmd_start(conn, skill_name: str, task_id: int | None = None) -> None:
         (run_id,),
     ).fetchone()
 
-    print(json.dumps({
+    print(dumps({
         "run_id": row["id"],
         "started_at": row["started_at"],
         "task_id": row["task_id"],
