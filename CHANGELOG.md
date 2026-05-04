@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [824] - 2026-05-04
+
+- [TASK-289] Fix: Score sandbox-failed specs with empty stderr or 'No such file' as unverifiable in /address-issue Step 4.1.c
+
 ## [823] - 2026-05-04
 
 - [TASK-288] Reject silent positional-arg drops in remaining tusk dispatcher arms
