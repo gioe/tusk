@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [833] - 2026-05-04
+
+- [TASK-298] Fix: tusk criteria list emits table, not JSON (convention 32)
+
 ## [832] - 2026-05-04
 
 - [TASK-297] Fix: tusk criteria add/done/skip/reset emit JSON instead of plain text
