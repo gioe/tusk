@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [835] - 2026-05-04
+
+- [TASK-300] Convert tusk deps dependents/blocked/ready/all to compact JSON; add --pretty / TUSK_PRETTY=1 toggle
+
 ## [834] - 2026-05-04
 
 - [TASK-299] Convert tusk deps list and tusk review list to compact JSON; add --pretty toggle
