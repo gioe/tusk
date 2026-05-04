@@ -74,6 +74,12 @@ import os
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tusk_loader  # loads tusk-json-lib.py
+
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
+
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -108,7 +114,7 @@ _AGENT_DESCRIPTIONS = {
 
 
 def _emit(payload: dict) -> None:
-    print(json.dumps(payload))
+    print(dumps(payload))
 
 
 def _fail(msg: str, **extra) -> None:

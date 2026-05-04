@@ -46,17 +46,19 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader  # loads tusk-path-lib.py
+import tusk_loader  # loads tusk-path-lib.py and tusk-json-lib.py
 
 _path_lib = tusk_loader.load("tusk-path-lib")
+_json_lib = tusk_loader.load("tusk-json-lib")
 validate_relative_path = _path_lib.validate_relative_path
+dumps = _json_lib.dumps
 
 
 VALID_MODES = {"create_only", "append_if_missing"}
 
 
 def _emit(payload: dict, exit_code: int = 0) -> None:
-    print(json.dumps(payload))
+    print(dumps(payload))
     sys.exit(exit_code)
 
 

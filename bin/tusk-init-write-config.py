@@ -42,6 +42,12 @@ import shutil
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tusk_loader  # loads tusk-json-lib.py
+
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
+
 
 def main():
     if len(sys.argv) < 3:
@@ -66,7 +72,7 @@ def main():
             with open(config_path) as f:
                 existing = json.load(f)
         except (OSError, json.JSONDecodeError) as e:
-            print(json.dumps({
+            print(dumps({
                 "success": False,
                 "config_path": config_path,
                 "backed_up": False,
@@ -81,7 +87,7 @@ def main():
         try:
             domains = json.loads(args.domains)
         except json.JSONDecodeError as e:
-            print(json.dumps({
+            print(dumps({
                 "success": False,
                 "config_path": config_path,
                 "backed_up": False,
@@ -89,7 +95,7 @@ def main():
             }))
             return
         if not isinstance(domains, list):
-            print(json.dumps({
+            print(dumps({
                 "success": False,
                 "config_path": config_path,
                 "backed_up": False,
@@ -102,7 +108,7 @@ def main():
         try:
             agents = json.loads(args.agents)
         except json.JSONDecodeError as e:
-            print(json.dumps({
+            print(dumps({
                 "success": False,
                 "config_path": config_path,
                 "backed_up": False,
@@ -110,7 +116,7 @@ def main():
             }))
             return
         if not isinstance(agents, dict):
-            print(json.dumps({
+            print(dumps({
                 "success": False,
                 "config_path": config_path,
                 "backed_up": False,
@@ -123,7 +129,7 @@ def main():
         try:
             task_types = json.loads(args.task_types)
         except json.JSONDecodeError as e:
-            print(json.dumps({
+            print(dumps({
                 "success": False,
                 "config_path": config_path,
                 "backed_up": False,
@@ -131,7 +137,7 @@ def main():
             }))
             return
         if not isinstance(task_types, list):
-            print(json.dumps({
+            print(dumps({
                 "success": False,
                 "config_path": config_path,
                 "backed_up": False,
@@ -150,7 +156,7 @@ def main():
         try:
             project_libs = json.loads(args.project_libs)
         except json.JSONDecodeError as e:
-            print(json.dumps({
+            print(dumps({
                 "success": False,
                 "config_path": config_path,
                 "backed_up": False,
@@ -158,7 +164,7 @@ def main():
             }))
             return
         if not isinstance(project_libs, dict):
-            print(json.dumps({
+            print(dumps({
                 "success": False,
                 "config_path": config_path,
                 "backed_up": False,
@@ -196,7 +202,7 @@ def main():
             shutil.copy2(config_path, backup_path)
             backed_up = True
         except OSError as e:
-            print(json.dumps({
+            print(dumps({
                 "success": False,
                 "config_path": config_path,
                 "backed_up": False,
@@ -219,7 +225,7 @@ def main():
                 shutil.copy2(backup_path, config_path)
             except OSError:
                 pass
-        print(json.dumps({
+        print(dumps({
             "success": False,
             "config_path": config_path,
             "backed_up": backed_up,
@@ -252,7 +258,7 @@ def main():
                 shutil.copy2(backup_path, config_path)
             except OSError:
                 pass
-        print(json.dumps({
+        print(dumps({
             "success": False,
             "config_path": config_path,
             "backed_up": backed_up,
@@ -268,7 +274,7 @@ def main():
                 shutil.copy2(backup_path, config_path)
             except OSError:
                 pass
-        print(json.dumps({
+        print(dumps({
             "success": False,
             "config_path": config_path,
             "backed_up": backed_up,
@@ -276,7 +282,7 @@ def main():
         }))
         return
 
-    print(json.dumps({
+    print(dumps({
         "success": True,
         "config_path": config_path,
         "backed_up": backed_up,

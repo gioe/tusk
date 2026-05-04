@@ -37,10 +37,12 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader  # loads tusk-path-lib.py
+import tusk_loader  # loads tusk-path-lib.py and tusk-json-lib.py
 
 _path_lib = tusk_loader.load("tusk-path-lib")
+_json_lib = tusk_loader.load("tusk-json-lib")
 validate_relative_path = _path_lib.validate_relative_path
+dumps = _json_lib.dumps
 
 
 REQUIRED_TOP_LEVEL = {"version", "project_type", "tasks"}
@@ -155,7 +157,7 @@ def main():
 
     project_libs = config.get("project_libs") or {}
     if not project_libs:
-        print(json.dumps({"libs": []}))
+        print(dumps({"libs": []}))
         return
 
     libs_out = []
@@ -186,7 +188,7 @@ def main():
             "error": None,
         })
 
-    print(json.dumps({"libs": libs_out}))
+    print(dumps({"libs": libs_out}))
 
 
 if __name__ == "__main__":

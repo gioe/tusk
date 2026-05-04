@@ -44,9 +44,15 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tusk_loader  # loads tusk-json-lib.py
+
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
+
 
 def _emit(payload: dict, exit_code: int = 0) -> None:
-    print(json.dumps(payload))
+    print(dumps(payload))
     sys.exit(exit_code)
 
 
