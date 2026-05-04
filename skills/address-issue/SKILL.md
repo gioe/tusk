@@ -176,7 +176,7 @@ Scan the issue body for a `## Failing Test` section. If present:
 
      Adding a new interpreter or runtime to this branch is a one-line change — append the language's canonical missing-executable signature to the table above; the downstream "strip path component, check basename on `/usr/bin:/bin`, route to unverifiable" logic applies uniformly across every signature.
 
-     If the extracted `<token>` IS on `/usr/bin:/bin` (the inner subprocess called a system tool that genuinely failed) or no recognized signature matches the stderr, fall through to the next bullet (treat as a real failure).
+     If the extracted `<token>` IS on `/usr/bin:/bin` (the inner subprocess called a system tool that genuinely failed) or no recognized signature matches the stderr, fall through to the **"Exit nonzero, no command error"** bullet above (treat as a real failure: store as `test_spec` and proceed).
 
 3. **If no `## Failing Test` section is found**, set `test_spec = null`. No test criterion is added in Step 6. For `bug`/`defect` task types, this lowers the Step 4.7 score via `test_present`; for other task types, `test_present` is N/A.
 
