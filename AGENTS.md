@@ -60,7 +60,7 @@ bin/tusk wsjf
 bin/tusk lint
 bin/tusk autoclose
 bin/tusk backlog-scan [--duplicates] [--unassigned] [--unsized] [--expired]   # → {duplicates:[...], unassigned:[...], unsized:[...], expired:[...]}
-bin/tusk retro-signals <task_id>   # → {task_id, complexity, reopen_count, rework_chain:{fixes,fixed_by}, review_themes, deferred_review_comments, skipped_criteria, tool_call_outliers, unconsumed_next_steps}
+bin/tusk retro-signals <task_id>   # → {task_id, complexity, reopen_count, rework_chain:{fixes,fixed_by}, review_themes, skipped_criteria, tool_call_outliers, unconsumed_next_steps}
 bin/tusk test-detect               # → {"command": "<cmd>", "confidence": "high|medium|low|none"}
 bin/tusk add-lib [--lib <name>] [--repo <owner/repo>] [--ref <branch|tag|sha>]  # → {"lib": "<name>", "tasks": [...], "error": null}
 bin/tusk init-fetch-bootstrap      # → {"libs": [{name, repo, tasks, error}, ...]}
@@ -175,7 +175,7 @@ Two external library repos ship their own `tusk-bootstrap.json` and are pre-conf
 - **`/resume-task`** — Recover session from branch name + progress log
 - **`/chain`** — Parallel dependency sub-DAG execution (one or more head IDs)
 - **`/loop`** — Autonomous backlog loop; dispatches `/chain` or `/tusk` until empty
-- **`/review-commits`** — Parallel AI code review; fixes must_fix, defers suggest/defer findings
+- **`/review-commits`** — Parallel AI code review; fixes must_fix, dismisses or spins suggest findings into follow-up tasks
 - **`/address-issue`** — Fetch a GitHub issue, score it, create a tusk task, and work through it
 - **`/ios-libs-issue`** — File an issue against the configured iOS lib repo (`project_type=ios_app` only); auto-attaches originating tusk task
 

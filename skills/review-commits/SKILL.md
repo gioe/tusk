@@ -1,12 +1,12 @@
 ---
 name: review-commits
-description: Run an AI code reviewer against the task's git diff, fix must_fix issues, and defer or dismiss suggestions
+description: Run an AI code reviewer against the task's git diff, fix must_fix issues, and dismiss or spin off suggestions
 allowed-tools: Bash, Read, Task
 ---
 
 # Review Commits Skill
 
-Orchestrates a single code review against the task's git diff (commits on the current branch vs the base branch). Spawns at most one background reviewer agent (or zero, if no reviewer is configured), monitors completion, fixes must_fix findings, handles suggest findings interactively, and creates deferred tasks for defer findings.
+Orchestrates a single code review against the task's git diff (commits on the current branch vs the base branch). Spawns at most one background reviewer agent (or zero, if no reviewer is configured), monitors completion, fixes must_fix findings, and handles suggest findings interactively (fix now, spin off into a follow-up task, or dismiss).
 
 > Use `/create-task` for task creation — handles decomposition, deduplication, criteria, and deps. Use `tusk task-insert` only for bulk/automated inserts.
 
@@ -46,9 +46,9 @@ Parse the returned JSON. Extract:
 - `review.mode` — if `"disabled"`, run `tusk skill-run cancel <run_id>`, print "Review mode is disabled in config (review.mode = disabled). Enable it in tusk/config.json to use /review-commits." and **stop**.
 - `review.max_passes` — maximum fix-and-re-review cycles (default: 2)
 - `review.reviewer` — a single reviewer object with `name` and `description` fields, or absent. When absent, the review is created as unassigned and Step 5 falls back to inline review (no agent is spawned).
-- `review_categories` — valid comment categories (typically `["must_fix", "suggest", "defer"]`)
+- `review_categories` — valid comment categories (typically `["must_fix", "suggest"]`)
 - `review_severities` — valid severity levels (typically `["critical", "major", "minor"]`)
-- `task_types` — list of valid task type strings. Resolve the best type for deferred tasks now: prefer `"refactor"`, then `"chore"`, then the first entry that is not `"bug"`. Store as `DEFERRED_TASK_TYPE`. If the list is empty or every entry is `"bug"`, set `DEFERRED_TASK_TYPE = null`.
+- `task_types` — list of valid task type strings. Resolve the best type for follow-up tasks created from `suggest` findings now: prefer `"refactor"`, then `"chore"`, then the first entry that is not `"bug"`. Store as `FOLLOWUP_TASK_TYPE`. If the list is empty or every entry is `"bug"`, set `FOLLOWUP_TASK_TYPE = null`.
 
 ## Step 2: Verify Task and Capture Domain
 
@@ -60,7 +60,7 @@ tusk -header -column "SELECT id, summary, status, domain FROM tasks WHERE id = $
 
 If no row is returned, run `tusk skill-run cancel <run_id>` to close the open row, then abort: "Task `$TASK_ID` not found."
 
-Store the task's `domain` value — Step 7 uses it when dupe-checking and creating deferred tasks.
+Store the task's `domain` value — Step 7 uses it when dupe-checking and creating follow-up tasks from `suggest` findings.
 
 ## Step 3: Compute Diff Range and Start the Review
 
@@ -163,7 +163,7 @@ Fill in these placeholders from the template:
 - `{review_id}` — the review ID captured in Step 3
 - `{reviewer_name}` — `review.reviewer.name` from config
 - `{reviewer_focus}` — `review.reviewer.description` from config
-- `{review_categories}` — comma-separated list from config (e.g., `must_fix, suggest, defer`)
+- `{review_categories}` — comma-separated list from config (e.g., `must_fix, suggest`)
 - `{review_severities}` — comma-separated list from config (e.g., `critical, major, minor`)
 
 **Do not pass the diff inline.** The reviewer agent fetches the diff itself via `git diff` (see REVIEWER-PROMPT.md Step 1). This prevents transcription errors from the orchestrator-to-agent copy.
@@ -288,34 +288,29 @@ Task tool call:
 
 ### suggest comments
 
-These are optional improvements. For each `suggest` comment, **decide autonomously** whether to fix or dismiss — do not ask the user:
+These are optional improvements. For each `suggest` comment, **decide autonomously** between three branches — do not ask the user:
 
 - **Fix**: implement the suggestion, append every file you modified to `REVIEW_FIX_FILES` (`REVIEW_FIX_FILES+=("<file_path>")`), then run `tusk review resolve <comment_id> fixed`
-  - Apply when the fix is small, clearly correct, and within the current task's scope
-- **Dismiss**: run `tusk review resolve <comment_id> dismissed`
-  - Apply when the suggestion is out of scope, low-value, or would require significant rework
+  - Apply when the fix is small, clearly correct, and within the current task's scope.
+- **Spin off into a follow-up task**: create a new task that captures the finding, then dismiss the comment with the new task ID in the dismissal trail.
+  - Apply when the suggestion is real and worth doing, but out of scope for the current task.
+  - Procedure (run inline; do NOT call any defer-style helper — the comment text and follow-up task summary live exclusively in the description and dismissal note):
+    1. Pick a one-line summary from the comment text. Run `tusk dupes check "<summary>" --json --domain <task domain captured in Step 2>`. Exit code 0 means no duplicate; exit code 1 means a duplicate was found and `matched_task_id` points at it (note it and skip to step 4).
+    2. If `FOLLOWUP_TASK_TYPE` (resolved in Step 1) is null, print "Skipped follow-up task — no suitable task_type in config (not 'bug'): <summary>", run `tusk review resolve <comment_id> dismissed`, and continue. Do NOT create the follow-up.
+    3. Otherwise insert the follow-up:
+       ```bash
+       tusk task-insert "<summary>" "<comment text + file path + line range>" \
+         --priority Medium \
+         --domain <task domain captured in Step 2> \
+         --task-type "$FOLLOWUP_TASK_TYPE" \
+         --criteria "Address review finding: <summary>"
+       ```
+       Capture the new `task_id` from the JSON output.
+    4. Resolve the comment as dismissed: `tusk review resolve <comment_id> dismissed`. In the rationale you record below, include `Tracked as TASK-<new_id>` (or `Duplicate of TASK-<matched_task_id>` for the dupe path) so the audit trail of "where did this go" survives.
+- **Dismiss outright**: run `tusk review resolve <comment_id> dismissed`
+  - Apply when the suggestion is low-value, would require significant rework with no clear payoff, or is genuinely a non-issue.
 
-Record every decision (fix or dismiss) with a one-line rationale — these will be included in the final summary so the user can review them.
-
-### defer comments
-
-These are valid issues but out of scope for the current work. If `DEFERRED_TASK_TYPE` (resolved in Step 1) is **null** — config has no suitable task type — skip helper invocation entirely. For each `defer` comment, print a warning "Skipped deferred task — no suitable task_type in config (not 'bug'): <summary>" and mark the comment resolved manually via `tusk review resolve <comment_id> deferred`.
-
-Otherwise, call the helper per comment to atomically run the dupe check, insert the deferred task (when not a duplicate), and mark the comment resolved — one call replaces the prior three-step dance:
-
-```bash
-tusk review-defer <comment_id> --domain <same domain as current task> --task-type <DEFERRED_TASK_TYPE>
-```
-
-The helper reads the comment text from `review_comments`, runs `tusk dupes check` on the derived summary against the given domain, and:
-- inserts a new deferred task (`--priority Medium`, `--task-type <DEFERRED_TASK_TYPE>`, `--deferred`, criterion "Address deferred finding: <summary>") when there is no duplicate;
-- records the match and skips insertion when a duplicate already exists;
-- records the failure and skips insertion when the dupe check itself errored.
-
-In all three branches the comment is marked resolved. The helper exits 0 and prints JSON `{created_task_id, skipped_reason, matched_task_id}` on stdout:
-- `created_task_id` set, `skipped_reason` null — new deferred task was created; note the id.
-- `skipped_reason: "duplicate"` — `matched_task_id` points at an open task already covering this finding; print a note (e.g., "Skipped deferred task — duplicate of #<id>: <summary>").
-- `skipped_reason: "dupe_check_failed"` — the dupe check itself errored; print a warning (e.g., "Skipped deferred task — dupe check failed: <summary>") so the user can re-file manually if needed.
+Record every decision (fix, spin off, or dismiss) with a one-line rationale — these will be included in the final summary so the user can review them.
 
 After processing all findings, check the current verdict:
 
@@ -457,12 +452,11 @@ Pass:      <pass number of this review>
 
 must_fix:  <total_count> found, <fixed_count> fixed
 suggest:   <total_count> found, <fixed_count> fixed, <dismissed_count> dismissed
-defer:     <total_count> found, <created_count> tasks created, <skipped_count> skipped (duplicate)
 
 Verdict: <APPROVED | CHANGES REMAINING>
 ```
 
-Counts aggregate across **all** of the task's reviews (including superseded passes) so the block reflects cumulative findings — but the verdict considers only non-superseded reviews, matching `tusk review verdict`. A deferred finding counts as "created" when `review_comments.deferred_task_id` is populated and as "skipped" (duplicate) when it is NULL.
+Counts aggregate across **all** of the task's reviews (including superseded passes) so the block reflects cumulative findings — but the verdict considers only non-superseded reviews, matching `tusk review verdict`. Suggest findings that were spun off into a follow-up task land in the `dismissed` count (the comment is resolved as dismissed with the new task ID in the rationale); the follow-up task itself shows up in the backlog, not in this block.
 
 ## Step 11: Finish Cost Tracking
 

@@ -4,7 +4,7 @@ Illustrative examples for rules stated in `REVIEWER-PROMPT.md`. Not passed to th
 
 ## Wrappers and Delegation Layers — Rule from Step 2
 
-Inability to fully trace a subtree or call chain is *not* sufficient evidence to flag a wrapper as unused at `must_fix`. When in doubt, use `defer`.
+Inability to fully trace a subtree or call chain is *not* sufficient evidence to flag a wrapper as unused at `must_fix`. When in doubt, use `suggest`.
 
 **Example (React):** A reviewer traces `LoginModal → FullScreenModal → LaughtrackLogin` and stops, concluding `StyleContextProvider` has no `useStyleContext` consumer. The actual consumer lives at `LoginModal → LaughtrackLogin → LoginForm → FormInput → EmailInput → Input → useStyleContext()`. Stopping early produces a false positive that reverts a correct fix.
 

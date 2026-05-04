@@ -287,11 +287,10 @@ One reviewer's assessment of a task's PR, for one pass of the fix-and-re-review 
 
 An individual finding within a code review, with its own resolution lifecycle.
 
-`resolution` encodes the *outcome* of handling the finding — not its state. A NULL resolution means the finding is open (unresolved). Once the developer acts, it gets exactly one of three outcome values:
+`resolution` encodes the *outcome* of handling the finding — not its state. A NULL resolution means the finding is open (unresolved). Once the developer acts, it gets exactly one of two outcome values:
 
 - **fixed** — addressed immediately in the current session
-- **deferred** — too large or out of scope; a follow-up task is created (`deferred_task_id` is set)
-- **dismissed** — intentionally skipped with a documented reason
+- **dismissed** — intentionally skipped with a documented reason. If the finding was real but out of scope, the convention is to spin off a follow-up task via `tusk task-insert` and record the new task ID in the dismissal rationale; the resolution still lands as `dismissed`.
 
 This model keeps `resolution` semantically pure: it only holds an outcome type, never a status placeholder. Open vs. resolved is determined by `IS NULL` / `IS NOT NULL`.
 
@@ -302,11 +301,10 @@ This model keeps `resolution` semantically pure: it only holds an outcome type, 
 | `file_path` | TEXT | nullable | File the finding applies to |
 | `line_start` | INTEGER | nullable | Starting line |
 | `line_end` | INTEGER | nullable | Ending line |
-| `category` | TEXT | validated if config non-empty | Finding category (must_fix, suggest, defer) |
+| `category` | TEXT | validated if config non-empty | Finding category (must_fix, suggest) |
 | `severity` | TEXT | validated if config non-empty | Finding severity (critical, major, minor) |
 | `comment` | TEXT | NOT NULL | The finding text |
-| `resolution` | TEXT | nullable; CHECK IN (fixed, deferred, dismissed) | Outcome when resolved; NULL = open/unresolved |
-| `deferred_task_id` | INTEGER | FK → tasks(id); nullable | Task created when a finding is deferred |
+| `resolution` | TEXT | nullable; CHECK IN (fixed, dismissed) | Outcome when resolved; NULL = open/unresolved |
 | `created_at` | TEXT | default now | |
 | `updated_at` | TEXT | default now | |
 
