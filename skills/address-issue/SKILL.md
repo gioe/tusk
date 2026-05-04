@@ -374,6 +374,47 @@ Then execute those instructions starting at **"Begin Work on a Task (with task I
 
 Hold onto the `session_id` returned by `tusk task-start` in step 1 of the /tusk workflow — it is required in step 8 below.
 
+## Step 7.5: Polarity Check on Stored Failing-Test Specs
+
+Before merging, mark any remaining `test`-type acceptance criteria done — `tusk criteria done <cid>` re-runs the stored `verification_spec` against the current (now-fixed) code and only marks it done on exit 0. Step 4.1's pre-creation sandbox confirmed the spec was *runnable*; it did NOT confirm the polarity (exit 0 ≡ "fixed", nonzero ≡ "broken"). Assertion-style specs (`test -z "$(...)"`, `test ! -e ...`, leading `!`) exit nonzero on broken AND fixed code — Step 4.1 reads the broken-state nonzero as "fails as expected" and stores the spec verbatim, then `tusk criteria done` blocks merge indefinitely because the same spec still exits nonzero against the fix. This step catches that mismatch authoritatively (issue #642, original incident TASK-287 / criterion #1291).
+
+Run unconditionally — the fetch is cheap and produces an empty result set when no test-type criteria remain.
+
+### Procedure
+
+1. Fetch every open `test`-type criterion still attached to the task:
+
+   ```bash
+   TEST_ROWS=$(tusk -json "SELECT id, criterion, verification_spec FROM acceptance_criteria WHERE task_id = <id> AND criterion_type = 'test' AND verification_spec IS NOT NULL AND is_completed = 0 AND is_deferred = 0")
+   ```
+
+   If `TEST_ROWS` is `[]`, skip the rest of this step.
+
+2. For each row's `id` (`<cid>`), run:
+
+   ```bash
+   tusk criteria done <cid>
+   ```
+
+   `tusk criteria done` re-runs the spec from the repo root against the fixed code and only marks the criterion done on exit 0.
+
+3. **Exit 0** — the spec passes against the fixed code; the criterion is now marked done. Move on.
+
+4. **Exit 1 (verification failed)** — polarity mismatch suspected. The spec either uses inverted assertion polarity (e.g. `test -z`, `test ! -e`, leading `!`) or describes a different failure than the implementation actually addressed. Surface to the implementer:
+
+   > ⚠ **Polarity mismatch on criterion #<cid>.** The stored spec exits nonzero against the fixed code:
+   > ```
+   > <verification_spec>
+   > ```
+   > Options:
+   > - **invert** — re-run the spec wrapped as `bash -c '! ( <verification_spec> )'`. If it now exits 0, mark the criterion done with `tusk criteria done <cid> --skip-verify --note "polarity inverted: original spec used assertion polarity, wrapped form passes"`. The stored `verification_spec` is left as-is — the rationale lives in `skip_note`, which is durable and surfaces in retro/audit queries; live mutation would require a new tusk subcommand and is out of scope here.
+   > - **skip** — defer the criterion via `tusk criteria skip <cid> --reason "polarity mismatch — assertion-style spec from issue body, behavior verified manually"`.
+   > - **as-is** — accept that the spec is correct in shape but cannot auto-verify (e.g., the implementation reframed the failure differently); mark done with `tusk criteria done <cid> --skip-verify --note "polarity mismatch, behavior verified manually"`.
+
+   In auto mode, default to **skip** — never silently invoke `--skip-verify` against a spec known to fail, since that buries the polarity signal in the audit trail rather than acknowledging it explicitly. The **invert** path is only valid when the wrapped-`!` form actually exits 0 against the fixed code; if it still fails, fall back to **skip** (the assertion does not describe the bug we fixed).
+
+5. **Other exit codes** — `tusk criteria done` returns 2 if the criterion does not exist (already deferred between fetch and re-run, or hand-deleted). Skip it and continue with the next row.
+
 ## Steps 8–10: Finalize (Run as an Unbroken Sequence — No User Confirmation Between Steps)
 
 ### Step 8: Merge
