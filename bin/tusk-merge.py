@@ -52,6 +52,9 @@ _is_remote_unreachable = _git_helpers._is_remote_unreachable
 _UNREACHABLE_REMOTE_PATTERNS = _git_helpers._UNREACHABLE_REMOTE_PATTERNS
 _UNREACHABLE_REMOTE_REGEX = _git_helpers._UNREACHABLE_REMOTE_REGEX
 task_grep_arg = _git_helpers.task_grep_arg
+find_task_commits = _git_helpers.find_task_commits
+commit_changed_files = _git_helpers.commit_changed_files
+task_referenced_paths = _git_helpers.task_referenced_paths
 
 
 def run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
@@ -1049,6 +1052,67 @@ def main(argv: list[str]) -> int:
                         f"Note: TASK-{task_id} — all feature branch commits already "
                         f"applied to {default_branch} via cherry-pick. "
                         "Skipping ff-only merge.",
+                        file=sys.stderr,
+                    )
+
+        # Prefix-collision file-overlap heuristic (issue #656).
+        # Both detection paths above (branch-scoped [TASK-N] log-check at lines
+        # 1006-1013, and the cherry-pick patch-equivalence check at lines 1031-1056)
+        # can falsely set task_on_default = True when the feature branch's commits
+        # don't follow the [TASK-N] tagging convention or when another task's commit
+        # was tagged with this task's prefix by mistake. Once that flag is True the
+        # downstream path skips the ff-only merge AND force-deletes the feature
+        # branch — recovery requires git reflog. Validate it via the same heuristic
+        # tusk-check-deliverables.py uses to downgrade `merged_not_closed` to
+        # `merged_not_closed_low_confidence` (issue #606): compare the matched
+        # commits' file diff against the task's referenced paths. Skipped on the
+        # no_new_commits branch — there's nothing to fast-forward there, so the
+        # heuristic doesn't apply.
+        if task_on_default and not no_new_commits:
+            _repo_root = os.path.dirname(os.path.dirname(os.path.abspath(_db_path)))
+            _matched_default_commits = find_task_commits(
+                task_id, _repo_root, [default_branch]
+            )
+            if not _matched_default_commits:
+                # No [TASK-N] commits on default to compare. The log-check inferred
+                # 'on default' purely from the absence of branch-side [TASK-N]
+                # commits — not supportable when the feature branch has commits
+                # under a different tag (e.g. a cherry-pick from another repo).
+                # Reset and let the ff-merge / rebase paths below decide.
+                print(
+                    f"Note: TASK-{task_id} — log-check inferred 'commit on "
+                    f"{default_branch}' but no [TASK-{task_id}] commits found there; "
+                    f"feature branch has new commits ahead of {default_branch}. "
+                    "Proceeding with ff-only merge to avoid orphaning unmerged work "
+                    "(issue #656).",
+                    file=sys.stderr,
+                )
+                task_on_default = False
+            else:
+                _matched_files = commit_changed_files(
+                    _matched_default_commits, _repo_root
+                )
+                _conn = get_connection(_db_path)
+                try:
+                    _task_paths = set(task_referenced_paths(task_id, _conn))
+                finally:
+                    _conn.close()
+                _sha_list = " ".join(s[:7] for s in _matched_default_commits)
+                if _task_paths and not (_task_paths & _matched_files):
+                    print(
+                        f"Note: TASK-{task_id} — matched [TASK-{task_id}] commits "
+                        f"on {default_branch} ({_sha_list}) don't overlap with this "
+                        "task's referenced files; treating as prefix-match false "
+                        "positive and proceeding with ff-only merge (issue #656).",
+                        file=sys.stderr,
+                    )
+                    task_on_default = False
+                else:
+                    # High-confidence: log the matched SHAs so operators can spot
+                    # mismatches without git log archaeology (issue #656).
+                    print(
+                        f"Note: TASK-{task_id} — matched [TASK-{task_id}] commits "
+                        f"on {default_branch}: {_sha_list}",
                         file=sys.stderr,
                     )
 

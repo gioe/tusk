@@ -36,6 +36,42 @@ def _load(name: str):
 tusk_merge = _load("tusk-merge")
 
 
+def _patch_overlap_helpers(
+    monkeypatch,
+    matched_default_shas: list[str] | None = None,
+    matched_files: set[str] | None = None,
+):
+    """Monkeypatch the file-overlap helpers introduced for issue #656.
+
+    `find_task_commits` and `commit_changed_files` live in tusk-git-helpers.py and
+    use `subprocess.run` directly (not `tusk_merge.run`), so the existing run-mock
+    can't intercept them. Patch them on the tusk_merge module namespace so the
+    override path in tusk-merge.py sees deterministic values.
+
+    matched_default_shas: SHAs returned by find_task_commits(<task_id>, [default]).
+    Defaults to a non-empty sentinel so the prefix-collision file-overlap heuristic
+    sees a matched commit on default and keeps task_on_default=True for tests whose
+    inserted task has no scope signal. Pass [] to model the issue #656 incident
+    (no [TASK-N] commits on default at all).
+
+    matched_files: file paths returned by commit_changed_files for those SHAs.
+    """
+    if matched_default_shas is None:
+        matched_default_shas = ["deadbeef" + "0" * 32]
+    if matched_files is None:
+        matched_files = {"some/file.py"}
+    monkeypatch.setattr(
+        tusk_merge,
+        "find_task_commits",
+        lambda task_id, repo_root, refs=None, since=None: list(matched_default_shas),
+    )
+    monkeypatch.setattr(
+        tusk_merge,
+        "commit_changed_files",
+        lambda commits, repo_root: set(matched_files),
+    )
+
+
 def _make_run(
     branch_name: str,
     default_branch: str = "main",
@@ -138,6 +174,7 @@ class TestDivergedOnDefault:
         monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
         mock_run, _ = _make_run(branch, default_branch=default, task_id=task_id,
                                 task_on_default=True, record_calls=record)
+        _patch_overlap_helpers(monkeypatch)
         monkeypatch.setattr(tusk_merge, "run", mock_run)
 
         stdout_buf = io.StringIO()
@@ -165,6 +202,7 @@ class TestDivergedOnDefault:
         monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
         monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
         mock_run, _ = _make_run(branch, task_id=task_id, task_on_default=True, record_calls=record)
+        _patch_overlap_helpers(monkeypatch)
         monkeypatch.setattr(tusk_merge, "run", mock_run)
 
         stderr_buf = io.StringIO()
@@ -193,6 +231,7 @@ class TestDivergedOnDefault:
         monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
         monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
         mock_run, _ = _make_run(branch, task_id=task_id, task_on_default=True, record_calls=record)
+        _patch_overlap_helpers(monkeypatch)
         monkeypatch.setattr(tusk_merge, "run", mock_run)
 
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -219,6 +258,7 @@ class TestDivergedOnDefault:
         monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
         monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
         mock_run, _ = _make_run(branch, task_id=task_id, task_on_default=True, record_calls=record)
+        _patch_overlap_helpers(monkeypatch)
         monkeypatch.setattr(tusk_merge, "run", mock_run)
 
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -249,6 +289,7 @@ class TestDivergedOnDefault:
         monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
         monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
         mock_run, _ = _make_run(branch, task_id=task_id, task_on_default=True, record_calls=record)
+        _patch_overlap_helpers(monkeypatch)
         monkeypatch.setattr(tusk_merge, "run", mock_run)
 
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -275,6 +316,7 @@ class TestDivergedOnDefault:
         monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
         monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
         mock_run, _ = _make_run(branch, task_id=task_id, task_on_default=True, record_calls=record)
+        _patch_overlap_helpers(monkeypatch)
         monkeypatch.setattr(tusk_merge, "run", mock_run)
 
         stdout_buf = io.StringIO()
@@ -310,6 +352,7 @@ class TestNormalPathUnaffected:
         monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
         # task_on_default=False → branch-scoped log returns non-empty → feature branch has its own commit → normal ff-merge path
         mock_run, _ = _make_run(branch, task_id=task_id, task_on_default=False, record_calls=record)
+        _patch_overlap_helpers(monkeypatch)
         monkeypatch.setattr(tusk_merge, "run", mock_run)
 
         stderr_buf = io.StringIO()
@@ -343,6 +386,7 @@ class TestNormalPathUnaffected:
         monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
         monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
         mock_run, _ = _make_run(branch, task_id=task_id, task_on_default=False, record_calls=record)
+        _patch_overlap_helpers(monkeypatch)
         monkeypatch.setattr(tusk_merge, "run", mock_run)
 
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -441,6 +485,7 @@ class TestRecycledTaskId:
         mock_run, _ = self._make_run_with_prior_epoch_commit(
             branch, task_id=task_id, record_calls=record
         )
+        _patch_overlap_helpers(monkeypatch)
         monkeypatch.setattr(tusk_merge, "run", mock_run)
 
         stderr_buf = io.StringIO()
@@ -480,6 +525,7 @@ class TestRecycledTaskId:
         mock_run, _ = self._make_run_with_prior_epoch_commit(
             branch, task_id=task_id, record_calls=record
         )
+        _patch_overlap_helpers(monkeypatch)
         monkeypatch.setattr(tusk_merge, "run", mock_run)
 
         stdout_buf = io.StringIO()
@@ -523,6 +569,7 @@ class TestCherryPickDiverged:
             branch, task_id=task_id, task_on_default=False,
             cherry_pick_diverged=True, record_calls=record
         )
+        _patch_overlap_helpers(monkeypatch)
         monkeypatch.setattr(tusk_merge, "run", mock_run)
 
         stdout_buf = io.StringIO()
@@ -553,6 +600,7 @@ class TestCherryPickDiverged:
             branch, task_id=task_id, task_on_default=False,
             cherry_pick_diverged=True, record_calls=record
         )
+        _patch_overlap_helpers(monkeypatch)
         monkeypatch.setattr(tusk_merge, "run", mock_run)
 
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -584,6 +632,7 @@ class TestCherryPickDiverged:
             branch, task_id=task_id, task_on_default=False,
             cherry_pick_diverged=True, record_calls=record
         )
+        _patch_overlap_helpers(monkeypatch)
         monkeypatch.setattr(tusk_merge, "run", mock_run)
 
         with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
@@ -617,6 +666,7 @@ class TestCherryPickDiverged:
             branch, task_id=task_id, task_on_default=False,
             cherry_pick_diverged=True, record_calls=record
         )
+        _patch_overlap_helpers(monkeypatch)
         monkeypatch.setattr(tusk_merge, "run", mock_run)
 
         stderr_buf = io.StringIO()
@@ -648,6 +698,7 @@ class TestCherryPickDiverged:
             branch, task_id=task_id, task_on_default=False,
             cherry_pick_diverged=True, record_calls=record
         )
+        _patch_overlap_helpers(monkeypatch)
         monkeypatch.setattr(tusk_merge, "run", mock_run)
 
         stdout_buf = io.StringIO()
@@ -682,6 +733,7 @@ class TestCherryPickDiverged:
             branch, task_id=task_id, task_on_default=False,
             cherry_pick_diverged=False, record_calls=record
         )
+        _patch_overlap_helpers(monkeypatch)
         monkeypatch.setattr(tusk_merge, "run", mock_run)
 
         stderr_buf = io.StringIO()

@@ -259,6 +259,19 @@ class TestMergePushUnreachableRemote:
                 return _cp(0, stdout="- abc123\n")
             return original(args, check=check)
 
+        # Stub the prefix-collision file-overlap heuristic helpers (issue #656)
+        # so the override at bin/tusk-merge.py keeps task_on_default=True. The
+        # real helpers run subprocess against tmp_path (not a git repo) and would
+        # otherwise return empty, flipping task_on_default back to False and
+        # routing the merge through the normal ff-merge path instead of the
+        # task_on_default path this test is asserting against. task_referenced_paths
+        # is stubbed to [] so the heuristic takes the "no scope signal" branch
+        # and keeps task_on_default=True even with overlap absent.
+        mod.find_task_commits = lambda task_id, repo_root, refs=None, since=None: [
+            "deadbeef" + "0" * 32
+        ]
+        mod.commit_changed_files = lambda commits, repo_root: {"some/file.py"}
+        mod.task_referenced_paths = lambda task_id, conn: []
         rc = self._run_merge(mod, fake_run_task_on_default, tmp_path)
 
         assert rc == 2
