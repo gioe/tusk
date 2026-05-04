@@ -59,6 +59,12 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tusk_loader  # loads tusk-json-lib.py
+
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
+
 
 TRAILER = "Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 
@@ -85,7 +91,9 @@ def _emit_final_summary(exit_code: int, state: dict) -> None:
         "task": state.get("task_id"),
     }
     sys.stderr.flush()
-    print(f"{SUMMARY_PREFIX} {json.dumps(payload, separators=(',', ':'))}", flush=True)
+    # Force pretty=False — this marker line must stay single-line regardless of
+    # TUSK_PRETTY so callers can recover it via `tail -1` / `grep TUSK_COMMIT_RESULT`.
+    print(f"{SUMMARY_PREFIX} {dumps(payload, pretty=False)}", flush=True)
 
 
 def _make_relative(abs_path: str, repo_root: str) -> str:

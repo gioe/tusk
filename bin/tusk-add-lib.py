@@ -26,6 +26,12 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tusk_loader  # loads tusk-json-lib.py
+
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
+
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -63,7 +69,7 @@ def main():
 
     # Validate: at least one of --lib or --repo is required
     if not lib_name and not repo:
-        print(json.dumps({"lib": None, "tasks": [], "error": "provide --lib <name> or --repo <owner/repo>"}))
+        print(dumps({"lib": None, "tasks": [], "error": "provide --lib <name> or --repo <owner/repo>"}))
         sys.exit(1)
 
     default_libs = _load_default_project_libs()
@@ -72,7 +78,7 @@ def main():
     if repo:
         # Custom lib — --lib required to name it
         if not lib_name:
-            print(json.dumps({"lib": None, "tasks": [], "error": "--lib <name> is required when using --repo"}))
+            print(dumps({"lib": None, "tasks": [], "error": "--lib <name> is required when using --repo"}))
             sys.exit(1)
         lib_entry = {"repo": repo, "ref": ref or "main"}
     elif lib_name in default_libs:
@@ -82,7 +88,7 @@ def main():
     else:
         known = sorted(default_libs.keys())
         hint = f"known built-ins: {known}" if known else "no built-ins found in config.default.json"
-        print(json.dumps({
+        print(dumps({
             "lib": lib_name,
             "tasks": [],
             "error": f"unknown built-in lib '{lib_name}'; provide --repo to add a custom lib ({hint})",
@@ -94,7 +100,7 @@ def main():
         with open(config_path) as f:
             config = json.load(f)
     except (OSError, json.JSONDecodeError) as e:
-        print(json.dumps({"lib": lib_name, "tasks": [], "error": f"failed to read config: {e}"}))
+        print(dumps({"lib": lib_name, "tasks": [], "error": f"failed to read config: {e}"}))
         sys.exit(1)
 
     # Merge into project_libs (no DB reinit)
@@ -108,7 +114,7 @@ def main():
             json.dump(config, f, indent=2)
             f.write("\n")
     except OSError as e:
-        print(json.dumps({"lib": lib_name, "tasks": [], "error": f"failed to write config: {e}"}))
+        print(dumps({"lib": lib_name, "tasks": [], "error": f"failed to write config: {e}"}))
         sys.exit(1)
 
     # Fetch bootstrap tasks for this lib via tusk init-fetch-bootstrap
@@ -118,21 +124,21 @@ def main():
             capture_output=True, text=True, encoding="utf-8", timeout=60,
         )
     except FileNotFoundError:
-        print(json.dumps({"lib": lib_name, "tasks": [], "error": "tusk not found in PATH"}))
+        print(dumps({"lib": lib_name, "tasks": [], "error": "tusk not found in PATH"}))
         sys.exit(1)
     except subprocess.TimeoutExpired:
-        print(json.dumps({"lib": lib_name, "tasks": [], "error": "init-fetch-bootstrap timed out"}))
+        print(dumps({"lib": lib_name, "tasks": [], "error": "init-fetch-bootstrap timed out"}))
         sys.exit(1)
 
     if result.returncode != 0:
         err = result.stderr.strip() or f"init-fetch-bootstrap exited {result.returncode}"
-        print(json.dumps({"lib": lib_name, "tasks": [], "error": err}))
+        print(dumps({"lib": lib_name, "tasks": [], "error": err}))
         sys.exit(1)
 
     try:
         bootstrap_out = json.loads(result.stdout)
     except json.JSONDecodeError as e:
-        print(json.dumps({"lib": lib_name, "tasks": [], "error": f"failed to parse bootstrap output: {e}"}))
+        print(dumps({"lib": lib_name, "tasks": [], "error": f"failed to parse bootstrap output: {e}"}))
         sys.exit(1)
 
     # Find the entry for this lib in the bootstrap output
@@ -141,7 +147,7 @@ def main():
         None,
     )
     if lib_result is None:
-        print(json.dumps({
+        print(dumps({
             "lib": lib_name,
             "tasks": [],
             "manifest_files": [],
@@ -170,7 +176,7 @@ def main():
                     capture_output=True, text=True, encoding="utf-8", timeout=30,
                 )
             except FileNotFoundError:
-                print(json.dumps({
+                print(dumps({
                     "lib": lib_name,
                     "tasks": lib_result.get("tasks", []),
                     "manifest_files": manifest_files,
@@ -179,7 +185,7 @@ def main():
                 }))
                 sys.exit(1)
             except subprocess.TimeoutExpired:
-                print(json.dumps({
+                print(dumps({
                     "lib": lib_name,
                     "tasks": lib_result.get("tasks", []),
                     "manifest_files": manifest_files,
@@ -199,7 +205,7 @@ def main():
             manifest_result = {"success": False, "error": f"failed to parse writer output: {e}"}
         if mf_proc.returncode != 0:
             err = (manifest_result or {}).get("error") or mf_proc.stderr.strip() or f"writer exited {mf_proc.returncode}"
-            print(json.dumps({
+            print(dumps({
                 "lib": lib_name,
                 "tasks": lib_result.get("tasks", []),
                 "manifest_files": manifest_files,
@@ -208,7 +214,7 @@ def main():
             }))
             sys.exit(1)
 
-    print(json.dumps({
+    print(dumps({
         "lib": lib_name,
         "tasks": lib_result.get("tasks", []),
         "manifest_files": manifest_files,

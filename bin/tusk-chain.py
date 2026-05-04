@@ -159,7 +159,7 @@ def cmd_frontier(conn: sqlite3.Connection, head_ids: list[int]):
     task_ids = [tid for tid, _ in downstream]
 
     if not task_ids:
-        print(json.dumps({"head_task_ids": head_ids, "frontier": []}))
+        print(dumps({"head_task_ids": head_ids, "frontier": []}))
         return
 
     placeholders = ",".join("?" * len(task_ids))
@@ -209,7 +209,7 @@ def cmd_frontier_check(conn: sqlite3.Connection, head_ids: list[int]):
     task_ids = [tid for tid, _ in downstream]
 
     if not task_ids:
-        print(json.dumps({"status": "complete", "frontier": []}))
+        print(dumps({"status": "complete", "frontier": []}))
         return
 
     placeholders = ",".join("?" * len(task_ids))
@@ -274,7 +274,7 @@ def cmd_validate_scope(conn: sqlite3.Connection, head_ids: list[int]):
     # no-downstream: only the head tasks appear in scope
     non_head_ids = [tid for tid in task_ids if tid not in head_set]
     if not non_head_ids:
-        print(json.dumps({"scope_type": "no-downstream", "skip_head_execution": False}))
+        print(dumps({"scope_type": "no-downstream", "skip_head_execution": False}))
         return
 
     placeholders = ",".join("?" * len(task_ids))
@@ -296,7 +296,7 @@ def cmd_validate_scope(conn: sqlite3.Connection, head_ids: list[int]):
         scope_type = "active-chain"
         skip_head_execution = False
 
-    print(json.dumps({"scope_type": scope_type, "skip_head_execution": skip_head_execution}))
+    print(dumps({"scope_type": scope_type, "skip_head_execution": skip_head_execution}))
 
 
 def cmd_status(conn: sqlite3.Connection, head_ids: list[int], fmt: str = "json"):
