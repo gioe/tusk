@@ -34,7 +34,6 @@ tusk retro-signals $RETRO_TASK_ID
 Parse the JSON. The fields consumed by the steps below are:
 
 - **`review_themes`** — `(category, severity)` pairs with ≥ 2 occurrences across this task's review passes, plus a short sample comment. Each theme is a candidate Category A (conventions) or Category D (lint rules) finding. Seed Step 3 directly from this list — **do not** re-query `review_comments` with SQL.
-- **`deferred_review_comments`** — individual review comments with `resolution='deferred'`, each with its `deferred_task_id` (may be null). These are open follow-up threads and must be surfaced in the Step 4 report so reviewers can see what was punted forward.
 - **`reopen_count`** — integer count of `to_status='To Do'` transitions on this task. When > 0, render a `**Reopened N times**` line in Step 4's "Rework Context" section so the reviewer pauses on whether the close actually stuck.
 - **`rework_chain`** — `{fixes, fixed_by}`. `fixes` is the upstream task this one was filed to address (via `fixes_task_id`); `fixed_by` is the downstream follow-ups that were filed to fix *this* one. When either list is non-empty, render the entries in Step 4's "Rework Context" section and append the explicit "**Was the root cause addressed?**" prompt — recurring fix chains are the strongest signal that an earlier pass treated symptoms rather than the underlying issue.
 
@@ -70,7 +69,7 @@ Consume `tool_errors` from this same `tusk retro-signals` JSON — **do not** op
 
 This signal drives the full retro only — the lightweight retro path (XS/S in `SKILL.md`) is intentionally unchanged to keep it lean.
 
-If the task has no review activity at all, both `review_themes` and `deferred_review_comments` will be empty arrays. In that case, **omit** the "Review Theme Summary" section from Step 4 silently — do not add a "(none)" placeholder.
+If the task has no review activity at all, `review_themes` will be an empty array. In that case, **omit** the "Review Theme Summary" section from Step 4 silently — do not add a "(none)" placeholder.
 
 ## Step 2c: Cross-retro Themes (from Step 0b output)
 
@@ -156,15 +155,11 @@ Brief (2-3 sentence) overview of what the session accomplished.
 
 > **Was the root cause addressed?** (include only when `rework_chain.fixes` or `rework_chain.fixed_by` is non-empty)
 
-### Review Theme Summary (omit if both tables below are empty)
+### Review Theme Summary (omit if review_themes is empty)
 
 **Recurring themes** (from `review_themes` — omit table if empty)
 | Category | Severity | Count | Sample |
 |----------|----------|-------|--------|
-
-**Deferred review comments** (from `deferred_review_comments` — omit table if empty)
-| # | Category | Severity | File | Deferred Task | Comment |
-|---|----------|----------|------|---------------|---------|
 
 ### Known gaps at close (omit if skipped_criteria is empty AND no next_steps survive the heuristic match)
 
@@ -210,9 +205,7 @@ Brief (2-3 sentence) overview of what the session accomplished.
 ```
 
 **Review Theme Summary rendering rules:**
-- If both `review_themes` and `deferred_review_comments` are empty, omit the entire "Review Theme Summary" section silently (no heading, no placeholder).
-- If only one of the two tables has rows, include the section with just that table and omit the empty one.
-- Each `deferred_review_comments` row shows `deferred_task_id` as `TASK-<id>` when non-null; render `—` when null (no follow-up task was linked). This keeps the "what happened to it" link visible even after the comment is closed out.
+- If `review_themes` is empty, omit the entire "Review Theme Summary" section silently (no heading, no placeholder).
 - Sample columns are already truncated to 80 chars by `retro-signals`; do not re-quote or pad them.
 
 **Rework Context rendering rules:**
