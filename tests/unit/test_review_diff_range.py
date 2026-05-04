@@ -9,6 +9,10 @@ Covers (per TASK-114 criterion 499):
   with recovered_from_task_commits=True
 - Empty-diff fallback — primary empty AND no [TASK-N] commits in recent
   history → exits non-zero with the Step 3 error message on stderr
+- Prefix-collision file-overlap heuristic (TASK-309 / issue #656) — recovered
+  [TASK-N] commits whose file diff doesn't overlap with the task's referenced
+  paths are dropped before the range is built; if filtering empties the list,
+  raise the same kind of SystemExit the reviewer agent expects.
 
 Each path exercises the real ``git diff`` / ``git log`` behavior against a
 temporary repo so the interaction with git stays in the test surface. The
@@ -21,6 +25,7 @@ tests rely on the real wrapper's symbolic-ref → gh → "main" fallback.
 import importlib.util
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 
@@ -229,3 +234,157 @@ class TestCLI:
         code, _out, err = _run_cli(db_path, "not-a-number")
         assert code == 1
         assert "Invalid task ID" in err
+
+
+# ── prefix-collision file-overlap heuristic (TASK-309 / issue #656) ────
+
+
+_TASKS_SCHEMA = """
+CREATE TABLE tasks (
+    id INTEGER PRIMARY KEY,
+    summary TEXT,
+    description TEXT
+);
+CREATE TABLE acceptance_criteria (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    criterion TEXT,
+    verification_spec TEXT
+);
+"""
+
+
+def _seed_db(db_path, *, task_id, summary, description):
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    conn.executescript(_TASKS_SCHEMA)
+    conn.execute(
+        "INSERT INTO tasks (id, summary, description) VALUES (?, ?, ?)",
+        (task_id, summary, description),
+    )
+    conn.commit()
+    conn.close()
+
+
+class TestPrefixCollisionHeuristic:
+    """Issue #656: a stray [TASK-N] commit (recycled task ID, fat-fingered
+    message) on the default branch must not be folded into the recovered
+    diff range and surfaced to the reviewer agent as if it were this
+    task's work."""
+
+    def test_drops_unrelated_commit_and_keeps_real_one(self, tmp_path, monkeypatch):
+        repo_root, db_path = _make_repo(tmp_path, default_branch="main")
+        _seed_db(
+            db_path,
+            task_id=42,
+            summary="Wire foo",
+            description="Update bin/tusk-foo.py to handle the new foo case",
+        )
+
+        # Stray [TASK-42] commit from a recycled task ID — touches an unrelated path
+        with open(os.path.join(repo_root, "noise.txt"), "w") as f:
+            f.write("noise\n")
+        subprocess.run(["git", "-C", repo_root, "add", "noise.txt"], check=True)
+        subprocess.run(
+            ["git", "-C", repo_root, "commit", "-q", "-m", "[TASK-42] stray"],
+            check=True,
+        )
+
+        # Real [TASK-42] commit on bin/tusk-foo.py
+        bin_dir = os.path.join(repo_root, "bin")
+        os.makedirs(bin_dir, exist_ok=True)
+        real_path = os.path.join(bin_dir, "tusk-foo.py")
+        with open(real_path, "w") as f:
+            f.write("real\n")
+        subprocess.run(["git", "-C", repo_root, "add", "bin/tusk-foo.py"], check=True)
+        subprocess.run(
+            ["git", "-C", repo_root, "commit", "-q", "-m", "[TASK-42] real work"],
+            check=True,
+        )
+
+        monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
+
+        result = mod.compute_range(42, repo_root, db_path)
+        # Range should contain only the real commit's SHA on both endpoints
+        assert result["recovered_from_task_commits"] is True
+        # Diff should not contain noise.txt — only bin/tusk-foo.py
+        assert "tusk-foo.py" in result["summary"] or "tusk-foo.py" in subprocess.run(
+            ["git", "-C", repo_root, "diff", result["range"]],
+            capture_output=True, text=True, encoding="utf-8", check=True,
+        ).stdout
+
+    def test_raises_when_filter_drops_every_commit(self, tmp_path, monkeypatch):
+        """The only [TASK-N] commits in history are prefix-match false positives
+        — filter empties the list, raise SystemExit with a #656-specific
+        message rather than silently handing the reviewer the wrong diff."""
+        repo_root, db_path = _make_repo(tmp_path, default_branch="main")
+        _seed_db(
+            db_path,
+            task_id=99,
+            summary="Wire bar",
+            description="Update bin/tusk-bar.py for the bar case",
+        )
+
+        # Only [TASK-99] commits in history are unrelated
+        with open(os.path.join(repo_root, "stray.txt"), "w") as f:
+            f.write("stray\n")
+        subprocess.run(["git", "-C", repo_root, "add", "stray.txt"], check=True)
+        subprocess.run(
+            ["git", "-C", repo_root, "commit", "-q", "-m", "[TASK-99] stray"],
+            check=True,
+        )
+
+        monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
+
+        with pytest.raises(SystemExit) as exc:
+            mod.compute_range(99, repo_root, db_path)
+        msg = str(exc.value)
+        assert "[TASK-99]" in msg
+        assert "issue #656" in msg
+
+    def test_skipped_when_task_has_no_scope_signal(self, tmp_path, monkeypatch):
+        """Task with no referenced paths in summary/description → no basis to
+        discriminate → every commit is kept (matches TASK-308 behavior in
+        tusk-merge)."""
+        repo_root, db_path = _make_repo(tmp_path, default_branch="main")
+        _seed_db(
+            db_path,
+            task_id=11,
+            summary="Generic title",
+            description="Generic body with no file references",
+        )
+
+        with open(os.path.join(repo_root, "anything.txt"), "w") as f:
+            f.write("x\n")
+        subprocess.run(["git", "-C", repo_root, "add", "anything.txt"], check=True)
+        subprocess.run(
+            ["git", "-C", repo_root, "commit", "-q", "-m", "[TASK-11] generic"],
+            check=True,
+        )
+
+        monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
+
+        result = mod.compute_range(11, repo_root, db_path)
+        assert result["recovered_from_task_commits"] is True
+        assert result["diff_lines"] > 0
+
+    def test_skipped_when_db_is_unreachable(self, tmp_path, monkeypatch):
+        """Best-effort: if the DB doesn't exist (cross-repo invocation,
+        broken state) the heuristic falls back to keeping every commit
+        rather than blocking the reviewer."""
+        repo_root, _db_path = _make_repo(tmp_path, default_branch="main")
+
+        with open(os.path.join(repo_root, "anything.txt"), "w") as f:
+            f.write("x\n")
+        subprocess.run(["git", "-C", repo_root, "add", "anything.txt"], check=True)
+        subprocess.run(
+            ["git", "-C", repo_root, "commit", "-q", "-m", "[TASK-22] generic"],
+            check=True,
+        )
+
+        monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
+
+        # Pass a path to a file that doesn't exist
+        result = mod.compute_range(22, repo_root, "/nonexistent/path/db")
+        assert result["recovered_from_task_commits"] is True
+        assert result["diff_lines"] > 0

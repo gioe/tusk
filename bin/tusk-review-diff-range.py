@@ -44,12 +44,16 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader  # loads tusk-json-lib.py, tusk-git-helpers.py
+import tusk_loader  # loads tusk-json-lib.py, tusk-git-helpers.py, tusk-db-lib.py
 
 _json_lib = tusk_loader.load("tusk-json-lib")
 _git_helpers = tusk_loader.load("tusk-git-helpers")
+_db_lib = tusk_loader.load("tusk-db-lib")
 dumps = _json_lib.dumps
 task_grep_arg = _git_helpers.task_grep_arg
+commit_changed_files = _git_helpers.commit_changed_files
+task_referenced_paths = _git_helpers.task_referenced_paths
+get_connection = _db_lib.get_connection
 
 SUMMARY_CHARS = 120
 TASK_COMMIT_LIMIT = 50
@@ -85,7 +89,40 @@ def default_branch(repo_root: str) -> str:
     return branch or "main"
 
 
-def compute_range(task_id: int, repo_root: str) -> dict:
+def _filter_commits_by_task_overlap(
+    task_id: int, commits: list, repo_root: str, db_path: str | None
+) -> list:
+    """Drop commits whose file diff doesn't overlap this task's referenced paths.
+
+    Mirrors the prefix-collision file-overlap heuristic wired into
+    ``tusk merge`` (TASK-308) and ``tusk task-done`` (TASK-309). Without
+    the filter, a stray ``[TASK-<id>]``-tagged commit (recycled task ID
+    after a fresh DB init, fat-fingered commit message) would be folded
+    into the diff range and the reviewer agent would assess unrelated
+    code (issue #656).
+
+    Skipped when the task has no scope signal (no referenced paths), or
+    when the DB is unreachable — in either case there's no basis to
+    discriminate, so every commit is returned. Order is preserved so
+    callers can still take ``commits[0]`` as newest, ``commits[-1]`` as
+    oldest.
+    """
+    if not commits or not db_path or not os.path.isfile(db_path):
+        return list(commits)
+    try:
+        conn = get_connection(db_path)
+    except Exception:
+        return list(commits)
+    try:
+        task_paths = set(task_referenced_paths(task_id, conn))
+    finally:
+        conn.close()
+    if not task_paths:
+        return list(commits)
+    return [sha for sha in commits if commit_changed_files([sha], repo_root) & task_paths]
+
+
+def compute_range(task_id: int, repo_root: str, db_path: str | None = None) -> dict:
     """Return the diff-range payload for this task, or raise on empty diff."""
     base = default_branch(repo_root)
     primary = f"{base}...HEAD"
@@ -119,6 +156,19 @@ def compute_range(task_id: int, repo_root: str) -> dict:
             "git log. The diff range cannot be determined automatically. Confirm "
             "the correct commit range manually and re-run."
         )
+
+    # Prefix-collision file-overlap heuristic (issue #656): drop commits
+    # whose file diff doesn't overlap with this task's referenced paths
+    # before we hand the range to the reviewer agent.
+    filtered = _filter_commits_by_task_overlap(task_id, commits, repo_root, db_path)
+    if not filtered:
+        raise SystemExit(
+            f"No changes found — every [TASK-{task_id}] commit in recent git log "
+            "touches files outside this task's referenced paths (prefix-match "
+            "false positive, issue #656). The diff range cannot be determined "
+            "automatically. Confirm the correct commit range manually and re-run."
+        )
+    commits = filtered
 
     newest = commits[0]
     oldest = commits[-1]
@@ -164,7 +214,7 @@ def main(argv: list) -> int:
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
 
     try:
-        result = compute_range(task_id, repo_root)
+        result = compute_range(task_id, repo_root, db_path)
     except SystemExit as exc:
         if isinstance(exc.code, str):
             print(exc.code, file=sys.stderr)
