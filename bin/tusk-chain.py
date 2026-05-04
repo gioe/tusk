@@ -19,7 +19,7 @@ import sys
 from collections import deque
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader
+import tusk_loader  # loads tusk-db-lib.py and tusk-json-lib.py
 
 log = logging.getLogger(__name__)
 
@@ -344,7 +344,7 @@ def cmd_status(conn: sqlite3.Connection, head_ids: list[int], fmt: str = "json")
             "in_progress": [{"id": r["id"], "summary": r["summary"]} for r in by_status["In Progress"]],
             "todo": [{"id": r["id"], "summary": r["summary"]} for r in by_status["To Do"]],
         }
-        print(json.dumps(payload, separators=(",", ":")))
+        print(dumps(payload))
         return
 
     if len(head_ids) == 1:
