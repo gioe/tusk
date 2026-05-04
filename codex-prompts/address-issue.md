@@ -110,8 +110,14 @@ Scan the issue body for a `## Failing Test` section. If present:
 
    Wait for the user's response. Treat anything other than an explicit
    `run` as `skip`. On skip, set `test_spec = null`, score
-   `test_present` as `"no"`, and proceed as if no `## Failing Test`
-   section were found (item 3 below) — do not run the command.
+   `test_present` as `"unverifiable"`, do not add a test criterion in
+   Step 6, and do not run the command. The `"unverifiable"` value
+   applies because the `## Failing Test` section was syntactically
+   present in the issue body — the user simply chose not to
+   sandbox-validate it; the score sits between `"yes"`
+   (sandbox-validated) and `"no"` (section absent). Do **not** route
+   to item 3 below — that path is reserved for the section-absent
+   case (`test_present="no"`).
 
    **b. On approval, execute the spec in an isolated sandbox:**
 
@@ -151,25 +157,49 @@ Scan the issue body for a `## Failing Test` section. If present:
      with inline logic may exit nonzero yet pass trivially once that
      inline logic is fixed; surface this in Step 7 so the implementer
      validates manually.)
-   - **Exit 0** — spec passes before any fix. Ask the implementer:
-     discard (`test_spec=null`, `test_present="no"`) or keep with a
-     `(warning: passed before fix)` note appended?
-   - **Command error** (exit 126/127, or stderr contains "command
-     not found" / "syntax error") — not a runnable shell command.
+   - **Exit 0** — spec passes before any fix (self-contained demo,
+     already-resolved issue, or a self-skip guard fired in the sandbox
+     — e.g. `git diff` against a missing `.git` parent). Ask the
+     implementer: discard (`test_spec=null`, score
+     `test_present="no"`) or keep with a `(warning: passed before
+     fix)` note appended (score `test_present="unverifiable"` — the
+     spec was attempted but didn't reach validation logic, equivalent
+     in epistemic value to a user-typed skip; this preserves the
+     invariant that `test_present="yes"` means the bug was observed
+     to fail under our own execution)?
+   - **Command error — malformed spec** (stderr contains "command
+     not found" / "syntax error", OR exit 126/127 with stderr that
+     matches neither the empty nor "No such file or directory"
+     environmental signature below) — not a runnable shell command.
      Set `test_spec=null`, score `test_present="no"`, and inform:
      > The `## Failing Test` spec produced a command error
      > (`<first line of SPEC_STDERR>`). Treating as no failing test.
+   - **Command error — environmental** (exit 126/127 with stderr
+     empty OR containing "No such file or directory", and NOT
+     containing "command not found" / "syntax error") — the spec
+     invokes a tool or relative path (e.g. `bin/tusk`, `tests/...`)
+     that is unreachable from the sandbox tempdir. The author
+     supplied a concrete reproducer but it can't be validated under
+     the sandbox's safety constraints. Set `test_spec=null`, score
+     `test_present="unverifiable"`, and inform:
+     > The `## Failing Test` spec exited 126/127 with sandbox
+     > unreachable-path signature (`<first line of SPEC_STDERR>` or
+     > empty stderr); a project-relative path or tool inside the
+     > spec was likely unreachable from the tempdir. Scoring
+     > `test_present` as `unverifiable` (the spec exists but can't
+     > be validated here). Failing-test verification deferred to
+     > `tusk criteria done` after task creation.
    - **Interpreter wrapper bypass** (exit nonzero AND NOT 126/127,
      with stderr containing one of the canonical missing-executable
      signatures from a language interpreter) — the spec is wrapped
      in a runtime (`python3 -c '<body>'`, `node -e '<body>'`,
      `ruby -e '<body>'`, `perl -e '<body>'`, etc.) whose interpreter
      itself runs cleanly on `/usr/bin:/bin` but whose body
-     subprocesses an unreachable project tool. The "Command error"
-     branch above only fires for exit 126/127; the language runtime
-     instead exits 1 and surfaces the missing executable through its
-     own exception machinery. Recognize this case by these stderr
-     signatures, extracting `<token>`:
+     subprocesses an unreachable project tool. The two "Command
+     error" branches above only fire for exit 126/127; the language
+     runtime instead exits 1 and surfaces the missing executable
+     through its own exception machinery. Recognize this case by
+     these stderr signatures, extracting `<token>`:
      - **Python** — `FileNotFoundError: [Errno 2] No such file or
        directory: '<token>'`
      - **Node** — `Error: spawn <token> ENOENT` or trailing
@@ -184,15 +214,15 @@ Scan the issue body for a `## Failing Test` section. If present:
      `tusk`) and check whether the basename resolves on
      `PATH=/usr/bin:/bin` via `command -v`. If it does NOT resolve,
      the inner subprocess could not validate under the sandbox's
-     safety constraints — the sandbox cannot tell whether the bug
-     actually fails. Set `test_spec=null`, score `test_present="no"`,
-     and inform:
+     safety constraints — the author supplied a concrete reproducer
+     but it can't be validated here. Set `test_spec=null`, score
+     `test_present="unverifiable"`, and inform:
      > The `## Failing Test` spec is an interpreter wrapper whose
      > inner subprocess could not reach `<token>`
-     > (sandbox PATH = `/usr/bin:/bin`). The bug was not reproduced
-     > under sandbox; treating as no failing test. Failing-test
-     > verification deferred to `tusk criteria done` after task
-     > creation.
+     > (sandbox PATH = `/usr/bin:/bin`). Scoring `test_present` as
+     > `unverifiable` (the spec exists but can't be validated here).
+     > Failing-test verification deferred to `tusk criteria done`
+     > after task creation.
 
      If the extracted `<token>` IS on `/usr/bin:/bin` (the inner
      subprocess called a system tool that genuinely failed) or no
@@ -273,7 +303,7 @@ Evaluate each factor and look up its score contribution from
 
 | Factor key | Condition to evaluate | Value key |
 |---|---|---|
-| `test_present` | Was a `## Failing Test` section found in Step 4.1? **Only evaluate for `bug` and `defect` task types.** | `"yes"` / `"no"` |
+| `test_present` | Resolve from Step 4.1's outcome: `"yes"` if the spec was sandbox-executed and exited nonzero with no command-error signature; `"unverifiable"` if the section was present but couldn't be validated here (user-typed skip, exit-0 keep, environmental command error, or interpreter-wrapper bypass with off-PATH inner token); `"no"` if the section was absent, the spec was discarded after exit 0, or the spec was demonstrably malformed. **Only evaluate for `bug` and `defect` task types.** | `"yes"` / `"no"` / `"unverifiable"` |
 | `pillar_aligned` | Does the issue align with the project pillars (run `tusk pillars list`)? If empty, skip (contribution = 0). | `"yes"` / `"no"` |
 | `duplicate` | Is an open task already covering this issue (from Step 3 backlog)? Include the task ID in the rationale if yes. | `"yes"` / `"no"` |
 | `in_scope` | Does the issue fit the project's stated purpose? | `"yes"` / `"no"` |
@@ -305,6 +335,12 @@ breakdown from Step 4.7), then show the proposed task:
 > **Recommendation: <Address / Decline>** — <1–2 sentence rationale from Step 4.7>
 >
 > **Score:** test_present: <±N>, pillar_aligned: <±N>, duplicate: <±N>, in_scope: <±N>, severity_high: <±N>, issue_quality: <±N> → **total: <N>** (Address ≥ <thresholds.address>, Decline ≤ <thresholds.decline>)
+
+When `test_present` is `"unverifiable"`, suffix that contribution
+with the value key in the rendered Score line — e.g.
+`test_present: +1 (unverifiable)` — so readers can tell it apart
+from the binary `"yes"` (+2) and `"no"` (-1) cases. The other
+factors are binary and need no annotation.
 
 ## Proposed Task from Issue #<N>
 
