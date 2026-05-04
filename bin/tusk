@@ -1053,7 +1053,7 @@ import difflib, sys
 candidates = [
   'init','path','config','validate','sql-quote','typed-criteria-build','branch','commit',
   'lint','lint-rule','dupes','conventions','pillars','glossary','criteria','dashboard','chain','blockers',
-  'review','review-verdict','review-pass-status','review-final-summary','review-diff-range','review-defer','review-wait','review-check-perms','review-agent-cost',
+  'review','review-verdict','review-pass-status','review-final-summary','review-diff-range','review-wait','review-check-perms','review-agent-cost',
   'deps','session-stats','session-recalc','session-close','skill-run','call-breakdown',
   'active-project','git-default-branch','branch-parse',
   'task-get','task-get-multi','task-select','task-start','task-done','task-insert','task-update','task-reopen','task-unstart','task-list','task-summary',
@@ -1519,7 +1519,6 @@ case "${1:-}" in
   review-pass-status) shift; exec python3 "$SCRIPT_DIR/tusk-review.py" "$DB_PATH" "$(resolve_config)" pass-status "$@" ;;
   review-final-summary) shift; exec python3 "$SCRIPT_DIR/tusk-review-final-summary.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   review-diff-range) shift; exec python3 "$SCRIPT_DIR/tusk-review-diff-range.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
-  review-defer) shift; exec python3 "$SCRIPT_DIR/tusk-review-defer.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   review-wait) shift; exec python3 "$SCRIPT_DIR/tusk-review-wait.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   deps) shift; exec python3 "$SCRIPT_DIR/tusk-deps.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   session-stats) shift; exec python3 "$SCRIPT_DIR/tusk-session-stats.py" "$DB_PATH" "$(resolve_config)" "$@" ;;

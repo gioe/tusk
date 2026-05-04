@@ -53,7 +53,6 @@
   ".claude/bin/tusk-retro.py",
   ".claude/bin/tusk-review-agent-cost.py",
   ".claude/bin/tusk-review-check-perms.py",
-  ".claude/bin/tusk-review-defer.py",
   ".claude/bin/tusk-review-diff-range.py",
   ".claude/bin/tusk-review-final-summary.py",
   ".claude/bin/tusk-review-wait.py",
