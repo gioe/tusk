@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [828] - 2026-05-04
+
+- [TASK-293] Drop deferred_review_comments references from skills/retro/FULL-RETRO.md
+
 ## [827] - 2026-05-04
 
 - [TASK-292] Remove deferral mechanism entirely; replace /review-commits defer flow with plain task-insert
