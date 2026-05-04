@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [842] - 2026-05-04
+
+- [TASK-303] Restructure address-issue Step 4.7 test_present factor row — single cell holds 6 edge-case rules
+
 ## [841] - 2026-05-04
 
 - [TASK-301] Migrate bin/tusk-deps.py to tusk_json_lib for TUSK_PRETTY detection and compact JSON serialization (5 sites)
