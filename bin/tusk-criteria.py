@@ -712,7 +712,14 @@ def cmd_reset(args: argparse.Namespace, db_path: str, config: dict) -> int:
             return 2
 
         if not row["is_completed"] and not row["is_deferred"]:
-            print(f"Criterion #{args.criterion_id} is already incomplete and not deferred")
+            print(json.dumps({
+                "id": args.criterion_id,
+                "task_id": row["task_id"],
+                "is_completed": False,
+                "is_deferred": False,
+                "already_incomplete": True,
+                "criterion": row["criterion"],
+            }, separators=(",", ":")))
             return 0
 
         conn.execute(
@@ -724,7 +731,13 @@ def cmd_reset(args: argparse.Namespace, db_path: str, config: dict) -> int:
             (args.criterion_id,),
         )
         conn.commit()
-        print(f"Criterion #{args.criterion_id} reset to incomplete: {row['criterion']}")
+        print(json.dumps({
+            "id": args.criterion_id,
+            "task_id": row["task_id"],
+            "is_completed": False,
+            "is_deferred": False,
+            "criterion": row["criterion"],
+        }, separators=(",", ":")))
         return 0
     finally:
         conn.close()
