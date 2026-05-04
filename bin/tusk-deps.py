@@ -11,19 +11,22 @@ Arguments received from tusk:
 """
 
 import argparse
-import json
 import logging
 import os
 import sqlite3
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader
+import tusk_loader  # loads tusk-db-lib.py, tusk-json-lib.py
 
 log = logging.getLogger(__name__)
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 get_connection = _db_lib.get_connection
+
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
+pretty_requested = _json_lib.pretty_requested
 
 
 def task_exists(conn: sqlite3.Connection, task_id: int) -> bool:
@@ -108,16 +111,14 @@ def list_dependencies(conn: sqlite3.Connection, task_id: int, json_output: bool 
         ORDER BY t.id
     """, (task_id,)).fetchall()
 
-    pretty = os.environ.get("TUSK_PRETTY", "").strip().lower() in ("1", "true", "yes", "on")
-
-    if json_output or not pretty:
-        print(json.dumps([{
+    if json_output or not pretty_requested():
+        print(dumps([{
             "id": d["id"],
             "summary": d["summary"],
             "status": d["status"],
             "priority": d["priority"],
             "relationship_type": d["relationship_type"] or "blocks",
-        } for d in deps], separators=(",", ":")))
+        } for d in deps]))
         return 0
 
     task_summary = get_task_summary(conn, task_id)
@@ -161,16 +162,14 @@ def list_dependents(conn: sqlite3.Connection, task_id: int, json_output: bool = 
         ORDER BY t.id
     """, (task_id,)).fetchall()
 
-    pretty = os.environ.get("TUSK_PRETTY", "").strip().lower() in ("1", "true", "yes", "on")
-
-    if json_output or not pretty:
-        print(json.dumps([{
+    if json_output or not pretty_requested():
+        print(dumps([{
             "id": d["id"],
             "summary": d["summary"],
             "status": d["status"],
             "priority": d["priority"],
             "relationship_type": d["relationship_type"] or "blocks",
-        } for d in dependents], separators=(",", ":")))
+        } for d in dependents]))
         return 0
 
     task_summary = get_task_summary(conn, task_id)
@@ -204,17 +203,15 @@ def show_blocked(conn: sqlite3.Connection, json_output: bool = False) -> int:
         ORDER BY t.priority DESC, t.id
     """).fetchall()
 
-    pretty = os.environ.get("TUSK_PRETTY", "").strip().lower() in ("1", "true", "yes", "on")
-
-    if json_output or not pretty:
-        print(json.dumps([{
+    if json_output or not pretty_requested():
+        print(dumps([{
             "id": t["id"],
             "summary": t["summary"],
             "status": t["status"],
             "priority": t["priority"],
             "blocking_count": t["blocking_count"],
             "total_deps": t["total_deps"],
-        } for t in blocked], separators=(",", ":")))
+        } for t in blocked]))
         return 0
 
     print("\nBlocked Tasks (waiting on dependencies)")
@@ -241,16 +238,14 @@ def show_ready(conn: sqlite3.Connection, json_output: bool = False) -> int:
         ORDER BY priority DESC, id
     """).fetchall()
 
-    pretty = os.environ.get("TUSK_PRETTY", "").strip().lower() in ("1", "true", "yes", "on")
-
-    if json_output or not pretty:
-        print(json.dumps([{
+    if json_output or not pretty_requested():
+        print(dumps([{
             "id": t["id"],
             "summary": t["summary"],
             "status": t["status"],
             "priority": t["priority"],
             "dep_count": t["dep_count"],
-        } for t in ready], separators=(",", ":")))
+        } for t in ready]))
         return 0
 
     print("\nReady Tasks (all dependencies complete)")
@@ -314,10 +309,8 @@ def show_all(conn: sqlite3.Connection, json_output: bool = False) -> int:
         ORDER BY d.task_id, d.depends_on_id
     """).fetchall()
 
-    pretty = os.environ.get("TUSK_PRETTY", "").strip().lower() in ("1", "true", "yes", "on")
-
-    if json_output or not pretty:
-        print(json.dumps([{
+    if json_output or not pretty_requested():
+        print(dumps([{
             "task_id": d["task_id"],
             "task_summary": d["task_summary"],
             "task_status": d["task_status"],
@@ -325,7 +318,7 @@ def show_all(conn: sqlite3.Connection, json_output: bool = False) -> int:
             "dep_summary": d["dep_summary"],
             "dep_status": d["dep_status"],
             "relationship_type": d["relationship_type"] or "blocks",
-        } for d in all_deps], separators=(",", ":")))
+        } for d in all_deps]))
         return 0
 
     print("\nAll Task Dependencies")
