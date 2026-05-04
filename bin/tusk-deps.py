@@ -161,14 +161,16 @@ def list_dependents(conn: sqlite3.Connection, task_id: int, json_output: bool = 
         ORDER BY t.id
     """, (task_id,)).fetchall()
 
-    if json_output:
+    pretty = os.environ.get("TUSK_PRETTY", "").strip().lower() in ("1", "true", "yes", "on")
+
+    if json_output or not pretty:
         print(json.dumps([{
             "id": d["id"],
             "summary": d["summary"],
             "status": d["status"],
             "priority": d["priority"],
             "relationship_type": d["relationship_type"] or "blocks",
-        } for d in dependents]))
+        } for d in dependents], separators=(",", ":")))
         return 0
 
     task_summary = get_task_summary(conn, task_id)
@@ -202,7 +204,9 @@ def show_blocked(conn: sqlite3.Connection, json_output: bool = False) -> int:
         ORDER BY t.priority DESC, t.id
     """).fetchall()
 
-    if json_output:
+    pretty = os.environ.get("TUSK_PRETTY", "").strip().lower() in ("1", "true", "yes", "on")
+
+    if json_output or not pretty:
         print(json.dumps([{
             "id": t["id"],
             "summary": t["summary"],
@@ -210,7 +214,7 @@ def show_blocked(conn: sqlite3.Connection, json_output: bool = False) -> int:
             "priority": t["priority"],
             "blocking_count": t["blocking_count"],
             "total_deps": t["total_deps"],
-        } for t in blocked]))
+        } for t in blocked], separators=(",", ":")))
         return 0
 
     print("\nBlocked Tasks (waiting on dependencies)")
@@ -237,14 +241,16 @@ def show_ready(conn: sqlite3.Connection, json_output: bool = False) -> int:
         ORDER BY priority DESC, id
     """).fetchall()
 
-    if json_output:
+    pretty = os.environ.get("TUSK_PRETTY", "").strip().lower() in ("1", "true", "yes", "on")
+
+    if json_output or not pretty:
         print(json.dumps([{
             "id": t["id"],
             "summary": t["summary"],
             "status": t["status"],
             "priority": t["priority"],
             "dep_count": t["dep_count"],
-        } for t in ready]))
+        } for t in ready], separators=(",", ":")))
         return 0
 
     print("\nReady Tasks (all dependencies complete)")
@@ -308,7 +314,9 @@ def show_all(conn: sqlite3.Connection, json_output: bool = False) -> int:
         ORDER BY d.task_id, d.depends_on_id
     """).fetchall()
 
-    if json_output:
+    pretty = os.environ.get("TUSK_PRETTY", "").strip().lower() in ("1", "true", "yes", "on")
+
+    if json_output or not pretty:
         print(json.dumps([{
             "task_id": d["task_id"],
             "task_summary": d["task_summary"],
@@ -317,7 +325,7 @@ def show_all(conn: sqlite3.Connection, json_output: bool = False) -> int:
             "dep_summary": d["dep_summary"],
             "dep_status": d["dep_status"],
             "relationship_type": d["relationship_type"] or "blocks",
-        } for d in all_deps]))
+        } for d in all_deps], separators=(",", ":")))
         return 0
 
     print("\nAll Task Dependencies")
