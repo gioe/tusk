@@ -27,30 +27,58 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader
+import tusk_loader  # loads tusk-db-lib.py, tusk-json-lib.py, tusk-git-helpers.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
+_git_helpers = tusk_loader.load("tusk-git-helpers")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 load_config = _db_lib.load_config
+find_task_commits = _git_helpers.find_task_commits
+commit_changed_files = _git_helpers.commit_changed_files
+task_referenced_paths = _git_helpers.task_referenced_paths
 
 
-def _find_task_commits(task_id: int) -> list[str]:
-    """Return commit hashes referencing [TASK-<task_id>] in git log."""
-    try:
-        pattern = f"\\[TASK-{task_id}\\]"
-        result = subprocess.run(
-            ["git", "log", "--format=%H", f"--grep={pattern}"],
-            capture_output=True,
-            text=True, encoding="utf-8",
-            timeout=10,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip().splitlines()
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        pass
-    return []
+def _find_task_commits(task_id: int, repo_root: str) -> list[str]:
+    """Return commit hashes referencing [TASK-<task_id>] in git log.
+
+    Thin wrapper around the centralized ``find_task_commits`` helper so the
+    POSIX BRE bracket-escape policy (TASK-149/TASK-150) and any future change
+    to the grep contract stays in lockstep with every other call site.
+    """
+    return find_task_commits(task_id, repo_root)
+
+
+def _filter_commits_by_task_overlap(
+    task_id: int, commits: list[str], conn: sqlite3.Connection, repo_root: str
+) -> tuple[list[str], list[str]]:
+    """Split ``commits`` into (overlapping, non_overlapping) by file diff.
+
+    Applies the prefix-collision file-overlap heuristic from
+    tusk-git-helpers (issue #627 / #656): a [TASK-<id>]-tagged commit is
+    treated as belonging to this task only when its file diff intersects
+    the paths referenced in the task's summary, description, criteria, or
+    verification specs. When the task has no scope signal (no referenced
+    paths at all) every commit is treated as overlapping, since we have no
+    basis to discriminate. Used to gate the auto-mark-criteria step at the
+    `task_commits = _find_task_commits(...)` call site so a stray
+    prefix-match doesn't stamp open criteria with another task's hash and
+    silently close the task as completed (issue #656).
+    """
+    if not commits:
+        return [], []
+    task_paths = set(task_referenced_paths(task_id, conn))
+    if not task_paths:
+        return list(commits), []
+    overlapping: list[str] = []
+    non_overlapping: list[str] = []
+    for sha in commits:
+        if commit_changed_files([sha], repo_root) & task_paths:
+            overlapping.append(sha)
+        else:
+            non_overlapping.append(sha)
+    return overlapping, non_overlapping
 
 
 def main(argv: list[str]) -> int:
@@ -128,7 +156,28 @@ def main(argv: list[str]) -> int:
         # Auto-mark only applies to 'completed' closures — wont_do/duplicate/expired
         # tasks may have open criteria intentionally left incomplete.
         if open_criteria and not force and reason == "completed":
-            task_commits = _find_task_commits(task_id)
+            # repo_root is two levels up from the DB: tusk/tasks.db → tusk/ → repo_root
+            repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+            raw_commits = _find_task_commits(task_id, repo_root)
+            # Prefix-collision file-overlap heuristic (issue #656): drop any
+            # [TASK-<id>]-tagged commit whose file diff doesn't overlap with
+            # this task's referenced paths, so a stray prefix-match (recycled
+            # task ID, fat-fingered commit message) doesn't stamp the open
+            # criteria with another task's hash and silently close the task
+            # as completed. Skipped when the task has no scope signal — see
+            # _filter_commits_by_task_overlap.
+            task_commits, dropped = _filter_commits_by_task_overlap(
+                task_id, raw_commits, conn, repo_root
+            )
+            if dropped:
+                _sha_list = " ".join(s[:7] for s in dropped)
+                print(
+                    f"Note: TASK-{task_id} — dropped {len(dropped)} matched "
+                    f"[TASK-{task_id}] commit(s) ({_sha_list}) that don't overlap "
+                    "with this task's referenced files (prefix-match false "
+                    "positive, issue #656).",
+                    file=sys.stderr,
+                )
             if task_commits:
                 latest_hash = task_commits[0]
                 crit_ids = [row["id"] for row in open_criteria]
