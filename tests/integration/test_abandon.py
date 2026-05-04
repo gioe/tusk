@@ -1,17 +1,21 @@
-"""Integration tests for `tusk abandon` (TASK-49).
+"""Integration tests for `tusk abandon` (TASK-49, TASK-305).
 
 `tusk abandon` is the no-commit symmetric of `tusk merge`: it closes a task
-with closed_reason in (wont_do, duplicate), force-deletes the feature branch
-when one exists, closes the open session, and emits JSON in the same shape
-as `tusk merge`.
+with closed_reason in (wont_do, duplicate, completed), force-deletes the
+feature branch when one exists, closes the open session, and emits JSON in
+the same shape as `tusk merge`.
 
 Exercises:
-  - Both wont_do and duplicate reasons (the only two reasons abandon accepts)
-    correctly close the task and the session.
+  - All three abandon reasons (wont_do, duplicate, completed) correctly close
+    the task and the session. `completed` is the convergent-completion path
+    (issue #580): the goal was met by separate work landing on the default
+    branch, so there are no commits to ship.
   - Refuses (exit code 2) when the feature branch has commits not on the
     default branch, with an error pointing the user at `tusk merge`.
-  - Rejects reasons that aren't in the abandon set (e.g. `completed`).
-  - Optional `--note` is persisted to task_progress so the rationale survives.
+  - Rejects reasons that aren't in the abandon set (e.g. `expired`, garbage).
+  - Optional `--note` is persisted to task_progress so the rationale survives —
+    for `--reason completed`, that note is the audit signal that distinguishes
+    convergent-completion from a normal merge close.
 """
 
 import importlib.util
@@ -58,9 +62,9 @@ def _call(db_path, config_path, *args) -> tuple[int, dict | None, str]:
 
 
 class TestAbandonHappyPath:
-    """Both abandon reasons close the task and the open session in one call."""
+    """All three abandon reasons close the task and the open session in one call."""
 
-    @pytest.mark.parametrize("reason", ["wont_do", "duplicate"])
+    @pytest.mark.parametrize("reason", ["wont_do", "duplicate", "completed"])
     def test_abandon_closes_task_and_session(
         self, db_path, config_path, monkeypatch, reason
     ):
@@ -224,19 +228,91 @@ class TestAbandonRefusesUnmergedCommits:
 class TestAbandonReasonValidation:
     """`--reason` must be one of the no-commit reasons; everything else fails fast."""
 
-    @pytest.mark.parametrize("bad_reason", ["completed", "expired", "garbage"])
+    @pytest.mark.parametrize("bad_reason", ["expired", "garbage", "converged"])
     def test_rejects_non_abandon_reasons(self, db_path, config_path, bad_reason):
         rc, result, stderr = _call(
             db_path, config_path, 1, "--reason", bad_reason
         )
         assert rc == 1
         assert result is None
-        assert "wont_do|duplicate" in stderr
+        assert "wont_do|duplicate|completed" in stderr
 
     def test_rejects_missing_reason(self, db_path, config_path):
         rc, _, stderr = _call(db_path, config_path, 1)
         assert rc == 1
         assert "--reason" in stderr
+
+
+class TestAbandonCompletedConvergent:
+    """Issue #580 — `--reason completed` is the convergent-completion path.
+
+    When a task's goal was already met by separate work landing on the default
+    branch between filing and pickup, there are no commits to ship via
+    `tusk merge`. `tusk abandon --reason completed` closes the task with
+    `closed_reason = 'completed'` (matching what `tusk merge` would have
+    written) and records the rationale on `task_progress` so future readers
+    can see *why* there were no commits.
+    """
+
+    def test_abandon_reason_completed_closes_task_done(
+        self, db_path, config_path, monkeypatch
+    ):
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        monkeypatch.setattr(
+            tusk_abandon,
+            "find_task_branch",
+            lambda tid: (None, f"No branch found matching feature/TASK-{tid}-*", False),
+        )
+        monkeypatch.setattr(tusk_abandon, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_abandon, "checkpoint_wal", lambda db: None)
+
+        rc, result, stderr = _call(
+            db_path,
+            config_path,
+            task_id,
+            "--reason",
+            "completed",
+            "--session",
+            session_id,
+            "--note",
+            "Goal met by TASK-1727, TASK-1730, TASK-1763 (convergent refactors).",
+        )
+
+        assert rc == 0, f"abandon --reason completed failed: {stderr}"
+        assert result is not None, f"expected JSON on stdout; stderr was:\n{stderr}"
+        assert result["task"]["status"] == "Done"
+        assert result["task"]["closed_reason"] == "completed", (
+            "convergent-completion must record closed_reason='completed' so the "
+            "DB reads the same as a normal `tusk merge` close"
+        )
+        assert result["sessions_closed"] == 1
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            session_row = conn.execute(
+                "SELECT ended_at FROM task_sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+            assert session_row[0] is not None, "session should be closed"
+
+            # The audit-trail signal: [abandon: completed] note distinguishes
+            # this case from a normal `tusk merge` close (which never writes a
+            # task_progress row with the [abandon: ...] prefix).
+            note_row = conn.execute(
+                "SELECT commit_message FROM task_progress WHERE task_id = ? "
+                "ORDER BY id DESC LIMIT 1",
+                (task_id,),
+            ).fetchone()
+            assert note_row is not None, "expected a task_progress row for the note"
+            assert "[abandon: completed]" in note_row[0]
+            assert "TASK-1727" in note_row[0]
+        finally:
+            conn.close()
 
 
 class TestAbandonDropsBranchAutoStash:
