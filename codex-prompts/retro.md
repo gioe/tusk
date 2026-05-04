@@ -51,8 +51,7 @@ the prompt makes one subprocess call instead of two. Output keys:
 
 - `signals` — task-specific signals: `complexity`, `reopen_count`,
   `rework_chain` (`fixes` / `fixed_by`), `review_themes`,
-  `deferred_review_comments`, `skipped_criteria`, `tool_call_outliers`,
-  `unconsumed_next_steps`.
+  `skipped_criteria`, `tool_call_outliers`, `unconsumed_next_steps`.
 - `themes` — array of `{theme, count}` tuples for findings recurring at
   least `--min-recurrence` times in the last `--window-days` days. Empty
   array when no themes meet the threshold.
@@ -327,9 +326,8 @@ known-gaps reporting, and dependency proposals.
 ### FR-1: Pull Session Context
 
 The session signals you need are already in `signals` from Step 0a —
-specifically `review_themes`, `deferred_review_comments`,
-`skipped_criteria`, `tool_call_outliers`, `unconsumed_next_steps`,
-`reopen_count`, and `rework_chain`.
+specifically `review_themes`, `skipped_criteria`, `tool_call_outliers`,
+`unconsumed_next_steps`, `reopen_count`, and `rework_chain`.
 
 For deeper code review of the just-closed task, run:
 
