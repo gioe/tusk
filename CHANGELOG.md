@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [826] - 2026-05-04
+
+- [TASK-291] Fix: tusk abandon leaves tusk-branch auto-stash orphaned
+
 ## [825] - 2026-05-04
 
 - [TASK-290] Drop tusk-branch auto-stash on successful tusk merge
