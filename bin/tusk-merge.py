@@ -355,6 +355,37 @@ def _try_pop_stash(task_id: int) -> None:
         print(pop.stderr.strip(), file=sys.stderr)
 
 
+def _drop_branch_auto_stash(task_id: int) -> None:
+    """Drop the leftover ``tusk-branch: auto-stash for TASK-<id>`` stash, if any.
+
+    Created by ``tusk branch <id>`` when the working tree was dirty at task-start
+    time — by definition unrelated to this task's work, so dropping on a
+    successful merge prevents the stash list from accumulating orphans (issue #644).
+    Silent when no matching entry exists.
+    """
+    label = f"tusk-branch: auto-stash for TASK-{task_id}"
+    stash_list = run(["git", "stash", "list"], check=False)
+    if stash_list.returncode != 0:
+        return
+
+    stash_index: int | None = None
+    for line in stash_list.stdout.splitlines():
+        # Lines look like: "stash@{N}: On <branch>: tusk-branch: auto-stash for TASK-N".
+        # Match the label at end-of-line (after rstrip) so `TASK-2` does not collide
+        # with `TASK-29`, then parse N.
+        if line.startswith("stash@{") and line.rstrip().endswith(label):
+            try:
+                stash_index = int(line.split("{")[1].split("}")[0])
+            except (IndexError, ValueError):
+                pass
+            break
+
+    if stash_index is None:
+        return
+
+    run(["git", "stash", "drop", f"stash@{{{stash_index}}}"], check=False)
+
+
 def detect_default_branch() -> str:
     """Detect the repo's default branch via remote HEAD, gh fallback, then 'main'."""
     run(["git", "remote", "set-head", "origin", "--auto"], check=False)
@@ -1158,6 +1189,12 @@ def main(argv: list[str]) -> int:
 
         if did_stash:
             _try_pop_stash(task_id)
+
+    # Drop any leftover `tusk-branch: auto-stash for TASK-<id>` entry created
+    # during a prior `tusk branch <id>` invocation when the working tree was
+    # dirty. By definition unrelated to this task's work, so safe to drop on
+    # successful merge — see issue #644.
+    _drop_branch_auto_stash(task_id)
 
     # Step 7: Close the task — pass --force up front so task-done emits
     # "Warning:" (not "Error:") for criteria that legitimately lack a commit
