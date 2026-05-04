@@ -206,3 +206,63 @@ class TestMergePushUnreachableRemote:
         assert rc == 2
         _, err = capsys.readouterr()
         assert "git push failed" in err
+
+    def test_feature_branch_push_fail_retry_hint_includes_tusk_merge(self, capsys, tmp_path):
+        """Issue #649: when git push is rejected on a transient remote-side
+        error after a feature-branch merge has already landed locally and the
+        session has been closed, the printed Retry hint must compose the push
+        retry with a re-invocation of tusk merge so the second pass finalizes
+        the task close + branch cleanup. Bare 'git push origin <default>' alone
+        leaves the task In Progress and the feature branch undeleted."""
+        mod = _load_module()
+        fake_run, _, _, _ = _make_run(
+            push_rc=1,
+            push_stderr=(
+                "remote: fatal error in commit_refs\n"
+                "To https://github.com/x/y.git\n"
+                " ! [remote rejected] main -> main (failure)\n"
+            ),
+        )
+
+        rc = self._run_merge(mod, fake_run, tmp_path)
+
+        assert rc == 2
+        _, err = capsys.readouterr()
+        assert "Retry: git push origin main && tusk merge 1 --session 1" in err
+        assert "The branch has been merged locally but not pushed." in err
+
+    def test_task_on_default_push_fail_retry_hint_includes_tusk_merge(self, capsys, tmp_path):
+        """Issue #649: same as above but for the task_on_default path —
+        session-close has already run, task-done is still pending, so the
+        retry hint must also re-invoke tusk merge to finalize the close."""
+        mod = _load_module()
+        fake_run, _, _, _ = _make_run(
+            push_rc=1,
+            push_stderr=(
+                "remote: fatal error in commit_refs\n"
+                "To https://github.com/x/y.git\n"
+                " ! [remote rejected] main -> main (failure)\n"
+            ),
+        )
+        # Override the task_on_default detector specifically (the `git log
+        # <branch> --not <default> --oneline <task_grep>` shape from
+        # bin/tusk-merge.py:1005). Returning empty stdout flips
+        # task_on_default to True. Matching by `--not` (rather than the bare
+        # ['git', 'log'] prefix) keeps the override scoped to the one call
+        # site we mean to control — see convention 37.
+        original = fake_run
+
+        def fake_run_task_on_default(args, check=True):
+            if args[:2] == ["git", "log"] and "--not" in args:
+                return _cp(0, stdout="")
+            if args[:2] == ["git", "cherry"]:
+                return _cp(0, stdout="- abc123\n")
+            return original(args, check=check)
+
+        rc = self._run_merge(mod, fake_run_task_on_default, tmp_path)
+
+        assert rc == 2
+        _, err = capsys.readouterr()
+        assert "Retry: git push origin main && tusk merge 1 --session 1" in err
+        # task_on_default branch must NOT print the feature-branch-only hint.
+        assert "The branch has been merged locally but not pushed." not in err
