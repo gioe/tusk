@@ -70,7 +70,7 @@ def _make_config(tmp_path, reviewer):
             "mode": "ai_only",
             "max_passes": 2,
         },
-        "review_categories": ["must_fix", "suggest", "defer"],
+        "review_categories": ["must_fix", "suggest"],
         "review_severities": ["critical", "major", "minor"],
     }
     if reviewer is not None:
