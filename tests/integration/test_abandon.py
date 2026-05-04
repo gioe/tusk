@@ -237,3 +237,167 @@ class TestAbandonReasonValidation:
         rc, _, stderr = _call(db_path, config_path, 1)
         assert rc == 1
         assert "--reason" in stderr
+
+
+class TestAbandonDropsBranchAutoStash:
+    """Issue #647 — sibling of #644.
+
+    `tusk branch <id>` auto-stashes a dirty working tree under
+    `tusk-branch: auto-stash for TASK-<id>` so it can drop the user back on
+    the default branch cleanly. That stash cannot belong to the task being
+    started (no work has happened yet at branch time), so it is by definition
+    unrelated leftover state. `tusk merge` drops it on a successful ship
+    (TASK-290); `tusk abandon` must do the same when a task is closed without
+    shipping, otherwise the orphan accumulates in `git stash list` forever
+    for `wont_do` / `duplicate` closures — exactly the cases where a stash
+    is least likely to be remembered later.
+    """
+
+    def test_abandon_drops_branch_auto_stash_after_branch_delete(
+        self, db_path, config_path, monkeypatch
+    ):
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        branch_name = f"feature/TASK-{task_id}-thing"
+
+        monkeypatch.setattr(
+            tusk_abandon,
+            "find_task_branch",
+            lambda tid: (branch_name, None, False),
+        )
+        monkeypatch.setattr(tusk_abandon, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_abandon, "checkpoint_wal", lambda db: None)
+
+        # Mock git invocations only; pass tusk subprocess calls through to the
+        # real binary so `tusk task-done` etc. actually mark the task Done in
+        # the test DB. Order matters — we assert stash drop lands AFTER
+        # `git branch -D`.
+        calls: list[list[str]] = []
+
+        def _passthrough(args, check=True):
+            return subprocess.run(
+                args, capture_output=True, text=True, encoding="utf-8", check=check
+            )
+
+        def _mock_run(args, check=True):
+            calls.append(args)
+            if not args or args[0] != "git":
+                return _passthrough(args, check=check)
+            # Branch has no unmerged commits (so abandon proceeds to delete).
+            if args[:2] == ["git", "log"] and "--not" in args:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:2] == ["git", "cherry"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            # We start out on the feature branch so abandon checks out main.
+            if args[:3] == ["git", "rev-parse", "--abbrev-ref"]:
+                return subprocess.CompletedProcess(
+                    args, 0, stdout=f"{branch_name}\n", stderr=""
+                )
+            if args[:2] == ["git", "checkout"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:3] == ["git", "branch", "-D"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            # The leftover branch-auto-stash entry the test is asserting on.
+            if args[:3] == ["git", "stash", "list"]:
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    stdout=(
+                        f"stash@{{0}}: On main: tusk-branch: auto-stash for TASK-{task_id}\n"
+                    ),
+                    stderr="",
+                )
+            if args[:3] == ["git", "stash", "drop"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(tusk_abandon, "run", _mock_run)
+        # The hoisted helper lives on `_merge` and was bound onto tusk_abandon
+        # at import time. Patch the merge module's `run` too so the helper
+        # records its `git stash list` / `git stash drop` calls into `calls`.
+        monkeypatch.setattr(tusk_abandon._merge, "run", _mock_run)
+
+        rc, result, stderr = _call(
+            db_path,
+            config_path,
+            task_id,
+            "--reason",
+            "wont_do",
+            "--session",
+            session_id,
+        )
+
+        assert rc == 0, f"abandon failed: {stderr}"
+        assert result is not None, f"expected JSON on stdout; stderr was:\n{stderr}"
+        assert result["task"]["status"] == "Done"
+
+        # The stash was dropped.
+        assert ["git", "stash", "drop", "stash@{0}"] in calls, (
+            f"expected git stash drop call; got calls:\n{calls}"
+        )
+
+        # Ordering: branch -D must precede stash drop. The stash drop runs as
+        # part of the abandon flow before task-done returns, and task-done
+        # marks the task Done (asserted above), so the drop precedes closure.
+        delete_idx = next(
+            i for i, c in enumerate(calls) if c[:3] == ["git", "branch", "-D"]
+        )
+        drop_idx = next(
+            i for i, c in enumerate(calls) if c[:3] == ["git", "stash", "drop"]
+        )
+        assert delete_idx < drop_idx, (
+            f"stash drop must run after branch delete; "
+            f"delete at {delete_idx}, drop at {drop_idx}"
+        )
+
+    def test_abandon_silent_when_no_branch_auto_stash_present(
+        self, db_path, config_path, monkeypatch
+    ):
+        """When no leftover branch-stash exists, abandon proceeds without any
+        `git stash drop` call — the helper is a no-op."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        monkeypatch.setattr(
+            tusk_abandon,
+            "find_task_branch",
+            lambda tid: (None, f"No branch found matching feature/TASK-{tid}-*", False),
+        )
+        monkeypatch.setattr(tusk_abandon, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_abandon, "checkpoint_wal", lambda db: None)
+
+        calls: list[list[str]] = []
+
+        def _mock_run(args, check=True):
+            calls.append(args)
+            if args[:3] == ["git", "stash", "list"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(tusk_abandon, "run", _mock_run)
+        monkeypatch.setattr(tusk_abandon._merge, "run", _mock_run)
+
+        rc, _, stderr = _call(
+            db_path,
+            config_path,
+            task_id,
+            "--reason",
+            "wont_do",
+            "--session",
+            session_id,
+        )
+
+        assert rc == 0, f"abandon failed: {stderr}"
+        # The helper still ran (`git stash list` was queried), but no drop
+        # was attempted because no matching entry existed.
+        assert any(c[:3] == ["git", "stash", "list"] for c in calls)
+        assert not any(c[:3] == ["git", "stash", "drop"] for c in calls)
