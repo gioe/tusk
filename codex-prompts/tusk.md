@@ -181,8 +181,36 @@ JSON blob and the `skill_run.run_id` you already captured.
      `files` already exist on disk. Mark all criteria done with
      `--skip-verify` and proceed directly to Step 9 (commit + merge)
      without reimplementing.
-   - **`"implement_fresh"`** — no commits and no deliverable files
-     found. Proceed normally and implement from scratch.
+   - **`"criteria_complete_no_commits"`** — every non-deferred
+     acceptance criterion is already marked `is_completed=1`, but
+     there are no `[TASK-<id>]` commits anywhere AND no deliverable
+     files on disk. This is a **salvage / converged-work /
+     speculative-mark** signal (issue #578, original incident
+     TASK-1714): a prior session marked criteria done without
+     producing any committed deliverable. Common causes: (1)
+     lost-work — a prior agent did real work but couldn't commit
+     cleanly (dirty worktree, branch protection, bundled unrelated
+     changes on a salvage branch); (2) convergent-evolution — separate
+     tasks effectively achieved the goal, so no fresh commits are
+     needed for THIS task; (3) speculative pre-marking — criteria
+     were marked done at the start of a prior session without backing
+     code. **Do NOT silently proceed as `implement_fresh`.** Instead:
+     (a) read the task's progress notes via `tusk task-get <id>` and
+     inspect any `next_steps` references; (b)
+     `git branch -a | grep TASK-<id>` for stale branches and inspect
+     their diff against the default branch (`git log <branch>..origin/<default>`
+     and `git show <sha>`) to determine whether the work is obsolete
+     vs. still relevant; (c) surface the options to the user —
+     **re-implement** (proceed with Explore → Implement as if
+     `implement_fresh`), **accept-as-converged** (close via
+     `tusk abandon <id> --reason completed --note "<rationale referencing the converging task or commits>"`),
+     or **abandon** (close via
+     `tusk abandon <id> --reason wont_do --note "..."`). Do not pick
+     the path unilaterally.
+   - **`"implement_fresh"`** — no commits, no deliverable files
+     found, and at least one non-deferred criterion is still
+     incomplete (or the task has no criteria at all). Proceed
+     normally and implement from scratch.
 
 3. **Determine the best agent** (informational in Codex — there is no
    sub-agent dispatch primitive). Note the task's domain, assignee
