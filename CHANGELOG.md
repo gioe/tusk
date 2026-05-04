@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [822] - 2026-05-03
+
+- [TASK-287] Fix: tusk shell silently swallows positional SQL argument
+
 ## [821] - 2026-05-03
 
 - [TASK-286] Sandbox /address-issue Step 4.6 reproducibility check to prevent mutating orchestrator state
