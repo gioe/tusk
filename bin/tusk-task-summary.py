@@ -90,6 +90,8 @@ _git_helpers = tusk_loader.load("tusk-git-helpers")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 task_grep_arg = _git_helpers.task_grep_arg
+commit_changed_files = _git_helpers.commit_changed_files
+task_referenced_paths = _git_helpers.task_referenced_paths
 
 
 def _resolve_task_id(raw: str) -> int:
@@ -263,7 +265,12 @@ def fetch_duration(conn: sqlite3.Connection, task_id: int, identity: dict) -> di
     }
 
 
-def fetch_diff(task_id: int, repo_root: str, since: str | None = None) -> dict:
+def fetch_diff(
+    task_id: int,
+    repo_root: str,
+    since: str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> dict:
     """Parse `git log --grep` output to collect commit count, unique files, and line deltas.
 
     `--all` scans every ref so post-merge commits (now on the default branch)
@@ -274,6 +281,15 @@ def fetch_diff(task_id: int, repo_root: str, since: str | None = None) -> dict:
     incarnation of the same numeric ID after a fresh DB init — are excluded.
     The "UTC" suffix anchors the SQLite-stored UTC timestamp against git's
     local-time interpretation of `--since`.
+
+    When ``conn`` is provided and the task has a positive scope signal
+    (referenced paths in summary/description/criteria/specs), the
+    prefix-collision file-overlap heuristic from tusk-git-helpers
+    (issue #656) drops any commit whose file diff doesn't intersect those
+    paths before aggregating — so a stray ``[TASK-<id>]`` commit (recycled
+    task ID, fat-fingered message authored after this task started) doesn't
+    inflate the diff stats surfaced in the end-of-run summary. Skipped when
+    ``conn`` is None or no scope signal exists.
     """
     zero = {"commits": 0, "files_changed": 0, "lines_added": 0, "lines_removed": 0}
     cmd = [
@@ -297,32 +313,54 @@ def fetch_diff(task_id: int, repo_root: str, since: str | None = None) -> dict:
     if result.returncode != 0:
         return zero
 
-    commits: set[str] = set()
-    files: set[str] = set()
-    added = 0
-    removed = 0
+    # Bucket numstat rows by commit so we can apply the file-overlap filter
+    # commit-by-commit before aggregating into the final stats.
+    commit_files: dict[str, list[tuple[str, str, str]]] = {}
+    current: str | None = None
     for line in result.stdout.splitlines():
         if not line.strip():
             continue
         if line.startswith("__COMMIT__ "):
-            commits.add(line.split(" ", 1)[1].strip())
+            current = line.split(" ", 1)[1].strip()
+            commit_files.setdefault(current, [])
+            continue
+        if current is None:
             continue
         # numstat row: "<added>\t<removed>\t<path>" (or "- -" for binary files)
         parts = line.split("\t")
         if len(parts) < 3:
             continue
         a, r, path = parts[0], parts[1], parts[2]
-        files.add(path)
-        try:
-            added += int(a)
-        except ValueError:
-            pass  # binary: "-"
-        try:
-            removed += int(r)
-        except ValueError:
-            pass
+        commit_files[current].append((a, r, path))
+
+    # Apply prefix-collision file-overlap heuristic (issue #656) when the
+    # task has a positive scope signal — drop commit buckets whose paths
+    # don't intersect this task's referenced paths.
+    if conn is not None and commit_files:
+        task_paths = set(task_referenced_paths(task_id, conn))
+        if task_paths:
+            commit_files = {
+                sha: rows
+                for sha, rows in commit_files.items()
+                if {row[2] for row in rows} & task_paths
+            }
+
+    files: set[str] = set()
+    added = 0
+    removed = 0
+    for rows in commit_files.values():
+        for a, r, path in rows:
+            files.add(path)
+            try:
+                added += int(a)
+            except ValueError:
+                pass  # binary: "-"
+            try:
+                removed += int(r)
+            except ValueError:
+                pass
     return {
-        "commits": len(commits),
+        "commits": len(commit_files),
         "files_changed": len(files),
         "lines_added": added,
         "lines_removed": removed,
@@ -414,7 +452,7 @@ def build_summary(
         ),
         "tokens": fetch_tokens(conn, task_id),
         "duration": fetch_duration(conn, task_id, identity),
-        "diff": fetch_diff(task_id, repo_root, since=identity["started_at"]),
+        "diff": fetch_diff(task_id, repo_root, since=identity["started_at"], conn=conn),
         "criteria": fetch_criteria(conn, task_id),
         "review_passes": fetch_review_passes(conn, task_id),
         "reopen_count": fetch_reopen_count(conn, task_id),

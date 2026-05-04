@@ -39,6 +39,7 @@ _SCHEMA = """
 CREATE TABLE tasks (
     id INTEGER PRIMARY KEY,
     summary TEXT,
+    description TEXT,
     status TEXT DEFAULT 'To Do',
     closed_reason TEXT,
     complexity TEXT,
@@ -63,6 +64,7 @@ CREATE TABLE acceptance_criteria (
     task_id INTEGER NOT NULL,
     criterion TEXT,
     criterion_type TEXT DEFAULT 'manual',
+    verification_spec TEXT,
     is_completed INTEGER DEFAULT 0,
     is_deferred INTEGER DEFAULT 0,
     deferred_reason TEXT,
@@ -467,6 +469,89 @@ class TestDiff:
         assert scoped["files_changed"] == 1
         assert scoped["lines_added"] == 2
         assert scoped["lines_removed"] == 0
+
+
+class TestDiffPrefixCollisionHeuristic:
+    """TASK-309 / issue #656: when a connection is provided and the task
+    has a positive scope signal, drop commits whose file diff doesn't
+    overlap with this task's referenced paths so the end-of-run summary
+    isn't inflated by a stray [TASK-N] match (recycled task ID, fat-fingered
+    commit message authored after the task started)."""
+
+    def _init_repo(self, repo_root):
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo_root, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"], cwd=repo_root, check=True
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test"], cwd=repo_root, check=True
+        )
+
+    def _commit(self, repo_root, path, content, message):
+        full = os.path.join(repo_root, path)
+        parent = os.path.dirname(full)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(full, "w") as f:
+            f.write(content)
+        subprocess.run(["git", "add", path], cwd=repo_root, check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", message], cwd=repo_root, check=True
+        )
+
+    def test_drops_stray_commit_when_conn_and_scope_signal_present(self, tmp_path):
+        repo = str(tmp_path / "repo")
+        os.makedirs(repo)
+        self._init_repo(repo)
+        # Real task work touches bin/tusk-foo.py
+        self._commit(repo, "bin/tusk-foo.py", "x\n", "[TASK-7] real")
+        # Stray [TASK-7] commit on an unrelated file
+        self._commit(repo, "noise.txt", "x\n", "[TASK-7] stray")
+
+        db_path, conn = _make_db(tmp_path)
+        # Task description references bin/tusk-foo.py — positive scope signal
+        conn.execute(
+            "INSERT INTO tasks (id, summary, status) VALUES (?, ?, ?)",
+            (7, "Wire foo", "Done"),
+        )
+        # Reach into description column via UPDATE since _make_db's bare insert
+        # path goes through _insert_task which doesn't take description. The
+        # local insert above mirrors the same minimal-column approach.
+        conn.execute(
+            "UPDATE tasks SET summary = ? WHERE id = ?",
+            ("Wire bin/tusk-foo.py for foo handling", 7),
+        )
+        conn.commit()
+
+        # Without conn → both commits leak in (regression baseline)
+        unfiltered = mod.fetch_diff(7, repo)
+        assert unfiltered["commits"] == 2
+        assert unfiltered["files_changed"] == 2
+
+        # With conn → stray commit dropped, only real work counted
+        filtered = mod.fetch_diff(7, repo, conn=conn)
+        assert filtered["commits"] == 1
+        assert filtered["files_changed"] == 1
+        assert filtered["lines_added"] == 1
+
+    def test_kept_when_no_scope_signal(self, tmp_path):
+        """Task with no referenced paths in summary/description/criteria →
+        heuristic has no basis to filter, so every commit is kept."""
+        repo = str(tmp_path / "repo")
+        os.makedirs(repo)
+        self._init_repo(repo)
+        self._commit(repo, "anything.txt", "x\n", "[TASK-9] generic")
+
+        db_path, conn = _make_db(tmp_path)
+        conn.execute(
+            "INSERT INTO tasks (id, summary, status) VALUES (?, ?, ?)",
+            (9, "Generic title with no paths", "Done"),
+        )
+        conn.commit()
+
+        filtered = mod.fetch_diff(9, repo, conn=conn)
+        assert filtered["commits"] == 1
+        assert filtered["files_changed"] == 1
 
 
 # ── end-to-end: CLI exit codes and output modes ───────────────────────
