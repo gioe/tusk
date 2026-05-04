@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [821] - 2026-05-03
+
+- [TASK-286] Sandbox /address-issue Step 4.6 reproducibility check to prevent mutating orchestrator state
+
 ## [820] - 2026-05-03
 
 - [TASK-285] Fix: tusk init fails when TUSK_PROJECT + TUSK_DB pin DB outside project tusk/ subdir
