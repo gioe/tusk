@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [840] - 2026-05-04
+
+- [TASK-308] Apply prefix-collision file-overlap heuristic in tusk merge before skipping ff and deleting branch
+
 ## [839] - 2026-05-04
 
 - [TASK-307] Add --note flag to tusk review resolve to record dismissal rationale
