@@ -2532,6 +2532,73 @@ def migrate_64(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 64: added glossary table and seeded from docs/GLOSSARY.md")
 
 
+def migrate_65(db_path: str, config_path: str, script_dir: str) -> None:
+    """Drop the deferral mechanism from review_comments.
+
+    Recreates the review_comments table without the ``deferred_task_id``
+    column and with the resolution CHECK constraint narrowed to
+    ``('fixed', 'dismissed')``. Existing data is preserved by mapping:
+    - ``category = 'defer'`` rows become ``category = 'suggest'``
+    - ``resolution = 'deferred'`` rows become ``resolution = 'dismissed'``
+    - ``deferred_task_id`` is dropped (the link from comment to follow-up
+      task is recoverable from the task description, where the helper
+      inserted the comment text verbatim).
+
+    No views project review_comments columns, so no view recreation is
+    required (unlike migration 56 for tasks-dependent views).
+
+    Idempotent: guarded by version check; if the table no longer has the
+    ``deferred_task_id`` column we still bump the user_version so re-runs
+    are no-ops.
+    """
+    if get_version(db_path) >= 65:
+        return
+
+    drop_triggers = drop_validate_triggers(db_path)
+
+    run_script(db_path, f"""
+        BEGIN;
+
+        {drop_triggers}
+
+        CREATE TABLE review_comments_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            review_id INTEGER NOT NULL,
+            file_path TEXT,
+            line_start INTEGER,
+            line_end INTEGER,
+            category TEXT,
+            severity TEXT,
+            comment TEXT NOT NULL,
+            resolution TEXT DEFAULT NULL
+                CHECK (resolution IN ('fixed', 'dismissed')),
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (review_id) REFERENCES code_reviews(id) ON DELETE CASCADE
+        );
+
+        INSERT INTO review_comments_new (id, review_id, file_path, line_start, line_end, category, severity, comment, resolution, created_at, updated_at)
+        SELECT id, review_id, file_path, line_start, line_end,
+            CASE WHEN category = 'defer' THEN 'suggest' ELSE category END,
+            severity, comment,
+            CASE WHEN resolution = 'deferred' THEN 'dismissed' ELSE resolution END,
+            created_at, updated_at
+        FROM review_comments;
+
+        DROP TABLE review_comments;
+        ALTER TABLE review_comments_new RENAME TO review_comments;
+
+        CREATE INDEX idx_review_comments_review_id ON review_comments(review_id);
+
+        PRAGMA user_version = 65;
+
+        COMMIT;
+    """)
+
+    regen_triggers(db_path, config_path, script_dir)
+    _progress("  Migration 65: dropped deferral mechanism from review_comments")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -2599,6 +2666,7 @@ MIGRATIONS = [
     (62, migrate_62),
     (63, migrate_63),
     (64, migrate_64),
+    (65, migrate_65),
 ]
 
 
