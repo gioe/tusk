@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [844] - 2026-05-04
+
+- [TASK-311] Migrate remaining bin/tusk-*.py compact-JSON sites (chain, typed-criteria-build, review-agent-cost) to tusk_json_lib
+
 ## [843] - 2026-05-04
 
 - [TASK-304] Align address-issue Codex variant 2-value test_present scoring with Claude variant 3-value scheme
