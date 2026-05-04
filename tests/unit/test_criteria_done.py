@@ -7,12 +7,28 @@ Tests the _done_single helper and cmd_done orchestrator directly.
 import argparse
 import importlib.util
 import io
+import json
 import os
 import sqlite3
 from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
 import pytest
+
+
+def _parse_json_lines(stdout):
+    """Parse JSONL stdout from cmd_done / _done_single into a list of dicts."""
+    return [json.loads(line) for line in stdout.strip().split("\n") if line]
+
+
+def _ids_marked_done(stdout):
+    return {obj["id"] for obj in _parse_json_lines(stdout)
+            if obj.get("is_completed") and not obj.get("already_completed")}
+
+
+def _ids_already_completed(stdout):
+    return {obj["id"] for obj in _parse_json_lines(stdout)
+            if obj.get("already_completed")}
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -96,7 +112,8 @@ class TestDoneSingle:
         assert rc == 0
         row = conn.execute("SELECT is_completed FROM acceptance_criteria WHERE id = 1").fetchone()
         assert row["is_completed"] == 1
-        assert "Criterion #1 marked done" in out.getvalue()
+        obj = json.loads(out.getvalue().strip())
+        assert obj["id"] == 1 and obj["is_completed"] is True
 
     def test_not_found_returns_2(self):
         conn = make_db()
@@ -119,7 +136,8 @@ class TestDoneSingle:
                                            suppress_shared_commit=True,
                                            commit_hash=None, committed_at=None)
         assert rc == 0
-        assert "already completed" in out.getvalue()
+        obj = json.loads(out.getvalue().strip())
+        assert obj["id"] == 1 and obj.get("already_completed") is True
 
     def test_verification_failure_returns_1(self):
         conn = make_db(criteria_specs=[
@@ -150,9 +168,11 @@ class TestDoneSingle:
                                            commit_hash=None, committed_at=None)
         assert rc == 0
         # Criterion is marked done despite the verification spec being "false" —
-        # skip_verify bypasses verification entirely. The "verification skipped"
-        # tag is included in the success line.
-        assert "Criterion #1 marked done (verification skipped)" in out.getvalue()
+        # skip_verify bypasses verification entirely. verification="skipped"
+        # surfaces this in the JSON payload.
+        obj = json.loads(out.getvalue().strip())
+        assert obj["id"] == 1 and obj["is_completed"] is True
+        assert obj["verification"] == "skipped"
         row = conn.execute(
             "SELECT is_completed, verification_result FROM acceptance_criteria WHERE id = 1"
         ).fetchone()
@@ -182,7 +202,7 @@ class TestDoneSingle:
         # Issue #587: the success confirmation must always print, even when the
         # shared-commit warning fires, so callers can distinguish a marked-done
         # success from a refusal. Stdout here is a StringIO (non-TTY).
-        assert "Criterion #2 marked done" in out.getvalue()
+        assert 2 in _ids_marked_done(out.getvalue())
 
     def test_shared_commit_warning_suppressed(self):
         conn = make_db(criteria_specs=[
@@ -236,10 +256,7 @@ class TestCmdDoneBulk:
              patch("subprocess.check_output", side_effect=Exception("no git")):
             rc = criteria_mod.cmd_done(args, ":memory:", {})
         assert rc == 0
-        stdout = out.getvalue()
-        assert "Criterion #1 marked done" in stdout
-        assert "Criterion #2 marked done" in stdout
-        assert "Criterion #3 marked done" in stdout
+        assert _ids_marked_done(out.getvalue()) == {1, 2, 3}
 
     def test_bulk_partial_failure(self):
         """Second criterion fails verification; first and third still marked done."""
@@ -265,11 +282,8 @@ class TestCmdDoneBulk:
             rc = criteria_mod.cmd_done(args, ":memory:", {})
 
         assert rc == 1  # Non-zero because criterion 2 failed
-        stdout = out.getvalue()
-        assert "Criterion #1 marked done" in stdout
-        assert "Criterion #3 marked done" in stdout
+        assert _ids_marked_done(out.getvalue()) == {1, 3}
         # Criterion 2 failed verification — no marked-done line for it.
-        assert "Criterion #2 marked done" not in stdout
         assert "FAILED" in err.getvalue() and "#2" in err.getvalue()
 
     def test_bulk_partial_failure_db_state(self):
@@ -317,8 +331,8 @@ class TestCmdDoneBulk:
             rc = criteria_mod.cmd_done(args, ":memory:", {})
         assert rc == 0
         stdout = out.getvalue()
-        assert "Criterion #1 is already completed" in stdout
-        assert "Criterion #2 marked done" in stdout
+        assert _ids_already_completed(stdout) == {1}
+        assert _ids_marked_done(stdout) == {2}
 
     def test_bulk_implies_batch_for_second_plus(self):
         """In bulk mode, 2nd+ criteria suppress shared-commit warning automatically."""
@@ -355,7 +369,7 @@ class TestCmdDoneBulk:
              patch("subprocess.check_output", side_effect=Exception("no git")):
             rc = criteria_mod.cmd_done(args, ":memory:", {})
         assert rc == 0
-        assert "Criterion #1 marked done" in out.getvalue()
+        assert 1 in _ids_marked_done(out.getvalue())
 
     def test_not_found_in_bulk_still_processes_others(self):
         """A not-found ID returns 2 but other criteria are still processed."""
@@ -370,9 +384,7 @@ class TestCmdDoneBulk:
             rc = criteria_mod.cmd_done(args, ":memory:", {})
         assert rc == 2  # Worst exit code
         assert "999 not found" in err.getvalue()
-        stdout = out.getvalue()
-        assert "Criterion #1 marked done" in stdout
-        assert "Criterion #2 marked done" in stdout
+        assert _ids_marked_done(out.getvalue()) == {1, 2}
 
 
 # ── Skip-note tests ──────────────────────────────────────────────────

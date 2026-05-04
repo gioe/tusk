@@ -431,7 +431,13 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
         return 2
 
     if row["is_completed"]:
-        print(f"Criterion #{criterion_id} is already completed")
+        print(json.dumps({
+            "id": criterion_id,
+            "task_id": row["task_id"],
+            "is_completed": True,
+            "already_completed": True,
+            "criterion": row["criterion"],
+        }, separators=(",", ":")))
         return 0
 
     # Cross-task HEAD guard (issue #573): if HEAD's commit message references a
@@ -510,12 +516,19 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
     capture_criterion_cost(conn, criterion_id, row["task_id"], completed_at_dt)
     conn.commit()
 
-    verified_msg = ""
-    if criterion_type != "manual" and not skip_verify:
-        verified_msg = " (verification passed)"
-    elif criterion_type != "manual" and skip_verify:
-        verified_msg = " (verification skipped)"
-    print(f"Criterion #{criterion_id} marked done{verified_msg}: {row['criterion']}")
+    verification = None
+    if criterion_type != "manual":
+        verification = "skipped" if skip_verify else "passed"
+    print(json.dumps({
+        "id": criterion_id,
+        "task_id": row["task_id"],
+        "is_completed": True,
+        "criterion": row["criterion"],
+        "criterion_type": criterion_type,
+        "commit_hash": commit_hash,
+        "verification": verification,
+        "skip_note": note,
+    }, separators=(",", ":")))
     return 0
 
 
