@@ -20,14 +20,19 @@ keeps callers from reinventing it.
 """
 
 import argparse
-import json
+import os
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tusk_loader  # loads tusk-json-lib.py
+_json_lib = tusk_loader.load("tusk-json-lib")
+dumps = _json_lib.dumps
 
 
 def build(spec: str, text: str, ctype: str) -> str:
     """Return a compact JSON object encoding the typed-criteria payload."""
     obj = {"text": text, "type": ctype, "spec": spec}
-    return json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
+    return dumps(obj, pretty=False)
 
 
 def main(argv):
