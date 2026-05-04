@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [837] - 2026-05-04
+
+- [TASK-305] Add tusk abandon --reason completed (or --reason converged) for tasks resolved by convergent work
+
 ## [836] - 2026-05-04
 
 - [TASK-302] Fix: address-issue Step 4.1 misclassifies python3/node/ruby/perl -c/-e wrappers around project tools as test_present=yes
