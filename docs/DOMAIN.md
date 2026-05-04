@@ -305,6 +305,7 @@ This model keeps `resolution` semantically pure: it only holds an outcome type, 
 | `severity` | TEXT | validated if config non-empty | Finding severity (critical, major, minor) |
 | `comment` | TEXT | NOT NULL | The finding text |
 | `resolution` | TEXT | nullable; CHECK IN (fixed, dismissed) | Outcome when resolved; NULL = open/unresolved |
+| `resolution_note` | TEXT | nullable | Optional rationale captured alongside the resolution. Set via `tusk review resolve <id> {fixed,dismissed} --note "<text>"`. The /review-commits skill records the spun-off-task pointer here when dismissing `suggest` findings (e.g. `Tracked as TASK-N`); preserves the audit trail of where the dismissed comment went. |
 | `created_at` | TEXT | default now | |
 | `updated_at` | TEXT | default now | |
 

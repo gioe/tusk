@@ -450,15 +450,22 @@ def cmd_resolve(args: argparse.Namespace, db_path: str) -> int:
             print(f"Error: Comment {args.comment_id} not found", file=sys.stderr)
             return 2
 
+        set_clauses = ["resolution = ?", "updated_at = datetime('now')"]
+        params: list = [args.resolution]
+        if args.note is not None:
+            set_clauses.append("resolution_note = ?")
+            params.append(args.note or None)
+        params.append(args.comment_id)
         conn.execute(
-            "UPDATE review_comments SET resolution = ?, updated_at = datetime('now') WHERE id = ?",
-            (args.resolution, args.comment_id),
+            f"UPDATE review_comments SET {', '.join(set_clauses)} WHERE id = ?",
+            params,
         )
         conn.commit()
     finally:
         conn.close()
 
-    print(f"Comment #{args.comment_id} marked '{args.resolution}': {comment['comment'][:60]}")
+    note_str = f" ({args.note})" if args.note else ""
+    print(f"Comment #{args.comment_id} marked '{args.resolution}'{note_str}: {comment['comment'][:60]}")
     return 0
 
 
@@ -894,6 +901,11 @@ def main():
     resolve_p = subparsers.add_parser("resolve", help="Resolve a review comment")
     resolve_p.add_argument("comment_id", type=int, help="Comment ID")
     resolve_p.add_argument("resolution", choices=["fixed", "dismissed"], help="Resolution status")
+    resolve_p.add_argument(
+        "--note",
+        default=None,
+        help="Optional rationale stored alongside the resolution (e.g. 'Tracked as TASK-42')",
+    )
 
     # approve
     approve_p = subparsers.add_parser("approve", help="Approve a review")

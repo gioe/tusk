@@ -2599,6 +2599,28 @@ def migrate_65(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 65: dropped deferral mechanism from review_comments")
 
 
+def migrate_66(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add ``resolution_note`` column to ``review_comments``.
+
+    Records the rationale supplied with a resolution (typically dismissal).
+    The /review-commits skill spins ``suggest`` findings off into follow-up
+    tasks and dismisses the original comment; ``resolution_note`` lets it
+    persist the ``Tracked as TASK-N`` audit pointer the SKILL.md asks for
+    (issue #657).
+
+    Additive column with no constraint changes — handled with a single
+    ``ALTER TABLE ADD COLUMN``; no view recreation or trigger drop needed.
+    """
+    if not has_column(db_path, "review_comments", "resolution_note"):
+        run_script(db_path, """
+            ALTER TABLE review_comments ADD COLUMN resolution_note TEXT;
+            PRAGMA user_version = 66;
+        """)
+    else:
+        set_version(db_path, 66)
+    _progress("  Migration 66: added 'resolution_note' column to review_comments")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -2667,6 +2689,7 @@ MIGRATIONS = [
     (63, migrate_63),
     (64, migrate_64),
     (65, migrate_65),
+    (66, migrate_66),
 ]
 
 
