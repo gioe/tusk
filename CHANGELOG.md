@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [851] - 2026-05-04
+
+- [TASK-314] Add python3 -m module ModuleNotFoundError signature to address-issue Step 4.1 classification
+
 ## [850] - 2026-05-04
 
 - Update /retro Step 0b prose to reflect content-derived theme matching (post-issue #551 retro patch)
