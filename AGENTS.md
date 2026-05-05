@@ -179,6 +179,20 @@ Two external library repos ship their own `tusk-bootstrap.json` and are pre-conf
 - **`/address-issue`** — Fetch a GitHub issue, score it, create a tusk task, and work through it
 - **`/ios-libs-issue`** — File an issue against the configured iOS lib repo (`project_type=ios_app` only); auto-attaches originating tusk task
 
+### Hooks (Git-event only in Codex mode)
+
+`install.sh` populates `hooks/git/<name>.sh` and writes `.git/hooks/<event>` dispatchers in both Claude and Codex modes. Codex installs skip `.claude/hooks/` (no PreToolUse equivalent). See `docs/HOOKS.md` for the dispatcher contract and instructions for adding a new guard.
+
+The dispatcher at `.git/hooks/<event>` carries the `TUSK_HOOK_DISPATCHER_V1` marker for idempotent re-runs and chains any pre-existing user hook to `.git/hooks/<event>.pre-tusk` so external hooks are preserved rather than overwritten.
+
+Per-event guard mapping (from `install.sh`):
+
+| Event | Guards |
+|-------|--------|
+| `pre-commit` | `block-raw-sqlite`, `block-sql-neq`, `dupe-gate` |
+| `pre-push`   | `branch-naming`, `version-bump-check` (source-repo install only — `version-bump-check` guards paths that exist only in the tusk source repo, so it's omitted in `INSTALL_ROLE=consumer` installs) |
+| `commit-msg` | `commit-msg-format` |
+
 ### Database Schema
 
 See `docs/DOMAIN.md` for the full schema, views, invariants, and status-transition rules.
