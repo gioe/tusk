@@ -217,6 +217,94 @@ class TestFetchPatches:
         assert [r["target_file"] for r in rows] == ["first", "second", "third"]
 
 
+class TestBatchedDecomposition:
+    """Issue #672: comma-separated `skill-patch:a,b,c` action_taken values must
+    decompose into one output row per file so the per-file unconfirmed filter
+    can match `skill-patch-confirmed:<file>` against individual sibling files."""
+
+    def test_batched_action_emits_one_row_per_file(self, tmp_path):
+        _, conn = _make_db(tmp_path)
+        _insert(conn, "skill-patch:skills/tusk/SKILL.md,skills/chain/SKILL.md")
+
+        rows = mod.fetch_patches(conn, window_days=30, unconfirmed_only=False)
+
+        assert [r["target_file"] for r in rows] == [
+            "skills/tusk/SKILL.md",
+            "skills/chain/SKILL.md",
+        ]
+
+    def test_batched_decomposed_rows_preserve_finding_id(self, tmp_path):
+        _, conn = _make_db(tmp_path)
+        _insert(conn, "skill-patch:a,b,c")
+
+        rows = mod.fetch_patches(conn, window_days=30, unconfirmed_only=False)
+
+        assert len(rows) == 3
+        ids = {r["finding_id"] for r in rows}
+        assert len(ids) == 1, "every decomposed row should reference the source finding"
+
+    def test_batched_decomposed_rows_preserve_original_action_taken(self, tmp_path):
+        _, conn = _make_db(tmp_path)
+        _insert(conn, "skill-patch:a,b")
+
+        rows = mod.fetch_patches(conn, window_days=30, unconfirmed_only=False)
+
+        assert all(r["action_taken"] == "skill-patch:a,b" for r in rows)
+
+    def test_batched_target_files_are_trimmed(self, tmp_path):
+        _, conn = _make_db(tmp_path)
+        _insert(conn, "skill-patch: a , b ,  c")
+
+        rows = mod.fetch_patches(conn, window_days=30, unconfirmed_only=False)
+
+        assert [r["target_file"] for r in rows] == ["a", "b", "c"]
+
+    def test_unconfirmed_filters_one_sibling_file_from_batch(self, tmp_path):
+        """Confirmation row for 'skills/tusk/SKILL.md' filters that decomposed
+        row out of --unconfirmed; the unconfirmed sibling 'skills/chain/SKILL.md'
+        remains."""
+        _, conn = _make_db(tmp_path)
+        _insert(
+            conn,
+            "skill-patch:skills/tusk/SKILL.md,skills/chain/SKILL.md",
+            offset_seconds=120,
+        )
+        _insert(conn, "skill-patch-confirmed:skills/tusk/SKILL.md", offset_seconds=10)
+
+        rows = mod.fetch_patches(conn, window_days=30, unconfirmed_only=True)
+
+        assert [r["target_file"] for r in rows] == ["skills/chain/SKILL.md"]
+
+    def test_unconfirmed_keeps_batch_when_no_sibling_confirmed(self, tmp_path):
+        _, conn = _make_db(tmp_path)
+        _insert(conn, "skill-patch:a,b", offset_seconds=120)
+
+        rows = mod.fetch_patches(conn, window_days=30, unconfirmed_only=True)
+
+        assert {r["target_file"] for r in rows} == {"a", "b"}
+
+    def test_unconfirmed_drops_batch_when_all_siblings_confirmed(self, tmp_path):
+        _, conn = _make_db(tmp_path)
+        _insert(conn, "skill-patch:a,b", offset_seconds=120)
+        _insert(conn, "skill-patch-confirmed:a", offset_seconds=20)
+        _insert(conn, "skill-patch-confirmed:b", offset_seconds=10)
+
+        rows = mod.fetch_patches(conn, window_days=30, unconfirmed_only=True)
+
+        assert rows == []
+
+    def test_single_file_row_still_emits_exactly_one_row(self, tmp_path):
+        """No-regression guard for the non-batched case."""
+        _, conn = _make_db(tmp_path)
+        _insert(conn, "skill-patch:CLAUDE.md")
+
+        rows = mod.fetch_patches(conn, window_days=30, unconfirmed_only=False)
+
+        assert len(rows) == 1
+        assert rows[0]["target_file"] == "CLAUDE.md"
+        assert rows[0]["action_taken"] == "skill-patch:CLAUDE.md"
+
+
 class TestMainCLI:
     def test_default_invocation_emits_json_array(self, tmp_path):
         db_path, conn = _make_db(tmp_path)
