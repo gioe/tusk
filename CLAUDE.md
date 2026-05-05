@@ -77,10 +77,11 @@ bin/tusk version-bump                              # increment VERSION by 1, sta
 bin/tusk changelog-add <version> [<task_id>...]   # prepend dated entry to CHANGELOG.md, echo block
 bin/tusk migrate
 bin/tusk regen-triggers
+bin/tusk dev-sync [--dry-run]                     # source-repo only: copy bin/tusk + bin/tusk-*.py + UNDERSCORE_BIN_FILES into .claude/bin/ and refresh tusk-lint.py.hash. Refuses outside the source repo.
 bin/tusk upgrade [--no-commit] [--force]  # --no-commit: skip auto-commit; --force: upgrade even if version matches or exceeds remote
 ```
 
-Additional subcommands (`blockers`, `review`, `chain`, `loop`, `deps blocked/all`, `session-stats`, `session-close`, `session-recalc`, `skill-run`, `call-breakdown`, `token-audit`, `pricing-update`, `sync-skills`, `reconcile-skills`, `dashboard`) follow the same `bin/tusk <cmd> --help` pattern — see source or run `--help` for flags.
+Additional subcommands (`blockers`, `review`, `chain`, `loop`, `deps blocked/all`, `session-stats`, `session-close`, `session-recalc`, `skill-run`, `call-breakdown`, `token-audit`, `pricing-update`, `sync-skills`, `reconcile-skills`, `dev-sync`, `dashboard`) follow the same `bin/tusk <cmd> --help` pattern — see source or run `--help` for flags.
 
 There is no build step or external linter in this repository.
 
