@@ -1061,7 +1061,7 @@ candidates = [
   'test-detect','test-precheck','add-lib','address-issue',
   'init-scan-codebase','init-scan-todos','init-fetch-bootstrap','init-write-config','init-write-manifest-files','init-wizard','init-scaffold',
   'loop','merge','abandon','bakeoff','progress','setup',
-  'token-audit','sync-skills','reconcile-skills','generate-manifest','pricing-update','wsjf','shell',
+  'token-audit','sync-skills','reconcile-skills','generate-manifest','uninstall-hooks','pricing-update','wsjf','shell',
   'version','version-bump','report-issue','changelog-add','migrate','update-gitignore','regen-triggers','upgrade',
 ]
 matches = difflib.get_close_matches(sys.argv[1], candidates, n=1, cutoff=0.6)
@@ -1571,6 +1571,7 @@ case "${1:-}" in
   sync-skills) shift; exec python3 "$SCRIPT_DIR/tusk-sync-skills.py" "$@" ;;
   reconcile-skills) shift; exec python3 "$SCRIPT_DIR/tusk-reconcile-skills.py" "$@" ;;
   generate-manifest) shift; exec python3 "$SCRIPT_DIR/tusk-generate-manifest.py" "$@" ;;
+  uninstall-hooks) shift; exec python3 "$SCRIPT_DIR/tusk-uninstall-hooks.py" "$REPO_ROOT" "$@" ;;
   pricing-update) shift; exec python3 "$SCRIPT_DIR/tusk-pricing-update.py" "$@" ;;
   wsjf) shift; exec python3 "$SCRIPT_DIR/tusk-wsjf.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   shell)  shift; cmd_shell "$@" ;;
