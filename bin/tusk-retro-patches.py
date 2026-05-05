@@ -73,46 +73,67 @@ def fetch_patches(
 
     - window_days == 0 disables the date filter (all history).
     - window_days > 0 limits to rows whose created_at >= datetime('now', '-N days').
-    - unconfirmed_only drops rows whose target file has a later
-      `skill-patch-confirmed:<file>` row in retro_findings.
+    - unconfirmed_only drops decomposed per-file rows whose target file has a
+      later `skill-patch-confirmed:<file>` row in retro_findings.
+
+    /retro routinely batches multiple files into a single `skill-patch:a,b,c`
+    action_taken value. Each batched row is decomposed into one output row
+    per file (target_file = single path), so the per-file unconfirmed filter
+    can match `skill-patch-confirmed:<file>` rows against individual sibling
+    files (issue #672). The original `action_taken` string is preserved on
+    every decomposed row as provenance back to the source retro_findings row.
     """
     params: list = [PATCH_PREFIX + "%"]
-    where = ["rf.action_taken LIKE ?"]
+    where = ["action_taken LIKE ?"]
     if window_days and window_days > 0:
-        where.append("rf.created_at >= datetime('now', ?)")
+        where.append("created_at >= datetime('now', ?)")
         params.append(f"-{window_days} days")
-    if unconfirmed_only:
-        where.append(
-            "NOT EXISTS ("
-            "  SELECT 1 FROM retro_findings rf2"
-            "  WHERE rf2.action_taken ="
-            "    ? || substr(rf.action_taken, ?)"
-            "    AND rf2.created_at > rf.created_at"
-            ")"
-        )
-        params.extend([CONFIRMED_PREFIX, len(PATCH_PREFIX) + 1])
 
     sql = (
         "SELECT id AS finding_id, skill_run_id, task_id, action_taken, "
         "       created_at, "
         "       CAST(julianday('now') - julianday(created_at) AS INTEGER) AS age_days "
-        "FROM retro_findings rf "
+        "FROM retro_findings "
         "WHERE " + " AND ".join(where) + " "
         "ORDER BY created_at DESC, id DESC"
     )
 
+    raw_rows = list(conn.execute(sql, params))
+
+    confirmations: dict = {}
+    if unconfirmed_only:
+        for row in conn.execute(
+            "SELECT action_taken, created_at FROM retro_findings "
+            "WHERE action_taken LIKE ?",
+            (CONFIRMED_PREFIX + "%",),
+        ):
+            target = row["action_taken"][len(CONFIRMED_PREFIX):].strip()
+            if not target:
+                continue
+            prev = confirmations.get(target)
+            if prev is None or row["created_at"] > prev:
+                confirmations[target] = row["created_at"]
+
     rows = []
-    for row in conn.execute(sql, params):
+    for row in raw_rows:
         action = row["action_taken"]
-        rows.append({
-            "finding_id": row["finding_id"],
-            "skill_run_id": row["skill_run_id"],
-            "task_id": row["task_id"],
-            "action_taken": action,
-            "target_file": action[len(PATCH_PREFIX):],
-            "created_at": row["created_at"],
-            "age_days": row["age_days"],
-        })
+        suffix = action[len(PATCH_PREFIX):]
+        files = [f.strip() for f in suffix.split(",")]
+        files = [f for f in files if f]
+        for target in files:
+            if unconfirmed_only:
+                conf_at = confirmations.get(target)
+                if conf_at is not None and conf_at > row["created_at"]:
+                    continue
+            rows.append({
+                "finding_id": row["finding_id"],
+                "skill_run_id": row["skill_run_id"],
+                "task_id": row["task_id"],
+                "action_taken": action,
+                "target_file": target,
+                "created_at": row["created_at"],
+                "age_days": row["age_days"],
+            })
     return rows
 
 
