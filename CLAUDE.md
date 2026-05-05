@@ -88,7 +88,7 @@ There is no build step or external linter in this repository.
 
 ```bash
 python3 -m pytest tests/ -v          # run all tests
-python3 -m pytest tests/unit/ -v     # unit tests only (pure in-memory, no subprocess)
+python3 -m pytest tests/unit/ -v     # unit tests only (pure in-memory, no real DB)
 python3 -m pytest tests/integration/ -v  # integration tests only (requires a working tusk installation)
 ```
 
@@ -100,7 +100,7 @@ Dev dependencies (pytest) are listed in `requirements-dev.txt`. Install with:
 pip install -r requirements-dev.txt
 ```
 
-Tests live under `tests/unit/` (pure in-memory, no subprocess) and `tests/integration/` (spin up a real DB via `tusk init`). Add new tests in the appropriate subdirectory following the existing patterns.
+Tests live under `tests/unit/` (pure in-memory, no real DB) and `tests/integration/` (spin up a real DB via `tusk init`). Add new tests in the appropriate subdirectory following the existing patterns.
 
 ### macOS case-insensitive filesystem: realpath does NOT canonicalize case
 
