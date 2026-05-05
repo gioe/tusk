@@ -47,5 +47,6 @@
   "project_libs": {
     "python_service": { "repo": "gioe/python-libs", "ref": "main" },
     "ios_app": { "repo": "gioe/ios-libs", "ref": "main" }
-  }
+  },
+  "report_tusk_issue_footer": "_Filed via /report-tusk-issue from a Claude Code session._"
 }
