@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [861] - 2026-05-05
+
+- [TASK-329] Add auto-apply tier to /retro for trivially safe findings
+
 ## [860] - 2026-05-05
 
 - [TASK-327] Add --dry-run flag to tusk upgrade for safe preview of file overwrites and migrations
