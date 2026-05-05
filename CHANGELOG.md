@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [860] - 2026-05-05
+
+- [TASK-327] Add --dry-run flag to tusk upgrade for safe preview of file overwrites and migrations
+
 ## [859] - 2026-05-05
 
 - [TASK-326] Add --dry-run flag to tusk report-issue for safe body inspection
