@@ -198,6 +198,49 @@ def extract_paths(text: str) -> list:
     return paths
 
 
+# Regex to extract bare-basename file-like tokens (basename with multi-char
+# extension) that did NOT match _PATH_RE — i.e. no directory prefix and not
+# in the whitelist. The extension must be at least 2 chars to exclude
+# sentence-ending tokens like "e.g." and "i.e." (issue #670).
+#
+# Used by tusk-task-summary.py's block-level scope filter to resolve
+# bare-basename references (e.g. "FULL-RETRO.md") to commit-touched paths
+# (e.g. "skills/retro/FULL-RETRO.md") at *basename* match level rather
+# than full-path level. The strict full-path filter misses these because
+# the description never names the directory; matching on basename keeps
+# the legitimate work in scope without admitting unrelated work, since
+# the candidate pool is already restricted to [TASK-N]-grep-matched
+# commits before this filter runs.
+_BARE_BASENAME_RE = re.compile(
+    r'(?:^|[\s\'"`(,])'
+    r'([A-Za-z][\w.-]*\.[A-Za-z][\w]{1,9})'
+    r'(?=[\s\'"`),.;:]|$)',
+    re.MULTILINE,
+)
+
+
+def extract_referenced_basenames(text: str) -> list:
+    """Bare basenames (file-like tokens with multi-char extension) not
+    already covered by extract_paths. Companion to extract_paths used
+    by the block-level scope filter in tusk-task-summary.py (issue #670).
+    """
+    if not text:
+        return []
+    already = set(extract_paths(text))
+    bare = []
+    seen: set = set()
+    for m in _BARE_BASENAME_RE.finditer(text):
+        name = m.group(1).strip().rstrip('.,;:\'"`)')
+        if not name or '://' in name:
+            continue
+        if name in already or name in _BARE_TOPLEVEL_WHITELIST:
+            continue
+        if name not in seen:
+            seen.add(name)
+            bare.append(name)
+    return bare
+
+
 def default_branch(repo_root: str) -> str:
     """Detect the default branch: symbolic-ref → gh fallback → 'main'.
 
@@ -269,4 +312,38 @@ def task_referenced_paths(task_id: int, conn: sqlite3.Connection) -> list:
             if p not in seen:
                 seen.add(p)
                 candidates.append(p)
+    return candidates
+
+
+def task_referenced_basenames(task_id: int, conn: sqlite3.Connection) -> list:
+    """Bare basenames referenced in summary/description/criteria/specs.
+
+    Companion to task_referenced_paths — returns tokens that look like
+    filenames but lack a directory prefix and aren't in the whitelist.
+    Used by tusk-task-summary.py for basename-level scope matching
+    (issue #670). No existence check.
+    """
+    row = conn.execute(
+        "SELECT summary, description FROM tasks WHERE id = ?", (task_id,)
+    ).fetchone()
+    if not row:
+        return []
+
+    criteria_rows = conn.execute(
+        "SELECT criterion, verification_spec FROM acceptance_criteria WHERE task_id = ?",
+        (task_id,),
+    ).fetchall()
+
+    texts = [row["summary"] or "", row["description"] or ""]
+    for cr in criteria_rows:
+        texts.append(cr["criterion"] or "")
+        texts.append(cr["verification_spec"] or "")
+
+    candidates = []
+    seen: set = set()
+    for text in texts:
+        for name in extract_referenced_basenames(text):
+            if name not in seen:
+                seen.add(name)
+                candidates.append(name)
     return candidates

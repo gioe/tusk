@@ -601,6 +601,144 @@ class TestDiffPrefixCollisionHeuristic:
         assert filtered["files_changed"] == 1
 
 
+class TestBareBasenameMatching:
+    """Issue #670: a description that names the touched file by bare
+    basename (e.g. ``FULL-RETRO.md``) while also naming a sibling by
+    full path (``skills/retro/SKILL.md``) used to drop every block in
+    the strict full-path filter — the [TASK-N] commits all touched the
+    bare-basename file plus VERSION/CHANGELOG, none of which intersected
+    the single full-path token. The bare-basename helper resolves these
+    via basename match, so legitimate sibling commits ride along.
+    """
+
+    def _init_repo(self, repo_root):
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo_root, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"], cwd=repo_root, check=True
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test"], cwd=repo_root, check=True
+        )
+
+    def _commit(self, repo_root, path, content, message):
+        full = os.path.join(repo_root, path)
+        parent = os.path.dirname(full)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(full, "w") as f:
+            f.write(content)
+        subprocess.run(["git", "add", path], cwd=repo_root, check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", message], cwd=repo_root, check=True
+        )
+
+    def test_extract_referenced_basenames_picks_up_bare_basenames(self):
+        helpers = mod._git_helpers
+        text = "Mirror the gate from skills/retro/SKILL.md into FULL-RETRO.md"
+        names = helpers.extract_referenced_basenames(text)
+        # SKILL.md is part of skills/retro/SKILL.md (full-path match) so it's
+        # filtered out. FULL-RETRO.md has no directory prefix → bare candidate.
+        assert "FULL-RETRO.md" in names
+        assert "SKILL.md" not in names
+
+    def test_extract_referenced_basenames_skips_whitelisted_bare(self):
+        # CLAUDE.md / VERSION / CHANGELOG.md are already extracted by
+        # extract_paths via the bare-toplevel whitelist; the basename
+        # helper must not duplicate them.
+        helpers = mod._git_helpers
+        names = helpers.extract_referenced_basenames(
+            "See CLAUDE.md and CHANGELOG.md and VERSION."
+        )
+        assert names == []
+
+    def test_extract_referenced_basenames_ignores_short_extension_words(self):
+        # "e.g." and "i.e." would otherwise be classified as basenames if
+        # the regex allowed single-char extensions; reject them.
+        helpers = mod._git_helpers
+        names = helpers.extract_referenced_basenames(
+            "see e.g. step 5 (i.e. the gate logic)"
+        )
+        assert names == []
+
+    def test_extract_referenced_basenames_ignores_url_components(self):
+        helpers = mod._git_helpers
+        names = helpers.extract_referenced_basenames(
+            "https://github.com/foo/bar/issues/670 — also see schema.md"
+        )
+        # github.com sits behind '//' — the leading-boundary regex can
+        # only start a match after whitespace/quotes/parens/commas, not
+        # '/', so URL fragments don't leak in.
+        assert "github.com" not in names
+        assert "schema.md" in names
+
+    def test_block_kept_via_bare_basename_match(self, tmp_path):
+        """Concrete TASK-330 reproduction (issue #670): description names
+        skills/retro/SKILL.md (full path) AND FULL-RETRO.md (bare). The
+        commit set touches FULL-RETRO.md and VERSION but never SKILL.md
+        — old strict filter dropped the whole block; basename match keeps
+        it and VERSION rides along on block contiguity.
+        """
+        repo = str(tmp_path / "repo")
+        os.makedirs(repo)
+        self._init_repo(repo)
+        self._commit(
+            repo, "skills/retro/FULL-RETRO.md", "x\n",
+            "[TASK-30] Mirror gate into FULL-RETRO.md"
+        )
+        self._commit(repo, "VERSION", "1\n", "[TASK-30] bump VERSION")
+
+        db_path, conn = _make_db(tmp_path)
+        conn.execute(
+            "INSERT INTO tasks (id, summary, description, status) VALUES (?, ?, ?, ?)",
+            (
+                30,
+                "Mirror gate logic into FULL-RETRO.md",
+                "Mirror skills/retro/SKILL.md gate logic into FULL-RETRO.md.",
+                "Done",
+            ),
+        )
+        conn.commit()
+
+        filtered = mod.fetch_diff(30, repo, conn=conn)
+        assert filtered["commits"] == 2
+        assert filtered["files_changed"] == 2
+
+    def test_block_drops_when_basename_does_not_match(self, tmp_path):
+        """Symmetry: bare-basename in description that matches NO commit
+        file basename still drops the block (no widening of no-scope path).
+        """
+        repo = str(tmp_path / "repo")
+        os.makedirs(repo)
+        self._init_repo(repo)
+        # Seed main so the orphan-fork branching has a parent ref.
+        self._commit(repo, "README.md", "seed\n", "initial")
+        # Orphan branch keeps the prefix-collision commit in its own block.
+        subprocess.run(
+            ["git", "checkout", "-q", "--orphan", "stale"],
+            cwd=repo, check=True,
+        )
+        subprocess.run(["git", "rm", "-q", "-rf", "."], cwd=repo, check=True)
+        self._commit(repo, "unrelated.txt", "x\n", "[TASK-30] stale prefix")
+        subprocess.run(["git", "checkout", "-q", "main"], cwd=repo, check=True)
+
+        db_path, conn = _make_db(tmp_path)
+        conn.execute(
+            "INSERT INTO tasks (id, summary, description, status) VALUES (?, ?, ?, ?)",
+            (
+                30,
+                "Edit FULL-RETRO.md only",
+                "Edit FULL-RETRO.md only.",
+                "Done",
+            ),
+        )
+        conn.commit()
+
+        # The bare-basename FULL-RETRO.md does not match unrelated.txt's
+        # basename → block drops, zero commits surface.
+        filtered = mod.fetch_diff(30, repo, conn=conn)
+        assert filtered["commits"] == 0
+
+
 # ── end-to-end: CLI exit codes and output modes ───────────────────────
 
 

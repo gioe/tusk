@@ -92,6 +92,7 @@ get_connection = _db_lib.get_connection
 task_grep_arg = _git_helpers.task_grep_arg
 commit_changed_files = _git_helpers.commit_changed_files
 task_referenced_paths = _git_helpers.task_referenced_paths
+task_referenced_basenames = _git_helpers.task_referenced_basenames
 
 
 def _resolve_task_id(raw: str) -> int:
@@ -269,9 +270,12 @@ def _filter_blocks_by_overlap(
     commit_files: dict,
     commit_parents: dict,
     task_paths: set,
+    task_basenames: set | None = None,
 ) -> dict:
     """Group commits into connected components by parent chain, then keep
-    blocks whose aggregate file set overlaps ``task_paths``.
+    blocks whose aggregate file set overlaps ``task_paths`` (full-path
+    equality) or whose aggregate basename set overlaps ``task_basenames``
+    (issue #670).
 
     Two grep-matched commits join the same block if one is a parent of the
     other (i.e. they're contiguous in git history with no non-matched commit
@@ -281,10 +285,17 @@ def _filter_blocks_by_overlap(
     that actually names a referenced path. Genuine prefix collisions land in
     their own block (no parent-child link to the legitimate work) and drop
     out when their files don't overlap the scope signal.
+
+    Basename-level matching covers descriptions that name a file by bare
+    basename (e.g. ``FULL-RETRO.md`` instead of ``skills/retro/FULL-RETRO.md``)
+    — the strict full-path filter would otherwise drop every block when the
+    description happens to also name a sibling file by full path.
     """
     matched = set(commit_files.keys())
     if not matched:
         return commit_files
+
+    basenames = task_basenames or set()
 
     parent: dict[str, str] = {sha: sha for sha in matched}
 
@@ -316,7 +327,8 @@ def _filter_blocks_by_overlap(
         for sha in block_shas:
             for _, _, path in commit_files[sha]:
                 block_files.add(path)
-        if block_files & task_paths:
+        block_basenames = {os.path.basename(p) for p in block_files}
+        if (block_files & task_paths) or (block_basenames & basenames):
             kept.update(block_shas)
 
     return {sha: rows for sha, rows in commit_files.items() if sha in kept}
@@ -423,9 +435,14 @@ def fetch_diff(
     # its commits touch a referenced path.
     if conn is not None and commit_files:
         task_paths = set(task_referenced_paths(task_id, conn))
-        if task_paths:
+        # Bare-basename tokens (issue #670) — descriptions like "FULL-RETRO.md"
+        # whose containing directory the author elided. Resolved at basename
+        # match level inside _filter_blocks_by_overlap so they pull in commits
+        # touching e.g. skills/retro/FULL-RETRO.md.
+        task_basenames = set(task_referenced_basenames(task_id, conn))
+        if task_paths or task_basenames:
             commit_files = _filter_blocks_by_overlap(
-                commit_files, commit_parents, task_paths
+                commit_files, commit_parents, task_paths, task_basenames
             )
 
     files: set[str] = set()

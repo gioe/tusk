@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [865] - 2026-05-05
+
+- [TASK-333] Fix: tusk task-summary reports 0 diff stats when description uses bare-basename file reference
+
 ## [864] - 2026-05-05
 
 - [TASK-328] Extend tusk upgrade --dry-run to preview orphan removals and dist-excluded prunes
