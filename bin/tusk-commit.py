@@ -76,6 +76,33 @@ TRAILER = "Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 # See GitHub Issue #450.
 SUMMARY_PREFIX = "TUSK_COMMIT_RESULT:"
 
+# Issue #674: blocking lint rules whose canonical fix is the idempotent
+# `tusk generate-manifest` command. When the captured `tusk lint --quiet`
+# output contains only blocking violations from this set, Step 1 auto-recovers
+# by regenerating the manifest, re-running lint, and appending the regenerated
+# manifest paths to the staging set.
+_MANIFEST_LINT_RULES = frozenset({18, 19})
+_LINT_RULE_HEADER_RE = re.compile(r"^Rule (\d+):")
+_LINT_BLOCKING_LABEL_RE = re.compile(r"^  WARN — \d+ violation")
+
+
+def _blocking_lint_rules(output: str) -> set[int]:
+    """Parse `tusk lint --quiet` stdout and return the set of blocking rule
+    numbers that fired. Advisory rules (labeled `WARN [ADVISORY]`) are
+    skipped — they never block and never count toward the auto-recovery
+    decision.
+    """
+    blocking: set[int] = set()
+    lines = output.splitlines()
+    for i, line in enumerate(lines):
+        match = _LINT_RULE_HEADER_RE.match(line)
+        if not match:
+            continue
+        next_line = lines[i + 1] if i + 1 < len(lines) else ""
+        if _LINT_BLOCKING_LABEL_RE.match(next_line):
+            blocking.add(int(match.group(1)))
+    return blocking
+
 
 def _emit_final_summary(exit_code: int, state: dict) -> None:
     """Emit a single-line JSON summary as the last line of stdout.
@@ -827,15 +854,57 @@ def _run_commit(argv: list[str], state: dict) -> int:
         # block this commit (Issue #568). All other rules ignore the flag.
         lint = subprocess.run(
             [tusk_bin, "lint", "--quiet", "--task", str(task_id)],
-            capture_output=False,
+            capture_output=True,
+            text=True, encoding="utf-8",
         )
         if lint.returncode != 0:
-            _print_error(
-                "\nError: tusk lint reported non-advisory violations — aborting commit.\n"
-                "  Fix the violations above, or bypass with --skip-lint "
-                "(lint only) or --skip-verify (lint, tests, and pre-commit hooks)."
-            )
-            return 6
+            # Issue #674: when the only blocking violations are MANIFEST drift
+            # (Rules 18/19), the fix is the canonical idempotent
+            # `tusk generate-manifest` — auto-recover once, re-run lint, and
+            # append the regenerated manifest paths so they ride along with
+            # the user's original file list. Mirrors the formatter retry at
+            # Step 4 (issue #477).
+            blocking_rules = _blocking_lint_rules(lint.stdout)
+            recovered = False
+            if blocking_rules and blocking_rules <= _MANIFEST_LINT_RULES:
+                print(
+                    "Note: MANIFEST drift detected — running "
+                    "`tusk generate-manifest` and retrying lint once."
+                )
+                sys.stdout.flush()
+                regen = subprocess.run(
+                    [tusk_bin, "generate-manifest"],
+                    capture_output=True,
+                    text=True, encoding="utf-8",
+                )
+                if regen.returncode == 0:
+                    if regen.stdout:
+                        sys.stdout.write(regen.stdout)
+                        sys.stdout.flush()
+                    lint = subprocess.run(
+                        [tusk_bin, "lint", "--quiet", "--task", str(task_id)],
+                        capture_output=True,
+                        text=True, encoding="utf-8",
+                    )
+                    if lint.returncode == 0:
+                        for rel in ("MANIFEST", ".claude/tusk-manifest.json"):
+                            abs_path = os.path.join(repo_root, rel)
+                            if abs_path not in resolved_files:
+                                resolved_files.append(abs_path)
+                        recovered = True
+            if not recovered:
+                if lint.stdout:
+                    sys.stdout.write(lint.stdout)
+                    sys.stdout.flush()
+                if lint.stderr:
+                    sys.stderr.write(lint.stderr)
+                    sys.stderr.flush()
+                _print_error(
+                    "\nError: tusk lint reported non-advisory violations — aborting commit.\n"
+                    "  Fix the violations above, or bypass with --skip-lint "
+                    "(lint only) or --skip-verify (lint, tests, and pre-commit hooks)."
+                )
+                return 6
         if announce_status:
             print()
         sys.stdout.flush()
