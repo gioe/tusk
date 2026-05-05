@@ -39,7 +39,7 @@
 #   tusk reconcile-skills       Re-run applies_to_project_types filter and sync .claude/skills/
 #   tusk pricing-update [--dry-run]  Fetch and update pricing.json from Anthropic docs
 #   tusk dev-sync [--dry-run]   Refresh .claude/bin/ from source bin/ (source-repo only)
-#   tusk upgrade               Upgrade tusk from GitHub
+#   tusk upgrade [--dry-run]   Upgrade tusk from GitHub (--dry-run previews without writing)
 #
 # Configuration:
 #   Project config:  <repo_root>/tusk/config.json

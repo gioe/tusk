@@ -689,6 +689,180 @@ def fix_trailing_newlines(script_dir: str, repo_root: str) -> int:
     return fixed
 
 
+def _resolve_src_path(rel: str, src: str) -> str | None:
+    """Map a MANIFEST entry to its location inside the extracted tarball.
+
+    Mirrors the conventions in copy_bin_files / copy_skills / copy_hooks: bin
+    entries live under src/bin/ except for top-level artefacts (config.default.json,
+    pricing.json, VERSION); skill entries live under src/skills/; hook entries
+    live under src/.claude/hooks/. Returns None when none of the candidates exist.
+    """
+    if rel.startswith(".claude/bin/"):
+        basename = rel[len(".claude/bin/"):]
+        candidates = [
+            os.path.join(src, "bin", basename),
+            os.path.join(src, basename),
+        ]
+    elif rel.startswith("tusk/bin/"):
+        basename = rel[len("tusk/bin/"):]
+        candidates = [
+            os.path.join(src, "bin", basename),
+            os.path.join(src, basename),
+        ]
+    elif rel.startswith(".claude/skills/"):
+        candidates = [os.path.join(src, rel[len(".claude/"):])]
+    elif rel.startswith(".claude/hooks/"):
+        rest = rel[len(".claude/hooks/"):]
+        candidates = [
+            os.path.join(src, ".claude", "hooks", rest),
+            os.path.join(src, "hooks", rest),
+        ]
+    else:
+        candidates = [os.path.join(src, rel)]
+    for c in candidates:
+        if os.path.isfile(c):
+            return c
+    return None
+
+
+def _read_user_version(repo_root: str) -> int:
+    """Return the live DB's PRAGMA user_version, or 0 when the DB is absent
+    (e.g. partially-installed project being repaired by upgrade)."""
+    import sqlite3
+    db = os.path.join(repo_root, "tusk", "tasks.db")
+    if not os.path.isfile(db):
+        return 0
+    try:
+        conn = sqlite3.connect(db)
+    except sqlite3.OperationalError:
+        return 0
+    try:
+        cur = conn.execute("PRAGMA user_version")
+        row = cur.fetchone()
+        return row[0] if row else 0
+    finally:
+        conn.close()
+
+
+def _import_migrate_module(src: str):
+    """Import tusk-migrate from the unpacked tarball so MIGRATIONS reflects the
+    new version's migration list, not the installed one. Mirrors
+    `_import_skill_filter`."""
+    import importlib.util
+    bin_dir = os.path.join(src, "bin")
+    migrate_path = os.path.join(bin_dir, "tusk-migrate.py")
+    if not os.path.isfile(migrate_path):
+        return None
+    sys.path.insert(0, bin_dir)
+    try:
+        spec = importlib.util.spec_from_file_location("tusk_migrate_dryrun", migrate_path)
+        if spec is None or spec.loader is None:
+            return None
+        mod = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(mod)
+        except (FileNotFoundError, ImportError, SyntaxError):
+            return None
+        return mod
+    finally:
+        try:
+            sys.path.remove(bin_dir)
+        except ValueError:
+            pass
+
+
+def _run_dry_run_report(src: str, repo_root: str, script_dir: str,
+                        local_version: int, remote_version: int) -> None:
+    """Print a preview of what `tusk upgrade` would do, then return without writing.
+
+    Walks the (mode-translated) MANIFEST to list new and overwrite files with
+    byte-size deltas, reports the resolved VERSION transition, and lists pending
+    migrations from the new tarball's MIGRATIONS table with docstring summaries.
+    Performs no writes; caller is expected to return immediately.
+    """
+    install_mode = detect_install_mode(script_dir)
+    new_manifest = os.path.join(src, "MANIFEST")
+    raw_files: list = []
+    if os.path.isfile(new_manifest):
+        with open(new_manifest, encoding="utf-8") as f:
+            raw_files = json.load(f)
+
+    if install_mode != "claude":
+        files = translate_manifest_for_mode(raw_files, install_mode)
+    else:
+        sf = _import_skill_filter(src)
+        project_type = sf.get_project_type(repo_root)
+        files = sf.filter_manifest(raw_files, os.path.join(src, "skills"), project_type)
+
+    new_entries: list = []      # (rel, src_size)
+    overwrite_entries: list = []  # (rel, src_size, target_size, delta)
+    missing_in_tarball: list = []
+    for rel in files:
+        src_path = _resolve_src_path(rel, src)
+        if src_path is None:
+            missing_in_tarball.append(rel)
+            continue
+        target_path = os.path.join(repo_root, rel)
+        try:
+            src_size = os.path.getsize(src_path)
+        except OSError:
+            missing_in_tarball.append(rel)
+            continue
+        if os.path.isfile(target_path):
+            target_size = os.path.getsize(target_path)
+            overwrite_entries.append((rel, src_size, target_size, src_size - target_size))
+        else:
+            new_entries.append((rel, src_size))
+
+    print()
+    print(f"Dry run — version {local_version} → {remote_version}")
+    print("No files will be modified, no migrations run, no commit created.")
+    print()
+    print(f"VERSION: {local_version} → {remote_version}")
+    print()
+
+    print(f"Files ({len(new_entries)} new, {len(overwrite_entries)} overwrite):")
+    for rel, size in sorted(new_entries):
+        print(f"  + {rel}  (new, {size} bytes)")
+    for rel, src_size, tgt_size, delta in sorted(overwrite_entries):
+        if delta == 0:
+            delta_str = "0"
+        else:
+            delta_str = f"{'+' if delta > 0 else '-'}{abs(delta)}"
+        print(f"  ~ {rel}  ({tgt_size} → {src_size} bytes, {delta_str})")
+    if missing_in_tarball:
+        print()
+        print(f"  Warning: {len(missing_in_tarball)} MANIFEST entr"
+              f"{'y' if len(missing_in_tarball) == 1 else 'ies'} missing from tarball:")
+        for rel in sorted(missing_in_tarball):
+            print(f"    {rel}")
+    print()
+
+    current_user_version = _read_user_version(repo_root)
+    migrate_mod = _import_migrate_module(src)
+    if migrate_mod is None or not hasattr(migrate_mod, "MIGRATIONS"):
+        print("Pending migrations: (could not load MIGRATIONS from tarball)")
+    else:
+        pending = []
+        for v, func in migrate_mod.MIGRATIONS:
+            if v <= current_user_version:
+                continue
+            doc = (func.__doc__ or "").strip()
+            summary = doc.splitlines()[0].rstrip(".") if doc else ""
+            pending.append((v, summary))
+        print(f"Pending migrations ({len(pending)}):")
+        if not pending:
+            print(f"  (none — schema is at user_version {current_user_version})")
+        else:
+            for v, summary in pending:
+                if summary:
+                    print(f"  Migration {v:<3} — {summary}")
+                else:
+                    print(f"  Migration {v}")
+    print()
+    print("Re-run without --dry-run to apply.")
+
+
 def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -> dict:
     """Apply an extracted tarball to an existing install.
 
@@ -834,6 +1008,11 @@ def main() -> None:
     parser.add_argument("--no-commit", action="store_true", help="Skip auto-commit")
     parser.add_argument("--force", action="store_true", help="Force upgrade even if same version")
     parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Preview the upgrade without writing files, running migrations, or committing. "
+             "Lists files to write/overwrite with byte-size delta, the new VERSION, and pending migrations.",
+    )
+    parser.add_argument(
         "-v", "--verbose", action="store_true",
         help="Show per-file detail; default is a compact summary.",
     )
@@ -927,6 +1106,13 @@ def main() -> None:
             if not extracted:
                 raise SystemExit("Error: Unexpected archive structure.")
             src = os.path.join(tmpdir, extracted[0])
+
+            # Dry-run: emit the preview report and bail before any writes,
+            # migrations, or auto-commit. Skips the re-exec handoff — the local
+            # upgrader is the one the user is asking about.
+            if args.dry_run:
+                _run_dry_run_report(src, repo_root, script_dir, local_version, remote_version)
+                return
 
             # Close the bootstrap gap: if the upgrader in the tarball differs
             # from the one currently running, hand off to the new copy so its
