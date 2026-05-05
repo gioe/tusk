@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [856] - 2026-05-04
+
+- [TASK-323] Add tusk dev-sync command to refresh .claude/bin from source bin/
+
 ## [855] - 2026-05-04
 
 - [TASK-322] Add tusk uninstall-hooks to remove dispatchers and restore chained user hooks
