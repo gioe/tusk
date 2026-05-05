@@ -26,6 +26,8 @@ Stash behavior:
 """
 
 import os
+import re
+import sqlite3
 import subprocess
 import sys
 
@@ -34,15 +36,99 @@ import tusk_loader  # loads tusk-db-lib.py and tusk-git-helpers.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 checkpoint_wal = _db_lib.checkpoint_wal
+get_connection = _db_lib.get_connection
 
 _git_helpers = tusk_loader.load("tusk-git-helpers")
 _is_remote_unreachable = _git_helpers._is_remote_unreachable
 _UNREACHABLE_REMOTE_PATTERNS = _git_helpers._UNREACHABLE_REMOTE_PATTERNS
 _UNREACHABLE_REMOTE_REGEX = _git_helpers._UNREACHABLE_REMOTE_REGEX
 
+# Warn at `tusk branch` time when more than this many `tusk-branch:
+# auto-stash for TASK-N` entries are already in `git stash list`. The
+# threshold is intentionally a module-level constant rather than a config
+# knob — see issue #671.
+BRANCH_AUTOSTASH_WARN_THRESHOLD = 5
+
+_BRANCH_AUTOSTASH_LINE_RE = re.compile(
+    r"^stash@\{(\d+)\}: .*: tusk-branch: auto-stash for TASK-(\d+)$"
+)
+
 
 def run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(args, capture_output=True, text=True, encoding="utf-8", check=check)
+
+
+def _get_task_statuses(repo_root: str, task_ids: list[int]) -> dict[int, str]:
+    """Return {task_id: status} for the given IDs; missing IDs map to 'unknown'."""
+    if not task_ids:
+        return {}
+    db_path = os.path.join(repo_root, "tusk", "tasks.db")
+    if not os.path.exists(db_path):
+        return {tid: "unknown" for tid in task_ids}
+    placeholders = ",".join("?" * len(task_ids))
+    try:
+        conn = get_connection(db_path)
+        try:
+            rows = conn.execute(
+                f"SELECT id, status FROM tasks WHERE id IN ({placeholders})",
+                task_ids,
+            ).fetchall()
+            found = {row["id"]: row["status"] for row in rows}
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return {tid: "unknown" for tid in task_ids}
+    return {tid: found.get(tid, "unknown") for tid in task_ids}
+
+
+def _warn_branch_auto_stash_residue(repo_root: str) -> None:
+    """Warn when residual ``tusk-branch: auto-stash for TASK-N`` entries exceed
+    ``BRANCH_AUTOSTASH_WARN_THRESHOLD``.
+
+    Called from main() right before pushing a new auto-stash. Counts existing
+    entries via ``git stash list`` and prints a warning to stderr listing each
+    entry alongside the referenced task's current status. Silent when count is
+    at or below the threshold, when ``refs/stash`` is missing (cheap fast-exit
+    that mirrors ``_drop_branch_auto_stash``, issue #658), or when ``git stash
+    list`` fails. Issue #671.
+    """
+    if run(
+        ["git", "rev-parse", "--verify", "--quiet", "refs/stash"], check=False
+    ).returncode != 0:
+        return
+    stash_list = run(["git", "stash", "list"], check=False)
+    if stash_list.returncode != 0:
+        return
+
+    entries: list[tuple[int, int]] = []  # (stash_index, task_id)
+    for line in stash_list.stdout.splitlines():
+        match = _BRANCH_AUTOSTASH_LINE_RE.match(line.rstrip())
+        if not match:
+            continue
+        try:
+            entries.append((int(match.group(1)), int(match.group(2))))
+        except ValueError:
+            pass
+
+    if len(entries) <= BRANCH_AUTOSTASH_WARN_THRESHOLD:
+        return
+
+    statuses = _get_task_statuses(repo_root, [tid for _, tid in entries])
+    listing = "\n".join(
+        f"  stash@{{{idx}}}  TASK-{tid}  ({statuses.get(tid, 'unknown')})"
+        for idx, tid in entries
+    )
+    print(
+        f"Warning: {len(entries)} 'tusk-branch: auto-stash for TASK-N' entries "
+        f"are accumulating in `git stash list` (threshold: "
+        f"{BRANCH_AUTOSTASH_WARN_THRESHOLD}). Each was created by a prior "
+        f"`tusk branch <id>` invocation when the working tree was dirty. Drop "
+        f"entries that no longer belong to active work before adding more:\n"
+        f"{listing}\n"
+        f"  (Use `git stash drop stash@{{N}}` to remove an entry, or "
+        f"`git stash pop stash@{{N}}` to restore it.)",
+        file=sys.stderr,
+    )
 
 
 def _has_remote(name: str = "origin") -> bool:
@@ -180,6 +266,10 @@ def main(argv: list[str]) -> int:
     )
     stash_msg = f"tusk-branch: auto-stash for TASK-{task_id}"
     if dirty:
+        # Surface accumulating tusk-branch auto-stash residue before adding
+        # another entry to the pile (issue #671). Silent fast-path when no
+        # stashes exist or count is at/below threshold.
+        _warn_branch_auto_stash_residue(repo_root)
         # Checkpoint the WAL before stashing so that any in-flight SQLite
         # writes are flushed to the main DB file. Without this, a git stash
         # that reverts tasks.db to a pre-WAL snapshot silently abandons rows
