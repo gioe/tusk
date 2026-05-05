@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [873] - 2026-05-05
+
+- [TASK-341] Warn at tusk branch when tusk-branch auto-stash residue count exceeds threshold
+
 ## [872] - 2026-05-05
 
 - [TASK-340] Decompose batched skill-patch:a,b,c action_taken into per-file rows in retro-patches
