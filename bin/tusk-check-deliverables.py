@@ -130,8 +130,15 @@ def main(argv: list) -> int:
             feature_commits = _feature_branch_commits(task_id, repo_root, default_branch)
             feature_files = commit_changed_files(feature_commits, repo_root)
             scope = task_paths | feature_files
-            # Downgrade only when we have a positive scope signal that fails to overlap.
-            # Empty scope = no signal, not a downgrade trigger — preserve existing behavior.
+            # Aggregate-level file-overlap (intentional, distinct from
+            # tusk-task-summary.py's block-level variant — issue #663).
+            # `default_files` is the union of ALL matched commits on the
+            # default branch, so this asks "is the whole batch off-scope?"
+            # — the right granularity for a binary "downgrade to
+            # merged_not_closed_low_confidence vs. proceed" decision.
+            # Downgrade only when we have a positive scope signal that
+            # fails to overlap. Empty scope = no signal, not a downgrade
+            # trigger — preserve existing behavior.
             if scope and not (scope & default_files):
                 recommendation = "merged_not_closed_low_confidence"
             else:

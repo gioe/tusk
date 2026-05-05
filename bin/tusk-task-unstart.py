@@ -51,10 +51,17 @@ def _commits_are_prefix_collision(
 ) -> bool:
     """Return True if `commits` are likely a [TASK-<id>] prefix-match false positive.
 
-    Mirrors the file-overlap heuristic in tusk-check-deliverables.py's
+    Mirrors the aggregate file-overlap heuristic in tusk-check-deliverables.py's
     ``merged_not_closed_low_confidence`` recommendation: a set of commits is
     suspect when its combined diff has no overlap with the task's scope (paths
     referenced in summary, description, or acceptance criteria text/specs).
+
+    Aggregate-level by design (intentionally distinct from
+    tusk-task-summary.py's block-level variant — issue #663). The decision
+    surface here is binary "refuse to unstart vs. permit unstart", so unioning
+    every matched commit's files into one set is the right granularity. If
+    even one in-scope commit exists in the batch, the task has real work and
+    unstart should be refused.
 
     Conservative on empty signal: returns False when ``commits`` is empty or
     the task has no scope signal — preserving the existing refusal behavior in
