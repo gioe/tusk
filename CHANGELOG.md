@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [857] - 2026-05-05
+
+- [TASK-324] Fix: tusk task-summary undercounts diff stats when multiple [TASK-N] commits exist
+
 ## [856] - 2026-05-04
 
 - [TASK-323] Add tusk dev-sync command to refresh .claude/bin from source bin/
