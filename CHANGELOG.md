@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [858] - 2026-05-05
+
+- [TASK-325] Ship /report-tusk-issue skill that wraps tusk report-issue for mid-session bug filing
+
 ## [857] - 2026-05-05
 
 - [TASK-324] Fix: tusk task-summary undercounts diff stats when multiple [TASK-N] commits exist
