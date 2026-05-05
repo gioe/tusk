@@ -338,3 +338,105 @@ def test_consumer_pre_push_dispatcher_does_not_invoke_version_bump_check(
         "consumer-mode pre-push should not block on missing VERSION bump; "
         f"stderr was: {result.stderr!r}"
     )
+
+
+# ── tusk uninstall-hooks (issue #547) ────────────────────────────────────
+
+
+def _tusk(sandbox):
+    return str(sandbox / "tusk" / "bin" / "tusk")
+
+
+def test_uninstall_hooks_removes_marker_dispatchers(codex_sandbox):
+    """uninstall-hooks deletes all three marker-bearing dispatchers."""
+    hooks_dir = codex_sandbox / ".git" / "hooks"
+    for event in ("pre-commit", "pre-push", "commit-msg"):
+        assert (hooks_dir / event).exists()
+        assert MARKER in (hooks_dir / event).read_text()
+
+    result = _run([_tusk(codex_sandbox), "uninstall-hooks"], codex_sandbox)
+    for event in ("pre-commit", "pre-push", "commit-msg"):
+        assert not (hooks_dir / event).exists(), f"{event} should be removed"
+        assert f".git/hooks/{event}: removed" in result.stdout
+
+
+def test_uninstall_hooks_restores_chained_user_hook(tmp_path):
+    """When .git/hooks/<event>.pre-tusk exists, uninstall restores it as <event>."""
+    _run(["git", "init"], tmp_path)
+    (tmp_path / "AGENTS.md").write_text("# Agent Instructions\n")
+    hooks_dir = tmp_path / ".git" / "hooks"
+    pre_commit = hooks_dir / "pre-commit"
+    user_hook_body = "#!/bin/bash\necho USER-HOOK\nexit 0\n"
+    pre_commit.write_text(user_hook_body)
+    pre_commit.chmod(0o755)
+
+    _run(["bash", INSTALL_SH], tmp_path)
+
+    chained = hooks_dir / "pre-commit.pre-tusk"
+    assert chained.exists()
+    assert MARKER in pre_commit.read_text()
+
+    result = _run([_tusk(tmp_path), "uninstall-hooks"], tmp_path)
+    assert ".git/hooks/pre-commit: removed (restored chained user hook)" in result.stdout
+
+    assert not chained.exists(), "chained file should be moved back to dispatcher path"
+    assert pre_commit.exists(), "user hook should be restored"
+    assert pre_commit.read_text() == user_hook_body, "restored hook content must match original"
+    assert os.access(str(pre_commit), os.X_OK), "executable bit must be preserved"
+
+
+def test_uninstall_hooks_leaves_user_authored_dispatcher_untouched(tmp_path):
+    """uninstall-hooks must not delete a hook lacking the TUSK_HOOK_DISPATCHER marker."""
+    _run(["git", "init"], tmp_path)
+    (tmp_path / "AGENTS.md").write_text("# Agent Instructions\n")
+    _run(["bash", INSTALL_SH], tmp_path)
+
+    pre_commit = tmp_path / ".git" / "hooks" / "pre-commit"
+    user_body = "#!/bin/bash\n# user-authored, no tusk marker\nexit 0\n"
+    pre_commit.write_text(user_body)
+    pre_commit.chmod(0o755)
+
+    result = _run([_tusk(tmp_path), "uninstall-hooks"], tmp_path)
+    assert ".git/hooks/pre-commit: skipped (no tusk marker" in result.stdout
+
+    assert pre_commit.exists(), "user-authored dispatcher must not be removed"
+    assert pre_commit.read_text() == user_body
+
+
+def test_uninstall_hooks_is_idempotent(codex_sandbox):
+    """Running uninstall-hooks twice exits 0 and reports nothing-to-do on the second pass."""
+    _run([_tusk(codex_sandbox), "uninstall-hooks"], codex_sandbox)
+    result = _run([_tusk(codex_sandbox), "uninstall-hooks"], codex_sandbox)
+    assert result.returncode == 0
+    for event in ("pre-commit", "pre-push", "commit-msg"):
+        assert f".git/hooks/{event}: not present" in result.stdout
+
+
+def test_uninstall_hooks_no_op_when_no_dispatchers(tmp_path):
+    """uninstall-hooks on a fresh repo with no dispatchers is a no-op exit 0."""
+    _run(["git", "init"], tmp_path)
+    (tmp_path / "AGENTS.md").write_text("# Agent Instructions\n")
+    # Don't run install.sh — we want no dispatchers at all.
+    # Need a tusk binary on PATH; copy one from the source repo.
+    _run(["bash", INSTALL_SH], tmp_path)
+    # Wipe the dispatchers install.sh just wrote so the no-op branch fires.
+    for event in ("pre-commit", "pre-push", "commit-msg"):
+        (tmp_path / ".git" / "hooks" / event).unlink()
+
+    result = _run([_tusk(tmp_path), "uninstall-hooks"], tmp_path)
+    assert result.returncode == 0
+    for event in ("pre-commit", "pre-push", "commit-msg"):
+        assert f".git/hooks/{event}: not present" in result.stdout
+
+
+def test_uninstall_hooks_json_output(codex_sandbox):
+    """--json emits a structured per-event status array."""
+    import json as _json
+    result = _run([_tusk(codex_sandbox), "uninstall-hooks", "--json"], codex_sandbox)
+    payload = _json.loads(result.stdout)
+    statuses = {r["event"]: r["status"] for r in payload["results"]}
+    assert statuses == {
+        "pre-commit": "removed",
+        "pre-push": "removed",
+        "commit-msg": "removed",
+    }
