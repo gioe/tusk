@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [870] - 2026-05-05
+
+- [TASK-338] Auto-recover from Rule 18 (MANIFEST drift) by running tusk generate-manifest and retrying
+
 ## [869] - 2026-05-05
 
 - [TASK-337] Add SessionStart hook to surface unconfirmed skill-patches for loaded skills
