@@ -2,6 +2,7 @@
   ".claude/bin/tusk",
   ".claude/bin/tusk-abandon.py",
   ".claude/bin/tusk-add-lib.py",
+  ".claude/bin/tusk-address-issue.py",
   ".claude/bin/tusk-audit.py",
   ".claude/bin/tusk-autoclose.py",
   ".claude/bin/tusk-backlog-scan.py",

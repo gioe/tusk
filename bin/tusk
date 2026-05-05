@@ -1058,7 +1058,7 @@ candidates = [
   'task-get','task-get-multi','task-select','task-start','task-done','task-insert','task-update','task-reopen','task-unstart','task-list','task-summary',
   'audit','autoclose','backlog-scan','groom','check-deliverables',
   'retro','retro-signals','retro-themes','retro-finding',
-  'test-detect','test-precheck','add-lib',
+  'test-detect','test-precheck','add-lib','address-issue',
   'init-scan-codebase','init-scan-todos','init-fetch-bootstrap','init-write-config','init-write-manifest-files','init-wizard','init-scaffold',
   'loop','merge','abandon','bakeoff','progress','setup',
   'token-audit','sync-skills','reconcile-skills','generate-manifest','pricing-update','wsjf','shell',
@@ -1551,6 +1551,7 @@ case "${1:-}" in
   test-detect) shift; exec python3 "$SCRIPT_DIR/tusk-test-detect.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   test-precheck) shift; exec python3 "$SCRIPT_DIR/tusk-test-precheck.py" "$REPO_ROOT" "$(resolve_config)" "$@" ;;
   add-lib) shift; exec python3 "$SCRIPT_DIR/tusk-add-lib.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  address-issue) shift; exec python3 "$SCRIPT_DIR/tusk-address-issue.py" "$@" ;;
   init-scan-codebase) shift; exec python3 "$SCRIPT_DIR/tusk-init-scan-codebase.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   init-scan-todos) shift; exec python3 "$SCRIPT_DIR/tusk-init-scan-todos.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   init-fetch-bootstrap) shift; exec python3 "$SCRIPT_DIR/tusk-init-fetch-bootstrap.py" "$DB_PATH" "$(resolve_config)" "$@" ;;

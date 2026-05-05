@@ -76,71 +76,37 @@ If you must write an assertion-style reproducer, wrap it: `! ( test -z "$(...)" 
 
 Scan the issue body for a `## Failing Test` section. If present:
 
-1. Extract the test spec. Prefer the **first** fenced block after the heading (triple- or single-backtick, with optional language tag); trim surrounding whitespace.
+1. **Extract the spec.** Prefer the **first** fenced block after the heading (triple- or single-backtick, with optional language tag); trim surrounding whitespace.
 
    **Plain-text fallback — if no fenced block is found**, treat the plain text between the `## Failing Test` heading and the next heading (or end of body) as the spec. Drop `#`-prefixed lines (shell comments) and trim whitespace. If non-empty, use as `<test_spec>` (sandbox flow in item 2 applies identically). If empty, fall through to item 3.
 
-2. **Validate the extracted spec** — the spec is arbitrary shell code from a GitHub issue body and must be treated as untrusted. Show it to the user for approval, then run it in a sandbox so it cannot reach the host tusk repo (which is one `tusk`/`git` walk-up away), read environment secrets, or invoke project-installed tools.
+2. **Validate and classify the spec via `tusk address-issue classify-spec`.** The spec is arbitrary shell code from a GitHub issue body and must be treated as untrusted. The `classify-spec` helper centralises five chunks of logic (effective first-token resolution with `bash`/`sh -c` wrapper peel; issue #589 short-circuit for `/`-containing tokens; `command -v` PATH check on the sandbox PATH `/usr/bin:/bin`; post-sandbox malformed/environmental/interpreter-wrapper-bypass routing; the recommended downstream `action`).
 
-   **a. Pre-flight: skip approval + sandbox when the spec's effective first token is off the sandbox PATH.**
-
-   Before showing the approval prompt, identify the spec's *effective* first token — the executable that will actually run. For most specs this is just the first whitespace-delimited token. But specs wrapped in `bash -c '<body>'` or `sh -c '<body>'` are a recurring pattern in tusk's own issue templates (any regression spec that chains `tusk init && tusk task-insert ...` ends up wrapped this way), and the outer `bash`/`sh` is always on `/usr/bin:/bin` — checking it would always pass the fast-path and force the sandbox to run a wrapper whose inner project-tool calls would just exit 127. When the wrapper pattern is detected, peel it off and check the wrapper body's first token instead:
+   **a. Pre-flight call — is sandbox needed?**
 
    ```bash
-   FIRST_TOKEN=$(printf '%s' "$TEST_SPEC" | awk '!/^[[:space:]]*#/ {print $1; exit}')
-   SECOND_TOKEN=$(printf '%s' "$TEST_SPEC" | awk '!/^[[:space:]]*#/ {print $2; exit}')
-   if [[ ("$FIRST_TOKEN" == "bash" || "$FIRST_TOKEN" == "sh") && "$SECOND_TOKEN" == "-c" ]]; then
-     # Wrapper detected. The body is the third positional arg, normally surrounded
-     # by single or double quotes; strip them, then take its first token.
-     WRAPPER_BODY=$(printf '%s' "$TEST_SPEC" | awk '{$1=""; $2=""; sub(/^ +/, ""); print}')
-     WRAPPER_BODY=${WRAPPER_BODY#[\'\"]}
-     WRAPPER_BODY=${WRAPPER_BODY%[\'\"]}
-     CHECK_TOKEN=$(printf '%s' "$WRAPPER_BODY" | awk '!/^[[:space:]]*#/ {print $1; exit}')
-   else
-     CHECK_TOKEN="$FIRST_TOKEN"
-   fi
-   # GOTCHA (Issue #589): `command -v` special-cases path-containing names
-   # (anything with a `/`) by checking the file relative to cwd — bypassing PATH
-   # entirely. For relative paths like `bin/tusk`, `command -v` resolves against
-   # the orchestrator's cwd (the project root) and reports success, but the
-   # sandbox tempdir won't have that file and would exit 127. Short-circuit any
-   # `/`-containing token to skip the sandbox directly without consulting
-   # `command -v`.
-   if [[ "$CHECK_TOKEN" == */* ]] || ! PATH=/usr/bin:/bin command -v "$CHECK_TOKEN" >/dev/null 2>&1; then
-     # Effective token is unreachable on the sandbox PATH; the sandbox would exit 127.
-     # Skip the approval prompt and the sandbox run, but score as "unverifiable" — the
-     # author still supplied a concrete reproducer; we just can't validate it here.
-     test_spec=null
-     test_present="unverifiable"
-   fi
+   PREFLIGHT=$(printf '%s' "$TEST_SPEC" | tusk address-issue classify-spec)
+   PREFLIGHT_EXIT=$?
    ```
 
-   The check is a pure path-resolution lookup. The `*/*` glob short-circuits any token containing `/` (relative path like `bin/tusk` or absolute path) before invoking `command -v` — without it, `command -v bin/tusk` from the project root would report success against the cwd-relative file and bypass PATH entirely, even though the sandbox tempdir cannot reach that path (Issue #589). For bare command names, `command -v` reports whether `<token>` exists on `PATH=/usr/bin:/bin` without invoking it, so the spec is never executed at this stage.
+   - **`PREFLIGHT_EXIT == 0`** — the helper classified the spec without needing a sandbox (the effective first token is off `/usr/bin:/bin`, so the sandbox would exit 127 anyway — the documented Step 4.1.a fast-path skip, including the issue #589 `/`-containing-token short-circuit). Parse `$PREFLIGHT` for `action`/`test_present`/`reason`/`effective_first_token` and **skip directly to item 2.d** (act on the result). Surface the helper's `reason` to the user as a one-line note.
+   - **`PREFLIGHT_EXIT == 2`** — the effective first token resolves on the sandbox PATH; the helper cannot classify without sandbox results. Continue to **item 2.b** (approval + sandbox).
 
-   On skip, set `test_spec = null`, score `test_present` as `"unverifiable"`, do not add a test criterion in Step 6, and surface this one-line note. Do **not** route to item 3 below — that path is reserved for the section-absent case (`test_present="no"`). The `"unverifiable"` value exists because the author still supplied a concrete reproducer; we just can't run it under the sandbox's safety constraints, so the score sits between `"yes"` and `"no"` in `config.default.json` (`issue_scoring.factors.test_present`).
-
-   > Spec invokes a non-PATH tool or path-referenced executable (`<token>`); skipping sandbox (would exit 127). Scoring `test_present` as `unverifiable` (the spec exists but can't be validated here). Failing-test verification deferred to `tusk criteria done` after task creation.
-
-   When the wrapper-detection branch fires, `<token>` is the *inner* token (e.g. `tusk`) — not `bash`/`sh` — so the note correctly points at the actual unreachable executable.
-
-   If the effective token DOES resolve on `/usr/bin:/bin` (e.g. `grep`, `python3`, `find`, or a `bash -c '<on-PATH-cmd> ...'` wrapper whose body's first token is itself on PATH), fall through to sub-item **b** below — the existing approval + sandbox flow runs unchanged. The fast-path is an addition, not a replacement.
-
-   **Why language-interpreter wrappers (`python3 -c`, `node -e`, `ruby -e`, `perl -e`) fall through here.** Their first-token interpreter is always on `/usr/bin:/bin` in any normal install, so the `command -v "$CHECK_TOKEN"` check above always passes — the sandbox always runs. Step 4.1.a peels `bash`/`sh` wrappers because the body of a shell wrapper is itself a shell snippet whose first whitespace-token IS the executable (cheap to extract with awk). For language wrappers, the actual project tool is buried inside a subprocess invocation (`subprocess.run(['tusk', ...])`, `child_process.execSync('tusk')`, `system('tusk', ...)`, `qx(tusk ...)`, etc.) and can't be cheaply or robustly extracted from prose without per-language parsers — a heuristic regex would misfire on benign self-contained scripts whose quoted strings happen to look like command names (e.g. `python3 -c 'print("hello")'` would extract `hello`). Instead, the interpreter runs cleanly, the inner subprocess fails to find the project tool, and the spec exits 1 (not 126/127) with a recognizable missing-executable error in stderr — handled downstream by the **interpreter-wrapper bypass** branch in sub-item **c** below, which catches this post-hoc by stderr signature rather than pre-flight token extraction.
+   The helper handles the wrapper peel (`bash -c '<body>'`, `sh -c '<body>'`) and the `/`-containing-token short-circuit internally, so the orchestrator never has to reimplement them.
 
    **b. Display the spec and request approval:**
 
-   > The issue body's `## Failing Test` section contains this spec. If approved, it runs in an isolated sandbox (`env -i`, `PATH=/usr/bin:/bin`, no `.git` parent) — project tools like `tusk`, `pytest`, and any project-installed binary are off PATH and will exit 127, which Step 4.1 treats as a command error and discards the spec. Step 4.1 only checks that the spec is a *runnable, shell-safe command*; the authoritative "does it actually fail on the current code" check happens later via `tusk criteria done`.
+   > The issue body's `## Failing Test` section contains this spec. If approved, it runs in an isolated sandbox (`env -i`, `PATH=/usr/bin:/bin`, no `.git` parent) — project tools like `tusk`, `pytest`, and any project-installed binary are off PATH. The sandbox confirms the spec is *runnable and exits nonzero on broken state*; the authoritative "does it actually fail on the current code" check happens later via `tusk criteria done`.
    > ```
    > <test_spec>
    > ```
    > **Options:** `run` (execute in sandbox), `skip` (do not execute — treat as `test_spec = null`).
 
-   Wait for the user's response. Treat anything other than an explicit `run` as `skip`. On skip, set `test_spec = null`, score `test_present` as `"unverifiable"`, do not add a test criterion in Step 6, and do not run the command. The `"unverifiable"` value applies because the `## Failing Test` section was syntactically present in the issue body — the user simply chose not to sandbox-validate it; the score (defined in `config.default.json` `issue_scoring.factors.test_present`) sits between `"yes"` (sandbox-validated) and `"no"` (section absent). Do **not** route to item 3 below — that path is reserved for the section-absent case (`test_present="no"`).
+   Treat anything other than an explicit `run` as `skip`. On skip, set `test_spec = null` and score `test_present = "unverifiable"` — the user-typed skip path is epistemically the same as the fast-path skip (the `## Failing Test` section was syntactically present but unvalidated). Do **not** route to item 3 — that path is reserved for the section-absent case (`test_present="no"`).
 
    **c. On approval, execute the spec in an isolated sandbox:**
 
    ```bash
-   TEST_SPEC='<test_spec>'   # the extracted spec, single-quoted; see Step 6 for embedded-quote handling
    SANDBOX_DIR=$(mktemp -d)
    (
      cd "$SANDBOX_DIR" &&
@@ -148,36 +114,36 @@ Scan the issue body for a `## Failing Test` section. If present:
        bash -c "$TEST_SPEC" 2>"$SANDBOX_DIR/stderr.txt"
    )
    SPEC_EXIT=$?
-   SPEC_STDERR=$(cat "$SANDBOX_DIR/stderr.txt")
-   rm -rf "$SANDBOX_DIR"
+   SPEC_STDERR_FILE="$SANDBOX_DIR/stderr.txt"
    ```
 
    **Why each layer matters — preserve all three when editing this step:**
-   - `cd "$SANDBOX_DIR"` — `tusk` and `git` both walk up from `$PWD` to find a repo root (see `find_repo_root` in `bin/tusk`). A throwaway tempdir has no `.git`, so the walk-up terminates inside the sandbox rather than discovering the host repo. Without this, a spec that calls `tusk commit` or `git` from the tusk source repo's cwd would execute against the real repo (observed in TASK-93).
+   - `cd "$SANDBOX_DIR"` — `tusk` and `git` both walk up from `$PWD` to find a repo root. A throwaway tempdir has no `.git`, so the walk-up terminates inside the sandbox rather than discovering the host repo. Without this, a spec that calls `tusk commit` or `git` from the tusk source repo's cwd would execute against the real repo (observed in TASK-93).
    - `env -i` — drops inherited environment (`GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, `TUSK_DB`, shell customizations) so the spec cannot read secrets or redirect writes to a different database via `TUSK_DB`.
-   - `PATH="/usr/bin:/bin"` — keeps project-installed tools (`tusk`, `pytest`, venv-installed linters, etc.) off the search path. Invocations of those tools inside the spec fail with a command error rather than executing against real state.
+   - `PATH="/usr/bin:/bin"` — keeps project-installed tools off the search path. The classify-spec helper resolves on-PATH against this exact value, so the helper's classification matches what the sandbox itself sees.
 
-   The sandbox narrows what Step 4.1 can validate: most legitimate specs call project tools that are now off-PATH, so they will exit with a command error rather than reproducing the bug. This is intentional. Step 4.1's job is only to confirm the spec is a *runnable, shell-safe command*; the authoritative "does it fail on the current codebase" check is delegated to `tusk criteria done` later, which runs the spec in the real project after the task is underway.
+   Then re-invoke the helper with the sandbox results:
 
-   Interpret the result:
+   ```bash
+   RESULT=$(printf '%s' "$TEST_SPEC" | tusk address-issue classify-spec \
+       --sandbox-exit "$SPEC_EXIT" \
+       --sandbox-stderr-file "$SPEC_STDERR_FILE")
+   rm -rf "$SANDBOX_DIR"
+   ```
 
-   - **Exit nonzero, no command error** — spec fails as expected. Store as `test_spec` and proceed. (Before storing, verify the spec calls into the project under test — runs a CLI, imports a project module, references a real file. Self-contained specs with inline logic may exit nonzero yet pass trivially once that inline logic is fixed; surface this in Step 7 so the implementer validates manually.) **Polarity caveat:** the sandbox only confirms the spec exits nonzero on the *broken* state — it cannot tell whether `exit 1` means "the bug fails the assertion" (correct polarity, exit 0 ≡ pass after fix) or "the assertion's negation happens to fire on broken code too" (inverted polarity, still exits nonzero after fix). Step 7.5 re-runs the stored spec against the fixed code post-implementation and surfaces a polarity-mismatch warning if it then exits nonzero — see the Failing Test Polarity Convention above for the underlying invariant.
-   - **Exit 0** — spec passes before any fix (self-contained demo, already-resolved issue, or a self-skip guard fired in the sandbox — e.g. `git diff` against a missing `.git` parent). Ask the implementer: discard (`test_spec=null`, score `test_present="no"`) or keep with a `(warning: passed before fix)` note appended (score `test_present="unverifiable"` — the spec was attempted but didn't reach validation logic, equivalent in epistemic value to a user-typed skip; this preserves the invariant that `test_present="yes"` means the bug was observed to fail under our own execution; this rule is also recorded in the Step 4.7.1 `test_present` resolution table to keep the two locations aligned)? If kept, Step 7.5 will re-run the spec against the fixed code post-implementation and apply the canonical convention (exit 0 ≡ pass after fix); if it then exits nonzero, the polarity-mismatch options surface there.
-   - **Command error — malformed spec** (stderr contains "command not found" or "syntax error", or exit 126/127 with stderr that matches neither the empty/"No such file" environmental signature below) — not a runnable shell command. Set `test_spec=null`, score `test_present="no"`, and inform: > The `## Failing Test` spec produced a command error (`<first line of SPEC_STDERR>`). Treating as no failing test.
-   - **Command error — environmental** (exit 126/127 with stderr empty OR containing "No such file or directory", and NOT containing "command not found" / "syntax error") — the spec invokes a tool or relative path (e.g. `bin/tusk`, `tests/...`) that is unreachable from the sandbox tempdir. The Step 4.1.a fast-path catches this when the *effective first token* is unreachable, but a spec whose first token IS on PATH (e.g. `test -n "$(bin/tusk version ...)"`) bypasses the fast-path and lands here instead. This is the same epistemic situation as the fast-path skip — the author supplied a concrete reproducer but it can't be validated under the sandbox's safety constraints. Set `test_spec=null`, score `test_present="unverifiable"`, and inform: > The `## Failing Test` spec exited 126/127 with sandbox unreachable-path signature (`<first line of SPEC_STDERR>` or empty stderr); a project-relative path or tool inside the spec was likely unreachable from the tempdir. Scoring `test_present` as `unverifiable` (the spec exists but can't be validated here). Failing-test verification deferred to `tusk criteria done` after task creation.
-   - **Command error — interpreter wrapper bypass** (exit nonzero AND NOT 126/127, with stderr containing a missing-executable signature that names an off-PATH token) — the spec is wrapped in a language interpreter (`python3 -c '<body>'`, `node -e '<body>'`, `ruby -e '<body>'`, `perl -e '<body>'`, or any analogous runtime invocation) whose interpreter itself runs cleanly on `/usr/bin:/bin` but whose body subprocesses an unreachable project tool. The Step 4.1.a fast-path can't catch this — the wrapper interpreter IS on PATH — and the "Command error — environmental" branch above only fires for exit 126/127 (the language runtime instead exits 1 and surfaces the missing executable through its own exception machinery). Recognize this case by these canonical stderr signatures, extracting `<token>`:
-     - **Python** — `FileNotFoundError: [Errno 2] No such file or directory: '<token>'`
-     - **Python `-m` form** — `<python3 path>: No module named <token>` (the `-m` flag of `python3` fails before any subprocess is spawned when the named module is not importable in the sandbox env; `<token>` is a Python module name, not an executable, so skip the `command -v` PATH check below and route directly to `unverifiable` — the module reachability depends on Python site-packages, which `env -i` strips)
-     - **Node** — `Error: spawn <token> ENOENT` or trailing `<token> ENOENT`
-     - **Ruby** — `Errno::ENOENT: No such file or directory - <token>`
-     - **Perl** — `Can't exec "<token>": No such file or directory`
-     - **Generic child-process** — any line ending `<token>: No such file or directory` where `<token>` is a bare command name (no path component)
+   For the **exit-zero** case (`SPEC_EXIT == 0`), prompt the implementer: discard (`test_present="no"`) or keep-with-warning (`test_present="unverifiable"` — the spec was attempted but didn't reach validation logic, equivalent in epistemic value to a user-typed skip; preserves the invariant that `test_present="yes"` means the bug was observed to fail under our own execution). Pass the choice via `--exit-zero-decision keep|discard` and re-invoke. If kept, Step 7.5 will re-run the spec against the fixed code post-implementation and surface a polarity-mismatch warning if it then exits nonzero (see the Failing Test Polarity Convention above).
 
-     Strip any path component from the extracted `<token>` (e.g. `bin/tusk` → `tusk`), then check whether the basename resolves on `PATH=/usr/bin:/bin` via `command -v`. If it does NOT resolve, this is the same epistemic situation as the Step 4.1.a fast-path skip — the author supplied a concrete reproducer but the inner subprocess can't be validated under the sandbox's safety constraints. Set `test_spec=null`, score `test_present="unverifiable"`, and inform: > The `## Failing Test` spec is an interpreter wrapper whose inner subprocess could not reach `<token>` (sandbox PATH = `/usr/bin:/bin`). Scoring `test_present` as `unverifiable` (the spec exists but can't be validated here). Failing-test verification deferred to `tusk criteria done` after task creation.
+   **d. Act on the helper's returned tuple.**
 
-     Adding a new interpreter or runtime to this branch is a one-line change — append the language's canonical missing-executable signature to the table above; the downstream "strip path component, check basename on `/usr/bin:/bin`, route to unverifiable" logic applies uniformly across every signature.
+   The helper emits a single-line JSON object: `{action, test_present, reason, effective_first_token, on_path}`. The `action` field directs the downstream flow:
 
-     If the extracted `<token>` IS on `/usr/bin:/bin` (the inner subprocess called a system tool that genuinely failed) or no recognized signature matches the stderr, fall through to the **"Exit nonzero, no command error"** bullet above (treat as a real failure: store as `test_spec` and proceed).
+   | `action` | `test_present` | What to do |
+   |---|---|---|
+   | `"store"` | `"yes"` | Store as `test_spec` and proceed. **Polarity caveat:** the sandbox only confirms the spec exits nonzero on the *broken* state — it cannot tell whether the polarity is correct (exit 0 ≡ pass after fix) or inverted. Step 7.5 catches the latter authoritatively. Before storing, verify the spec calls into the project under test — self-contained specs with inline logic may exit nonzero yet pass trivially once that inline logic is fixed; surface this in Step 7 so the implementer validates manually. |
+   | `"null"` | `"unverifiable"` | Set `test_spec = null`, do not add a test criterion in Step 6, surface the helper's `reason` field as a one-line note. The `"unverifiable"` score sits between `"yes"` and `"no"` (`config.default.json` `issue_scoring.factors.test_present`). |
+   | `"discard"` | `"no"` | Set `test_spec = null`, do not add a test criterion in Step 6, surface the helper's `reason` field. Treat as if no `## Failing Test` section was supplied. |
+
+   The helper's `reason` field names the deciding signal (exit code + stderr substring + missing token). Adding a new interpreter or text-tool signature is a one-line change in `bin/tusk-address-issue.py` (extend `_extract_wrapper_match` or `TEXT_TOOLS`) plus a unit test in `tests/unit/test_classify_spec.py` — no SKILL.md prose change required.
 
 3. **If no `## Failing Test` section is found**, set `test_spec = null`. No test criterion is added in Step 6. For `bug`/`defect` task types, this lowers the Step 4.7 score via `test_present`; for other task types, `test_present` is N/A.
 
@@ -266,7 +232,7 @@ For `bug` and `defect` task types, resolve the `test_present` value scored by St
 | 5 | Section present, sandbox-executed, **exit 0**, implementer chose `keep` (Step 4.1.c) | Any (irrelevant) | `"unverifiable"` | The spec's self-skip guard fired in the sandbox tempdir (typically `git diff` against a missing `.git` parent); the spec was attempted but didn't reach validation logic — equivalent in epistemic value to a user-typed skip. Preserves the invariant that `"yes"` means we observed the bug fail under our own execution. |
 | 6 | Section present, sandbox-executed, **exit 0**, implementer chose `discard` (Step 4.1.c) | Any (irrelevant) | `"no"` | Spec discarded as no-longer-failing; treat as if no `## Failing Test` section was supplied. |
 | 7 | Section present, sandbox-executed, **command error — *malformed spec*** | Stderr contains `command not found` / `syntax error`, OR exit 126/127 with stderr matching neither the empty nor `No such file or directory` environmental signature | `"no"` | Spec was actually run and demonstrably malformed — distinct from the skip path because the spec was executed, not merely unsandboxable. |
-| 8 | Section present, sandbox-executed, **command error — *environmental*** | Exit 126 or 127; stderr empty OR contains `No such file or directory`; NOT `command not found` / `syntax error` | `"unverifiable"` | Spec invokes a tool or relative path unreachable from the sandbox tempdir (typically a project-relative path like `bin/tusk` or `tests/...` whose first token IS on PATH, so the Step 4.1.a fast-path didn't fire); same epistemic situation as the fast-path skip. |
+| 8 | Section present, sandbox-executed, **command error — *environmental*** | Either: (a) exit 126 or 127 with stderr empty or containing `No such file or directory`, NOT `command not found` / `syntax error`; OR (b) exit 1 or 2 from a POSIX text utility (`grep`/`awk`/`sed`/`find`/`cat`/...) with a `<tool>: ... No such file or directory` stderr line — issue #659. The 1/2 case covers text tools that handle missing inputs internally rather than letting exec fail with 127. | `"unverifiable"` | Spec invokes a tool or relative path unreachable from the sandbox tempdir (typically a project-relative path like `bin/tusk`, `tests/...`, or files referenced by a text-tool command whose first token IS on PATH — so the Step 4.1.a fast-path didn't fire); same epistemic situation as the fast-path skip. |
 | 9 | Section present, sandbox-executed, **command error — *interpreter-wrapper-bypass*** | Exit nonzero AND NOT 126/127; stderr contains a canonical missing-executable signature — Python's `FileNotFoundError: ... '<token>'`, Python `-m` form's `<python3 path>: No module named <token>` (skip the `command -v` PATH check — `<token>` is a Python module name, not an executable, and module reachability depends on Python site-packages which `env -i` strips), Node's `spawn <token> ENOENT`, Ruby's `Errno::ENOENT: ... <token>`, Perl's `Can't exec "<token>"`, or a generic `<token>: No such file or directory` — naming a token whose basename does not resolve on `/usr/bin:/bin` | `"unverifiable"` | The wrapper interpreter (`python3`, `node`, `ruby`, `perl`, etc.) ran cleanly on the sandbox PATH but the body's inner subprocess could not reach the project tool; same epistemic situation as the fast-path skip. |
 
 ## Step 5: Present Proposed Task for Review
