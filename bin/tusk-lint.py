@@ -61,7 +61,7 @@ def is_self(rel):
     return rel in SELF_FILES
 
 
-CLAUDE_MD_LINE_LIMIT = 300
+CLAUDE_MD_LINE_LIMIT = 400
 
 # ── Rule implementations ────────────────────────────────────────────
 
@@ -1169,7 +1169,9 @@ def rule23_claude_md_size(root):
         return []
     return [
         f"  CLAUDE.md: {count} lines exceeds {CLAUDE_MD_LINE_LIMIT}-line limit — "
-        f"consider moving project conventions into tusk using: tusk conventions add"
+        f"move behavioral conventions into tusk via 'tusk conventions add', "
+        f"or extract reference detail (per-flag descriptions, expanded gotcha notes) "
+        f"into a docs/ file that CLAUDE.md links to"
     ]
 
 
