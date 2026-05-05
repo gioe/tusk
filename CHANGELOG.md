@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [867] - 2026-05-05
+
+- [TASK-335] Refine Rule 23 so CLAUDE.md command-table growth no longer trips the 300-line advisory
+
 ## [866] - 2026-05-05
 
 - [TASK-334] Surface tusk abandon --reason completed close-out for DB-only deliverable tasks in /tusk SKILL.md
