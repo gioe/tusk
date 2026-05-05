@@ -134,6 +134,8 @@ Label each finding with its classification. This drives the routing in LR-2.
 
 Before creating tasks for Category A (process improvement) or Category E (debugging velocity) findings, check if any can be applied as inline patches to an existing skill or CLAUDE.md.
 
+Initialize an empty list `$AUTO_APPLIED` for the LR-3 summary — auto-apply gate hits in step 3 below append one line per applied edit.
+
 For each approved Category A finding:
 
 1. **Classify the finding as rule-like or narrative:**
@@ -165,7 +167,26 @@ For each approved Category A finding:
    **If a target file is identified**:
    a. Read the file (`Read .claude/skills/<name>/SKILL.md` or `Read CLAUDE.md`)
    b. Produce a **concrete proposed edit** — the exact text to add, change, or remove. Show the specific diff, not a vague description.
-   c. Present the patch with three options:
+
+   c. **Auto-apply gate (only for skill-frontmatter edits).** Before showing the three-option prompt, read the `retro` config once:
+
+      ```bash
+      tusk config retro
+      ```
+
+      The command prints the `retro` JSON object (or exits non-zero / prints nothing when the key is unset). If `retro.auto_apply` is not exactly `true` — i.e. the key is missing, the value is `false`/`null`, or `tusk config retro` printed nothing — **skip this gate entirely** and proceed to step 3d (three-option prompt). Behavior must match the pre-auto-apply flow exactly when the feature is disabled. When `retro.auto_apply` is `true`, also read `retro.auto_apply_max_chars` (default `200` if unset) for the size budget below.
+
+      If `retro.auto_apply` is `true`, the proposed edit qualifies for auto-apply only when **ALL** of the following hold:
+
+      - **Frontmatter-only**: every changed line lies inside the YAML frontmatter block (between the opening `---` and closing `---` at the top of `.claude/skills/<name>/SKILL.md`), and each changed line is either a `description:` line or a `#`-prefixed comment line. Body changes (anything below the closing `---`), `name:` / `allowed-tools:` / other frontmatter fields, and `CLAUDE.md` edits never qualify.
+      - **Size budget**: the total character count of the diff (sum of `old_string` length + `new_string` length, or for additions just the `new_string` length) is strictly less than `retro.auto_apply_max_chars` (default 200).
+      - **Additive or character-level**: either (a) the change is a pure addition — `new_string` extends `old_string` with appended content and contains no deletions — or (b) the change is character-level on a single line — exactly one frontmatter line is modified, and the modification only inserts or replaces characters within that line (no full-line removals, no multi-line removals).
+
+      If **any** condition fails, fall through to step 3d (three-option prompt). Do not partially auto-apply.
+
+      If **all** conditions hold and `retro.auto_apply` is enabled, **apply the edit immediately using the Edit tool — skip the three-option prompt entirely**. Record a one-line entry in `$AUTO_APPLIED` (file path + brief description, one entry per line) for the LR-3 summary, and do **not** create a task for this finding. Proceed to the next finding.
+
+   d. Otherwise, present the patch with three options:
 
       > **Skill Patch Proposal** — [finding title]
       > File: `.claude/skills/<name>/SKILL.md`
@@ -179,9 +200,9 @@ For each approved Category A finding:
       > **defer** — create a task with this diff included in the description
       > **skip** — create a generic task as usual
 
-   d. **If approved**: apply the edit in-session using the Edit tool. Do **not** create a task for this finding.
-   e. **If deferred**: include the proposed diff verbatim in the task description when calling `tusk task-insert`.
-   f. **If skipped, or if no target file was identified**: proceed to normal task creation (step 4 in LR-2).
+   e. **If approved**: apply the edit in-session using the Edit tool. Do **not** create a task for this finding.
+   f. **If deferred**: include the proposed diff verbatim in the task description when calling `tusk task-insert`.
+   g. **If skipped, or if no target file was identified**: proceed to normal task creation (step 4 in LR-2).
 
 ### LR-2b: Apply Lint Rules Inline (only if lint rule findings exist)
 
@@ -228,6 +249,7 @@ The /tusk skill already printed the task summary block (`tusk task-summary <id> 
 **Created**: N tasks (#id, #id)
 **GitHub issues filed**: N (tusk-issues routed via tusk report-issue — omit line if zero)
 **Lint rules**: K applied inline, M deferred as tasks
+**Auto-applied**: P frontmatter edits — <one entry per item from $AUTO_APPLIED, format: `path/to/SKILL.md (brief description)`> (omit line if P == 0)
 **Skipped**: M duplicates
 ```
 
