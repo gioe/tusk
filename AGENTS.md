@@ -185,7 +185,7 @@ Two external library repos ship their own `tusk-bootstrap.json` and are pre-conf
 
 ### Hooks (Git-event only in Codex mode)
 
-`install.sh` populates `hooks/git/<name>.sh` and writes `.git/hooks/<event>` dispatchers in both Claude and Codex modes. Codex installs skip `.claude/hooks/` (no PreToolUse equivalent). See `docs/HOOKS.md` for the dispatcher contract and instructions for adding a new guard.
+`install.sh` populates `hooks/git/<name>.sh` and writes `.git/hooks/<event>` dispatchers in both Claude and Codex modes. Codex installs skip `.claude/hooks/` (no `SessionStart` or `PreToolUse` equivalent — so the Claude-mode agent-time guards, including the SessionStart `surface-skill-patches.sh` hook that runs `tusk retro-patches --window-days 30 --unconfirmed` and prompts the agent to file `skill-patch-confirmed:<file>` retro_findings, are unavailable). See `docs/HOOKS.md` for the dispatcher contract and instructions for adding a new guard.
 
 The dispatcher at `.git/hooks/<event>` carries the `TUSK_HOOK_DISPATCHER_V1` marker for idempotent re-runs and chains any pre-existing user hook to `.git/hooks/<event>.pre-tusk` so external hooks are preserved rather than overwritten.
 
