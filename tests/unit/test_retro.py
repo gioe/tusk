@@ -132,12 +132,17 @@ class TestCombinedShape:
         conn.execute(
             "INSERT INTO task_progress (task_id, next_steps) VALUES (1, 'finish the rest')"
         )
-        # Cross-retro findings: 2 in category 'A', 1 in category 'B'.
-        # min_recurrence=2 should keep only 'A'.
+        # Cross-retro findings: 2 summaries share the term "manifest", 1
+        # is unrelated. retro-themes aggregates by content-derived terms
+        # (issue #551), so min_recurrence=2 keeps only "manifest".
         conn.execute("INSERT INTO skill_runs (id, skill_name) VALUES (1, 'retro')")
         conn.executemany(
-            "INSERT INTO retro_findings (skill_run_id, category, summary) VALUES (1, ?, 's')",
-            [("A",), ("A",), ("B",)],
+            "INSERT INTO retro_findings (skill_run_id, category, summary) VALUES (1, ?, ?)",
+            [
+                ("A", "manifest drift detected"),
+                ("A", "manifest entries diverged"),
+                ("B", "branch protection blocked push"),
+            ],
         )
         conn.commit()
         conn.close()
@@ -172,8 +177,16 @@ class TestCombinedShape:
         themes = data["themes"]
         assert set(themes.keys()) == {"window_days", "min_recurrence", "total_findings", "themes"}
         assert themes["min_recurrence"] == 2
-        assert themes["total_findings"] == 3  # pre-HAVING count
-        assert themes["themes"] == [{"theme": "A", "count": 2}]
+        assert themes["total_findings"] == 3  # pre-recurrence-filter count
+        # "manifest" appears in 2 findings; min_recurrence=2 keeps it. Other
+        # terms ("drift", "branch", etc.) appear in 1 finding each and are
+        # filtered. No single-letter category codes leak through (issue #551).
+        manifest_themes = [t for t in themes["themes"] if t["theme"] == "manifest"]
+        assert manifest_themes == [{"theme": "manifest", "count": 2}]
+        for entry in themes["themes"]:
+            assert len(entry["theme"]) >= 2, (
+                f"single-letter theme leaked: {entry['theme']!r}"
+            )
 
     def test_task_prefix_form_resolves(self, tmp_path):
         db_path, conn = _make_db(tmp_path)
