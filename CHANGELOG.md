@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [868] - 2026-05-05
+
+- [TASK-336] Add tusk retro-patches CLI command to list unconfirmed skill-patches
+
 ## [867] - 2026-05-05
 
 - [TASK-335] Refine Rule 23 so CLAUDE.md command-table growth no longer trips the 300-line advisory
