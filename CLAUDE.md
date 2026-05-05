@@ -64,6 +64,7 @@ bin/tusk lint
 bin/tusk autoclose
 bin/tusk backlog-scan [--duplicates] [--unassigned] [--unsized] [--expired]   # → {duplicates:[...], unassigned:[...], unsized:[...], expired:[...]}
 bin/tusk retro-signals <task_id>   # → {task_id, complexity, reopen_count, rework_chain:{fixes,fixed_by}, review_themes, skipped_criteria, tool_call_outliers, unconsumed_next_steps}
+bin/tusk retro-patches [--window-days N] [--unconfirmed]   # → [{finding_id, skill_run_id, task_id, action_taken, target_file, created_at, age_days}, ...] — list `skill-patch:<file>` retro_findings; `--unconfirmed` filters to those without a later `skill-patch-confirmed:<file>` row (issue #540)
 bin/tusk test-detect               # → {"command": "<cmd>", "confidence": "high|medium|low|none"}
 bin/tusk add-lib [--lib <name>] [--repo <owner/repo>] [--ref <branch|tag|sha>]  # → {"lib": "<name>", "tasks": [...], "error": null}
 bin/tusk init-fetch-bootstrap      # → {"libs": [{name, repo, tasks, error}, ...]}
