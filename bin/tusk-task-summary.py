@@ -369,10 +369,10 @@ def fetch_diff(
         "git", "log", "--all",
         task_grep_arg(task_id),
         "--numstat",
-        # Trailing %x00 + newline: we need parents on the header line but
-        # numstat rows that follow start at column 0. A NUL terminator lets
-        # us split header from numstat without ambiguity even if a parent
-        # SHA happened to look like a numstat field.
+        # %P expands to space-separated parent SHAs (zero, one, or many for
+        # merge commits). The __COMMIT__ prefix unambiguously marks header
+        # lines; numstat rows are tab-delimited "<added>\t<removed>\t<path>",
+        # so a header with parent SHAs cannot collide with numstat shape.
         "--format=__COMMIT__ %H %P",
     ]
     if since:
