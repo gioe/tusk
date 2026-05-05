@@ -35,7 +35,7 @@ def cmd_validate(config_path: str) -> int:
     errors = []
 
     # ── Check for unknown top-level keys ──
-    KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'complexity', 'blocker_types', 'criterion_types', 'workflows', 'agents', 'dupes', 'review', 'review_categories', 'review_severities', 'merge', 'test_command', 'test_command_timeout_sec', 'baseline_min_sample_size', 'domain_test_commands', 'path_test_commands', 'project_type', 'project_libs', 'issue_scoring', 'report_tusk_issue_footer'}
+    KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'complexity', 'blocker_types', 'criterion_types', 'workflows', 'agents', 'dupes', 'review', 'review_categories', 'review_severities', 'merge', 'retro', 'test_command', 'test_command_timeout_sec', 'baseline_min_sample_size', 'domain_test_commands', 'path_test_commands', 'project_type', 'project_libs', 'issue_scoring', 'report_tusk_issue_footer'}
     known_list = ', '.join(sorted(KNOWN_KEYS))
     unknown = set(cfg.keys()) - KNOWN_KEYS
     if unknown:
@@ -176,6 +176,29 @@ def cmd_validate(config_path: str) -> int:
                 if merge['mode'] not in VALID_MERGE_MODES:
                     modes_list = ', '.join(sorted(VALID_MERGE_MODES))
                     errors.append(f'"merge.mode" must be one of: {modes_list} (got {merge["mode"]!r}).')
+
+    # ── Validate retro (optional object) ──
+    if 'retro' in cfg:
+        retro = cfg['retro']
+        if not isinstance(retro, dict):
+            errors.append(f'"retro" must be an object (got {type(retro).__name__}).')
+        else:
+            KNOWN_RETRO_KEYS = {'auto_apply', 'auto_apply_max_chars'}
+            known_retro_list = ', '.join(sorted(KNOWN_RETRO_KEYS))
+            unknown_retro = set(retro.keys()) - KNOWN_RETRO_KEYS
+            if unknown_retro:
+                for k in sorted(unknown_retro):
+                    errors.append(f'Unknown key "retro.{k}". Valid retro keys: {known_retro_list}')
+
+            if 'auto_apply' in retro:
+                aa = retro['auto_apply']
+                if not isinstance(aa, bool):
+                    errors.append(f'"retro.auto_apply" must be a boolean (got {type(aa).__name__}: {aa!r}).')
+
+            if 'auto_apply_max_chars' in retro:
+                mc = retro['auto_apply_max_chars']
+                if not isinstance(mc, int) or isinstance(mc, bool) or mc <= 0:
+                    errors.append(f'"retro.auto_apply_max_chars" must be a positive integer (got {type(mc).__name__}: {mc!r}).')
 
     # ── Validate test_command (optional string) ──
     if 'test_command' in cfg:

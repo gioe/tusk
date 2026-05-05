@@ -28,6 +28,10 @@
   "merge": {
     "mode": "local"
   },
+  "retro": {
+    "auto_apply": false,
+    "auto_apply_max_chars": 200
+  },
   "issue_scoring": {
     "factors": {
       "test_present":   { "yes": 2, "no": -1, "unverifiable": 1 },
