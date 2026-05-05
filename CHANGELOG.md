@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [855] - 2026-05-04
+
+- [TASK-322] Add tusk uninstall-hooks to remove dispatchers and restore chained user hooks
+
 ## [854] - 2026-05-04
 
 - [TASK-321] Extend bare top-level deliverable whitelist with common Python/Docker/build/metadata files
