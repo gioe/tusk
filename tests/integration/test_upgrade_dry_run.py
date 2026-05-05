@@ -219,3 +219,91 @@ class TestDryRunReport:
 
         out = capsys.readouterr().out
         assert "could not load MIGRATIONS from tarball" in out
+
+    def test_removals_section_lists_orphans_and_dist_excluded(
+        self, tmp_path, upgrade_mod, capsys, monkeypatch
+    ):
+        """Dry-run preview surfaces files that would be deleted by both
+        remove_orphans (manifest diff) and prune_dist_excluded (dist-excluded.txt
+        ∩ install bin/) — and writes nothing to disk in the process."""
+        repo_root, script_dir = _make_claude_install(tmp_path, user_version=98)
+        src = _make_fake_src(tmp_path)
+
+        # Add a dist-excluded entry to the new tarball *and* pre-create the
+        # corresponding file in the install bin/ so it is intersection-eligible.
+        (src / "bin" / "dist-excluded.txt").write_text("tusk-generate-manifest.py\n")
+        (src / "bin" / "tusk-generate-manifest.py").write_text(
+            "# present in tarball but excluded from distribution\n"
+        )
+        excluded_target = script_dir / "tusk-generate-manifest.py"
+        excluded_target.write_text("# pre-existing in install bin/, eligible for prune\n")
+
+        # Stamp an installed manifest at .claude/tusk-manifest.json that lists
+        # one orphan path (.claude/bin/tusk-orphan.py) absent from the new
+        # MANIFEST. The orphan must exist on disk for the diff to surface it.
+        installed_manifest = repo_root / ".claude" / "tusk-manifest.json"
+        installed_manifest.parent.mkdir(parents=True, exist_ok=True)
+        installed_manifest.write_text(json.dumps([
+            ".claude/bin/tusk",
+            ".claude/bin/tusk-upgrade.py",
+            ".claude/bin/tusk-keep.py",
+            ".claude/bin/tusk-orphan.py",  # orphan: not in new MANIFEST
+            ".claude/skills/tusk/SKILL.md",
+            ".claude/hooks/setup-path.sh",
+        ]))
+        orphan_target = script_dir / "tusk-orphan.py"
+        orphan_target.write_text("# left behind by an older tusk install\n")
+
+        monkeypatch.setattr(upgrade_mod, "_verbose", False)
+
+        before = _capture_install_state(repo_root, script_dir)
+
+        upgrade_mod._run_dry_run_report(
+            str(src), str(repo_root), str(script_dir),
+            local_version=998, remote_version=999,
+        )
+
+        out = capsys.readouterr().out
+
+        # Removals section header reports both counts.
+        assert "Removals (1 orphan, 1 dist-excluded):" in out
+        # Orphan entry surfaces with the orphan annotation.
+        assert "- .claude/bin/tusk-orphan.py  (orphan)" in out
+        # Dist-excluded entry surfaces with the dist-excluded annotation,
+        # rooted at the install bin/ prefix so codex-mode installs would render
+        # tusk/bin/<name> instead.
+        assert "- .claude/bin/tusk-generate-manifest.py  (dist-excluded)" in out
+
+        # No files were actually deleted (or otherwise modified).
+        assert orphan_target.exists()
+        assert excluded_target.exists()
+        after = _capture_install_state(repo_root, script_dir)
+        assert before == after, (
+            "Dry-run must not modify any files in the install layout. "
+            f"Differing paths: {set(before) ^ set(after)}; "
+            f"changed: {[p for p in before if p in after and before[p] != after[p]]}"
+        )
+
+    def test_removals_section_reports_none_when_no_deletions_pending(
+        self, tmp_path, upgrade_mod, capsys, monkeypatch
+    ):
+        """When there is no installed manifest and no dist-excluded.txt, the
+        Removals section reports both counts as 0 and prints '(none)'."""
+        repo_root, script_dir = _make_claude_install(tmp_path, user_version=98)
+        src = _make_fake_src(tmp_path)
+        # _make_fake_src does not write a dist-excluded.txt and the install
+        # has no .claude/tusk-manifest.json, so both removal paths should be
+        # empty without any extra setup.
+        assert not (src / "bin" / "dist-excluded.txt").exists()
+        assert not (repo_root / ".claude" / "tusk-manifest.json").exists()
+
+        monkeypatch.setattr(upgrade_mod, "_verbose", False)
+
+        upgrade_mod._run_dry_run_report(
+            str(src), str(repo_root), str(script_dir),
+            local_version=998, remote_version=999,
+        )
+
+        out = capsys.readouterr().out
+        assert "Removals (0 orphan, 0 dist-excluded):" in out
+        assert "(none)" in out

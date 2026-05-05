@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [864] - 2026-05-05
+
+- [TASK-328] Extend tusk upgrade --dry-run to preview orphan removals and dist-excluded prunes
+
 ## [863] - 2026-05-05
 
 - [TASK-330] Mirror /retro auto-apply tier into FULL-RETRO Step 5e for M/L/XL tasks

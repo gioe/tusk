@@ -838,6 +838,47 @@ def _run_dry_run_report(src: str, repo_root: str, script_dir: str,
             print(f"    {rel}")
     print()
 
+    # Removals: orphans (in installed manifest, absent from translated new
+    # manifest) + dist-excluded prunes (basenames now in bin/dist-excluded.txt
+    # that are still present in install bin/). Mirrors the two delete paths in
+    # _run_upgrade_steps so the dry-run preview matches the real upgrade.
+    manifest_rel = INSTALL_MODES[install_mode]["manifest_rel"]
+    old_manifest_path = os.path.join(repo_root, manifest_rel)
+    orphan_removals: list = []
+    if os.path.isfile(old_manifest_path):
+        try:
+            with open(old_manifest_path, encoding="utf-8") as f:
+                old_files = set(json.load(f))
+        except (json.JSONDecodeError, OSError):
+            old_files = set()
+        new_files_set = set(files)
+        for rel in sorted(old_files - new_files_set):
+            full_path = os.path.join(repo_root, rel)
+            if os.path.isfile(full_path):
+                orphan_removals.append(rel)
+
+    excluded = _load_dist_excluded(src)
+    bin_prefix = INSTALL_MODES[install_mode]["bin_prefix"]
+    install_bin = os.path.join(repo_root, bin_prefix)
+    prune_removals: list = []
+    if excluded and os.path.isdir(install_bin):
+        for name in sorted(excluded):
+            if "/" in name or name.startswith(".."):
+                continue
+            target = os.path.join(install_bin, name)
+            if os.path.isfile(target):
+                prune_removals.append(f"{bin_prefix}{name}")
+
+    print(f"Removals ({len(orphan_removals)} orphan, {len(prune_removals)} dist-excluded):")
+    if not orphan_removals and not prune_removals:
+        print("  (none)")
+    else:
+        for rel in orphan_removals:
+            print(f"  - {rel}  (orphan)")
+        for rel in prune_removals:
+            print(f"  - {rel}  (dist-excluded)")
+    print()
+
     current_user_version = _read_user_version(repo_root)
     migrate_mod = _import_migrate_module(src)
     if migrate_mod is None or not hasattr(migrate_mod, "MIGRATIONS"):
