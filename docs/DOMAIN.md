@@ -351,6 +351,25 @@ One row per approved finding emitted by `/retro` on close. Populated by the skil
 
 ---
 
+### Jot
+
+One row per mid-task friction note captured via `tusk jot`. Solves the problem that retro fidelity decays with task length: by close time on M/L/XL tasks, the implementer has to reconstruct hours-old friction from working memory. A `tusk jot <category> "<note>"` call writes the observation at the moment it happens, keyed to the currently-active `skill_runs` row (most-recent with `ended_at IS NULL`). `/retro` reads jots for the parent /tusk run via `tusk jots --task-id $RETRO_TASK_ID` before doing its own conversation analysis, treating each row as a pre-classified finding candidate (issue #541).
+
+| Attribute | Type | Constraints | Description |
+|-----------|------|-------------|-------------|
+| `id` | INTEGER | PK, autoincrement | |
+| `skill_run_id` | INTEGER | NOT NULL, FK → skill_runs(id) ON DELETE CASCADE | The active skill_run when the jot was captured; cascades so jots disappear if the originating run is deleted |
+| `task_id` | INTEGER | nullable, FK → tasks(id) ON DELETE SET NULL | Copied from the parent skill_run's `task_id` at insert time so retro can filter by either run or task. SET NULL on delete — jots outlive task cleanup |
+| `category` | TEXT | NOT NULL | Pre-classification hint (e.g. `process`, `velocity`, `tool`) — free-text so custom retro `FOCUS.md` categories flow through unchanged. /retro uses this as the primary signal when bucketing the jot into its own category set |
+| `note` | TEXT | NOT NULL | The one-line observation as captured at the moment of friction |
+| `file_hint` | TEXT | nullable | Optional file path the jot is about (passed via `--file`) — narrows the surface area for retro |
+| `skill_hint` | TEXT | nullable | Optional skill name the jot is about (passed via `--skill`) — same purpose as `file_hint` for skill-surface friction |
+| `created_at` | TEXT | NOT NULL, default now | When the jot was captured |
+
+**Indexes:** `idx_jots_skill_run_id`, `idx_jots_task_id`, `idx_jots_category`.
+
+---
+
 ### Tool Call Stats
 
 Pre-computed per-tool-call cost aggregates, grouped by session, skill run, or criterion and tool name. Populated by `tusk call-breakdown` which parses Claude transcripts and summarises which tools were called most/least expensively. Each row belongs to exactly one of: a session, a skill run, or a criterion — never more than one, never none.

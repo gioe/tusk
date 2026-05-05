@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [862] - 2026-05-05
+
+- [TASK-331] Add tusk jot CLI for mid-task friction notes consumed by /retro
+
 ## [861] - 2026-05-05
 
 - [TASK-329] Add auto-apply tier to /retro for trivially safe findings
