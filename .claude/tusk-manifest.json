@@ -133,6 +133,7 @@
   ".claude/hooks/hook-common.sh",
   ".claude/hooks/inject-task-context.sh",
   ".claude/hooks/setup-path.sh",
+  ".claude/hooks/surface-skill-patches.sh",
   ".claude/hooks/version-bump-check.sh",
   ".claude/bin/hooks/git/block-raw-sqlite.sh",
   ".claude/bin/hooks/git/block-sql-neq.sh",

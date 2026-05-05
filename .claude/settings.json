@@ -27,6 +27,14 @@
             "command": ".claude/hooks/inject-task-context.sh"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/surface-skill-patches.sh"
+          }
+        ]
       }
     ],
     "PreToolUse": [
