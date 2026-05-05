@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [869] - 2026-05-05
+
+- [TASK-337] Add SessionStart hook to surface unconfirmed skill-patches for loaded skills
+
 ## [868] - 2026-05-05
 
 - [TASK-336] Add tusk retro-patches CLI command to list unconfirmed skill-patches
