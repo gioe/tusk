@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [866] - 2026-05-05
+
+- [TASK-334] Surface tusk abandon --reason completed close-out for DB-only deliverable tasks in /tusk SKILL.md
+
 ## [865] - 2026-05-05
 
 - [TASK-333] Fix: tusk task-summary reports 0 diff stats when description uses bare-basename file reference

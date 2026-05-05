@@ -156,10 +156,11 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     ```
     `done --skip-verify` stamps the criterion with HEAD's commit hash, leaking an unrelated commit into the audit trail and triggering "shares commit" warnings between unrelated criteria. `skip` sets `is_deferred=1` with the rationale recorded in `deferred_reason`; the `task-done` gate and `v_criteria_coverage` view exclude deferred criteria automatically, so the task closes cleanly. Reserve `done --skip-verify` for criteria that ARE satisfied but cannot be auto-verified (the cases below).
 
-    **If the task has no git-trackable file changes** (e.g., a venv install, a runtime config change, an OS-level operation), skip `tusk commit` entirely — it requires at least one file argument and will fail with exit code 1 (usage error) if none are provided. Mark criteria done directly:
+    **If the task has no git-trackable file changes** (e.g., a venv install, a runtime config change, an OS-level operation, or a DB-only deliverable like `tusk conventions update` / `tusk lint-rule add`), skip `tusk commit` entirely — it requires at least one file argument and will fail with exit code 1 (usage error) if none are provided. Mark criteria done directly:
     ```bash
     tusk criteria done <cid> --skip-verify
     ```
+    Once every criterion is marked done, the feature branch will have no `[TASK-<id>]` commits to merge — close out via Step 12's `tusk abandon <id> --reason completed --note "<rationale>"` path rather than `tusk merge` (which refuses on an empty branch).
 
     **If a criterion requires filing follow-up tasks** (typical for investigation/triage tasks whose criteria read "file focused follow-up tasks covering each distinct break"), do NOT call `tusk task-insert` directly. Dupe-check first so a freshly-filed sibling task isn't immediately superseded by an existing one:
     ```bash
@@ -300,7 +301,11 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     Three reason values are accepted:
     - **`wont_do`** — an evaluation/spike whose answer is "don't do it".
     - **`duplicate`** — the task turns out to overlap an already-tracked one.
-    - **`completed`** — *convergent-completion* (issue #580): the goal was met by separate work landing on the default branch between filing and pickup, so there is nothing left to ship. Pass `--note "<rationale>"` and reference the task(s) or commit(s) that satisfied the goal — `tusk abandon` records it on `task_progress` as `[abandon: completed] <note>`, which is the audit signal that distinguishes this case from a normal `tusk merge` close (no `[TASK-N]` commits will be on the default branch for this task either).
+    - **`completed`** — the goal was met but no `[TASK-N]` commits land on the default branch. Two sub-cases:
+        - *convergent-completion* (issue #580): separate work landing on the default branch between filing and pickup already satisfied the goal, so there is nothing left to ship.
+        - *DB-only deliverable* (issue #669): the deliverable is a SQLite row written via a tusk subcommand (`tusk conventions update`, `tusk conventions add`, `tusk lint-rule add`, `tusk glossary set-definition`, etc.) — the feature branch is intentionally empty because nothing in the working tree changes.
+
+      Pass `--note "<rationale>"` in both cases and reference the converging task(s)/commit(s) or the DB write performed — `tusk abandon` records it on `task_progress` as `[abandon: completed] <note>`, which is the audit signal that distinguishes this case from a normal `tusk merge` close (no `[TASK-N]` commits will be on the default branch for this task either).
 
     `tusk abandon` switches off the feature branch, deletes it (force), closes the session, and marks the task Done with the given `closed_reason` in one call. **Refuses** if the feature branch has commits not on the default branch — in that case use `tusk merge` to ship the work, or delete the branch manually if you really want to discard it. The optional `--note` records the decision rationale on `task_progress` so the audit trail survives. After `tusk abandon` exits 0, run `/retro` exactly as you would after `tusk merge`.
 
