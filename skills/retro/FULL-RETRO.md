@@ -433,6 +433,7 @@ The /tusk skill already printed the task summary block (`tusk task-summary <id> 
 **Created**: N tasks (#id, #id)
 **GitHub issues filed**: N (tusk-issues routed via tusk report-issue — omit line if zero)
 **Lint rules**: K applied inline, M deferred as tasks
+**Auto-applied**: P frontmatter edits — <one entry per item from $AUTO_APPLIED, format: `path/to/SKILL.md (brief description)`> (omit line if P == 0)
 **Subsumed**: S findings into existing tasks (#id)
 **Dependencies added**: D (if any were created)
 **Skipped**: M duplicates
