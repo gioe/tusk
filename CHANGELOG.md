@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [872] - 2026-05-05
+
+- [TASK-340] Decompose batched skill-patch:a,b,c action_taken into per-file rows in retro-patches
+
 ## [871] - 2026-05-05
 
 - [TASK-339] Fix: Multi-line Python signatures break grep-based criterion verification
