@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [853] - 2026-05-04
+
+- [TASK-320] Fix tusk task-summary scope filter to recognize bare top-level deliverable files
+
 ## [852] - 2026-05-04
 
 - [TASK-317] Refactor /address-issue Step 4.1 spec classification into tusk address-issue classify-spec helper
