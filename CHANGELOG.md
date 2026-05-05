@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [850] - 2026-05-04
+
+- Update /retro Step 0b prose to reflect content-derived theme matching (post-issue #551 retro patch)
+
 ## [849] - 2026-05-04
 
 - [TASK-315] Fix tusk retro-themes to aggregate by content-derived key instead of category letter

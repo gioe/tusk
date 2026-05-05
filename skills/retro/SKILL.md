@@ -45,7 +45,7 @@ tusk retro-themes --window-days 30 --min-recurrence 3
 
 The output is pre-aggregated `{theme, count}` tuples — **do not** issue separate SQL queries against `retro_findings`. All cross-retro aggregation belongs in SQL behind `tusk retro-themes`; `/retro` consumes only the tuple stream.
 
-If `themes` is empty, skip — the current session stands alone. If any tuple is returned, store the list as `$RECURRING_THEMES` and use it in LR-1 (or Step 3 in FULL-RETRO) to flag recurrences: when this session surfaces a finding whose category matches a recurring theme, note the recurrence (e.g. `theme A recurring — seen N times in last 30 days`) next to that finding in the report.
+If `themes` is empty, skip — the current session stands alone. If any tuple is returned, store the list as `$RECURRING_THEMES` and use it in LR-1 (or Step 3 in FULL-RETRO) to flag recurrences: when this session surfaces a finding whose summary text contains a recurring theme, note the recurrence (e.g. `theme 'manifest' recurring — seen N times in last 30 days`) next to that finding in the report. Themes are normalized topic terms extracted from `retro_findings.summary` (issue #551), not single-letter category codes.
 
 - **XS or S** → follow the **Lightweight Retro** path below
 - **M, L, XL, or NULL** → read the full retro guide:
