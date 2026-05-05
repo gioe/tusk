@@ -239,7 +239,7 @@ After drafting each criterion, pick its verification type. Most criteria become 
 |---|---|---|---|
 | Names a **behavior, output shape, edge case, or invariant** that could be expressed as a pytest assertion (default per the test-first rule above) — or already mentions a test command, file, or name | `test` | The exact shell command that runs the test, typically a pytest node ID like `python3 -m pytest tests/foo/test_bar.py::TestBaz::test_quux -q` | Runs `spec`; pass = exit 0; 300s timeout |
 | Mentions a **file path that should exist** (e.g. "CHANGELOG.md has an entry", "migration file in bin/ exists") | `file` | A glob pattern matching the expected path | Pass if **any** file matches |
-| Mentions a **code symbol, string, or pattern that must (or must not) appear** (e.g. "`PRAGMA user_version = 56` stamped in cmd_init", "no raw `sqlite3` call in skills/") | `code` | A shell command (typically `grep -q …` or `! grep -q …`) whose exit code answers the question | Runs `spec`; pass = exit 0; 120s timeout |
+| Mentions a **code symbol, string, or pattern that must (or must not) appear** (e.g. "`PRAGMA user_version = 56` stamped in cmd_init", "no raw `sqlite3` call in skills/") | `code` | A shell command (typically `grep -q …` or `! grep -q …`) whose exit code answers the question. **`grep` is line-based** — for assertions that must match across lines (most commonly "Python function accepts param X" against signatures formatted under PEP8/black, which routinely span multiple lines), use a small `ast.parse` Python one-liner instead; see the AST worked example below. Reaching for `grep -Pzq` (PCRE multi-line) is portable on GNU grep but BSD grep on macOS often lacks `-P`, so it is not a safe default. | Runs `spec`; pass = exit 0; 120s timeout |
 | Anything else — visual review, design judgment, prose correctness, behavior in a UI | `manual` | — | None; /tusk asserts it during work |
 
 ### Worked `--typed-criteria` examples
@@ -256,6 +256,17 @@ One per non-manual type. These are valid arguments to `tusk task-insert` — cop
 # code type — auto-greps for presence (or absence) of a symbol or pattern
 --typed-criteria '{"text":"cmd_init stamps user_version 56","type":"code","spec":"grep -q \"PRAGMA user_version = 56\" bin/tusk"}'
 --typed-criteria '{"text":"Skills do not call raw sqlite3","type":"code","spec":"! grep -rE \"(^|[|;&])\\s*sqlite3\\b\" .claude/skills/"}'
+
+# code type, multi-line Python signature — `ast.parse` walks the AST so the
+# match works whether the signature spans one line or twenty. Pass the file
+# path, fn name, and param name as argv so you never interpolate user data
+# into the Python source. Pipe through `tusk typed-criteria-build` to avoid
+# quote-escaping hazards (the spec contains both `"` and `'`):
+read -r -d '' SPEC <<'TUSK_EOF'
+python3 -c "import ast,sys; t=ast.parse(open(sys.argv[1]).read()); assert any(isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name==sys.argv[2] and any(a.arg==sys.argv[3] for a in n.args.args+n.args.kwonlyargs+n.args.posonlyargs) for n in ast.walk(t))" apps/scraper/src/laughtrack/foundation/infrastructure/http/client.py fetch_json scraper_key
+TUSK_EOF
+JSON=$(printf '%s' "$SPEC" | tusk typed-criteria-build --type code --text "fetch_json accepts scraper_key")
+--typed-criteria "$JSON"
 ```
 
 For `test` and `code`, `spec` is a shell command — exit 0 = pass; use `! …` to invert. For `file`, `spec` is a glob (recursive `**` works).
