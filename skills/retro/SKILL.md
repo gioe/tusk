@@ -62,6 +62,14 @@ Streamlined retro for small tasks. Skips subsumption analysis and dependency pro
 
 ### LR-1: Review & Categorize
 
+**Read mid-task jots first.** If `RETRO_TASK_ID` is set, fetch any friction notes captured during the task via `tusk jot`:
+
+```bash
+tusk jots --task-id $RETRO_TASK_ID
+```
+
+The output is an array of `{id, skill_run_id, task_id, category, note, file_hint, skill_hint, created_at}` rows. Each jot is a **pre-classified finding candidate** captured at the moment of friction — treat its `category` as a strong hint when bucketing into the categories below, and quote the `note` verbatim in the finding's summary. Jots are the highest-fidelity input to retro because they were not reconstructed from memory at close time. Empty array → no jots were filed; proceed using conversation context alone.
+
 **Check for custom focus areas first.** Attempt to read `<base_directory>/FOCUS.md`.
 - If the file exists: use the categories defined in it for the analysis below.
 - If the file does not exist: use the default categories:

@@ -79,6 +79,16 @@ If `$RECURRING_THEMES` is empty, no recurring pattern has crossed the 3×/30-day
 
 If one or more themes are present, carry the list into Step 3: for every finding whose category matches a recurring theme, append an inline recurrence note (`— recurring theme: seen N times in last 30 days`) next to that finding in both the categorization table and the Step 4 report. This tells the reviewer "this isn't the first time we've surfaced something in this bucket" before they approve a new task for it, which raises the bar for duplicate work.
 
+## Step 2d: Read Mid-task Jots
+
+Fetch any friction notes the implementer captured during the task via `tusk jot`:
+
+```bash
+tusk jots --task-id $RETRO_TASK_ID
+```
+
+The output is an array of `{id, skill_run_id, task_id, category, note, file_hint, skill_hint, created_at}` rows. Each jot is a **pre-classified finding candidate** captured at the moment of friction — treat its `category` as a strong hint when bucketing into the categories below in Step 3, and quote the `note` verbatim in the resulting finding's summary. Jots are the highest-fidelity input to retro because they were not reconstructed from memory at close time; for M/L/XL tasks where hours of context have elapsed, they are typically more reliable than re-reading the conversation. Empty array → no jots were filed; proceed using conversation context alone.
+
 ## Step 3: Categorize Findings
 
 If `<base_directory>/FOCUS.md` was found in Step 1, use those categories.
