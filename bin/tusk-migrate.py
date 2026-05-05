@@ -2621,6 +2621,55 @@ def migrate_66(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 66: added 'resolution_note' column to review_comments")
 
 
+def migrate_67(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add ``jots`` table for mid-task friction notes consumed by /retro.
+
+    Captures one-line observations at the moment of friction — confusing
+    tool output, a workaround taken, a missing skill — instead of relying
+    on hours-old conversation memory at retro time. /retro reads jots for
+    the parent /tusk skill_run before doing its own analysis, treating
+    each row as a pre-classified finding candidate (issue #541).
+
+    Mirrors retro_findings shape: skill_run_id FK with ON DELETE CASCADE
+    (jots disappear when the originating run is deleted), task_id FK with
+    ON DELETE SET NULL (jots outlive task cleanup), category for
+    pre-classification, indexes on skill_run_id and category for cheap
+    per-run / per-category rollups.
+
+    Idempotent: guarded with has_table; re-running is a no-op after the
+    table exists.
+    """
+    if get_version(db_path) >= 67:
+        _progress("  Migration 67: added jots table")
+        return
+
+    ddl_stmts = []
+    if not has_table(db_path, "jots"):
+        ddl_stmts.append("""
+            CREATE TABLE jots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                skill_run_id INTEGER NOT NULL,
+                task_id INTEGER,
+                category TEXT NOT NULL,
+                note TEXT NOT NULL,
+                file_hint TEXT,
+                skill_hint TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (skill_run_id) REFERENCES skill_runs(id) ON DELETE CASCADE,
+                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
+            );
+            CREATE INDEX idx_jots_skill_run_id ON jots(skill_run_id);
+            CREATE INDEX idx_jots_task_id ON jots(task_id);
+            CREATE INDEX idx_jots_category ON jots(category);
+        """)
+
+    script = "\n".join(ddl_stmts) + """
+        PRAGMA user_version = 67;
+    """
+    run_script(db_path, script)
+    _progress("  Migration 67: added jots table")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -2690,6 +2739,7 @@ MIGRATIONS = [
     (64, migrate_64),
     (65, migrate_65),
     (66, migrate_66),
+    (67, migrate_67),
 ]
 
 

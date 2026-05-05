@@ -821,6 +821,26 @@ CREATE INDEX idx_retro_findings_category ON retro_findings(category);
 CREATE INDEX idx_retro_findings_created_at ON retro_findings(created_at);
 RF_SCHEMA
 
+  # Jots (mid-task friction notes captured at the source; read by /retro
+  # before conversation analysis as pre-classified finding candidates)
+  sqlite3 "$DB_PATH" <<'JOTS_SCHEMA'
+CREATE TABLE jots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    skill_run_id INTEGER NOT NULL,
+    task_id INTEGER,
+    category TEXT NOT NULL,
+    note TEXT NOT NULL,
+    file_hint TEXT,
+    skill_hint TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (skill_run_id) REFERENCES skill_runs(id) ON DELETE CASCADE,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
+);
+CREATE INDEX idx_jots_skill_run_id ON jots(skill_run_id);
+CREATE INDEX idx_jots_task_id ON jots(task_id);
+CREATE INDEX idx_jots_category ON jots(category);
+JOTS_SCHEMA
+
   # Tool call stats (pre-computed per-tool-call cost aggregates per session or skill run)
   sqlite3 "$DB_PATH" <<'TCS_SCHEMA'
 CREATE TABLE tool_call_stats (
@@ -965,7 +985,7 @@ TEST_RUNS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 66;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 67;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."
