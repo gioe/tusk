@@ -133,6 +133,77 @@ class TestExtractPaths:
         paths = _extract_paths(text)
         assert "custom/app/settings.py" in paths
 
+    # ── Bare top-level deliverable filenames (issue #661) ──────────────
+    # Without the whitelist, these silently dropped out of extract_paths
+    # because they have no directory prefix — collapsing task-summary diff
+    # stats to zero whenever a task's only deliverable was CLAUDE.md /
+    # AGENTS.md / VERSION / README.md / CHANGELOG.md.
+
+    def test_extracts_bare_claude_md(self):
+        text = "Update CLAUDE.md to match the new wording."
+        paths = _extract_paths(text)
+        assert "CLAUDE.md" in paths
+
+    def test_extracts_bare_agents_md(self):
+        text = "Sync AGENTS.md alongside CLAUDE.md."
+        paths = _extract_paths(text)
+        assert "AGENTS.md" in paths
+        assert "CLAUDE.md" in paths
+
+    def test_extracts_bare_version(self):
+        text = "Bump VERSION before merging."
+        paths = _extract_paths(text)
+        assert "VERSION" in paths
+
+    def test_extracts_bare_readme_and_changelog(self):
+        text = "See README.md and CHANGELOG.md for context."
+        paths = _extract_paths(text)
+        assert "README.md" in paths
+        assert "CHANGELOG.md" in paths
+
+    def test_does_not_match_versions_word(self):
+        # Trailing word char must block a partial VERSION match.
+        text = "We support multiple VERSIONS of the schema."
+        paths = _extract_paths(text)
+        assert "VERSION" not in paths
+
+    def test_does_not_match_readme_in_longer_extension(self):
+        # README.md must not match when the extension is .markdown.
+        text = "Old format: README.markdown was the source of truth."
+        paths = _extract_paths(text)
+        assert "README.md" not in paths
+
+    def test_does_not_match_changelog_underscore(self):
+        text = "Legacy file CHANGELOG_OLD.md is archived."
+        paths = _extract_paths(text)
+        assert "CHANGELOG.md" not in paths
+
+    def test_bare_filename_with_trailing_punctuation(self):
+        # "edited CLAUDE.md." (sentence-ending period) should still resolve.
+        text = "I just edited CLAUDE.md."
+        paths = _extract_paths(text)
+        assert "CLAUDE.md" in paths
+
+    def test_bare_filename_does_not_match_in_url(self):
+        # extract_paths already rejects '://' tokens; bare names inside a
+        # URL path component must not slip through.
+        text = "See https://example.com/CLAUDE.md for the rendered copy."
+        paths = _extract_paths(text)
+        assert not any("://" in p for p in paths)
+
+    def test_failing_test_scenario_from_issue_661(self):
+        # Direct mirror of the issue body's failing scenario: a task whose
+        # description references both an extractable path (tests/...) and
+        # bare top-level filenames must extract all three.
+        text = (
+            "Update CLAUDE.md and AGENTS.md per the wording fixed by "
+            "tests/unit/test_typed_criteria_build.py."
+        )
+        paths = _extract_paths(text)
+        assert "CLAUDE.md" in paths
+        assert "AGENTS.md" in paths
+        assert "tests/unit/test_typed_criteria_build.py" in paths
+
     def test_deduplication_in_find_existing_files(self, tmp_path):
         """Same path mentioned twice should appear once in candidates."""
         # Create the file so it passes the existence check

@@ -121,15 +121,38 @@ def find_task_commits(
 # "do these [TASK-<id>] commits actually touch files this task is about?"
 # check without reimplementing it. See issue #627.
 
+# Common bare top-level deliverable files. These are matched by name when they
+# appear unprefixed in free-form text — without this whitelist, _PATH_RE's
+# directory-prefix requirement would silently drop them and downstream callers
+# (task-summary's file-overlap heuristic, check-deliverables, task-unstart)
+# would then mis-attribute commits whose only changed paths are these files.
+# See issue #661.
+_BARE_TOPLEVEL_WHITELIST = frozenset({
+    "CLAUDE.md",
+    "AGENTS.md",
+    "VERSION",
+    "README.md",
+    "CHANGELOG.md",
+})
+
+_BARE_TOPLEVEL_ALTERNATION = "|".join(re.escape(n) for n in _BARE_TOPLEVEL_WHITELIST)
+
 # Regex to extract candidate file paths from unstructured text.
-# Matches tokens that start with a path-like prefix and contain at least one dot
-# (suggesting a filename with an extension).
+# First alternative: tokens that start with a path-like prefix and contain at
+# least one dot (suggesting a filename with an extension).
+# Second alternative: bare top-level whitelisted filenames, with a negative
+# lookahead on a trailing word char so VERSIONS / README.markdown don't match
+# the VERSION / README.md prefixes.
 _PATH_RE = re.compile(
     r'(?:^|[\s\'"`(,])('
+    r'(?:'
     r'(?:\./|\.\./|\.claude/|\.claude\\|bin/|skills[-_]?internal/|skills/|tests?/|docs?/|src/'
     r'|(?!\w+://)\w[\w._-]*/'  # any directory prefix that is not a URL protocol
     r')'
     r'[\w./_-]+'
+    r'|'
+    r'(?:' + _BARE_TOPLEVEL_ALTERNATION + r')(?!\w)'
+    r')'
     r')',
     re.MULTILINE,
 )
@@ -142,8 +165,12 @@ def extract_paths(text: str) -> list:
     paths = []
     for m in _PATH_RE.finditer(text):
         p = m.group(1).strip().rstrip('.,;:\'"`)')
-        # Require an extension so we don't chase bare directory names
-        if p and '.' in os.path.basename(p) and '://' not in p:
+        if not p or '://' in p:
+            continue
+        # Whitelisted bare top-level files bypass the extension check
+        # (e.g. VERSION has no extension); everything else must have a dot
+        # in the basename so we don't chase bare directory names.
+        if p in _BARE_TOPLEVEL_WHITELIST or '.' in os.path.basename(p):
             paths.append(p)
     return paths
 
