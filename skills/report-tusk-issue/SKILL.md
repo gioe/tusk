@@ -105,26 +105,30 @@ The submission has three tiers — each kicks in only if the previous tier fails
 The primary path. `tusk report-issue` calls `gh issue create --repo gioe/tusk --label instance-feedback` internally and exits with the issue URL on stdout:
 
 ```bash
-APPENDED_OBSERVED="$OBSERVED
+if [[ -n "$EXPECTED" ]]; then
+  APPENDED_EXPECTED="$EXPECTED
 
 ---
 
 $FOOTER"
+else
+  APPENDED_EXPECTED="$FOOTER"
+fi
 if [[ -n "$TASK_ID" ]]; then
-  APPENDED_OBSERVED="$APPENDED_OBSERVED
+  APPENDED_EXPECTED="$APPENDED_EXPECTED
 - Originating tusk task: TASK-$TASK_ID — $TASK_SUMMARY"
 fi
 
 ISSUE_URL=$(tusk report-issue \
   --title "$TITLE" \
   --context "$CONTEXT" \
-  --observed "$APPENDED_OBSERVED" \
+  --observed "$OBSERVED" \
   --steps "$STEPS" \
-  --expected "$EXPECTED" 2>/tmp/tusk-report-issue.err)
+  --expected "$APPENDED_EXPECTED" 2>/tmp/tusk-report-issue.err)
 RC=$?
 ```
 
-The footer is appended to the `--observed` field rather than passed as a separate argument because `tusk report-issue` doesn't accept a `--footer` flag — wedging it onto the bottom of the largest user-supplied field is the cleanest way to keep the rendered body in the right shape.
+The footer is appended to the `--expected` field rather than passed as a separate argument because `tusk report-issue` doesn't accept a `--footer` flag, and the body template renders `## Expected behavior` last — appending here puts the footer at the bottom of the rendered issue, matching the draft preview shown in Step 4. (Appending to `--observed` would wedge the footer between the Behavior and Steps sections — visually wrong.) When the user supplied no expected behavior, the footer stands alone under the heading instead of below a blank-line gap.
 
 If `RC == 0` and `$ISSUE_URL` looks like a GitHub URL (`https://github.com/.../issues/<N>`), proceed to Step 6.
 
