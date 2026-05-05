@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [852] - 2026-05-04
+
+- [TASK-317] Refactor /address-issue Step 4.1 spec classification into tusk address-issue classify-spec helper
+
 ## [851] - 2026-05-04
 
 - [TASK-314] Add python3 -m module ModuleNotFoundError signature to address-issue Step 4.1 classification
