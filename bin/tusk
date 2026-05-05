@@ -38,6 +38,7 @@
 #   tusk sync-skills            Regenerate .claude/skills/ symlinks from skills/ + skills-internal/
 #   tusk reconcile-skills       Re-run applies_to_project_types filter and sync .claude/skills/
 #   tusk pricing-update [--dry-run]  Fetch and update pricing.json from Anthropic docs
+#   tusk dev-sync [--dry-run]   Refresh .claude/bin/ from source bin/ (source-repo only)
 #   tusk upgrade               Upgrade tusk from GitHub
 #
 # Configuration:
@@ -1061,7 +1062,7 @@ candidates = [
   'test-detect','test-precheck','add-lib','address-issue',
   'init-scan-codebase','init-scan-todos','init-fetch-bootstrap','init-write-config','init-write-manifest-files','init-wizard','init-scaffold',
   'loop','merge','abandon','bakeoff','progress','setup',
-  'token-audit','sync-skills','reconcile-skills','generate-manifest','uninstall-hooks','pricing-update','wsjf','shell',
+  'token-audit','sync-skills','reconcile-skills','generate-manifest','uninstall-hooks','pricing-update','dev-sync','wsjf','shell',
   'version','version-bump','report-issue','changelog-add','migrate','update-gitignore','regen-triggers','upgrade',
 ]
 matches = difflib.get_close_matches(sys.argv[1], candidates, n=1, cutoff=0.6)
@@ -1415,7 +1416,7 @@ is_readonly_subcmd() {
   case "${1:-}" in
     ""|path|config|validate|sql-quote|typed-criteria-build|version|version-bump|\
     git-default-branch|branch-parse|report-issue|\
-    sync-skills|reconcile-skills|generate-manifest|pricing-update|token-audit|\
+    sync-skills|reconcile-skills|generate-manifest|pricing-update|dev-sync|token-audit|\
     task-get|task-get-multi|task-list|task-select|task-summary|setup|\
     backlog-scan|blockers|check-deliverables|test-detect|test-precheck|review-check-perms|review-diff-range|review-final-summary|review-agent-cost|\
     init-fetch-bootstrap|init-scan-codebase|init-scan-todos)
@@ -1463,7 +1464,7 @@ preflight_schema_version() {
     # are exactly what this preflight needs to guard.
     ""|init|path|config|version|version-bump|upgrade|migrate|regen-triggers|\
       sql-quote|typed-criteria-build|git-default-branch|branch-parse|report-issue|update-gitignore|\
-      sync-skills|reconcile-skills|generate-manifest|pricing-update|token-audit)
+      sync-skills|reconcile-skills|generate-manifest|pricing-update|dev-sync|token-audit)
       return 0 ;;
   esac
   local user_version supported_max
@@ -1573,6 +1574,7 @@ case "${1:-}" in
   generate-manifest) shift; exec python3 "$SCRIPT_DIR/tusk-generate-manifest.py" "$@" ;;
   uninstall-hooks) shift; exec python3 "$SCRIPT_DIR/tusk-uninstall-hooks.py" "$REPO_ROOT" "$@" ;;
   pricing-update) shift; exec python3 "$SCRIPT_DIR/tusk-pricing-update.py" "$@" ;;
+  dev-sync) shift; exec python3 "$SCRIPT_DIR/tusk-dev-sync.py" "$REPO_ROOT" "$@" ;;
   wsjf) shift; exec python3 "$SCRIPT_DIR/tusk-wsjf.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   shell)  shift; cmd_shell "$@" ;;
   version) shift; cmd_version "$@" ;;
