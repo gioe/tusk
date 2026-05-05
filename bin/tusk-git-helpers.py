@@ -126,13 +126,36 @@ def find_task_commits(
 # directory-prefix requirement would silently drop them and downstream callers
 # (task-summary's file-overlap heuristic, check-deliverables, task-unstart)
 # would then mis-attribute commits whose only changed paths are these files.
-# See issue #661.
+# See issues #661 (tusk-internal: CLAUDE.md/AGENTS.md/VERSION/README.md/CHANGELOG.md)
+# and #662 (non-tusk projects: Python/Docker/build/metadata files).
 _BARE_TOPLEVEL_WHITELIST = frozenset({
+    # tusk-internal deliverables
     "CLAUDE.md",
     "AGENTS.md",
     "VERSION",
     "README.md",
     "CHANGELOG.md",
+    # Python project deliverables
+    "pyproject.toml",
+    "setup.py",
+    "setup.cfg",
+    "requirements.txt",
+    "tox.ini",
+    "MANIFEST.in",
+    # Docker / container deliverables
+    "Dockerfile",
+    "docker-compose.yml",
+    ".dockerignore",
+    # Build tooling
+    "Makefile",
+    "Justfile",
+    "Rakefile",
+    # Repo metadata
+    "LICENSE",
+    "NOTICE",
+    ".gitignore",
+    ".gitattributes",
+    ".editorconfig",
 })
 
 _BARE_TOPLEVEL_ALTERNATION = "|".join(re.escape(n) for n in _BARE_TOPLEVEL_WHITELIST)

@@ -204,6 +204,78 @@ class TestExtractPaths:
         assert "AGENTS.md" in paths
         assert "tests/unit/test_typed_criteria_build.py" in paths
 
+    # ── Bare top-level deliverables for non-tusk projects (issue #662) ─
+    # Same root cause as #661 (the directory-prefix requirement of
+    # _PATH_RE) — these are the common Python/Docker/build/metadata
+    # deliverables that show up at the repo root in non-tusk projects.
+
+    def test_extracts_bare_python_deliverables(self):
+        text = "Bumped pyproject.toml and edited setup.py alongside requirements.txt."
+        paths = _extract_paths(text)
+        assert "pyproject.toml" in paths
+        assert "setup.py" in paths
+        assert "requirements.txt" in paths
+
+    def test_extracts_bare_python_secondary_deliverables(self):
+        text = "Tweaked setup.cfg, tox.ini, and MANIFEST.in for the new layout."
+        paths = _extract_paths(text)
+        assert "setup.cfg" in paths
+        assert "tox.ini" in paths
+        assert "MANIFEST.in" in paths
+
+    def test_extracts_bare_docker_deliverables(self):
+        text = "Updated Dockerfile and docker-compose.yml; added .dockerignore."
+        paths = _extract_paths(text)
+        assert "Dockerfile" in paths
+        assert "docker-compose.yml" in paths
+        assert ".dockerignore" in paths
+
+    def test_extracts_bare_build_tooling(self):
+        text = "Refactored Makefile alongside Justfile and Rakefile."
+        paths = _extract_paths(text)
+        assert "Makefile" in paths
+        assert "Justfile" in paths
+        assert "Rakefile" in paths
+
+    def test_extracts_bare_repo_metadata(self):
+        text = (
+            "Replaced LICENSE, refreshed NOTICE, and updated .gitignore, "
+            ".gitattributes, and .editorconfig."
+        )
+        paths = _extract_paths(text)
+        assert "LICENSE" in paths
+        assert "NOTICE" in paths
+        assert ".gitignore" in paths
+        assert ".gitattributes" in paths
+        assert ".editorconfig" in paths
+
+    def test_does_not_match_dockerfiles_word(self):
+        # Trailing word char must block partial Dockerfile / Makefile matches.
+        text = "We have multiple Dockerfiles and several Makefiles in this monorepo."
+        paths = _extract_paths(text)
+        assert "Dockerfile" not in paths
+        assert "Makefile" not in paths
+
+    def test_does_not_match_licensee_word(self):
+        # The (?!\w) lookahead must block partial matches when the
+        # whitelisted name is followed by a word char (LICENSEE,
+        # NOTICED, requirements.txt2, Justfile_old).
+        text = "The LICENSEE was NOTICED with requirements.txt2 and Justfile_old."
+        paths = _extract_paths(text)
+        assert "LICENSE" not in paths
+        assert "NOTICE" not in paths
+        assert "requirements.txt" not in paths
+        assert "Justfile" not in paths
+
+    def test_failing_test_scenario_from_issue_662(self):
+        # Direct mirror of the issue body's failing scenario: a task whose
+        # only deliverable is bare pyproject.toml at the repo root must be
+        # extracted, so task-summary's file-overlap heuristic can attribute
+        # the corresponding [TASK-N] commit. Pre-fix this returned [].
+        text = "Add pyproject.toml at the repo root."
+        paths = _extract_paths(text)
+        assert "pyproject.toml" in paths
+
     def test_deduplication_in_find_existing_files(self, tmp_path):
         """Same path mentioned twice should appear once in candidates."""
         # Create the file so it passes the existence check
