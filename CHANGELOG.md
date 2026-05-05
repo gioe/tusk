@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [854] - 2026-05-04
+
+- [TASK-321] Extend bare top-level deliverable whitelist with common Python/Docker/build/metadata files
+
 ## [853] - 2026-05-04
 
 - [TASK-320] Fix tusk task-summary scope filter to recognize bare top-level deliverable files
