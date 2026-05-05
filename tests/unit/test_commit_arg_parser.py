@@ -70,8 +70,10 @@ def _run_main_until_lint(tmp_path, args):
         return _make_completed(0)
 
     def fake_subprocess_run(cmd, **kw):
-        # For lint and test_command calls (not capture_output=True)
-        return MagicMock(returncode=0)
+        # For lint and test_command calls. Set explicit stdout/stderr strings
+        # so production code that surfaces lint.stdout (advisory summaries)
+        # doesn't choke on MagicMock objects.
+        return MagicMock(returncode=0, stdout="", stderr="")
 
     with patch.object(mod, "run", side_effect=fake_run), \
          patch("subprocess.run", side_effect=fake_subprocess_run), \

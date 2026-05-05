@@ -905,6 +905,14 @@ def _run_commit(argv: list[str], state: dict) -> int:
                     "(lint only) or --skip-verify (lint, tests, and pre-commit hooks)."
                 )
                 return 6
+        # Surface any lint output (e.g. the advisory-summary one-liner emitted
+        # by `tusk lint --quiet` when only advisory rules fire) on the clean
+        # path. The capture-then-replay shape is required by the auto-recovery
+        # block above, but we must not silently swallow advisory warnings the
+        # original streaming path would have shown the user.
+        if lint.stdout:
+            sys.stdout.write(lint.stdout)
+            sys.stdout.flush()
         if announce_status:
             print()
         sys.stdout.flush()

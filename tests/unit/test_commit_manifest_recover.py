@@ -340,3 +340,28 @@ class TestManifestAutoRecover:
         assert rc == 0
         assert len(lint_calls) == 1, "lint runs exactly once on the clean path"
         assert regen_calls == [], "generate-manifest must not run on the clean path"
+
+    def test_clean_lint_advisory_summary_preserved(self, tmp_path, capsys):
+        """Lint passes (exit 0) with advisory summary on stdout → the summary
+        is surfaced to the user. The capture-then-replay shape introduced for
+        auto-recovery must not silently swallow advisory warnings."""
+        mod = _load_module()
+        argv = _argv(tmp_path)
+        advisory_summary = "=== Summary: no blocking violations (3 advisory) ===\n"
+
+        def fake_run(args, **kwargs):
+            if args[1:3] == ["lint", "--quiet"]:
+                return _make_completed(0, stdout=advisory_summary)
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(0, stdout="[branch bbb222] msg")
+            if args[:2] == ["git", "rev-parse"]:
+                return _make_completed(0, stdout="bbb222\n")
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(tmp_path)):
+            rc = mod.main(argv)
+
+        assert rc == 0
+        captured = capsys.readouterr()
+        assert "no blocking violations (3 advisory)" in captured.out
