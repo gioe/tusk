@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [849] - 2026-05-04
+
+- [TASK-315] Fix tusk retro-themes to aggregate by content-derived key instead of category letter
+
 ## [848] - 2026-05-04
 
 - [TASK-313] Fix: tusk merge calls git stash list unconditionally on clean working trees
