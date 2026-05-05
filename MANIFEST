@@ -122,6 +122,7 @@
   ".claude/skills/tusk-update/SMOKE-TEST.md",
   ".claude/skills/tusk/SKILL.md",
   ".claude/skills/tusk/SUBCOMMANDS.md",
+  ".claude/hooks/_smoketest-task338.sh",
   ".claude/hooks/auto-lint.sh",
   ".claude/hooks/block-raw-sqlite.sh",
   ".claude/hooks/block-sql-neq.sh",
