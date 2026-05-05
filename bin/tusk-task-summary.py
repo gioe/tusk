@@ -265,6 +265,63 @@ def fetch_duration(conn: sqlite3.Connection, task_id: int, identity: dict) -> di
     }
 
 
+def _filter_blocks_by_overlap(
+    commit_files: dict,
+    commit_parents: dict,
+    task_paths: set,
+) -> dict:
+    """Group commits into connected components by parent chain, then keep
+    blocks whose aggregate file set overlaps ``task_paths``.
+
+    Two grep-matched commits join the same block if one is a parent of the
+    other (i.e. they're contiguous in git history with no non-matched commit
+    between them). A block survives the filter when *any* of its commits
+    touches a path named in the task's scope signal — which means a VERSION
+    bump or new-file commit rides along on the back of the in-block commit
+    that actually names a referenced path. Genuine prefix collisions land in
+    their own block (no parent-child link to the legitimate work) and drop
+    out when their files don't overlap the scope signal.
+    """
+    matched = set(commit_files.keys())
+    if not matched:
+        return commit_files
+
+    parent: dict[str, str] = {sha: sha for sha in matched}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    for sha, parents in commit_parents.items():
+        if sha not in matched:
+            continue
+        for p in parents:
+            if p in matched:
+                union(sha, p)
+
+    blocks: dict[str, list[str]] = {}
+    for sha in matched:
+        blocks.setdefault(find(sha), []).append(sha)
+
+    kept: set[str] = set()
+    for block_shas in blocks.values():
+        block_files: set[str] = set()
+        for sha in block_shas:
+            for _, _, path in commit_files[sha]:
+                block_files.add(path)
+        if block_files & task_paths:
+            kept.update(block_shas)
+
+    return {sha: rows for sha, rows in commit_files.items() if sha in kept}
+
+
 def fetch_diff(
     task_id: int,
     repo_root: str,
@@ -284,19 +341,39 @@ def fetch_diff(
 
     When ``conn`` is provided and the task has a positive scope signal
     (referenced paths in summary/description/criteria/specs), the
-    prefix-collision file-overlap heuristic from tusk-git-helpers
-    (issue #656) drops any commit whose file diff doesn't intersect those
-    paths before aggregating — so a stray ``[TASK-<id>]`` commit (recycled
-    task ID, fat-fingered message authored after this task started) doesn't
-    inflate the diff stats surfaced in the end-of-run summary. Skipped when
-    ``conn`` is None or no scope signal exists.
+    prefix-collision file-overlap heuristic (issue #656) drops candidate
+    commits whose file diff doesn't intersect those paths — so a stray
+    ``[TASK-<id>]`` commit (recycled task ID, fat-fingered message authored
+    after this task started) doesn't inflate the diff stats surfaced in the
+    end-of-run summary.
+
+    The filter is applied **block-level**, not per-commit (issue #663): all
+    grep-matched commits are grouped into connected components by their
+    parent chain, then a block survives if *any* commit in the block touches
+    a referenced path. This preserves legitimate sibling commits whose
+    individual diffs don't name task paths — VERSION bumps, CHANGELOG edits,
+    new test fixtures, and net-new files that by definition can't be
+    pre-named in the task description. Genuine prefix collisions (commits
+    landed in a different session, on a different branch, or simply not
+    contiguous with the legitimate work) form their own block; if none of
+    that block's files touch the scope signal, the whole block drops out.
+
+    The other callers of ``task_referenced_paths`` (``tusk check-deliverables``
+    and ``tusk task-unstart``) intentionally retain per-commit semantics
+    because their question is "is *this specific commit* a prefix collision
+    we should ignore?", not "is this commit part of the cluster of work for
+    this task?". Skipped here when ``conn`` is None or no scope signal exists.
     """
     zero = {"commits": 0, "files_changed": 0, "lines_added": 0, "lines_removed": 0}
     cmd = [
         "git", "log", "--all",
         task_grep_arg(task_id),
         "--numstat",
-        "--format=__COMMIT__ %H",
+        # Trailing %x00 + newline: we need parents on the header line but
+        # numstat rows that follow start at column 0. A NUL terminator lets
+        # us split header from numstat without ambiguity even if a parent
+        # SHA happened to look like a numstat field.
+        "--format=__COMMIT__ %H %P",
     ]
     if since:
         cmd.append(f"--since={since} UTC")
@@ -313,16 +390,22 @@ def fetch_diff(
     if result.returncode != 0:
         return zero
 
-    # Bucket numstat rows by commit so we can apply the file-overlap filter
-    # commit-by-commit before aggregating into the final stats.
+    # Bucket numstat rows by commit; track parents so we can group commits
+    # into topological blocks before applying the file-overlap filter.
     commit_files: dict[str, list[tuple[str, str, str]]] = {}
+    commit_parents: dict[str, list[str]] = {}
     current: str | None = None
     for line in result.stdout.splitlines():
         if not line.strip():
             continue
         if line.startswith("__COMMIT__ "):
-            current = line.split(" ", 1)[1].strip()
+            tokens = line.split(" ", 1)[1].strip().split()
+            if not tokens:
+                current = None
+                continue
+            current = tokens[0]
             commit_files.setdefault(current, [])
+            commit_parents[current] = tokens[1:]
             continue
         if current is None:
             continue
@@ -333,17 +416,17 @@ def fetch_diff(
         a, r, path = parts[0], parts[1], parts[2]
         commit_files[current].append((a, r, path))
 
-    # Apply prefix-collision file-overlap heuristic (issue #656) when the
-    # task has a positive scope signal — drop commit buckets whose paths
-    # don't intersect this task's referenced paths.
+    # Apply prefix-collision file-overlap heuristic (issue #656) at the
+    # block level (issue #663). A "block" is a connected component on the
+    # parent graph restricted to grep-matched commits — i.e. a contiguous
+    # run of [TASK-N] commits in git history. The block survives if any of
+    # its commits touch a referenced path.
     if conn is not None and commit_files:
         task_paths = set(task_referenced_paths(task_id, conn))
         if task_paths:
-            commit_files = {
-                sha: rows
-                for sha, rows in commit_files.items()
-                if {row[2] for row in rows} & task_paths
-            }
+            commit_files = _filter_blocks_by_overlap(
+                commit_files, commit_parents, task_paths
+            )
 
     files: set[str] = set()
     added = 0

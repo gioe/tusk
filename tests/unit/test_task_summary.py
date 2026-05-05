@@ -473,10 +473,18 @@ class TestDiff:
 
 class TestDiffPrefixCollisionHeuristic:
     """TASK-309 / issue #656: when a connection is provided and the task
-    has a positive scope signal, drop commits whose file diff doesn't
-    overlap with this task's referenced paths so the end-of-run summary
-    isn't inflated by a stray [TASK-N] match (recycled task ID, fat-fingered
-    commit message authored after the task started)."""
+    has a positive scope signal, drop commit blocks whose aggregate file
+    diff doesn't overlap with this task's referenced paths so the end-of-run
+    summary isn't inflated by a stray [TASK-N] match (recycled task ID,
+    fat-fingered commit message authored after the task started).
+
+    Issue #663 / TASK-324: the filter is applied **block-level** — commits
+    contiguous in git history (parent-child via grep-matched commits) form
+    one block; if any commit in the block touches a referenced path, the
+    whole block is kept. This preserves legitimate sibling commits (VERSION
+    bumps, CHANGELOG, new test files, brand-new feature files) whose paths
+    aren't pre-named in the task text.
+    """
 
     def _init_repo(self, repo_root):
         subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo_root, check=True)
@@ -499,40 +507,79 @@ class TestDiffPrefixCollisionHeuristic:
             ["git", "commit", "-q", "-m", message], cwd=repo_root, check=True
         )
 
-    def test_drops_stray_commit_when_conn_and_scope_signal_present(self, tmp_path):
+    def test_keeps_contiguous_block_with_one_overlap(self, tmp_path):
+        """Issue #663: A contiguous block of [TASK-N] commits where only
+        ONE commit touches a path named in task scope. Block-level filter
+        keeps the whole block; per-commit filter (old) would drop the
+        siblings. Models TASK-323's reproduction: VERSION/CHANGELOG/test
+        commits ride along on the back of the CLAUDE.md commit."""
         repo = str(tmp_path / "repo")
         os.makedirs(repo)
         self._init_repo(repo)
-        # Real task work touches bin/tusk-foo.py
-        self._commit(repo, "bin/tusk-foo.py", "x\n", "[TASK-7] real")
-        # Stray [TASK-7] commit on an unrelated file
-        self._commit(repo, "noise.txt", "x\n", "[TASK-7] stray")
+        # Four contiguous [TASK-7] commits, only one names bin/tusk-foo.py
+        self._commit(repo, "bin/tusk-foo.py", "x\n", "[TASK-7] feature impl")
+        self._commit(repo, "VERSION", "1\n", "[TASK-7] bump VERSION")
+        self._commit(repo, "CHANGELOG.md", "x\n", "[TASK-7] CHANGELOG entry")
+        self._commit(repo, "tests/test_foo.py", "x\n", "[TASK-7] regression test")
 
         db_path, conn = _make_db(tmp_path)
-        # Task description references bin/tusk-foo.py — positive scope signal
         conn.execute(
             "INSERT INTO tasks (id, summary, status) VALUES (?, ?, ?)",
-            (7, "Wire foo", "Done"),
-        )
-        # Reach into description column via UPDATE since _make_db's bare insert
-        # path goes through _insert_task which doesn't take description. The
-        # local insert above mirrors the same minimal-column approach.
-        conn.execute(
-            "UPDATE tasks SET summary = ? WHERE id = ?",
-            ("Wire bin/tusk-foo.py for foo handling", 7),
+            (7, "Wire bin/tusk-foo.py for foo handling", "Done"),
         )
         conn.commit()
 
-        # Without conn → both commits leak in (regression baseline)
+        filtered = mod.fetch_diff(7, repo, conn=conn)
+        # All four commits in the contiguous block are kept.
+        assert filtered["commits"] == 4
+        assert filtered["files_changed"] == 4
+        assert filtered["lines_added"] == 4
+
+    def test_drops_isolated_prefix_collision_block(self, tmp_path):
+        """Genuine prefix collision: a [TASK-N] commit on a separate branch
+        (no parent-child link to the legitimate work) whose files don't
+        overlap task scope. Models TASK-323's 8f2d59f case: a recycled
+        task ID's stale commit lingers in history. The block-level filter
+        drops it because its standalone block has no scope-signal overlap."""
+        repo = str(tmp_path / "repo")
+        os.makedirs(repo)
+        self._init_repo(repo)
+
+        # Seed main with a non-task commit so the branch ref exists before we fork.
+        self._commit(repo, "README.md", "seed\n", "initial")
+
+        # Stray prefix-collision commit on its own orphan branch (no parent
+        # link to the legitimate work on main, so it lands in its own block).
+        subprocess.run(
+            ["git", "checkout", "-q", "--orphan", "stale-prefix"],
+            cwd=repo, check=True,
+        )
+        subprocess.run(["git", "rm", "-q", "-rf", "."], cwd=repo, check=True)
+        self._commit(repo, "noise.txt", "x\n", "[TASK-7] recycled-id collision")
+        subprocess.run(["git", "checkout", "-q", "main"], cwd=repo, check=True)
+
+        # Legitimate work on main — separate block from the stale-prefix branch
+        self._commit(repo, "bin/tusk-foo.py", "x\n", "[TASK-7] real")
+
+        db_path, conn = _make_db(tmp_path)
+        conn.execute(
+            "INSERT INTO tasks (id, summary, status) VALUES (?, ?, ?)",
+            (7, "Wire bin/tusk-foo.py for foo handling", "Done"),
+        )
+        conn.commit()
+
+        # Without conn → both blocks leak in
         unfiltered = mod.fetch_diff(7, repo)
         assert unfiltered["commits"] == 2
-        assert unfiltered["files_changed"] == 2
 
-        # With conn → stray commit dropped, only real work counted
+        # With conn → isolated stray block drops; legitimate block kept
         filtered = mod.fetch_diff(7, repo, conn=conn)
         assert filtered["commits"] == 1
         assert filtered["files_changed"] == 1
         assert filtered["lines_added"] == 1
+        # Confirm the surviving file is the real one, not the noise file
+        # (block grouping kept the right block).
+        assert filtered["lines_removed"] == 0
 
     def test_kept_when_no_scope_signal(self, tmp_path):
         """Task with no referenced paths in summary/description/criteria →
