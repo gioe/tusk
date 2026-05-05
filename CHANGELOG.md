@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [859] - 2026-05-05
+
+- [TASK-326] Add --dry-run flag to tusk report-issue for safe body inspection
+
 ## [858] - 2026-05-05
 
 - [TASK-325] Ship /report-tusk-issue skill that wraps tusk report-issue for mid-session bug filing
