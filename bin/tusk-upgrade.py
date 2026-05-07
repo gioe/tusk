@@ -100,7 +100,7 @@ def detect_install_role(script_dir: str) -> str:
     return "source"
 
 
-def translate_manifest_for_mode(files, mode: str) -> list:
+def translate_manifest_for_mode(files, mode: str, *, install_role: str = "consumer") -> list:
     """Rewrite tarball MANIFEST entries (mode-shaped) for the local install mode.
 
     The tarball MANIFEST may contain both .claude/* (claude-only) and .codex/* (codex-only)
@@ -108,12 +108,16 @@ def translate_manifest_for_mode(files, mode: str) -> list:
     - Claude mode: keep .claude/* and pass-through; drop .codex/* (no Claude equivalents).
     - Codex mode: rewrite .claude/bin/ → tusk/bin/, drop .claude/skills/ and .claude/hooks/
       (no Codex equivalents), keep .codex/* unchanged.
-    - Dual mode: keep all Claude and Codex surfaces, and mirror bin entries
-      into tusk/bin/ so both installed binaries are manifest-managed.
+    - Dual consumer mode: keep all Claude and Codex surfaces, and mirror bin
+      entries into tusk/bin/ so both installed binaries are manifest-managed.
+    - Dual source mode: keep the tarball-shaped Claude and Codex surfaces
+      without tusk/bin mirrors so the source repo MANIFEST stays canonical.
     """
     if mode == "claude":
         return [f for f in files if not f.startswith(".codex/")]
     if mode == "dual":
+        if install_role == "source":
+            return list(files)
         out = list(files)
         for f in files:
             if f.startswith(".claude/bin/"):
@@ -813,6 +817,7 @@ def _run_dry_run_report(src: str, repo_root: str, script_dir: str,
     Performs no writes; caller is expected to return immediately.
     """
     install_mode = detect_install_mode(script_dir)
+    install_role = detect_install_role(script_dir)
     new_manifest = os.path.join(src, "MANIFEST")
     raw_files: list = []
     if os.path.isfile(new_manifest):
@@ -825,7 +830,7 @@ def _run_dry_run_report(src: str, repo_root: str, script_dir: str,
         sf = _import_skill_filter(src)
         project_type = sf.get_project_type(repo_root)
         files = sf.filter_manifest(raw_files, os.path.join(src, "skills"), project_type)
-        files = translate_manifest_for_mode(files, install_mode)
+        files = translate_manifest_for_mode(files, install_mode, install_role=install_role)
 
     new_entries: list = []      # (rel, src_size)
     overwrite_entries: list = []  # (rel, src_size, target_size, delta)
@@ -948,6 +953,7 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
     Returns a summary dict consumed by main() to render the final report.
     """
     install_mode = detect_install_mode(script_dir)
+    install_role = detect_install_role(script_dir)
     if install_mode != "claude":
         _vprint(f"  Install mode: {install_mode}")
     manifest_rel = INSTALL_MODES[install_mode]["manifest_rel"]
@@ -965,14 +971,18 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
         with open(new_manifest, encoding="utf-8") as _f:
             _raw_files = json.load(_f)
         if install_mode == "codex":
-            translated_files = translate_manifest_for_mode(_raw_files, install_mode)
+            translated_files = translate_manifest_for_mode(
+                _raw_files, install_mode, install_role=install_role
+            )
         else:
             sf = _import_skill_filter(src)
             project_type = sf.get_project_type(repo_root)
             translated_files = sf.filter_manifest(
                 _raw_files, os.path.join(src, "skills"), project_type
             )
-            translated_files = translate_manifest_for_mode(translated_files, install_mode)
+            translated_files = translate_manifest_for_mode(
+                translated_files, install_mode, install_role=install_role
+            )
         if translated_files != _raw_files:
             translated_new_manifest = os.path.join(tmpdir, "MANIFEST.translated")
             with open(translated_new_manifest, "w", encoding="utf-8") as _f:
@@ -990,9 +1000,8 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
     pruned_count = prune_dist_excluded(src, repo_root, install_mode)
 
     copy_bin_files(src, script_dir)
-    install_role = detect_install_role(script_dir)
     dual_peer_bin = None
-    if install_mode == "dual":
+    if install_mode == "dual" and install_role == "consumer":
         dual_peer_bin = copy_dual_bin_peer(src, repo_root, script_dir, install_role)
     # Skills, hooks, setup-path, settings.json merge, and review-commits
     # permissions are Claude concepts; prompts are Codex concepts. Dual-agent
@@ -1034,7 +1043,7 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
         os.makedirs(os.path.dirname(old_manifest), exist_ok=True)
         shutil.copy2(translated_new_manifest, old_manifest)
         _vprint(f"  Updated {manifest_rel}")
-        if install_mode == "dual":
+        if install_mode == "dual" and install_role == "consumer":
             codex_manifest = os.path.join(repo_root, "tusk", "tusk-manifest.json")
             os.makedirs(os.path.dirname(codex_manifest), exist_ok=True)
             shutil.copy2(translated_new_manifest, codex_manifest)

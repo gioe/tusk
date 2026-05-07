@@ -173,3 +173,14 @@ class TestTranslateManifestForMode:
             ".codex/prompts/tusk-init.md",
             "tusk/bin/tusk",
         ]
+
+    def test_dual_source_mode_keeps_source_manifest_shape(self, upgrade_mod):
+        files = [
+            ".claude/bin/tusk",
+            ".claude/skills/tusk/SKILL.md",
+            ".claude/hooks/setup-path.sh",
+            ".codex/prompts/tusk-init.md",
+        ]
+        assert upgrade_mod.translate_manifest_for_mode(
+            files, "dual", install_role="source"
+        ) == files

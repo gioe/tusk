@@ -207,7 +207,8 @@ if [[ "$INSTALL_MODE" == "claude" || "$INSTALL_MODE" == "dual" ]]; then
 
   # Override setup-path.sh for target projects — source version adds bin/ to PATH,
   # but installed projects need .claude/bin/ on PATH instead.
-  cat > "$REPO_ROOT/.claude/hooks/setup-path.sh" << 'HOOKEOF'
+  if [[ "$INSTALL_ROLE" == "consumer" ]]; then
+    cat > "$REPO_ROOT/.claude/hooks/setup-path.sh" << 'HOOKEOF'
 #!/bin/bash
 # Added by tusk install — puts .claude/bin on PATH for Claude Code sessions
 if [ -n "$CLAUDE_ENV_FILE" ]; then
@@ -216,7 +217,8 @@ if [ -n "$CLAUDE_ENV_FILE" ]; then
 fi
 exit 0
 HOOKEOF
-  chmod +x "$REPO_ROOT/.claude/hooks/setup-path.sh"
+    chmod +x "$REPO_ROOT/.claude/hooks/setup-path.sh"
+  fi
 
   # ── 4b. Merge hooks and permissions.allow into .claude/settings.json ─
   python3 -c "
@@ -420,7 +422,7 @@ else
   echo "  Warning: $REPO_ROOT/.git/hooks/ not found — skipping git-event dispatcher install"
 fi
 
-if [[ "$INSTALL_MODE" == "dual" ]]; then
+if [[ "$INSTALL_MODE" == "dual" && "$INSTALL_ROLE" == "consumer" ]]; then
   mkdir -p "$REPO_ROOT/tusk/bin"
   cp -R "$REPO_ROOT/.claude/bin/." "$REPO_ROOT/tusk/bin/"
   echo "${INSTALL_MODE}-${INSTALL_ROLE}" > "$REPO_ROOT/tusk/bin/install-mode"
@@ -434,12 +436,13 @@ import json, os, glob
 script_dir = '$SCRIPT_DIR'
 repo_root = '$REPO_ROOT'
 install_mode = '$INSTALL_MODE'
+install_role = '$INSTALL_ROLE'
 install_dir = '$INSTALL_DIR'
 manifest_path_rel = '$MANIFEST_PATH'
 
 files = []
 install_dirs = [install_dir]
-if install_mode == 'dual':
+if install_mode == 'dual' and install_role == 'consumer':
     install_dirs = ['.claude/bin', 'tusk/bin']
 
 # Canonical source: bin/dist-excluded.txt (also read by TUSK_SKIP_SCRIPTS above and tusk-lint.py).
@@ -477,7 +480,7 @@ if install_mode in ('claude', 'dual'):
     _project_type = _sf.get_project_type(repo_root)
     for skill_dir in sorted(glob.glob(os.path.join(script_dir, 'skills', '*/'))):
         skill_name = os.path.basename(skill_dir.rstrip('/'))
-        if not _sf.should_install_skill(skill_dir, _project_type):
+        if install_role != 'source' and not _sf.should_install_skill(skill_dir, _project_type):
             continue
         for fname in sorted(os.listdir(skill_dir)):
             full = os.path.join(skill_dir, fname)
@@ -508,7 +511,7 @@ if os.path.isdir(git_hooks_src):
                 files.append(_install_dir + '/hooks/git/' + fname)
 
 manifest_paths = [manifest_path_rel]
-if install_mode == 'dual':
+if install_mode == 'dual' and install_role == 'consumer':
     manifest_paths = ['.claude/tusk-manifest.json', 'tusk/tusk-manifest.json']
 for _manifest_path_rel in manifest_paths:
     manifest_full = os.path.join(repo_root, _manifest_path_rel)
