@@ -72,7 +72,9 @@ def test_distribution_version_and_changelog_are_bumped_for_skill_delivery():
     version = _text(REPO_ROOT / "VERSION").strip()
     changelog = _text(REPO_ROOT / "CHANGELOG.md")
 
-    assert version == "876"
+    assert version == "877"
+    assert "## [877] - 2026-05-07" in changelog
+    assert "[TASK-346] Fix: tusk merge handles default branch checked out in another worktree" in changelog
     assert "## [876] - 2026-05-07" in changelog
     assert "[TASK-345] Fix review begin diff inference when only origin/default is usable in worktrees" in changelog
     assert "## [875] - 2026-05-07" in changelog

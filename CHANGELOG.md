@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [877] - 2026-05-07
+
+- [TASK-346] Fix: tusk merge handles default branch checked out in another worktree
+
 ## [876] - 2026-05-07
 
 - [TASK-345] Fix review begin diff inference when only origin/default is usable in worktrees
