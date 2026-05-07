@@ -87,7 +87,7 @@ if [[ -f "$SCRIPT_DIR/install-mode" ]]; then
 else
   INSTALL_MODE="claude"
 fi
-case "$INSTALL_MODE" in claude|codex) ;; *) INSTALL_MODE="claude" ;; esac
+case "$INSTALL_MODE" in claude|codex|dual) ;; *) INSTALL_MODE="claude" ;; esac
 
 find_repo_root() {
   local dir="$PWD"
@@ -343,12 +343,13 @@ update_gitignore() {
     "tusk/tasks.db-shm"
     "tusk/backups/"
   )
-  if [[ "$INSTALL_MODE" == "codex" ]]; then
+  if [[ "$INSTALL_MODE" == "codex" || "$INSTALL_MODE" == "dual" ]]; then
     tusk_ignores+=(
       "tusk/bin/"
       "tusk/tusk-manifest.json"
     )
-  else
+  fi
+  if [[ "$INSTALL_MODE" == "claude" || "$INSTALL_MODE" == "dual" ]]; then
     tusk_ignores+=(
       ".claude/bin/"
       ".claude/settings.json"
@@ -400,6 +401,24 @@ update_claude_md() {
   local claude_md="$PROJECT_ROOT/CLAUDE.md"
   local agents_md="$PROJECT_ROOT/AGENTS.md"
   local target="" label=""
+  append_guidance() {
+    local target_file="$1"
+    local target_label="$2"
+    if grep -qF "$sentinel" "$target_file" 2>/dev/null; then
+      echo "  $target_label already contains tusk task tool guidance."
+      return
+    fi
+    printf '\n%s\n## Tusk Task Lookup\n\n**Do NOT use your agent'\''s built-in `TaskList`, `TaskGet`, or `TaskUpdate` tools to look up or manage tasks.** Those tools manage background agent subprocesses, not tusk tasks.\n\nUse the tusk CLI instead:\n- `tusk task-list` — list tasks\n- `tusk task-get <id>` — get a task by ID (accepts `506` or `TASK-506`)\n- `tusk task-update <id>` — update a task\n' \
+      "$sentinel" >> "$target_file"
+    echo "  Updated $target_label with tusk task tool guidance."
+  }
+  if [[ "$INSTALL_MODE" == "dual" ]]; then
+    local wrote=0
+    if [[ -f "$claude_md" ]]; then append_guidance "$claude_md" "CLAUDE.md"; wrote=1; fi
+    if [[ -f "$agents_md" ]]; then append_guidance "$agents_md" "AGENTS.md"; wrote=1; fi
+    if [[ "$wrote" -eq 0 ]]; then append_guidance "$claude_md" "CLAUDE.md"; fi
+    return
+  fi
   if [[ "$INSTALL_MODE" == "codex" ]]; then
     if [[ -f "$agents_md" ]]; then target="$agents_md"; label="AGENTS.md"
     elif [[ -f "$claude_md" ]]; then target="$claude_md"; label="CLAUDE.md"
@@ -411,13 +430,7 @@ update_claude_md() {
     else target="$claude_md"; label="CLAUDE.md"
     fi
   fi
-  if grep -qF "$sentinel" "$target" 2>/dev/null; then
-    echo "  $label already contains tusk task tool guidance."
-    return
-  fi
-  printf '\n%s\n## Tusk Task Lookup\n\n**Do NOT use your agent'\''s built-in `TaskList`, `TaskGet`, or `TaskUpdate` tools to look up or manage tasks.** Those tools manage background agent subprocesses, not tusk tasks.\n\nUse the tusk CLI instead:\n- `tusk task-list` — list tasks\n- `tusk task-get <id>` — get a task by ID (accepts `506` or `TASK-506`)\n- `tusk task-update <id>` — update a task\n' \
-    "$sentinel" >> "$target"
-  echo "  Updated $label with tusk task tool guidance."
+  append_guidance "$target" "$label"
 }
 
 cmd_init() {

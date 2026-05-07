@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [874] - 2026-05-07
+
+- [TASK-343] Install both Claude and Codex assets for dual-agent projects
+
 ## [873] - 2026-05-05
 
 - [TASK-341] Warn at tusk branch when tusk-branch auto-stash residue count exceeds threshold

@@ -186,6 +186,57 @@ def test_codex_install_writes_prompts_to_manifest(codex_project):
 
 
 @pytest.fixture()
+def dual_agent_project(tmp_path):
+    """A tmp git repo that intentionally supports both Claude Code and Codex."""
+    _git_init(tmp_path)
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / "AGENTS.md").write_text("# Agent Instructions\n\nExisting content.\n")
+    return tmp_path
+
+
+def test_dual_agent_install_installs_claude_and_codex_assets(dual_agent_project):
+    """When both agent markers exist, install.sh installs both agent surfaces."""
+    _run_install(dual_agent_project)
+
+    assert (dual_agent_project / ".claude" / "bin" / "tusk").exists()
+    assert (dual_agent_project / ".claude" / "skills").is_dir()
+    assert (dual_agent_project / ".claude" / "hooks").is_dir()
+    assert (dual_agent_project / ".claude" / "settings.json").is_file()
+
+    assert (dual_agent_project / "tusk" / "bin" / "tusk").exists()
+    prompts_dir = dual_agent_project / ".codex" / "prompts"
+    assert prompts_dir.is_dir()
+    assert (prompts_dir / "tusk-init.md").is_file()
+    assert (prompts_dir / "create-task.md").is_file()
+
+    assert (dual_agent_project / ".claude" / "bin" / "install-mode").read_text().strip() == "dual-consumer"
+    assert (dual_agent_project / "tusk" / "bin" / "install-mode").read_text().strip() == "dual-consumer"
+
+
+def test_dual_agent_install_manifests_and_gitignore_include_both_surfaces(dual_agent_project):
+    """Dual-agent manifests and .gitignore must retain both install layouts."""
+    _run_install(dual_agent_project)
+
+    claude_manifest = json.loads(
+        (dual_agent_project / ".claude" / "tusk-manifest.json").read_text()
+    )
+    codex_manifest = json.loads(
+        (dual_agent_project / "tusk" / "tusk-manifest.json").read_text()
+    )
+    for entries in (claude_manifest, codex_manifest):
+        assert ".claude/bin/tusk" in entries
+        assert "tusk/bin/tusk" in entries
+        assert ".codex/prompts/tusk-init.md" in entries
+        assert any(e.startswith(".claude/skills/") for e in entries)
+
+    gitignore = (dual_agent_project / ".gitignore").read_text()
+    assert ".claude/bin/" in gitignore
+    assert ".claude/tusk-manifest.json" in gitignore
+    assert "tusk/bin/" in gitignore
+    assert "tusk/tusk-manifest.json" in gitignore
+
+
+@pytest.fixture()
 def claude_project(tmp_path):
     """A tmp git repo with .claude/ — a Claude-only layout."""
     _git_init(tmp_path)

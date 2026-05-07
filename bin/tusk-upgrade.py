@@ -47,6 +47,10 @@ INSTALL_MODES = {
         "bin_prefix": "tusk/bin/",
         "manifest_rel": "tusk/tusk-manifest.json",
     },
+    "dual": {
+        "bin_prefix": ".claude/bin/",
+        "manifest_rel": ".claude/tusk-manifest.json",
+    },
 }
 
 
@@ -104,9 +108,19 @@ def translate_manifest_for_mode(files, mode: str) -> list:
     - Claude mode: keep .claude/* and pass-through; drop .codex/* (no Claude equivalents).
     - Codex mode: rewrite .claude/bin/ → tusk/bin/, drop .claude/skills/ and .claude/hooks/
       (no Codex equivalents), keep .codex/* unchanged.
+    - Dual mode: keep all Claude and Codex surfaces, and mirror bin entries
+      into tusk/bin/ so both installed binaries are manifest-managed.
     """
     if mode == "claude":
         return [f for f in files if not f.startswith(".codex/")]
+    if mode == "dual":
+        out = list(files)
+        for f in files:
+            if f.startswith(".claude/bin/"):
+                codex_bin = "tusk/bin/" + f[len(".claude/bin/"):]
+                if codex_bin not in out:
+                    out.append(codex_bin)
+        return out
     bin_prefix = INSTALL_MODES[mode]["bin_prefix"]
     out = []
     for f in files:
@@ -306,6 +320,24 @@ def copy_bin_files(src: str, script_dir: str) -> None:
         os.path.join(script_dir, "pricing.json"),
     )
     _vprint("  Updated CLI and support files")
+
+
+def copy_dual_bin_peer(src: str, repo_root: str, script_dir: str, install_role: str) -> str | None:
+    """Refresh the other bin directory in a dual-agent install.
+
+    `script_dir` is whichever tusk binary invoked upgrade. Dual installs expose
+    both `.claude/bin` and `tusk/bin`, so keep the peer copy current too.
+    """
+    current = os.path.relpath(script_dir, repo_root)
+    peers = [".claude/bin", "tusk/bin"]
+    peer = next((p for p in peers if p != current), None)
+    if peer is None:
+        return None
+    peer_dir = os.path.join(repo_root, peer)
+    os.makedirs(peer_dir, exist_ok=True)
+    copy_bin_files(src, peer_dir)
+    Path(os.path.join(peer_dir, "install-mode")).write_text(f"dual-{install_role}\n")
+    return peer
 
 
 def _import_skill_filter(src: str):
@@ -787,12 +819,13 @@ def _run_dry_run_report(src: str, repo_root: str, script_dir: str,
         with open(new_manifest, encoding="utf-8") as f:
             raw_files = json.load(f)
 
-    if install_mode != "claude":
+    if install_mode == "codex":
         files = translate_manifest_for_mode(raw_files, install_mode)
     else:
         sf = _import_skill_filter(src)
         project_type = sf.get_project_type(repo_root)
         files = sf.filter_manifest(raw_files, os.path.join(src, "skills"), project_type)
+        files = translate_manifest_for_mode(files, install_mode)
 
     new_entries: list = []      # (rel, src_size)
     overwrite_entries: list = []  # (rel, src_size, target_size, delta)
@@ -931,7 +964,7 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
     if os.path.isfile(new_manifest):
         with open(new_manifest, encoding="utf-8") as _f:
             _raw_files = json.load(_f)
-        if install_mode != "claude":
+        if install_mode == "codex":
             translated_files = translate_manifest_for_mode(_raw_files, install_mode)
         else:
             sf = _import_skill_filter(src)
@@ -939,6 +972,7 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
             translated_files = sf.filter_manifest(
                 _raw_files, os.path.join(src, "skills"), project_type
             )
+            translated_files = translate_manifest_for_mode(translated_files, install_mode)
         if translated_files != _raw_files:
             translated_new_manifest = os.path.join(tmpdir, "MANIFEST.translated")
             with open(translated_new_manifest, "w", encoding="utf-8") as _f:
@@ -956,10 +990,14 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
     pruned_count = prune_dist_excluded(src, repo_root, install_mode)
 
     copy_bin_files(src, script_dir)
+    install_role = detect_install_role(script_dir)
+    dual_peer_bin = None
+    if install_mode == "dual":
+        dual_peer_bin = copy_dual_bin_peer(src, repo_root, script_dir, install_role)
     # Skills, hooks, setup-path, settings.json merge, and review-commits
-    # permissions are Claude-only concepts. Codex has no equivalents, so
-    # skip them to avoid writing into a non-existent .claude/ layout.
-    if install_mode == "claude":
+    # permissions are Claude concepts; prompts are Codex concepts. Dual-agent
+    # installs receive both surfaces.
+    if install_mode in ("claude", "dual"):
         skill_count = copy_skills(src, repo_root)
         hook_count = copy_hooks(src, repo_root)
         override_setup_path(repo_root)
@@ -967,13 +1005,15 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
         added_perms = ensure_review_commits_permissions(repo_root)
         for entry in added_perms:
             _vprint(f"  Added required permission: {entry}")
-        prompt_count = 0
     else:
         skill_count = 0
         hook_count = 0
         hook_summary = {"registered": 0, "dedup_removed": 0, "permissions_added": 0}
         added_perms = []
+    if install_mode in ("codex", "dual"):
         prompt_count = copy_prompts(src, repo_root)
+    else:
+        prompt_count = 0
     script_count = copy_scripts(src, repo_root)
     backfilled_keys = merge_config_defaults(src, repo_root, script_dir)
 
@@ -994,6 +1034,11 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
         os.makedirs(os.path.dirname(old_manifest), exist_ok=True)
         shutil.copy2(translated_new_manifest, old_manifest)
         _vprint(f"  Updated {manifest_rel}")
+        if install_mode == "dual":
+            codex_manifest = os.path.join(repo_root, "tusk", "tusk-manifest.json")
+            os.makedirs(os.path.dirname(codex_manifest), exist_ok=True)
+            shutil.copy2(translated_new_manifest, codex_manifest)
+            _vprint("  Updated tusk/tusk-manifest.json")
 
     newline_fixes = fix_trailing_newlines(script_dir, repo_root)
 
@@ -1003,6 +1048,7 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
     return {
         "install_mode": install_mode,
         "manifest_rel": manifest_rel,
+        "dual_peer_bin": dual_peer_bin,
         "orphan_count": orphan_count,
         "pruned_count": pruned_count,
         "skill_count": skill_count,

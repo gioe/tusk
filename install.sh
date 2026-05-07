@@ -9,8 +9,9 @@
 # Agent-mode detection (auto):
 #   - .claude/ directory present → Claude Code mode; install to .claude/bin/,
 #     copy skills/hooks, and merge .claude/settings.json.
-#   - AGENTS.md present (and no .claude/) → Codex mode; install to tusk/bin/,
-#     skip skills/hooks/settings.json (no Codex equivalents).
+#   - AGENTS.md present → Codex mode; install to tusk/bin/ and copy
+#     codex-prompts/*.md to .codex/prompts/.
+#   - Both markers present → dual mode; install both Claude and Codex surfaces.
 #   - Neither → error out with a helpful message.
 #
 # What it does:
@@ -37,12 +38,22 @@ else
 fi
 
 # ── Agent-mode detection ─────────────────────────────────────────────
-if [[ -d "$REPO_ROOT/.claude" ]]; then
+HAS_CLAUDE=0
+HAS_CODEX=0
+[[ -d "$REPO_ROOT/.claude" ]] && HAS_CLAUDE=1
+[[ -f "$REPO_ROOT/AGENTS.md" ]] && HAS_CODEX=1
+
+if [[ "$HAS_CLAUDE" -eq 1 && "$HAS_CODEX" -eq 1 ]]; then
+  INSTALL_MODE="dual"
+  AGENT_DIR=".claude"
+  INSTALL_DIR=".claude/bin"
+  MANIFEST_PATH=".claude/tusk-manifest.json"
+elif [[ "$HAS_CLAUDE" -eq 1 ]]; then
   INSTALL_MODE="claude"
   AGENT_DIR=".claude"
   INSTALL_DIR=".claude/bin"
   MANIFEST_PATH=".claude/tusk-manifest.json"
-elif [[ -f "$REPO_ROOT/AGENTS.md" ]]; then
+elif [[ "$HAS_CODEX" -eq 1 ]]; then
   INSTALL_MODE="codex"
   AGENT_DIR="tusk"
   INSTALL_DIR="tusk/bin"
@@ -140,7 +151,7 @@ echo "  Stamped $INSTALL_DIR/install-mode (${INSTALL_MODE}-${INSTALL_ROLE})"
 # the listed types. Universal skills (no field) always install. Gated skills
 # are deferred when project_type is unset — typical for fresh installs before
 # /tusk-init runs.
-if [[ "$INSTALL_MODE" == "claude" ]]; then
+if [[ "$INSTALL_MODE" == "claude" || "$INSTALL_MODE" == "dual" ]]; then
   PROJECT_TYPE="$(python3 -c "
 import json, os
 p = os.path.join('$REPO_ROOT', 'tusk', 'config.json')
@@ -163,6 +174,9 @@ if os.path.isfile(p):
   done
 else
   echo "  Skipping skills (Codex mode has no skills primitive)"
+fi
+
+if [[ "$INSTALL_MODE" == "codex" || "$INSTALL_MODE" == "dual" ]]; then
   if [[ -d "$SCRIPT_DIR/codex-prompts" ]]; then
     mkdir -p "$REPO_ROOT/.codex/prompts"
     for prompt_file in "$SCRIPT_DIR"/codex-prompts/*.md; do
@@ -175,13 +189,17 @@ else
 fi
 
 # ── 4. Copy hooks + merge settings (claude mode only) ────────────────
-if [[ "$INSTALL_MODE" == "claude" ]]; then
+if [[ "$INSTALL_MODE" == "claude" || "$INSTALL_MODE" == "dual" ]]; then
   mkdir -p "$REPO_ROOT/.claude/hooks"
 
   # Copy all hook scripts from the tusk source repo
   for hookfile in "$SCRIPT_DIR"/.claude/hooks/*; do
     [[ -f "$hookfile" ]] || continue
     hookname="$(basename "$hookfile")"
+    if [[ -e "$REPO_ROOT/.claude/hooks/$hookname" && "$hookfile" -ef "$REPO_ROOT/.claude/hooks/$hookname" ]]; then
+      echo "  Hook already in place: .claude/hooks/$hookname"
+      continue
+    fi
     cp "$hookfile" "$REPO_ROOT/.claude/hooks/$hookname"
     chmod +x "$REPO_ROOT/.claude/hooks/$hookname"
     echo "  Installed .claude/hooks/$hookname"
@@ -402,6 +420,13 @@ else
   echo "  Warning: $REPO_ROOT/.git/hooks/ not found — skipping git-event dispatcher install"
 fi
 
+if [[ "$INSTALL_MODE" == "dual" ]]; then
+  mkdir -p "$REPO_ROOT/tusk/bin"
+  cp -R "$REPO_ROOT/.claude/bin/." "$REPO_ROOT/tusk/bin/"
+  echo "${INSTALL_MODE}-${INSTALL_ROLE}" > "$REPO_ROOT/tusk/bin/install-mode"
+  echo "  Installed tusk/bin/ for Codex surface"
+fi
+
 # ── 4c. Write tusk-manifest.json ─────────────────────────────────────
 python3 -c "
 import json, os, glob
@@ -413,16 +438,21 @@ install_dir = '$INSTALL_DIR'
 manifest_path_rel = '$MANIFEST_PATH'
 
 files = []
+install_dirs = [install_dir]
+if install_mode == 'dual':
+    install_dirs = ['.claude/bin', 'tusk/bin']
 
 # Canonical source: bin/dist-excluded.txt (also read by TUSK_SKIP_SCRIPTS above and tusk-lint.py).
 with open(os.path.join(script_dir, 'bin', 'dist-excluded.txt'), encoding='utf-8') as _f:
     dist_excluded = {line.strip() for line in _f if line.strip()}
 
-files.append(install_dir + '/tusk')
+for _install_dir in install_dirs:
+    files.append(_install_dir + '/tusk')
 for p in sorted(glob.glob(os.path.join(script_dir, 'bin', 'tusk-*.py'))):
     if os.path.basename(p) in dist_excluded:
         continue
-    files.append(install_dir + '/' + os.path.basename(p))
+    for _install_dir in install_dirs:
+        files.append(_install_dir + '/' + os.path.basename(p))
 
 # Underscore-named bin/ files — canonical list lives in bin/tusk_underscore_bin_files.py.
 import sys as _sys
@@ -430,13 +460,15 @@ _sys.path.insert(0, os.path.join(script_dir, 'bin'))
 import tusk_underscore_bin_files as _ubf
 _sys.path.pop(0)
 for _name in _ubf.get_underscore_bin_files(script_dir):
-    files.append(install_dir + '/' + _name)
+    for _install_dir in install_dirs:
+        files.append(_install_dir + '/' + _name)
 
 for name in ['config.default.json', 'VERSION', 'pricing.json']:
-    files.append(install_dir + '/' + name)
+    for _install_dir in install_dirs:
+        files.append(_install_dir + '/' + name)
 
-# Skills/hooks only exist in claude mode; codex prompts only in codex mode
-if install_mode == 'claude':
+# Skills/hooks exist when Claude is present; codex prompts exist when Codex is present.
+if install_mode in ('claude', 'dual'):
     # Filter skills by applies_to_project_types — see bin/tusk_skill_filter.py.
     import sys as _sys
     _sys.path.insert(0, os.path.join(script_dir, 'bin'))
@@ -458,7 +490,7 @@ if install_mode == 'claude':
             full = os.path.join(hooks_src, fname)
             if os.path.isfile(full):
                 files.append('.claude/hooks/' + fname)
-else:
+if install_mode in ('codex', 'dual'):
     prompts_src = os.path.join(script_dir, 'codex-prompts')
     if os.path.isdir(prompts_src):
         for fname in sorted(os.listdir(prompts_src)):
@@ -472,14 +504,19 @@ if os.path.isdir(git_hooks_src):
     for fname in sorted(os.listdir(git_hooks_src)):
         full = os.path.join(git_hooks_src, fname)
         if os.path.isfile(full):
-            files.append(install_dir + '/hooks/git/' + fname)
+            for _install_dir in install_dirs:
+                files.append(_install_dir + '/hooks/git/' + fname)
 
-manifest_full = os.path.join(repo_root, manifest_path_rel)
-os.makedirs(os.path.dirname(manifest_full), exist_ok=True)
-with open(manifest_full, 'w') as f:
-    json.dump(files, f, indent=2)
-    f.write('\n')
-print('  Wrote ' + manifest_path_rel + ' (' + str(len(files)) + ' entries)')
+manifest_paths = [manifest_path_rel]
+if install_mode == 'dual':
+    manifest_paths = ['.claude/tusk-manifest.json', 'tusk/tusk-manifest.json']
+for _manifest_path_rel in manifest_paths:
+    manifest_full = os.path.join(repo_root, _manifest_path_rel)
+    os.makedirs(os.path.dirname(manifest_full), exist_ok=True)
+    with open(manifest_full, 'w') as f:
+        json.dump(files, f, indent=2)
+        f.write('\n')
+    print('  Wrote ' + _manifest_path_rel + ' (' + str(len(files)) + ' entries)')
 "
 
 # ── 5. Init database + migrate ───────────────────────────────────────
@@ -493,7 +530,7 @@ echo "════════════════════════�
 echo "  Installation complete! (mode: $INSTALL_MODE)"
 echo "════════════════════════════════════════════════════════════════"
 echo ""
-if [[ "$INSTALL_MODE" == "claude" ]]; then
+if [[ "$INSTALL_MODE" == "claude" || "$INSTALL_MODE" == "dual" ]]; then
   echo "Next steps:"
   echo ""
   echo "  1. Start a NEW Claude Code session (skills are discovered at startup,"

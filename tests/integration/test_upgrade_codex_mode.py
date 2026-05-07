@@ -45,7 +45,14 @@ def _make_fake_src(tmp_path: Path) -> Path:
     (src / "bin" / "tusk-upgrade.py").write_text("# new upgrader\n")
     (src / "bin" / "tusk-example.py").write_text("# new helper\n")
     (src / "bin" / "tusk_loader.py").write_text("# new loader\n")
-    (src / "bin" / "tusk_skill_filter.py").write_text("# new skill filter\n")
+    (src / "bin" / "tusk_skill_filter.py").write_text(
+        "def get_project_type(repo_root):\n"
+        "    return None\n"
+        "def should_install_skill(skill_dir, project_type):\n"
+        "    return True\n"
+        "def filter_manifest(files, skills_root, project_type):\n"
+        "    return list(files)\n"
+    )
     (src / "bin" / "tusk_github.py").write_text("# new github helpers\n")
     (src / "config.default.json").write_text(json.dumps({"domains": [], "agents": []}))
     (src / "pricing.json").write_text("{}\n")
@@ -94,6 +101,19 @@ def _make_codex_install(tmp_path: Path) -> tuple[Path, Path]:
     (script_dir / "install-mode").write_text("codex\n")
     (script_dir / "VERSION").write_text("998\n")
     (repo_root / "tusk" / "config.json").write_text("{}\n")
+    return repo_root, script_dir
+
+
+def _make_dual_install(tmp_path: Path) -> tuple[Path, Path]:
+    """Construct a fake dual-agent project upgraded from the Claude-side binary."""
+    repo_root = tmp_path / "project"
+    script_dir = repo_root / ".claude" / "bin"
+    script_dir.mkdir(parents=True)
+    (script_dir / "install-mode").write_text("dual-consumer\n")
+    (script_dir / "VERSION").write_text("998\n")
+    (repo_root / "tusk").mkdir()
+    (repo_root / "tusk" / "config.json").write_text("{}\n")
+    (repo_root / "AGENTS.md").write_text("# Agents\n")
     return repo_root, script_dir
 
 
@@ -261,3 +281,42 @@ class TestCodexUpgradeEndToEnd:
         entries = json.loads(manifest_path.read_text())
         assert ".codex/prompts/tusk-init.md" in entries
         assert ".codex/prompts/create-task.md" in entries
+
+
+class TestDualAgentUpgradeEndToEnd:
+    def test_upgrade_refreshes_claude_and_codex_surfaces(
+        self, tmp_path, upgrade_mod, monkeypatch
+    ):
+        """Dual-agent upgrade keeps Claude skills/hooks and Codex prompts current."""
+        repo_root, script_dir = _make_dual_install(tmp_path)
+        src = _make_fake_src(tmp_path)
+        tmpdir = tmp_path / "scratch"
+        tmpdir.mkdir()
+        _stub_side_effects(monkeypatch, upgrade_mod)
+
+        summary = upgrade_mod._run_upgrade_steps(
+            str(src), str(repo_root), str(script_dir), str(tmpdir)
+        )
+
+        assert summary["install_mode"] == "dual"
+        assert summary["manifest_rel"] == ".claude/tusk-manifest.json"
+        assert summary["skill_count"] == 1
+        assert summary["hook_count"] == 1
+        assert summary["prompt_count"] == 2
+
+        assert (repo_root / ".claude" / "skills" / "tusk" / "SKILL.md").is_file()
+        assert (repo_root / ".claude" / "hooks" / "setup-path.sh").is_file()
+        assert (repo_root / "tusk" / "bin" / "tusk").is_file()
+        assert (repo_root / "tusk" / "bin" / "install-mode").read_text().strip() == "dual-consumer"
+        assert (repo_root / ".codex" / "prompts" / "tusk-init.md").is_file()
+        assert (repo_root / ".codex" / "prompts" / "create-task.md").is_file()
+
+        entries = json.loads((repo_root / ".claude" / "tusk-manifest.json").read_text())
+        assert ".claude/bin/tusk" in entries
+        assert "tusk/bin/tusk" in entries
+        assert ".claude/skills/tusk/SKILL.md" in entries
+        assert ".claude/hooks/setup-path.sh" in entries
+        assert ".codex/prompts/tusk-init.md" in entries
+
+        codex_entries = json.loads((repo_root / "tusk" / "tusk-manifest.json").read_text())
+        assert codex_entries == entries

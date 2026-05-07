@@ -55,6 +55,10 @@ class TestDetectInstallMode:
         (tmp_path / "install-mode").write_text("codex-consumer\n")
         assert upgrade_mod.detect_install_mode(str(tmp_path)) == "codex"
 
+    def test_compound_dual_consumer(self, tmp_path, upgrade_mod):
+        (tmp_path / "install-mode").write_text("dual-consumer\n")
+        assert upgrade_mod.detect_install_mode(str(tmp_path)) == "dual"
+
     def test_compound_marker_unknown_mode_falls_back(self, tmp_path, upgrade_mod):
         (tmp_path / "install-mode").write_text("gemini-source\n")
         assert upgrade_mod.detect_install_mode(str(tmp_path)) == "claude"
@@ -88,6 +92,10 @@ class TestDetectInstallRole:
 
     def test_whitespace_tolerated(self, tmp_path, upgrade_mod):
         (tmp_path / "install-mode").write_text("  codex-consumer  \n\n")
+        assert upgrade_mod.detect_install_role(str(tmp_path)) == "consumer"
+
+    def test_dual_consumer(self, tmp_path, upgrade_mod):
+        (tmp_path / "install-mode").write_text("dual-consumer\n")
         assert upgrade_mod.detect_install_role(str(tmp_path)) == "consumer"
 
 
@@ -149,4 +157,19 @@ class TestTranslateManifestForMode:
         assert upgrade_mod.translate_manifest_for_mode(files, "claude") == [
             ".claude/bin/tusk",
             ".claude/skills/tusk/SKILL.md",
+        ]
+
+    def test_dual_mode_keeps_claude_and_codex_surfaces_and_mirrors_bin(self, upgrade_mod):
+        files = [
+            ".claude/bin/tusk",
+            ".claude/skills/tusk/SKILL.md",
+            ".claude/hooks/setup-path.sh",
+            ".codex/prompts/tusk-init.md",
+        ]
+        assert upgrade_mod.translate_manifest_for_mode(files, "dual") == [
+            ".claude/bin/tusk",
+            ".claude/skills/tusk/SKILL.md",
+            ".claude/hooks/setup-path.sh",
+            ".codex/prompts/tusk-init.md",
+            "tusk/bin/tusk",
         ]
