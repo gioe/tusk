@@ -91,6 +91,13 @@ def _has_remote(name: str = "origin") -> bool:
     return result.returncode == 0
 
 
+def _is_default_branch_locked_by_worktree(stderr: str, default_branch: str) -> bool:
+    """Return True for git's "branch is already used by worktree" checkout error."""
+    quoted = re.escape(default_branch)
+    pattern = rf"fatal: '?{quoted}'? is already used by worktree at "
+    return re.search(pattern, stderr or "") is not None
+
+
 def _local_default_unpushed_commits(default_branch: str) -> list[tuple[str, str]] | None:
     """Return [(sha, subject), ...] for commits on local <default_branch> that are
     not yet on origin/<default_branch>.
@@ -502,6 +509,136 @@ def _detect_id_gaps(db_path: str, task_id: int) -> list[int]:
             conn.close()
     except sqlite3.Error:
         return []
+
+
+def _close_completed_task(
+    tusk_bin: str, task_id: int, db_path: str, session_was_closed: bool
+) -> int:
+    # Pass --force up front so task-done emits "Warning:" (not "Error:") for
+    # criteria that legitimately lack a commit hash. The user has explicitly
+    # chosen to ship the merge, so implicit --force on close is consistent with
+    # that decision (issue #582; mirrors the auto-complete path's TASK-200 fix).
+    print(f"Closing task {task_id}...", file=sys.stderr)
+    result = run(
+        [tusk_bin, "task-done", str(task_id), "--reason", "completed", "--force"],
+        check=False,
+    )
+    if result.returncode != 0:
+        if result.returncode == 2 and f"task {task_id} not found" in result.stderr.lower():
+            # Task row missing — likely lost to a WAL revert that the checkpoint
+            # above could not prevent (e.g. busy readers blocked full flush).
+            # Re-insert as Done so the merge sequence can complete cleanly.
+            recovered = _recover_missing_task(db_path, task_id)
+            gap_ids = _detect_id_gaps(db_path, task_id)
+            synthetic = {
+                "task": {
+                    "id": task_id,
+                    "summary": f"[Recovered after WAL revert] TASK-{task_id}",
+                    "status": "Done",
+                    "closed_reason": "completed",
+                },
+                "sessions_closed": 1 if session_was_closed else 0,
+                "unblocked_tasks": [],
+                "wal_revert_recovery": recovered,
+                "gap_task_ids": gap_ids,
+            }
+            if not recovered:
+                print(
+                    f"Warning: Task {task_id} could not be recovered. The branch has been "
+                    "merged but the task record is permanently lost. Manually close it:\n"
+                    f"  tusk task-insert \"[Recovered] TASK-{task_id}\" \"\" --priority Medium\n"
+                    f"  tusk task-done <new_id> --reason completed --force",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"Hint: Task {task_id} was recovered with placeholder metadata. "
+                    "Update it with the correct values:\n"
+                    f"  tusk task-update {task_id} --summary '...' --priority Medium "
+                    f"--domain '...' --task-type '...' --complexity '...'",
+                    file=sys.stderr,
+                )
+            if gap_ids:
+                print(
+                    f"Warning: {len(gap_ids)} task(s) between the last committed snapshot "
+                    f"and TASK-{task_id} were lost in the WAL revert and cannot be "
+                    f"recovered (these are separate from the task being merged): {gap_ids}\n"
+                    "Investigate your git history or task notes to reconstruct them.",
+                    file=sys.stderr,
+                )
+            print(dumps(synthetic))
+            return 0
+        print(f"Error: task-done failed:\n{result.stderr.strip()}", file=sys.stderr)
+        return 2
+
+    # Surface task-done's "Warning:" diagnostic (e.g. listing criteria that
+    # were force-closed without a backing commit) so the audit trail still
+    # reaches the user. Mirrors the auto-complete path's pattern.
+    if result.stderr.strip():
+        print(result.stderr.strip(), file=sys.stderr)
+
+    # Forward the task-done JSON to stdout.
+    try:
+        task_done_result = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        if result.stdout.strip():
+            print(result.stdout.strip())
+        return 0
+
+    # tusk session-close already closed the session before task-done ran, so
+    # task-done always sees 0 open sessions. Correct the counter here.
+    if session_was_closed:
+        task_done_result["sessions_closed"] = 1
+
+    print(dumps(task_done_result))
+    return 0
+
+
+def _complete_no_checkout_fast_forward(
+    *,
+    branch_name: str,
+    default_branch: str,
+    task_id: int,
+    session_id: int,
+    tusk_bin: str,
+    db_path: str,
+    session_was_closed: bool,
+    did_stash: bool,
+) -> int:
+    print(
+        f"Note: {default_branch} is checked out in another worktree; using "
+        f"no-checkout fast-forward push from {branch_name} to {default_branch}.",
+        file=sys.stderr,
+    )
+    result = run(["git", "push", "origin", f"{branch_name}:{default_branch}"], check=False)
+    if result.returncode != 0:
+        print(
+            f"Error: no-checkout fast-forward push failed:\n{result.stderr.strip()}\n"
+            "The remote default branch was not updated. This usually means the "
+            "feature branch is not a fast-forward of the remote default branch "
+            "or the remote rejected the update.\n"
+            "To resolve:\n"
+            f"  git fetch origin && git rebase origin/{default_branch}\n"
+            f"  tusk merge {task_id} --session {session_id}",
+            file=sys.stderr,
+        )
+        if did_stash:
+            _try_pop_stash(task_id)
+        return 2
+    if result.stdout.strip():
+        print(result.stdout.strip(), file=sys.stderr)
+    if result.stderr.strip():
+        print(result.stderr.strip(), file=sys.stderr)
+    print(
+        f"Note: pushed {branch_name} to origin/{default_branch}; leaving the local "
+        "feature branch checked out because the default branch is locked by another "
+        "worktree.",
+        file=sys.stderr,
+    )
+    if did_stash:
+        _try_pop_stash(task_id)
+    _drop_branch_auto_stash(task_id)
+    return _close_completed_task(tusk_bin, task_id, db_path, session_was_closed)
 
 
 def find_task_branch(task_id: int) -> tuple[str | None, str | None, bool]:
@@ -926,6 +1063,7 @@ def main(argv: list[str]) -> int:
         # Local mode: ff-only merge
         default_branch = detect_default_branch()
         print(f"Merging {branch_name} into {default_branch} (ff-only)...", file=sys.stderr)
+        has_origin = _has_remote()
 
         # Step 3: Checkout default branch
         # tasks.db (and WAL/SHM siblings) are gitignored and untracked, so git
@@ -945,6 +1083,28 @@ def main(argv: list[str]) -> int:
         if result.returncode != 0:
             for src, dst in moved:
                 os.rename(dst, src)
+            if _is_default_branch_locked_by_worktree(result.stderr, default_branch):
+                if not has_origin:
+                    print(
+                        f"Error: git checkout {default_branch} failed because the branch "
+                        "is checked out in another worktree, and no git remote 'origin' "
+                        "is configured for a no-checkout fast-forward push.\n"
+                        f"{result.stderr.strip()}",
+                        file=sys.stderr,
+                    )
+                    if did_stash:
+                        _try_pop_stash(task_id)
+                    return 2
+                return _complete_no_checkout_fast_forward(
+                    branch_name=branch_name,
+                    default_branch=default_branch,
+                    task_id=task_id,
+                    session_id=session_id,
+                    tusk_bin=tusk_bin,
+                    db_path=_db_path,
+                    session_was_closed=session_was_closed,
+                    did_stash=did_stash,
+                )
             print(
                 f"Error: git checkout {default_branch} failed:\n{result.stderr.strip()}",
                 file=sys.stderr,
@@ -958,7 +1118,6 @@ def main(argv: list[str]) -> int:
             os.rename(dst, src)
 
         # Step 4: Pull latest (skip when no remote is configured or unreachable)
-        has_origin = _has_remote()
         if has_origin:
             result = run(["git", "-c", "pull.rebase=false", "pull", "origin", default_branch], check=False)
             if result.returncode != 0:
@@ -1283,91 +1442,7 @@ def main(argv: list[str]) -> int:
     # successful merge — see issue #644.
     _drop_branch_auto_stash(task_id)
 
-    # Step 7: Close the task — pass --force up front so task-done emits
-    # "Warning:" (not "Error:") for criteria that legitimately lack a commit
-    # hash (e.g. completed via `tusk criteria done --skip-verify` for non-git-
-    # trackable side effects). The user has explicitly chosen to ship the
-    # merge, so implicit --force on close is consistent with that decision.
-    # Diagnostic preserved, no contradiction (issue #582; mirrors the
-    # auto-complete path's TASK-200 fix).
-    print(f"Closing task {task_id}...", file=sys.stderr)
-    result = run(
-        [tusk_bin, "task-done", str(task_id), "--reason", "completed", "--force"],
-        check=False,
-    )
-    if result.returncode != 0:
-        if result.returncode == 2 and f"task {task_id} not found" in result.stderr.lower():
-            # Task row missing — likely lost to a WAL revert that the checkpoint
-            # above could not prevent (e.g. busy readers blocked full flush).
-            # Re-insert as Done so the merge sequence can complete cleanly.
-            recovered = _recover_missing_task(_db_path, task_id)
-            gap_ids = _detect_id_gaps(_db_path, task_id)
-            synthetic = {
-                "task": {
-                    "id": task_id,
-                    "summary": f"[Recovered after WAL revert] TASK-{task_id}",
-                    "status": "Done",
-                    "closed_reason": "completed",
-                },
-                "sessions_closed": 1 if session_was_closed else 0,
-                "unblocked_tasks": [],
-                "wal_revert_recovery": recovered,
-                "gap_task_ids": gap_ids,
-            }
-            if not recovered:
-                print(
-                    f"Warning: Task {task_id} could not be recovered. The branch has been "
-                    "merged but the task record is permanently lost. Manually close it:\n"
-                    f"  tusk task-insert \"[Recovered] TASK-{task_id}\" \"\" --priority Medium\n"
-                    f"  tusk task-done <new_id> --reason completed --force",
-                    file=sys.stderr,
-                )
-            else:
-                print(
-                    f"Hint: Task {task_id} was recovered with placeholder metadata. "
-                    "Update it with the correct values:\n"
-                    f"  tusk task-update {task_id} --summary '...' --priority Medium "
-                    f"--domain '...' --task-type '...' --complexity '...'",
-                    file=sys.stderr,
-                )
-            if gap_ids:
-                print(
-                    f"Warning: {len(gap_ids)} task(s) between the last committed snapshot "
-                    f"and TASK-{task_id} were lost in the WAL revert and cannot be "
-                    f"recovered (these are separate from the task being merged): {gap_ids}\n"
-                    "Investigate your git history or task notes to reconstruct them.",
-                    file=sys.stderr,
-                )
-            print(dumps(synthetic))
-            return 0
-        print(f"Error: task-done failed:\n{result.stderr.strip()}", file=sys.stderr)
-        return 2
-
-    # Surface task-done's "Warning:" diagnostic (e.g. listing criteria that
-    # were force-closed without a backing commit) so the audit trail still
-    # reaches the user. Mirrors the auto-complete path's pattern.
-    if result.stderr.strip():
-        print(result.stderr.strip(), file=sys.stderr)
-
-    # Step 8: Forward the task-done JSON to stdout
-    try:
-        task_done_result = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        # task-done produced non-JSON output; print as-is
-        if result.stdout.strip():
-            print(result.stdout.strip())
-        return 0
-
-    # tusk session-close already closed the session before task-done ran, so
-    # task-done always sees 0 open sessions. Correct the counter here.
-    # When session-close returned non-zero with "already closed", session_was_closed
-    # is False and sessions_closed stays 0 — accurate, since this invocation did not
-    # close anything. merge always operates on exactly one session_id.
-    if session_was_closed:
-        task_done_result["sessions_closed"] = 1  # merge always operates on one session
-
-    print(dumps(task_done_result))
-    return 0
+    return _close_completed_task(tusk_bin, task_id, _db_path, session_was_closed)
 
 
 if __name__ == "__main__":
