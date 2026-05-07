@@ -128,6 +128,13 @@ def compute_range(task_id: int, repo_root: str, db_path: str | None = None) -> d
     primary = f"{base}...HEAD"
 
     primary_result = _git(["diff", primary], repo_root)
+    if primary_result.returncode != 0:
+        remote_primary = f"origin/{base}...HEAD"
+        remote_result = _git(["diff", remote_primary], repo_root)
+        if remote_result.returncode == 0:
+            primary = remote_primary
+            primary_result = remote_result
+
     diff_out = primary_result.stdout if primary_result.returncode == 0 else ""
     diff_lines = diff_out.count("\n") if diff_out else 0
     if diff_lines > 0:

@@ -121,6 +121,38 @@ class TestPrimaryRange:
             "range", "diff_lines", "summary", "recovered_from_task_commits"
         }
 
+    def test_uses_origin_default_when_local_default_missing(self, tmp_path, monkeypatch):
+        """Issue #696: linked worktrees can have a usable origin/main while the
+        local default ref is missing or stale. In that shape, prefer the
+        remote-tracking default range before falling back to [TASK-N] commits."""
+        repo_root, _ = _make_repo(tmp_path, default_branch="main")
+        subprocess.run(
+            ["git", "-C", repo_root, "update-ref", "refs/remotes/origin/main", "HEAD"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", repo_root, "checkout", "-q", "-b", "feature/TASK-42-foo"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", repo_root, "branch", "-D", "main"],
+            check=True,
+        )
+        with open(os.path.join(repo_root, "new.txt"), "w") as f:
+            f.write("hello\n")
+        subprocess.run(["git", "-C", repo_root, "add", "new.txt"], check=True)
+        subprocess.run(
+            ["git", "-C", repo_root, "commit", "-q", "-m", "[TASK-42] Add new.txt"],
+            check=True,
+        )
+
+        monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
+        result = mod.compute_range(42, repo_root)
+
+        assert result["range"] == "origin/main...HEAD"
+        assert result["recovered_from_task_commits"] is False
+        assert result["diff_lines"] > 0
+
 
 class TestTaskCommitRecovery:
     """When primary is empty, fall back to [TASK-N] commit-range recovery."""
