@@ -181,6 +181,7 @@ Two external library repos ship their own `tusk-bootstrap.json` and are pre-conf
 - **`/review-commits`** — Parallel AI code review; fixes must_fix, dismisses or spins suggest findings into follow-up tasks
 - **`/address-issue`** — Fetch a GitHub issue, score it, create a tusk task, and work through it
 - **`/ios-libs-issue`** — File an issue against the configured iOS lib repo (`project_type=ios_app` only); auto-attaches originating tusk task
+- **`/ios-libs-contribute`** — Open a PR against the configured iOS lib repo (`project_type=ios_app` only); links the upstream PR back to the originating tusk task
 - **`/report-tusk-issue`** — File an issue against the tusk repo itself (bugs, CLI limitations, missing features); approval-gated, with configurable attribution footer
 
 ### Hooks (installed to `.claude/hooks/` and `.git/hooks/` in target projects)
