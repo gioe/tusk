@@ -56,7 +56,14 @@ Before editing the library repo, inspect the local diff and summarize exactly wh
 
 ## Step 4: Prepare a Fork-Based Library Workspace
 
-Use a sibling or temp workspace outside the client repo. Fork first so the branch can be pushed even when the user lacks write access:
+Use a sibling or temp workspace outside the client repo. Change into that parent before cloning so the fork is not created inside the client project:
+
+```bash
+LIB_WORKSPACE_PARENT=$(mktemp -d)
+cd "$LIB_WORKSPACE_PARENT"
+```
+
+Fork first so the branch can be pushed even when the user lacks write access:
 
 ```bash
 gh repo fork "$LIB_REPO" --clone --remote

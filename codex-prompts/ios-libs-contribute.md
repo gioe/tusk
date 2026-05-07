@@ -28,9 +28,11 @@ Stop if `PROJECT_TYPE` is not `ios_app` or `LIB_REPO` is empty.
 
 Ask which local files or behavior should be contributed upstream, inspect the local diff, and summarize what will be ported.
 
-Fork and clone the configured repo by default:
+Create a temp parent outside the client repo, then fork and clone the configured repo by default:
 
 ```bash
+LIB_WORKSPACE_PARENT=$(mktemp -d)
+cd "$LIB_WORKSPACE_PARENT"
 gh repo fork "$LIB_REPO" --clone --remote
 ```
 

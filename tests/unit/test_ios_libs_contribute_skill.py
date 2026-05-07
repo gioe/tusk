@@ -39,6 +39,8 @@ class TestIosLibsContributeSkill:
         text = _text(SKILL)
 
         required_fragments = [
+            "mktemp -d",
+            'cd "$LIB_WORKSPACE_PARENT"',
             "gh repo fork",
             "tusk/<task_id>-<slug>",
             "copy",
