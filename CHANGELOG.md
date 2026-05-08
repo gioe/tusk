@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [878] - 2026-05-08
+
+- [TASK-347] Fix node -e verification spec quoting and supersede regenerated broken criteria
+
 ## [877] - 2026-05-07
 
 - [TASK-346] Fix: tusk merge handles default branch checked out in another worktree
