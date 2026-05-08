@@ -102,6 +102,10 @@ def _mock_run_factory(
             )
         ):
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        if args[:3] == ["git", "fetch", "origin"]:
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        if args[:3] == ["git", "rebase", f"origin/{default_branch}"]:
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
         if args[:2] == ["git", "push"] and args[2:4] == [
             "origin",
             f"{branch_name}:{default_branch}",
@@ -165,6 +169,44 @@ class TestLinkedWorktreeDefaultBranchLocked:
         assert not [c for c in record if c[:3] == ["git", "merge", "--ff-only"]]
         assert not [c for c in record if c[:3] in (["git", "branch", "-d"], ["git", "branch", "-D"])]
         assert "no-checkout fast-forward" in stderr_buf.getvalue()
+
+    def test_rebase_before_no_checkout_fast_forward_push(
+        self, db_path, config_path, monkeypatch
+    ):
+        task_id, session_id = _setup_task_session(db_path)
+        branch = f"feature/TASK-{task_id}-worktree-lock"
+        record = []
+
+        monkeypatch.setattr(tusk_merge, "find_task_branch", lambda tid: (branch, None, False))
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        mock_run, _ = _mock_run_factory(
+            branch_name=branch,
+            task_id=task_id,
+            record_calls=record,
+        )
+        monkeypatch.setattr(tusk_merge, "run", mock_run)
+
+        stderr_buf = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(stderr_buf):
+            rc = tusk_merge.main(
+                [
+                    str(db_path),
+                    str(config_path),
+                    str(task_id),
+                    "--session",
+                    str(session_id),
+                    "--rebase",
+                ]
+            )
+
+        assert rc == 0, f"Expected exit 0\nstderr: {stderr_buf.getvalue()}"
+        fetch_idx = record.index(["git", "fetch", "origin"])
+        rebase_idx = record.index(["git", "rebase", "origin/main"])
+        push_idx = record.index(["git", "push", "origin", f"{branch}:main"])
+        assert fetch_idx < rebase_idx < push_idx
+        assert "Rebasing" in stderr_buf.getvalue()
+        assert "origin/main" in stderr_buf.getvalue()
 
     def test_no_checkout_push_rejects_non_fast_forward(
         self, db_path, config_path, monkeypatch

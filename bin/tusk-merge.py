@@ -606,12 +606,60 @@ def _complete_no_checkout_fast_forward(
     db_path: str,
     session_was_closed: bool,
     did_stash: bool,
+    use_rebase: bool,
 ) -> int:
     print(
         f"Note: {default_branch} is checked out in another worktree; using "
         f"no-checkout fast-forward push from {branch_name} to {default_branch}.",
         file=sys.stderr,
     )
+    if use_rebase:
+        rebase_target = f"origin/{default_branch}"
+        print(f"Rebasing {branch_name} onto {rebase_target}...", file=sys.stderr)
+        fetch_result = run(["git", "fetch", "origin"], check=False)
+        if fetch_result.returncode != 0:
+            if _is_remote_unreachable(fetch_result.stderr):
+                print(
+                    f"Warning: could not reach origin — skipping --rebase before "
+                    "no-checkout fast-forward push.\n"
+                    f"  {fetch_result.stderr.strip()}",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"Error: git fetch origin failed before --rebase:\n"
+                    f"{fetch_result.stderr.strip()}",
+                    file=sys.stderr,
+                )
+                if did_stash:
+                    _try_pop_stash(task_id)
+                return 2
+        else:
+            rebase_result = run(["git", "rebase", rebase_target], check=False)
+            if rebase_result.returncode != 0:
+                if rebase_result.stderr.strip():
+                    print(rebase_result.stderr.strip(), file=sys.stderr)
+                stash_note = ""
+                if did_stash:
+                    stash_note = (
+                        f"\nNote: your pre-merge working-tree changes are saved in stash "
+                        f"entry 'tusk-merge: auto-stash for TASK-{task_id}'. "
+                        "Restore them with `git stash list` + `git stash pop <ref>` "
+                        "after the rebase completes."
+                    )
+                print(
+                    f"Error: git rebase {rebase_target} failed — conflicts must be resolved manually.\n"
+                    f"You are on '{branch_name}' with the rebase in progress. To finish:\n"
+                    "  1. Fix the conflicting files (git status lists them)\n"
+                    "  2. git add <resolved files>\n"
+                    "  3. git rebase --continue\n"
+                    "  4. Repeat steps 1–3 until the rebase completes\n"
+                    f"  5. Re-run: tusk merge {task_id}\n"
+                    "To abort the rebase and return to the pre-rebase state:\n"
+                    f"  git rebase --abort{stash_note}",
+                    file=sys.stderr,
+                )
+                return 2
     result = run(["git", "push", "origin", f"{branch_name}:{default_branch}"], check=False)
     if result.returncode != 0:
         print(
@@ -1193,6 +1241,7 @@ def main(argv: list[str]) -> int:
                 db_path=_db_path,
                 session_was_closed=False,
                 did_stash=did_stash,
+                use_rebase=use_rebase,
             )
 
     # Step 2: Close the session (captures git diff stats while on feature branch)
@@ -1284,6 +1333,7 @@ def main(argv: list[str]) -> int:
                     db_path=_db_path,
                     session_was_closed=session_was_closed,
                     did_stash=did_stash,
+                    use_rebase=use_rebase,
                 )
             print(
                 f"Error: git checkout {default_branch} failed:\n{result.stderr.strip()}",
