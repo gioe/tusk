@@ -91,9 +91,9 @@ JSON blob and the `skill_run.run_id` you already captured.
    - `progress` — array of prior progress checkpoints (most recent
      first). If non-empty, the first entry's `next_steps` tells you
      exactly where to pick up. Skip steps you've already completed
-     (branch may already exist, some commits may already be made). Use
-     `git log --oneline` on the existing branch to see what's already
-     been done.
+     (a task workspace may already be recorded, some commits may
+     already be made). Use `git log --oneline` in the task workspace to
+     see what's already been done.
    - `criteria` — array of acceptance criteria objects (id, criterion,
      source, is_completed, criterion_type, verification_spec). These
      are the implementation checklist. Work through them in order
@@ -149,15 +149,26 @@ JSON blob and the `skill_run.run_id` you already captured.
    continue with Step 2 (no cancel — the tusk run stays open for the
    rest of the default flow).
 
-2. **Create a new git branch IMMEDIATELY** (skip if resuming and
-   branch already exists):
+2. **Create or reuse the task-owned workspace IMMEDIATELY**:
    ```bash
-   tusk branch <id> <brief-description-slug>
+   tusk task-worktree create <id> <brief-description-slug>
    ```
-   This detects the default branch (remote HEAD → gh fallback →
-   `main`), checks it out, pulls latest, and creates
-   `feature/TASK-<id>-<slug>`. It prints the created branch name on
-   success.
+   This creates a recorded task workspace and feature branch, or returns
+   the existing recorded workspace for the task. Parse the JSON
+   response, then `cd` into `workspace_path` before exploring, editing,
+   testing, committing, or merging. If `created` is `false`, continue
+   from that existing workspace; do not create another branch or
+   overlapping worktree. If you are already in the returned
+   `workspace_path`, stay there.
+
+   If you need to inspect recorded workspaces before deciding where to
+   continue, run:
+   ```bash
+   tusk task-worktree list --format json
+   ```
+   Use the row for this task when present. The recorded workspace is the
+   normal task boundary; do not use the branch helper for the default
+   `tusk.md` workflow.
 
    **Deliverable check:** If `deliverable_check_needed` from Step 1 is
    `true`, run:

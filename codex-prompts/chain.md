@@ -148,8 +148,8 @@ returned by `tusk chain scope`. For each head:
    tusk task-get <head_id>
    ```
 2. Follow `tusk.md` Step 1 onward for `<head_id>` — start the task,
-   create a branch, explore, implement, commit each criterion, run lint,
-   run review-commits if configured, merge.
+   create or reuse its task-owned workspace, explore, implement, commit
+   each criterion, run lint, run review-commits if configured, merge.
 3. **Skip VERSION/CHANGELOG per-head** — that lands in Step 5 as a single
    consolidation commit. If the head's acceptance criteria require a
    VERSION bump or CHANGELOG entry, defer those criteria with:
@@ -211,8 +211,9 @@ Parse the returned JSON. It has two fields:
 
 For each task in the `frontier` array, in the order returned:
 
-1. Follow `tusk.md` Step 1 onward for that task ID — start, branch,
-   explore, implement, commit, lint, review-commits if configured, merge.
+1. Follow `tusk.md` Step 1 onward for that task ID — start, create or
+   reuse its task-owned workspace, explore, implement, commit, lint,
+   review-commits if configured, merge.
 2. **Skip VERSION/CHANGELOG per-task** — defer those criteria with
    `tusk criteria skip <criterion_id> --reason chain` if the task lists
    them as criteria. Consolidation lands in Step 5.

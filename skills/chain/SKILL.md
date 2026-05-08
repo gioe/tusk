@@ -137,9 +137,10 @@ Task tool call (for EACH head task):
   description: "TASK-<id> <first 3 words of summary>"
   subagent_type: general-purpose
   run_in_background: true
-  isolation: worktree   ← include when this wave has more than one task; omit for single-task waves
   prompt: <AGENT-PROMPT.md content with {placeholders} filled from task details>
 ```
+
+Do not rely on a runtime isolation hint for task separation. The filled agent prompt starts the task, calls `tusk task-worktree create`, and moves execution into the recorded task workspace before any file changes. If a workspace is already recorded for that task, the agent resumes there instead of creating another branch.
 
 After spawning, store the **agent task ID** and **output file path** returned by the Task tool (this is separate from the tusk task ID). Keep a running list of all output file paths across the entire chain — these are needed for the post-chain retro in Step 6. Monitor until all head tasks reach Done status or all agents have finished.
 
@@ -252,9 +253,10 @@ Task tool call (for EACH frontier task):
   description: "TASK-<id> <first 3 words of summary>"
   subagent_type: general-purpose
   run_in_background: true
-  isolation: worktree   ← include when the wave has more than one task; omit for single-task waves
   prompt: <AGENT-PROMPT.md content with {placeholders} filled from task details>
 ```
+
+Do not rely on a runtime isolation hint for task separation. Each agent owns the workspace returned by `tusk task-worktree create` for its task, and an existing recorded workspace must be reused rather than creating an overlapping branch.
 
 ### 4d. Monitor Wave Completion
 

@@ -28,13 +28,11 @@ Prior Progress:
 
    **Workflow routing:** If the task's `workflow` field is non-null, read `.claude/skills/<workflow>/SKILL.md`. If that file exists, follow its instructions instead of the remaining steps below (pass the task ID and session_id). If the file does not exist, continue with the default workflow.
 
-2. **Create a git branch** from the default branch:
+2. **Create or reuse the task-owned workspace:**
    ```
-   DEFAULT_BRANCH=$(tusk git-default-branch)
-   git checkout "$DEFAULT_BRANCH" && git pull origin "$DEFAULT_BRANCH"
-   git checkout -b feature/TASK-{id}-<brief-slug>
+   tusk task-worktree create {id} <brief-slug>
    ```
-   If the branch already exists (from prior progress), just check it out.
+   Parse the JSON response and `cd` into `workspace_path` before exploring, editing, testing, committing, pushing, or merging. If `created` is `false`, continue from that existing recorded workspace; do not create another branch or overlapping worktree. If prior progress names an existing workspace, confirm it with `tusk task-worktree list --format json` and continue there.
 
 3. **Explore the codebase** — understand what files need to change and what patterns to follow before writing any code.
 
