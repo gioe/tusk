@@ -68,7 +68,8 @@ CREATE TABLE acceptance_criteria (
     is_completed INTEGER DEFAULT 0,
     is_deferred INTEGER DEFAULT 0,
     deferred_reason TEXT,
-    skip_note TEXT
+    skip_note TEXT,
+    commit_hash TEXT
 );
 CREATE TABLE code_reviews (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -469,6 +470,40 @@ class TestDiff:
         assert scoped["files_changed"] == 1
         assert scoped["lines_added"] == 2
         assert scoped["lines_removed"] == 0
+
+    def test_diff_ignores_stale_criterion_hash_after_rebase(self, tmp_path):
+        """Issue #711: criteria may retain pre-rebase SHAs after merge
+        finalizes a rewritten [TASK-N] commit on the default branch. Diff
+        stats must come from discoverable task commits, not criterion hashes.
+        """
+        repo = str(tmp_path / "repo")
+        os.makedirs(repo)
+        self._init_repo(repo)
+        self._commit(repo, "migrations/2043.sql", "CREATE TABLE x(id INTEGER);\n", "initial")
+        self._commit(
+            repo,
+            "migrations/2043.sql",
+            "CREATE TABLE x(id INTEGER);\nALTER TABLE x ADD COLUMN name TEXT;\n",
+            "[TASK-2043] add migration",
+        )
+
+        db_path, conn = _make_db(tmp_path)
+        conn.execute(
+            "INSERT INTO tasks (id, summary, status, started_at) VALUES (?, ?, ?, ?)",
+            (2043, "Add migration", "Done", "2026-05-08 00:00:00"),
+        )
+        conn.execute(
+            "INSERT INTO acceptance_criteria "
+            "(task_id, criterion, is_completed, commit_hash) VALUES (?, ?, ?, ?)",
+            (2043, "Migration is applied", 1, "f7bf9339"),
+        )
+        conn.commit()
+
+        diff = mod.fetch_diff(2043, repo, since="2026-05-08 00:00:00", conn=conn)
+        assert diff["commits"] == 1
+        assert diff["files_changed"] == 1
+        assert diff["lines_added"] == 1
+        assert diff["lines_removed"] == 0
 
 
 class TestDiffPrefixCollisionHeuristic:
