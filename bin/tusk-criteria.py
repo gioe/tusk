@@ -317,6 +317,40 @@ SPEC_REQUIRED_TYPES = {"code", "test", "file"}
 
 # ── Subcommands ──────────────────────────────────────────────────────
 
+def _normalized_criterion_text(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def _find_superseded_criteria(
+    conn: sqlite3.Connection,
+    *,
+    task_id: int,
+    text: str,
+    ctype: str,
+    spec: str | None,
+) -> list[int]:
+    """Return active same-text criteria whose old spec is superseded by spec."""
+    if spec is None:
+        return []
+
+    normalized_text = _normalized_criterion_text(text)
+    rows = conn.execute(
+        "SELECT id, criterion, verification_spec FROM acceptance_criteria "
+        "WHERE task_id = ? "
+        "AND COALESCE(criterion_type, 'manual') = ? "
+        "AND is_completed = 0 "
+        "AND COALESCE(is_deferred, 0) = 0",
+        (task_id, ctype),
+    ).fetchall()
+    superseded: list[int] = []
+    for row in rows:
+        if _normalized_criterion_text(row["criterion"]) != normalized_text:
+            continue
+        if row["verification_spec"] == spec:
+            continue
+        superseded.append(row["id"])
+    return superseded
+
 def cmd_add(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn = get_connection(db_path)
     try:
@@ -338,19 +372,37 @@ def cmd_add(args: argparse.Namespace, db_path: str, config: dict) -> int:
             print(f"Error: --spec is required for criterion type '{args.type}'", file=sys.stderr)
             return 2
 
+        superseded_ids = _find_superseded_criteria(
+            conn,
+            task_id=args.task_id,
+            text=args.text,
+            ctype=args.type,
+            spec=args.spec,
+        )
+
         conn.execute(
             "INSERT INTO acceptance_criteria (task_id, criterion, source, criterion_type, verification_spec) "
             "VALUES (?, ?, ?, ?, ?)",
             (args.task_id, args.text, args.source, args.type, args.spec),
         )
+        cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+        for old_id in superseded_ids:
+            conn.execute(
+                "UPDATE acceptance_criteria "
+                "SET is_deferred = 1, deferred_reason = ?, updated_at = datetime('now') "
+                "WHERE id = ?",
+                (f"superseded by criterion #{cid}", old_id),
+            )
+
         conn.commit()
 
-        cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         print(dumps({
             "id": cid,
             "task_id": args.task_id,
             "criterion_type": args.type,
             "source": args.source,
+            "superseded_criteria_ids": superseded_ids,
         }))
         return 0
     finally:

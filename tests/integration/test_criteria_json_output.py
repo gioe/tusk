@@ -78,6 +78,55 @@ def test_criteria_add_emits_json(tmp_path):
     assert isinstance(obj["id"], int) and obj["id"] > 0
 
 
+def test_criteria_add_supersedes_same_text_broken_spec(tmp_path):
+    repo = tmp_path / "repo"
+    _git_init(repo)
+    env = {**os.environ, "TUSK_QUIET": "1"}
+    env.pop("TUSK_PROJECT", None)
+    env.pop("TUSK_DB", None)
+    _run([TUSK_BIN, "init", "--yes"], cwd=repo, env=env)
+    task_id = _insert_task(repo, env)
+
+    text = "apps/web package manifests include patched Next.js and happy-dom versions"
+    broken_spec = (
+        "node -e \"const fs=require(fs); "
+        "const pkg=JSON.parse(fs.readFileSync(apps/web/package.json,utf8)); "
+        "const happy=(pkg.devDependencies||{})[happy-dom];\""
+    )
+    fixed_spec = (
+        'node -e "const fs=require(\\"fs\\"); '
+        'const pkg=JSON.parse(fs.readFileSync(\\"apps/web/package.json\\",\\"utf8\\")); '
+        'const happy=(pkg.devDependencies||{})[\\"happy-dom\\"];"'
+    )
+
+    first = json.loads(_run(
+        [TUSK_BIN, "criteria", "add", str(task_id), text, "--type", "code", "--spec", broken_spec],
+        cwd=repo,
+        env=env,
+    ).stdout)
+    second = json.loads(_run(
+        [TUSK_BIN, "criteria", "add", str(task_id), text, "--type", "code", "--spec", fixed_spec],
+        cwd=repo,
+        env=env,
+    ).stdout)
+
+    assert second["superseded_criteria_ids"] == [first["id"]]
+    rows = _run(
+        [
+            TUSK_BIN, "-json",
+            "SELECT id, is_deferred, deferred_reason, verification_spec "
+            "FROM acceptance_criteria WHERE id IN (%d, %d) ORDER BY id" % (first["id"], second["id"]),
+        ],
+        cwd=repo,
+        env=env,
+    )
+    data = json.loads(rows.stdout)
+    assert data[0]["is_deferred"] == 1
+    assert data[0]["deferred_reason"] == f"superseded by criterion #{second['id']}"
+    assert data[1]["is_deferred"] == 0
+    assert data[1]["verification_spec"] == fixed_spec
+
+
 def test_criteria_done_emits_json_success_and_already_completed(tmp_path):
     repo = tmp_path / "repo"
     _git_init(repo)
