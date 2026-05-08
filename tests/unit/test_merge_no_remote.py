@@ -155,6 +155,8 @@ class TestMergeNoRemote:
         conn.execute.side_effect = [
             # _autodetect_session: open sessions
             MagicMock(fetchall=MagicMock(return_value=[(session_id, "2026-01-01")])),
+            # _recorded_task_workspace: no task-owned worktree
+            MagicMock(fetchone=MagicMock(return_value=None)),
         ]
         return conn
 

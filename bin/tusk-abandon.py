@@ -52,6 +52,9 @@ find_task_branch = _merge.find_task_branch
 detect_default_branch = _merge.detect_default_branch
 _autodetect_session = _merge._autodetect_session
 _drop_branch_auto_stash = _merge._drop_branch_auto_stash
+_branch_exists = _merge._branch_exists
+_recorded_task_workspace = _merge._recorded_task_workspace
+_remove_recorded_task_worktree = _merge._remove_recorded_task_worktree
 
 
 # Reasons that map to the no-commit closure path. `expired` is excluded — it
@@ -244,7 +247,19 @@ def main(argv: list[str]) -> int:
     # Branch safety: refuse if the feature branch carries commits the user
     # would lose. This is the whole reason `abandon` exists as its own command —
     # it's the no-commit version of `merge`.
-    branch_name, branch_err, pre_merged = find_task_branch(task_id)
+    recorded_workspace = _recorded_task_workspace(db_path, task_id)
+    if recorded_workspace is not None:
+        branch_name = recorded_workspace["branch"]
+        pre_merged = False
+        if not _branch_exists(branch_name):
+            branch_err = (
+                f"Recorded task workspace branch '{branch_name}' was not found. "
+                "Run `tusk task-worktree list` to inspect the recorded workspace."
+            )
+        else:
+            branch_err = None
+    else:
+        branch_name, branch_err, pre_merged = find_task_branch(task_id)
 
     if pre_merged:
         # User is already on the default branch with no feature branch in
@@ -280,6 +295,15 @@ def main(argv: list[str]) -> int:
                 "to discard it.",
                 file=sys.stderr,
             )
+            return 2
+
+        if not _remove_recorded_task_worktree(
+            db_path,
+            task_id,
+            branch_name,
+            f"tusk abandon {task_id} --reason {reason}",
+            workspace=recorded_workspace,
+        ):
             return 2
 
     # WAL checkpoint before any DB writes / branch swaps for the same reason

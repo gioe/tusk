@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [885] - 2026-05-08
+
+- [TASK-352] Make merge and abandon clean up task-owned worktrees
+
 ## [884] - 2026-05-08
 
 - [TASK-353] Wire /tusk and /chain to use task worktrees by default

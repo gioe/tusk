@@ -57,6 +57,8 @@ commit_changed_files = _git_helpers.commit_changed_files
 task_referenced_paths = _git_helpers.task_referenced_paths
 iter_branch_auto_stashes = _git_helpers.iter_branch_auto_stashes
 
+_WORKSPACE_NOT_PROVIDED = object()
+
 
 def run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(args, capture_output=True, text=True, encoding="utf-8", check=check)
@@ -623,6 +625,87 @@ def _complete_no_checkout_fast_forward(
     return _close_completed_task(tusk_bin, task_id, db_path, session_was_closed)
 
 
+def _recorded_task_workspace(db_path: str, task_id: int) -> sqlite3.Row | None:
+    conn = get_connection(db_path)
+    try:
+        return conn.execute(
+            """
+            SELECT id, branch, workspace_path
+            FROM task_workspaces
+            WHERE task_id = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (task_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+
+def _forget_task_workspace(db_path: str, workspace_id: int) -> None:
+    conn = get_connection(db_path)
+    try:
+        conn.execute("DELETE FROM task_workspaces WHERE id = ?", (workspace_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _branch_exists(branch_name: str) -> bool:
+    result = run(
+        ["git", "show-ref", "--verify", f"refs/heads/{branch_name}"],
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def _remove_recorded_task_worktree(
+    db_path: str,
+    task_id: int,
+    branch_name: str,
+    retry_command: str | None = None,
+    workspace: sqlite3.Row | None | object = _WORKSPACE_NOT_PROVIDED,
+) -> bool:
+    """Remove the recorded task-owned worktree before deleting its branch.
+
+    `git branch -d/-D` refuses to delete a branch that is checked out in any
+    linked worktree. Removing the task-owned worktree first also gives dirty
+    worktrees a natural safety gate: plain `git worktree remove` fails until the
+    operator cleans/stashes the files or explicitly force-removes that worktree.
+    """
+    if workspace is _WORKSPACE_NOT_PROVIDED:
+        workspace = _recorded_task_workspace(db_path, task_id)
+    if workspace is None:
+        return True
+    if retry_command is None:
+        retry_command = f"tusk merge {task_id}"
+    if workspace["branch"] != branch_name:
+        print(
+            f"Warning: recorded task workspace branch {workspace['branch']} does "
+            f"not match selected branch {branch_name}; leaving it untouched.",
+            file=sys.stderr,
+        )
+        return True
+
+    workspace_path = workspace["workspace_path"]
+    if os.path.exists(workspace_path):
+        result = run(["git", "worktree", "remove", workspace_path], check=False)
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip()
+            print(
+                f"Error: git worktree remove {workspace_path} failed:\n{detail}\n"
+                "Clean or stash that task worktree, then re-run this command. "
+                "If you intentionally want to discard its local files, run:\n"
+                f"  git worktree remove --force {workspace_path}\n"
+                f"  {retry_command}",
+                file=sys.stderr,
+            )
+            return False
+
+    _forget_task_workspace(db_path, workspace["id"])
+    return True
+
+
 def find_task_branch(task_id: int) -> tuple[str | None, str | None, bool]:
     """Return (branch_name, error_message, pre_merged).
 
@@ -898,8 +981,26 @@ def main(argv: list[str]) -> int:
         )
 
     # Preflight checks — abort before touching session or task state
-    # Step 1a: Detect feature branch
-    branch_name, err, pre_merged = find_task_branch(task_id)
+    # Step 1a: Detect feature branch. Prefer the task-owned workspace record
+    # when present; it is the explicit ownership edge for this task and avoids
+    # selecting a stale or unrelated feature/TASK-N-* branch by timestamp.
+    recorded_workspace = _recorded_task_workspace(_db_path, task_id)
+    if recorded_workspace is not None:
+        branch_name = recorded_workspace["branch"]
+        pre_merged = False
+        if not _branch_exists(branch_name):
+            err = (
+                f"Recorded task workspace branch '{branch_name}' was not found. "
+                "Run `tusk task-worktree list` to inspect the recorded workspace."
+            )
+        else:
+            err = None
+            print(
+                f"Found recorded task workspace branch: {branch_name}",
+                file=sys.stderr,
+            )
+    else:
+        branch_name, err, pre_merged = find_task_branch(task_id)
 
     if pre_merged:
         # Fast-path: feature branch was already merged and deleted; user is on
@@ -1405,6 +1506,13 @@ def main(argv: list[str]) -> int:
             )
 
         # Step 6: Delete feature branch
+        if not _remove_recorded_task_worktree(
+            _db_path, task_id, branch_name, workspace=recorded_workspace
+        ):
+            if did_stash:
+                _try_pop_stash(task_id)
+            return 2
+
         # Use -D (force) when the branch was not merged via git merge (task_on_default path).
         branch_delete_flag = "-D" if task_on_default else "-d"
         result = run(["git", "branch", branch_delete_flag, branch_name], check=False)

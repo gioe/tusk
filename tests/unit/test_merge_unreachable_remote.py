@@ -115,6 +115,7 @@ def _make_conn_mock(session_id=1):
     conn = MagicMock()
     conn.execute.side_effect = [
         MagicMock(fetchall=MagicMock(return_value=[(session_id, "2026-01-01")])),
+        MagicMock(fetchone=MagicMock(return_value=None)),
     ]
     return conn
 
