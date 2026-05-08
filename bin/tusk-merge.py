@@ -756,9 +756,12 @@ def find_task_branch(task_id: int) -> tuple[str | None, str | None, bool]:
     the default branch — indicating the branch was previously merged and deleted.
     When pre_merged is True, branch_name and error_message are both None.
     """
-    result = run(["git", "branch", "--list", f"feature/TASK-{task_id}-*"], check=False)
+    primary_pattern = f"feature/TASK-{task_id}-*"
+    fallback_pattern = f"worktree-TASK-{task_id}-*"
+
+    result = run(["git", "branch", "--list", primary_pattern], check=False)
     if result.returncode != 0:
-        return None, f"git branch --list failed: {result.stderr.strip()}", False
+        return None, f"git branch --list {primary_pattern} failed: {result.stderr.strip()}", False
 
     branches = []
     for line in result.stdout.splitlines():
@@ -769,12 +772,28 @@ def find_task_branch(task_id: int) -> tuple[str | None, str | None, bool]:
             branches.append(stripped)
 
     if len(branches) == 0:
+        result = run(["git", "branch", "--list", fallback_pattern], check=False)
+        if result.returncode != 0:
+            return None, (
+                f"git branch --list {fallback_pattern} failed: {result.stderr.strip()}"
+            ), False
+
+        for line in result.stdout.splitlines():
+            stripped = line.strip()
+            if stripped.startswith(("* ", "+ ")):
+                stripped = stripped[2:]
+            if stripped:
+                branches.append(stripped)
+
+    if len(branches) == 0:
         # Check if user is on the default branch (branch was previously merged)
         current = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], check=False)
         default = detect_default_branch()
         if current.returncode == 0 and current.stdout.strip() == default:
             return None, None, True  # pre-merged: auto-complete path
-        return None, f"No branch found matching feature/TASK-{task_id}-*", False
+        return None, (
+            f"No branch found matching {primary_pattern} or {fallback_pattern}"
+        ), False
     if len(branches) > 1:
         # Pick the branch whose tip commit is most recent.
         timestamps = {}

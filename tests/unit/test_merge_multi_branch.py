@@ -107,6 +107,26 @@ class TestFindTaskBranchMultiple:
         assert err is None
         assert pre_merged is False
 
+    def test_falls_back_to_worktree_task_branch(self):
+        """No feature branch but worktree-TASK branch exists -> selects fallback."""
+        mod = _load_module()
+        fallback = "worktree-TASK-4-the-branch"
+
+        def fake_run(args, check=True):
+            if args[:3] == ["git", "branch", "--list"]:
+                if args[-1] == "feature/TASK-4-*":
+                    return _cp(0, stdout="")
+                if args[-1] == "worktree-TASK-4-*":
+                    return _cp(0, stdout=f"  {fallback}\n")
+            return _cp(0)
+
+        with patch.object(mod, "run", side_effect=fake_run):
+            branch, err, pre_merged = mod.find_task_branch(4)
+
+        assert branch == fallback
+        assert err is None
+        assert pre_merged is False
+
     def test_strips_linked_worktree_plus_marker(self):
         """Linked worktree display marker should not leak into the branch name."""
         mod = _load_module()
@@ -141,4 +161,6 @@ class TestFindTaskBranchMultiple:
 
         assert branch is None
         assert "No branch found" in err
+        assert "feature/TASK-9-*" in err
+        assert "worktree-TASK-9-*" in err
         assert pre_merged is False
