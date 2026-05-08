@@ -1312,6 +1312,34 @@ def rule26_glossary_drift(root):
     ]
 
 
+def rule27_task_worktree_prompt_drift(root):
+    """Task workflow prompts must use task-owned worktrees, not branch-first setup."""
+    stale_patterns = [
+        "Create a new git branch IMMEDIATELY",
+        "tusk branch <id>",
+        "git checkout -b feature/TASK-",
+        "isolation: worktree",
+    ]
+    prompt_paths = [
+        "skills/tusk/SKILL.md",
+        "codex-prompts/tusk.md",
+        "skills/chain/SKILL.md",
+        "skills/chain/AGENT-PROMPT.md",
+    ]
+    violations = []
+    for rel in prompt_paths:
+        full = os.path.join(root, rel)
+        if not os.path.isfile(full):
+            continue
+        for lineno, line in read_lines(full):
+            if any(pattern in line for pattern in stale_patterns):
+                violations.append(
+                    f"  {rel}:{lineno}: stale branch-first task workflow instruction: "
+                    f"{line.rstrip()}"
+                )
+    return violations
+
+
 # Each entry: (display_name, check_function, advisory)
 # advisory=True  → violations are printed but do NOT count toward exit code
 # advisory=False → violations count toward the non-zero exit code
@@ -1340,6 +1368,7 @@ RULES = [
     ("Rule 24: subprocess.run/check_output/Popen text=True without encoding", rule24_subprocess_encoding, False),
     ("Rule 25: bin/tusk subcommand drift across dispatcher, candidates list, and Usage message", rule25_subcommand_dispatcher_drift, False),
     ("Rule 26: docs/GLOSSARY.md drift from glossary table", rule26_glossary_drift, False),
+    ("Rule 27: task workflow prompts use task-owned worktrees", rule27_task_worktree_prompt_drift, False),
 ]
 
 # Load project-specific rules from tusk-lint-extra.py if it exists alongside this script.
