@@ -23,6 +23,7 @@ import argparse
 import json
 import os
 import sqlite3
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -47,6 +48,26 @@ def _find_task_commits(task_id: int, repo_root: str) -> list[str]:
     to the grep contract stays in lockstep with every other call site.
     """
     return find_task_commits(task_id, repo_root)
+
+
+def _repo_root_for_git(db_path: str) -> str:
+    """Resolve the git repo root used for task commit discovery."""
+    for key in ("TUSK_REPO_ROOT", "TUSK_PROJECT"):
+        value = os.environ.get(key)
+        if value:
+            return os.path.abspath(value)
+
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip()
+
+    # Production layout fallback: tusk/tasks.db -> tusk/ -> repo root.
+    return os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
 
 
 def _filter_commits_by_task_overlap(
@@ -155,8 +176,7 @@ def main(argv: list[str]) -> int:
         # Auto-mark only applies to 'completed' closures — wont_do/duplicate/expired
         # tasks may have open criteria intentionally left incomplete.
         if open_criteria and not force and reason == "completed":
-            # repo_root is two levels up from the DB: tusk/tasks.db → tusk/ → repo_root
-            repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+            repo_root = _repo_root_for_git(db_path)
             raw_commits = _find_task_commits(task_id, repo_root)
             # Prefix-collision file-overlap heuristic (issue #656): drop any
             # [TASK-<id>]-tagged commit whose file diff doesn't overlap with

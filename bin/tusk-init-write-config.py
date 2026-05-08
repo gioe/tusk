@@ -240,10 +240,11 @@ def main():
     # for the explicit "destroy and recreate" path that the wizard must
     # never invoke implicitly.
     db_path = sys.argv[1]
+    tusk_bin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
     if os.path.isfile(db_path):
-        refresh_cmd = ["tusk", "regen-triggers"]
+        refresh_cmd = [tusk_bin, "regen-triggers"]
     else:
-        refresh_cmd = ["tusk", "init"]
+        refresh_cmd = [tusk_bin, "init"]
 
     try:
         result = subprocess.run(

@@ -29,6 +29,8 @@ import sqlite3
 import subprocess
 from contextlib import redirect_stderr, redirect_stdout
 
+import pytest
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SCRIPT_DIR = os.path.join(REPO_ROOT, "bin")
 
@@ -44,6 +46,12 @@ def _load(name: str):
 
 
 tusk_bakeoff = _load("tusk-bakeoff")
+
+
+@pytest.fixture(autouse=True)
+def test_local_bakeoff_root(tmp_path, monkeypatch):
+    """Keep default bakeoff workspaces inside pytest's writable temp tree."""
+    monkeypatch.setenv("TUSK_BAKEOFF_ROOT", str(tmp_path / "bakeoffs"))
 
 
 def _insert_source_task(db_path: str) -> tuple[int, list[int]]:

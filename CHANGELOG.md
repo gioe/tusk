@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [882] - 2026-05-08
+
+- [TASK-355] Fix full-suite regressions after task workspace schema work
+
 ## [881] - 2026-05-08
 
 - [TASK-342] Extract shared tusk-branch auto-stash parsing into git helpers

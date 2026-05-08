@@ -129,8 +129,9 @@ def _run_tusk(args: list, timeout: int = 60) -> subprocess.CompletedProcess:
     Pass encoding='utf-8' so nested output with non-ASCII bytes (e.g. user's
     project-type name, test-command args, bootstrap task summaries) doesn't
     UnicodeDecodeError on non-UTF-8 locales."""
+    tusk_bin = os.path.join(SCRIPT_DIR, "tusk")
     return subprocess.run(
-        ["tusk", *args],
+        [tusk_bin, *args],
         capture_output=True,
         text=True,
         encoding="utf-8",
