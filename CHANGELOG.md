@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [879] - 2026-05-08
+
+- [TASK-348] Fix skill-run finish to report diagnostics for silent nonzero failures
+
 ## [878] - 2026-05-08
 
 - [TASK-347] Fix node -e verification spec quoting and supersede regenerated broken criteria

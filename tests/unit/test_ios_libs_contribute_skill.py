@@ -72,7 +72,9 @@ def test_distribution_version_and_changelog_are_bumped_for_skill_delivery():
     version = _text(REPO_ROOT / "VERSION").strip()
     changelog = _text(REPO_ROOT / "CHANGELOG.md")
 
-    assert version == "878"
+    assert version == "879"
+    assert "## [879] - 2026-05-08" in changelog
+    assert "[TASK-348] Fix skill-run finish to report diagnostics for silent nonzero failures" in changelog
     assert "## [878] - 2026-05-08" in changelog
     assert "[TASK-347] Fix node -e verification spec quoting and supersede regenerated broken criteria" in changelog
     assert "## [877] - 2026-05-07" in changelog
