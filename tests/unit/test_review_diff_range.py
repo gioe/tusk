@@ -153,6 +153,65 @@ class TestPrimaryRange:
         assert result["recovered_from_task_commits"] is False
         assert result["diff_lines"] > 0
 
+    def test_uses_origin_default_when_local_default_is_stale(self, tmp_path, monkeypatch):
+        """Issue #699: a stale but valid local default branch must not inflate
+        review diffs with commits that already exist on the remote default."""
+        repo_root, _ = _make_repo(tmp_path, default_branch="main")
+        seed_sha = subprocess.run(
+            ["git", "-C", repo_root, "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        ).stdout.strip()
+
+        with open(os.path.join(repo_root, "release.txt"), "w") as f:
+            f.write("release\n")
+        subprocess.run(["git", "-C", repo_root, "add", "release.txt"], check=True)
+        subprocess.run(
+            ["git", "-C", repo_root, "commit", "-q", "-m", "Release already on origin"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", repo_root, "update-ref", "refs/remotes/origin/main", "HEAD"],
+            check=True,
+        )
+        subprocess.run(["git", "-C", repo_root, "reset", "--hard", seed_sha], check=True)
+        subprocess.run(
+            ["git", "-C", repo_root, "checkout", "-q", "-b", "feature/TASK-42-foo", "origin/main"],
+            check=True,
+        )
+
+        with open(os.path.join(repo_root, "task.txt"), "w") as f:
+            f.write("task\n")
+        subprocess.run(["git", "-C", repo_root, "add", "task.txt"], check=True)
+        subprocess.run(
+            ["git", "-C", repo_root, "commit", "-q", "-m", "[TASK-42] Task change"],
+            check=True,
+        )
+
+        monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
+        result = mod.compute_range(42, repo_root)
+        remote_diff = subprocess.run(
+            ["git", "-C", repo_root, "diff", "origin/main...HEAD"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        ).stdout
+
+        assert result["range"] == "origin/main...HEAD"
+        assert result["recovered_from_task_commits"] is False
+        assert result["diff_lines"] == remote_diff.count("\n")
+        assert "task.txt" in result["summary"]
+        assert "release.txt" not in subprocess.run(
+            ["git", "-C", repo_root, "diff", result["range"]],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        ).stdout
+
 
 class TestTaskCommitRecovery:
     """When primary is empty, fall back to [TASK-N] commit-range recovery."""

@@ -3,9 +3,11 @@
 
 Given a task_id, determine the most meaningful git diff range for the review:
 
-    1. Primary range — ``<default_branch>...HEAD``, resolved by shelling out
-       to ``tusk git-default-branch`` so the remote-HEAD → gh → "main"
-       detection stays in lockstep with the wrapper.
+    1. Primary range — ``origin/<default_branch>...HEAD`` when the
+       remote-tracking default exists and is at least as current as the local
+       default, otherwise ``<default_branch>...HEAD``. The default branch name
+       is resolved by shelling out to ``tusk git-default-branch`` so the
+       remote-HEAD → gh → "main" detection stays in lockstep with the wrapper.
     2. Fallback — if the primary range has an empty diff (e.g. the feature
        branch has already been merged into the default branch and deleted),
        scan ``git log`` for the 50 most recent commits whose message contains
@@ -89,6 +91,26 @@ def default_branch(repo_root: str) -> str:
     return branch or "main"
 
 
+def _ref_exists(ref: str, repo_root: str) -> bool:
+    return _git(["rev-parse", "--verify", "--quiet", ref], repo_root).returncode == 0
+
+
+def _is_ancestor(ancestor: str, descendant: str, repo_root: str) -> bool:
+    return _git(["merge-base", "--is-ancestor", ancestor, descendant], repo_root).returncode == 0
+
+
+def primary_range(base: str, repo_root: str) -> str:
+    """Choose the best default-branch comparison ref for review diffs."""
+    remote = f"origin/{base}"
+    local_exists = _ref_exists(base, repo_root)
+    remote_exists = _ref_exists(remote, repo_root)
+    if remote_exists and (
+        not local_exists or _is_ancestor(base, remote, repo_root)
+    ):
+        return f"{remote}...HEAD"
+    return f"{base}...HEAD"
+
+
 def _filter_commits_by_task_overlap(
     task_id: int, commits: list, repo_root: str, db_path: str | None
 ) -> list:
@@ -125,10 +147,10 @@ def _filter_commits_by_task_overlap(
 def compute_range(task_id: int, repo_root: str, db_path: str | None = None) -> dict:
     """Return the diff-range payload for this task, or raise on empty diff."""
     base = default_branch(repo_root)
-    primary = f"{base}...HEAD"
+    primary = primary_range(base, repo_root)
 
     primary_result = _git(["diff", primary], repo_root)
-    if primary_result.returncode != 0:
+    if primary_result.returncode != 0 and not primary.startswith("origin/"):
         remote_primary = f"origin/{base}...HEAD"
         remote_result = _git(["diff", remote_primary], repo_root)
         if remote_result.returncode == 0:

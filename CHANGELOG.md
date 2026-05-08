@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [880] - 2026-05-08
+
+- [TASK-349] Fix review begin to prefer current remote default over stale local default
+
 ## [879] - 2026-05-08
 
 - [TASK-348] Fix skill-run finish to report diagnostics for silent nonzero failures
