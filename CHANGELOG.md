@@ -9,6 +9,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 ## [886] - 2026-05-08
 
 - [TASK-358] Preflight tusk merge worktree-lock failures before closing sessions
+- [TASK-359] Let tusk merge accept worktree-TASK branch fallbacks
 
 ## [885] - 2026-05-08
 

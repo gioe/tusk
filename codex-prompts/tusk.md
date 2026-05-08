@@ -511,8 +511,8 @@ JSON blob and the `skill_run.run_id` you already captured.
     (`git rebase --continue`) and retry.
 
     **Not-on-default fallback:** If `tusk merge` exits non-zero with
-    `No branch found matching feature/TASK-<id>-*` and you are NOT on
-    the default branch, switch to the default branch first
+    `No branch found matching feature/TASK-<id>-* or worktree-TASK-<id>-*`
+    and you are NOT on the default branch, switch to the default branch first
     (`git checkout <default_branch>`), then retry `tusk merge <id> --session <session_id>`.
 
     **PR mode:** If the project uses PR-based merges
