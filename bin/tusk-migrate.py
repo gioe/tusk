@@ -2670,6 +2670,40 @@ def migrate_67(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 67: added jots table")
 
 
+def migrate_68(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add ``task_workspaces`` for normal task-owned git worktrees.
+
+    Bakeoff worktrees are intentionally modeled through shadow tasks and
+    bakeoff_id. Normal task worktrees need their own lightweight registry so
+    `tusk task-worktree list` can report previously-created workspaces even
+    when a directory has been removed outside tusk.
+    """
+    if get_version(db_path) >= 68:
+        _progress("  Migration 68: added task_workspaces table")
+        return
+
+    ddl_stmts = []
+    if not has_table(db_path, "task_workspaces"):
+        ddl_stmts.append("""
+            CREATE TABLE task_workspaces (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                branch TEXT NOT NULL UNIQUE,
+                workspace_path TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+            );
+            CREATE INDEX idx_task_workspaces_task_id ON task_workspaces(task_id);
+        """)
+
+    script = "\n".join(ddl_stmts) + """
+        PRAGMA user_version = 68;
+    """
+    run_script(db_path, script)
+    _progress("  Migration 68: added task_workspaces table")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -2740,6 +2774,7 @@ MIGRATIONS = [
     (65, migrate_65),
     (66, migrate_66),
     (67, migrate_67),
+    (68, migrate_68),
 ]
 
 

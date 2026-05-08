@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [883] - 2026-05-08
+
+- [TASK-351] Add task-owned worktree create/list commands
+
 ## [882] - 2026-05-08
 
 - [TASK-355] Fix full-suite regressions after task workspace schema work

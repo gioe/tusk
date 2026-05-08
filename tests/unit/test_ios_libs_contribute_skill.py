@@ -72,7 +72,9 @@ def test_distribution_version_and_changelog_are_bumped_for_skill_delivery():
     version = _text(REPO_ROOT / "VERSION").strip()
     changelog = _text(REPO_ROOT / "CHANGELOG.md")
 
-    assert version == "882"
+    assert version == "883"
+    assert "## [883] - 2026-05-08" in changelog
+    assert "[TASK-351] Add task-owned worktree create/list commands" in changelog
     assert "## [882] - 2026-05-08" in changelog
     assert "[TASK-355] Fix full-suite regressions after task workspace schema work" in changelog
     assert "## [881] - 2026-05-08" in changelog

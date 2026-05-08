@@ -169,6 +169,23 @@ See [Relationship Semantics](#relationship-semantics-blocks-vs-contingent) for t
 
 ---
 
+### Task Workspace
+
+A recorded git worktree owned by a normal task. Bakeoff attempts use shadow tasks and `bakeoff_id`; `task_workspaces` is the separate registry for regular task workspaces created by `tusk task-worktree create`.
+
+| Attribute | Type | Constraints | Description |
+|-----------|------|-------------|-------------|
+| `id` | INTEGER | PK, autoincrement | Stable workspace id returned as `workspace_id` in CLI JSON |
+| `task_id` | INTEGER | FK → tasks(id) CASCADE | Owning normal task |
+| `branch` | TEXT | NOT NULL, UNIQUE | Feature branch checked out in the worktree, usually `feature/TASK-<id>-<slug>` |
+| `workspace_path` | TEXT | NOT NULL, UNIQUE | Absolute path passed to `git worktree add` |
+| `created_at` | TEXT | NOT NULL, default now | Creation timestamp |
+| `updated_at` | TEXT | NOT NULL, default now | Last metadata update timestamp |
+
+`tusk task-worktree list` reconciles these rows with `git worktree list --porcelain`, so rows remain visible even when a workspace directory was removed outside tusk. The list output reports both the recorded path and the live path currently advertised by git for the branch.
+
+---
+
 ### External Blocker
 
 An obstacle outside the task graph — waiting for data, approval, infrastructure, or a third party — that prevents a task from being ready even if all dependencies are complete.

@@ -28,6 +28,8 @@ bin/tusk task-done <task_id> --reason completed|expired|wont_do|duplicate [--for
 bin/tusk task-update <task_id> [--priority P] [--domain D] [--task-type T] [--assignee A] [--complexity C] [--workflow W] [--summary S] [--description D]
 bin/tusk task-reopen <task_id> --force
 bin/tusk task-summary <task_id> [--format json|markdown]   # end-of-run rollup: identity, cost, duration, diff, criteria counts (JSON default; markdown for user-facing display)
+bin/tusk task-worktree create <task_id> <slug> [--workspace-root <path>]  # create or reuse a task-owned git worktree and emit JSON
+bin/tusk task-worktree list [--format json]   # list recorded task worktrees reconciled with git worktree list
 
 # Dev workflow
 bin/tusk branch <task_id> <slug>

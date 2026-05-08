@@ -541,6 +541,18 @@ CREATE TABLE task_dependencies (
 CREATE INDEX idx_task_dependencies_task_id ON task_dependencies(task_id);
 CREATE INDEX idx_task_dependencies_depends_on_id ON task_dependencies(depends_on_id);
 
+-- task_workspaces (task-owned git worktrees)
+CREATE TABLE task_workspaces (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    branch TEXT NOT NULL UNIQUE,
+    workspace_path TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_task_workspaces_task_id ON task_workspaces(task_id);
+
 -- task_progress (checkpoint log for context recovery)
 CREATE TABLE task_progress (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -998,7 +1010,7 @@ TEST_RUNS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 67;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 68;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."
@@ -1089,7 +1101,7 @@ candidates = [
   'review','review-verdict','review-pass-status','review-final-summary','review-diff-range','review-wait','review-check-perms','review-agent-cost',
   'deps','session-stats','session-recalc','session-close','skill-run','jot','jots','call-breakdown',
   'active-project','git-default-branch','branch-parse',
-  'task-get','task-get-multi','task-select','task-start','task-done','task-insert','task-update','task-reopen','task-unstart','task-list','task-summary',
+  'task-get','task-get-multi','task-select','task-start','task-done','task-insert','task-update','task-reopen','task-unstart','task-list','task-summary','task-worktree',
   'audit','autoclose','backlog-scan','groom','check-deliverables',
   'retro','retro-signals','retro-themes','retro-finding','retro-patches',
   'test-detect','test-precheck','add-lib','address-issue',
@@ -1586,6 +1598,7 @@ case "${1:-}" in
   task-unstart) shift; exec python3 "$SCRIPT_DIR/tusk-task-unstart.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   task-list) shift; exec python3 "$SCRIPT_DIR/tusk-task-list.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   task-summary) shift; exec python3 "$SCRIPT_DIR/tusk-task-summary.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  task-worktree) shift; exec python3 "$SCRIPT_DIR/tusk-task-worktree.py" "$DB_PATH" "$(resolve_config)" "$REPO_ROOT" "$@" ;;
   audit) shift; exec python3 "$SCRIPT_DIR/tusk-audit.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   autoclose) shift; exec python3 "$SCRIPT_DIR/tusk-autoclose.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   backlog-scan) shift; exec python3 "$SCRIPT_DIR/tusk-backlog-scan.py" "$DB_PATH" "$(resolve_config)" "$@" ;;

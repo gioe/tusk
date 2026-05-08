@@ -1,0 +1,292 @@
+#!/usr/bin/env python3
+"""Create and inspect task-owned git worktrees."""
+
+import argparse
+import os
+import sqlite3
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tusk_loader  # loads tusk-db-lib.py and tusk-json-lib.py
+
+_db_lib = tusk_loader.load("tusk-db-lib")
+get_connection = _db_lib.get_connection
+
+_json = tusk_loader.load("tusk-json-lib")
+dumps = _json.dumps
+
+
+def _list_workspaces(conn: sqlite3.Connection) -> list[dict]:
+    return _list_workspaces_with_live_state(conn, {})
+
+
+def _resolve_task_id(raw: str) -> int:
+    value = raw.strip()
+    if value.upper().startswith("TASK-"):
+        value = value[5:]
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise ValueError(f"Invalid task ID: {raw}") from exc
+
+
+def _run_git(repo_root: str, args: list[str]) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", *args],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+
+def _detect_default_branch(repo_root: str) -> str:
+    set_head = _run_git(repo_root, ["remote", "set-head", "origin", "--auto"])
+    if set_head.returncode == 0:
+        origin_head = _run_git(repo_root, ["symbolic-ref", "refs/remotes/origin/HEAD"])
+        if origin_head.returncode == 0 and origin_head.stdout.strip():
+            return origin_head.stdout.strip().replace("refs/remotes/origin/", "")
+
+    for candidate in ("main", "master"):
+        exists = _run_git(repo_root, ["show-ref", "--verify", f"refs/heads/{candidate}"])
+        if exists.returncode == 0:
+            return candidate
+
+    current = _run_git(repo_root, ["branch", "--show-current"])
+    if current.returncode == 0 and current.stdout.strip():
+        return current.stdout.strip()
+    return "main"
+
+
+def _branch_exists(repo_root: str, branch: str) -> bool:
+    result = _run_git(repo_root, ["show-ref", "--verify", f"refs/heads/{branch}"])
+    return result.returncode == 0
+
+
+def _create_worktree(
+    repo_root: str,
+    worktree_path: str,
+    branch: str,
+    base_branch: str,
+) -> tuple[bool, str]:
+    os.makedirs(os.path.dirname(worktree_path), exist_ok=True)
+    result = _run_git(
+        repo_root,
+        ["worktree", "add", "-b", branch, worktree_path, base_branch],
+    )
+    return result.returncode == 0, result.stderr.strip()
+
+
+def _parse_git_worktrees(repo_root: str) -> dict[str, str]:
+    result = _run_git(repo_root, ["worktree", "list", "--porcelain"])
+    if result.returncode != 0:
+        return {}
+
+    by_branch: dict[str, str] = {}
+    current_path = None
+    for line in result.stdout.splitlines():
+        if line.startswith("worktree "):
+            current_path = line[len("worktree "):].strip()
+        elif line.startswith("branch refs/heads/") and current_path:
+            branch = line[len("branch refs/heads/"):].strip()
+            by_branch[branch] = current_path
+    return by_branch
+
+
+def _list_workspaces_with_live_state(
+    conn: sqlite3.Connection, live_by_branch: dict[str, str]
+) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT id, task_id, branch, workspace_path, created_at, updated_at
+        FROM task_workspaces
+        ORDER BY id
+        """
+    ).fetchall()
+    return [
+        {
+            "workspace_id": row["id"],
+            "task_id": row["task_id"],
+            "branch": row["branch"],
+            "workspace_path": row["workspace_path"],
+            "exists_on_disk": os.path.isdir(row["workspace_path"]),
+            "live_workspace_path": live_by_branch.get(row["branch"]),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+        for row in rows
+    ]
+
+
+def _fetch_task(conn: sqlite3.Connection, task_id: int) -> sqlite3.Row | None:
+    return conn.execute(
+        "SELECT id, bakeoff_shadow FROM tasks WHERE id = ?",
+        (task_id,),
+    ).fetchone()
+
+
+def _workspace_payload(row: sqlite3.Row, *, created: bool) -> dict:
+    return {
+        "workspace_id": row["id"],
+        "task_id": row["task_id"],
+        "branch": row["branch"],
+        "workspace_path": row["workspace_path"],
+        "created": created,
+    }
+
+
+def cmd_create(db_path: str, repo_root: str, argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="tusk task-worktree create",
+        description="Create or reuse a task-owned git worktree.",
+    )
+    parser.add_argument("task_id", help="Task ID as an integer or TASK-NNN.")
+    parser.add_argument("slug", help="Branch slug for feature/TASK-<id>-<slug>.")
+    parser.add_argument(
+        "--workspace-root",
+        default=None,
+        help=(
+            "Parent directory for task worktrees. Default: $TUSK_WORKTREE_ROOT "
+            "or $HOME/.tusk/worktrees."
+        ),
+    )
+    args = parser.parse_args(argv)
+
+    try:
+        task_id = _resolve_task_id(args.task_id)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    slug = args.slug.strip().strip("/")
+    if not slug:
+        print("Error: Slug must not be empty", file=sys.stderr)
+        return 1
+
+    branch = f"feature/TASK-{task_id}-{slug}"
+    workspace_root = (
+        args.workspace_root
+        or os.environ.get("TUSK_WORKTREE_ROOT")
+        or os.path.join(os.path.expanduser("~"), ".tusk", "worktrees")
+    )
+    workspace_path = os.path.join(workspace_root, f"TASK-{task_id}-{slug}")
+
+    conn = get_connection(db_path)
+    try:
+        task = _fetch_task(conn, task_id)
+        if task is None:
+            print(f"Error: task {task_id} not found", file=sys.stderr)
+            return 1
+        if task["bakeoff_shadow"]:
+            print(
+                f"Error: TASK-{task_id} is a bakeoff shadow; task worktrees "
+                "must target normal tasks.",
+                file=sys.stderr,
+            )
+            return 1
+
+        existing = conn.execute(
+            """
+            SELECT id, task_id, branch, workspace_path
+            FROM task_workspaces
+            WHERE task_id = ? AND branch = ?
+            """,
+            (task_id, branch),
+        ).fetchone()
+        if existing:
+            print(dumps(_workspace_payload(existing, created=False)))
+            return 0
+
+        if _branch_exists(repo_root, branch):
+            print(
+                f"Error: branch '{branch}' already exists but is not recorded "
+                "as a task workspace.",
+                file=sys.stderr,
+            )
+            return 2
+
+        ok, err = _create_worktree(
+            repo_root,
+            workspace_path,
+            branch,
+            _detect_default_branch(repo_root),
+        )
+        if not ok:
+            print(f"Error: git worktree add failed:\n{err}", file=sys.stderr)
+            return 2
+
+        cur = conn.execute(
+            """
+            INSERT INTO task_workspaces (task_id, branch, workspace_path)
+            VALUES (?, ?, ?)
+            """,
+            (task_id, branch, workspace_path),
+        )
+        conn.commit()
+        row = conn.execute(
+            """
+            SELECT id, task_id, branch, workspace_path
+            FROM task_workspaces
+            WHERE id = ?
+            """,
+            (cur.lastrowid,),
+        ).fetchone()
+        print(dumps(_workspace_payload(row, created=True)))
+        return 0
+    except sqlite3.IntegrityError as exc:
+        print(f"Error: could not record task workspace: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        conn.close()
+
+
+def cmd_list(db_path: str, repo_root: str, argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="tusk task-worktree list",
+        description="List recorded task-owned git worktrees.",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["json"],
+        default="json",
+        help="Output format (default: json).",
+    )
+    parser.parse_args(argv)
+
+    conn = get_connection(db_path)
+    try:
+        print(dumps(_list_workspaces_with_live_state(conn, _parse_git_worktrees(repo_root))))
+    finally:
+        conn.close()
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 4:
+        print("Usage: tusk task-worktree list", file=sys.stderr)
+        return 1
+
+    db_path = argv[0]
+    # argv[1] is config_path, accepted for dispatcher consistency.
+    # argv[2] is repo_root, used by create/status commands.
+    command = argv[3] if len(argv) > 3 else ""
+    rest = argv[4:]
+
+    repo_root = argv[2]
+
+    if command == "create":
+        return cmd_create(db_path, repo_root, rest)
+    if command in {"list", "status"}:
+        return cmd_list(db_path, repo_root, rest)
+
+    print(
+        "Usage: tusk task-worktree create <task_id> <slug> [--workspace-root <path>]\n"
+        "       tusk task-worktree list [--format json]",
+        file=sys.stderr,
+    )
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
