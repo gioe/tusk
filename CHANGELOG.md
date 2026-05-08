@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [887] - 2026-05-08
+
+- [TASK-360] Rebase tusk merge --rebase onto origin/default
+
 ## [886] - 2026-05-08
 
 - [TASK-358] Preflight tusk merge worktree-lock failures before closing sessions

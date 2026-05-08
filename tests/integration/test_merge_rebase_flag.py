@@ -40,7 +40,9 @@ def _make_base_run(
     branch_name: str,
     default_branch: str = "main",
     rebase_rc: int = 0,
+    push_rc: int = 0,
     task_id: int = 1,
+    has_origin: bool = True,
     record_calls: list | None = None,
 ):
     """Return a mock run() for the local-merge path with optional --rebase support.
@@ -58,7 +60,16 @@ def _make_base_run(
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
         if args[:3] == ["git", "stash", "push"]:
             return subprocess.CompletedProcess(args, 0, stdout="No local changes to save", stderr="")
+        if args[:3] == ["git", "remote", "get-url"]:
+            return subprocess.CompletedProcess(
+                args,
+                0 if has_origin else 2,
+                stdout="git@example.com:owner/repo.git\n" if has_origin else "",
+                stderr="" if has_origin else "fatal: No such remote 'origin'\n",
+            )
         if args[:2] == ["git", "checkout"] and len(args) == 3:
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        if args[:3] == ["git", "fetch", "origin"]:
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
         if args[:3] == ["git", "pull", "origin"] or ("pull" in args and "origin" in args):
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
@@ -69,14 +80,26 @@ def _make_base_run(
             return subprocess.CompletedProcess(
                 args, 0, stdout=f"abc1234 [TASK-{task_id}] implement fix\n", stderr=""
             )
-        if args[:3] == ["git", "rebase", default_branch]:
+        if args[:3] in (
+            ["git", "rebase", default_branch],
+            ["git", "rebase", f"origin/{default_branch}"],
+        ):
             return subprocess.CompletedProcess(args, rebase_rc, stdout="", stderr="CONFLICT (content)" if rebase_rc != 0 else "")
         if args[:3] == ["git", "rebase", "--abort"]:
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
         if args[:3] == ["git", "merge", "--ff-only"]:
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
         if args[:2] == ["git", "push"]:
-            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(
+                args,
+                push_rc,
+                stdout="",
+                stderr=(
+                    ""
+                    if push_rc == 0
+                    else "! [rejected] main -> main (non-fast-forward)\n"
+                ),
+            )
         if args[:3] == ["git", "branch", "-d"]:
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
         if "session-close" in args:
@@ -176,6 +199,150 @@ class TestRebaseSuccess:
             if c[:2] == ["git", "checkout"] and c[2:3] == [default] and i > rebase_idx and i < ff_idx
         ]
         assert co_default_after_rebase, "Expected checkout of default branch after rebase and before ff-only merge"
+
+    def test_rebase_fetches_and_targets_origin_default(self, db_path, config_path, monkeypatch):
+        """With --rebase: fetch origin, then rebase onto origin/default instead of stale local default."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        branch = f"feature/TASK-{task_id}-my-branch"
+        default = "main"
+        record = []
+
+        monkeypatch.setattr(tusk_merge, "find_task_branch", lambda tid: (branch, None, False))
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: default)
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        mock_run, _ = _make_base_run(
+            branch,
+            default_branch=default,
+            rebase_rc=0,
+            task_id=task_id,
+            record_calls=record,
+        )
+        monkeypatch.setattr(tusk_merge, "run", mock_run)
+
+        stderr_buf = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(stderr_buf):
+            rc = tusk_merge.main(
+                [
+                    str(db_path),
+                    str(config_path),
+                    str(task_id),
+                    "--session",
+                    str(session_id),
+                    "--rebase",
+                ]
+            )
+
+        assert rc == 0, f"Expected exit 0\nstderr: {stderr_buf.getvalue()}"
+
+        fetch_idx = next(
+            (i for i, c in enumerate(record) if c == ["git", "fetch", "origin"]),
+            None,
+        )
+        rebase_idx = next(
+            (
+                i
+                for i, c in enumerate(record)
+                if c == ["git", "rebase", f"origin/{default}"]
+            ),
+            None,
+        )
+        assert fetch_idx is not None, "Expected --rebase to fetch origin before rebasing"
+        assert rebase_idx is not None, "Expected --rebase to target origin/main"
+        assert fetch_idx < rebase_idx, "Expected git fetch origin before git rebase origin/main"
+        assert ["git", "rebase", default] not in record
+
+    def test_rebase_without_origin_keeps_local_default_target(self, db_path, config_path, monkeypatch):
+        """With no origin remote, --rebase keeps the existing local-default behavior."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        branch = f"feature/TASK-{task_id}-my-branch"
+        default = "main"
+        record = []
+
+        monkeypatch.setattr(tusk_merge, "find_task_branch", lambda tid: (branch, None, False))
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: default)
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        mock_run, _ = _make_base_run(
+            branch,
+            default_branch=default,
+            has_origin=False,
+            task_id=task_id,
+            record_calls=record,
+        )
+        monkeypatch.setattr(tusk_merge, "run", mock_run)
+
+        stderr_buf = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(stderr_buf):
+            rc = tusk_merge.main(
+                [
+                    str(db_path),
+                    str(config_path),
+                    str(task_id),
+                    "--session",
+                    str(session_id),
+                    "--rebase",
+                ]
+            )
+
+        assert rc == 0, f"Expected exit 0\nstderr: {stderr_buf.getvalue()}"
+        assert ["git", "fetch", "origin"] not in record
+        assert ["git", "rebase", default] in record
+        assert ["git", "rebase", f"origin/{default}"] not in record
+
+    def test_push_failure_after_rebase_has_distinct_guidance(
+        self, db_path, config_path, monkeypatch
+    ):
+        """If origin advances after --rebase, the push failure should say the rebase already ran."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        branch = f"feature/TASK-{task_id}-my-branch"
+        record = []
+
+        monkeypatch.setattr(tusk_merge, "find_task_branch", lambda tid: (branch, None, False))
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        mock_run, _ = _make_base_run(
+            branch,
+            push_rc=1,
+            task_id=task_id,
+            record_calls=record,
+        )
+        monkeypatch.setattr(tusk_merge, "run", mock_run)
+
+        stderr_buf = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(stderr_buf):
+            rc = tusk_merge.main(
+                [
+                    str(db_path),
+                    str(config_path),
+                    str(task_id),
+                    "--session",
+                    str(session_id),
+                    "--rebase",
+                ]
+            )
+
+        assert rc == 2
+        stderr = stderr_buf.getvalue()
+        assert ["git", "rebase", "origin/main"] in record
+        assert "after --rebase" in stderr
+        assert "git fetch origin && git rebase origin/main" in stderr
 
 
 class TestRebaseFailure:
@@ -288,11 +455,13 @@ class TestRebaseFailure:
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
             if "pull" in args and "origin" in args:
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:3] == ["git", "fetch", "origin"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
             if args[:2] == ["git", "log"] and any(f"--grep=\\[TASK-{task_id}\\]" in a for a in args):
                 return subprocess.CompletedProcess(
                     args, 0, stdout=f"abc1234 [TASK-{task_id}] implement fix\n", stderr=""
                 )
-            if args[:3] == ["git", "rebase", "main"]:
+            if args[:3] == ["git", "rebase", "origin/main"]:
                 return subprocess.CompletedProcess(args, 1, stdout="", stderr="CONFLICT (content)")
             if "session-close" in args:
                 return subprocess.CompletedProcess(args, 0, stdout="{}", stderr="")

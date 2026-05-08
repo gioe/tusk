@@ -1478,7 +1478,28 @@ def main(argv: list[str]) -> int:
 
         # Step 4 (optional --rebase): rebase feature branch onto default before ff-merge
         if not task_on_default and use_rebase:
-            print(f"Rebasing {branch_name} onto {default_branch}...", file=sys.stderr)
+            rebase_target = default_branch
+            if has_origin:
+                fetch_result = run(["git", "fetch", "origin"], check=False)
+                if fetch_result.returncode == 0:
+                    rebase_target = f"origin/{default_branch}"
+                elif _is_remote_unreachable(fetch_result.stderr):
+                    print(
+                        f"Warning: could not reach origin — rebasing onto local "
+                        f"'{default_branch}'.\n  {fetch_result.stderr.strip()}",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(
+                        f"Error: git fetch origin failed before --rebase:\n"
+                        f"{fetch_result.stderr.strip()}",
+                        file=sys.stderr,
+                    )
+                    run(["git", "checkout", branch_name], check=False)
+                    if did_stash:
+                        _try_pop_stash(task_id)
+                    return 2
+            print(f"Rebasing {branch_name} onto {rebase_target}...", file=sys.stderr)
             # Switch to feature branch — move db files aside first (same pattern as above)
             for src, dst in zip(db_siblings, db_tmp):
                 if os.path.exists(src):
@@ -1497,7 +1518,7 @@ def main(argv: list[str]) -> int:
                     _try_pop_stash(task_id)
                 return 2
 
-            rebase_result = run(["git", "rebase", default_branch], check=False)
+            rebase_result = run(["git", "rebase", rebase_target], check=False)
             if rebase_result.returncode != 0:
                 if rebase_result.stderr.strip():
                     print(rebase_result.stderr.strip(), file=sys.stderr)
@@ -1510,7 +1531,7 @@ def main(argv: list[str]) -> int:
                         "after the rebase completes."
                     )
                 print(
-                    f"Error: git rebase {default_branch} failed — conflicts must be resolved manually.\n"
+                    f"Error: git rebase {rebase_target} failed — conflicts must be resolved manually.\n"
                     f"You are on '{branch_name}' with the rebase in progress. To finish:\n"
                     "  1. Fix the conflicting files (git status lists them)\n"
                     "  2. git add <resolved files>\n"
@@ -1582,10 +1603,27 @@ def main(argv: list[str]) -> int:
                         _try_pop_stash(task_id)
                     return 2
                 else:
+                    if use_rebase:
+                        error_title = "Error: git push failed after --rebase:"
+                        retry = (
+                            f"  Retry: git fetch origin && git rebase origin/{default_branch} && "
+                            f"git push origin {default_branch} && tusk merge {task_id} --session {session_id}"
+                        )
+                        context = (
+                            "The branch was rebased for --rebase and merged locally, "
+                            "but origin still rejected the push. The remote default "
+                            "branch may have advanced after the rebase."
+                        )
+                    else:
+                        error_title = "Error: git push failed:"
+                        retry = (
+                            f"  Retry: git push origin {default_branch} && tusk merge {task_id} --session {session_id}"
+                        )
+                        context = "The branch has been merged locally but not pushed."
                     print(
-                        f"Error: git push failed:\n{result.stderr.strip()}\n"
-                        f"The branch has been merged locally but not pushed.\n"
-                        f"  Retry: git push origin {default_branch} && tusk merge {task_id} --session {session_id}\n"
+                        f"{error_title}\n{result.stderr.strip()}\n"
+                        f"{context}\n"
+                        f"{retry}\n"
                         f"  Undo:  git reset --hard HEAD~1 && git checkout {branch_name}",
                         file=sys.stderr,
                     )

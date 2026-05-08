@@ -72,7 +72,9 @@ def test_distribution_version_and_changelog_are_bumped_for_skill_delivery():
     version = _text(REPO_ROOT / "VERSION").strip()
     changelog = _text(REPO_ROOT / "CHANGELOG.md")
 
-    assert version == "886"
+    assert version == "887"
+    assert "## [887] - 2026-05-08" in changelog
+    assert "[TASK-360] Rebase tusk merge --rebase onto origin/default" in changelog
     assert "## [886] - 2026-05-08" in changelog
     assert "[TASK-358] Preflight tusk merge worktree-lock failures before closing sessions" in changelog
     assert "[TASK-359] Let tusk merge accept worktree-TASK branch fallbacks" in changelog
