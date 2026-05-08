@@ -45,13 +45,19 @@ def test_rule27_flags_branch_first_task_prompts():
             "skills/chain/AGENT-PROMPT.md",
             "git checkout -b feature/TASK-{id}-<brief-slug>\n",
         )
+        _write(
+            tmp,
+            "codex-prompts/chain.md",
+            "Follow tusk.md Step 1 onward for that task ID -- start, branch,\n",
+        )
 
         violations = lint.rule27_task_worktree_prompt_drift(tmp)
 
-    assert len(violations) >= 3
+    assert len(violations) >= 4
     assert any("skills/tusk/SKILL.md" in v for v in violations)
     assert any("codex-prompts/tusk.md" in v for v in violations)
     assert any("skills/chain/AGENT-PROMPT.md" in v for v in violations)
+    assert any("codex-prompts/chain.md" in v for v in violations)
 
 
 def test_rule27_allows_task_worktree_flow():
@@ -76,6 +82,11 @@ def test_rule27_allows_task_worktree_flow():
             tmp,
             "skills/chain/AGENT-PROMPT.md",
             "tusk task-worktree create {id} <brief-slug>\n",
+        )
+        _write(
+            tmp,
+            "codex-prompts/chain.md",
+            "Follow tusk.md Step 1 onward -- start, create or reuse its task-owned workspace.\n",
         )
 
         assert lint.rule27_task_worktree_prompt_drift(tmp) == []

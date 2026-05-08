@@ -1319,12 +1319,14 @@ def rule27_task_worktree_prompt_drift(root):
         "tusk branch <id>",
         "git checkout -b feature/TASK-",
         "isolation: worktree",
+        "start, branch",
     ]
     prompt_paths = [
         "skills/tusk/SKILL.md",
         "codex-prompts/tusk.md",
         "skills/chain/SKILL.md",
         "skills/chain/AGENT-PROMPT.md",
+        "codex-prompts/chain.md",
     ]
     violations = []
     for rel in prompt_paths:
