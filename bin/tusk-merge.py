@@ -55,6 +55,7 @@ task_grep_arg = _git_helpers.task_grep_arg
 find_task_commits = _git_helpers.find_task_commits
 commit_changed_files = _git_helpers.commit_changed_files
 task_referenced_paths = _git_helpers.task_referenced_paths
+iter_branch_auto_stashes = _git_helpers.iter_branch_auto_stashes
 
 
 def run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
@@ -388,29 +389,10 @@ def _drop_branch_auto_stash(task_id: int) -> None:
     successful merge prevents the stash list from accumulating orphans (issue #644).
     Silent when no matching entry exists.
     """
-    label = f"tusk-branch: auto-stash for TASK-{task_id}"
-    # Skip when there are no stashes — `refs/stash` is a single ref the daemon
-    # manages, so checking it is much cheaper than parsing `git stash list`
-    # output, and avoids the spurious 'stash list' invocation on clean working
-    # trees that have no orphan to clean up (issue #658).
-    if run(
-        ["git", "rev-parse", "--verify", "--quiet", "refs/stash"], check=False
-    ).returncode != 0:
-        return
-    stash_list = run(["git", "stash", "list"], check=False)
-    if stash_list.returncode != 0:
-        return
-
     stash_index: int | None = None
-    for line in stash_list.stdout.splitlines():
-        # Lines look like: "stash@{N}: On <branch>: tusk-branch: auto-stash for TASK-N".
-        # Match the label at end-of-line (after rstrip) so `TASK-2` does not collide
-        # with `TASK-29`, then parse N.
-        if line.startswith("stash@{") and line.rstrip().endswith(label):
-            try:
-                stash_index = int(line.split("{")[1].split("}")[0])
-            except (IndexError, ValueError):
-                pass
+    for index, entry_task_id in iter_branch_auto_stashes(runner=run):
+        if entry_task_id == task_id:
+            stash_index = index
             break
 
     if stash_index is None:

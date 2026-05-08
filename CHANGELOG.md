@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [881] - 2026-05-08
+
+- [TASK-342] Extract shared tusk-branch auto-stash parsing into git helpers
+
 ## [880] - 2026-05-08
 
 - [TASK-349] Fix review begin to prefer current remote default over stale local default

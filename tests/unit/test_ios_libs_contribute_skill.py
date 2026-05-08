@@ -72,7 +72,9 @@ def test_distribution_version_and_changelog_are_bumped_for_skill_delivery():
     version = _text(REPO_ROOT / "VERSION").strip()
     changelog = _text(REPO_ROOT / "CHANGELOG.md")
 
-    assert version == "880"
+    assert version == "881"
+    assert "## [881] - 2026-05-08" in changelog
+    assert "[TASK-342] Extract shared tusk-branch auto-stash parsing into git helpers" in changelog
     assert "## [880] - 2026-05-08" in changelog
     assert "[TASK-349] Fix review begin to prefer current remote default over stale local default" in changelog
     assert "## [879] - 2026-05-08" in changelog

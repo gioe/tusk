@@ -29,6 +29,7 @@ Loaded via tusk_loader:
     default_branch = _git_helpers.default_branch
     commit_changed_files = _git_helpers.commit_changed_files
     task_referenced_paths = _git_helpers.task_referenced_paths
+    iter_branch_auto_stashes = _git_helpers.iter_branch_auto_stashes
 """
 
 import os
@@ -55,6 +56,10 @@ _UNREACHABLE_REMOTE_PATTERNS = (
 # git sometimes inlines the failing URL: `fatal: repository 'https://…' not found`.
 _UNREACHABLE_REMOTE_REGEX = re.compile(r"repository '[^']*' not found", re.IGNORECASE)
 
+_BRANCH_AUTOSTASH_LINE_RE = re.compile(
+    r"^stash@\{(\d+)\}: .*: tusk-branch: auto-stash for TASK-(\d+)$"
+)
+
 
 def _is_remote_unreachable(stderr: str) -> bool:
     """Return True if *stderr* indicates the remote is unreachable rather than
@@ -65,6 +70,44 @@ def _is_remote_unreachable(stderr: str) -> bool:
     if any(pat in lower for pat in _UNREACHABLE_REMOTE_PATTERNS):
         return True
     return bool(_UNREACHABLE_REMOTE_REGEX.search(stderr))
+
+
+def iter_branch_auto_stashes(repo_root: str | None = None, runner=None):
+    """Yield ``(stash_index, task_id)`` for ``tusk-branch`` auto-stash entries.
+
+    Uses ``refs/stash`` as a cheap fast-exit before listing stashes, and
+    matches the full line through ``TASK-N`` so ``TASK-2`` does not collide with
+    ``TASK-29``.
+    """
+    if runner is None:
+        def run_git(args):
+            kwargs = {
+                "capture_output": True,
+                "text": True,
+                "encoding": "utf-8",
+            }
+            if repo_root is not None:
+                kwargs["cwd"] = repo_root
+            return subprocess.run(args, **kwargs)
+    else:
+        def run_git(args):
+            return runner(args, check=False)
+
+    if run_git(["git", "rev-parse", "--verify", "--quiet", "refs/stash"]).returncode != 0:
+        return
+
+    stash_list = run_git(["git", "stash", "list"])
+    if stash_list.returncode != 0:
+        return
+
+    for line in stash_list.stdout.splitlines():
+        match = _BRANCH_AUTOSTASH_LINE_RE.match(line.rstrip())
+        if not match:
+            continue
+        try:
+            yield (int(match.group(1)), int(match.group(2)))
+        except ValueError:
+            pass
 
 
 def task_grep_arg(task_id: int) -> str:
