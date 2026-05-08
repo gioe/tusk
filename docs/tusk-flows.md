@@ -6,7 +6,7 @@
 
 ```
 /tusk ──────────────────── task-start
-                           branch
+                           task-worktree create
                            commit ──► test_command gate (hard-block, --skip-verify bypasses)
                                   ├──► lint
                                   └──► criteria done   (atomic)
@@ -25,7 +25,7 @@
                            chain status
                            criteria done                (deferred chain criteria, orchestrator)
                            [spawns /tusk agents]        (one per task in wave)
-                             └── per-agent: task-start · branch · commit · criteria ·
+                             └── per-agent: task-start · task-worktree · commit · criteria ·
                                            progress · lint · migrate · merge ·
                                            criteria skip --reason chain
                            [invokes /retro]             (post-chain aggregation)
@@ -114,8 +114,10 @@ USER / /loop
     ├── 1. task-start <id> --force
     │         └── opens/reuses session, sets In Progress
     │
-    ├── 2. tusk branch <id> <slug>
-    │         └── checkout default branch, pull, create feature/TASK-<id>-<slug>
+    ├── 2. task-worktree create <id> <slug>
+    │         ├── create/reuse $TUSK_WORKTREE_ROOT/TASK-<id>-<slug>
+    │         │   (default: ~/.tusk/worktrees/TASK-<id>-<slug>)
+    │         └── checkout feature/TASK-<id>-<slug> from the default branch
     │
     ├── 3–5. [explore + implement]
     │
@@ -146,8 +148,9 @@ USER / /loop
     ├── 10. FINALIZE:
     │       tusk merge <id> --session $SESSION_ID
     │         ├── session-close         (parses transcript, records session stats)
+    │         ├── remove the recorded task worktree (refuses if dirty)
     │         ├── ff-merge feature branch → default branch + push
-    │         ├── delete feature branch
+    │         ├── delete feature branch + forget the task workspace row
     │         └── task-done --reason completed (returns unblocked_tasks[])
     │
     │       [tusk merge <id> --session $SESSION_ID --pr]  ← Ask path: opens PR,
@@ -171,7 +174,8 @@ COMMAND             CALLS INTERNALLY
 commit              test_command gate  ·  lint  ·  criteria done  (per --criteria flag)
                     exit codes: 2=test_command, 3=git add/commit, 4=criteria
 merge               preflight checks  ·  session-close  ·  task-done  (+ git ff-merge, push, branch delete)
-branch              (git operations only — no tusk sub-commands)
+branch              compatibility path for branch-only workflows (git operations only)
+task-worktree       git worktree create/list + task_workspaces registry reconciliation
 task-insert         dupes check  ·  wsjf
 task-update         wsjf
 task-reopen         regen-triggers             (resets validation triggers; DB state repair)
@@ -189,8 +193,9 @@ loop                claude -p /chain  |  claude -p /tusk
 ```
 LIFECYCLE
   task-insert ──► task-start ──► [work] ──► task-done
-  branch              create feature/TASK-<id>-<slug> off default branch
-  merge               ff-merge + push + branch delete + task-done  (Ship path)
+  task-worktree       create/reuse task-owned worktree + feature/TASK-<id>-<slug> branch
+  branch              compatibility path: create feature/TASK-<id>-<slug> off default branch
+  merge               remove task worktree + ff-merge + push + branch delete + task-done  (Ship path)
   merge --pr          open GitHub PR → gh pr merge --squash         (Ask path)
   task-update         (modify fields mid-flight)
   task-reopen         (reset stuck In Progress / Done → To Do)
@@ -271,10 +276,26 @@ SKILL               start  done   insert update                  eria           
 
 ---
 
-## BRANCH & MERGE MODEL
+## TASK WORKSPACE, BRANCH & MERGE MODEL
 
 ```
+tusk task-worktree create <id> <slug> [--workspace-root <path>]
+    ├── detect default branch (remote HEAD → gh → "main")
+    ├── create/reuse branch feature/TASK-<id>-<slug>
+    ├── create/reuse workspace at:
+    │     --workspace-root/TASK-<id>-<slug>
+    │     $TUSK_WORKTREE_ROOT/TASK-<id>-<slug>
+    │     ~/.tusk/worktrees/TASK-<id>-<slug>   [default]
+    ├── record task_id, branch, and workspace_path in task_workspaces
+    └── if the branch already exists but is not recorded, refuse and ask for cleanup
+
+tusk task-worktree list [--format json]
+    ├── list recorded task_workspaces rows
+    ├── reconcile each row with `git worktree list --porcelain`
+    └── surface missing/stale workspace paths for recovery
+
 tusk branch <id> <slug>
+    ├── compatibility path for branch-only workflows
     ├── detect default branch (remote HEAD → gh → "main")
     ├── stash dirty working tree (if any)
     ├── checkout default branch + pull
@@ -286,9 +307,10 @@ tusk branch <id> <slug>
 
 tusk merge <id> --session <session_id>            ← Ship path (default)
     ├── session-close <session_id>                 (captures diff stats before branch deleted)
+    ├── remove recorded task worktree              (refuses if dirty; clean/stash or force-remove manually)
     ├── git merge --ff-only feature/TASK-<id>-* → default branch
     ├── git push origin <default-branch>
-    ├── git branch -d feature/TASK-<id>-*
+    ├── git branch -d feature/TASK-<id>-* + forget task_workspaces row
     └── task-done <id> --reason completed --force
           └── returns unblocked_tasks[]
 
@@ -300,6 +322,12 @@ tusk merge <id> --session <session_id> --pr       ← Ask path (CI / human revie
 MERGE PATH SELECTION (Ship / Show / Ask):
   Ship  →  tusk merge <id>        local ff-merge, no PR, instant
   Ask   →  tusk merge <id> --pr   open PR, merge via GitHub (CI, approvals, etc.)
+
+RECOVERY:
+  - Stale recorded row or missing branch → run `tusk task-worktree list` to inspect live vs recorded state.
+  - Dirty task workspace at merge/abandon → clean or stash files in that workspace, then retry.
+  - Intentional discard → `git worktree remove --force <workspace_path>`, then rerun merge/abandon.
+  - Parallel task execution → each task uses its own workspace path and branch, so multiple tasks can run without sharing a checkout.
 ```
 
 ---

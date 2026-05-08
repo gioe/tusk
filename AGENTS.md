@@ -88,6 +88,14 @@ Additional subcommands (`blockers`, `review`, `chain`, `loop`, `deps blocked/all
 
 There is no build step or external linter in this repository.
 
+## Default Task Workflow
+
+The default isolated unit of work is a task workspace: a task-owned git worktree created with `bin/tusk task-worktree create <task_id> <slug>`. Use it after `task-start` and before implementation. The command creates or reuses a workspace at `$TUSK_WORKTREE_ROOT/TASK-<id>-<slug>` or, when the environment variable is unset, `~/.tusk/worktrees/TASK-<id>-<slug>`. The workspace checks out `feature/TASK-<id>-<slug>`, which remains the version-control handle for commits, review, and merge.
+
+`bin/tusk branch <task_id> <slug>` remains available for compatibility and unusual branch-only flows, but normal task execution should use `task-worktree create` so parallel tasks do not share a checkout. `bin/tusk task-worktree list --format json` is the recovery view for recorded workspaces; it reconciles the database with live `git worktree list` output and surfaces stale rows or missing paths.
+
+`bin/tusk merge <task_id> --session <session_id>` removes the recorded task workspace before deleting the feature branch. If the task workspace is dirty, cleanup refuses so local files are not lost; clean or stash in that workspace and retry. If the local files are intentionally disposable, force-remove the worktree with git and rerun the tusk command so the task workspace registry can be cleaned up.
+
 ## Running the test suite
 
 ```bash

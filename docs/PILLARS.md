@@ -80,11 +80,11 @@ This document defines the eight product pillars that guide tusk's design and dev
 
 **Definition:** Tusk makes strong, default decisions about how tasks should be managed so users don't have to debate process. WSJF priority scoring, complexity t-shirt sizes, required `closed_reason` on completion, status transition guards, the one-commit-per-criterion workflow, and duplicate detection are all built-in defaults that encode what good task hygiene looks like.
 
-**Core claim:** Following tusk's defaults produces a well-maintained backlog without requiring the team to define their own process. The branch is the work capture primitive; the PR is an opt-in deployment mechanism for teams that need CI or human review.
+**Core claim:** Following tusk's defaults produces a well-maintained backlog without requiring the team to define their own process. The task workspace is the work capture primitive; the feature branch is the version-control handle for review and merge; the PR is an opt-in deployment mechanism for teams that need CI or human review.
 
-**Workflow model — reviewed trunk-based development:** Tusk follows a variant of Trunk-Based Development (short-lived feature branches that integrate to main quickly) with Ship/Show/Ask merge semantics. Each task gets its own `feature/TASK-<id>-<slug>` branch. Pre-merge AI review runs against `git diff main...HEAD` on that branch. Merge is local and fast-forward by default (`tusk merge`) — the **Ship** path. Teams that need CI or human sign-off opt into the **Ask** path (`tusk merge --pr`), which opens a PR and merges via GitHub. The PR is never mandatory; the branch and the review are.
+**Workflow model — reviewed trunk-based development:** Tusk follows a variant of Trunk-Based Development (short-lived feature branches that integrate to main quickly) with Ship/Show/Ask merge semantics. Each task gets its own task-owned git worktree under the default workspace root (`$TUSK_WORKTREE_ROOT` or `~/.tusk/worktrees`) and that workspace checks out a `feature/TASK-<id>-<slug>` branch. The worktree isolates concurrent tasks and preserves recoverable task context; the branch remains the durable diff and review target. Pre-merge AI review runs against `git diff main...HEAD` on that branch. Merge is local and fast-forward by default (`tusk merge`) — the **Ship** path. Teams that need CI or human sign-off opt into the **Ask** path (`tusk merge --pr`), which opens a PR and merges via GitHub. The PR is never mandatory; the task workspace, branch, and review are.
 
-**Current maturity:** High. WSJF scoring is computed automatically and surfaced in `v_ready_tasks`. SQLite triggers block invalid status transitions (no `Done → In Progress`), missing `closed_reason`, and enum violations. `tusk task-start` requires at least one acceptance criterion (with `--force` override). `tusk task-done` checks for incomplete criteria before closing. The `/tusk` skill enforces the branch → implement → commit → criteria-done → review → merge workflow sequence.
+**Current maturity:** High. WSJF scoring is computed automatically and surfaced in `v_ready_tasks`. SQLite triggers block invalid status transitions (no `Done → In Progress`), missing `closed_reason`, and enum violations. `tusk task-start` requires at least one acceptance criterion (with `--force` override). `tusk task-done` checks for incomplete criteria before closing. The `/tusk` skill enforces the task-start → task-worktree → implement → commit → criteria-done → review → merge workflow sequence.
 
 **Representative features:**
 - WSJF `priority_score` computation: `ROUND((base_priority + source_bonus + unblocks_bonus) / complexity_weight)`
@@ -92,9 +92,10 @@ This document defines the eight product pillars that guide tusk's design and dev
 - `validate_closed_reason` trigger — blocks Done without closed_reason
 - `tusk task-start --force` — zero-criteria guard with explicit override
 - `tusk task-done` — incomplete-criteria check before closure
-- `tusk branch` — creates `feature/TASK-<id>-<slug>` off the default branch; the work capture primitive
-- `tusk merge` — local ff-only merge + branch cleanup + task-done in one call (Ship path); `--pr` for Ask path
-- `/tusk` skill workflow sequencing (branch → commit → criteria-done → review → merge)
+- `tusk task-worktree create` — creates or reuses a task-owned git worktree and `feature/TASK-<id>-<slug>` branch; the default work capture primitive
+- `tusk branch` — compatibility path for creating `feature/TASK-<id>-<slug>` off the default branch when a separate workspace is not needed
+- `tusk merge` — local ff-only merge + task workspace cleanup + branch cleanup + task-done in one call (Ship path); `--pr` for Ask path
+- `/tusk` skill workflow sequencing (task-start → task-worktree → commit → criteria-done → review → merge)
 - Complexity t-shirt sizing with L/XL warning in `/tusk`
 
 ---
