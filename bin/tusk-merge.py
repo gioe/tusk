@@ -101,6 +101,24 @@ def _is_default_branch_locked_by_worktree(stderr: str, default_branch: str) -> b
     return re.search(pattern, stderr or "") is not None
 
 
+def _worktree_path_for_branch(branch: str) -> str | None:
+    """Return the worktree path currently checking out ``branch``, if any."""
+    result = run(["git", "worktree", "list", "--porcelain"], check=False)
+    if result.returncode != 0:
+        return None
+
+    current_path = None
+    expected_ref = f"refs/heads/{branch}"
+    for raw in result.stdout.splitlines():
+        line = raw.strip()
+        if line.startswith("worktree "):
+            current_path = line[len("worktree "):]
+            continue
+        if line == f"branch {expected_ref}" and current_path:
+            return current_path
+    return None
+
+
 def _local_default_unpushed_commits(default_branch: str) -> list[tuple[str, str]] | None:
     """Return [(sha, subject), ...] for commits on local <default_branch> that are
     not yet on origin/<default_branch>.
@@ -619,6 +637,31 @@ def _complete_no_checkout_fast_forward(
         "worktree.",
         file=sys.stderr,
     )
+    if not session_was_closed:
+        checkpoint_wal(db_path)
+        print(f"Closing session {session_id}...", file=sys.stderr)
+        result = run([tusk_bin, "session-close", str(session_id)], check=False)
+        session_was_closed = result.returncode == 0
+        if result.returncode != 0:
+            if "already closed" in result.stderr:
+                print(
+                    f"Warning: session {session_id} is already closed — continuing.",
+                    file=sys.stderr,
+                )
+            elif "No session found" in result.stderr:
+                print(
+                    f"Warning: session {session_id} not found in DB (may have been lost "
+                    "to a WAL revert) — skipping session-close and continuing.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"Error: session-close failed:\n{result.stderr.strip()}",
+                    file=sys.stderr,
+                )
+                if did_stash:
+                    _try_pop_stash(task_id)
+                return 2
     if did_stash:
         _try_pop_stash(task_id)
     _drop_branch_auto_stash(task_id)
@@ -1100,6 +1143,39 @@ def main(argv: list[str]) -> int:
 
     print(f"Found branch: {branch_name}", file=sys.stderr)
 
+    default_branch = None
+    has_origin = None
+    if not use_pr:
+        default_branch = detect_default_branch()
+        has_origin = _has_remote()
+        locked_default_path = _worktree_path_for_branch(default_branch)
+        if locked_default_path:
+            print(
+                f"Merging {branch_name} into {default_branch} (ff-only)...",
+                file=sys.stderr,
+            )
+            if not has_origin:
+                print(
+                    f"Error: git checkout {default_branch} would fail because the branch "
+                    f"is checked out in another worktree at '{locked_default_path}', and "
+                    "no git remote 'origin' is configured for a no-checkout "
+                    "fast-forward push.",
+                    file=sys.stderr,
+                )
+                if did_stash:
+                    _try_pop_stash(task_id)
+                return 2
+            return _complete_no_checkout_fast_forward(
+                branch_name=branch_name,
+                default_branch=default_branch,
+                task_id=task_id,
+                session_id=session_id,
+                tusk_bin=tusk_bin,
+                db_path=_db_path,
+                session_was_closed=False,
+                did_stash=did_stash,
+            )
+
     # Step 2: Close the session (captures git diff stats while on feature branch)
     #
     # Checkpoint the WAL first so that any uncommitted writes (e.g. from tusk task-start)
@@ -1144,9 +1220,11 @@ def main(argv: list[str]) -> int:
             print(result.stdout.strip(), file=sys.stderr)
     else:
         # Local mode: ff-only merge
-        default_branch = detect_default_branch()
+        if default_branch is None:
+            default_branch = detect_default_branch()
         print(f"Merging {branch_name} into {default_branch} (ff-only)...", file=sys.stderr)
-        has_origin = _has_remote()
+        if has_origin is None:
+            has_origin = _has_remote()
 
         # Step 3: Checkout default branch
         # tasks.db (and WAL/SHM siblings) are gitignored and untracked, so git

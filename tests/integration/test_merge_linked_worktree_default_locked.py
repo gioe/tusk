@@ -47,6 +47,8 @@ def _mock_run_factory(
     branch_name: str,
     task_id: int,
     default_branch: str = "main",
+    has_origin: bool = True,
+    default_locked: bool = True,
     no_checkout_push_succeeds: bool = True,
     record_calls: list | None = None,
 ):
@@ -63,8 +65,20 @@ def _mock_run_factory(
             )
         if args[:3] == ["git", "remote", "get-url"]:
             return subprocess.CompletedProcess(
-                args, 0, stdout="git@example.com:owner/repo.git\n", stderr=""
+                args,
+                0 if has_origin else 2,
+                stdout="git@example.com:owner/repo.git\n" if has_origin else "",
+                stderr="" if has_origin else "fatal: No such remote 'origin'\n",
             )
+        if args[:4] == ["git", "worktree", "list", "--porcelain"]:
+            stdout = (
+                f"worktree /tmp/repo-main\n"
+                f"HEAD abc123\n"
+                f"branch refs/heads/{default_branch}\n"
+                if default_locked
+                else ""
+            )
+            return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
         if args[:2] == ["git", "checkout"] and args[2:3] == [default_branch]:
             return subprocess.CompletedProcess(
                 args,
@@ -181,4 +195,35 @@ class TestLinkedWorktreeDefaultBranchLocked:
         assert "non-fast-forward" in stderr
         assert f"git fetch origin && git rebase origin/main" in stderr
         assert ["git", "push", "origin", f"{branch}:main"] in record
+        assert not [c for c in record if "session-close" in c]
+        assert not [c for c in record if "task-done" in c]
+
+    def test_locked_default_without_origin_does_not_close_session(
+        self, db_path, config_path, monkeypatch
+    ):
+        task_id, session_id = _setup_task_session(db_path)
+        branch = f"feature/TASK-{task_id}-worktree-lock"
+        record = []
+
+        monkeypatch.setattr(tusk_merge, "find_task_branch", lambda tid: (branch, None, False))
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        mock_run, _ = _mock_run_factory(
+            branch_name=branch,
+            task_id=task_id,
+            has_origin=False,
+            record_calls=record,
+        )
+        monkeypatch.setattr(tusk_merge, "run", mock_run)
+
+        stderr_buf = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(stderr_buf):
+            rc = tusk_merge.main(
+                [str(db_path), str(config_path), str(task_id), "--session", str(session_id)]
+            )
+
+        assert rc == 2
+        stderr = stderr_buf.getvalue()
+        assert "no git remote 'origin'" in stderr
+        assert not [c for c in record if "session-close" in c]
         assert not [c for c in record if "task-done" in c]

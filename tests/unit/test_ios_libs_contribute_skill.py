@@ -72,7 +72,9 @@ def test_distribution_version_and_changelog_are_bumped_for_skill_delivery():
     version = _text(REPO_ROOT / "VERSION").strip()
     changelog = _text(REPO_ROOT / "CHANGELOG.md")
 
-    assert version == "885"
+    assert version == "886"
+    assert "## [886] - 2026-05-08" in changelog
+    assert "[TASK-358] Preflight tusk merge worktree-lock failures before closing sessions" in changelog
     assert "## [885] - 2026-05-08" in changelog
     assert "[TASK-352] Make merge and abandon clean up task-owned worktrees" in changelog
     assert "## [884] - 2026-05-08" in changelog
