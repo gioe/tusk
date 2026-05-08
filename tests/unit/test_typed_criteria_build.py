@@ -28,6 +28,7 @@ BIN = os.path.join(REPO_ROOT, "bin")
 SCRIPT = os.path.join(BIN, "tusk-typed-criteria-build.py")
 TUSK = os.path.join(BIN, "tusk")
 SKILL_PATH = os.path.join(REPO_ROOT, "skills", "address-issue", "SKILL.md")
+CREATE_TASK_SKILL_PATH = os.path.join(REPO_ROOT, "skills", "create-task", "SKILL.md")
 
 
 def _load_module():
@@ -99,6 +100,25 @@ class TestBuildFunction:
         assert parsed["spec"] == spec
         assert parsed["text"] == "Failing test passes"
         assert parsed["type"] == "test"
+
+    def test_node_e_spec_with_js_string_literals_roundtrips(self, mod):
+        spec = (
+            'node -e "const fs=require(\\"fs\\"); '
+            'const pkg=JSON.parse(fs.readFileSync(\\"apps/web/package.json\\",\\"utf8\\")); '
+            'const lock=JSON.parse(fs.readFileSync(\\"apps/web/package-lock.json\\",\\"utf8\\")); '
+            'const next=(pkg.dependencies||{}).next; '
+            'const happy=(pkg.devDependencies||{})[\\"happy-dom\\"]; '
+            'if (!lock.packages[\\"node_modules/next\\"] || '
+            '!lock.packages[\\"node_modules/happy-dom\\"]) process.exit(1); '
+            'if (lock.packages[\\"node_modules/next\\"].version < \\"15.5.16\\" || '
+            'lock.packages[\\"node_modules/happy-dom\\"].version < \\"20.8.9\\") process.exit(1);"'
+        )
+        out = mod.build(spec, "Node package versions are patched", "code")
+        parsed = json.loads(out)
+        assert parsed["spec"] == spec
+        assert 'require(\\"fs\\")' in parsed["spec"]
+        assert '[\\"happy-dom\\"]' in parsed["spec"]
+        assert '\\"15.5.16\\"' in parsed["spec"]
 
 
 class TestCLIInvocation:
@@ -240,3 +260,10 @@ class TestSkillDocAlignment:
         )
         # The recommendation must be tied to the trigger characters (issue #639).
         assert '"' in text and "\\" in text and "typed-criteria-build" in text
+
+    def test_create_task_skill_recommends_helper_for_node_e_specs(self):
+        with open(CREATE_TASK_SKILL_PATH, encoding="utf-8") as f:
+            text = f.read()
+        assert "tusk typed-criteria-build" in text
+        assert "node -e" in text
+        assert "happy-dom" in text

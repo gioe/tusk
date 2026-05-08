@@ -269,6 +269,18 @@ JSON=$(printf '%s' "$SPEC" | tusk typed-criteria-build --type code --text "fetch
 --typed-criteria "$JSON"
 ```
 
+Use the same helper for `node -e` specs; otherwise shell/JSON escaping can
+strip JS string-literal quotes before the value reaches
+`acceptance_criteria.verification_spec`:
+
+```bash
+read -r -d '' SPEC <<'TUSK_EOF'
+node -e "const fs=require(\"fs\"); const pkg=JSON.parse(fs.readFileSync(\"apps/web/package.json\",\"utf8\")); const happy=(pkg.devDependencies||{})[\"happy-dom\"]; if (!happy) process.exit(1);"
+TUSK_EOF
+JSON=$(printf '%s' "$SPEC" | tusk typed-criteria-build --type code --text "apps/web package manifests include patched happy-dom")
+--typed-criteria "$JSON"
+```
+
 For `test` and `code`, `spec` is a shell command — exit 0 = pass; use `! …` to invert. For `file`, `spec` is a glob (recursive `**` works).
 
 ### Manual fallback
