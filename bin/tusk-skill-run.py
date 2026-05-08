@@ -342,7 +342,16 @@ def main():
                     i += 2
                 else:
                     i += 1
-            cmd_finish(conn, run_id, metadata, db_path)
+            try:
+                cmd_finish(conn, run_id, metadata, db_path)
+            except SystemExit as exc:
+                if isinstance(exc.code, int) and exc.code != 0:
+                    print(
+                        f"Error: skill-run finish failed with exit code {exc.code} "
+                        f"for run_id {run_id}.",
+                        file=sys.stderr,
+                    )
+                raise
 
         elif subcommand == "cancel":
             if len(args) >= 2 and args[1] in ("--help", "-h"):
