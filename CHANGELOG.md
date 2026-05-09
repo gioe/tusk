@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [902] - 2026-05-09
+
+- [TASK-377] Keep tusk progress no-code notes from attaching unrelated HEAD commits
+
 ## [901] - 2026-05-09
 
 - Add cluster labels to tusk issue filing paths and `/address-issue` cluster modes

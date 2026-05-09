@@ -40,6 +40,10 @@ def git(args: list[str]) -> str:
     return result.stdout.strip()
 
 
+def commit_message_belongs_to_task(commit_message: str, task_id: int) -> bool:
+    return f"[TASK-{task_id}]" in commit_message
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 3:
         print("Usage: tusk progress <task_id> [--next-steps \"...\"]", file=sys.stderr)
@@ -93,8 +97,13 @@ def main(argv: list[str]) -> int:
         try:
             commit_hash = git(["rev-parse", "--short", "HEAD"])
             commit_message = git(["log", "-1", "--pretty=%s"])
-            files_raw = git(["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"])
-            files_changed = ", ".join(files_raw.splitlines()) if files_raw else ""
+            if commit_message_belongs_to_task(commit_message, task_id):
+                files_raw = git(["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"])
+                files_changed = ", ".join(files_raw.splitlines()) if files_raw else ""
+            else:
+                commit_hash = None
+                commit_message = None
+                files_changed = None
         except RuntimeError as e:
             print(f"Error: {e}", file=sys.stderr)
             return 2

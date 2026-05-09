@@ -72,7 +72,9 @@ def test_distribution_version_and_changelog_are_bumped_for_skill_delivery():
     version = _text(REPO_ROOT / "VERSION").strip()
     changelog = _text(REPO_ROOT / "CHANGELOG.md")
 
-    assert version == "901"
+    assert version == "902"
+    assert "## [902] - 2026-05-09" in changelog
+    assert "[TASK-377] Keep tusk progress no-code notes from attaching unrelated HEAD commits" in changelog
     assert "## [901] - 2026-05-09" in changelog
     assert "Add cluster labels to tusk issue filing paths" in changelog
     assert "Improve test-precheck dirty-worktree fallback" in changelog
