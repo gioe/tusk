@@ -73,6 +73,36 @@ def _git(args: list, repo_root: str) -> subprocess.CompletedProcess:
     )
 
 
+def invocation_repo_root(db_path: str) -> str:
+    """Prefer the current git checkout; fall back to the DB's primary repo.
+
+    In linked worktree flows the task DB still lives under the primary checkout,
+    but review diffs must be computed from the worktree where the command was
+    invoked. Outside a git checkout, retain the legacy DB-path behavior.
+    """
+    db_repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return db_repo_root
+
+    cwd_repo_root = result.stdout.strip()
+    cwd_common = _git(["rev-parse", "--path-format=absolute", "--git-common-dir"], cwd_repo_root)
+    db_common = _git(["rev-parse", "--path-format=absolute", "--git-common-dir"], db_repo_root)
+    if (
+        cwd_common.returncode == 0
+        and db_common.returncode == 0
+        and cwd_common.stdout.strip()
+        and cwd_common.stdout.strip() == db_common.stdout.strip()
+    ):
+        return cwd_repo_root
+    return db_repo_root
+
+
 def default_branch(repo_root: str) -> str:
     """Resolve the default branch by calling ``tusk git-default-branch``.
 
@@ -95,18 +125,11 @@ def _ref_exists(ref: str, repo_root: str) -> bool:
     return _git(["rev-parse", "--verify", "--quiet", ref], repo_root).returncode == 0
 
 
-def _is_ancestor(ancestor: str, descendant: str, repo_root: str) -> bool:
-    return _git(["merge-base", "--is-ancestor", ancestor, descendant], repo_root).returncode == 0
-
-
 def primary_range(base: str, repo_root: str) -> str:
     """Choose the best default-branch comparison ref for review diffs."""
     remote = f"origin/{base}"
-    local_exists = _ref_exists(base, repo_root)
     remote_exists = _ref_exists(remote, repo_root)
-    if remote_exists and (
-        not local_exists or _is_ancestor(base, remote, repo_root)
-    ):
+    if remote_exists:
         return f"{remote}...HEAD"
     return f"{base}...HEAD"
 
@@ -239,8 +262,7 @@ def main(argv: list) -> int:
         print(f"Invalid task ID: {args.task_id}", file=sys.stderr)
         return 1
 
-    # repo_root is two levels up from the DB: tusk/tasks.db → tusk/ → repo_root
-    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+    repo_root = invocation_repo_root(db_path)
 
     try:
         result = compute_range(task_id, repo_root, db_path)

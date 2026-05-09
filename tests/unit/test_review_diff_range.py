@@ -78,10 +78,10 @@ def _make_repo(tmp_path, default_branch="main"):
     return str(repo), str(db_path)
 
 
-def _run_cli(db_path, task_id, *, config_path="fake.json"):
+def _run_cli(db_path, task_id, *, config_path="fake.json", cwd=None):
     """Invoke the script via subprocess and return (returncode, stdout, stderr)."""
     cmd = [sys.executable, SCRIPT, db_path, config_path, str(task_id)]
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
     return r.returncode, r.stdout, r.stderr
 
 
@@ -212,6 +212,65 @@ class TestPrimaryRange:
             check=True,
         ).stdout
 
+    def test_uses_origin_default_when_local_default_has_diverged(self, tmp_path, monkeypatch):
+        """A checked-out primary worktree can leave local main diverged from
+        origin/main while task worktrees continue from origin/main. Prefer the
+        remote default to keep review diffs scoped to task work."""
+        repo_root, _ = _make_repo(tmp_path, default_branch="main")
+        seed_sha = subprocess.run(
+            ["git", "-C", repo_root, "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        ).stdout.strip()
+
+        with open(os.path.join(repo_root, "remote.txt"), "w") as f:
+            f.write("remote\n")
+        subprocess.run(["git", "-C", repo_root, "add", "remote.txt"], check=True)
+        subprocess.run(
+            ["git", "-C", repo_root, "commit", "-q", "-m", "Remote default"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", repo_root, "update-ref", "refs/remotes/origin/main", "HEAD"],
+            check=True,
+        )
+
+        subprocess.run(["git", "-C", repo_root, "reset", "--hard", seed_sha], check=True)
+        with open(os.path.join(repo_root, "local.txt"), "w") as f:
+            f.write("local\n")
+        subprocess.run(["git", "-C", repo_root, "add", "local.txt"], check=True)
+        subprocess.run(
+            ["git", "-C", repo_root, "commit", "-q", "-m", "Local divergent default"],
+            check=True,
+        )
+
+        subprocess.run(
+            ["git", "-C", repo_root, "checkout", "-q", "-b", "feature/TASK-43-foo", "origin/main"],
+            check=True,
+        )
+        with open(os.path.join(repo_root, "task.txt"), "w") as f:
+            f.write("task\n")
+        subprocess.run(["git", "-C", repo_root, "add", "task.txt"], check=True)
+        subprocess.run(
+            ["git", "-C", repo_root, "commit", "-q", "-m", "[TASK-43] Task change"],
+            check=True,
+        )
+
+        monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
+        result = mod.compute_range(43, repo_root)
+
+        assert result["range"] == "origin/main...HEAD"
+        assert "task.txt" in result["summary"]
+        assert "local.txt" not in subprocess.run(
+            ["git", "-C", repo_root, "diff", result["range"]],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        ).stdout
+
 
 class TestTaskCommitRecovery:
     """When primary is empty, fall back to [TASK-N] commit-range recovery."""
@@ -311,6 +370,35 @@ class TestCLI:
         assert payload["range"] == "main...HEAD"
         assert payload["recovered_from_task_commits"] is False
         assert payload["diff_lines"] > 0
+
+    def test_cli_uses_invocation_worktree_instead_of_primary_db_checkout(self, tmp_path):
+        """Issue #686: when invoked from a linked worktree, use that checkout's
+        HEAD even though the DB path still lives under the primary checkout."""
+        repo_root, db_path = _make_repo(tmp_path, default_branch="main")
+        worktree = tmp_path / "linked"
+        subprocess.run(
+            [
+                "git", "-C", repo_root, "worktree", "add", "-q",
+                "-b", "feature/TASK-56-linked", str(worktree), "HEAD",
+            ],
+            check=True,
+        )
+        with open(worktree / "linked.txt", "w", encoding="utf-8") as f:
+            f.write("linked\n")
+        subprocess.run(["git", "-C", str(worktree), "add", "linked.txt"], check=True)
+        subprocess.run(
+            ["git", "-C", str(worktree), "commit", "-q", "-m", "[TASK-56] Linked work"],
+            check=True,
+        )
+
+        code, out, err = _run_cli(db_path, 56, cwd=worktree)
+
+        assert code == 0, err
+        payload = json.loads(out)
+        assert payload["range"] == "main...HEAD"
+        assert payload["recovered_from_task_commits"] is False
+        assert payload["diff_lines"] > 0
+        assert "linked.txt" in payload["summary"]
 
     def test_cli_exits_one_when_no_diff_recoverable(self, tmp_path):
         repo_root, db_path = _make_repo(tmp_path, default_branch="main")
