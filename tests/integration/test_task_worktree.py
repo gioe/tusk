@@ -142,6 +142,125 @@ class TestTaskWorktreeList:
         assert rows[0]["live_workspace_path"] is None
 
 
+class TestTaskWorktreePrune:
+    def test_prune_removes_stale_missing_worktree_rows(self, tmp_path, monkeypatch):
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+        created = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "stale-row",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+        assert created.returncode == 0, created.stderr
+        payload = json.loads(created.stdout)
+        _git(["worktree", "remove", "--force", payload["workspace_path"]], cwd=repo)
+
+        result = _run(["task-worktree", "prune"], cwd=repo, env=env)
+
+        assert result.returncode == 0, result.stderr
+        prune_payload = json.loads(result.stdout)
+        assert prune_payload["dry_run"] is False
+        assert prune_payload["removed_count"] == 1
+        assert [row["workspace_id"] for row in prune_payload["removed"]] == [
+            payload["workspace_id"]
+        ]
+        with sqlite3.connect(db_path) as conn:
+            remaining = conn.execute("SELECT COUNT(*) FROM task_workspaces").fetchone()[0]
+        assert remaining == 0
+
+    def test_prune_dry_run_reports_stale_rows_without_deleting(
+        self, tmp_path, monkeypatch
+    ):
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+        created = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "dry-run",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+        assert created.returncode == 0, created.stderr
+        payload = json.loads(created.stdout)
+        _git(["worktree", "remove", "--force", payload["workspace_path"]], cwd=repo)
+
+        result = _run(["task-worktree", "prune", "--dry-run"], cwd=repo, env=env)
+
+        assert result.returncode == 0, result.stderr
+        prune_payload = json.loads(result.stdout)
+        assert prune_payload["dry_run"] is True
+        assert prune_payload["removed_count"] == 1
+        assert [row["workspace_id"] for row in prune_payload["removed"]] == [
+            payload["workspace_id"]
+        ]
+        with sqlite3.connect(db_path) as conn:
+            remaining = conn.execute("SELECT COUNT(*) FROM task_workspaces").fetchone()[0]
+        assert remaining == 1
+
+    def test_prune_preserves_live_recorded_worktrees(self, tmp_path, monkeypatch):
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        stale_task = _insert_task(db_path)
+        live_task = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+        stale_created = _run(
+            [
+                "task-worktree",
+                "create",
+                str(stale_task),
+                "stale",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+        assert stale_created.returncode == 0, stale_created.stderr
+        stale_payload = json.loads(stale_created.stdout)
+        live_created = _run(
+            [
+                "task-worktree",
+                "create",
+                str(live_task),
+                "live",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+        assert live_created.returncode == 0, live_created.stderr
+        live_payload = json.loads(live_created.stdout)
+        _git(["worktree", "remove", "--force", stale_payload["workspace_path"]], cwd=repo)
+
+        result = _run(["task-worktree", "prune"], cwd=repo, env=env)
+
+        assert result.returncode == 0, result.stderr
+        prune_payload = json.loads(result.stdout)
+        assert [row["workspace_id"] for row in prune_payload["removed"]] == [
+            stale_payload["workspace_id"]
+        ]
+        with sqlite3.connect(db_path) as conn:
+            remaining = conn.execute(
+                "SELECT id FROM task_workspaces ORDER BY id"
+            ).fetchall()
+        assert [row[0] for row in remaining] == [live_payload["workspace_id"]]
+        assert os.path.isdir(live_payload["workspace_path"])
+
+
 class TestTaskWorktreeCreate:
     def test_create_and_reuse_worktree_for_task(self, tmp_path, monkeypatch):
         repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)

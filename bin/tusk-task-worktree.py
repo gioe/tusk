@@ -21,6 +21,10 @@ def _list_workspaces(conn: sqlite3.Connection) -> list[dict]:
     return _list_workspaces_with_live_state(conn, {})
 
 
+def _is_stale_workspace(row: dict) -> bool:
+    return not row["exists_on_disk"] and row["live_workspace_path"] is None
+
+
 def _resolve_task_id(raw: str) -> int:
     value = raw.strip()
     if value.upper().startswith("TASK-"):
@@ -300,6 +304,53 @@ def cmd_list(db_path: str, repo_root: str, argv: list[str]) -> int:
     return 0
 
 
+def cmd_prune(db_path: str, repo_root: str, argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="tusk task-worktree prune",
+        description="Remove stale task-owned worktree registry rows.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview stale rows without deleting them.",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["json"],
+        default="json",
+        help="Output format (default: json).",
+    )
+    args = parser.parse_args(argv)
+
+    conn = get_connection(db_path)
+    try:
+        stale_rows = [
+            row
+            for row in _list_workspaces_with_live_state(
+                conn, _parse_git_worktrees(repo_root)
+            )
+            if _is_stale_workspace(row)
+        ]
+        if stale_rows and not args.dry_run:
+            conn.executemany(
+                "DELETE FROM task_workspaces WHERE id = ?",
+                [(row["workspace_id"],) for row in stale_rows],
+            )
+            conn.commit()
+        print(
+            dumps(
+                {
+                    "dry_run": args.dry_run,
+                    "removed_count": len(stale_rows),
+                    "removed": stale_rows,
+                }
+            )
+        )
+    finally:
+        conn.close()
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 4:
         print("Usage: tusk task-worktree list", file=sys.stderr)
@@ -317,10 +368,13 @@ def main(argv: list[str]) -> int:
         return cmd_create(db_path, repo_root, rest)
     if command in {"list", "status"}:
         return cmd_list(db_path, repo_root, rest)
+    if command == "prune":
+        return cmd_prune(db_path, repo_root, rest)
 
     print(
         "Usage: tusk task-worktree create <task_id> <slug> [--workspace-root <path>]\n"
-        "       tusk task-worktree list [--format json]",
+        "       tusk task-worktree list [--format json]\n"
+        "       tusk task-worktree prune [--dry-run] [--format json]",
         file=sys.stderr,
     )
     return 1

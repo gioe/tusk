@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [890] - 2026-05-09
+
+- [TASK-365] Add task-worktree prune command
+
 ## [889] - 2026-05-09
 
 - [TASK-363] Fix tusk branch when the default branch is checked out in another worktree

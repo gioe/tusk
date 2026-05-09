@@ -72,7 +72,9 @@ def test_distribution_version_and_changelog_are_bumped_for_skill_delivery():
     version = _text(REPO_ROOT / "VERSION").strip()
     changelog = _text(REPO_ROOT / "CHANGELOG.md")
 
-    assert version == "889"
+    assert version == "890"
+    assert "## [890] - 2026-05-09" in changelog
+    assert "[TASK-365] Add task-worktree prune command" in changelog
     assert "## [889] - 2026-05-09" in changelog
     assert "[TASK-363] Fix tusk branch when the default branch is checked out in another worktree" in changelog
     assert "## [888] - 2026-05-08" in changelog
