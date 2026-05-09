@@ -109,6 +109,8 @@ Treat the user as having opted into the agent path only when their `/review-comm
 
 Read the diff yourself, evaluate it, and record the result directly. Always pass `--model <your_model_id>` — the canonical ID matching the format in `task_sessions.model` (e.g. `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5`). Strip any suffixes like `[1m]` or date-stamps from your system prompt's ID so the value joins cleanly against other model-tagged tables (e.g. `claude-opus-4-7[1m]` → `claude-opus-4-7`):
 
+**Avoid backticks and unescaped `$` in review notes and comments** — `--note` values and `add-comment` descriptions are shell arguments, so zsh and bash expand backticks and `$VAR` / `$(...)` even inside double quotes. Drop markdown code ticks around identifiers and avoid literal dollar signs in these arguments unless you escape every metacharacter deliberately.
+
 ```bash
 # Approve with no findings:
 tusk review approve <review_id> --model <your_model_id> --note "Inline review: small/docs-only diff (or no reviewer configured), no findings."

@@ -8,6 +8,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 - Harden merge and abandon closeout against disappearing project-local tusk wrappers and recorded task worktree cleanup ordering
 
+## [904] - 2026-05-09
+
+- Document review note shell quoting hazards and guard docs-cluster CLI command names
+
 ## [902] - 2026-05-09
 
 - [TASK-377] Keep tusk progress no-code notes from attaching unrelated HEAD commits
