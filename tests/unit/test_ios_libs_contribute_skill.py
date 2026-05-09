@@ -72,7 +72,9 @@ def test_distribution_version_and_changelog_are_bumped_for_skill_delivery():
     version = _text(REPO_ROOT / "VERSION").strip()
     changelog = _text(REPO_ROOT / "CHANGELOG.md")
 
-    assert version == "890"
+    assert version == "891"
+    assert "## [891] - 2026-05-09" in changelog
+    assert "[TASK-366] Fix task-worktree closeout integration tests for no-remote merge path" in changelog
     assert "## [890] - 2026-05-09" in changelog
     assert "[TASK-365] Add task-worktree prune command" in changelog
     assert "## [889] - 2026-05-09" in changelog

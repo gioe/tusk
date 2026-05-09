@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [891] - 2026-05-09
+
+- [TASK-366] Fix task-worktree closeout integration tests for no-remote merge path
+
 ## [890] - 2026-05-09
 
 - [TASK-365] Add task-worktree prune command

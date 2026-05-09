@@ -102,20 +102,25 @@ def _is_default_branch_locked_by_worktree(stderr: str, default_branch: str) -> b
 
 
 def _worktree_path_for_branch(branch: str) -> str | None:
-    """Return the worktree path currently checking out ``branch``, if any."""
+    """Return another worktree path currently checking out ``branch``, if any."""
+    current = run(["git", "rev-parse", "--show-toplevel"], check=False)
+    current_path = os.path.realpath(current.stdout.strip()) if current.returncode == 0 else None
+
     result = run(["git", "worktree", "list", "--porcelain"], check=False)
     if result.returncode != 0:
         return None
 
-    current_path = None
+    listed_path = None
     expected_ref = f"refs/heads/{branch}"
     for raw in result.stdout.splitlines():
         line = raw.strip()
         if line.startswith("worktree "):
-            current_path = line[len("worktree "):]
+            listed_path = line[len("worktree "):]
             continue
-        if line == f"branch {expected_ref}" and current_path:
-            return current_path
+        if line == f"branch {expected_ref}" and listed_path:
+            if current_path and os.path.realpath(listed_path) == current_path:
+                continue
+            return listed_path
     return None
 
 
