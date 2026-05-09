@@ -357,6 +357,8 @@ This criterion will be validated by running the spec as a shell command when `tu
 
 ## Step 7: Begin Work (Steps 1–11 Only)
 
+**Dirty checkout guard.** Before the `/tusk` handoff, preserve the current checkout exactly as-is. The development work must happen in the task-owned workspace that `/tusk` Step 2 creates with `tusk task-worktree create <id> <brief-description-slug>`; do not run `tusk branch` directly from the current checkout, and do not allow dirty unrelated files in the current checkout to be auto-stashed as part of address-issue startup. If task-worktree creation is unavailable or fails, stop and surface the failure instead of falling back to branch-first work. Only proceed once you are operating from the returned `workspace_path` or an already-recorded workspace for this task.
+
 Immediately invoke the `/tusk` workflow for the newly created task. Follow the "Begin Work on a Task" instructions from the tusk skill:
 
 ```

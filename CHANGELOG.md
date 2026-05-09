@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [896] - 2026-05-09
+
+- [TASK-372] Guard address-issue dirty checkout startup
+
 ## [895] - 2026-05-09
 
 - [TASK-371] Resolve linked-worktree venv test commands
