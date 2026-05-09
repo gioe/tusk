@@ -64,6 +64,25 @@ def run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(args, capture_output=True, text=True, encoding="utf-8", check=check)
 
 
+def _run_tusk_subcommand(tusk_bin: str, args: list[str]) -> subprocess.CompletedProcess:
+    """Run a project-local tusk subcommand with a targeted transient-missing diagnostic."""
+    cmd = [tusk_bin, *args]
+    for attempt in (1, 2):
+        try:
+            return run(cmd, check=False)
+        except FileNotFoundError as exc:
+            if attempt == 1:
+                time.sleep(0.2)
+                continue
+            message = (
+                "project-local tusk binary disappeared during closeout; "
+                "retry after any install or upgrade finishes.\n"
+                f"Missing executable: {tusk_bin}\n"
+                f"Original error: {exc}"
+            )
+            return subprocess.CompletedProcess(cmd, 127, stdout="", stderr=message)
+
+
 _INDEX_LOCK_RE = re.compile(r"Unable to create '[^']*\.git/index\.lock'")
 
 
@@ -531,9 +550,8 @@ def _close_completed_task(
     # chosen to ship the merge, so implicit --force on close is consistent with
     # that decision (issue #582; mirrors the auto-complete path's TASK-200 fix).
     print(f"Closing task {task_id}...", file=sys.stderr)
-    result = run(
-        [tusk_bin, "task-done", str(task_id), "--reason", "completed", "--force"],
-        check=False,
+    result = _run_tusk_subcommand(
+        tusk_bin, ["task-done", str(task_id), "--reason", "completed", "--force"]
     )
     if result.returncode != 0:
         if result.returncode == 2 and f"task {task_id} not found" in result.stderr.lower():
@@ -740,7 +758,7 @@ def _complete_no_checkout_fast_forward(
     if not session_was_closed:
         checkpoint_wal(db_path)
         print(f"Closing session {session_id}...", file=sys.stderr)
-        result = run([tusk_bin, "session-close", str(session_id)], check=False)
+        result = _run_tusk_subcommand(tusk_bin, ["session-close", str(session_id)])
         session_was_closed = result.returncode == 0
         if result.returncode != 0:
             if "already closed" in result.stderr:
@@ -1005,7 +1023,7 @@ def _autodetect_session(
                     "the exact path) to prevent this in future.",
                     file=sys.stderr,
                 )
-                result = run([tusk_bin, "task-start", str(task_id), "--force"], check=False)
+                result = _run_tusk_subcommand(tusk_bin, ["task-start", str(task_id), "--force"])
                 if result.returncode != 0:
                     print(
                         f"Error: Could not create synthetic session:\n{result.stderr.strip()}\n\n"
@@ -1207,7 +1225,7 @@ def main(argv: list[str]) -> int:
         )
         checkpoint_wal(_db_path)
         print(f"Closing session {session_id}...", file=sys.stderr)
-        result = run([tusk_bin, "session-close", str(session_id)], check=False)
+        result = _run_tusk_subcommand(tusk_bin, ["session-close", str(session_id)])
         session_was_closed = result.returncode == 0
         if result.returncode != 0:
             if "already closed" in result.stderr or "No session found" in result.stderr:
@@ -1235,9 +1253,8 @@ def main(argv: list[str]) -> int:
         # without --force, would print a misleading "Error:" before the call
         # site retried with --force. Pass --force up front so task-done emits
         # "Warning:" instead — diagnostic preserved, no contradiction.
-        result = run(
-            [tusk_bin, "task-done", str(task_id), "--reason", "completed", "--force"],
-            check=False,
+        result = _run_tusk_subcommand(
+            tusk_bin, ["task-done", str(task_id), "--reason", "completed", "--force"]
         )
         if result.returncode != 0:
             print(f"Error: task-done failed:\n{result.stderr.strip()}", file=sys.stderr)
@@ -1369,7 +1386,7 @@ def main(argv: list[str]) -> int:
     checkpoint_wal(_db_path)
 
     print(f"Closing session {session_id}...", file=sys.stderr)
-    result = run([tusk_bin, "session-close", str(session_id)], check=False)
+    result = _run_tusk_subcommand(tusk_bin, ["session-close", str(session_id)])
     session_was_closed = result.returncode == 0
     if result.returncode != 0:
         if "already closed" in result.stderr:

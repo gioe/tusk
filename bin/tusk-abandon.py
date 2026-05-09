@@ -55,6 +55,7 @@ _warn_branch_auto_stash = _merge._warn_branch_auto_stash
 _branch_exists = _merge._branch_exists
 _recorded_task_workspace = _merge._recorded_task_workspace
 _remove_recorded_task_worktree = _merge._remove_recorded_task_worktree
+_run_tusk_subcommand = _merge._run_tusk_subcommand
 
 
 # Reasons that map to the no-commit closure path. `expired` is excluded — it
@@ -297,14 +298,7 @@ def main(argv: list[str]) -> int:
             )
             return 2
 
-        if not _remove_recorded_task_worktree(
-            db_path,
-            task_id,
-            branch_name,
-            f"tusk abandon {task_id} --reason {reason}",
-            workspace=recorded_workspace,
-        ):
-            return 2
+    has_recorded_workspace = branch_name is not None and recorded_workspace is not None
 
     # WAL checkpoint before any DB writes / branch swaps for the same reason
     # `tusk merge` does it: a subsequent branch switch can revert tasks.db
@@ -322,9 +316,11 @@ def main(argv: list[str]) -> int:
                 file=sys.stderr,
             )
 
-    # Switch off the feature branch and delete it. Use -D because the branch
-    # is not merged into default — that's the whole point of abandon.
-    if branch_name:
+    # Switch off unrecorded feature branches before closeout. Recorded task
+    # workspaces are removed after session/task close so the command never
+    # deletes the checkout that owns its project-local tusk wrapper before
+    # invoking the DB-affecting closeout subcommands.
+    if branch_name and not has_recorded_workspace:
         current = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], check=False)
         on_feature = (
             current.returncode == 0
@@ -372,7 +368,7 @@ def main(argv: list[str]) -> int:
 
     # Close the session (mirrors tusk merge step 2)
     print(f"Closing session {session_id}...", file=sys.stderr)
-    sc = run([tusk_bin, "session-close", str(session_id)], check=False)
+    sc = _run_tusk_subcommand(tusk_bin, ["session-close", str(session_id)])
     session_was_closed = sc.returncode == 0
     if sc.returncode != 0:
         if "already closed" in sc.stderr or "No session found" in sc.stderr:
@@ -387,9 +383,8 @@ def main(argv: list[str]) -> int:
     # Mark the task Done. Always pass --force because abandoned tasks
     # typically have open criteria the user has decided not to complete.
     print(f"Closing task {task_id}...", file=sys.stderr)
-    td = run(
-        [tusk_bin, "task-done", str(task_id), "--reason", reason, "--force"],
-        check=False,
+    td = _run_tusk_subcommand(
+        tusk_bin, ["task-done", str(task_id), "--reason", reason, "--force"]
     )
     if td.returncode != 0:
         print(f"Error: task-done failed:\n{td.stderr.strip()}", file=sys.stderr)
@@ -406,6 +401,24 @@ def main(argv: list[str]) -> int:
     # session-close already ran, so correct the counter for our caller.
     if session_was_closed:
         task_done_result["sessions_closed"] = 1
+
+    if branch_name and has_recorded_workspace:
+        if not _remove_recorded_task_worktree(
+            db_path,
+            task_id,
+            branch_name,
+            f"tusk abandon {task_id} --reason {reason}",
+            workspace=recorded_workspace,
+        ):
+            return 2
+
+        delete = run(["git", "branch", "-D", branch_name], check=False)
+        if delete.returncode != 0:
+            print(
+                f"Warning: git branch -D {branch_name} failed:\n"
+                f"{delete.stderr.strip()}",
+                file=sys.stderr,
+            )
 
     print(dumps(task_done_result))
     return 0

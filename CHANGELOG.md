@@ -6,6 +6,8 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+- Harden merge and abandon closeout against disappearing project-local tusk wrappers and recorded task worktree cleanup ordering
+
 ## [902] - 2026-05-09
 
 - [TASK-377] Keep tusk progress no-code notes from attaching unrelated HEAD commits

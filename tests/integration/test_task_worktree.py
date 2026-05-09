@@ -490,7 +490,7 @@ class TestTaskWorktreeCloseout:
         )
         assert os.path.exists(repo / "feature.txt")
 
-    def test_abandon_dirty_task_worktree_refuses_cleanup_before_closing(
+    def test_abandon_dirty_task_worktree_refuses_cleanup_after_closing(
         self, tmp_path, monkeypatch
     ):
         repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
@@ -539,5 +539,5 @@ class TestTaskWorktreeCloseout:
             session = conn.execute(
                 "SELECT ended_at FROM task_sessions WHERE id = ?", (session_id,)
             ).fetchone()
-        assert task[0] == "To Do"
-        assert session[0] is None
+        assert task[0] == "Done"
+        assert session[0] is not None

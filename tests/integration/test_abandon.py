@@ -375,6 +375,134 @@ class TestAbandonLinkedWorktree:
         assert "fatal: 'main' is already used by worktree" in stderr
 
 
+class TestAbandonInternalTuskInvocation:
+    def test_missing_tusk_wrapper_during_session_close_reports_actionable_error(
+        self, db_path, config_path, monkeypatch
+    ):
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        monkeypatch.setattr(
+            tusk_abandon,
+            "find_task_branch",
+            lambda tid: (None, f"No branch found matching feature/TASK-{tid}-*", False),
+        )
+        monkeypatch.setattr(tusk_abandon, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_abandon, "checkpoint_wal", lambda db: None)
+
+        def _mock_run(args, check=True):
+            if "session-close" in args:
+                raise FileNotFoundError(os.path.join(os.path.dirname(__file__), "tusk"))
+            if args[:3] == ["git", "stash", "list"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(tusk_abandon, "run", _mock_run)
+        monkeypatch.setattr(tusk_abandon._merge, "run", _mock_run)
+
+        rc, result, stderr = _call(
+            db_path,
+            config_path,
+            task_id,
+            "--reason",
+            "completed",
+            "--session",
+            session_id,
+        )
+
+        assert rc == 2
+        assert result is None
+        assert "project-local tusk binary disappeared during closeout" in stderr
+        assert "retry after any install or upgrade finishes" in stderr
+
+
+class TestAbandonRecordedWorktreeCleanup:
+    def test_recorded_worktree_removed_after_session_and_task_close(
+        self, db_path, config_path, tmp_path, monkeypatch
+    ):
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+            branch_name = f"feature/TASK-{task_id}-recorded-worktree"
+            workspace_path = tmp_path / "TASK-recorded-worktree"
+            workspace_path.mkdir()
+            conn.execute(
+                "INSERT INTO task_workspaces (task_id, branch, workspace_path) "
+                "VALUES (?, ?, ?)",
+                (task_id, branch_name, str(workspace_path)),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        calls: list[list[str]] = []
+
+        def _mock_run(args, check=True):
+            calls.append(list(args))
+            if "session-close" in args:
+                return subprocess.CompletedProcess(args, 0, stdout="{}", stderr="")
+            if "task-done" in args:
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    stdout=json.dumps(
+                        {
+                            "task": {
+                                "id": task_id,
+                                "status": "Done",
+                                "closed_reason": "completed",
+                            },
+                            "sessions_closed": 0,
+                            "unblocked_tasks": [],
+                        }
+                    ),
+                    stderr="",
+                )
+            if args[:3] == ["git", "worktree", "remove"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:3] == ["git", "branch", "-D"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:3] == ["git", "stash", "list"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(tusk_abandon, "_branch_exists", lambda branch: True)
+        monkeypatch.setattr(
+            tusk_abandon,
+            "_branch_has_unmerged_commits",
+            lambda branch, default, tid: (False, None),
+        )
+        monkeypatch.setattr(tusk_abandon, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_abandon, "checkpoint_wal", lambda db: None)
+        monkeypatch.setattr(tusk_abandon, "run", _mock_run)
+        monkeypatch.setattr(tusk_abandon._merge, "run", _mock_run)
+
+        rc, result, stderr = _call(
+            db_path,
+            config_path,
+            task_id,
+            "--reason",
+            "completed",
+            "--session",
+            session_id,
+        )
+
+        assert rc == 0, f"abandon failed: {stderr}"
+        assert result is not None
+
+        session_idx = next(i for i, c in enumerate(calls) if "session-close" in c)
+        done_idx = next(i for i, c in enumerate(calls) if "task-done" in c)
+        remove_idx = next(
+            i for i, c in enumerate(calls) if c[:3] == ["git", "worktree", "remove"]
+        )
+        assert session_idx < done_idx < remove_idx
+
+
 class TestAbandonPreservesBranchAutoStash:
     """Issue #727.
 

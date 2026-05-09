@@ -560,3 +560,44 @@ class TestFfOnlyErrorMessage:
             f"Expected 'git rebase origin/main' in error message:\n{stderr}"
         assert "--rebase" in stderr, \
             f"Expected '--rebase' flag mentioned in error message:\n{stderr}"
+
+
+class TestInternalTuskInvocation:
+    def test_missing_tusk_wrapper_during_session_close_reports_actionable_error(
+        self, db_path, config_path, monkeypatch
+    ):
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        branch = f"feature/TASK-{task_id}-my-branch"
+
+        def _mock_run(args, check=True):
+            if "session-close" in args:
+                raise FileNotFoundError(os.path.join(os.path.dirname(__file__), "tusk"))
+            if args[:2] == ["git", "diff"] and "--name-only" in args:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:2] == ["git", "checkout"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:3] == ["git", "-c", "pull.rebase=false"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(tusk_merge, "find_task_branch", lambda tid: (branch, None, False))
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        monkeypatch.setattr(tusk_merge, "run", _mock_run)
+
+        stderr_buf = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(stderr_buf):
+            rc = tusk_merge.main(
+                [str(db_path), str(config_path), str(task_id), "--session", str(session_id)]
+            )
+
+        stderr = stderr_buf.getvalue()
+        assert rc == 2
+        assert "project-local tusk binary disappeared during closeout" in stderr
+        assert "retry after any install or upgrade finishes" in stderr
