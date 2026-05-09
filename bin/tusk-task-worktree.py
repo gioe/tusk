@@ -64,6 +64,39 @@ def _branch_exists(repo_root: str, branch: str) -> bool:
     return result.returncode == 0
 
 
+def _origin_remote_exists(repo_root: str) -> bool:
+    result = _run_git(repo_root, ["remote", "get-url", "origin"])
+    return result.returncode == 0
+
+
+def _remote_branch_exists(repo_root: str, branch: str) -> bool:
+    result = _run_git(
+        repo_root,
+        ["show-ref", "--verify", f"refs/remotes/origin/{branch}"],
+    )
+    return result.returncode == 0
+
+
+def _resolve_worktree_base(repo_root: str) -> tuple[bool, str, str]:
+    default_branch = _detect_default_branch(repo_root)
+    if not _origin_remote_exists(repo_root):
+        return True, default_branch, ""
+
+    fetch = _run_git(repo_root, ["fetch", "origin"])
+    if fetch.returncode != 0:
+        return (
+            False,
+            "",
+            "could not refresh origin before creating task workspace:\n"
+            f"{fetch.stderr.strip()}",
+        )
+
+    default_branch = _detect_default_branch(repo_root)
+    if _remote_branch_exists(repo_root, default_branch):
+        return True, f"origin/{default_branch}", ""
+    return True, default_branch, ""
+
+
 def _create_worktree(
     repo_root: str,
     worktree_path: str,
@@ -206,11 +239,16 @@ def cmd_create(db_path: str, repo_root: str, argv: list[str]) -> int:
             )
             return 2
 
+        base_ok, base_branch, base_err = _resolve_worktree_base(repo_root)
+        if not base_ok:
+            print(f"Error: {base_err}", file=sys.stderr)
+            return 2
+
         ok, err = _create_worktree(
             repo_root,
             workspace_path,
             branch,
-            _detect_default_branch(repo_root),
+            base_branch,
         )
         if not ok:
             print(f"Error: git worktree add failed:\n{err}", file=sys.stderr)

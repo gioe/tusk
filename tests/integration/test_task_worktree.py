@@ -210,6 +210,46 @@ class TestTaskWorktreeCreate:
         assert result.returncode == 2
         assert "already exists" in result.stderr
 
+    def test_create_bases_worktree_on_fetched_origin_default(
+        self, tmp_path, monkeypatch
+    ):
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        origin = tmp_path / "origin.git"
+        _git(["init", "--bare", str(origin)], cwd=tmp_path)
+        _git(["remote", "add", "origin", str(origin)], cwd=repo)
+        _git(["push", "-u", "origin", "main"], cwd=repo)
+        _git(["symbolic-ref", "HEAD", "refs/heads/main"], cwd=origin)
+
+        remote_clone = tmp_path / "remote-clone"
+        _git(["clone", str(origin), str(remote_clone)], cwd=tmp_path)
+        _git(["config", "user.email", "tusk@example.test"], cwd=remote_clone)
+        _git(["config", "user.name", "Tusk Tests"], cwd=remote_clone)
+        remote_only_file = remote_clone / "remote-only.txt"
+        remote_only_file.write_text("remote default branch work\n", encoding="utf-8")
+        _git(["add", "remote-only.txt"], cwd=remote_clone)
+        _git(["commit", "-m", "advance remote default"], cwd=remote_clone)
+        _git(["push", "origin", "main"], cwd=remote_clone)
+
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+
+        result = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "fresh-origin",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert os.path.exists(os.path.join(payload["workspace_path"], "remote-only.txt"))
+
 
 class TestTaskWorktreeCloseout:
     def test_merge_prefers_recorded_task_workspace_branch(self, tmp_path, monkeypatch):

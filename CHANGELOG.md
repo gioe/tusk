@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [888] - 2026-05-08
+
+- [TASK-361] Base task worktrees on freshly fetched origin default branches
+
 ## [887] - 2026-05-08
 
 - [TASK-360] Rebase tusk merge --rebase onto origin/default

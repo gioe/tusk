@@ -281,6 +281,7 @@ SKILL               start  done   insert update                  eria           
 ```
 tusk task-worktree create <id> <slug> [--workspace-root <path>]
     ├── detect default branch (remote HEAD → gh → "main")
+    ├── fetch origin when an origin remote exists
     ├── create/reuse branch feature/TASK-<id>-<slug>
     ├── create/reuse workspace at:
     │     --workspace-root/TASK-<id>-<slug>
