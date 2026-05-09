@@ -49,6 +49,7 @@ def _mock_run_factory(
     default_branch: str = "main",
     has_origin: bool = True,
     default_locked: bool = True,
+    dirty_file: str = "",
     no_checkout_push_succeeds: bool = True,
     record_calls: list | None = None,
 ):
@@ -58,7 +59,7 @@ def _mock_run_factory(
         calls.append(list(args))
 
         if args[:2] == ["git", "diff"] and "--name-only" in args:
-            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(args, 0, stdout=dirty_file, stderr="")
         if args[:3] == ["git", "stash", "push"]:
             return subprocess.CompletedProcess(
                 args, 0, stdout="No local changes to save", stderr=""
@@ -267,5 +268,38 @@ class TestLinkedWorktreeDefaultBranchLocked:
         assert rc == 2
         stderr = stderr_buf.getvalue()
         assert "no git remote 'origin'" in stderr
+        assert not [c for c in record if "session-close" in c]
+        assert not [c for c in record if "task-done" in c]
+
+    def test_locked_default_without_origin_does_not_stash_dirty_tree_before_failing(
+        self, db_path, config_path, monkeypatch
+    ):
+        task_id, session_id = _setup_task_session(db_path)
+        branch = f"feature/TASK-{task_id}-worktree-lock"
+        record = []
+
+        monkeypatch.setattr(tusk_merge, "find_task_branch", lambda tid: (branch, None, False))
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        mock_run, _ = _mock_run_factory(
+            branch_name=branch,
+            task_id=task_id,
+            has_origin=False,
+            dirty_file="unrelated-task-file.py\n",
+            record_calls=record,
+        )
+        monkeypatch.setattr(tusk_merge, "run", mock_run)
+
+        stderr_buf = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(stderr_buf):
+            rc = tusk_merge.main(
+                [str(db_path), str(config_path), str(task_id), "--session", str(session_id)]
+            )
+
+        assert rc == 2
+        stderr = stderr_buf.getvalue()
+        assert "/tmp/repo-main" in stderr
+        assert "no git remote 'origin'" in stderr
+        assert not [c for c in record if c[:3] == ["git", "stash", "push"]]
         assert not [c for c in record if "session-close" in c]
         assert not [c for c in record if "task-done" in c]

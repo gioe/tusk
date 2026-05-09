@@ -1185,6 +1185,40 @@ def main(argv: list[str]) -> int:
         print(f"Error: {err}", file=sys.stderr)
         return 1
 
+    print(f"Found branch: {branch_name}", file=sys.stderr)
+
+    default_branch = None
+    has_origin = None
+    if not use_pr:
+        default_branch = detect_default_branch()
+        has_origin = _has_remote()
+        locked_default_path = _worktree_path_for_branch(default_branch)
+        if locked_default_path:
+            print(
+                f"Merging {branch_name} into {default_branch} (ff-only)...",
+                file=sys.stderr,
+            )
+            if not has_origin:
+                print(
+                    f"Error: git checkout {default_branch} would fail because the branch "
+                    f"is checked out in another worktree at '{locked_default_path}', and "
+                    "no git remote 'origin' is configured for a no-checkout "
+                    "fast-forward push.",
+                    file=sys.stderr,
+                )
+                return 2
+            return _complete_no_checkout_fast_forward(
+                branch_name=branch_name,
+                default_branch=default_branch,
+                task_id=task_id,
+                session_id=session_id,
+                tusk_bin=tusk_bin,
+                db_path=_db_path,
+                session_was_closed=False,
+                did_stash=False,
+                use_rebase=use_rebase,
+            )
+
     # Step 1b (local mode only): Auto-stash if working tree is dirty.
     # Only tracked modified/staged files are stashed; untracked files ("??")
     # are not uncommitted changes and carry over automatically.
@@ -1218,13 +1252,11 @@ def main(argv: list[str]) -> int:
                 return 1
             did_stash = "No local changes to save" not in stash.stdout
 
-    print(f"Found branch: {branch_name}", file=sys.stderr)
-
-    default_branch = None
-    has_origin = None
     if not use_pr:
-        default_branch = detect_default_branch()
-        has_origin = _has_remote()
+        if default_branch is None:
+            default_branch = detect_default_branch()
+        if has_origin is None:
+            has_origin = _has_remote()
         locked_default_path = _worktree_path_for_branch(default_branch)
         if locked_default_path:
             print(

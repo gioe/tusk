@@ -61,3 +61,43 @@ def test_creates_branch_from_origin_main_without_checking_out_locked_default(cap
     assert "feature/TASK-42-locked-default" in out
     assert ["git", "checkout", "main"] not in calls
     assert ["git", "checkout", "-b", "feature/TASK-42-locked-default", "origin/main"] in calls
+
+
+def test_existing_task_branch_locked_elsewhere_fails_before_stashing(capsys):
+    mod = _load_module()
+    calls: list[list[str]] = []
+    existing_branch = "feature/TASK-42-locked-default"
+
+    def fake_run(args, check=True):
+        calls.append(args)
+        if args[:4] == ["git", "remote", "set-head", "origin"]:
+            return _cp(0)
+        if args[:2] == ["git", "symbolic-ref"]:
+            return _cp(0, stdout="refs/remotes/origin/main\n")
+        if args[:2] == ["git", "status"]:
+            return _cp(0, stdout=" M unrelated-task-file.py\n")
+        if args[:3] == ["git", "remote", "get-url"]:
+            return _cp(0, stdout="https://github.com/test/repo.git\n")
+        if args[:2] == ["git", "fetch"]:
+            return _cp(0)
+        if args[:3] == ["git", "branch", "--list"]:
+            return _cp(0, stdout=f"  {existing_branch}\n")
+        if args[:4] == ["git", "worktree", "list", "--porcelain"]:
+            return _cp(
+                0,
+                stdout=(
+                    "worktree /tmp/other-task\n"
+                    "HEAD abc123\n"
+                    f"branch refs/heads/{existing_branch}\n"
+                ),
+            )
+        return _cp(0)
+
+    with patch.object(mod, "run", side_effect=fake_run):
+        rc = mod.main([".", "42", "locked-default"])
+
+    assert rc == 2
+    _, err = capsys.readouterr()
+    assert "/tmp/other-task" in err
+    assert existing_branch in err
+    assert not [c for c in calls if c[:3] == ["git", "stash", "push"]]

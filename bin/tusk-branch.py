@@ -116,6 +116,29 @@ def _has_remote(name: str = "origin") -> bool:
     return result.returncode == 0
 
 
+def _worktree_path_for_branch(branch: str) -> str | None:
+    """Return another worktree path currently checking out ``branch``, if any."""
+    current = run(["git", "rev-parse", "--show-toplevel"], check=False)
+    current_path = os.path.realpath(current.stdout.strip()) if current.returncode == 0 else None
+
+    result = run(["git", "worktree", "list", "--porcelain"], check=False)
+    if result.returncode != 0:
+        return None
+
+    listed_path = None
+    expected_ref = f"refs/heads/{branch}"
+    for raw in result.stdout.splitlines():
+        line = raw.strip()
+        if line.startswith("worktree "):
+            listed_path = line[len("worktree "):]
+            continue
+        if line == f"branch {expected_ref}" and listed_path:
+            if current_path and os.path.realpath(listed_path) == current_path:
+                continue
+            return listed_path
+    return None
+
+
 def detect_default_branch() -> str:
     """Detect the repo's default branch via remote HEAD, gh fallback, then 'main'."""
     # Try remote HEAD
@@ -227,6 +250,28 @@ def main(argv: list[str]) -> int:
 
     # Detect default branch
     default_branch = detect_default_branch()
+    branch_name = f"feature/TASK-{task_id}-{slug}"
+
+    existing = run(["git", "branch", "--list", f"feature/TASK-{task_id}-*"], check=False)
+    if existing.returncode == 0:
+        preflight_existing_branches: list[str] = []
+        for line in existing.stdout.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("* "):
+                stripped = stripped[2:]
+            if stripped:
+                preflight_existing_branches.append(stripped)
+        if len(preflight_existing_branches) == 1:
+            locked_path = _worktree_path_for_branch(preflight_existing_branches[0])
+            if locked_path:
+                print(
+                    f"Error: branch '{preflight_existing_branches[0]}' for TASK-{task_id} "
+                    f"is already checked out in another worktree at '{locked_path}'. "
+                    "Use that worktree, remove it, or delete the stale branch before "
+                    "running tusk branch again.",
+                    file=sys.stderr,
+                )
+                return 2
 
     # Check for dirty working tree — only tracked modified/staged files need
     # stashing. Untracked files (status "??") carry over to the new branch
@@ -291,7 +336,6 @@ def main(argv: list[str]) -> int:
         )
 
     # Create feature branch — check if one already exists for this task
-    branch_name = f"feature/TASK-{task_id}-{slug}"
     existing = run(["git", "branch", "--list", f"feature/TASK-{task_id}-*"], check=False)
     existing_branches: list[str] = []
     if existing.returncode == 0:

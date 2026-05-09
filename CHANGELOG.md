@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [894] - 2026-05-09
+
+- [TASK-370] Preflight worktree branch locks before auto-stashing
+
 ## [893] - 2026-05-09
 
 - [TASK-367] Fix: preserve tusk branch auto-stashes on abandon and merge

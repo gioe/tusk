@@ -72,7 +72,9 @@ def test_distribution_version_and_changelog_are_bumped_for_skill_delivery():
     version = _text(REPO_ROOT / "VERSION").strip()
     changelog = _text(REPO_ROOT / "CHANGELOG.md")
 
-    assert version == "893"
+    assert version == "894"
+    assert "## [894] - 2026-05-09" in changelog
+    assert "[TASK-370] Preflight worktree branch locks before auto-stashing" in changelog
     assert "## [893] - 2026-05-09" in changelog
     assert "[TASK-367] Fix: preserve tusk branch auto-stashes on abandon and merge" in changelog
     assert "## [892] - 2026-05-09" in changelog
