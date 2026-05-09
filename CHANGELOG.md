@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [892] - 2026-05-09
+
+- [TASK-364] Warn when dupes check matches recently closed tasks
+
 ## [891] - 2026-05-09
 
 - [TASK-366] Fix task-worktree closeout integration tests for no-remote merge path

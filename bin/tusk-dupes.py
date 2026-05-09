@@ -29,6 +29,7 @@ log = logging.getLogger(__name__)
 DEFAULT_CHECK_THRESHOLD = 0.82
 DEFAULT_CRITERION_CHECK_THRESHOLD = 0.88
 DEFAULT_SIMILAR_THRESHOLD = 0.6
+DEFAULT_INCLUDE_CLOSED_DAYS = 7
 PREFIX_PATTERN: re.Pattern = re.compile(r"$^")  # replaced at startup
 TERMINAL_STATUS = "Done"
 IN_PROGRESS_STATUS = "In Progress"
@@ -181,6 +182,32 @@ def get_open_tasks(
     return tasks
 
 
+def get_recently_closed_tasks(
+    conn: sqlite3.Connection,
+    days: int,
+    domain: str | None = None,
+) -> list[sqlite3.Row]:
+    if days <= 0:
+        return []
+
+    query = (
+        "SELECT id, summary, domain, status, priority, closed_at "
+        "FROM tasks "
+        "WHERE status = ? "
+        "  AND closed_at IS NOT NULL "
+        "  AND closed_at >= datetime('now', ?)"
+    )
+    params: list[str] = [TERMINAL_STATUS, f"-{days} days"]
+    if domain:
+        query += " AND domain = ?"
+        params.append(domain)
+    query += " ORDER BY closed_at DESC, id"
+    log.debug("SQL: %s  params: %s", query, params)
+    tasks = conn.execute(query, params).fetchall()
+    log.debug("Loaded %d recently closed tasks", len(tasks))
+    return tasks
+
+
 def get_in_progress_criteria(
     conn: sqlite3.Connection,
     domain: str | None = None,
@@ -222,6 +249,11 @@ def cmd_check(args: argparse.Namespace, db_path: str) -> int:
     conn = get_connection(db_path)
     try:
         tasks = get_open_tasks(conn, domain=args.domain)
+        recently_closed_tasks = get_recently_closed_tasks(
+            conn,
+            days=args.include_closed_days,
+            domain=args.domain,
+        )
         criteria = get_in_progress_criteria(conn, domain=args.domain)
     finally:
         conn.close()
@@ -280,8 +312,30 @@ def cmd_check(args: argparse.Namespace, db_path: str) -> int:
 
     matches.sort(key=lambda m: m["similarity"], reverse=True)
 
+    recently_closed = []
+    recent_cache = build_norm_cache(recently_closed_tasks)
+    for task in recently_closed_tasks:
+        score = similarity_cached(norm_input, recent_cache[task["id"]])
+        log.debug(
+            "  Recently closed task #%d: score=%.3f norm=%r",
+            task["id"], score, recent_cache[task["id"]],
+        )
+        if score >= args.threshold:
+            recently_closed.append(
+                {
+                    "id": task["id"],
+                    "summary": task["summary"],
+                    "domain": task["domain"],
+                    "similarity": round(score, 3),
+                    "match_type": "recently_closed_summary",
+                    "closed_at": task["closed_at"],
+                }
+            )
+
+    recently_closed.sort(key=lambda m: m["similarity"], reverse=True)
+
     if args.json:
-        print(dumps({"duplicates": matches}))
+        print(dumps({"duplicates": matches, "recently_closed": recently_closed}))
     elif matches:
         print(f"Duplicates found for: {args.summary!r}")
         print(f"{'ID':<6} {'Score':<7} {'Type':<10} {'Summary / Criterion'}")
@@ -297,6 +351,14 @@ def cmd_check(args: argparse.Namespace, db_path: str) -> int:
             print(f"{m['id']:<6} {m['similarity']:<7.3f} {m['match_type']:<10} {detail}")
     else:
         print(f"No duplicates found for: {args.summary!r}")
+
+    if not args.json and recently_closed:
+        for match in recently_closed:
+            closed_date = match["closed_at"].split()[0]
+            print(
+                "WARN: matches recently-closed "
+                f"TASK-{match['id']} (closed {closed_date}): {match['summary']}"
+            )
 
     return 1 if matches else 0
 
@@ -433,6 +495,16 @@ def main():
         help=(
             "Stricter similarity threshold for in-progress task criteria "
             f"(default: {DEFAULT_CRITERION_CHECK_THRESHOLD})"
+        ),
+    )
+    check_p.add_argument(
+        "--include-closed-days",
+        type=int,
+        default=DEFAULT_INCLUDE_CLOSED_DAYS,
+        help=(
+            "Warn about matching tasks closed within this many days; "
+            "use 0 to disable (default: "
+            f"{DEFAULT_INCLUDE_CLOSED_DAYS})"
         ),
     )
     check_p.add_argument("--json", action="store_true", help="Output JSON")

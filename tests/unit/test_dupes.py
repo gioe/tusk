@@ -12,6 +12,7 @@ import json
 import os
 import sqlite3
 from contextlib import redirect_stdout
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -28,6 +29,10 @@ _spec.loader.exec_module(dupes)
 
 # Initialize module-level globals (PREFIX_PATTERN, thresholds, TERMINAL_STATUS)
 dupes.load_config(CONFIG_PATH)
+
+
+def _closed_at_days_ago(days: int) -> str:
+    return (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
 
 
 # ── normalize_summary ─────────────────────────────────────────────────
@@ -217,7 +222,7 @@ class TestSimilarity:
 def _make_dupes_db(tasks, criteria):
     """Build an in-memory DB with the minimal schema cmd_check queries.
 
-    tasks: list of (id, summary, status, domain) tuples.
+    tasks: list of (id, summary, status, domain[, closed_at]) tuples.
     criteria: list of (id, task_id, criterion, is_completed) tuples.
     """
     conn = sqlite3.connect(":memory:")
@@ -225,17 +230,20 @@ def _make_dupes_db(tasks, criteria):
     conn.execute(
         "CREATE TABLE tasks ("
         " id INTEGER PRIMARY KEY, summary TEXT, status TEXT,"
-        " domain TEXT, priority TEXT DEFAULT 'Medium')"
+        " domain TEXT, priority TEXT DEFAULT 'Medium', closed_at TEXT)"
     )
     conn.execute(
         "CREATE TABLE acceptance_criteria ("
         " id INTEGER PRIMARY KEY, task_id INTEGER, criterion TEXT,"
         " is_completed INTEGER DEFAULT 0)"
     )
-    for tid, summary, status, domain in tasks:
+    for task in tasks:
+        tid, summary, status, domain, *rest = task
+        closed_at = rest[0] if rest else None
         conn.execute(
-            "INSERT INTO tasks (id, summary, status, domain) VALUES (?, ?, ?, ?)",
-            (tid, summary, status, domain),
+            "INSERT INTO tasks (id, summary, status, domain, closed_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (tid, summary, status, domain, closed_at),
         )
     for cid, tid, text, done in criteria:
         conn.execute(
@@ -248,7 +256,8 @@ def _make_dupes_db(tasks, criteria):
 
 
 def _run_cmd_check(monkeypatch, conn, summary, *, json_out=True,
-                   threshold=None, criterion_threshold=None, domain=None):
+                   threshold=None, criterion_threshold=None, domain=None,
+                   include_closed_days=7):
     """Invoke dupes.cmd_check against an in-memory connection and return parsed JSON."""
     monkeypatch.setattr(dupes, "get_connection", lambda _path: conn)
     args = argparse.Namespace(
@@ -259,6 +268,7 @@ def _run_cmd_check(monkeypatch, conn, summary, *, json_out=True,
             dupes.DEFAULT_CRITERION_CHECK_THRESHOLD
             if criterion_threshold is None else criterion_threshold
         ),
+        include_closed_days=include_closed_days,
         json=json_out,
     )
     buf = io.StringIO()
@@ -445,6 +455,115 @@ class TestInProgressCriterionMatch:
             "similarity": pytest.approx(1.0),
             "match_type": "summary",
         }
+
+
+class TestRecentlyClosedMatches:
+    def test_recently_closed_summary_match_surfaces_separately(self, monkeypatch):
+        closed_at = _closed_at_days_ago(1)
+        conn = _make_dupes_db(
+            tasks=[
+                (
+                    90,
+                    "Audit JSON-LD offer parsing for ticket-row gaps",
+                    "Done",
+                    "cli",
+                    closed_at,
+                )
+            ],
+            criteria=[],
+        )
+        rc, payload = _run_cmd_check(
+            monkeypatch,
+            conn,
+            "Audit JSON-LD offer parsing for ticket-row gaps",
+        )
+
+        assert rc == 0
+        assert payload["duplicates"] == []
+        assert payload["recently_closed"] == [
+            {
+                "id": 90,
+                "summary": "Audit JSON-LD offer parsing for ticket-row gaps",
+                "domain": "cli",
+                "similarity": pytest.approx(1.0),
+                "match_type": "recently_closed_summary",
+                "closed_at": closed_at,
+            }
+        ]
+
+    def test_old_closed_summary_match_is_not_reported(self, monkeypatch):
+        closed_at = _closed_at_days_ago(30)
+        conn = _make_dupes_db(
+            tasks=[
+                (
+                    90,
+                    "Audit JSON-LD offer parsing for ticket-row gaps",
+                    "Done",
+                    "cli",
+                    closed_at,
+                )
+            ],
+            criteria=[],
+        )
+        rc, payload = _run_cmd_check(
+            monkeypatch,
+            conn,
+            "Audit JSON-LD offer parsing for ticket-row gaps",
+        )
+
+        assert rc == 0
+        assert payload["duplicates"] == []
+        assert payload["recently_closed"] == []
+
+    def test_include_closed_days_zero_disables_recently_closed_matches(self, monkeypatch):
+        closed_at = _closed_at_days_ago(1)
+        conn = _make_dupes_db(
+            tasks=[
+                (
+                    90,
+                    "Audit JSON-LD offer parsing for ticket-row gaps",
+                    "Done",
+                    "cli",
+                    closed_at,
+                )
+            ],
+            criteria=[],
+        )
+        rc, payload = _run_cmd_check(
+            monkeypatch,
+            conn,
+            "Audit JSON-LD offer parsing for ticket-row gaps",
+            include_closed_days=0,
+        )
+
+        assert rc == 0
+        assert payload["duplicates"] == []
+        assert payload["recently_closed"] == []
+
+    def test_text_output_warns_for_recently_closed_without_duplicate_exit(self, monkeypatch):
+        closed_at = _closed_at_days_ago(1)
+        conn = _make_dupes_db(
+            tasks=[
+                (
+                    90,
+                    "Audit JSON-LD offer parsing for ticket-row gaps",
+                    "Done",
+                    "cli",
+                    closed_at,
+                )
+            ],
+            criteria=[],
+        )
+        rc, output = _run_cmd_check(
+            monkeypatch,
+            conn,
+            "Audit JSON-LD offer parsing for ticket-row gaps",
+            json_out=False,
+        )
+
+        assert rc == 0
+        assert "WARN: matches recently-closed TASK-90" in output
+        assert "Audit JSON-LD offer parsing for ticket-row gaps" in output
 
 
 class TestCriterionThresholdConfig:

@@ -72,7 +72,9 @@ def test_distribution_version_and_changelog_are_bumped_for_skill_delivery():
     version = _text(REPO_ROOT / "VERSION").strip()
     changelog = _text(REPO_ROOT / "CHANGELOG.md")
 
-    assert version == "891"
+    assert version == "892"
+    assert "## [892] - 2026-05-09" in changelog
+    assert "[TASK-364] Warn when dupes check matches recently closed tasks" in changelog
     assert "## [891] - 2026-05-09" in changelog
     assert "[TASK-366] Fix task-worktree closeout integration tests for no-remote merge path" in changelog
     assert "## [890] - 2026-05-09" in changelog
