@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [897] - 2026-05-09
+
+- [TASK-373] Fix git-default-branch in linked worktrees
+
 ## [896] - 2026-05-09
 
 - [TASK-372] Guard address-issue dirty checkout startup

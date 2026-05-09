@@ -72,7 +72,9 @@ def test_distribution_version_and_changelog_are_bumped_for_skill_delivery():
     version = _text(REPO_ROOT / "VERSION").strip()
     changelog = _text(REPO_ROOT / "CHANGELOG.md")
 
-    assert version == "896"
+    assert version == "897"
+    assert "## [897] - 2026-05-09" in changelog
+    assert "[TASK-373] Fix git-default-branch in linked worktrees" in changelog
     assert "## [896] - 2026-05-09" in changelog
     assert "[TASK-372] Guard address-issue dirty checkout startup" in changelog
     assert "## [895] - 2026-05-09" in changelog
