@@ -51,6 +51,8 @@ def _mock_run_factory(
     default_locked: bool = True,
     dirty_file: str = "",
     no_checkout_push_succeeds: bool = True,
+    branch_contains_origin: bool = True,
+    has_remote_feature_upstream: bool = False,
     record_calls: list | None = None,
 ):
     calls = record_calls if record_calls is not None else []
@@ -105,8 +107,33 @@ def _mock_run_factory(
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
         if args[:3] == ["git", "fetch", "origin"]:
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        if args[:3] == ["git", "merge-base", "--is-ancestor"]:
+            return subprocess.CompletedProcess(
+                args,
+                0 if branch_contains_origin else 1,
+                stdout="",
+                stderr="",
+            )
         if args[:3] == ["git", "rebase", f"origin/{default_branch}"]:
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        if args[:3] == ["git", "config", "--get"]:
+            key = args[3]
+            if key == f"branch.{branch_name}.remote":
+                return subprocess.CompletedProcess(
+                    args,
+                    0 if has_remote_feature_upstream else 1,
+                    stdout="origin\n" if has_remote_feature_upstream else "",
+                    stderr="",
+                )
+            if key == f"branch.{branch_name}.merge":
+                return subprocess.CompletedProcess(
+                    args,
+                    0 if has_remote_feature_upstream else 1,
+                    stdout=f"refs/heads/{branch_name}\n"
+                    if has_remote_feature_upstream
+                    else "",
+                    stderr="",
+                )
         if args[:2] == ["git", "push"] and args[2:4] == [
             "origin",
             f"{branch_name}:{default_branch}",
@@ -121,6 +148,11 @@ def _mock_run_factory(
                     else "! [rejected] feature -> main (non-fast-forward)\n"
                 ),
             )
+        if args[:3] == ["git", "push", "origin"] and args[3:5] == [
+            "--delete",
+            branch_name,
+        ]:
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
         if "session-close" in args:
             return subprocess.CompletedProcess(args, 0, stdout="{}", stderr="")
         if "task-done" in args:
@@ -170,6 +202,70 @@ class TestLinkedWorktreeDefaultBranchLocked:
         assert not [c for c in record if c[:3] == ["git", "merge", "--ff-only"]]
         assert not [c for c in record if c[:3] in (["git", "branch", "-d"], ["git", "branch", "-D"])]
         assert "no-checkout fast-forward" in stderr_buf.getvalue()
+
+    def test_no_checkout_fetches_and_refuses_predictable_non_ff_before_push(
+        self, db_path, config_path, monkeypatch
+    ):
+        task_id, session_id = _setup_task_session(db_path)
+        branch = f"feature/TASK-{task_id}-worktree-lock"
+        record = []
+
+        monkeypatch.setattr(tusk_merge, "find_task_branch", lambda tid: (branch, None, False))
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        mock_run, _ = _mock_run_factory(
+            branch_name=branch,
+            task_id=task_id,
+            branch_contains_origin=False,
+            record_calls=record,
+        )
+        monkeypatch.setattr(tusk_merge, "run", mock_run)
+
+        stderr_buf = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(stderr_buf):
+            rc = tusk_merge.main(
+                [str(db_path), str(config_path), str(task_id), "--session", str(session_id)]
+            )
+
+        assert rc == 2
+        assert ["git", "fetch", "origin"] in record
+        assert ["git", "merge-base", "--is-ancestor", "origin/main", branch] in record
+        assert ["git", "push", "origin", f"{branch}:main"] not in record
+        stderr = stderr_buf.getvalue()
+        assert "origin/main has commits not reachable" in stderr
+        assert f"tusk merge {task_id} --session {session_id} --rebase" in stderr
+        assert not [c for c in record if "session-close" in c]
+        assert not [c for c in record if "task-done" in c]
+
+    def test_no_checkout_success_deletes_remote_feature_upstream(
+        self, db_path, config_path, monkeypatch
+    ):
+        task_id, session_id = _setup_task_session(db_path)
+        branch = f"feature/TASK-{task_id}-worktree-lock"
+        record = []
+
+        monkeypatch.setattr(tusk_merge, "find_task_branch", lambda tid: (branch, None, False))
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        mock_run, _ = _mock_run_factory(
+            branch_name=branch,
+            task_id=task_id,
+            has_remote_feature_upstream=True,
+            record_calls=record,
+        )
+        monkeypatch.setattr(tusk_merge, "run", mock_run)
+
+        stderr_buf = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(stderr_buf):
+            rc = tusk_merge.main(
+                [str(db_path), str(config_path), str(task_id), "--session", str(session_id)]
+            )
+
+        assert rc == 0, f"Expected exit 0\nstderr: {stderr_buf.getvalue()}"
+        push_idx = record.index(["git", "push", "origin", f"{branch}:main"])
+        delete_idx = record.index(["git", "push", "origin", "--delete", branch])
+        assert push_idx < delete_idx
+        assert "Deleted remote feature branch origin/" in stderr_buf.getvalue()
 
     def test_rebase_before_no_checkout_fast_forward_push(
         self, db_path, config_path, monkeypatch

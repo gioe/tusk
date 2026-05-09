@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [900] - 2026-05-09
+
+- [TASK-376] Fix merge freshness checks and remote branch cleanup
+
 ## [899] - 2026-05-09
 
 - [TASK-375] Attribute criteria to task worktree commits
