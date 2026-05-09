@@ -211,10 +211,10 @@ def cmd_begin(args: argparse.Namespace, db_path: str, config_path: str) -> int:
     recovered_from_task_commits.
     """
     diff_range_mod = tusk_loader.load("tusk-review-diff-range")
-    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+    repo_root = diff_range_mod.resolve_repo_root(db_path)
 
     try:
-        diff_payload = diff_range_mod.compute_range(args.task_id, repo_root)
+        diff_payload = diff_range_mod.compute_range(args.task_id, repo_root, db_path)
     except SystemExit as exc:
         if isinstance(exc.code, str):
             print(exc.code, file=sys.stderr)

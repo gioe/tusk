@@ -107,9 +107,9 @@ Label each finding with its classification. This drives the routing in LR-2.
 
    **tusk-issues** — file a GitHub issue via:
    ```bash
-   tusk report-issue --title "<finding title>" --context "<finding description>"
+   tusk report-issue --title "<finding title>" --cluster triage-needed --context "<finding description>"
    ```
-   Do **not** call `tusk task-insert` for tusk-issues. Track the count of issues filed for LR-3.
+   Choose a more specific cluster (`worktree`, `merge`, `review-diff`, `summary`, `docs`, `test-precheck`, or `small-fix`) when it is clear from the finding; use `triage-needed` only as the fallback. Do **not** call `tusk task-insert` for tusk-issues. Track the count of issues filed for LR-3.
 
    **Include a `## Failing Test` section** in `--context` whenever a concrete test can be derived from the finding. This matters because `/address-issue` Factor 0 treats a missing failing test as the highest-priority signal to Defer — issues filed without one will be deprioritized automatically. Format:
 

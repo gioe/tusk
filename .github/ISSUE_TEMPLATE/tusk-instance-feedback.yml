@@ -1,6 +1,6 @@
 name: Tusk instance feedback
 description: Report a bug or unexpected behavior in tusk from a project where tusk is installed
-labels: [instance-feedback]
+labels: [instance-feedback, cluster:triage-needed]
 body:
   - type: input
     id: tusk_version
@@ -8,6 +8,23 @@ body:
       label: Tusk version
       description: Run `tusk version` and paste the output here.
       placeholder: "516"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: issue_cluster
+    attributes:
+      label: Issue cluster
+      description: Pick the closest workstream. Use triage-needed only when no specific cluster fits.
+      options:
+        - worktree
+        - merge
+        - review-diff
+        - summary
+        - docs
+        - test-precheck
+        - small-fix
+        - triage-needed
     validations:
       required: true
 

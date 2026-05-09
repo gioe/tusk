@@ -154,7 +154,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
        ```bash
        tusk commit <id> "<message>" "<file1>" ["<file2>" ...] --criteria <cid1> --criteria <cid2>
        ```
-       Always include a brief rationale in the commit message when grouping. **Never** bundle all criteria onto a single end-of-task commit.
+       Always include a brief rationale in the commit message when grouping. **Never** bundle all criteria onto a single end-of-task commit. Exception: if several criteria all land in one new file or one inseparable file-local change, bundle them in one commit with an explicit rationale instead of truncating/restoring the file just to simulate separate commits.
 
     **If a criterion does not apply to the implementation path you chose** (e.g., a mutually-exclusive "do X OR document why exempt" pair where you did X), use `tusk criteria skip` — NOT `tusk criteria done --skip-verify`:
     ```bash
@@ -180,11 +180,12 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     ```bash
     tusk criteria done <cid> --skip-verify
     ```
-    If the error is a genuine pathspec mismatch (not an already-committed file), always pass file paths relative to the repo root (e.g., `ios/SomeFile.swift`, not `SomeFile.swift` from inside `ios/`). If the error persists, fall back to:
+    If the error is a genuine pathspec mismatch (not an already-committed file), always pass file paths relative to the repo root (e.g., `ios/SomeFile.swift`, not `SomeFile.swift` from inside `ios/`). If the error persists, fall back to a path-limited commit:
     ```bash
-    git add "<file1>" ["<file2>" ...] && git commit -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
+    git add -- "<file1>" ["<file2>" ...]
+    git commit -o -- "<file1>" ["<file2>" ...] -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
     ```
-    Then mark criteria done with `tusk criteria done <cid> --skip-verify` as usual.
+    `git commit -o -- <files>` limits the commit to the listed paths so unrelated pre-staged changes cannot leak into the task commit. Then mark criteria done with `tusk criteria done <cid> --skip-verify` as usual.
 
     **If `tusk commit` fails with `pathspec '…' is beyond a symbolic link`** (exit code 3), the path lives under a symlinked directory that `git add` refuses to traverse. In tusk's own repo this hits any path under `.claude/skills/<name>/`, because each skill is a symlink to `skills/<name>/`. Retry with the real source path:
     ```bash
@@ -229,9 +230,10 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
     - **If `pre_existing` is `true`** — the failure is pre-existing and unrelated to your changes. **Skip the diagnosis loop entirely.** Do not attempt to fix tests in files you did not modify during this session. Fall back immediately to:
       ```bash
-      git add <file1> [file2 ...] && git commit -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
+      git add -- "<file1>" ["<file2>" ...]
+      git commit -o -- "<file1>" ["<file2>" ...] -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
       ```
-      Then mark criteria done with `tusk criteria done <cid> --skip-verify`.
+      Then mark criteria done with `tusk criteria done <cid> --skip-verify`. The `-o -- <files>` form is required here too; a plain `git commit` would include any unrelated paths that were staged before this task.
 
     - **If `pre_existing` is `false`** — your changes introduced the failure. Proceed with the diagnosis loop below. Do **not** modify any code until you've completed steps 1–2:
     1. **Read the full test output** — scroll through the entire failure log. Do not make any code changes until you understand what failed and why.
@@ -293,6 +295,12 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     `--rebase` rebases the feature branch onto the default branch before merging. If the rebase produces conflicts, resolve them (`git rebase --continue`) and retry.
 
     **Not-on-default fallback:** If `tusk merge` exits non-zero with `No branch found matching feature/TASK-<id>-* or worktree-TASK-<id>-*` and you are NOT on the default branch, switch to the default branch first (`git checkout <default_branch>`), then retry `tusk merge <id> --session <session_id>`.
+
+    **Sibling-worktree DB fallback:** If the default branch is checked out in a sibling worktree and the primary checkout is unusable, run the merge from the sibling worktree while pinning tusk to the primary repo's DB:
+    ```bash
+    TUSK_PROJECT=<primary_repo_path> tusk merge <id> --session $SESSION_ID --rebase
+    ```
+    This is the correct fallback when running `tusk merge` from the sibling worktree fails with `no such table: task_sessions`: that worktree has the git state needed for the merge, but tusk resolved its database relative to the sibling CWD. `TUSK_PROJECT` keeps tusk pointed at the primary repo's project database while git commands operate in the current worktree.
 
     **PR mode:** If the project uses PR-based merges (`merge.mode = pr` in config, or when passing `--pr`), use:
     ```bash

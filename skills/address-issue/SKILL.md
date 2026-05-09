@@ -10,16 +10,77 @@ Fetches a GitHub issue, converts it into a tusk task, and immediately begins wor
 
 ## Step 1: Parse the Issue Reference
 
-Invoked with an optional issue number or full URL (e.g. `/address-issue 314`, `/address-issue https://github.com/gioe/tusk/issues/314`, or no argument to default to the newest open issue).
+Invoked with an optional issue number, full URL, or cluster selector:
+- `/address-issue 314`
+- `/address-issue https://github.com/gioe/tusk/issues/314`
+- `/address-issue --cluster worktree` (select one issue labeled `cluster:worktree`)
+- `/address-issue --cluster worktree --batch`
+- no argument to default to the newest open issue
+
+Parse flags first:
+- `--cluster <name>` sets `$CLUSTER`. Valid values: `worktree`, `merge`, `review-diff`, `summary`, `docs`, `test-precheck`, `small-fix`, `triage-needed`.
+- `--batch` is valid only with `--cluster`.
+- A number or full URL must not be combined with `--cluster`; if both are present, stop and ask the user to choose one mode.
 
 Extract the issue number:
 - Full URL → parse the number from the path.
 - Number only → use it directly.
+- `--cluster <name>` without `--batch` → fetch open issues with that cluster label, then choose the highest-leverage issue:
+  ```bash
+  CLUSTER="<name>"
+  gh issue list --repo gioe/tusk --state open --label "cluster:$CLUSTER" --limit 50 --json number,title,labels,updatedAt,url
+  ```
+  Prefer the broadest canonical/root-cause issue in the cluster, especially one whose title names an underlying subsystem or behavior rather than a one-off symptom. Avoid issues labeled `duplicate`, `invalid`, or `wontfix`. If several issues look equivalent, choose the most recently updated issue. Display the selected issue and continue with Step 2:
+  > Cluster `cluster:<name>` — selected highest-leverage issue #<number> "<title>" from <count> open issue(s).
 - No argument → fetch the newest open issue:
   ```bash
   gh issue list --repo gioe/tusk --state open --limit 1 --json number,title
   ```
   If empty, report `> No open issues found in gioe/tusk.` and stop. Otherwise use the returned `number` and display: `> No issue specified — defaulting to newest open issue: #<number> "<title>"`
+
+### Batch Cluster Mode
+
+When invoked as `/address-issue --cluster worktree --batch`, do **not** treat the whole cluster as one task and do **not** create one task per GitHub issue. Batch mode is a cluster grooming and execution pass: create one tusk task per root cause, not one task per GitHub issue.
+
+1. Fetch every open issue in the cluster:
+   ```bash
+   CLUSTER="<name>"
+   gh issue list --repo gioe/tusk --state open --label "cluster:$CLUSTER" --limit 100 --json number,title,labels,updatedAt,url
+   ```
+
+2. Fetch bodies and comments for each issue with `gh issue view <number> --repo gioe/tusk --json number,title,body,labels,comments,state,url`.
+
+3. Group issues by root cause. Treat reports as the same group when they name the same command, same failure mode, and same likely fix. Keep separate groups when they share a cluster but differ in command surface or acceptance criteria.
+
+4. Present a table before creating tasks:
+
+   | Group | Canonical issue | Covered issues | Root cause | Proposed task summary |
+   |-------|-----------------|----------------|------------|-----------------------|
+
+   The canonical issue should be the clearest, broadest report. The covered issues list must include every GitHub issue number in the group.
+
+5. Ask for approval:
+
+   > Create one tusk task per root-cause group and process them sequentially? (**confirm** / edit / cancel)
+
+   On `edit`, update the grouping and show the table again. On `cancel`, stop.
+
+6. For each approved group, run Steps 2-10 using the canonical issue as the primary issue. In Step 4's task description, append:
+
+   ```markdown
+   ## Covered GitHub Issues
+
+   - #<canonical> — <url>
+   - #<covered> — <url>
+   ```
+
+   In Step 9, close every covered issue after the task is merged. For the canonical issue, use the normal resolution comment. For non-canonical covered issues, use:
+
+   ```bash
+   gh issue close <covered_number> --repo <owner/repo> --comment "Resolved by the same root-cause fix as #<canonical> in <commit_sha>. Tracked as tusk task #<task_id>."
+   ```
+
+   Apply Shared gh Failure Handling to every close/comment call. Continue to the next root-cause group only after Steps 8-10 complete for the current group.
 
 ## Step 2: Fetch the Issue
 

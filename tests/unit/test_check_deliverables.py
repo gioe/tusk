@@ -54,7 +54,8 @@ def _make_db(tmp_path, task_id=99, summary="Create /foo skill", description="", 
             id INTEGER PRIMARY KEY,
             summary TEXT,
             description TEXT,
-            status TEXT DEFAULT 'To Do'
+            status TEXT DEFAULT 'To Do',
+            started_at TEXT
         );
         CREATE TABLE acceptance_criteria (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -513,6 +514,31 @@ def _git_commit_with_files(repo_root, message, file_specs):
     ).stdout.strip()
 
 
+def _git_commit_with_files_at(repo_root, message, file_specs, commit_date):
+    for relpath, contents in file_specs:
+        abs_path = os.path.join(str(repo_root), relpath)
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        with open(abs_path, "w", encoding="utf-8") as fh:
+            fh.write(contents)
+        subprocess.run(
+            ["git", "-C", str(repo_root), "add", relpath],
+            check=True, capture_output=True,
+        )
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_DATE": commit_date,
+        "GIT_COMMITTER_DATE": commit_date,
+    }
+    subprocess.run(
+        ["git", "-C", str(repo_root), "commit", "-m", message],
+        check=True, capture_output=True, env=env,
+    )
+    return subprocess.run(
+        ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=True, encoding="utf-8",
+    ).stdout.strip()
+
+
 class TestMergedNotClosed:
     def test_merged_not_closed_when_task_commit_on_default(self, tmp_path):
         """[TASK-N] commit on the default branch → merged_not_closed with the SHA listed."""
@@ -541,6 +567,31 @@ class TestMergedNotClosed:
         assert data["recommendation"] == "commits_found"
         assert data["commits_found"] is True
         assert data["default_branch_commits"] == []
+
+    def test_old_task_id_commit_before_started_at_is_ignored(self, tmp_path):
+        """Issue #494: after a DB reset, an older [TASK-N] commit on the
+        default branch must not make the new task look already merged."""
+        _init_git_repo(tmp_path)
+        _git_commit_with_files_at(
+            tmp_path,
+            "[TASK-7] earlier incarnation",
+            [("old-task-7.txt", "old\n")],
+            "2026-01-15 10:00:00 +0000",
+        )
+        db_path = _make_db(tmp_path, task_id=7, summary="New task lifecycle")
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "UPDATE tasks SET started_at = '2026-04-19 10:00:00' WHERE id = 7"
+        )
+        conn.commit()
+        conn.close()
+
+        rc, stdout, _ = _run_main(db_path, 7)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["commits_found"] is False
+        assert data["default_branch_commits"] == []
+        assert data["recommendation"] == "implement_fresh"
 
 
 # ── merged_not_closed_low_confidence (prefix-match false-positive case) ──

@@ -23,10 +23,42 @@ def _read_package_json(path: str) -> dict:
     deps.update(pkg.get("devDependencies", {}))
     deps.update(pkg.get("dependencies", {}))
     scripts = pkg.get("scripts", {})
+    test_script = scripts.get("test", "")
     return {
-        "vitest": "vitest" in deps,
-        "jest": "jest" in deps or "jest" in scripts.get("test", ""),
+        "has_test": bool(test_script),
+        "vitest": "vitest" in deps or "vitest" in test_script,
+        "jest": "jest" in deps or "jest" in test_script,
     }
+
+
+def _detect_nested_node_test(root: str) -> dict:
+    """Detect common monorepo package.json test scripts under workspace dirs."""
+    workspace_roots = ("apps", "packages")
+    candidates: list[str] = []
+    for workspace_root in workspace_roots:
+        base = os.path.join(root, workspace_root)
+        if not os.path.isdir(base):
+            continue
+        try:
+            names = sorted(os.listdir(base))
+        except OSError:
+            continue
+        for name in names:
+            pkg_path = os.path.join(base, name, "package.json")
+            if os.path.isfile(pkg_path):
+                candidates.append(os.path.relpath(os.path.dirname(pkg_path), root))
+
+    for rel_dir in candidates:
+        runner = _read_package_json(os.path.join(root, rel_dir, "package.json"))
+        if runner.get("vitest") or runner.get("jest"):
+            return {"command": f"cd {rel_dir} && npm test", "confidence": "high"}
+
+    for rel_dir in candidates:
+        runner = _read_package_json(os.path.join(root, rel_dir, "package.json"))
+        if runner.get("has_test"):
+            return {"command": f"cd {rel_dir} && npm test", "confidence": "medium"}
+
+    return {}
 
 
 def detect(root: str) -> dict:
@@ -85,6 +117,10 @@ def detect(root: str) -> dict:
         if runner.get("jest"):
             return {"command": "npx jest", "confidence": "medium"}
         return {"command": "npm test", "confidence": "low"}
+
+    nested_node = _detect_nested_node_test(root)
+    if nested_node:
+        return nested_node
 
     # Pipfile.lock (pipenv)
     if os.path.isfile(os.path.join(root, "Pipfile.lock")):

@@ -1152,12 +1152,14 @@ cmd_version() {
 
 cmd_report_issue() {
   local title="" context="" observed="" steps="" expected=""
+  local cluster="triage-needed"
   local dry_run=0
-  local usage="Usage: tusk report-issue --title <title> [--context <text>] [--observed <text>] [--steps <text>] [--expected <text>] [--dry-run]"
+  local usage="Usage: tusk report-issue --title <title> [--cluster worktree|merge|review-diff|summary|docs|test-precheck|small-fix|triage-needed] [--context <text>] [--observed <text>] [--steps <text>] [--expected <text>] [--dry-run]"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --title)    title="$2";    shift 2 ;;
+      --cluster)  cluster="$2";  shift 2 ;;
       --context)  context="$2";  shift 2 ;;
       --observed) observed="$2"; shift 2 ;;
       --steps)    steps="$2";    shift 2 ;;
@@ -1180,6 +1182,17 @@ cmd_report_issue() {
     echo "$usage" >&2
     exit 1
   fi
+
+  case "$cluster" in
+    worktree|merge|review-diff|summary|docs|test-precheck|small-fix|triage-needed) ;;
+    *)
+      echo "Error: Invalid --cluster '$cluster'" >&2
+      echo "Allowed clusters: worktree, merge, review-diff, summary, docs, test-precheck, small-fix, triage-needed" >&2
+      echo "$usage" >&2
+      exit 1
+      ;;
+  esac
+  local cluster_label="cluster:$cluster"
 
   local body
   body="$(cat <<BODY
@@ -1211,12 +1224,12 @@ BODY
     printf 'Title:\n%s\n\n' "$title"
     printf 'Body:\n%s\n\n' "$body"
     printf 'Command (would run):\n'
-    printf 'gh issue create --repo %q --label instance-feedback --title %q --body %q\n' \
-      "$TUSK_GITHUB_REPO" "$title" "$body"
+    printf 'gh issue create --repo %q --label instance-feedback --label %q --title %q --body %q\n' \
+      "$TUSK_GITHUB_REPO" "$cluster_label" "$title" "$body"
     exit 0
   fi
 
-  exec gh issue create --repo "$TUSK_GITHUB_REPO" --label instance-feedback --title "$title" --body "$body"
+  exec gh issue create --repo "$TUSK_GITHUB_REPO" --label instance-feedback --label "$cluster_label" --title "$title" --body "$body"
 }
 
 cmd_version_bump() {

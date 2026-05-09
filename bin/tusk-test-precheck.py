@@ -41,8 +41,10 @@ import argparse
 import fnmatch
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -50,6 +52,9 @@ import tusk_loader  # loads tusk-json-lib.py
 
 _json_lib = tusk_loader.load("tusk-json-lib")
 dumps = _json_lib.dumps
+
+
+GENERATED_POP_CONFLICT_PATHS = (".claude/scheduled_tasks.lock",)
 
 
 def _run(cmd_args, cwd, capture=True):
@@ -245,6 +250,58 @@ def run_test(test_command: str, repo_root: str) -> int:
     return result.returncode
 
 
+def run_test_in_temporary_worktree(repo_root: str, test_command: str) -> int:
+    """Run the test command against HEAD in a temporary linked worktree."""
+    tmp_parent = tempfile.mkdtemp(prefix="tusk-test-precheck-")
+    worktree = os.path.join(tmp_parent, "worktree")
+    try:
+        add_res = _run(
+            ["git", "worktree", "add", "--detach", worktree, "HEAD"],
+            cwd=repo_root,
+        )
+        if add_res.returncode != 0:
+            raise RuntimeError(
+                "git worktree add fallback failed: "
+                f"{add_res.stderr.strip() or add_res.stdout.strip()}"
+            )
+        return run_test(test_command, worktree)
+    finally:
+        if os.path.isdir(worktree):
+            remove_res = _run(
+                ["git", "worktree", "remove", "--force", worktree],
+                cwd=repo_root,
+            )
+            if remove_res.returncode != 0:
+                print(
+                    "Warning: could not remove temporary precheck worktree "
+                    f"{worktree}: {remove_res.stderr.strip()}",
+                    file=sys.stderr,
+                )
+        shutil.rmtree(tmp_parent, ignore_errors=True)
+
+
+def _is_untracked(repo_root: str, path: str) -> bool:
+    result = _run(["git", "ls-files", "--error-unmatch", path], cwd=repo_root)
+    return result.returncode != 0
+
+
+def _remove_generated_pop_blockers(repo_root: str, stderr: str) -> list[str]:
+    """Remove known generated untracked files that block stash pop."""
+    removed: list[str] = []
+    for rel_path in GENERATED_POP_CONFLICT_PATHS:
+        if rel_path not in stderr:
+            continue
+        abs_path = os.path.join(repo_root, rel_path)
+        if not os.path.exists(abs_path) or not _is_untracked(repo_root, rel_path):
+            continue
+        try:
+            os.remove(abs_path)
+            removed.append(rel_path)
+        except OSError:
+            pass
+    return removed
+
+
 def main(argv):
     parser = argparse.ArgumentParser(
         prog="tusk test-precheck",
@@ -316,10 +373,22 @@ def main(argv):
         )
         if push_res.returncode != 0:
             print(
-                f"Error: `git stash push` failed: {push_res.stderr.strip()}",
+                f"Warning: `git stash push` failed: {push_res.stderr.strip()}\n"
+                "Running the precheck in a temporary worktree at HEAD instead.",
                 file=sys.stderr,
             )
-            return 1
+            try:
+                exit_code = run_test_in_temporary_worktree(repo_root, test_command)
+            except RuntimeError as e:
+                print(f"Error: {e}", file=sys.stderr)
+                return 1
+            print(dumps({
+                "pre_existing": exit_code != 0,
+                "exit_code": exit_code,
+                "test_command": test_command,
+                "stashed": False,
+            }))
+            return 0
         try:
             stash_ref = find_stash_ref_by_message(repo_root, stash_message)
         except RuntimeError as e:
@@ -384,14 +453,26 @@ def main(argv):
                 return 1
             pop_res = _run(["git", "stash", "pop", stash_ref], cwd=repo_root)
             if pop_res.returncode != 0:
-                print(
-                    f"Error: `git stash pop {stash_ref}` failed — your changes "
-                    f"remain in the stash list (message: {stash_message}).  "
-                    f"Resolve conflicts and run `git stash pop {stash_ref}` "
-                    f"manually.\n{pop_res.stderr}",
-                    file=sys.stderr,
-                )
-                return 1
+                removed = _remove_generated_pop_blockers(repo_root, pop_res.stderr)
+                if removed:
+                    for rel_path in removed:
+                        print(
+                            "Removed generated file blocking stash restore: "
+                            f"{rel_path}",
+                            file=sys.stderr,
+                        )
+                    pop_res = _run(["git", "stash", "pop", stash_ref], cwd=repo_root)
+                    if pop_res.returncode == 0:
+                        pop_res = None
+                if pop_res is not None and pop_res.returncode != 0:
+                    print(
+                        f"Error: `git stash pop {stash_ref}` failed — your changes "
+                        f"remain in the stash list (message: {stash_message}).  "
+                        f"Resolve conflicts and run `git stash pop {stash_ref}` "
+                        f"manually.\n{pop_res.stderr}",
+                        file=sys.stderr,
+                    )
+                    return 1
 
     if run_test_error is not None:
         print(

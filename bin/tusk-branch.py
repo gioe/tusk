@@ -304,7 +304,13 @@ def main(argv: list[str]) -> int:
             check=False,
         )
         if stash.returncode != 0:
-            print(f"Error: git stash failed:\n{stash.stderr.strip()}", file=sys.stderr)
+            print(
+                f"Error: git stash failed:\n{stash.stderr.strip()}\n"
+                "The working tree could not be safely stashed, so tusk did "
+                "not switch branches. Use an isolated task worktree instead:\n"
+                f"  tusk task-worktree create {task_id} {slug}",
+                file=sys.stderr,
+            )
             return 2
         print(
             "Warning: uncommitted changes detected — stashed before switching branches.",

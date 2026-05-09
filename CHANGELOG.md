@@ -6,6 +6,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [901] - 2026-05-09
+
+- Add cluster labels to tusk issue filing paths and `/address-issue` cluster modes
+- Improve test-precheck dirty-worktree fallback, generated lock recovery, and nested monorepo test detection
+- Clarify `/tusk` skill fallbacks for criteria grouping, path-limited manual commits, and sibling-worktree merges
+- Fix review-diff helpers to honor task worktree HEADs and ignore recycled `[TASK-N]` commits from before `tasks.started_at`
+
 ## [900] - 2026-05-09
 
 - [TASK-376] Fix merge freshness checks and remote branch cleanup

@@ -54,19 +54,64 @@ commit_changed_files = _git_helpers.commit_changed_files
 task_referenced_paths = _git_helpers.task_referenced_paths
 
 
-def check_commits(task_id: int, repo_root: str) -> bool:
+def _git_stdout(args: list, repo_root: str | None = None) -> str | None:
+    kwargs = {
+        "capture_output": True,
+        "text": True,
+        "encoding": "utf-8",
+    }
+    if repo_root is not None:
+        kwargs["cwd"] = repo_root
+    r = subprocess.run(["git", *args], **kwargs)
+    if r.returncode != 0:
+        return None
+    return (r.stdout or "").strip()
+
+
+def _git_common_dir(repo_root: str) -> str | None:
+    path = _git_stdout(["rev-parse", "--git-common-dir"], repo_root)
+    if not path:
+        return None
+    if not os.path.isabs(path):
+        path = os.path.join(repo_root, path)
+    return os.path.realpath(path)
+
+
+def resolve_repo_root(db_path: str, cwd: str | None = None) -> str:
+    db_repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+    db_common = _git_common_dir(db_repo_root)
+    if not db_common:
+        return db_repo_root
+
+    candidate = _git_stdout(["rev-parse", "--show-toplevel"], cwd or os.getcwd())
+    if not candidate:
+        return db_repo_root
+    candidate = os.path.abspath(candidate)
+    candidate_common = _git_common_dir(candidate)
+    if candidate_common and candidate_common == db_common:
+        return candidate
+    return db_repo_root
+
+
+def check_commits(task_id: int, repo_root: str, since: str | None = None) -> bool:
     """Return True if any commits reference [TASK-<id>] on any branch."""
-    return bool(find_task_commits(task_id, repo_root, ["--all"]))
+    return bool(find_task_commits(task_id, repo_root, ["--all"], since=since))
 
 
-def check_default_branch_commits(task_id: int, repo_root: str) -> list:
+def check_default_branch_commits(
+    task_id: int, repo_root: str, since: str | None = None
+) -> list:
     """Return commit SHAs on the default branch that reference [TASK-<id>]."""
-    return find_task_commits(task_id, repo_root, [default_branch_of(repo_root)])
+    return find_task_commits(task_id, repo_root, [default_branch_of(repo_root)], since=since)
 
 
-def _feature_branch_commits(task_id: int, repo_root: str, default_branch: str) -> list:
+def _feature_branch_commits(
+    task_id: int, repo_root: str, default_branch: str, since: str | None = None
+) -> list:
     """Return [TASK-<id>] commit SHAs reachable from any ref EXCEPT the default branch."""
-    return find_task_commits(task_id, repo_root, ["--all", "--not", default_branch])
+    return find_task_commits(
+        task_id, repo_root, ["--all", "--not", default_branch], since=since
+    )
 
 
 def find_existing_files(task_id: int, conn: sqlite3.Connection, repo_root: str) -> list:
@@ -99,6 +144,21 @@ def all_active_criteria_complete(task_id: int, conn: sqlite3.Connection) -> bool
     return active > 0 and active == done
 
 
+def _task_started_at(conn: sqlite3.Connection, task_id: int) -> str | None:
+    try:
+        row = conn.execute(
+            "SELECT started_at FROM tasks WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    if not row:
+        return None
+    if isinstance(row, sqlite3.Row) and "started_at" in row.keys():
+        return row["started_at"]
+    return row[0]
+
+
 def main(argv: list) -> int:
     if len(argv) < 3:
         print("Usage: tusk check-deliverables <task_id>", file=sys.stderr)
@@ -113,8 +173,7 @@ def main(argv: list) -> int:
         print(f"Invalid task ID: {argv[2]}", file=sys.stderr)
         return 1
 
-    # repo_root is two levels up from the DB: tusk/tasks.db → tusk/ → repo_root
-    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+    repo_root = resolve_repo_root(db_path)
 
     conn = get_connection(db_path)
     try:
@@ -122,12 +181,17 @@ def main(argv: list) -> int:
             print(f"Task {task_id} not found", file=sys.stderr)
             return 1
 
+        started_at = _task_started_at(conn, task_id)
         default_branch = default_branch_of(repo_root)
-        default_commits = find_task_commits(task_id, repo_root, [default_branch])
+        default_commits = find_task_commits(
+            task_id, repo_root, [default_branch], since=started_at
+        )
         if default_commits:
             default_files = commit_changed_files(default_commits, repo_root)
             task_paths = set(task_referenced_paths(task_id, conn))
-            feature_commits = _feature_branch_commits(task_id, repo_root, default_branch)
+            feature_commits = _feature_branch_commits(
+                task_id, repo_root, default_branch, since=started_at
+            )
             feature_files = commit_changed_files(feature_commits, repo_root)
             scope = task_paths | feature_files
             # Aggregate-level file-overlap (intentional, distinct from
@@ -151,7 +215,7 @@ def main(argv: list) -> int:
                 "default_branch_commit_files": sorted(default_files),
                 "recommendation": recommendation,
             }
-        elif check_commits(task_id, repo_root):
+        elif check_commits(task_id, repo_root, since=started_at):
             output = {
                 "commits_found": True,
                 "files_found": False,

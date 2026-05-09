@@ -289,3 +289,128 @@ class TestRunTestRaises:
         assert "simulated subprocess failure" in captured.err
         # No JSON payload leaked onto stdout.
         assert captured.out.strip() == ""
+
+
+class TestDirtyTreeFallback:
+    def test_stash_push_index_failure_runs_tests_in_temporary_worktree(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        cfg = tmp_path / "config.json"
+        cfg.write_text('{"test_command": "true"}')
+
+        monkeypatch.setattr(mod, "detect_dirty", lambda _r: True)
+        monkeypatch.setattr(mod, "run_test", lambda _c, _r: pytest.fail(
+            "dirty-tree fallback must not run tests in the original checkout"
+        ))
+
+        fallback_calls = []
+
+        def fake_fallback(repo_root, test_command):
+            fallback_calls.append((repo_root, test_command))
+            return 0
+
+        monkeypatch.setattr(mod, "run_test_in_temporary_worktree", fake_fallback)
+
+        def fake_run(cmd_args, cwd, capture=True):
+            if cmd_args[:3] == ["git", "stash", "push"]:
+                return _completed(
+                    returncode=1,
+                    stderr="error: could not write index\n",
+                )
+            return _completed(returncode=0)
+
+        monkeypatch.setattr(mod, "_run", fake_run)
+
+        rc = mod.main([str(repo), str(cfg), "--command", "true"])
+        captured = capsys.readouterr()
+
+        assert rc == 0
+        assert fallback_calls == [(str(repo), "true")]
+        assert "temporary worktree" in captured.err
+        assert json.loads(captured.out) == {
+            "pre_existing": False,
+            "exit_code": 0,
+            "test_command": "true",
+            "stashed": False,
+        }
+
+    def test_stash_push_index_failure_reports_fallback_setup_error(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        cfg = tmp_path / "config.json"
+        cfg.write_text('{"test_command": "true"}')
+
+        monkeypatch.setattr(mod, "detect_dirty", lambda _r: True)
+
+        def fake_fallback(_repo_root, _test_command):
+            raise RuntimeError("git worktree add fallback failed: locked")
+
+        monkeypatch.setattr(mod, "run_test_in_temporary_worktree", fake_fallback)
+
+        def fake_run(cmd_args, cwd, capture=True):
+            if cmd_args[:3] == ["git", "stash", "push"]:
+                return _completed(returncode=1, stderr="error: could not write index\n")
+            return _completed(returncode=0)
+
+        monkeypatch.setattr(mod, "_run", fake_run)
+
+        rc = mod.main([str(repo), str(cfg), "--command", "true"])
+        captured = capsys.readouterr()
+
+        assert rc == 1
+        assert "could not write index" in captured.err
+        assert "git worktree add fallback failed" in captured.err
+
+
+class TestGeneratedLockfilePopConflict:
+    def test_recreated_scheduled_tasks_lock_is_removed_and_pop_retried(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        lock_path = repo / ".claude" / "scheduled_tasks.lock"
+        lock_path.parent.mkdir()
+        lock_path.write_text("runtime lock\n")
+        cfg = tmp_path / "config.json"
+        cfg.write_text('{"test_command": "true"}')
+
+        monkeypatch.setattr(mod, "detect_dirty", lambda _r: True)
+        monkeypatch.setattr(
+            mod, "find_stash_ref_by_message", lambda _r, _m: "stash@{0}"
+        )
+        monkeypatch.setattr(mod, "run_test", lambda _c, _r: 0)
+
+        pop_count = {"count": 0}
+
+        def fake_run(cmd_args, cwd, capture=True):
+            if cmd_args[:3] == ["git", "stash", "push"]:
+                return _completed(returncode=0)
+            if cmd_args[:3] == ["git", "stash", "pop"]:
+                pop_count["count"] += 1
+                if pop_count["count"] == 1:
+                    return _completed(
+                        returncode=1,
+                        stderr=(
+                            ".claude/scheduled_tasks.lock already exists, no checkout\n"
+                            "error: could not restore untracked files from stash\n"
+                        ),
+                    )
+                return _completed(returncode=0)
+            if cmd_args[:3] == ["git", "ls-files", "--error-unmatch"]:
+                return _completed(returncode=1)
+            return _completed(returncode=0)
+
+        monkeypatch.setattr(mod, "_run", fake_run)
+
+        rc = mod.main([str(repo), str(cfg), "--command", "true"])
+        captured = capsys.readouterr()
+
+        assert rc == 0
+        assert pop_count["count"] == 2
+        assert not lock_path.exists()
+        assert "Removed generated file blocking stash restore" in captured.err
+        assert json.loads(captured.out)["stashed"] is True

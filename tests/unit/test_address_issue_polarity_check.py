@@ -19,6 +19,7 @@ SKILL_PATH = os.path.join(REPO_ROOT, "skills", "address-issue", "SKILL.md")
 TEMPLATE_PATH = os.path.join(
     REPO_ROOT, ".github", "ISSUE_TEMPLATE", "tusk-instance-feedback.yml"
 )
+REPORT_SKILL_PATH = os.path.join(REPO_ROOT, "skills", "report-tusk-issue", "SKILL.md")
 
 
 def _skill_text():
@@ -28,6 +29,11 @@ def _skill_text():
 
 def _template_text():
     with open(TEMPLATE_PATH) as f:
+        return f.read()
+
+
+def _report_skill_text():
+    with open(REPORT_SKILL_PATH) as f:
         return f.read()
 
 
@@ -226,3 +232,30 @@ class TestIssueTemplateConvention:
         assert re.search(r"!\s*\(\s*test\s+-z", text), (
             "Issue template must show the `! ( test -z ... )` wrap as the inversion workaround"
         )
+
+
+class TestTuskIssueClusterTemplate:
+    def test_instance_feedback_template_requires_cluster_dropdown(self):
+        text = _template_text()
+
+        assert "id: issue_cluster" in text
+        assert "label: Issue cluster" in text
+        assert re.search(r"id:\s+issue_cluster.*?required:\s+true", text, re.DOTALL)
+        for cluster in (
+            "worktree",
+            "merge",
+            "review-diff",
+            "summary",
+            "docs",
+            "test-precheck",
+            "small-fix",
+            "triage-needed",
+        ):
+            assert cluster in text
+
+    def test_report_tusk_issue_skill_passes_cluster_to_cli_and_fallback(self):
+        text = _report_skill_text()
+
+        assert "--cluster \"$CLUSTER\"" in text
+        assert "--label cluster:$CLUSTER" in text
+        assert "triage-needed" in text

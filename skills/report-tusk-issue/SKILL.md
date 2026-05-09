@@ -23,6 +23,7 @@ Prompt the user for the standard `tusk report-issue` fields. Pre-fill from any o
 3. **Steps to reproduce** (optional) — numbered steps. If the user can't supply them (e.g. it's a UX gap rather than a bug), accept "n/a" and skip.
 4. **Expected behavior** (optional) — what should have happened instead. For feature requests, treat this as the proposed behavior.
 5. **Project context** (optional) — language, team size, rough task count. **No confidential details.** If the user declines, leave empty — `tusk report-issue` will inline the placeholder comment, which is fine for tusk-team triage.
+6. **Cluster** (required) — choose exactly one of: `worktree`, `merge`, `review-diff`, `summary`, `docs`, `test-precheck`, `small-fix`, or `triage-needed`. Default to `triage-needed` only when no specific cluster fits.
 
 Don't pad missing fields with filler. An empty Steps/Expected section is more honest than invented content; tusk maintainers can ask follow-ups on the issue if needed.
 
@@ -65,6 +66,7 @@ Build a draft preview that mirrors what `tusk report-issue` will actually post �
 === Draft GitHub issue against gioe/tusk ===
 
 Title: <title>
+Cluster: <cluster>
 
 Body:
 ## Tusk version
@@ -102,7 +104,7 @@ The submission has three tiers — each kicks in only if the previous tier fails
 
 ### Tier 1 — `tusk report-issue`
 
-The primary path. `tusk report-issue` calls `gh issue create --repo gioe/tusk --label instance-feedback` internally and exits with the issue URL on stdout:
+The primary path. `tusk report-issue` calls `gh issue create --repo gioe/tusk --label instance-feedback --label cluster:<cluster>` internally and exits with the issue URL on stdout:
 
 ```bash
 if [[ -n "$EXPECTED" ]]; then
@@ -121,6 +123,7 @@ fi
 
 ISSUE_URL=$(tusk report-issue \
   --title "$TITLE" \
+  --cluster "$CLUSTER" \
   --context "$CONTEXT" \
   --observed "$OBSERVED" \
   --steps "$STEPS" \
@@ -149,6 +152,7 @@ BODY=$(printf '## Project context\n%s\n\n## Behavior observed\n%s\n\n## Steps to
 ISSUE_URL=$(printf '%s' "$BODY" | gh issue create \
   --repo gioe/tusk \
   --label instance-feedback \
+  --label cluster:$CLUSTER \
   --title "$TITLE" \
   --body-file - 2>/tmp/gh-issue-create.err)
 RC=$?
@@ -174,7 +178,7 @@ If both tiers failed, surface a copy-pasteable manual URL and the assembled body
 > ```
 > <assembled body>
 > ```
-> (Apply the `instance-feedback` label.)
+> (Apply the `instance-feedback` and `cluster:<cluster>` labels.)
 
 Then stop — do not record progress.
 

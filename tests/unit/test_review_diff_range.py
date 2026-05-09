@@ -414,6 +414,61 @@ class TestCLI:
         assert code == 1
         assert "Invalid task ID" in err
 
+    def test_cli_uses_invocation_worktree_not_db_checkout(self, tmp_path):
+        """Issue #730: a task worktree must review its own HEAD even when
+        the DB lives under the main checkout and that checkout is on another
+        feature branch."""
+        repo_root, db_path = _make_repo(tmp_path, default_branch="main")
+        subprocess.run(
+            ["git", "-C", repo_root, "update-ref", "refs/remotes/origin/main", "HEAD"],
+            check=True,
+        )
+        worktree = tmp_path / "TASK-42-worktree"
+        subprocess.run(
+            [
+                "git", "-C", repo_root, "worktree", "add", "-q", "-b",
+                "feature/TASK-42-worktree", str(worktree), "origin/main",
+            ],
+            check=True,
+        )
+        task_file = worktree / "task-worktree.txt"
+        task_file.write_text("task worktree\n")
+        subprocess.run(["git", "-C", str(worktree), "add", "task-worktree.txt"], check=True)
+        subprocess.run(
+            ["git", "-C", str(worktree), "commit", "-q", "-m", "[TASK-42] worktree change"],
+            check=True,
+        )
+
+        subprocess.run(
+            ["git", "-C", repo_root, "checkout", "-q", "-b", "feature/TASK-99-other"],
+            check=True,
+        )
+        other_file = os.path.join(repo_root, "other-checkout.txt")
+        with open(other_file, "w", encoding="utf-8") as f:
+            f.write("other checkout\n")
+        subprocess.run(["git", "-C", repo_root, "add", "other-checkout.txt"], check=True)
+        subprocess.run(
+            ["git", "-C", repo_root, "commit", "-q", "-m", "[TASK-99] other change"],
+            check=True,
+        )
+
+        code, out, err = _run_cli(db_path, 42, cwd=str(worktree))
+        assert code == 0, err
+        payload = json.loads(out)
+        diff = subprocess.run(
+            ["git", "-C", str(worktree), "diff", payload["range"]],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        ).stdout
+
+        assert payload["range"] == "origin/main...HEAD"
+        assert "task-worktree.txt" in payload["summary"]
+        assert "other-checkout.txt" not in payload["summary"]
+        assert "task-worktree.txt" in diff
+        assert "other-checkout.txt" not in diff
+
 
 # ── prefix-collision file-overlap heuristic (TASK-309 / issue #656) ────
 
@@ -422,7 +477,8 @@ _TASKS_SCHEMA = """
 CREATE TABLE tasks (
     id INTEGER PRIMARY KEY,
     summary TEXT,
-    description TEXT
+    description TEXT,
+    started_at TEXT
 );
 CREATE TABLE acceptance_criteria (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -433,13 +489,13 @@ CREATE TABLE acceptance_criteria (
 """
 
 
-def _seed_db(db_path, *, task_id, summary, description):
+def _seed_db(db_path, *, task_id, summary, description, started_at=None):
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.executescript(_TASKS_SCHEMA)
     conn.execute(
-        "INSERT INTO tasks (id, summary, description) VALUES (?, ?, ?)",
-        (task_id, summary, description),
+        "INSERT INTO tasks (id, summary, description, started_at) VALUES (?, ?, ?, ?)",
+        (task_id, summary, description, started_at),
     )
     conn.commit()
     conn.close()
@@ -567,3 +623,39 @@ class TestPrefixCollisionHeuristic:
         result = mod.compute_range(22, repo_root, "/nonexistent/path/db")
         assert result["recovered_from_task_commits"] is True
         assert result["diff_lines"] > 0
+
+
+class TestStartedAtScope:
+    def test_recovery_excludes_task_commits_before_started_at(self, tmp_path, monkeypatch):
+        """Issue #494: recycled task IDs from before the current task lifetime
+        must not be used to reconstruct a review diff."""
+        repo_root, db_path = _make_repo(tmp_path, default_branch="main")
+        _seed_db(
+            db_path,
+            task_id=7,
+            summary="New TASK-7",
+            description="No current implementation commits yet.",
+            started_at="2026-04-19 10:00:00",
+        )
+
+        old_file = os.path.join(repo_root, "old-task-7.txt")
+        with open(old_file, "w", encoding="utf-8") as f:
+            f.write("old incarnation\n")
+        subprocess.run(["git", "-C", repo_root, "add", "old-task-7.txt"], check=True)
+        subprocess.run(
+            [
+                "git", "-C", repo_root,
+                "-c", "user.email=t@t",
+                "-c", "user.name=t",
+                "commit", "-q", "-m", "[TASK-7] old incarnation",
+                "--date", "2026-01-15 10:00:00 +0000",
+            ],
+            check=True,
+            env={**os.environ, "GIT_COMMITTER_DATE": "2026-01-15 10:00:00 +0000"},
+        )
+
+        monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
+
+        with pytest.raises(SystemExit) as exc:
+            mod.compute_range(7, repo_root, db_path)
+        assert "[TASK-7] commits not detected" in str(exc.value)

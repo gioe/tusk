@@ -88,7 +88,14 @@ def _stub_diff_range(payload):
     """Patch tusk_loader.load to return a fake diff-range module."""
 
     class _FakeMod:
-        def compute_range(self, task_id, repo_root):
+        def __init__(self):
+            self.calls = []
+
+        def resolve_repo_root(self, db_path):
+            return os.path.dirname(os.path.abspath(db_path))
+
+        def compute_range(self, task_id, repo_root, db_path=None):
+            self.calls.append((task_id, repo_root, db_path))
             if isinstance(payload, BaseException):
                 raise payload
             return payload
@@ -141,6 +148,30 @@ class TestCmdBeginHappyPath:
         assert row[1] == "pending"
         assert row[2] == 1
         assert row[3] == diff_payload["summary"]
+
+    def test_passes_db_path_to_diff_range_for_task_scoped_recovery(self, tmp_path, capsys, monkeypatch):
+        """Issue #494: review begin must preserve the DB path so
+        review-diff-range can read tasks.started_at before fallback scans."""
+        db_path = _make_db(tmp_path)
+        config_path = _make_config(tmp_path)
+
+        fake_mod = _stub_diff_range({
+            "range": "main...HEAD",
+            "diff_lines": 3,
+            "summary": "diff --git a/x b/x\n",
+            "recovered_from_task_commits": False,
+        })
+        monkeypatch.setattr(
+            review.tusk_loader,
+            "load",
+            lambda name: fake_mod if name == "tusk-review-diff-range" else review.tusk_loader.load(name),
+        )
+
+        rc = review.cmd_begin(_args(), db_path, config_path)
+        assert rc == 0
+        json.loads(capsys.readouterr().out)
+        assert fake_mod.calls
+        assert fake_mod.calls[0][2] == db_path
 
 
 class TestCmdBeginSupersedesPriorPending:
