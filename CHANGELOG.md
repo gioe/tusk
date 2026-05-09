@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [893] - 2026-05-09
+
+- [TASK-367] Fix: preserve tusk branch auto-stashes on abandon and merge
+
 ## [892] - 2026-05-09
 
 - [TASK-364] Warn when dupes check matches recently closed tasks

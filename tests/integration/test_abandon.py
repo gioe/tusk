@@ -315,21 +315,17 @@ class TestAbandonCompletedConvergent:
             conn.close()
 
 
-class TestAbandonDropsBranchAutoStash:
-    """Issue #647 — sibling of #644.
+class TestAbandonPreservesBranchAutoStash:
+    """Issue #727.
 
     `tusk branch <id>` auto-stashes a dirty working tree under
     `tusk-branch: auto-stash for TASK-<id>` so it can drop the user back on
-    the default branch cleanly. That stash cannot belong to the task being
-    started (no work has happened yet at branch time), so it is by definition
-    unrelated leftover state. `tusk merge` drops it on a successful ship
-    (TASK-290); `tusk abandon` must do the same when a task is closed without
-    shipping, otherwise the orphan accumulates in `git stash list` forever
-    for `wont_do` / `duplicate` closures — exactly the cases where a stash
-    is least likely to be remembered later.
+    the default branch cleanly. Abandon must not silently drop that stash on
+    no-commit close-out paths; it must leave the stash intact and tell the user
+    exactly how to restore or remove it.
     """
 
-    def test_abandon_drops_branch_auto_stash_after_branch_delete(
+    def test_abandon_preserves_branch_auto_stash_after_branch_delete(
         self, db_path, config_path, monkeypatch
     ):
         conn = sqlite3.connect(str(db_path))
@@ -351,8 +347,7 @@ class TestAbandonDropsBranchAutoStash:
 
         # Mock git invocations only; pass tusk subprocess calls through to the
         # real binary so `tusk task-done` etc. actually mark the task Done in
-        # the test DB. Order matters — we assert stash drop lands AFTER
-        # `git branch -D`.
+        # the test DB.
         calls: list[list[str]] = []
 
         def _passthrough(args, check=True):
@@ -388,14 +383,12 @@ class TestAbandonDropsBranchAutoStash:
                     ),
                     stderr="",
                 )
-            if args[:3] == ["git", "stash", "drop"]:
-                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
         monkeypatch.setattr(tusk_abandon, "run", _mock_run)
         # The hoisted helper lives on `_merge` and was bound onto tusk_abandon
         # at import time. Patch the merge module's `run` too so the helper
-        # records its `git stash list` / `git stash drop` calls into `calls`.
+        # records its `git stash list` calls into `calls`.
         monkeypatch.setattr(tusk_abandon._merge, "run", _mock_run)
 
         rc, result, stderr = _call(
@@ -412,30 +405,19 @@ class TestAbandonDropsBranchAutoStash:
         assert result is not None, f"expected JSON on stdout; stderr was:\n{stderr}"
         assert result["task"]["status"] == "Done"
 
-        # The stash was dropped.
-        assert ["git", "stash", "drop", "stash@{0}"] in calls, (
-            f"expected git stash drop call; got calls:\n{calls}"
+        # The stash is preserved and surfaced to the user.
+        assert not any(c[:3] == ["git", "stash", "drop"] for c in calls), (
+            f"expected no git stash drop call; got calls:\n{calls}"
         )
-
-        # Ordering: branch -D must precede stash drop. The stash drop runs as
-        # part of the abandon flow before task-done returns, and task-done
-        # marks the task Done (asserted above), so the drop precedes closure.
-        delete_idx = next(
-            i for i, c in enumerate(calls) if c[:3] == ["git", "branch", "-D"]
-        )
-        drop_idx = next(
-            i for i, c in enumerate(calls) if c[:3] == ["git", "stash", "drop"]
-        )
-        assert delete_idx < drop_idx, (
-            f"stash drop must run after branch delete; "
-            f"delete at {delete_idx}, drop at {drop_idx}"
-        )
+        assert "Warning: preserved tusk branch auto-stash" in stderr
+        assert "git stash pop stash@{0}" in stderr
+        assert "git stash drop stash@{0}" in stderr
 
     def test_abandon_silent_when_no_branch_auto_stash_present(
         self, db_path, config_path, monkeypatch
     ):
         """When no leftover branch-stash exists, abandon proceeds without any
-        `git stash drop` call — the helper is a no-op."""
+        `git stash drop` call or warning — the helper is a no-op."""
         conn = sqlite3.connect(str(db_path))
         try:
             task_id = _insert_task(conn)
