@@ -31,6 +31,7 @@ bin/tusk task-unstart <task_id> --force   # revert a cleanly-orphaned In Progres
 bin/tusk task-summary <task_id> [--format json|markdown]   # end-of-run rollup: identity, cost, duration, diff, criteria counts (JSON default; markdown for user-facing display)
 bin/tusk task-worktree create <task_id> <slug> [--workspace-root <path>]  # create or reuse a task-owned git worktree and emit JSON
 bin/tusk task-worktree list [--format json]   # list recorded task worktrees reconciled with git worktree list
+bin/tusk task-worktree prune [--dry-run] [--format json]   # delete stale task workspace registry rows that no longer exist on disk or in git worktree list
 
 # Dev workflow
 bin/tusk branch <task_id> <slug>

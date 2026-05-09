@@ -295,6 +295,11 @@ tusk task-worktree list [--format json]
     ├── reconcile each row with `git worktree list --porcelain`
     └── surface missing/stale workspace paths for recovery
 
+tusk task-worktree prune [--dry-run] [--format json]
+    ├── find recorded task_workspaces rows whose workspace_path is missing
+    ├── preserve rows whose branch still has a live git worktree
+    └── delete stale registry rows, or preview them with --dry-run
+
 tusk branch <id> <slug>
     ├── compatibility path for branch-only workflows
     ├── detect default branch (remote HEAD → gh → "main")
@@ -326,6 +331,7 @@ MERGE PATH SELECTION (Ship / Show / Ask):
 
 RECOVERY:
   - Stale recorded row or missing branch → run `tusk task-worktree list` to inspect live vs recorded state.
+  - Stale registry cleanup → run `tusk task-worktree prune --dry-run`, then `tusk task-worktree prune`.
   - Dirty task workspace at merge/abandon → clean or stash files in that workspace, then retry.
   - Intentional discard → `git worktree remove --force <workspace_path>`, then rerun merge/abandon.
   - Parallel task execution → each task uses its own workspace path and branch, so multiple tasks can run without sharing a checkout.
