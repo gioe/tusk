@@ -315,6 +315,66 @@ class TestAbandonCompletedConvergent:
             conn.close()
 
 
+class TestAbandonLinkedWorktree:
+    """Issue #677: unrecorded linked worktrees should not surface raw checkout conflicts."""
+
+    def test_checkout_conflict_mentions_linked_worktree_recovery(
+        self, db_path, config_path, monkeypatch
+    ):
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        branch_name = f"feature/TASK-{task_id}-manual-worktree"
+        monkeypatch.setattr(tusk_abandon, "_recorded_task_workspace", lambda db, tid: None)
+        monkeypatch.setattr(
+            tusk_abandon,
+            "find_task_branch",
+            lambda tid: (branch_name, None, False),
+        )
+        monkeypatch.setattr(tusk_abandon, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(
+            tusk_abandon,
+            "_branch_has_unmerged_commits",
+            lambda branch, default, tid: (False, None),
+        )
+        monkeypatch.setattr(tusk_abandon, "checkpoint_wal", lambda db: None)
+
+        def fake_run(args, check=True):
+            if args == ["git", "rev-parse", "--abbrev-ref", "HEAD"]:
+                return subprocess.CompletedProcess(args, 0, stdout=branch_name + "\n", stderr="")
+            if args == ["git", "checkout", "main"]:
+                return subprocess.CompletedProcess(
+                    args,
+                    128,
+                    stdout="",
+                    stderr="fatal: 'main' is already used by worktree at '/tmp/primary'\n",
+                )
+            raise AssertionError(f"unexpected command: {args}")
+
+        monkeypatch.setattr(tusk_abandon, "run", fake_run)
+
+        rc, result, stderr = _call(
+            db_path,
+            config_path,
+            task_id,
+            "--reason",
+            "completed",
+            "--session",
+            session_id,
+        )
+
+        assert rc == 2
+        assert result is None
+        assert "linked worktree" in stderr
+        assert "primary checkout" in stderr
+        assert "task-worktree" in stderr
+        assert "fatal: 'main' is already used by worktree" in stderr
+
+
 class TestAbandonPreservesBranchAutoStash:
     """Issue #727.
 

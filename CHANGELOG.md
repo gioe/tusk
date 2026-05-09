@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [898] - 2026-05-09
+
+- [TASK-374] Clarify abandon from unrecorded linked worktrees
+
 ## [897] - 2026-05-09
 
 - [TASK-373] Fix git-default-branch in linked worktrees

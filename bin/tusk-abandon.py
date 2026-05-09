@@ -333,9 +333,23 @@ def main(argv: list[str]) -> int:
         if on_feature:
             checkout = run(["git", "checkout", default_branch], check=False)
             if checkout.returncode != 0:
+                stderr = checkout.stderr.strip()
+                if "already used by worktree" in stderr:
+                    print(
+                        "Error: cannot switch to the default branch from this "
+                        "linked worktree because that branch is already checked "
+                        "out by another worktree.\n"
+                        "This looks like an unrecorded/manual worktree. Run "
+                        "`tusk abandon` from the primary checkout, or use a "
+                        "recorded task workspace created by `tusk task-worktree "
+                        "create` so tusk can clean it up safely.\n"
+                        f"Original git error:\n{stderr}",
+                        file=sys.stderr,
+                    )
+                    return 2
                 print(
                     f"Error: git checkout {default_branch} failed:\n"
-                    f"{checkout.stderr.strip()}",
+                    f"{stderr}",
                     file=sys.stderr,
                 )
                 return 2

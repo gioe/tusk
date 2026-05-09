@@ -72,7 +72,9 @@ def test_distribution_version_and_changelog_are_bumped_for_skill_delivery():
     version = _text(REPO_ROOT / "VERSION").strip()
     changelog = _text(REPO_ROOT / "CHANGELOG.md")
 
-    assert version == "897"
+    assert version == "898"
+    assert "## [898] - 2026-05-09" in changelog
+    assert "[TASK-374] Clarify abandon from unrecorded linked worktrees" in changelog
     assert "## [897] - 2026-05-09" in changelog
     assert "[TASK-373] Fix git-default-branch in linked worktrees" in changelog
     assert "## [896] - 2026-05-09" in changelog
