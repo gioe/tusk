@@ -84,14 +84,13 @@ def _print_usage() -> None:
 def _branch_has_unmerged_commits(branch_name: str, default_branch: str, task_id: int) -> tuple[bool, str | None]:
     """Return (has_unmerged, error_message).
 
-    True iff the feature branch has any commits not reachable from the default
-    branch. Mirrors the cherry-pick aware check used by `tusk merge`: we look
-    both at git log (commits exclusive to the feature branch) and `git cherry`
-    (commits already applied to default by patch ID, which would still appear
-    in `git log` but should not block abandon).
+    True iff the feature branch has task-owned commits not reachable from the
+    default branch. Branches cut from sibling feature work may inherit unrelated
+    ahead-of-default commits; those should not block a zero-commit abandon for
+    this task.
     """
     log_result = run(
-        ["git", "log", branch_name, "--not", default_branch, "--oneline"],
+        ["git", "log", branch_name, "--not", default_branch, "--format=%H%x00%s"],
         check=False,
     )
     if log_result.returncode != 0:
@@ -103,14 +102,41 @@ def _branch_has_unmerged_commits(branch_name: str, default_branch: str, task_id:
     if not log_result.stdout.strip():
         return False, None
 
-    # Some/all of those commits may be cherry-picks already on default — git
-    # cherry compares by patch ID. If every line starts with '-', the branch
-    # is effectively merged and safe to abandon.
+    task_prefix = f"[TASK-{task_id}]"
+    task_commit_shas = []
+    for line in log_result.stdout.splitlines():
+        if "\x00" in line:
+            sha, subject = line.split("\x00", 1)
+        else:
+            sha, _, subject = line.partition(" ")
+        if subject.startswith(task_prefix):
+            task_commit_shas.append(sha)
+
+    if not task_commit_shas:
+        return False, None
+
+    # Some/all of the task commits may be cherry-picks already on default —
+    # git cherry compares by patch ID. Only '+' lines for this task block
+    # abandon; unrelated sibling commits are intentionally ignored.
     cherry = run(["git", "cherry", default_branch, branch_name], check=False)
     if cherry.returncode == 0:
         cherry_lines = [line for line in cherry.stdout.splitlines() if line.strip()]
-        if cherry_lines and not any(line.startswith("+ ") for line in cherry_lines):
-            return False, None
+        if cherry_lines:
+            unmerged_task_sha = False
+            for line in cherry_lines:
+                marker, _, sha = line.partition(" ")
+                if marker != "+":
+                    continue
+                if any(
+                    sha == task_sha
+                    or sha.startswith(task_sha)
+                    or task_sha.startswith(sha)
+                    for task_sha in task_commit_shas
+                ):
+                    unmerged_task_sha = True
+                    break
+            if not unmerged_task_sha:
+                return False, None
 
     return True, None
 

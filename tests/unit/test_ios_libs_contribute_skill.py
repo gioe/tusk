@@ -72,7 +72,11 @@ def test_distribution_version_and_changelog_are_bumped_for_skill_delivery():
     version = _text(REPO_ROOT / "VERSION").strip()
     changelog = _text(REPO_ROOT / "CHANGELOG.md")
 
-    assert version == "902"
+    assert version == "905"
+    assert "## [905] - 2026-05-09" in changelog
+    assert "[TASK-379] Scope tusk abandon branch safety to task-owned commits" in changelog
+    assert "## [904] - 2026-05-09" in changelog
+    assert "Document review note shell quoting hazards and guard docs-cluster CLI command names" in changelog
     assert "## [902] - 2026-05-09" in changelog
     assert "[TASK-377] Keep tusk progress no-code notes from attaching unrelated HEAD commits" in changelog
     assert "## [901] - 2026-05-09" in changelog

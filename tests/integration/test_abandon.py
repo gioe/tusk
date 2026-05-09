@@ -160,6 +160,74 @@ class TestAbandonHappyPath:
 class TestAbandonRefusesUnmergedCommits:
     """Guard: a feature branch with commits not on default must not be deleted."""
 
+    def test_allows_branch_with_only_unrelated_task_commits(
+        self, db_path, config_path, monkeypatch
+    ):
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        branch_name = f"feature/TASK-{task_id}-thing"
+        unrelated_task_id = task_id + 999
+        monkeypatch.setattr(
+            tusk_abandon, "_recorded_task_workspace", lambda db, tid: None
+        )
+        monkeypatch.setattr(
+            tusk_abandon,
+            "find_task_branch",
+            lambda tid: (branch_name, None, False),
+        )
+        monkeypatch.setattr(tusk_abandon, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_abandon, "checkpoint_wal", lambda db: None)
+
+        def _passthrough(args, check=True):
+            return subprocess.run(
+                args, capture_output=True, text=True, encoding="utf-8", check=check
+            )
+
+        def _mock_run(args, check=True):
+            if not args or args[0] != "git":
+                return _passthrough(args, check=check)
+            if args[:2] == ["git", "log"] and "--not" in args:
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    stdout=f"abc1234 [TASK-{unrelated_task_id}] sibling work\n",
+                    stderr="",
+                )
+            if args[:2] == ["git", "cherry"]:
+                return subprocess.CompletedProcess(
+                    args, 0, stdout="+ abc1234\n", stderr=""
+                )
+            if args[:3] == ["git", "rev-parse", "--abbrev-ref"]:
+                return subprocess.CompletedProcess(args, 0, stdout="main\n", stderr="")
+            if args[:3] == ["git", "branch", "-D"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:3] == ["git", "stash", "list"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(tusk_abandon, "run", _mock_run)
+        monkeypatch.setattr(tusk_abandon._merge, "run", _mock_run)
+
+        rc, result, stderr = _call(
+            db_path,
+            config_path,
+            task_id,
+            "--reason",
+            "wont_do",
+            "--session",
+            session_id,
+        )
+
+        assert rc == 0, f"abandon failed: {stderr}"
+        assert result is not None
+        assert result["task"]["status"] == "Done"
+        assert result["sessions_closed"] == 1
+
     def test_refuses_when_branch_has_unmerged_commits(
         self, db_path, config_path, monkeypatch
     ):
@@ -183,7 +251,10 @@ class TestAbandonRefusesUnmergedCommits:
         def _mock_run(args, check=True):
             if args[:2] == ["git", "log"] and "--not" in args:
                 return subprocess.CompletedProcess(
-                    args, 0, stdout="abc1234 some unmerged work\n", stderr=""
+                    args,
+                    0,
+                    stdout=f"abc1234 [TASK-{task_id}] some unmerged work\n",
+                    stderr="",
                 )
             if args[:2] == ["git", "cherry"]:
                 # '+' lines mean "patch is on feature but NOT on default"
