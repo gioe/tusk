@@ -301,6 +301,56 @@ class TestCapturedOutputBehavior:
         assert "--skip-verify" in combined
         assert "test_command failed" not in combined
 
+    def test_linked_worktree_rewrites_relative_venv_python_from_primary_checkout(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        mod = _load_module()
+        repo, target = _make_repo(tmp_path)
+        primary = tmp_path / "primary"
+        interpreter = primary / "apps" / "scraper" / ".venv" / "bin" / "python3"
+        interpreter.parent.mkdir(parents=True)
+        interpreter.write_text("#!/bin/sh\n")
+        cfg = _write_config(
+            tmp_path,
+            {"test_command": "cd apps/scraper && .venv/bin/python3 -m pytest"},
+        )
+
+        expected = f"cd apps/scraper && {interpreter} -m pytest"
+        real_run = subprocess.run
+
+        def fake_run(args, *a, **kw):
+            if isinstance(args, list) and args and "lint" in args:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if (
+                isinstance(args, list)
+                and args[:3] == ["git", "rev-parse", "--path-format=absolute"]
+                and kw.get("cwd") == str(repo)
+            ):
+                if args[3] == "--git-dir":
+                    return subprocess.CompletedProcess(args, 0, stdout="/tmp/worktree/.git\n", stderr="")
+                if args[3] == "--git-common-dir":
+                    return subprocess.CompletedProcess(args, 0, stdout=f"{primary}/.git\n", stderr="")
+            if kw.get("shell") and args == "cd apps/scraper && .venv/bin/python3 -m pytest":
+                return subprocess.CompletedProcess(
+                    args,
+                    127,
+                    stdout="",
+                    stderr="/bin/sh: .venv/bin/python3: No such file or directory\n",
+                )
+            if kw.get("shell") and args == expected:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            return real_run(args, *a, **kw)
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+        monkeypatch.delenv("TUSK_TEST_COMMAND_TIMEOUT", raising=False)
+
+        argv = [str(repo), cfg, "999", "msg", str(target)]
+        rc = mod.main(argv)
+        out = capsys.readouterr().out
+
+        assert rc == 0
+        assert _parse_summary(out)["status"] == "success"
+
     def test_unavailable_test_command_outside_linked_worktree_keeps_generic_failure(
         self, tmp_path, monkeypatch, capsys
     ):

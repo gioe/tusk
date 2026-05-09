@@ -60,10 +60,11 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader  # loads tusk-json-lib.py
+import tusk_loader  # loads tusk-json-lib.py and tusk-worktree-command.py
 
 _json_lib = tusk_loader.load("tusk-json-lib")
 dumps = _json_lib.dumps
+_worktree_command = tusk_loader.load("tusk-worktree-command")
 
 
 TRAILER = "Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
@@ -935,6 +936,10 @@ def _run_commit(argv: list[str], state: dict) -> int:
         config_path, task_domain, resolved_files, repo_root=real_repo_root,
     )
     if test_cmd and not skip_verify:
+        test_cmd, _ = _worktree_command.rewrite_linked_worktree_venv_command(
+            test_cmd,
+            repo_root,
+        )
         db_path = _resolve_db_path(repo_root)
         timeout_sec, timeout_source = load_test_command_timeout(
             config_path, db_path, test_cmd,

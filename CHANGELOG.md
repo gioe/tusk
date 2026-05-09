@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [895] - 2026-05-09
+
+- [TASK-371] Resolve linked-worktree venv test commands
+
 ## [894] - 2026-05-09
 
 - [TASK-370] Preflight worktree branch locks before auto-stashing

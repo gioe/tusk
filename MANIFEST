@@ -84,6 +84,7 @@
   ".claude/bin/tusk-typed-criteria-build.py",
   ".claude/bin/tusk-uninstall-hooks.py",
   ".claude/bin/tusk-upgrade.py",
+  ".claude/bin/tusk-worktree-command.py",
   ".claude/bin/tusk-wsjf.py",
   ".claude/bin/tusk_loader.py",
   ".claude/bin/tusk_skill_filter.py",

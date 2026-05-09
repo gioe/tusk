@@ -22,7 +22,7 @@ import time
 from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader  # loads tusk-pricing-lib.py, tusk-db-lib.py, tusk-json-lib.py
+import tusk_loader  # loads tusk-pricing-lib.py, tusk-db-lib.py, tusk-json-lib.py, tusk-worktree-command.py
 
 lib = tusk_loader.load("tusk-pricing-lib")
 _db_lib = tusk_loader.load("tusk-db-lib")
@@ -32,6 +32,7 @@ load_config = _db_lib.load_config
 _json_lib = tusk_loader.load("tusk-json-lib")
 dumps = _json_lib.dumps
 pretty_requested = _json_lib.pretty_requested
+_worktree_command = tusk_loader.load("tusk-worktree-command")
 
 
 def capture_criterion_cost(conn: sqlite3.Connection, criterion_id: int, task_id: int, completed_at=None) -> None:
@@ -261,10 +262,16 @@ def run_verification(criterion_type: str, spec: str) -> dict:
 
     if criterion_type in ("code", "test"):
         timeout = _TEST_TIMEOUT_SECS if criterion_type == "test" else _CODE_TIMEOUT_SECS
+        command = spec
+        if repo_root:
+            command, _ = _worktree_command.rewrite_linked_worktree_venv_command(
+                spec,
+                repo_root,
+            )
         t0 = time.monotonic()
         try:
             result = subprocess.run(
-                _GREP_EXCLUDE_PREFIX + spec,
+                _GREP_EXCLUDE_PREFIX + command,
                 shell=True, capture_output=True, text=True, encoding="utf-8", timeout=timeout,
                 cwd=repo_root,
             )
