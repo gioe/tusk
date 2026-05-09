@@ -8,6 +8,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 - Harden merge and abandon closeout against disappearing project-local tusk wrappers and recorded task worktree cleanup ordering
 
+## [906] - 2026-05-09
+
+- [TASK-380] Fix: make merge --rebase recover no-checkout fast-forward pushes
+
 ## [905] - 2026-05-09
 
 - [TASK-379] Scope tusk abandon branch safety to task-owned commits

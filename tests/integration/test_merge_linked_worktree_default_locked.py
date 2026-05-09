@@ -237,6 +237,55 @@ class TestLinkedWorktreeDefaultBranchLocked:
         assert not [c for c in record if "session-close" in c]
         assert not [c for c in record if "task-done" in c]
 
+    def test_no_checkout_rebase_checks_out_feature_branch_before_rebase(
+        self, db_path, config_path, monkeypatch
+    ):
+        task_id, session_id = _setup_task_session(db_path)
+        branch = f"feature/TASK-{task_id}-worktree-lock"
+        record = []
+
+        monkeypatch.setattr(tusk_merge, "find_task_branch", lambda tid: (branch, None, False))
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        mock_run, _ = _mock_run_factory(
+            branch_name=branch,
+            task_id=task_id,
+            record_calls=record,
+        )
+        monkeypatch.setattr(tusk_merge, "run", mock_run)
+
+        stderr_buf = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(stderr_buf):
+            rc = tusk_merge.main(
+                [
+                    str(db_path),
+                    str(config_path),
+                    str(task_id),
+                    "--session",
+                    str(session_id),
+                    "--rebase",
+                ]
+            )
+
+        assert rc == 0, f"Expected exit 0\nstderr: {stderr_buf.getvalue()}"
+        checkout_idx = next(
+            (i for i, c in enumerate(record) if c == ["git", "checkout", branch]),
+            None,
+        )
+        rebase_idx = next(
+            (i for i, c in enumerate(record) if c == ["git", "rebase", "origin/main"]),
+            None,
+        )
+        push_idx = next(
+            (i for i, c in enumerate(record) if c == ["git", "push", "origin", f"{branch}:main"]),
+            None,
+        )
+
+        assert checkout_idx is not None, "Expected no-checkout --rebase to checkout the task branch"
+        assert rebase_idx is not None, "Expected no-checkout --rebase to run git rebase origin/main"
+        assert push_idx is not None, "Expected no-checkout --rebase to push the task branch"
+        assert checkout_idx < rebase_idx < push_idx
+
     def test_no_checkout_success_deletes_remote_feature_upstream(
         self, db_path, config_path, monkeypatch
     ):

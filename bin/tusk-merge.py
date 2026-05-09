@@ -663,6 +663,16 @@ def _complete_no_checkout_fast_forward(
                     _try_pop_stash(task_id)
                 return 2
         else:
+            co_result = run(["git", "checkout", branch_name], check=False)
+            if co_result.returncode != 0:
+                print(
+                    f"Error: git checkout {branch_name} failed before --rebase:\n"
+                    f"{co_result.stderr.strip()}",
+                    file=sys.stderr,
+                )
+                if did_stash:
+                    _try_pop_stash(task_id)
+                return 2
             rebase_result = run(["git", "rebase", rebase_target], check=False)
             if rebase_result.returncode != 0:
                 if rebase_result.stderr.strip():
