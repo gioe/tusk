@@ -600,7 +600,7 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
     return 0
 
 
-def _head_task_id() -> Optional[int]:
+def _head_task_id(cwd: Optional[str] = None) -> Optional[int]:
     """Parse ``[TASK-<n>]`` from HEAD's commit message; return ``n`` or None.
 
     Used to suppress stamping HEAD's commit_hash onto criteria whose task is
@@ -614,6 +614,7 @@ def _head_task_id() -> Optional[int]:
             ["git", "log", "-1", "--format=%B", "HEAD"],
             stderr=subprocess.DEVNULL,
             encoding="utf-8",
+            cwd=cwd,
         )
     except Exception:
         return None
@@ -624,6 +625,58 @@ def _head_task_id() -> Optional[int]:
         return int(m.group(1))
     except (TypeError, ValueError):
         return None
+
+
+def _single_task_id_for_criteria(conn: sqlite3.Connection, criterion_ids: list[int]) -> Optional[int]:
+    if not criterion_ids:
+        return None
+    placeholders = ",".join("?" for _ in criterion_ids)
+    rows = conn.execute(
+        f"SELECT DISTINCT task_id FROM acceptance_criteria WHERE id IN ({placeholders})",
+        criterion_ids,
+    ).fetchall()
+    if len(rows) != 1:
+        return None
+    return rows[0]["task_id"]
+
+
+def _recorded_workspace_path_for_task(conn: sqlite3.Connection, task_id: int) -> Optional[str]:
+    try:
+        row = conn.execute(
+            "SELECT workspace_path FROM task_workspaces "
+            "WHERE task_id = ? ORDER BY updated_at DESC, id DESC LIMIT 1",
+            (task_id,),
+        ).fetchone()
+    except sqlite3.Error:
+        return None
+    if not row:
+        return None
+    path = row["workspace_path"]
+    if path and os.path.isdir(path):
+        return path
+    return None
+
+
+def _git_head_metadata(cwd: Optional[str] = None) -> tuple[Optional[str], Optional[str]]:
+    commit_hash = None
+    committed_at = None
+    try:
+        commit_hash = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            encoding="utf-8",
+            cwd=cwd,
+        ).strip() or None
+        if commit_hash:
+            committed_at = subprocess.check_output(
+                ["git", "log", "-1", "--format=%cI", "HEAD"],
+                stderr=subprocess.DEVNULL,
+                encoding="utf-8",
+                cwd=cwd,
+            ).strip() or None
+    except Exception:
+        return None, None
+    return commit_hash, committed_at
 
 
 def _has_new_commits_over_default() -> bool:
@@ -665,37 +718,27 @@ def cmd_done(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn = get_connection(db_path)
     try:
         # Best-effort: capture current git HEAD short hash and commit timestamp (once for all)
-        commit_hash = None
-        committed_at = None
-        try:
-            commit_hash = subprocess.check_output(
-                ["git", "rev-parse", "--short", "HEAD"],
-                stderr=subprocess.DEVNULL,
-                encoding="utf-8",
-            ).strip() or None
-            if commit_hash:
-                committed_at = subprocess.check_output(
-                    ["git", "log", "-1", "--format=%cI", "HEAD"],
-                    stderr=subprocess.DEVNULL,
-                    encoding="utf-8",
-                ).strip() or None
-        except Exception:
-            pass  # Non-git environment — leave as NULL
+        criterion_ids = args.criterion_ids
+        batch_task_id = _single_task_id_for_criteria(conn, criterion_ids)
+        commit_cwd = (
+            _recorded_workspace_path_for_task(conn, batch_task_id)
+            if batch_task_id is not None else None
+        )
+        commit_hash, committed_at = _git_head_metadata(commit_cwd)
 
         # If the current branch has zero exclusive commits over default, HEAD is the
         # inherited default-branch tip — not a commit produced by this task. Stamping
         # criteria with that hash leaks an unrelated commit into the audit trail and
         # triggers spurious "shares commit" warnings between unrelated criteria.
-        if commit_hash is not None and not _has_new_commits_over_default():
+        if commit_hash is not None and commit_cwd is None and not _has_new_commits_over_default():
             commit_hash = None
             committed_at = None
 
         # Cross-task guard (issue #573): capture HEAD's [TASK-<n>] reference once
         # so _done_single can suppress stamping per-criterion when HEAD's task
         # differs from the criterion's task.
-        head_task_id = _head_task_id() if commit_hash is not None else None
+        head_task_id = _head_task_id(commit_cwd) if commit_hash is not None else None
 
-        criterion_ids = args.criterion_ids
         allow_shared = getattr(args, "allow_shared_commit", False)
         batch = getattr(args, "batch", False)
         note = getattr(args, "note", None)

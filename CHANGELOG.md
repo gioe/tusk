@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [899] - 2026-05-09
+
+- [TASK-375] Attribute criteria to task worktree commits
+
 ## [898] - 2026-05-09
 
 - [TASK-374] Clarify abandon from unrecorded linked worktrees
