@@ -334,6 +334,105 @@ def _filter_blocks_by_overlap(
     return {sha: rows for sha, rows in commit_files.items() if sha in kept}
 
 
+def _parse_numstat_blocks(stdout: str) -> tuple[dict, dict]:
+    """Parse git numstat output emitted with ``--format=__COMMIT__ %H %P``."""
+    commit_files: dict[str, list[tuple[str, str, str]]] = {}
+    commit_parents: dict[str, list[str]] = {}
+    current: str | None = None
+    for line in stdout.splitlines():
+        if not line.strip():
+            continue
+        if line.startswith("__COMMIT__ "):
+            tokens = line.split(" ", 1)[1].strip().split()
+            if not tokens:
+                current = None
+                continue
+            current = tokens[0]
+            commit_files.setdefault(current, [])
+            commit_parents[current] = tokens[1:]
+            continue
+        if current is None:
+            continue
+        # numstat row: "<added>\t<removed>\t<path>" (or "- -" for binary files)
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        a, r, path = parts[0], parts[1], parts[2]
+        commit_files[current].append((a, r, path))
+    return commit_files, commit_parents
+
+
+def _completed_criterion_commit_hashes(
+    task_id: int, conn: sqlite3.Connection | None
+) -> list[str]:
+    if conn is None:
+        return []
+    rows = conn.execute(
+        "SELECT DISTINCT commit_hash FROM acceptance_criteria "
+        "WHERE task_id = ? AND is_completed = 1 "
+        "  AND commit_hash IS NOT NULL AND TRIM(commit_hash) <> '' "
+        "ORDER BY id DESC",
+        (task_id,),
+    ).fetchall()
+    return [r["commit_hash"] for r in rows]
+
+
+def _criterion_hash_numstats(task_id: int, repo_root: str, conn: sqlite3.Connection) -> tuple[dict, dict]:
+    """Recover numstat blocks from completed criteria commit hashes.
+
+    This is a fallback for rebase/no-checkout merge paths where the rewritten
+    task commit exists locally by SHA but is not visible to the summarizing
+    checkout's ``git log --all`` ref scan. Missing stale hashes are skipped.
+    """
+    commit_files: dict[str, list[tuple[str, str, str]]] = {}
+    commit_parents: dict[str, list[str]] = {}
+    for sha in _completed_criterion_commit_hashes(task_id, conn):
+        try:
+            result = subprocess.run(
+                [
+                    "git", "show",
+                    "--numstat",
+                    "--format=__COMMIT__ %H %P",
+                    sha,
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                cwd=repo_root,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if result.returncode != 0:
+            continue
+        files, parents = _parse_numstat_blocks(result.stdout)
+        commit_files.update(files)
+        commit_parents.update(parents)
+    return commit_files, commit_parents
+
+
+def _summarize_commit_files(commit_files: dict) -> dict:
+    files: set[str] = set()
+    added = 0
+    removed = 0
+    for rows in commit_files.values():
+        for a, r, path in rows:
+            files.add(path)
+            try:
+                added += int(a)
+            except ValueError:
+                pass  # binary: "-"
+            try:
+                removed += int(r)
+            except ValueError:
+                pass
+    return {
+        "commits": len(commit_files),
+        "files_changed": len(files),
+        "lines_added": added,
+        "lines_removed": removed,
+    }
+
+
 def fetch_diff(
     task_id: int,
     repo_root: str,
@@ -404,29 +503,10 @@ def fetch_diff(
 
     # Bucket numstat rows by commit; track parents so we can group commits
     # into topological blocks before applying the file-overlap filter.
-    commit_files: dict[str, list[tuple[str, str, str]]] = {}
-    commit_parents: dict[str, list[str]] = {}
-    current: str | None = None
-    for line in result.stdout.splitlines():
-        if not line.strip():
-            continue
-        if line.startswith("__COMMIT__ "):
-            tokens = line.split(" ", 1)[1].strip().split()
-            if not tokens:
-                current = None
-                continue
-            current = tokens[0]
-            commit_files.setdefault(current, [])
-            commit_parents[current] = tokens[1:]
-            continue
-        if current is None:
-            continue
-        # numstat row: "<added>\t<removed>\t<path>" (or "- -" for binary files)
-        parts = line.split("\t")
-        if len(parts) < 3:
-            continue
-        a, r, path = parts[0], parts[1], parts[2]
-        commit_files[current].append((a, r, path))
+    commit_files, commit_parents = _parse_numstat_blocks(result.stdout)
+
+    if conn is not None and not commit_files:
+        commit_files, commit_parents = _criterion_hash_numstats(task_id, repo_root, conn)
 
     # Apply prefix-collision file-overlap heuristic (issue #656) at the
     # block level (issue #663). A "block" is a connected component on the
@@ -445,26 +525,7 @@ def fetch_diff(
                 commit_files, commit_parents, task_paths, task_basenames
             )
 
-    files: set[str] = set()
-    added = 0
-    removed = 0
-    for rows in commit_files.values():
-        for a, r, path in rows:
-            files.add(path)
-            try:
-                added += int(a)
-            except ValueError:
-                pass  # binary: "-"
-            try:
-                removed += int(r)
-            except ValueError:
-                pass
-    return {
-        "commits": len(commit_files),
-        "files_changed": len(files),
-        "lines_added": added,
-        "lines_removed": removed,
-    }
+    return _summarize_commit_files(commit_files)
 
 
 def fetch_criteria(conn: sqlite3.Connection, task_id: int) -> dict:

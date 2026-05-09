@@ -8,6 +8,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 - Harden merge and abandon closeout against disappearing project-local tusk wrappers and recorded task worktree cleanup ordering
 
+## [909] - 2026-05-20
+
+- [TASK-378] Recover task-summary diff stats from completed criterion commits when rebased task commits are not visible to the ref scan
+
 ## [908] - 2026-05-20
 
 - [TASK-368] Add integration regression test covering `tusk review begin` from a `tusk task-worktree create`-managed workspace; the underlying readonly-DB symptom was already resolved by TASK-373's worktree path-resolution fix (def7b0b), but no test exercised the full write path from a worktree CWD

@@ -408,6 +408,9 @@ class TestDiff:
         subprocess.run(
             ["git", "commit", "-q", "-m", message], cwd=repo_root, check=True, env=env
         )
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=repo_root, text=True, encoding="utf-8"
+        ).strip()
 
     def test_diff_filters_to_task(self, tmp_path):
         repo = str(tmp_path)
@@ -500,6 +503,54 @@ class TestDiff:
         conn.commit()
 
         diff = mod.fetch_diff(2043, repo, since="2026-05-08 00:00:00", conn=conn)
+        assert diff["commits"] == 1
+        assert diff["files_changed"] == 1
+        assert diff["lines_added"] == 1
+        assert diff["lines_removed"] == 0
+
+    def test_diff_falls_back_to_completed_criterion_hashes_when_rebased_commit_not_on_refs(
+        self, tmp_path
+    ):
+        """Issue #735: after --rebase, the useful commit hash may differ from
+        the pre-rebase criterion hash and not be found by the ref-scoped
+        `git log --all --grep` scan in the summarizing checkout. If completed
+        criteria point at the rewritten commit, use those hashes as a recovery
+        source instead of reporting a zero diff.
+        """
+        repo = str(tmp_path / "repo")
+        os.makedirs(repo)
+        self._init_repo(repo)
+        self._commit(repo, "README.md", "seed\n", "initial")
+        subprocess.run(["git", "checkout", "-q", "-b", "rebased-task"], cwd=repo, check=True)
+        rewritten_sha = self._commit(
+            repo,
+            "bin/tusk-task-summary.py",
+            "one\n",
+            "[TASK-735] preserve rebased summary stats",
+        )
+        subprocess.run(["git", "checkout", "-q", "main"], cwd=repo, check=True)
+        subprocess.run(["git", "branch", "-D", "rebased-task"], cwd=repo, check=True)
+
+        db_path, conn = _make_db(tmp_path)
+        conn.execute(
+            "INSERT INTO tasks (id, summary, status, started_at) VALUES (?, ?, ?, ?)",
+            (735, "Fix bin/tusk-task-summary.py rebase summary stats", "Done", None),
+        )
+        conn.execute(
+            "INSERT INTO acceptance_criteria "
+            "(task_id, criterion, is_completed, commit_hash) VALUES (?, ?, ?, ?)",
+            (735, "Summary diff stats survive rebase", 1, rewritten_sha),
+        )
+        conn.commit()
+
+        assert mod.fetch_diff(735, repo) == {
+            "commits": 0,
+            "files_changed": 0,
+            "lines_added": 0,
+            "lines_removed": 0,
+        }
+
+        diff = mod.fetch_diff(735, repo, conn=conn)
         assert diff["commits"] == 1
         assert diff["files_changed"] == 1
         assert diff["lines_added"] == 1
