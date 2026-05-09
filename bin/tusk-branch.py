@@ -84,7 +84,7 @@ def _warn_branch_auto_stash_residue(repo_root: str) -> None:
     entries via ``git stash list`` and prints a warning to stderr listing each
     entry alongside the referenced task's current status. Silent when count is
     at or below the threshold, when ``refs/stash`` is missing (cheap fast-exit
-    that mirrors ``_drop_branch_auto_stash``, issue #658), or when ``git stash
+    that mirrors ``_warn_branch_auto_stash``, issue #658), or when ``git stash
     list`` fails. Issue #671.
     """
     entries = list(iter_branch_auto_stashes(repo_root, runner=run))

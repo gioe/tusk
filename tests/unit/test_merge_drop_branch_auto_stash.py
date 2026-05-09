@@ -1,11 +1,10 @@
-"""Unit tests for _drop_branch_auto_stash (Issue #644).
+"""Unit tests for _warn_branch_auto_stash (Issue #727).
 
-After a successful tusk merge, drop any leftover
+After a successful tusk merge/abandon, preserve any leftover
 ``tusk-branch: auto-stash for TASK-<id>`` entry that was created by an earlier
-``tusk branch <id>`` invocation when the working tree was dirty. Those stashes
-cannot belong to the task being started (no work has happened yet at branch
-time), so they accumulate as orphans in ``git stash list`` until manually
-cleared. This module covers the drop function in isolation.
+``tusk branch <id>`` invocation when the working tree was dirty, and warn the
+user how to restore or drop it manually. This module covers the warning helper
+in isolation.
 """
 
 import importlib.util
@@ -52,8 +51,8 @@ def _cp(returncode: int, stdout: str = "", stderr: str = "") -> subprocess.Compl
     return r
 
 
-class TestDropBranchAutoStash:
-    def test_drops_matching_entry(self, capsys):
+class TestWarnBranchAutoStash:
+    def test_warns_and_preserves_matching_entry(self, capsys):
         mod = _load_module()
         calls: list[list[str]] = []
 
@@ -72,14 +71,16 @@ class TestDropBranchAutoStash:
             return _cp(0)
 
         with patch.object(mod, "run", side_effect=fake_run):
-            mod._drop_branch_auto_stash(42)
+            mod._warn_branch_auto_stash(42)
 
-        assert ["git", "stash", "drop", "stash@{0}"] in calls
+        assert ["git", "stash", "drop", "stash@{0}"] not in calls
         captured = capsys.readouterr()
         assert captured.out == ""
-        assert captured.err == ""
+        assert "Warning: preserved tusk branch auto-stash for TASK-42" in captured.err
+        assert "git stash pop stash@{0}" in captured.err
+        assert "git stash drop stash@{0}" in captured.err
 
-    def test_drops_correct_index_when_match_is_not_top(self, capsys):
+    def test_warns_about_correct_index_when_match_is_not_top(self, capsys):
         mod = _load_module()
         calls: list[list[str]] = []
 
@@ -99,14 +100,14 @@ class TestDropBranchAutoStash:
             return _cp(0)
 
         with patch.object(mod, "run", side_effect=fake_run):
-            mod._drop_branch_auto_stash(42)
+            mod._warn_branch_auto_stash(42)
 
-        # Drop the branch-stash at index 2, not the merge-stash at index 1 or
-        # the unrelated entry at index 0.
-        assert ["git", "stash", "drop", "stash@{2}"] in calls
-        # And nothing else was dropped.
+        # Preserve the branch-stash at index 2, not the merge-stash at index 1
+        # or the unrelated entry at index 0.
         drop_calls = [c for c in calls if c[:3] == ["git", "stash", "drop"]]
-        assert len(drop_calls) == 1
+        assert drop_calls == []
+        captured = capsys.readouterr()
+        assert "git stash pop stash@{2}" in captured.err
 
     def test_silent_when_no_entry_found(self, capsys):
         mod = _load_module()
@@ -119,7 +120,7 @@ class TestDropBranchAutoStash:
             return _cp(0)
 
         with patch.object(mod, "run", side_effect=fake_run):
-            mod._drop_branch_auto_stash(42)
+            mod._warn_branch_auto_stash(42)
 
         # No drop was attempted.
         assert not any(c[:3] == ["git", "stash", "drop"] for c in calls)
@@ -138,7 +139,7 @@ class TestDropBranchAutoStash:
             return _cp(0)
 
         with patch.object(mod, "run", side_effect=fake_run):
-            mod._drop_branch_auto_stash(42)
+            mod._warn_branch_auto_stash(42)
 
         assert not any(c[:3] == ["git", "stash", "drop"] for c in calls)
         captured = capsys.readouterr()
@@ -155,7 +156,7 @@ class TestDropBranchAutoStash:
             return _cp(0)
 
         with patch.object(mod, "run", side_effect=fake_run):
-            mod._drop_branch_auto_stash(42)
+            mod._warn_branch_auto_stash(42)
 
         assert not any(c[:3] == ["git", "stash", "drop"] for c in calls)
         captured = capsys.readouterr()
@@ -177,7 +178,7 @@ class TestDropBranchAutoStash:
             return _cp(0)
 
         with patch.object(mod, "run", side_effect=fake_run):
-            mod._drop_branch_auto_stash(2)
+            mod._warn_branch_auto_stash(2)
 
         # No drop — TASK-29 is not TASK-2.
         assert not any(c[:3] == ["git", "stash", "drop"] for c in calls)
@@ -197,6 +198,6 @@ class TestDropBranchAutoStash:
             return _cp(0)
 
         with patch.object(mod, "run", side_effect=fake_run):
-            mod._drop_branch_auto_stash(42)
+            mod._warn_branch_auto_stash(42)
 
         assert not any(c[:3] == ["git", "stash", "drop"] for c in calls)

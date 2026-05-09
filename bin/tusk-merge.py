@@ -406,13 +406,12 @@ def _try_pop_stash(task_id: int) -> None:
         print(pop.stderr.strip(), file=sys.stderr)
 
 
-def _drop_branch_auto_stash(task_id: int) -> None:
-    """Drop the leftover ``tusk-branch: auto-stash for TASK-<id>`` stash, if any.
+def _warn_branch_auto_stash(task_id: int) -> None:
+    """Warn about a leftover ``tusk-branch: auto-stash for TASK-<id>`` stash.
 
     Created by ``tusk branch <id>`` when the working tree was dirty at task-start
-    time — by definition unrelated to this task's work, so dropping on a
-    successful merge prevents the stash list from accumulating orphans (issue #644).
-    Silent when no matching entry exists.
+    time. The stash often contains pre-existing user WIP, so merge/abandon must
+    never drop it silently. Silent when no matching entry exists.
     """
     stash_index: int | None = None
     for index, entry_task_id in iter_branch_auto_stashes(runner=run):
@@ -423,7 +422,13 @@ def _drop_branch_auto_stash(task_id: int) -> None:
     if stash_index is None:
         return
 
-    run(["git", "stash", "drop", f"stash@{{{stash_index}}}"], check=False)
+    stash_ref = f"stash@{{{stash_index}}}"
+    print(
+        f"Warning: preserved tusk branch auto-stash for TASK-{task_id} at {stash_ref}.\n"
+        f"  Restore it with: git stash pop {stash_ref}\n"
+        f"  Remove it with: git stash drop {stash_ref}",
+        file=sys.stderr,
+    )
 
 
 def detect_default_branch() -> str:
@@ -717,7 +722,7 @@ def _complete_no_checkout_fast_forward(
                 return 2
     if did_stash:
         _try_pop_stash(task_id)
-    _drop_branch_auto_stash(task_id)
+    _warn_branch_auto_stash(task_id)
     return _close_completed_task(tusk_bin, task_id, db_path, session_was_closed)
 
 
@@ -1716,11 +1721,11 @@ def main(argv: list[str]) -> int:
         if did_stash:
             _try_pop_stash(task_id)
 
-    # Drop any leftover `tusk-branch: auto-stash for TASK-<id>` entry created
+    # Warn about any leftover `tusk-branch: auto-stash for TASK-<id>` entry created
     # during a prior `tusk branch <id>` invocation when the working tree was
-    # dirty. By definition unrelated to this task's work, so safe to drop on
-    # successful merge — see issue #644.
-    _drop_branch_auto_stash(task_id)
+    # dirty. It can contain pre-existing user WIP, so preserve it and surface
+    # explicit manual restore/drop commands.
+    _warn_branch_auto_stash(task_id)
 
     return _close_completed_task(tusk_bin, task_id, _db_path, session_was_closed)
 

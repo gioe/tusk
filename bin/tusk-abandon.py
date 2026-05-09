@@ -51,7 +51,7 @@ _merge = tusk_loader.load("tusk-merge")
 find_task_branch = _merge.find_task_branch
 detect_default_branch = _merge.detect_default_branch
 _autodetect_session = _merge._autodetect_session
-_drop_branch_auto_stash = _merge._drop_branch_auto_stash
+_warn_branch_auto_stash = _merge._warn_branch_auto_stash
 _branch_exists = _merge._branch_exists
 _recorded_task_workspace = _merge._recorded_task_workspace
 _remove_recorded_task_worktree = _merge._remove_recorded_task_worktree
@@ -350,12 +350,11 @@ def main(argv: list[str]) -> int:
                 file=sys.stderr,
             )
 
-    # Drop any leftover `tusk-branch: auto-stash for TASK-<id>` entry created
-    # by `tusk branch <id>` when the working tree was dirty at task-start.
-    # That dirty state cannot belong to this task (no work had happened yet),
-    # so it is unrelated leftover state regardless of whether the task ships
-    # via `tusk merge` or is abandoned (issue #647 — sibling of #644).
-    _drop_branch_auto_stash(task_id)
+    # Warn about any leftover `tusk-branch: auto-stash for TASK-<id>` entry
+    # created by `tusk branch <id>` when the working tree was dirty at
+    # task-start. It can contain pre-existing user WIP, so preserve it and
+    # surface explicit manual restore/drop commands.
+    _warn_branch_auto_stash(task_id)
 
     # Close the session (mirrors tusk merge step 2)
     print(f"Closing session {session_id}...", file=sys.stderr)
