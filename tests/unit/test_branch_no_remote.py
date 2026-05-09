@@ -63,7 +63,7 @@ class TestBranchNoRemote:
             # dirty check
             if args[:2] == ["git", "status"]:
                 return _cp(0, stdout="")
-            # checkout default
+            # previous implementations checked out default here
             if args == ["git", "checkout", "main"]:
                 return _cp(0)
             # pull — should not be called when no remote
@@ -103,12 +103,12 @@ class TestBranchNoRemote:
 
         _, err = capsys.readouterr()
         assert "no git remote" in err
-        assert "skipping pull" in err
+        assert "skipping fetch" in err
 
-    def test_no_remote_does_not_call_pull(self):
-        """git pull is never invoked when no remote exists."""
+    def test_no_remote_does_not_call_fetch(self):
+        """git fetch is never invoked when no remote exists."""
         mod = _load_module()
-        pull_calls = []
+        fetch_calls = []
 
         def fake_run(args, check=True):
             if args[:3] == ["git", "remote", "get-url"]:
@@ -123,8 +123,8 @@ class TestBranchNoRemote:
                 return _cp(0, stdout="")
             if args == ["git", "checkout", "main"]:
                 return _cp(0)
-            if args[:3] == ["git", "pull"]:
-                pull_calls.append(args)
+            if args[:2] == ["git", "fetch"]:
+                fetch_calls.append(args)
                 return _cp(128)
             if args[:3] == ["git", "branch", "--list"]:
                 return _cp(0, stdout="")
@@ -135,12 +135,12 @@ class TestBranchNoRemote:
         with patch.object(mod, "run", side_effect=fake_run):
             mod.main([".", "1", "test-slug"])
 
-        assert pull_calls == [], f"git pull should not be called when no remote: {pull_calls}"
+        assert fetch_calls == [], f"git fetch should not be called when no remote: {fetch_calls}"
 
-    def test_with_remote_still_pulls(self, capsys):
-        """Normal behavior: git pull is called when remote exists."""
+    def test_with_remote_still_fetches(self, capsys):
+        """Normal behavior: git fetch is called when remote exists."""
         mod = _load_module()
-        pull_called = []
+        fetch_called = []
 
         def fake_run(args, check=True):
             if args[:3] == ["git", "remote", "get-url"]:
@@ -153,8 +153,8 @@ class TestBranchNoRemote:
                 return _cp(0, stdout="")
             if args == ["git", "checkout", "main"]:
                 return _cp(0)
-            if args[:2] == ["git", "pull"]:
-                pull_called.append(args)
+            if args[:2] == ["git", "fetch"]:
+                fetch_called.append(args)
                 return _cp(0)
             if args[:3] == ["git", "branch", "--list"]:
                 return _cp(0, stdout="")
@@ -166,4 +166,4 @@ class TestBranchNoRemote:
             rc = mod.main([".", "1", "test-slug"])
 
         assert rc == 0
-        assert len(pull_called) == 1, "git pull should be called when remote exists"
+        assert len(fetch_called) == 1, "git fetch should be called when remote exists"

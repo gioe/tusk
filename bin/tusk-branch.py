@@ -10,7 +10,7 @@ Arguments received from tusk:
 
 Steps:
     1. Detect the repo's default branch (remote HEAD → gh fallback → "main")
-    2. Check out the default branch and pull latest
+    2. Refresh the default branch tip without checking it out
     3. Check for an existing feature/TASK-<id>-* branch:
        - Multiple found → error listing all candidates
        - One found → warn and switch to it (skip creation)
@@ -233,9 +233,8 @@ def main(argv: list[str]) -> int:
     # automatically and do not need to be stashed; including them in the dirty
     # check causes a spurious stash-pop failure when there is nothing to pop.
     # .claude/ files (e.g. generated .pyc bytecode) are included: if they are
-    # tracked and modified, git pull (or git pull --rebase when pull.rebase is
-    # set) will refuse to run. Stashing them is safe here because this script
-    # runs entirely in-process — the stash is
+    # tracked and modified, switching to the new branch will refuse to run.
+    # Stashing them is safe here because this script runs entirely in-process — the stash is
     # held only for the duration of the git operations below and is popped onto
     # the new branch before the script exits.
     status_result = run(["git", "status", "--porcelain"], check=False)
@@ -267,32 +266,27 @@ def main(argv: list[str]) -> int:
             file=sys.stderr,
         )
 
-    # Checkout default branch and pull latest
-    result = run(["git", "checkout", default_branch], check=False)
-    if result.returncode != 0:
-        print(f"Error: git checkout {default_branch} failed:\n{result.stderr.strip()}", file=sys.stderr)
-        if dirty:
-            _handle_stash_exit(pop_stash, stash_msg)
-        return 2
-
+    branch_start_point = default_branch
     if _has_remote():
-        result = run(["git", "pull", "origin", default_branch], check=False)
+        result = run(["git", "fetch", "origin", default_branch], check=False)
         if result.returncode != 0:
             if _is_remote_unreachable(result.stderr):
                 print(
-                    f"Warning: could not reach origin — skipping pull. "
+                    f"Warning: could not reach origin — skipping fetch. "
                     f"Branching from local '{default_branch}'.\n  {result.stderr.strip()}",
                     file=sys.stderr,
                 )
             else:
-                print(f"Error: git pull origin {default_branch} failed:\n{result.stderr.strip()}", file=sys.stderr)
+                print(f"Error: git fetch origin {default_branch} failed:\n{result.stderr.strip()}", file=sys.stderr)
                 if dirty:
-                    _handle_stash_exit(pop_stash, stash_msg, current_branch=default_branch)
+                    _handle_stash_exit(pop_stash, stash_msg)
                 return 2
+        else:
+            branch_start_point = f"origin/{default_branch}"
     else:
         print(
-            "Warning: no git remote 'origin' configured — skipping pull. "
-            "Branching from local HEAD.",
+            "Warning: no git remote 'origin' configured — skipping fetch. "
+            f"Branching from local '{default_branch}'.",
             file=sys.stderr,
         )
 
@@ -329,7 +323,7 @@ def main(argv: list[str]) -> int:
         is_merged = (
             tip.returncode == 0
             and run(
-                ["git", "merge-base", "--is-ancestor", tip.stdout.strip(), default_branch],
+                ["git", "merge-base", "--is-ancestor", tip.stdout.strip(), branch_start_point],
                 check=False,
             ).returncode == 0
         )
@@ -368,17 +362,17 @@ def main(argv: list[str]) -> int:
                     file=sys.stderr,
                 )
                 if dirty:
-                    _handle_stash_exit(pop_stash, stash_msg, current_branch=default_branch)
+                    _handle_stash_exit(pop_stash, stash_msg)
                 return 2
 
-            result = run(["git", "checkout", "-b", branch_name], check=False)
+            result = run(["git", "checkout", "-b", branch_name, branch_start_point], check=False)
             if result.returncode != 0:
                 print(
                     f"Error: git checkout -b {branch_name} failed:\n{result.stderr.strip()}",
                     file=sys.stderr,
                 )
                 if dirty:
-                    _handle_stash_exit(pop_stash, stash_msg, current_branch=default_branch)
+                    _handle_stash_exit(pop_stash, stash_msg)
                 return 2
         else:
             print(
@@ -391,15 +385,15 @@ def main(argv: list[str]) -> int:
             if result.returncode != 0:
                 print(f"Error: git checkout {existing_branch} failed:\n{result.stderr.strip()}", file=sys.stderr)
                 if dirty:
-                    _handle_stash_exit(pop_stash, stash_msg, current_branch=default_branch)
+                    _handle_stash_exit(pop_stash, stash_msg)
                 return 2
             branch_name = existing_branch
     else:
-        result = run(["git", "checkout", "-b", branch_name], check=False)
+        result = run(["git", "checkout", "-b", branch_name, branch_start_point], check=False)
         if result.returncode != 0:
             print(f"Error: git checkout -b {branch_name} failed:\n{result.stderr.strip()}", file=sys.stderr)
             if dirty:
-                _handle_stash_exit(pop_stash, stash_msg, current_branch=default_branch)
+                _handle_stash_exit(pop_stash, stash_msg)
             return 2
 
     # Default: leave the stash intact so orphan changes that belong to a

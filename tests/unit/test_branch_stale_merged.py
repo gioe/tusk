@@ -55,7 +55,7 @@ class TestStaleMergedBranchDetection:
             # dirty check
             if args[:2] == ["git", "status"]:
                 return _cp(0, stdout="")
-            # checkout default
+            # previous implementations checked out default here
             if args == ["git", "checkout", "main"]:
                 return _cp(0)
             # pull
@@ -126,7 +126,7 @@ class TestStaleMergedBranchDetection:
              patch.object(mod.sys.stdin, "isatty", return_value=False):
             mod.main([".", "999", "new-slug"])
 
-        # Only "git checkout main" should have been called, never the stale branch
+        # The stale branch must never be checked out.
         stale_checkouts = [a for a in checked_out if "feature/TASK-999-old" in a]
         assert stale_checkouts == [], f"Should not have checked out stale branch: {stale_checkouts}"
 
@@ -215,5 +215,5 @@ class TestStaleMergedBranchDetection:
 
         assert len(merge_base_calls) == 1
         assert merge_base_calls[0] == [
-            "git", "merge-base", "--is-ancestor", "deadbeef", "main"
+            "git", "merge-base", "--is-ancestor", "deadbeef", "origin/main"
         ]

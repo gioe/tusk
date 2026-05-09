@@ -1,8 +1,8 @@
 """Unit tests for tusk-branch.py graceful handling of an unreachable origin (Issue #473).
 
 When `origin` exists but is unreachable (DNS failure, connection refused, 404,
-dead host), `git pull` exits non-zero. tusk branch should detect the
-network-level failure and fall back to branching from local HEAD instead of
+dead host), `git fetch` exits non-zero. tusk branch should detect the
+network-level failure and fall back to branching from local default instead of
 hard-failing, mirroring the existing no-remote path.
 """
 
@@ -50,9 +50,9 @@ def _cp(returncode, stdout="", stderr=""):
     return r
 
 
-def _fake_run_with_pull(pull_rc: int, pull_stderr: str, dirty: bool = False):
+def _fake_run_with_fetch(fetch_rc: int, fetch_stderr: str, dirty: bool = False):
     """Build a fake subprocess.run that simulates a reachable remote (origin
-    exists) but lets the caller control the outcome of `git pull`."""
+    exists) but lets the caller control the outcome of `git fetch`."""
     stash_pops: list[list[str]] = []
 
     status_stdout = " M some_file.py\n" if dirty else ""
@@ -73,8 +73,8 @@ def _fake_run_with_pull(pull_rc: int, pull_stderr: str, dirty: bool = False):
             return _cp(0)
         if args == ["git", "checkout", "main"]:
             return _cp(0)
-        if args[:2] == ["git", "pull"]:
-            return _cp(pull_rc, stderr=pull_stderr)
+        if args[:2] == ["git", "fetch"]:
+            return _cp(fetch_rc, stderr=fetch_stderr)
         if args[:3] == ["git", "branch", "--list"]:
             return _cp(0, stdout="")
         if args[:2] == ["git", "checkout"] and "-b" in args:
@@ -89,9 +89,9 @@ class TestBranchUnreachableRemote:
 
     def test_dns_failure_succeeds(self, capsys):
         mod = _load_module()
-        fake_run, _ = _fake_run_with_pull(
-            pull_rc=128,
-            pull_stderr=(
+        fake_run, _ = _fake_run_with_fetch(
+            fetch_rc=128,
+            fetch_stderr=(
                 "fatal: unable to access 'https://example.com/nonexistent.git/': "
                 "Could not resolve host: example.com"
             ),
@@ -103,13 +103,13 @@ class TestBranchUnreachableRemote:
         out, err = capsys.readouterr()
         assert "feature/TASK-1-test-slug" in out
         assert "could not reach origin" in err
-        assert "skipping pull" in err
+        assert "skipping fetch" in err
 
     def test_repo_not_found_succeeds(self, capsys):
         mod = _load_module()
-        fake_run, _ = _fake_run_with_pull(
-            pull_rc=128,
-            pull_stderr=(
+        fake_run, _ = _fake_run_with_fetch(
+            fetch_rc=128,
+            fetch_stderr=(
                 "remote: Repository not found.\n"
                 "fatal: repository 'https://github.com/nobody/nothing.git/' not found"
             ),
@@ -123,9 +123,9 @@ class TestBranchUnreachableRemote:
 
     def test_connection_refused_succeeds(self, capsys):
         mod = _load_module()
-        fake_run, _ = _fake_run_with_pull(
-            pull_rc=128,
-            pull_stderr="fatal: unable to access '...': Failed to connect to ...: Connection refused",
+        fake_run, _ = _fake_run_with_fetch(
+            fetch_rc=128,
+            fetch_stderr="fatal: unable to access '...': Failed to connect to ...: Connection refused",
         )
         with patch.object(mod, "run", side_effect=fake_run):
             rc = mod.main([".", "3", "test-slug"])
@@ -133,12 +133,12 @@ class TestBranchUnreachableRemote:
         assert rc == 0
 
     def test_merge_conflict_still_fails(self, capsys):
-        """Non-network pull failures (merge conflicts, divergent histories) must
+        """Non-network fetch failures must
         still exit 2 — the fallback is network-specific."""
         mod = _load_module()
-        fake_run, _ = _fake_run_with_pull(
-            pull_rc=1,
-            pull_stderr=(
+        fake_run, _ = _fake_run_with_fetch(
+            fetch_rc=1,
+            fetch_stderr=(
                 "CONFLICT (content): Merge conflict in foo.py\n"
                 "Automatic merge failed; fix conflicts and then commit the result."
             ),
@@ -148,16 +148,16 @@ class TestBranchUnreachableRemote:
 
         assert rc == 2
         _, err = capsys.readouterr()
-        assert "git pull origin main failed" in err
+        assert "git fetch origin main failed" in err
 
-    def test_stash_left_intact_after_unreachable_pull(self, capsys):
+    def test_stash_left_intact_after_unreachable_fetch(self, capsys):
         """When dirty-state triggered an auto-stash and origin is unreachable,
         the default path must leave the stash intact (no auto-pop) — the user
         is informed of the stash ref so they can restore manually."""
         mod = _load_module()
-        fake_run, stash_pops = _fake_run_with_pull(
-            pull_rc=128,
-            pull_stderr="fatal: unable to access '...': Could not resolve host: nowhere",
+        fake_run, stash_pops = _fake_run_with_fetch(
+            fetch_rc=128,
+            fetch_stderr="fatal: unable to access '...': Could not resolve host: nowhere",
             dirty=True,
         )
         with patch.object(mod, "run", side_effect=fake_run):
@@ -170,13 +170,13 @@ class TestBranchUnreachableRemote:
         err = capsys.readouterr().err
         assert "stash@{0}" in err
 
-    def test_stash_is_popped_after_unreachable_pull_with_flag(self, capsys):
+    def test_stash_is_popped_after_unreachable_fetch_with_flag(self, capsys):
         """--pop-stash restores the legacy pop-onto-new-branch behavior even
         when origin is unreachable."""
         mod = _load_module()
-        fake_run, stash_pops = _fake_run_with_pull(
-            pull_rc=128,
-            pull_stderr="fatal: unable to access '...': Could not resolve host: nowhere",
+        fake_run, stash_pops = _fake_run_with_fetch(
+            fetch_rc=128,
+            fetch_stderr="fatal: unable to access '...': Could not resolve host: nowhere",
             dirty=True,
         )
         with patch.object(mod, "run", side_effect=fake_run):

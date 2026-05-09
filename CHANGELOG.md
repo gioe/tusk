@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [889] - 2026-05-09
+
+- [TASK-363] Fix tusk branch when the default branch is checked out in another worktree
+
 ## [888] - 2026-05-08
 
 - [TASK-361] Base task worktrees on freshly fetched origin default branches
