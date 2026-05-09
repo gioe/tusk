@@ -172,13 +172,16 @@ class TestAbandonRefusesUnmergedCommits:
 
         branch_name = f"feature/TASK-{task_id}-thing"
         unrelated_task_id = task_id + 999
+        workspace = {
+            "branch": branch_name,
+            "workspace_path": "/tmp/TASK-unrelated-commits",
+        }
         monkeypatch.setattr(
-            tusk_abandon, "_recorded_task_workspace", lambda db, tid: None
+            tusk_abandon, "_recorded_task_workspace", lambda db, tid: workspace
         )
+        monkeypatch.setattr(tusk_abandon, "_branch_exists", lambda branch: True)
         monkeypatch.setattr(
-            tusk_abandon,
-            "find_task_branch",
-            lambda tid: (branch_name, None, False),
+            tusk_abandon, "_remove_recorded_task_worktree", lambda *args, **kwargs: True
         )
         monkeypatch.setattr(tusk_abandon, "detect_default_branch", lambda: "main")
         monkeypatch.setattr(tusk_abandon, "checkpoint_wal", lambda db: None)
@@ -202,8 +205,6 @@ class TestAbandonRefusesUnmergedCommits:
                 return subprocess.CompletedProcess(
                     args, 0, stdout="+ abc1234\n", stderr=""
                 )
-            if args[:3] == ["git", "rev-parse", "--abbrev-ref"]:
-                return subprocess.CompletedProcess(args, 0, stdout="main\n", stderr="")
             if args[:3] == ["git", "branch", "-D"]:
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
             if args[:3] == ["git", "stash", "list"]:
