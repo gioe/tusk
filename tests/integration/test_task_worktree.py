@@ -541,3 +541,178 @@ class TestTaskWorktreeCloseout:
             ).fetchone()
         assert task[0] == "Done"
         assert session[0] is not None
+
+
+class TestTaskWorktreeCreateStaleRow:
+    """Issue #803 — when task_workspaces has a row but workspace_path is gone
+    from disk, the old behavior returned `created:false` and the caller `cd`'d
+    into a dangling path. cmd_create now reconciles: re-attach when the branch
+    survives, refuse loudly when both row and branch are stale.
+    """
+
+    def _make_recorded_workspace(self, tmp_path, monkeypatch, slug="stale-row"):
+        """Create a recorded workspace and return (repo, db_path, env, task_id, payload)."""
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+        created = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                slug,
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+        assert created.returncode == 0, created.stderr
+        return repo, db_path, env, task_id, json.loads(created.stdout)
+
+    def test_create_returns_unchanged_when_workspace_is_healthy(
+        self, tmp_path, monkeypatch
+    ):
+        """Healthy path: row exists, workspace_path exists on disk → created:false."""
+        repo, db_path, env, task_id, payload = self._make_recorded_workspace(
+            tmp_path, monkeypatch
+        )
+        workspace_root = tmp_path / "workspaces"
+
+        result = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "stale-row",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        body = json.loads(result.stdout)
+        assert body["created"] is False
+        assert body["workspace_path"] == payload["workspace_path"]
+        assert os.path.isdir(body["workspace_path"])
+
+    def test_create_re_attaches_when_path_missing_but_branch_survives(
+        self, tmp_path, monkeypatch
+    ):
+        """Path-gone, branch-intact: delete the worktree dir (and git's pointer)
+        but keep the branch + the tusk registry row. Re-running create must
+        re-attach the worktree at the recorded path and report created:true.
+        """
+        repo, db_path, env, task_id, payload = self._make_recorded_workspace(
+            tmp_path, monkeypatch, slug="reattach"
+        )
+        workspace_root = tmp_path / "workspaces"
+        # Remove the worktree from disk AND from git's worktree registry, but
+        # keep the branch and the tusk task_workspaces row intact.
+        _git(["worktree", "remove", "--force", payload["workspace_path"]], cwd=repo)
+        assert not os.path.isdir(payload["workspace_path"])
+        # Confirm the branch still exists.
+        branch_check = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet",
+             f"refs/heads/{payload['branch']}"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        assert branch_check.returncode == 0
+        # tusk task_workspaces row must still be there.
+        with sqlite3.connect(db_path) as conn:
+            rows = conn.execute(
+                "SELECT id, branch, workspace_path FROM task_workspaces "
+                "WHERE task_id = ?",
+                (task_id,),
+            ).fetchall()
+        assert len(rows) == 1
+
+        result = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "reattach",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert result.returncode == 0, (
+            f"expected exit 0 from re-attach; got {result.returncode}\n"
+            f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+        )
+        body = json.loads(result.stdout)
+        assert body["created"] is True, (
+            "Re-attach must report created:true so the caller knows the workspace was materialized"
+        )
+        assert body["workspace_path"] == payload["workspace_path"]
+        assert os.path.isdir(body["workspace_path"])
+        # The registry row must still be the same one (no duplicate INSERT).
+        with sqlite3.connect(db_path) as conn:
+            rows = conn.execute(
+                "SELECT id FROM task_workspaces WHERE task_id = ?",
+                (task_id,),
+            ).fetchall()
+        assert len(rows) == 1
+        assert rows[0][0] == payload["workspace_id"]
+
+    def test_create_refuses_when_path_and_branch_are_both_gone(
+        self, tmp_path, monkeypatch
+    ):
+        """Path-gone, branch-also-gone: refuse with exit 2 and a diagnostic
+        pointing at `tusk task-worktree prune` for cleanup.
+        """
+        repo, db_path, env, task_id, payload = self._make_recorded_workspace(
+            tmp_path, monkeypatch, slug="fully-stale"
+        )
+        workspace_root = tmp_path / "workspaces"
+        # Remove the worktree from disk, then also delete the branch.
+        _git(["worktree", "remove", "--force", payload["workspace_path"]], cwd=repo)
+        _git(["branch", "-D", payload["branch"]], cwd=repo)
+        # Confirm branch is gone.
+        branch_check = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet",
+             f"refs/heads/{payload['branch']}"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        assert branch_check.returncode != 0
+
+        result = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "fully-stale",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert result.returncode == 2, (
+            f"expected exit 2 for fully stale row; got {result.returncode}\n"
+            f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+        )
+        assert "tusk task-worktree prune" in result.stderr
+        assert payload["branch"] in result.stderr
+        assert payload["workspace_path"] in result.stderr
+        # Registry row must NOT have been mutated by the failed call.
+        with sqlite3.connect(db_path) as conn:
+            rows = conn.execute(
+                "SELECT id FROM task_workspaces WHERE task_id = ?",
+                (task_id,),
+            ).fetchall()
+        assert len(rows) == 1
+        assert rows[0][0] == payload["workspace_id"]
