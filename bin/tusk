@@ -70,6 +70,30 @@ else
 fi
 unset _tusk_filtered_args _arg
 
+# ── Silent-exit safety net ──────────────────────────────────────────
+# In non-TTY contexts (Claude Code agent, CI), a tusk subcommand that exits
+# nonzero with no stdout/stderr leaves the caller guessing whether to retry,
+# ignore, or recover (issue #785, cluster:silent-failures). This guard re-execs
+# once with stderr captured to a tempfile; if the inner invocation exits nonzero
+# AND produced no stderr, a generic diagnostic naming the subcommand and exit
+# code is printed so operators always have *something* to act on. Skipped in
+# TTY contexts so live stderr streaming (e.g. tusk commit --verbose, tusk
+# shell) is preserved. Disable with TUSK_SILENT_EXIT_GUARD=0. The
+# TUSK_GUARD_ACTIVE export prevents recursion when a subcommand spawns
+# `tusk` internally (e.g. tusk skill-run finish → tusk call-breakdown).
+if [[ ! -t 2 && "${TUSK_SILENT_EXIT_GUARD:-1}" != "0" && -z "${TUSK_GUARD_ACTIVE:-}" ]]; then
+  export TUSK_GUARD_ACTIVE=1
+  _tusk_stderr="$(mktemp -t tusk-stderr.XXXXXX 2>/dev/null || echo "/tmp/tusk-stderr.$$")"
+  _tusk_rc=0
+  "$0" "$@" 2>"$_tusk_stderr" || _tusk_rc=$?
+  cat "$_tusk_stderr" >&2
+  if (( _tusk_rc != 0 )) && [[ ! -s "$_tusk_stderr" ]]; then
+    printf 'tusk %s: exited %d with no diagnostic output (see https://github.com/gioe/tusk/issues/785)\n' "${1:-(no-subcommand)}" "$_tusk_rc" >&2
+  fi
+  rm -f "$_tusk_stderr"
+  exit "$_tusk_rc"
+fi
+
 # ── Resolve paths ────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
