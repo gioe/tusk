@@ -8,6 +8,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 - Harden merge and abandon closeout against disappearing project-local tusk wrappers and recorded task worktree cleanup ordering
 
+## [908] - 2026-05-20
+
+- [TASK-368] Add integration regression test covering `tusk review begin` from a `tusk task-worktree create`-managed workspace; the underlying readonly-DB symptom was already resolved by TASK-373's worktree path-resolution fix (def7b0b), but no test exercised the full write path from a worktree CWD
+
 ## [907] - 2026-05-20
 
 - [TASK-381] Add silent-exit safety net to bin/tusk dispatcher so subcommands that exit nonzero with no diagnostic output get a generic stderr line naming the subcommand and exit code (issue #785, cluster:silent-failures)
