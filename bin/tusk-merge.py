@@ -830,6 +830,30 @@ def _branch_exists(branch_name: str) -> bool:
     return result.returncode == 0
 
 
+def _branch_has_task_commits(
+    branch_name: str, task_id: int, default_branch: str
+) -> bool:
+    """Return True when ``branch_name`` has any ``[TASK-<task_id>]`` commits ahead of ``default_branch``.
+
+    Implemented via ``mod.run`` (rather than ``find_task_commits``) so unit
+    tests that patch this module's ``run`` can stub the result without
+    reaching real git.
+    """
+    result = run(
+        [
+            "git",
+            "log",
+            f"{default_branch}..{branch_name}",
+            "--format=%H",
+            task_grep_arg(task_id),
+        ],
+        check=False,
+    )
+    if result.returncode != 0:
+        return False
+    return any(line.strip() for line in result.stdout.splitlines())
+
+
 def _delete_remote_feature_branch_if_tracking(branch_name: str) -> None:
     """Delete origin/<branch_name> when the local branch tracks that exact ref."""
     remote = run(
@@ -955,7 +979,39 @@ def find_task_branch(task_id: int) -> tuple[str | None, str | None, bool]:
             f"No branch found matching {primary_pattern} or {fallback_pattern}"
         ), False
     if len(branches) > 1:
-        # Pick the branch whose tip commit is most recent.
+        # First filter by [TASK-<id>] commit presence: a branch matching
+        # feature/TASK-<id>-* that carries no task commits ahead of the default
+        # branch is almost certainly a stale slug from an abandoned session, and
+        # ranking such a branch above one that actually has the user's work by
+        # tip-commit recency silently merges the wrong branch (issue #763).
+        default = detect_default_branch()
+        with_commits = [
+            b for b in branches if _branch_has_task_commits(b, task_id, default)
+        ]
+
+        if len(with_commits) > 1:
+            names = ", ".join(with_commits)
+            return None, (
+                f"Multiple branches found for TASK-{task_id} each containing "
+                f"[TASK-{task_id}] commits ahead of {default}: {names}. "
+                "Delete or merge all but one before running tusk merge."
+            ), False
+
+        if len(with_commits) == 1:
+            selected = with_commits[0]
+            others = [b for b in branches if b != selected]
+            print(
+                f"Note: Multiple branches found for TASK-{task_id} "
+                f"({', '.join(branches)}). "
+                f"Selecting branch with [TASK-{task_id}] commits: {selected}. "
+                f"Branch(es) without task commits not removed: {', '.join(others)}.",
+                file=sys.stderr,
+            )
+            return selected, None, False
+
+        # No branch carries task commits — fall back to the tip-commit-recency
+        # tiebreaker so behavior matches pre-#763 history when every candidate
+        # is equally empty.
         timestamps = {}
         for b in branches:
             ts_result = run(
