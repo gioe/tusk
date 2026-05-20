@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [910] - 2026-05-20
+
+- [TASK-382] Fix: tusk commit must validate current branch matches the task's recorded workspace branch
+
 - Harden merge and abandon closeout against disappearing project-local tusk wrappers and recorded task worktree cleanup ordering
 
 ## [909] - 2026-05-20
