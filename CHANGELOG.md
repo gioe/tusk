@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [913] - 2026-05-20
+
+- [TASK-385] tusk config: echo resolved config path to stderr so worktree operators know which file was read
+
 ## [912] - 2026-05-20
 
 - [TASK-384] Fix: tusk task-worktree create must reconcile stale registry rows when workspace_path is missing on disk
