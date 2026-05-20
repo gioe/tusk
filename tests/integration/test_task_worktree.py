@@ -543,6 +543,198 @@ class TestTaskWorktreeCloseout:
         assert session[0] is not None
 
 
+class TestTaskWorktreeCreateSymlinks:
+    """Issue #752 — worktree.symlink_files config opts the project into
+    seeding new task worktrees with absolute symlinks for gitignored runtime
+    files (e.g. .venv, .env) from the primary repo. Default empty list keeps
+    existing behavior bit-for-bit.
+    """
+
+    def _set_symlink_files(self, repo, names):
+        """Patch worktree.symlink_files in the repo's tusk/config.json."""
+        cfg_path = os.path.join(str(repo), "tusk", "config.json")
+        with open(cfg_path, encoding="utf-8") as f:
+            cfg = json.load(f)
+        worktree_cfg = cfg.setdefault("worktree", {})
+        worktree_cfg["symlink_files"] = list(names)
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+
+    def _plant_files(self, repo, paths_and_content):
+        """Create files (and parent dirs) in the primary repo with content."""
+        for rel, content in paths_and_content:
+            full = os.path.join(str(repo), rel)
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            with open(full, "w", encoding="utf-8") as f:
+                f.write(content)
+
+    def test_default_empty_config_creates_no_symlinks(self, tmp_path, monkeypatch):
+        """Shipped default for worktree.symlink_files is [] — behavior must be
+        bit-for-bit identical to pre-feature versions.
+        """
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+        self._plant_files(repo, [(".venv/marker", "venv-content")])
+        self._plant_files(repo, [(".env", "ENV=1")])
+
+        result = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "no-symlinks",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        wt = payload["workspace_path"]
+        assert not os.path.lexists(os.path.join(wt, ".venv"))
+        assert not os.path.lexists(os.path.join(wt, ".env"))
+
+    def test_top_level_symlinks_created_for_configured_basenames(
+        self, tmp_path, monkeypatch
+    ):
+        """When worktree.symlink_files is set, matching primary entries are
+        exposed in the worktree as absolute symlinks.
+        """
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        self._set_symlink_files(repo, [".venv", ".env"])
+        self._plant_files(
+            repo,
+            [(".venv/bin/python", "fake-py"), (".env", "DB_URL=local")],
+        )
+        primary_venv = os.path.join(str(repo), ".venv")
+        primary_env = os.path.join(str(repo), ".env")
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+
+        result = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "with-symlinks",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        wt = payload["workspace_path"]
+        wt_venv = os.path.join(wt, ".venv")
+        wt_env = os.path.join(wt, ".env")
+        assert os.path.islink(wt_venv), "expected .venv to be a symlink"
+        assert os.path.islink(wt_env), "expected .env to be a symlink"
+        # Symlink targets must be absolute paths so they survive worktree relocation.
+        assert os.readlink(wt_venv) == primary_venv
+        assert os.readlink(wt_env) == primary_env
+        # And the symlinks must resolve to readable content from the primary.
+        assert os.path.exists(os.path.join(wt_venv, "bin", "python"))
+
+    def test_nested_symlinks_match_at_corresponding_subdir(
+        self, tmp_path, monkeypatch
+    ):
+        """The walk is recursive: a .venv under apps/scraper in the primary
+        should land at apps/scraper/.venv in the worktree.
+        """
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        self._set_symlink_files(repo, [".venv"])
+        self._plant_files(
+            repo, [("apps/scraper/.venv/marker", "scraper-venv")]
+        )
+        primary_nested = os.path.join(str(repo), "apps", "scraper", ".venv")
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+
+        result = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "nested",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        wt = payload["workspace_path"]
+        wt_nested = os.path.join(wt, "apps", "scraper", ".venv")
+        assert os.path.islink(wt_nested), (
+            f"expected nested .venv symlink at {wt_nested}"
+        )
+        assert os.readlink(wt_nested) == primary_nested
+
+    def test_missing_primary_file_is_skipped_silently(self, tmp_path, monkeypatch):
+        """If the basename is configured but no matching file exists in the
+        primary, no symlink is created (and no error is raised).
+        """
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        self._set_symlink_files(repo, [".venv", ".missing"])
+        self._plant_files(repo, [(".venv/marker", "venv")])
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+
+        result = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "partial",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        wt = payload["workspace_path"]
+        assert os.path.islink(os.path.join(wt, ".venv"))
+        assert not os.path.lexists(os.path.join(wt, ".missing"))
+
+    def test_git_directory_is_excluded_from_walk(self, tmp_path, monkeypatch):
+        """The walk must skip .git so we don't symlink anything from the git
+        metadata directory, even when a basename collision exists.
+        """
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        # `config` exists at .git/config in every git repo. The walk must NOT pick it up.
+        self._set_symlink_files(repo, ["config"])
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+
+        result = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "skip-git",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        wt = payload["workspace_path"]
+        assert not os.path.lexists(os.path.join(wt, ".git", "config"))
+
+
 class TestTaskWorktreeCreateStaleRow:
     """Issue #803 — when task_workspaces has a row but workspace_path is gone
     from disk, the old behavior returned `created:false` and the caller `cd`'d
