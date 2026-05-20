@@ -2,9 +2,9 @@
 """Lint, stage, and commit in one atomic operation.
 
 Called by the tusk wrapper (three equivalent forms):
-    tusk commit <task_id> "<message>" <file1> [file2 ...] [--criteria <id>] ... [--skip-verify] [--skip-lint] [--verbose]
-    tusk commit <task_id> <file1> [file2 ...] -m "<message>" [--criteria <id>] ... [--skip-verify] [--skip-lint] [--verbose]
-    tusk commit <task_id> <file1> [file2 ...] -- -m "<message>" [--criteria <id>] ... [--skip-verify] [--skip-lint] [--verbose]
+    tusk commit <task_id> "<message>" <file1> [file2 ...] [--criteria <id>] ... [--skip-verify] [--skip-lint] [--allow-branch-mismatch] [--verbose]
+    tusk commit <task_id> <file1> [file2 ...] -m "<message>" [--criteria <id>] ... [--skip-verify] [--skip-lint] [--allow-branch-mismatch] [--verbose]
+    tusk commit <task_id> <file1> [file2 ...] -- -m "<message>" [--criteria <id>] ... [--skip-verify] [--skip-lint] [--allow-branch-mismatch] [--verbose]
 
 The -m flag extracts the message; bare -- separators are silently ignored.
 A [TASK-N] prefix in the message is stripped automatically to prevent duplication.
@@ -16,6 +16,9 @@ Arguments received from tusk:
                    (-m, --criteria, --skip-verify, --skip-lint, --verbose)
 
 Steps:
+    0a. Validate current branch — refuses (exit 7) when the current branch does not match
+        the task's recorded workspace branch, or when no workspace is recorded and HEAD
+        is the default branch (issue #794). Bypass with --allow-branch-mismatch.
     0. Validate file paths — fail fast before lint/tests if any path is missing or escapes repo root
     1. Run tusk lint --quiet — aborts on any non-advisory violation (exit 6).
        Advisory-only rules warn but never block. Bypass with --skip-lint or --skip-verify.
@@ -47,6 +50,8 @@ Exit codes:
     5 — test_command exceeded its configured timeout (see test_command_timeout_sec)
     6 — tusk lint reported a non-advisory violation (nothing was staged or committed).
         Fix the violations, or bypass with --skip-lint / --skip-verify.
+    7 — current branch does not match the task's recorded workspace branch, or no workspace
+        is recorded and HEAD is the default branch. Bypass with --allow-branch-mismatch.
 """
 
 import fnmatch
@@ -498,6 +503,151 @@ def is_linked_worktree(repo_root: str) -> bool:
     return bool(git_dir_path and common_dir_path and git_dir_path != common_dir_path)
 
 
+def _current_branch(repo_root: str) -> str | None:
+    """Return the current branch name, or None when HEAD is detached or git is unavailable."""
+    result = run(
+        ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
+        check=False,
+        cwd=repo_root,
+    )
+    if result.returncode != 0:
+        return None
+    branch = result.stdout.strip()
+    return branch or None
+
+
+def _local_default_branch(repo_root: str) -> str:
+    """Detect the repo's default branch using only local refs (no network).
+
+    Order: refs/remotes/origin/HEAD symbolic-ref → local 'main' → local 'master'
+    → literal 'main'. Used by branch validation only — keep it cheap.
+    """
+    remote_head = run(
+        ["git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
+        check=False,
+        cwd=repo_root,
+    )
+    if remote_head.returncode == 0:
+        ref = remote_head.stdout.strip()
+        if ref.startswith("origin/"):
+            return ref[len("origin/"):]
+        if ref:
+            return ref
+    for candidate in ("main", "master"):
+        verify = run(
+            ["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{candidate}"],
+            check=False,
+            cwd=repo_root,
+        )
+        if verify.returncode == 0:
+            return candidate
+    return "main"
+
+
+_LOOKUP_UNAVAILABLE = "unavailable"
+_LOOKUP_NO_ROW = "no_row"
+_LOOKUP_FOUND = "found"
+
+
+def _lookup_task_workspace(
+    db_path: str, task_id: int
+) -> tuple[str, tuple[str, str] | None]:
+    """Return (status, payload) for the task's recorded workspace.
+
+    status is one of:
+      - ``_LOOKUP_UNAVAILABLE`` — DB file missing, table missing (pre-migration),
+        or any sqlite error. Caller must NOT refuse on this signal: a test
+        fixture or pre-init repo legitimately has no DB, and a transient read
+        failure should never produce a false refusal.
+      - ``_LOOKUP_NO_ROW`` — DB is healthy and queryable but the task has no
+        recorded workspace. This is the signal that justifies the
+        no-workspace-on-default refusal.
+      - ``_LOOKUP_FOUND`` — payload is (branch, workspace_path).
+    """
+    if not os.path.exists(db_path):
+        return (_LOOKUP_UNAVAILABLE, None)
+    try:
+        conn = sqlite3.connect(db_path, timeout=2.0)
+        try:
+            row = conn.execute(
+                "SELECT branch, workspace_path FROM task_workspaces "
+                "WHERE task_id = ? LIMIT 1",
+                (task_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return (_LOOKUP_UNAVAILABLE, None)
+    if row is None:
+        return (_LOOKUP_NO_ROW, None)
+    return (_LOOKUP_FOUND, (row[0], row[1]))
+
+
+def _validate_task_branch(
+    repo_root: str,
+    task_id: int,
+    allow_mismatch: bool,
+) -> tuple[bool, str | None]:
+    """Pre-flight check: current branch must match the task's recorded workspace.
+
+    Returns (True, None) on accept. Returns (False, diagnostic) on refusal.
+    The diagnostic is a multi-line error message ready for ``_print_error``.
+
+    Accept paths (never refuse):
+      - ``--allow-branch-mismatch`` was passed.
+      - HEAD is detached or git is unavailable (let downstream git ops handle).
+      - The DB or ``task_workspaces`` table is unavailable.
+      - Task has no recorded workspace AND current branch is non-default
+        (legacy ``tusk branch`` flow).
+      - Task has a recorded workspace AND current branch matches it.
+
+    Refuse paths:
+      - Recorded workspace exists but current branch differs.
+      - No recorded workspace AND current branch is the default branch.
+    """
+    if allow_mismatch:
+        return True, None
+    current = _current_branch(repo_root)
+    if current is None:
+        return True, None
+    db_path = _resolve_db_path(repo_root)
+    status, payload = _lookup_task_workspace(db_path, task_id)
+    if status == _LOOKUP_UNAVAILABLE:
+        # DB missing / table missing / sqlite error — pre-init repo or test
+        # fixture. Cannot validate, so do not block.
+        return True, None
+    if status == _LOOKUP_FOUND:
+        expected_branch, workspace_path = payload  # type: ignore[misc]
+        if current == expected_branch:
+            return True, None
+        diagnostic = (
+            f"Error: tusk commit refusing — current branch does not match the task's recorded workspace.\n"
+            f"  Task #{task_id} workspace branch: {expected_branch}\n"
+            f"  Recorded workspace path:   {workspace_path}\n"
+            f"  Current branch in {repo_root}: {current}\n"
+            f"  Hint: switch into the task workspace before committing:\n"
+            f"    cd {workspace_path}\n"
+            f"  Or switch the current checkout to the expected branch:\n"
+            f"    git switch {expected_branch}\n"
+            f"  To override (legitimate cross-branch commits), pass --allow-branch-mismatch."
+        )
+        return False, diagnostic
+    # status == _LOOKUP_NO_ROW: DB healthy, no workspace recorded for this task.
+    default_branch = _local_default_branch(repo_root)
+    if current == default_branch:
+        diagnostic = (
+            f"Error: tusk commit refusing to land on the default branch '{current}'.\n"
+            f"  Task #{task_id} has no recorded task workspace.\n"
+            f"  Hint: create a task workspace first:\n"
+            f"    tusk task-worktree create {task_id} <slug>\n"
+            f"  Or, for the legacy single-checkout flow, create a feature branch:\n"
+            f"    tusk branch {task_id} <slug>\n"
+            f"  To override (legitimate manual cleanup commits), pass --allow-branch-mismatch."
+        )
+        return False, diagnostic
+    return True, None
+
+
 def _test_command_unavailable(result: subprocess.CompletedProcess) -> bool:
     """Return True when the shell could not execute the configured command."""
     stderr = (result.stderr or "").lower()
@@ -562,7 +712,7 @@ def main(argv: list[str]) -> int:
 def _run_commit(argv: list[str], state: dict) -> int:
     if len(argv) < 4:
         print(
-            "Usage: tusk commit <task_id> \"<message>\" <file1> [file2 ...] [--criteria <id>] ... [--skip-verify] [--verbose]",
+            "Usage: tusk commit <task_id> \"<message>\" <file1> [file2 ...] [--criteria <id>] ... [--skip-verify] [--allow-branch-mismatch] [--verbose]",
             file=sys.stderr,
         )
         return 1
@@ -578,6 +728,7 @@ def _run_commit(argv: list[str], state: dict) -> int:
     criteria_ids: list[str] = []
     skip_verify: bool = False
     skip_lint: bool = False
+    allow_branch_mismatch: bool = False
     verbose: bool = False
     flag_message: str | None = None
     positional: list[str] = []
@@ -598,6 +749,9 @@ def _run_commit(argv: list[str], state: dict) -> int:
             i += 1
         elif remaining[i] == "--skip-lint":
             skip_lint = True
+            i += 1
+        elif remaining[i] == "--allow-branch-mismatch":
+            allow_branch_mismatch = True
             i += 1
         elif remaining[i] == "--verbose":
             verbose = True
@@ -624,7 +778,7 @@ def _run_commit(argv: list[str], state: dict) -> int:
         # -m was used: positional = [task_id, files...]
         if len(positional) < 2:
             print(
-                "Usage: tusk commit <task_id> <file1> [file2 ...] -m \"<message>\" [--criteria <id>] ... [--skip-verify]",
+                "Usage: tusk commit <task_id> <file1> [file2 ...] -m \"<message>\" [--criteria <id>] ... [--skip-verify] [--allow-branch-mismatch]",
                 file=sys.stderr,
             )
             return 1
@@ -635,7 +789,7 @@ def _run_commit(argv: list[str], state: dict) -> int:
         # Original positional form: task_id message files...
         if len(positional) < 3:
             print(
-                "Usage: tusk commit <task_id> \"<message>\" <file1> [file2 ...] [--criteria <id>] ... [--skip-verify]",
+                "Usage: tusk commit <task_id> \"<message>\" <file1> [file2 ...] [--criteria <id>] ... [--skip-verify] [--allow-branch-mismatch]",
                 file=sys.stderr,
             )
             return 1
@@ -681,6 +835,9 @@ def _run_commit(argv: list[str], state: dict) -> int:
         print(f"tusk commit: starting TASK-{task_id}", flush=True)
 
     # ── Step → exit-code map (quick reference for diagnosis) ─────────
+    #   Step 0a (branch validation) → exit 7  (current branch does not match
+    #                                          recorded task workspace; bypass
+    #                                          with --allow-branch-mismatch)
     #   Step 0  (path validation)   → exit 3  (escapes root or path not found)
     #   Step 1  (lint)              → exit 6  (non-advisory lint violation;
     #                                          bypass with --skip-lint / --skip-verify)
@@ -689,6 +846,15 @@ def _run_commit(argv: list[str], state: dict) -> int:
     #   Step 4  (git commit)        → exit 3  (git commit failed)
     #   Step 5  (criteria done)     → exit 4  (one or more criteria failed)
     #   Argument / validation errors before Step 0 → exit 1
+
+    # ── Step 0a: Validate current branch matches the task's recorded workspace ─
+    # Refuses when the operator is committing from a branch that does not match
+    # the task_workspaces row, or from the default branch when no workspace is
+    # recorded (issue #794). Bypass with --allow-branch-mismatch when intentional.
+    ok, diagnostic = _validate_task_branch(repo_root, task_id, allow_branch_mismatch)
+    if not ok:
+        _print_error(diagnostic)
+        return 7
 
     # ── Step 0: Validate file paths (fail fast before lint/tests) ────
     # Resolve relative paths against the caller's CWD before making them relative to
