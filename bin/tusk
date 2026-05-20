@@ -312,6 +312,14 @@ cmd_path() {
 
 cmd_config() {
   local key="${1:-}"
+  # Echo resolved config path to stderr so worktree operators can see which
+  # file was read (issue #767). bin/tusk resolves config via PROJECT_ROOT,
+  # which walks through git --git-common-dir to the primary checkout — that's
+  # deliberate (shared-config invariant matches the shared DB), but operators
+  # editing tusk/config.json in a task worktree need to know that `tusk
+  # config` read the primary's file, not the worktree's. Stderr keeps the
+  # diagnostic out of JSON / value consumers' stdout pipes.
+  echo "Config: $(resolve_config)" >&2
   if [[ -z "$key" ]]; then
     read_config_json
   else
