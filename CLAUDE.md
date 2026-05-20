@@ -99,6 +99,8 @@ The default isolated unit of work is a task workspace: a task-owned git worktree
 
 `bin/tusk merge <task_id> --session <session_id>` removes the recorded task workspace before deleting the feature branch. If the task workspace is dirty, cleanup refuses so local files are not lost; clean or stash in that workspace and retry. If the local files are intentionally disposable, force-remove the worktree with git and rerun the tusk command so the task workspace registry can be cleaned up.
 
+**Auto-symlink gitignored runtime files (issue #752):** `task-worktree create` reads the `worktree.symlink_files` array from `tusk/config.json`. For each basename in the list, the command walks the primary repo (skipping `.git`) and creates an **absolute-path** symlink at the corresponding worktree path for every match — top-level and nested. Default is empty (`[]`), so projects must opt in. Typical Python-service value is `[".venv", ".env"]`. Symlink targets are absolute (survive worktree relocation), `.git` is excluded from the walk, and existing worktree paths are skipped silently (no overwrite). Individual symlink failures are best-effort and never abort worktree creation.
+
 ## Running the test suite
 
 ```bash
