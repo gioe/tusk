@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [912] - 2026-05-20
+
+- [TASK-384] Fix: tusk task-worktree create must reconcile stale registry rows when workspace_path is missing on disk
+
 ## [911] - 2026-05-20
 
 - [TASK-383] Fix: tusk version-bump should resolve VERSION from the worktree's checkout, not the source bin INSTALL_DIR
