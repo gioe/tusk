@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [914] - 2026-05-20
+
+- [TASK-386] Feature: tusk task-worktree create auto-symlinks gitignored runtime files (e.g. .venv, .env) from primary repo, opt-in via worktree.symlink_files config
+
 ## [913] - 2026-05-20
 
 - [TASK-385] tusk config: echo resolved config path to stderr so worktree operators know which file was read
