@@ -8,6 +8,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 - Harden merge and abandon closeout against disappearing project-local tusk wrappers and recorded task worktree cleanup ordering
 
+## [907] - 2026-05-20
+
+- [TASK-381] Add silent-exit safety net to bin/tusk dispatcher so subcommands that exit nonzero with no diagnostic output get a generic stderr line naming the subcommand and exit code (issue #785, cluster:silent-failures)
+
 ## [906] - 2026-05-09
 
 - [TASK-380] Fix: make merge --rebase recover no-checkout fast-forward pushes
