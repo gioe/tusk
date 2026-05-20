@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [915] - 2026-05-20
+
+- [TASK-387] Fix: tusk merge no longer silently honors a stale recorded task_workspaces branch with no [TASK-N] commits — validates commit presence before honoring the recorded pointer and falls back to the find_task_branch commit-pattern scan when stale; multi-branch resolution now surfaces a conflict error when more than one candidate carries task commits (issue #763)
+
 ## [914] - 2026-05-20
 
 - [TASK-386] Feature: tusk task-worktree create auto-symlinks gitignored runtime files (e.g. .venv, .env) from primary repo, opt-in via worktree.symlink_files config
