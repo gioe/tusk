@@ -1262,21 +1262,51 @@ def main(argv: list[str]) -> int:
     # Step 1a: Detect feature branch. Prefer the task-owned workspace record
     # when present; it is the explicit ownership edge for this task and avoids
     # selecting a stale or unrelated feature/TASK-N-* branch by timestamp.
+    # The recorded pointer is only honored when its branch (a) exists locally
+    # AND (b) contains [TASK-<id>] commits ahead of the default branch.
+    # Otherwise it is treated as stale (abandoned session leftover) and the
+    # commit-pattern scan in find_task_branch picks the real branch — without
+    # this validation, a stale empty branch silently wins over the user's real
+    # work (issue #763).
     recorded_workspace = _recorded_task_workspace(_db_path, task_id)
     if recorded_workspace is not None:
-        branch_name = recorded_workspace["branch"]
-        pre_merged = False
-        if not _branch_exists(branch_name):
-            err = (
-                f"Recorded task workspace branch '{branch_name}' was not found. "
-                "Run `tusk task-worktree list` to inspect the recorded workspace."
-            )
-        else:
+        candidate_branch = recorded_workspace["branch"]
+        candidate_path = recorded_workspace["workspace_path"]
+        default_branch_probe = detect_default_branch()
+        branch_exists = _branch_exists(candidate_branch)
+        has_task_commits = branch_exists and _branch_has_task_commits(
+            candidate_branch, task_id, default_branch_probe
+        )
+        path_exists = os.path.exists(candidate_path)
+        if branch_exists and has_task_commits:
+            branch_name = candidate_branch
             err = None
+            pre_merged = False
             print(
                 f"Found recorded task workspace branch: {branch_name}",
                 file=sys.stderr,
             )
+        else:
+            reasons = []
+            if not branch_exists:
+                reasons.append(f"branch '{candidate_branch}' does not exist")
+            elif not has_task_commits:
+                reasons.append(
+                    f"branch '{candidate_branch}' has no [TASK-{task_id}] "
+                    f"commits ahead of {default_branch_probe}"
+                )
+            if not path_exists:
+                reasons.append(
+                    f"workspace path '{candidate_path}' is missing on disk"
+                )
+            joined = "; ".join(reasons)
+            print(
+                f"Warning: recorded task workspace is stale ({joined}); "
+                "falling back to commit-pattern scan. Run `tusk task-worktree "
+                "prune` to clean up the stale registry row.",
+                file=sys.stderr,
+            )
+            branch_name, err, pre_merged = find_task_branch(task_id)
     else:
         branch_name, err, pre_merged = find_task_branch(task_id)
 
