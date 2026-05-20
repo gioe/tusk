@@ -115,6 +115,27 @@ def _create_worktree(
     return result.returncode == 0, result.stderr.strip()
 
 
+def _attach_worktree(
+    repo_root: str,
+    worktree_path: str,
+    branch: str,
+) -> tuple[bool, str]:
+    """Re-attach a worktree at ``worktree_path`` checked out on existing ``branch``.
+
+    Mirrors ``_create_worktree`` but omits ``-b`` so an existing branch is
+    reused rather than recreated (issue #803). Used when a ``task_workspaces``
+    row exists, its branch still resolves in git, but ``workspace_path`` was
+    deleted from disk — the canonical recovery path that avoids forcing the
+    caller to prune-and-retry.
+    """
+    os.makedirs(os.path.dirname(worktree_path), exist_ok=True)
+    result = _run_git(
+        repo_root,
+        ["worktree", "add", worktree_path, branch],
+    )
+    return result.returncode == 0, result.stderr.strip()
+
+
 def _parse_git_worktrees(repo_root: str) -> dict[str, str]:
     result = _run_git(repo_root, ["worktree", "list", "--porcelain"])
     if result.returncode != 0:
@@ -232,8 +253,47 @@ def cmd_create(db_path: str, repo_root: str, argv: list[str]) -> int:
             (task_id, branch),
         ).fetchone()
         if existing:
-            print(dumps(_workspace_payload(existing, created=False)))
-            return 0
+            # Healthy state: registry row + workspace_path present on disk.
+            if os.path.isdir(existing["workspace_path"]):
+                print(dumps(_workspace_payload(existing, created=False)))
+                return 0
+            # Stale state (issue #803): registry row exists but workspace_path
+            # is gone from disk. The caller would otherwise `cd` into a
+            # dangling path. Recover when the branch still resolves in git;
+            # refuse loudly when it does not.
+            if _branch_exists(repo_root, existing["branch"]):
+                ok, err = _attach_worktree(
+                    repo_root,
+                    existing["workspace_path"],
+                    existing["branch"],
+                )
+                if not ok:
+                    print(
+                        "Error: recorded workspace path is missing on disk and "
+                        f"`git worktree add` could not re-attach it:\n"
+                        f"  Workspace path: {existing['workspace_path']}\n"
+                        f"  Branch:         {existing['branch']}\n"
+                        f"  git stderr:     {err}\n"
+                        f"  Hint: run `tusk task-worktree prune` to drop the stale row, "
+                        f"then re-run `tusk task-worktree create {task_id} {slug}` "
+                        f"to materialize a fresh workspace.",
+                        file=sys.stderr,
+                    )
+                    return 2
+                print(dumps(_workspace_payload(existing, created=True)))
+                return 0
+            # Both row and disk and branch are gone — registry is fully stale.
+            print(
+                "Error: recorded workspace is unusable — both the workspace "
+                "path and the branch are missing:\n"
+                f"  Workspace path: {existing['workspace_path']}\n"
+                f"  Branch:         {existing['branch']}\n"
+                f"  Hint: run `tusk task-worktree prune` to drop the stale row, "
+                f"then re-run `tusk task-worktree create {task_id} {slug}` "
+                f"to materialize a fresh workspace.",
+                file=sys.stderr,
+            )
+            return 2
 
         if _branch_exists(repo_root, branch):
             print(
