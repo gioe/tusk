@@ -2,6 +2,7 @@
 """Create and inspect task-owned git worktrees."""
 
 import argparse
+import json
 import os
 import sqlite3
 import subprocess
@@ -115,6 +116,94 @@ def _create_worktree(
     return result.returncode == 0, result.stderr.strip()
 
 
+def _primary_repo_root(repo_root: str) -> str:
+    """Resolve the primary checkout's root from a possibly-worktree ``repo_root``.
+
+    ``repo_root`` is whatever the dispatcher passed in (cwd-resolved). In a
+    linked worktree, ``git --git-common-dir`` points at the primary's ``.git``;
+    the parent of that is the primary checkout. In the primary itself, the
+    common-dir is the same as the git-dir and the parent IS the primary root.
+    Falls back to ``repo_root`` on any git error so symlink seeding is best-
+    effort and never breaks worktree creation.
+    """
+    result = _run_git(
+        repo_root,
+        ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    )
+    if result.returncode != 0:
+        return repo_root
+    common_dir = result.stdout.strip()
+    if not common_dir:
+        return repo_root
+    primary = os.path.dirname(common_dir)
+    return primary if os.path.isdir(primary) else repo_root
+
+
+def _load_symlink_files(config_path: str) -> list[str]:
+    """Load ``worktree.symlink_files`` from the project config, returning [] on any error."""
+    if not config_path or not os.path.exists(config_path):
+        return []
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return []
+    worktree_cfg = cfg.get("worktree")
+    if not isinstance(worktree_cfg, dict):
+        return []
+    names = worktree_cfg.get("symlink_files")
+    if not isinstance(names, list):
+        return []
+    # Filter to non-empty strings; ignore None / empty / non-string entries.
+    return [str(n) for n in names if isinstance(n, str) and n]
+
+
+def _link_gitignored_files(
+    primary_root: str,
+    worktree_path: str,
+    names: list[str],
+) -> list[dict]:
+    """Walk ``primary_root`` for files/dirs whose basename appears in ``names``
+    and create absolute-path symlinks at the corresponding paths under
+    ``worktree_path``. Skips ``.git``; skips entries whose worktree path
+    already exists; never follows symlinks during the walk.
+
+    Returns a list of ``{"src": <primary_path>, "dst": <worktree_path>}``
+    entries for each symlink that was actually created.
+    """
+    if not names:
+        return []
+    name_set = set(names)
+    created: list[dict] = []
+    for root, dirs, files in os.walk(primary_root, followlinks=False):
+        if ".git" in dirs:
+            dirs.remove(".git")
+        # Capture matched dir names BEFORE we mutate `dirs` to control recursion.
+        matched_dirs = [d for d in dirs if d in name_set]
+        matched_files = [f for f in files if f in name_set]
+        for name in matched_dirs + matched_files:
+            src = os.path.join(root, name)
+            rel = os.path.relpath(src, primary_root)
+            dst = os.path.join(worktree_path, rel)
+            # Skip when the destination is already present (file, dir, or
+            # symlink, including a broken symlink — `lexists` catches all three).
+            if os.path.lexists(dst):
+                continue
+            try:
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                os.symlink(src, dst)
+            except OSError:
+                # Best-effort: do not abort worktree creation on a single
+                # failed symlink (permission errors, race conditions, etc.).
+                continue
+            created.append({"src": src, "dst": dst})
+        # Prevent os.walk from descending INTO any directory we just symlinked
+        # — the symlink target already contains its full subtree.
+        for d in matched_dirs:
+            dirs.remove(d)
+    return created
+
+
 def _attach_worktree(
     repo_root: str,
     worktree_path: str,
@@ -194,7 +283,9 @@ def _workspace_payload(row: sqlite3.Row, *, created: bool) -> dict:
     }
 
 
-def cmd_create(db_path: str, repo_root: str, argv: list[str]) -> int:
+def cmd_create(
+    db_path: str, config_path: str, repo_root: str, argv: list[str]
+) -> int:
     parser = argparse.ArgumentParser(
         prog="tusk task-worktree create",
         description="Create or reuse a task-owned git worktree.",
@@ -334,6 +425,16 @@ def cmd_create(db_path: str, repo_root: str, argv: list[str]) -> int:
             """,
             (cur.lastrowid,),
         ).fetchone()
+        # Seed gitignored runtime files (e.g. .venv, .env) from the primary
+        # repo per worktree.symlink_files config (issue #752). Opt-in: empty
+        # list (default) creates no symlinks. Best-effort: any individual
+        # symlink failure is swallowed inside _link_gitignored_files so a
+        # permissions or race issue does not abort the worktree creation we
+        # just recorded above.
+        symlink_names = _load_symlink_files(config_path)
+        if symlink_names:
+            primary_root = _primary_repo_root(repo_root)
+            _link_gitignored_files(primary_root, workspace_path, symlink_names)
         print(dumps(_workspace_payload(row, created=True)))
         return 0
     except sqlite3.IntegrityError as exc:
@@ -417,15 +518,13 @@ def main(argv: list[str]) -> int:
         return 1
 
     db_path = argv[0]
-    # argv[1] is config_path, accepted for dispatcher consistency.
-    # argv[2] is repo_root, used by create/status commands.
+    config_path = argv[1]
+    repo_root = argv[2]
     command = argv[3] if len(argv) > 3 else ""
     rest = argv[4:]
 
-    repo_root = argv[2]
-
     if command == "create":
-        return cmd_create(db_path, repo_root, rest)
+        return cmd_create(db_path, config_path, repo_root, rest)
     if command in {"list", "status"}:
         return cmd_list(db_path, repo_root, rest)
     if command == "prune":
