@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [911] - 2026-05-20
+
+- [TASK-383] Fix: tusk version-bump should resolve VERSION from the worktree's checkout, not the source bin INSTALL_DIR
+
 ## [910] - 2026-05-20
 
 - [TASK-382] Fix: tusk commit must validate current branch matches the task's recorded workspace branch
