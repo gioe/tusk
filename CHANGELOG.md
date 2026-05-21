@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [917] - 2026-05-20
+
+- [TASK-389] Fix: tusk merge now skips the push when origin/<default> already contains the commits to push — recognises the already-shipped state (operator pushed manually with --no-verify after a hook-blocked tusk push) instead of retrying the push and hitting the same pre-push hook rejection (issue #774)
+
 ## [916] - 2026-05-20
 
 - [TASK-388] Fix: tusk merge now chdir's into the recorded task workspace when CWD is on a different non-default branch — eliminates the misleading 'cannot rebase: You have unstaged changes' error that referenced the primary repo's dirty files even though the feature branch's own worktree was clean (issue #764)
