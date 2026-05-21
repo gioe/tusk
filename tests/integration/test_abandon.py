@@ -719,3 +719,175 @@ class TestAbandonPreservesBranchAutoStash:
         # was attempted because no matching entry existed.
         assert any(c[:3] == ["git", "stash", "list"] for c in calls)
         assert not any(c[:3] == ["git", "stash", "drop"] for c in calls)
+
+
+class TestAbandonIdempotentRetry:
+    """tusk abandon must be idempotent on retry when session/task are already closed (issue #808).
+
+    Scenario: a prior abandon got past session-close + task-done but failed at
+    worktree removal (e.g. dirty worktree). After the user cleans the worktree
+    and reruns the same `tusk abandon` args, the session is already closed and
+    the task is already Done. Before the fix, task-done refused with "Task X is
+    already Done" and abandon exited 2 without finishing the cleanup.
+    """
+
+    def test_already_done_task_is_treated_as_success(
+        self, db_path, config_path, monkeypatch
+    ):
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn, status="Done")
+            conn.execute(
+                "UPDATE tasks SET closed_reason = 'completed', "
+                "closed_at = datetime('now') WHERE id = ?",
+                (task_id,),
+            )
+            session_id = _insert_session(conn, task_id, closed=True)
+            conn.commit()
+        finally:
+            conn.close()
+
+        monkeypatch.setattr(
+            tusk_abandon,
+            "find_task_branch",
+            lambda tid: (None, f"No branch found matching feature/TASK-{tid}-*", False),
+        )
+        monkeypatch.setattr(tusk_abandon, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_abandon, "checkpoint_wal", lambda db: None)
+
+        rc, result, stderr = _call(
+            db_path,
+            config_path,
+            task_id,
+            "--reason",
+            "completed",
+            "--session",
+            session_id,
+        )
+
+        assert rc == 0, f"abandon retry failed: {stderr}"
+        assert result is not None, f"expected JSON on stdout; stderr was:\n{stderr}"
+        assert result["task"]["status"] == "Done"
+        assert result["task"]["closed_reason"] == "completed"
+        assert "is already Done" in stderr
+        # task-done should have been treated as a no-op rather than fatal.
+        assert "Error: task-done failed" not in stderr
+
+    def test_already_done_task_synthesizes_unblocked_tasks(
+        self, db_path, config_path, monkeypatch
+    ):
+        """Synthesized result must include unblocked_tasks for any deps newly satisfied."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            blocker_id = _insert_task(conn, status="Done")
+            conn.execute(
+                "UPDATE tasks SET closed_reason = 'completed', "
+                "closed_at = datetime('now') WHERE id = ?",
+                (blocker_id,),
+            )
+            dependent_id = _insert_task(conn, status="To Do")
+            conn.execute(
+                "INSERT INTO task_dependencies (task_id, depends_on_id, relationship_type) "
+                "VALUES (?, ?, 'blocks')",
+                (dependent_id, blocker_id),
+            )
+            session_id = _insert_session(conn, blocker_id, closed=True)
+            conn.commit()
+        finally:
+            conn.close()
+
+        monkeypatch.setattr(
+            tusk_abandon,
+            "find_task_branch",
+            lambda tid: (None, f"No branch found matching feature/TASK-{tid}-*", False),
+        )
+        monkeypatch.setattr(tusk_abandon, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_abandon, "checkpoint_wal", lambda db: None)
+
+        rc, result, stderr = _call(
+            db_path,
+            config_path,
+            blocker_id,
+            "--reason",
+            "completed",
+            "--session",
+            session_id,
+        )
+
+        assert rc == 0, f"abandon failed: {stderr}"
+        unblocked_ids = [t["id"] for t in result["unblocked_tasks"]]
+        assert dependent_id in unblocked_ids
+
+    def test_abandon_note_is_not_duplicated_on_retry(
+        self, db_path, config_path, monkeypatch
+    ):
+        """Second abandon with the same --note must not pile up duplicate task_progress rows."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        monkeypatch.setattr(
+            tusk_abandon,
+            "find_task_branch",
+            lambda tid: (None, f"No branch found matching feature/TASK-{tid}-*", False),
+        )
+        monkeypatch.setattr(tusk_abandon, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_abandon, "checkpoint_wal", lambda db: None)
+
+        note = "Worktree had dirty changes; retried after cleaning."
+        rc, _, stderr = _call(
+            db_path,
+            config_path,
+            task_id,
+            "--reason",
+            "completed",
+            "--session",
+            session_id,
+            "--note",
+            note,
+        )
+        assert rc == 0, f"first abandon failed: {stderr}"
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            count_after_first = conn.execute(
+                "SELECT COUNT(*) FROM task_progress WHERE task_id = ? "
+                "AND commit_message LIKE '[abandon:%'",
+                (task_id,),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+
+        # Simulated retry: task is already Done, session already closed, but
+        # the user reruns the same args because the original worktree-remove
+        # leg failed.
+        rc2, _, stderr2 = _call(
+            db_path,
+            config_path,
+            task_id,
+            "--reason",
+            "completed",
+            "--session",
+            session_id,
+            "--note",
+            note,
+        )
+        assert rc2 == 0, f"retry abandon failed: {stderr2}"
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            count_after_retry = conn.execute(
+                "SELECT COUNT(*) FROM task_progress WHERE task_id = ? "
+                "AND commit_message LIKE '[abandon:%'",
+                (task_id,),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+
+        assert count_after_retry == count_after_first, (
+            f"expected idempotent insert; first run wrote {count_after_first} note(s), "
+            f"retry wrote {count_after_retry - count_after_first} additional row(s)"
+        )
