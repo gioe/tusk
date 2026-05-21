@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [922] - 2026-05-21
+
+- [TASK-397] install.sh dual mode: also print Codex PATH next-steps (.envrc / PATH export / AGENTS.md note)
+
 ## [921] - 2026-05-21
 
 - [TASK-395] Reword /review-commits SKILL.md dismissal prose to say --note instead of 'rationale'
