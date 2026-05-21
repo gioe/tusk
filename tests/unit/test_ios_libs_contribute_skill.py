@@ -72,9 +72,10 @@ def test_distribution_version_and_changelog_are_bumped_for_skill_delivery():
     version = _text(REPO_ROOT / "VERSION").strip()
     changelog = _text(REPO_ROOT / "CHANGELOG.md")
 
-    assert version == "909"
-    assert "## [909] - 2026-05-20" in changelog
-    assert "[TASK-378] Recover task-summary diff stats from completed criterion commits" in changelog
+    # TASK-257 shipped /ios-libs-contribute at distribution version 875, so
+    # any current build must be >= 875. The previous == "909" assertion
+    # broke on every subsequent bump and was unrelated to skill delivery.
+    assert version.isdigit() and int(version) >= 875
     assert "## [906] - 2026-05-09" in changelog
     assert "[TASK-380] Fix: make merge --rebase recover no-checkout fast-forward pushes" in changelog
     assert "## [905] - 2026-05-09" in changelog
