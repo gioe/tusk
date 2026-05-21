@@ -200,7 +200,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     tusk commit <task_id> "<message>" "<file>" --skip-verify
     ```
 
-    **If the commit removes a file from git tracking** (i.e., the staged change is a `git rm --cached` deletion, not a file modification), do NOT use `tusk commit` — it retries gitignored paths with `git add -f`, which re-adds the file and defeats the deletion. Use `git commit` directly:
+    **If the commit removes a file from git tracking** (any staged deletion — `git rm <file>`, `git rm --cached <file>`, or `rm <file>` followed by `git add <file>` — all produce identical `deleted: <path>` index entries), do NOT use `tusk commit` — it retries gitignored paths with `git add -f`, which re-adds the file and defeats the deletion. Use `git commit` directly:
     ```bash
     git commit -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
     ```
