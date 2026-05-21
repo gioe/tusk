@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [924] - 2026-05-21
+
+- [TASK-399] Warn at startup when source repo's local main is behind origin/main
+
 ## [923] - 2026-05-21
 
 - [TASK-398] Fix: default tusk changelog-add version arg to VERSION file content
