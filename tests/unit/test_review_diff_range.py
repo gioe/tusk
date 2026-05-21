@@ -115,10 +115,17 @@ class TestPrimaryRange:
         assert result["diff_lines"] > 0
         assert result["summary"].startswith("diff --git")
         assert len(result["summary"]) <= mod.SUMMARY_CHARS
+        # diff_lines_meaningful subtracts auto-generated lockfile sections
+        # (issue #761). With no lockfiles in the diff, it equals diff_lines.
+        assert result["diff_lines_meaningful"] == result["diff_lines"]
         # Also assert the full key shape so a future key addition breaks this
         # test rather than silently diverging from the documented contract.
         assert set(result.keys()) == {
-            "range", "diff_lines", "summary", "recovered_from_task_commits"
+            "range",
+            "diff_lines",
+            "diff_lines_meaningful",
+            "summary",
+            "recovered_from_task_commits",
         }
 
     def test_uses_origin_default_when_local_default_missing(self, tmp_path, monkeypatch):
@@ -365,10 +372,16 @@ class TestCLI:
         assert code == 0, err
         payload = json.loads(out)
         assert set(payload.keys()) == {
-            "range", "diff_lines", "summary", "recovered_from_task_commits"
+            "range",
+            "diff_lines",
+            "diff_lines_meaningful",
+            "summary",
+            "recovered_from_task_commits",
         }
         assert payload["range"] == "main...HEAD"
         assert payload["recovered_from_task_commits"] is False
+        # No lockfiles in this diff → meaningful count equals diff_lines.
+        assert payload["diff_lines_meaningful"] == payload["diff_lines"]
         assert payload["diff_lines"] > 0
 
     def test_cli_uses_invocation_worktree_instead_of_primary_db_checkout(self, tmp_path):

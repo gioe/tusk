@@ -30,9 +30,20 @@ Output JSON (stdout on success):
     {
         "range": "<default>...HEAD" | "<sha>^..<sha>",
         "diff_lines": <int>,
+        "diff_lines_meaningful": <int>,
         "summary": "<first 120 chars of git diff output>",
         "recovered_from_task_commits": <bool>
     }
+
+``diff_lines`` counts every newline in the raw ``git diff`` output (legacy
+field, unchanged for backward compatibility). ``diff_lines_meaningful``
+subtracts the per-file sections of auto-generated lockfiles
+(``package-lock.json``, ``yarn.lock``, ``pnpm-lock.yaml``, ``Cargo.lock``,
+``go.sum``, and friends — see ``GENERATED_LOCKFILES`` in
+``tusk-git-helpers.py``). Consumers driving inline-vs-agent routing
+decisions (e.g. ``skills/review-commits/SKILL.md``) should prefer the
+meaningful count so a single ``npm install`` does not push a small feature
+into agent-based review (issue #761).
 
 Exit codes:
     0 — success (JSON on stdout)
@@ -55,6 +66,7 @@ dumps = _json_lib.dumps
 task_grep_arg = _git_helpers.task_grep_arg
 commit_changed_files = _git_helpers.commit_changed_files
 task_referenced_paths = _git_helpers.task_referenced_paths
+filter_lockfile_diff_sections = _git_helpers.filter_lockfile_diff_sections
 get_connection = _db_lib.get_connection
 
 SUMMARY_CHARS = 120
@@ -204,8 +216,79 @@ def _task_started_at(db_path: str | None, task_id: int) -> str | None:
     return row["started_at"] if "started_at" in row.keys() else row[0]
 
 
-def compute_range(task_id: int, repo_root: str, db_path: str | None = None) -> dict:
-    """Return the diff-range payload for this task, or raise on empty diff."""
+def _count_meaningful_lines(diff_out: str) -> int:
+    """Return the newline count of *diff_out* after stripping every per-file
+    section that belongs to an auto-generated lockfile (issue #761)."""
+    if not diff_out:
+        return 0
+    return filter_lockfile_diff_sections(diff_out).count("\n")
+
+
+def _find_task_feature_worktree(
+    task_id: int, repo_root: str
+) -> str | None:
+    """Return the path of a sibling worktree whose branch matches
+    ``feature/TASK-<id>-*``, excluding *repo_root* itself.
+
+    Resolves issue #777: when ``tusk review begin`` is invoked from a
+    checkout that has no ``[TASK-<id>]`` commits reachable from HEAD (the
+    primary checkout, the wrong worktree, etc.) but the feature branch is
+    checked out in a sibling worktree, the helper can re-run the diff
+    against that worktree instead of failing with a generic "No changes
+    found" message.
+
+    Returns ``None`` when no matching sibling worktree exists or when
+    ``git worktree list`` fails.
+    """
+    porcelain = _git(["worktree", "list", "--porcelain"], repo_root)
+    if porcelain.returncode != 0 or not porcelain.stdout:
+        return None
+
+    invoking_real = os.path.realpath(repo_root)
+    target_prefix = f"refs/heads/feature/TASK-{task_id}-"
+    current_wt: str | None = None
+    current_branch: str | None = None
+
+    def _maybe_return() -> str | None:
+        if (
+            current_wt
+            and current_branch
+            and current_branch.startswith(target_prefix)
+            and os.path.realpath(current_wt) != invoking_real
+        ):
+            return current_wt
+        return None
+
+    for line in porcelain.stdout.split("\n"):
+        if not line.strip():
+            hit = _maybe_return()
+            if hit:
+                return hit
+            current_wt = None
+            current_branch = None
+            continue
+        if line.startswith("worktree "):
+            current_wt = line[len("worktree "):]
+        elif line.startswith("branch "):
+            current_branch = line[len("branch "):]
+
+    return _maybe_return()
+
+
+def compute_range(
+    task_id: int,
+    repo_root: str,
+    db_path: str | None = None,
+    _allow_worktree_fallback: bool = True,
+) -> dict:
+    """Return the diff-range payload for this task, or raise on empty diff.
+
+    The ``_allow_worktree_fallback`` flag is internal — when both the
+    primary range and the ``[TASK-N]`` commit-grep recovery come up empty,
+    the helper consults ``git worktree list`` for a sibling worktree whose
+    branch matches ``feature/TASK-<id>-*`` and recurses into it with the
+    flag flipped off, so the fallback only fires once. See issue #777.
+    """
     base = default_branch(repo_root)
     primary = primary_range(base, repo_root)
 
@@ -223,6 +306,7 @@ def compute_range(task_id: int, repo_root: str, db_path: str | None = None) -> d
         return {
             "range": primary,
             "diff_lines": diff_lines,
+            "diff_lines_meaningful": _count_meaningful_lines(diff_out),
             "summary": diff_out[:SUMMARY_CHARS],
             "recovered_from_task_commits": False,
         }
@@ -241,10 +325,35 @@ def compute_range(task_id: int, repo_root: str, db_path: str | None = None) -> d
     log_result = _git(log_args, repo_root)
     commits = [c for c in (log_result.stdout or "").splitlines() if c.strip()]
     if not commits:
+        # Sibling-worktree fallback (issue #777): the feature branch may
+        # live in another worktree (typical when `tusk task-worktree create`
+        # set one up and the user invoked `tusk review begin` from the
+        # primary checkout). Re-run compute_range against the discovered
+        # worktree's repo_root once, then surface a clear hint if that
+        # also turns up empty.
+        if _allow_worktree_fallback:
+            sibling = _find_task_feature_worktree(task_id, repo_root)
+            if sibling:
+                try:
+                    return compute_range(
+                        task_id,
+                        sibling,
+                        db_path,
+                        _allow_worktree_fallback=False,
+                    )
+                except SystemExit:
+                    raise SystemExit(
+                        f"No changes found in checkout '{repo_root}' for "
+                        f"TASK-{task_id}, and the sibling worktree at "
+                        f"'{sibling}' also has no [TASK-{task_id}] commits. "
+                        "Confirm the correct commit range manually and re-run."
+                    )
         raise SystemExit(
-            f"No changes found — [TASK-{task_id}] commits not detected in recent "
-            "git log. The diff range cannot be determined automatically. Confirm "
-            "the correct commit range manually and re-run."
+            f"No changes found — [TASK-{task_id}] commits not detected in this "
+            f"checkout's git log ('{repo_root}'). No sibling worktree carries "
+            f"a feature/TASK-{task_id}-* branch either. The diff range cannot "
+            "be determined automatically. Confirm the correct commit range "
+            "manually and re-run."
         )
 
     # Prefix-collision file-overlap heuristic (issue #656): drop commits
@@ -273,6 +382,7 @@ def compute_range(task_id: int, repo_root: str, db_path: str | None = None) -> d
     return {
         "range": fallback,
         "diff_lines": diff_lines,
+        "diff_lines_meaningful": _count_meaningful_lines(diff_out),
         "summary": diff_out[:SUMMARY_CHARS],
         "recovered_from_task_commits": True,
     }

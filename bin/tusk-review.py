@@ -208,7 +208,12 @@ def cmd_begin(args: argparse.Namespace, db_path: str, config_path: str) -> int:
     never have to extract the diff summary from JSON in shell — the field most
     likely to break the `echo "$VAR" | jq` quoting hazard is no longer in the
     output. Output keys: review_id, task_id, reviewer, range, diff_lines,
-    recovered_from_task_commits.
+    diff_lines_meaningful, recovered_from_task_commits.
+
+    ``diff_lines_meaningful`` is the lockfile-subtracted line count and is
+    the value consumers should use when deciding inline-vs-agent routing.
+    ``diff_lines`` is preserved unchanged for backward compatibility (issue
+    #761).
     """
     diff_range_mod = tusk_loader.load("tusk-review-diff-range")
     repo_root = diff_range_mod.resolve_repo_root(db_path)
@@ -265,6 +270,9 @@ def cmd_begin(args: argparse.Namespace, db_path: str, config_path: str) -> int:
         "reviewer": reviewer_name,
         "range": diff_payload["range"],
         "diff_lines": diff_payload["diff_lines"],
+        "diff_lines_meaningful": diff_payload.get(
+            "diff_lines_meaningful", diff_payload["diff_lines"]
+        ),
         "recovered_from_task_commits": diff_payload["recovered_from_task_commits"],
     }))
     return 0

@@ -19,12 +19,29 @@ MERGE_SCRIPT = os.path.join(REPO_ROOT, "bin", "tusk-merge.py")
 
 
 def _load_module():
-    # Patch tusk_loader so we don't need the full install environment.
+    # Patch tusk_loader so we don't need the full install environment. Route
+    # .load() calls by module name so callers needing the real
+    # `tusk-git-helpers` module (for `GENERATED_LOCKFILES`, etc.) get the
+    # genuine article — without this, the constant becomes a MagicMock and
+    # `in` membership tests in production code silently return False.
     tusk_loader_mock = MagicMock()
     db_lib_mock = MagicMock()
     db_lib_mock.get_connection = MagicMock()
     db_lib_mock.checkpoint_wal = MagicMock()
-    tusk_loader_mock.load.return_value = db_lib_mock
+
+    git_helpers_spec = importlib.util.spec_from_file_location(
+        "tusk_git_helpers",
+        os.path.join(REPO_ROOT, "bin", "tusk-git-helpers.py"),
+    )
+    git_helpers_real = importlib.util.module_from_spec(git_helpers_spec)
+    git_helpers_spec.loader.exec_module(git_helpers_real)
+
+    def _route(name):
+        if name == "tusk-git-helpers":
+            return git_helpers_real
+        return db_lib_mock
+
+    tusk_loader_mock.load.side_effect = _route
     with patch.dict("sys.modules", {"tusk_loader": tusk_loader_mock}):
         spec = importlib.util.spec_from_file_location("tusk_merge", MERGE_SCRIPT)
         mod = importlib.util.module_from_spec(spec)
