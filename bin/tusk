@@ -201,6 +201,39 @@ maybe_warn_cross_repo_drift() {
   fi
 }
 maybe_warn_cross_repo_drift
+
+# Warn when running the tusk source repo's own bin/tusk and the local default
+# branch lags origin's default. The local source bin/tusk reflects whatever is
+# checked out on disk; if the default branch is stale, the binary may be
+# missing already-shipped fixes — leading to phantom-bug investigations
+# (issue #810, original incident TASK-391, where the local source main was
+# 29 commits behind origin/main and a fixed bug still appeared to reproduce).
+#
+# Same gating as maybe_warn_cross_repo_drift: stderr-TTY-only by default,
+# silenced by TUSK_QUIET=1, restorable in non-TTY contexts by TUSK_FORCE_WARN=1.
+# Skipped entirely for consumer installs ($INSTALL_DIR has no config.default.json
+# or no .git).
+maybe_warn_source_repo_stale() {
+  [[ -n "${TUSK_QUIET:-}" ]] && return 0
+  [[ -z "${TUSK_FORCE_WARN:-}" && ! -t 2 ]] && return 0
+  [[ ! -f "$INSTALL_DIR/config.default.json" ]] && return 0
+  # .git is a directory in the primary checkout and a file in a linked worktree;
+  # both resolve to the same common dir via git -C, so accept either.
+  [[ ! -e "$INSTALL_DIR/.git" ]] && return 0
+  local default_branch behind_count
+  # `git symbolic-ref` exits 128 when origin/HEAD isn't set (e.g. immediately
+  # after cloning from a bare repo without `git remote set-head origin -a`).
+  # The pipeline failure interacts with `set -o pipefail` and aborts the entire
+  # bin/tusk invocation, so swallow non-zero exits with `|| true`.
+  default_branch="$(git -C "$INSTALL_DIR" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || true)"
+  [[ -z "$default_branch" ]] && return 0
+  behind_count="$(git -C "$INSTALL_DIR" rev-list --count "${default_branch}..origin/${default_branch}" 2>/dev/null)" || behind_count=""
+  if [[ "$behind_count" =~ ^[0-9]+$ ]] && (( behind_count > 0 )); then
+    echo "tusk: warning — local source bin/tusk is $behind_count commits behind origin/$default_branch. Run 'git pull' inside the tusk source repo to pick up the latest fixes. (TUSK_QUIET=1 to silence)" >&2
+  fi
+}
+maybe_warn_source_repo_stale
+
 # Default config: check sibling (installed) then parent dir (source repo)
 if [[ -f "$SCRIPT_DIR/config.default.json" ]]; then
   DEFAULT_CONFIG="$SCRIPT_DIR/config.default.json"
