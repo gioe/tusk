@@ -340,11 +340,11 @@ After all waves are complete, do a single VERSION bump and CHANGELOG update cove
 
 2. Bump VERSION and update CHANGELOG in one step each:
    ```bash
-   new_version=$(tusk version-bump)
-   tusk changelog-add $new_version <task_id1> [<task_id2> ...]
+   tusk version-bump
+   tusk changelog-add <task_id1> [<task_id2> ...]
    ```
    `tusk version-bump` reads VERSION, increments by 1, writes it back, stages it, and prints the new version number.
-   `tusk changelog-add` prepends a dated `## [N] - YYYY-MM-DD` heading to CHANGELOG.md with a bullet for each task ID, stages CHANGELOG.md, then outputs the inserted block to stdout for review.
+   `tusk changelog-add` prepends a dated `## [N] - YYYY-MM-DD` heading to CHANGELOG.md with a bullet for each task ID, stages CHANGELOG.md, then outputs the inserted block to stdout for review. The version is sourced from the just-staged VERSION file — omit it from the args to avoid drift (issue #814).
 
 3. Review the changelog output, then commit, push, and merge:
    ```bash

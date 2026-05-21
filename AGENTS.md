@@ -79,7 +79,7 @@ bin/tusk shell
 # Versioning
 bin/tusk version
 bin/tusk version-bump                              # increment VERSION by 1, stage, echo new version
-bin/tusk changelog-add <version> [<task_id>...]   # prepend dated entry to CHANGELOG.md, echo block
+bin/tusk changelog-add [--from-version-file] [<version>] [<task_id>...]   # prepend dated entry to CHANGELOG.md; <version> defaults to VERSION-file content and must match if passed explicitly
 bin/tusk migrate
 bin/tusk regen-triggers
 bin/tusk upgrade [--no-commit] [--force]  # --no-commit: skip auto-commit; --force: upgrade even if version matches or exceeds remote

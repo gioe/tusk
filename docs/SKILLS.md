@@ -117,6 +117,6 @@ End-to-end walkthrough — the example uses a hypothetical `android_app` project
 
 4. **Update both Skills lists** — add one line per new skill to the **Skills** list in `CLAUDE.md` and again in `AGENTS.md`.
 
-5. **Bump `VERSION`** and add a `CHANGELOG.md` entry — `tusk version-bump` followed by `tusk changelog-add <version>` does both atomically.
+5. **Bump `VERSION`** and add a `CHANGELOG.md` entry — `tusk version-bump` followed by `tusk changelog-add` does both atomically. (Omit the version arg; `tusk changelog-add` reads VERSION-file content by default and errors on mismatch if you pass one explicitly.)
 
 6. **Commit, push, PR.** Once merged, projects whose `tusk/config.json:project_type` is `android_app` pick up the new skills on their next `tusk upgrade`; other project types are unaffected.
