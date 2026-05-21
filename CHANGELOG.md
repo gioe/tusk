@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [916] - 2026-05-20
+
+- [TASK-388] Fix: tusk merge now chdir's into the recorded task workspace when CWD is on a different non-default branch — eliminates the misleading 'cannot rebase: You have unstaged changes' error that referenced the primary repo's dirty files even though the feature branch's own worktree was clean (issue #764)
+
 ## [915] - 2026-05-20
 
 - [TASK-387] Fix: tusk merge no longer silently honors a stale recorded task_workspaces branch with no [TASK-N] commits — validates commit presence before honoring the recorded pointer and falls back to the find_task_branch commit-pattern scan when stale; multi-branch resolution now surfaces a conflict error when more than one candidate carries task commits (issue #763)
