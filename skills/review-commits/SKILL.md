@@ -322,11 +322,11 @@ These are optional improvements. For each `suggest` comment, **decide autonomous
          --criteria "Address review finding: <summary>"
        ```
        Capture the new `task_id` from the JSON output.
-    4. Resolve the comment as dismissed: `tusk review resolve <comment_id> dismissed`. In the rationale you record below, include `Tracked as TASK-<new_id>` (or `Duplicate of TASK-<matched_task_id>` for the dupe path) so the audit trail of "where did this go" survives.
+    4. Resolve the comment as dismissed: `tusk review resolve <comment_id> dismissed --note "<rationale>"`. In the `--note` value, include `Tracked as TASK-<new_id>` (or `Duplicate of TASK-<matched_task_id>` for the dupe path) so the audit trail of "where did this go" survives.
 - **Dismiss outright**: run `tusk review resolve <comment_id> dismissed`
   - Apply when the suggestion is low-value, would require significant rework with no clear payoff, or is genuinely a non-issue.
 
-Record every decision (fix, spin off, or dismiss) with a one-line rationale — these will be included in the final summary so the user can review them.
+Record every decision (fix, spin off, or dismiss) with a one-line `--note` on `tusk review resolve` — these will be included in the final summary so the user can review them.
 
 After processing all findings, check the current verdict:
 
