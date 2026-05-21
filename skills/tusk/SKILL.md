@@ -185,7 +185,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     If the error is a genuine pathspec mismatch (not an already-committed file), always pass file paths relative to the repo root (e.g., `ios/SomeFile.swift`, not `SomeFile.swift` from inside `ios/`). If the error persists, fall back to a path-limited commit:
     ```bash
     git add -- "<file1>" ["<file2>" ...]
-    git commit -o -- "<file1>" ["<file2>" ...] -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
+    git commit -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>" -o -- "<file1>" ["<file2>" ...]
     ```
     `git commit -o -- <files>` limits the commit to the listed paths so unrelated pre-staged changes cannot leak into the task commit. Then mark criteria done with `tusk criteria done <cid> --skip-verify` as usual.
 
@@ -233,7 +233,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     - **If `pre_existing` is `true`** — the failure is pre-existing and unrelated to your changes. **Skip the diagnosis loop entirely.** Do not attempt to fix tests in files you did not modify during this session. Fall back immediately to:
       ```bash
       git add -- "<file1>" ["<file2>" ...]
-      git commit -o -- "<file1>" ["<file2>" ...] -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
+      git commit -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>" -o -- "<file1>" ["<file2>" ...]
       ```
       Then mark criteria done with `tusk criteria done <cid> --skip-verify`. The `-o -- <files>` form is required here too; a plain `git commit` would include any unrelated paths that were staged before this task.
 
