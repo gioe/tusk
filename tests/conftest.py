@@ -21,6 +21,25 @@ TUSK_BIN = os.path.join(REPO_ROOT, "bin", "tusk")
 # NOT sqlite3.OperationalError. Use IntegrityError in pytest.raises() for trigger tests.
 
 
+@pytest.fixture(autouse=True)
+def _clear_tusk_env(monkeypatch):
+    """Strip tusk env-var pinning from each test's environment.
+
+    `bin/tusk` exports TUSK_REPO_ROOT (and TUSK_PROJECT when set) so child
+    Python scripts can resolve the project DB even when invoked from a linked
+    worktree. When `tusk test-precheck` invokes pytest, those env vars leak
+    into the test process — tests that import a script via importlib and pass
+    a fake `repo_root` (e.g. test_commit_output_capture_issue450.py) then see
+    `_resolve_db_path` ignore their argv-passed root and reach for the real
+    project DB instead, producing rc-mismatch failures only under
+    test-precheck. Clear these vars so unit tests stay hermetic; the
+    `db_path` fixture re-pins TUSK_DB for tests that need a real DB.
+    """
+    monkeypatch.delenv("TUSK_REPO_ROOT", raising=False)
+    monkeypatch.delenv("TUSK_PROJECT", raising=False)
+    monkeypatch.delenv("TUSK_TEST_COMMAND_TIMEOUT", raising=False)
+
+
 @pytest.fixture()
 def config_path():
     """Return the path to config.default.json."""
