@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [925] - 2026-05-21
+
+- [TASK-400] Make tusk abandon idempotent on retry after worktree-remove failure
+
 ## [924] - 2026-05-21
 
 - [TASK-399] Warn at startup when source repo's local main is behind origin/main
