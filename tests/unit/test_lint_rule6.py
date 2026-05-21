@@ -8,7 +8,15 @@ import importlib.util
 import os
 import sqlite3
 import tempfile
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
+
+# Rule 6 only flags Done tasks closed within RULE6_RECENT_DAYS (30 in tusk-lint.py).
+# Hardcoded calendar dates time-bombed the suite the moment fixtures fell out
+# of the window. Compute a "recent" timestamp relative to today instead.
+_RECENT_TS = (datetime.now(timezone.utc) - timedelta(days=5)).strftime(
+    "%Y-%m-%d %H:%M:%S"
+)
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -64,7 +72,7 @@ class TestRule6Scoping:
             db_path = _make_db(
                 tmp,
                 tasks=[(42, "Recent regression", "Done",
-                        "2026-04-10 00:00:00", "2026-04-10 00:00:00", "completed")],
+                        _RECENT_TS, _RECENT_TS, "completed")],
                 criteria=[(1, 42, 0, 0)],
             )
             with patch.object(lint, "_db_path_from_root", return_value=db_path):
@@ -115,7 +123,7 @@ class TestRule6Scoping:
             db_path = _make_db(
                 tmp,
                 tasks=[
-                    (10, "Recent no-closed_at", "Done", None, "2026-04-15 00:00:00", "completed"),
+                    (10, "Recent no-closed_at", "Done", None, _RECENT_TS, "completed"),
                     (11, "Old no-closed_at", "Done", None, "2025-01-01 00:00:00", "completed"),
                 ],
                 criteria=[(1, 10, 0, 0), (2, 11, 0, 0)],
@@ -180,7 +188,7 @@ class TestRule6ClosedReasonExemption:
             db_path = _make_db(
                 tmp,
                 tasks=[(66, "Premature completion", "Done",
-                        "2026-04-15 00:00:00", "2026-04-15 00:00:00", "completed")],
+                        _RECENT_TS, _RECENT_TS, "completed")],
                 criteria=[(1, 66, 0, 0)],
             )
             with patch.object(lint, "_db_path_from_root", return_value=db_path):
@@ -194,7 +202,7 @@ class TestRule6ClosedReasonExemption:
             db_path = _make_db(
                 tmp,
                 tasks=[(67, "Expired task", "Done",
-                        "2026-04-15 00:00:00", "2026-04-15 00:00:00", "expired")],
+                        _RECENT_TS, _RECENT_TS, "expired")],
                 criteria=[(1, 67, 0, 0)],
             )
             with patch.object(lint, "_db_path_from_root", return_value=db_path):
@@ -208,7 +216,7 @@ class TestRule6ClosedReasonExemption:
             db_path = _make_db(
                 tmp,
                 tasks=[(68, "Legacy unreason", "Done",
-                        "2026-04-15 00:00:00", "2026-04-15 00:00:00", None)],
+                        _RECENT_TS, _RECENT_TS, None)],
                 criteria=[(1, 68, 0, 0)],
             )
             with patch.object(lint, "_db_path_from_root", return_value=db_path):
@@ -222,10 +230,10 @@ class TestRule6ClosedReasonExemption:
             db_path = _make_db(
                 tmp,
                 tasks=[
-                    (70, "Dupe", "Done", "2026-04-15 00:00:00", "2026-04-15 00:00:00", "duplicate"),
-                    (71, "Wontdo", "Done", "2026-04-15 00:00:00", "2026-04-15 00:00:00", "wont_do"),
-                    (72, "Completed bad", "Done", "2026-04-15 00:00:00", "2026-04-15 00:00:00", "completed"),
-                    (73, "Expired bad", "Done", "2026-04-15 00:00:00", "2026-04-15 00:00:00", "expired"),
+                    (70, "Dupe", "Done", _RECENT_TS, _RECENT_TS, "duplicate"),
+                    (71, "Wontdo", "Done", _RECENT_TS, _RECENT_TS, "wont_do"),
+                    (72, "Completed bad", "Done", _RECENT_TS, _RECENT_TS, "completed"),
+                    (73, "Expired bad", "Done", _RECENT_TS, _RECENT_TS, "expired"),
                 ],
                 criteria=[(i, tid, 0, 0) for i, tid in enumerate([70, 71, 72, 73], start=1)],
             )
