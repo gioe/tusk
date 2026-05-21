@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [919] - 2026-05-21
+
+- [TASK-393] Harden tusk review begin and /review-commits diff-scope handling
+
 ## [918] - 2026-05-20
 
 - [TASK-390] Fix: tusk merge no-checkout fast-forward push path now removes the recorded task worktree, deletes the local feature branch, and clears the task_workspaces row on success — previously these accumulated as stale state across many tasks (issue #765)
