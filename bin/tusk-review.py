@@ -442,6 +442,120 @@ def cmd_list(args: argparse.Namespace, db_path: str) -> int:
     return 0
 
 
+def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
+    """Cross-check pending review comments against the actual diff (issue #783).
+
+    The reviewer agent occasionally confabulates findings that reference
+    files outside the diff — paths, behavior, or migrations that never
+    landed on the branch. This helper enforces an objective ground truth:
+    each pending comment's ``file_path`` must appear in
+    ``git diff --name-only <range>`` (range re-derived via the same
+    diff-range helper ``tusk review begin`` uses, so worktree-aware fallback
+    applies). Comments naming a path not in that list are auto-resolved as
+    ``dismissed`` with an explanatory ``resolution_note`` so the audit trail
+    still records the fabrication.
+
+    Comments with a null ``file_path`` (general-scope findings) are left
+    untouched and surfaced in the return JSON so the orchestrator can
+    decide whether to require a diff-line quote.
+
+    JSON output:
+        {
+            "review_id": int,
+            "range": str,
+            "validated": int,           # pending comments inspected
+            "dismissed": [{"comment_id", "file_path"}, ...],
+            "in_diff": int,             # file_path values matched
+            "general": int,             # null-file_path findings
+            "diff_files": [str, ...],   # the diff's --name-only set
+        }
+    """
+    diff_range_mod = tusk_loader.load("tusk-review-diff-range")
+
+    conn = get_connection(db_path)
+    try:
+        review = conn.execute(
+            "SELECT id, task_id FROM code_reviews WHERE id = ?",
+            (args.review_id,),
+        ).fetchone()
+        if not review:
+            print(f"Error: Review {args.review_id} not found", file=sys.stderr)
+            return 2
+        task_id = review["task_id"]
+
+        pending = conn.execute(
+            "SELECT id, file_path, comment, category FROM review_comments"
+            " WHERE review_id = ? AND resolution IS NULL",
+            (args.review_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    repo_root = diff_range_mod.resolve_repo_root(db_path)
+    try:
+        payload = diff_range_mod.compute_range(task_id, repo_root, db_path)
+    except SystemExit as exc:
+        if isinstance(exc.code, str):
+            print(exc.code, file=sys.stderr)
+        return 1
+    diff_range = payload["range"]
+
+    name_only = subprocess.run(
+        ["git", "diff", "--name-only", diff_range],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=repo_root,
+    )
+    if name_only.returncode != 0:
+        print(
+            f"git diff --name-only {diff_range} failed: {name_only.stderr}",
+            file=sys.stderr,
+        )
+        return 1
+    diff_files = {p.strip() for p in name_only.stdout.splitlines() if p.strip()}
+
+    dismissed = []
+    in_diff = 0
+    general = 0
+    for c in pending:
+        fp = c["file_path"]
+        if fp is None or fp == "":
+            general += 1
+            continue
+        if fp in diff_files:
+            in_diff += 1
+            continue
+        # Path is non-null and not in the diff — fabrication. Dismiss.
+        note = (
+            f"validation: file_path '{fp}' not present in diff range "
+            f"'{diff_range}' (issue #783 fabrication guard)"
+        )
+        conn = get_connection(db_path)
+        try:
+            conn.execute(
+                "UPDATE review_comments SET resolution = 'dismissed',"
+                " resolution_note = ?, updated_at = datetime('now')"
+                " WHERE id = ?",
+                (note, c["id"]),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        dismissed.append({"comment_id": c["id"], "file_path": fp})
+
+    print(dumps({
+        "review_id": args.review_id,
+        "range": diff_range,
+        "validated": len(pending),
+        "dismissed": dismissed,
+        "in_diff": in_diff,
+        "general": general,
+        "diff_files": sorted(diff_files),
+    }))
+    return 0
+
+
 def cmd_resolve(args: argparse.Namespace, db_path: str) -> int:
     """Update a comment's resolution field."""
     valid_resolutions = ("fixed", "dismissed")
@@ -988,6 +1102,13 @@ def main():
     summary_p = subparsers.add_parser("summary", help="Print a human-readable summary of a review")
     summary_p.add_argument("review_id", type=int, help="Review ID")
 
+    # validate-comments
+    validate_p = subparsers.add_parser(
+        "validate-comments",
+        help="Dismiss pending review comments whose file_path is not in the diff",
+    )
+    validate_p.add_argument("review_id", type=int, help="Review ID")
+
     # verdict
     verdict_p = subparsers.add_parser("verdict", help="Return JSON verdict for a task (APPROVED or CHANGES_REMAINING)")
     verdict_p.add_argument("task_id", type=int, help="Task ID")
@@ -1013,6 +1134,8 @@ def main():
             sys.exit(cmd_list(args, db_path))
         elif args.command == "resolve":
             sys.exit(cmd_resolve(args, db_path))
+        elif args.command == "validate-comments":
+            sys.exit(cmd_validate_comments(args, db_path))
         elif args.command == "approve":
             sys.exit(cmd_approve(args, db_path))
         elif args.command == "request-changes":

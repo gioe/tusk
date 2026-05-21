@@ -79,7 +79,7 @@ require it).
 
 | File | CLI command(s) | Reads | Writes |
 |------|---------------|-------|--------|
-| **tusk-review.py** | `tusk review start\|add-comment\|list\|resolve\|approve\|request-changes\|status\|summary [flags]` | `code_reviews`, `review_comments`, `tasks` | `code_reviews`, `review_comments` |
+| **tusk-review.py** | `tusk review start\|begin\|add-comment\|list\|resolve\|validate-comments\|approve\|request-changes\|status\|summary\|verdict\|pass-status\|backfill-cost [flags]` | `code_reviews`, `review_comments`, `tasks` | `code_reviews`, `review_comments` |
 | **tusk-call-breakdown.py** | `tusk call-breakdown --task\|--session\|--skill-run\|--criterion <id>` | Claude Code JSONL transcripts, `task_sessions`, `tool_call_events` | `tool_call_stats` (optional write); depends on `tusk-pricing-lib.py` |
 
 ### Config, Lint & Setup

@@ -246,7 +246,16 @@ fi
 
 ## Step 7: Process Findings
 
-After the reviewer agent completes, fetch the full review results:
+After the reviewer agent completes, run the **diff-scope validation** before reading any comments. The reviewer agent occasionally confabulates findings that reference files, behavior, or migrations outside the actual diff — issue #783 caught one review where 3 of 5 findings (60%) named files that did not exist in the diff, the branch, or the project. `tusk review validate-comments` enforces an objective ground truth by re-deriving the diff range (with the same worktree-aware logic `tusk review begin` uses) and dismissing every pending comment whose non-null `file_path` is missing from `git diff --name-only`. Dismissed comments keep an explanatory `resolution_note` so the audit trail records the fabrication rather than silently hiding it.
+
+```bash
+VALIDATION_JSON=$(tusk review validate-comments $REVIEW_ID)
+DISMISSED_COUNT=$(printf '%s' "$VALIDATION_JSON" | jq '.dismissed | length')
+```
+
+If `$DISMISSED_COUNT > 0`, surface the dismissals to the user verbatim so they can see what the reviewer agent fabricated — do not silently drop them. Comments with a null `file_path` (general-scope findings) are left untouched at this step; if you encounter one without a diff-line quote during the per-comment loop below, downgrade it to `suggest` or dismiss it manually.
+
+Then fetch the full review results:
 
 ```bash
 tusk review list <task_id>
