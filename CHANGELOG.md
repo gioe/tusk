@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [921] - 2026-05-21
+
+- [TASK-395] Reword /review-commits SKILL.md dismissal prose to say --note instead of 'rationale'
+
 ## [920] - 2026-05-21
 
 - [TASK-394] Fix three /tusk SKILL.md docs gaps: commit fallback args, deletion scope, state-mutating-repro caveat
