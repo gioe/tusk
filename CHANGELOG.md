@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [927] - 2026-05-21
+
+- [TASK-402] Reframe test_distribution_version_and_changelog test to self-validate from VERSION file
+
 ## [926] - 2026-05-21
 
 - [TASK-401] Plumb task_id from /tusk into /retro and accept it as argv override
