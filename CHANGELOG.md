@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [920] - 2026-05-21
+
+- [TASK-394] Fix three /tusk SKILL.md docs gaps: commit fallback args, deletion scope, state-mutating-repro caveat
+
 ## [919] - 2026-05-21
 
 - [TASK-393] Harden tusk review begin and /review-commits diff-scope handling
