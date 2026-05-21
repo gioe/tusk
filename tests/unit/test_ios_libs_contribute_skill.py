@@ -69,75 +69,22 @@ class TestIosLibsContributeSkill:
 
 
 def test_distribution_version_and_changelog_are_bumped_for_skill_delivery():
+    """The test guards a single invariant: every VERSION bump must be matched by
+    a CHANGELOG entry for that exact version. Self-validates from the VERSION
+    file so adding new entries never breaks this test (issue #802 — the prior
+    form pinned 30+ historic CHANGELOG lines which silently broke on every
+    subsequent bump and was unrelated to skill delivery).
+    """
     version = _text(REPO_ROOT / "VERSION").strip()
     changelog = _text(REPO_ROOT / "CHANGELOG.md")
 
-    # TASK-257 shipped /ios-libs-contribute at distribution version 875, so
-    # any current build must be >= 875. The previous == "909" assertion
-    # broke on every subsequent bump and was unrelated to skill delivery.
-    assert version.isdigit() and int(version) >= 875
-    assert "## [906] - 2026-05-09" in changelog
-    assert "[TASK-380] Fix: make merge --rebase recover no-checkout fast-forward pushes" in changelog
-    assert "## [905] - 2026-05-09" in changelog
-    assert "[TASK-379] Scope tusk abandon branch safety to task-owned commits" in changelog
-    assert "## [904] - 2026-05-09" in changelog
-    assert "Document review note shell quoting hazards and guard docs-cluster CLI command names" in changelog
-    assert "## [902] - 2026-05-09" in changelog
-    assert "[TASK-377] Keep tusk progress no-code notes from attaching unrelated HEAD commits" in changelog
-    assert "## [901] - 2026-05-09" in changelog
-    assert "Add cluster labels to tusk issue filing paths" in changelog
-    assert "Improve test-precheck dirty-worktree fallback" in changelog
-    assert "Fix review-diff helpers to honor task worktree HEADs" in changelog
-    assert "## [900] - 2026-05-09" in changelog
-    assert "[TASK-376] Fix merge freshness checks and remote branch cleanup" in changelog
-    assert "## [899] - 2026-05-09" in changelog
-    assert "[TASK-375] Attribute criteria to task worktree commits" in changelog
-    assert "## [898] - 2026-05-09" in changelog
-    assert "[TASK-374] Clarify abandon from unrecorded linked worktrees" in changelog
-    assert "## [897] - 2026-05-09" in changelog
-    assert "[TASK-373] Fix git-default-branch in linked worktrees" in changelog
-    assert "## [896] - 2026-05-09" in changelog
-    assert "[TASK-372] Guard address-issue dirty checkout startup" in changelog
-    assert "## [895] - 2026-05-09" in changelog
-    assert "[TASK-371] Resolve linked-worktree venv test commands" in changelog
-    assert "## [894] - 2026-05-09" in changelog
-    assert "[TASK-370] Preflight worktree branch locks before auto-stashing" in changelog
-    assert "## [893] - 2026-05-09" in changelog
-    assert "[TASK-367] Fix: preserve tusk branch auto-stashes on abandon and merge" in changelog
-    assert "## [892] - 2026-05-09" in changelog
-    assert "[TASK-364] Warn when dupes check matches recently closed tasks" in changelog
-    assert "## [891] - 2026-05-09" in changelog
-    assert "[TASK-366] Fix task-worktree closeout integration tests for no-remote merge path" in changelog
-    assert "## [890] - 2026-05-09" in changelog
-    assert "[TASK-365] Add task-worktree prune command" in changelog
-    assert "## [889] - 2026-05-09" in changelog
-    assert "[TASK-363] Fix tusk branch when the default branch is checked out in another worktree" in changelog
-    assert "## [888] - 2026-05-08" in changelog
-    assert "[TASK-361] Base task worktrees on freshly fetched origin default branches" in changelog
-    assert "## [887] - 2026-05-08" in changelog
-    assert "[TASK-360] Rebase tusk merge --rebase onto origin/default" in changelog
-    assert "## [886] - 2026-05-08" in changelog
-    assert "[TASK-358] Preflight tusk merge worktree-lock failures before closing sessions" in changelog
-    assert "[TASK-359] Let tusk merge accept worktree-TASK branch fallbacks" in changelog
-    assert "## [885] - 2026-05-08" in changelog
-    assert "[TASK-352] Make merge and abandon clean up task-owned worktrees" in changelog
-    assert "## [884] - 2026-05-08" in changelog
-    assert "[TASK-353] Wire /tusk and /chain to use task worktrees by default" in changelog
-    assert "## [883] - 2026-05-08" in changelog
-    assert "[TASK-351] Add task-owned worktree create/list commands" in changelog
-    assert "## [882] - 2026-05-08" in changelog
-    assert "[TASK-355] Fix full-suite regressions after task workspace schema work" in changelog
-    assert "## [881] - 2026-05-08" in changelog
-    assert "[TASK-342] Extract shared tusk-branch auto-stash parsing into git helpers" in changelog
-    assert "## [880] - 2026-05-08" in changelog
-    assert "[TASK-349] Fix review begin to prefer current remote default over stale local default" in changelog
-    assert "## [879] - 2026-05-08" in changelog
-    assert "[TASK-348] Fix skill-run finish to report diagnostics for silent nonzero failures" in changelog
-    assert "## [878] - 2026-05-08" in changelog
-    assert "[TASK-347] Fix node -e verification spec quoting and supersede regenerated broken criteria" in changelog
-    assert "## [877] - 2026-05-07" in changelog
-    assert "[TASK-346] Fix: tusk merge handles default branch checked out in another worktree" in changelog
-    assert "## [876] - 2026-05-07" in changelog
-    assert "[TASK-345] Fix review begin diff inference when only origin/default is usable in worktrees" in changelog
-    assert "## [875] - 2026-05-07" in changelog
-    assert "[TASK-257] Ship /ios-libs-contribute skill" in changelog
+    assert version.isdigit() and int(version) > 0, (
+        f"VERSION must be a positive integer; got {version!r}"
+    )
+    expected_heading = f"## [{version}] -"
+    assert expected_heading in changelog, (
+        f"CHANGELOG.md is missing a `{expected_heading} <date>` entry for the "
+        f"current VERSION ({version}). Run `tusk changelog-add <task_id>` from "
+        "the worktree to add it (the version is sourced from the VERSION file "
+        "automatically; see TASK-398)."
+    )
