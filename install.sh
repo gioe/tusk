@@ -534,7 +534,11 @@ echo "  Installation complete! (mode: $INSTALL_MODE)"
 echo "════════════════════════════════════════════════════════════════"
 echo ""
 if [[ "$INSTALL_MODE" == "claude" || "$INSTALL_MODE" == "dual" ]]; then
-  echo "Next steps:"
+  if [[ "$INSTALL_MODE" == "dual" ]]; then
+    echo "Next steps (Claude Code):"
+  else
+    echo "Next steps:"
+  fi
   echo ""
   echo "  1. Start a NEW Claude Code session (skills are discovered at startup,"
   echo "     so /tusk-init won't be available in the session that ran install.sh)"
@@ -546,25 +550,34 @@ if [[ "$INSTALL_MODE" == "claude" || "$INSTALL_MODE" == "dual" ]]; then
   echo "     a. Edit tusk/config.json to set your project's domains and agents"
   echo "     b. Run: tusk init --force"
   echo "     c. Add the Task Queue snippet to your CLAUDE.md (see /tusk-init)"
-else
-  echo "Next steps (Codex mode):"
+fi
+
+if [[ "$INSTALL_MODE" == "codex" || "$INSTALL_MODE" == "dual" ]]; then
+  if [[ "$INSTALL_MODE" == "dual" ]]; then
+    echo ""
+    echo "Next steps (Codex):"
+  else
+    echo "Next steps (Codex mode):"
+  fi
   echo ""
   if command -v direnv >/dev/null 2>&1 && [[ ! -e "$REPO_ROOT/.envrc" ]]; then
     echo "PATH_add tusk/bin" > "$REPO_ROOT/.envrc"
     echo "  1. Wrote .envrc with 'PATH_add tusk/bin'. Run 'direnv allow' so 'tusk' is invocable:"
     echo "       direnv allow"
   else
-    echo "  1. Add $INSTALL_DIR to your PATH so 'tusk' is invocable:"
-    echo "       export PATH=\"$REPO_ROOT/$INSTALL_DIR:\$PATH\""
+    echo "  1. Add tusk/bin to your PATH so 'tusk' is invocable:"
+    echo "       export PATH=\"$REPO_ROOT/tusk/bin:\$PATH\""
   fi
   echo ""
   echo "  2. Edit tusk/config.json to set your project's domains and agents."
   echo ""
   echo "  3. Tusk appended task-tool guidance to AGENTS.md (same block as CLAUDE.md"
   echo "     in Claude mode). Review it so Codex knows to use the tusk CLI."
-  echo ""
-  echo "  Note: Claude-specific features (skills, hooks, settings.json) are not"
-  echo "  installed in Codex mode. See docs/CODEX.md for details."
+  if [[ "$INSTALL_MODE" == "codex" ]]; then
+    echo ""
+    echo "  Note: Claude-specific features (skills, hooks, settings.json) are not"
+    echo "  installed in Codex mode. See docs/CODEX.md for details."
+  fi
 fi
 echo ""
 echo "════════════════════════════════════════════════════════════════"

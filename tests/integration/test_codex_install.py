@@ -213,6 +213,47 @@ def test_dual_agent_install_installs_claude_and_codex_assets(dual_agent_project)
     assert (dual_agent_project / "tusk" / "bin" / "install-mode").read_text().strip() == "dual-consumer"
 
 
+def test_dual_agent_install_prints_codex_path_next_steps(dual_agent_project):
+    """Dual-mode install must surface the Codex PATH guidance in addition to the Claude block.
+
+    Before the issue #754 fix, the post-install message block was a single if/else gated on
+    `claude || dual ... else (codex)`, so dual-mode users only saw the Claude next steps and
+    never learned that they had to update PATH (or run direnv allow) for plain `tusk` to
+    resolve to the new repo-local binary in `tusk/bin/`.
+    """
+    result = _run_install(dual_agent_project)
+    stdout = result.stdout
+
+    # The Claude block still prints — existing behavior preserved.
+    assert "Start a NEW Claude Code session" in stdout, (
+        "Dual mode must still print the Claude next-steps block"
+    )
+
+    # The Codex PATH guidance now also prints. Accept either branch of the direnv check:
+    # tmp_path has no existing .envrc, so on hosts where direnv is available the installer
+    # writes one; otherwise it prints the export PATH reminder.
+    path_guidance_present = (
+        "PATH_add tusk/bin" in stdout
+        or "Add tusk/bin to your PATH" in stdout
+        or "export PATH=" in stdout
+    )
+    assert path_guidance_present, (
+        "Dual mode must surface the Codex PATH guidance (direnv .envrc or export PATH "
+        "reminder) so plain `tusk` resolves to the repo-local tusk/bin/ binary"
+    )
+
+    # The AGENTS.md note must also appear in dual mode (dual installs do update AGENTS.md).
+    assert "task-tool guidance to AGENTS.md" in stdout, (
+        "Dual mode must surface the AGENTS.md task-tool guidance note"
+    )
+
+    # The Codex-only "Claude features not installed" note must NOT appear in dual mode —
+    # Claude features ARE installed in dual mode, so the note would be misleading.
+    assert "Claude-specific features (skills, hooks, settings.json) are not" not in stdout, (
+        "The Codex-only 'Claude features not installed' note must not print in dual mode"
+    )
+
+
 def test_dual_agent_install_manifests_and_gitignore_include_both_surfaces(dual_agent_project):
     """Dual-agent manifests and .gitignore must retain both install layouts."""
     _run_install(dual_agent_project)
