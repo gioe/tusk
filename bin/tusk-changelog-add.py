@@ -2,18 +2,27 @@
 """Prepend a versioned CHANGELOG entry with DB-fetched task bullet summaries.
 
 Called by the tusk wrapper:
-    tusk changelog-add <version> [<task_id>...]
+    tusk changelog-add [--from-version-file] [<version>] [<task_id>...]
 
-Arguments received from tusk:
+The version is sourced in the following order:
+    1. --from-version-file flag → read VERSION file (positional args are all task IDs).
+    2. First positional arg if numeric → version (existing convention).
+    3. No positional args → fall back to VERSION file.
+
+Whichever source is used, the resolved version is cross-checked against the
+VERSION file's content; a mismatch is treated as drift and aborts with a clear
+error (issue #814 — silent CHANGELOG/VERSION drift after tusk version-bump).
+
+Arguments received from the tusk wrapper:
     sys.argv[1] — repo root
     sys.argv[2] — DB path
-    sys.argv[3] — version number (integer)
-    sys.argv[4:] — task IDs whose summaries become bullet points
+    sys.argv[3:] — caller args (parsed by argparse below)
 
 Writes the new entry to CHANGELOG.md immediately after the ## [Unreleased]
 heading and outputs the inserted block text to stdout for LLM review.
 """
 
+import argparse
 import os
 import sqlite3
 import subprocess
@@ -40,20 +49,88 @@ def fetch_summaries(conn: sqlite3.Connection, task_ids: list[str]) -> list[dict]
     return results
 
 
+def _read_version_file(repo_root: str) -> str | None:
+    path = os.path.join(repo_root, "VERSION")
+    try:
+        with open(path) as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return None
+
+
 def main() -> None:
-    if len(sys.argv) < 4:
-        print("Usage: tusk changelog-add <version> [<task_id>...]", file=sys.stderr)
+    parser = argparse.ArgumentParser(
+        prog="tusk changelog-add",
+        description=(
+            "Prepend a versioned CHANGELOG entry with DB-fetched task bullet summaries. "
+            "Version defaults to the VERSION file; an explicit positional version must match."
+        ),
+        usage="tusk changelog-add [--from-version-file] [<version>] [<task_id>...]",
+    )
+    parser.add_argument("repo_root")
+    parser.add_argument("db_path")
+    parser.add_argument(
+        "--from-version-file",
+        action="store_true",
+        help="Force-read version from the VERSION file; positional args are all task IDs.",
+    )
+    parser.add_argument(
+        "args",
+        nargs="*",
+        help="Optional <version> followed by task IDs. Omit <version> to default to VERSION file.",
+    )
+    parsed = parser.parse_args()
+
+    repo_root = parsed.repo_root
+    db_path = parsed.db_path
+    raw_args = list(parsed.args)
+    file_version = _read_version_file(repo_root)
+
+    if parsed.from_version_file:
+        if file_version is None:
+            print(
+                f"Error: --from-version-file passed but {os.path.join(repo_root, 'VERSION')} not found",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        version = file_version
+        task_ids = raw_args
+    elif not raw_args:
+        if file_version is None:
+            print(
+                "Error: no version provided and VERSION file not found.\n"
+                "Usage: tusk changelog-add [--from-version-file] [<version>] [<task_id>...]",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        version = file_version
+        task_ids = []
+    else:
+        version = raw_args[0]
+        task_ids = raw_args[1:]
+
+    if not version.isdigit() or int(version) == 0:
+        print(
+            f"Error: version must be a positive integer (got {version!r})",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
-    repo_root = sys.argv[1]
-    db_path = sys.argv[2]
-    version = sys.argv[3]
-    task_ids = sys.argv[4:]
+    if file_version is not None and version != file_version:
+        print(
+            f"Error: changelog-add version {version!r} disagrees with VERSION file content "
+            f"({file_version!r}).\n"
+            "This usually means VERSION was bumped after the changelog-add was scripted.\n"
+            "If you meant to use the VERSION file value, omit the version arg or pass "
+            "--from-version-file.\n"
+            "If you meant to override, update the VERSION file first.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     changelog_path = f"{repo_root}/CHANGELOG.md"
     today = date.today().strftime("%Y-%m-%d")
 
-    # Build bullet lines
     bullets: list[str] = []
     if task_ids:
         conn = get_connection(db_path)
@@ -64,10 +141,8 @@ def main() -> None:
     else:
         bullets.append("- (no tasks specified)")
 
-    # Compose entry block (no leading newline — insertion adds one)
     entry_block = f"## [{version}] - {today}\n\n" + "\n".join(bullets) + "\n"
 
-    # Read and update CHANGELOG.md
     with open(changelog_path) as f:
         content = f.read()
 
@@ -88,7 +163,6 @@ def main() -> None:
 
     subprocess.run(["git", "-C", repo_root, "add", changelog_path], check=True)
 
-    # Output the inserted block for LLM review
     print(entry_block, end="")
 
 
