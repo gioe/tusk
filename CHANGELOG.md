@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [926] - 2026-05-21
+
+- [TASK-401] Plumb task_id from /tusk into /retro and accept it as argv override
+
 ## [925] - 2026-05-21
 
 - [TASK-400] Make tusk abandon idempotent on retry after worktree-remove failure
