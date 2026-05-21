@@ -197,6 +197,29 @@ The `bin/tusk` dispatcher routes every unrecognized subcommand to
 against the project's `tasks.db`. Do **not** flag `tusk "<SQL string>"`
 as "unknown command" or "wrong syntax" in a review.
 
+### Step 5.2.5: Ground Every Finding in the Real Diff
+
+**Every `file_path` you pass to `tusk review add-comment` MUST appear
+verbatim in the diff's `+++ b/<file>` headers.** Run the diff yourself
+(Step 5.1) and read the `+++ b/<path>` lines — those define the universe
+of files you may name. If a finding describes behavior at a path not in
+that list, the path does not exist on this branch — discard the finding
+rather than recording it.
+
+Step 7's `tusk review validate-comments $REVIEW_ID` call enforces this
+automatically by re-deriving the diff range and **auto-dismissing every
+comment whose `file_path` is not in `git diff --name-only`** (issue #783).
+Every fabricated comment becomes a visible dismissal the user reads, so
+pattern-matching plausible-sounding "adjacent" files from the task
+description is not silently swallowed.
+
+**General comments (`file_path` omitted, no `--file`) MUST quote a
+specific diff line in the description.** Use a fenced `+` or `-` line
+from the diff so the human reviewer can map the comment back to a
+concrete change. A general comment with no diff anchor is a code-smell —
+split it into per-file findings, drop it, or rephrase as a `suggest`
+with the anchor line included.
+
 ### Step 5.3: Verify Final State Before Flagging must_fix
 
 Before recording any `must_fix`, confirm the pattern exists in the final

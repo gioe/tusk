@@ -73,6 +73,14 @@ For each issue: category, severity, file path, line number, clear actionable des
 
 **`tusk "<raw SQL>"` is a valid invocation pattern, not wrong syntax.** The `bin/tusk` dispatcher routes every unrecognized subcommand to `cmd_query` — its raw-SQL passthrough — so `tusk "SELECT ..."`, `tusk "INSERT ..."`, and `tusk "UPDATE ..."` all execute the given SQL against the project's `tasks.db`. The pattern is used in `skills/retro/FULL-RETRO.md` (Steps 5a, 6a) and `skills/retro/SKILL.md` (LR-3a), among others. Do **not** flag `tusk "<SQL string>"` as "unknown command" or "wrong syntax" in a review — it is the idiomatic write path for skills that need DB-backed state. (If the skill still ought to use a dedicated subcommand instead, record that as `suggest`, not `must_fix`.)
 
+### Step 2.4: Ground Every Finding in the Real Diff
+
+**Every `file_path` you pass to `tusk review add-comment` MUST appear verbatim in the diff's `+++ b/<file>` headers.** Run the diff yourself (Step 1) and read the `+++ b/<path>` lines — those define the universe of files you may name. If a finding describes behavior at a path not in that list, the path does not exist on this branch — discard the finding rather than recording it.
+
+This is a hard rule, not a guideline. The /review-commits orchestrator runs `tusk review validate-comments <review_id>` after you submit your verdict and **auto-dismisses every comment whose `file_path` is not in `git diff --name-only`**, recording the dismissal in the audit trail (issue #783). Pattern-matching plausible-sounding "adjacent" files from the task description, prior context, or related task numbers is exactly the failure the validator was built to catch — every fabricated comment becomes a visible dismissal the user reads, not a silent drop.
+
+**General comments (`file_path` omitted, no `--file`) MUST quote a specific diff line in the description.** Use a fenced `+` or `-` line from the diff, e.g. ```` ```diff\n+    if some_thing:\n``` ````, so the human reviewer can map the comment back to a concrete change. A general comment with no diff anchor is a code-smell — split it into per-file findings, drop it, or rephrase as a `suggest` with the anchor line included.
+
 ### Step 2.5: Verify Final State Before Flagging must_fix
 
 Before recording any `must_fix`, confirm the pattern exists in the final state — not just in a `-` diff line:
