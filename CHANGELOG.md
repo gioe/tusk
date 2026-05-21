@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [923] - 2026-05-21
+
+- [TASK-398] Fix: default tusk changelog-add version arg to VERSION file content
+
 ## [922] - 2026-05-21
 
 - [TASK-397] install.sh dual mode: also print Codex PATH next-steps (.envrc / PATH export / AGENTS.md note)
