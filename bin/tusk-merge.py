@@ -1286,6 +1286,45 @@ def main(argv: list[str]) -> int:
                 f"Found recorded task workspace branch: {branch_name}",
                 file=sys.stderr,
             )
+            # When the recorded workspace points at a real on-disk worktree and
+            # the operator launched tusk merge from a different CWD that is NOT
+            # on the default branch, switch into the recorded workspace so the
+            # rebase/checkout/push operations land on the feature branch's
+            # index instead of a possibly-dirty primary repo's index. The
+            # canonical failure mode: primary repo is on some other feature
+            # branch with stray uncommitted files (session-start dirty state
+            # like .claude/settings.json), the feature branch under merge
+            # lives in a separate worktree, and `tusk merge --rebase` blows
+            # up with a misleading "cannot rebase: You have unstaged changes"
+            # that names the primary's files (issue #764). Skip the chdir
+            # when CWD is already on the default branch — the existing
+            # ff-only path expects to run `git merge --ff-only feature` from
+            # whichever worktree has the default branch checked out.
+            if path_exists:
+                try:
+                    current_cwd_real = os.path.realpath(os.getcwd())
+                except OSError:
+                    current_cwd_real = ""
+                workspace_real = os.path.realpath(candidate_path)
+                if current_cwd_real != workspace_real:
+                    current_branch_result = run(
+                        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                        check=False,
+                    )
+                    current_branch = (
+                        current_branch_result.stdout.strip()
+                        if current_branch_result.returncode == 0
+                        else ""
+                    )
+                    if current_branch != default_branch_probe:
+                        os.chdir(candidate_path)
+                        print(
+                            f"Note: switched CWD to recorded task workspace "
+                            f"{candidate_path} so rebase/push/branch-delete "
+                            "operate on the feature branch's worktree, not the "
+                            "primary repo.",
+                            file=sys.stderr,
+                        )
         else:
             reasons = []
             if not branch_exists:
