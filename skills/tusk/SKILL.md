@@ -121,6 +121,8 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
    3. **If tests pass**: the issue may already be fixed or the description may be inaccurate — run `tusk skill-run cancel <run_id>`, surface this to the user, and stop before investigating further.
    4. **If tests fail**: capture the failure output. Use it as the primary diagnostic anchor in step 5 (Explore).
 
+   **State-mutating reproductions:** If the failing command writes to tracked files (e.g. `tusk version-bump`, `tusk changelog-add`, `tusk commit`, `tusk merge --rebase`), do **not** reproduce it against the active task worktree — the writes dirty the working tree and may block `tusk merge` / `tusk abandon` later. Reproduce against a throwaway location instead: `cd` into a fresh `tmp_path` repo (the integration-test pattern) and run the command there, or `git stash` the result immediately after. This is the filesystem analogue of the user-memory guidance to use a `TUSK_DB` throwaway for state-mutating DB reproductions.
+
 5. **Explore the codebase before implementing** — use a sub-agent to research:
    - What files will need to change?
    - Are there existing patterns to follow?
