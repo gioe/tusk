@@ -59,6 +59,16 @@ def _read_version_file(repo_root: str) -> str | None:
 
 
 def main() -> None:
+    if len(sys.argv) < 3:
+        print(
+            "Usage: tusk changelog-add [--from-version-file] [<version>] [<task_id>...]",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    repo_root = sys.argv[1]
+    db_path = sys.argv[2]
+    user_args = sys.argv[3:]
+
     parser = argparse.ArgumentParser(
         prog="tusk changelog-add",
         description=(
@@ -67,8 +77,6 @@ def main() -> None:
         ),
         usage="tusk changelog-add [--from-version-file] [<version>] [<task_id>...]",
     )
-    parser.add_argument("repo_root")
-    parser.add_argument("db_path")
     parser.add_argument(
         "--from-version-file",
         action="store_true",
@@ -79,10 +87,7 @@ def main() -> None:
         nargs="*",
         help="Optional <version> followed by task IDs. Omit <version> to default to VERSION file.",
     )
-    parsed = parser.parse_args()
-
-    repo_root = parsed.repo_root
-    db_path = parsed.db_path
+    parsed = parser.parse_args(user_args)
     raw_args = list(parsed.args)
     file_version = _read_version_file(repo_root)
 
