@@ -108,13 +108,16 @@ and deleted:
 DIFF_RANGE_JSON=$(tusk review-diff-range $TASK_ID)
 ```
 
-On success the helper prints a single JSON object with four keys
-(`range`, `diff_lines`, `summary`, `recovered_from_task_commits`) and
-exits 0. Capture:
+On success the helper prints a single JSON object with five keys
+(`range`, `diff_lines`, `diff_lines_meaningful`, `summary`,
+`recovered_from_task_commits`) and exits 0. Capture:
 
 ```bash
 DIFF_RANGE=$(printf '%s' "$DIFF_RANGE_JSON" | jq -r .range)
 DIFF_LINES=$(printf '%s' "$DIFF_RANGE_JSON" | jq -r .diff_lines)
+# Lockfile-subtracted line count (issue #761); use this when reasoning
+# about review effort rather than the raw diff_lines.
+DIFF_LINES_MEANINGFUL=$(printf '%s' "$DIFF_RANGE_JSON" | jq -r '.diff_lines_meaningful // .diff_lines')
 DIFF_SUMMARY=$(printf '%s' "$DIFF_RANGE_JSON" | jq -r .summary)
 ```
 

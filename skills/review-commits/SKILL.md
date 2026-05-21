@@ -70,12 +70,17 @@ Bundle the diff-range computation and the `code_reviews` row creation into one c
 REVIEW_BEGIN_JSON=$(tusk review begin $TASK_ID)
 ```
 
-On success the helper prints a single JSON object with `review_id`, `task_id`, `reviewer`, `range`, `diff_lines`, and `recovered_from_task_commits`, and exits 0. Capture:
+On success the helper prints a single JSON object with `review_id`, `task_id`, `reviewer`, `range`, `diff_lines`, `diff_lines_meaningful`, and `recovered_from_task_commits`, and exits 0. Capture:
 
 ```bash
 REVIEW_ID=$(printf '%s' "$REVIEW_BEGIN_JSON" | jq -r .review_id)
 DIFF_RANGE=$(printf '%s' "$REVIEW_BEGIN_JSON" | jq -r .range)
 DIFF_LINES=$(printf '%s' "$REVIEW_BEGIN_JSON" | jq -r .diff_lines)
+# diff_lines_meaningful subtracts auto-generated lockfile sections
+# (package-lock.json, yarn.lock, Cargo.lock, go.sum, ...) and is the value
+# to use when deciding inline-vs-agent routing (issue #761). Falls back to
+# diff_lines if the field is absent from older callers.
+DIFF_LINES_MEANINGFUL=$(printf '%s' "$REVIEW_BEGIN_JSON" | jq -r '.diff_lines_meaningful // .diff_lines')
 ```
 
 If the helper exits non-zero, it means no diff is recoverable — either no `[TASK-<id>]` commits were found in recent history, or the recovered range is still empty. The helper's stderr message is the same one Step 3 used to print inline. Run `tusk skill-run cancel <run_id>` and stop, surfacing the helper's stderr verbatim.
@@ -91,7 +96,7 @@ Only when the diff is non-empty and a review has been started in Step 3, proceed
 > **Important:** Background reviewer agents run in an **isolated sandbox** and do **not** inherit the parent session's tool permissions. Approving Bash in this conversation does not grant Bash access to spawned agents. The `permissions.allow` block in `.claude/settings.json` is the only reliable way to grant tool access in agent sandboxes — it applies to all subagents spawned from this project, regardless of what is auto-approved in the current session.
 
 **Inline-review path (no agent spawned).** Use the inline path when *any* of the following is true:
-- The diff is small (fewer than ~200 lines) or contains only non-code files (`.md`, `.json`, `.yaml`).
+- The diff is small — `$DIFF_LINES_MEANINGFUL` is below ~200 (auto-generated lockfile sections are already subtracted from this count, so a feature with ~50 lines of source plus a 1450-line `package-lock.json` is routed inline rather than to an agent) — or it contains only non-code files (`.md`, `.json`, `.yaml`).
 - `review.reviewer` is absent from config (the review record is unassigned and no agent is configured to handle it).
 - Tusk is running under a Codex install AND the user did not explicitly opt into subagent-based review for this `/review-commits` invocation. Codex session policy disallows spawning subagents unless the operator asks for one, so the inline path is the safe default — it keeps the real-diff review workflow without violating session policy.
 
@@ -340,17 +345,18 @@ If `can_retry` is false (either no open `must_fix` items, or `current_pass >= ma
 
 Otherwise, loop while `can_retry` is true:
 
-1. Start a new review pass and capture the diff size in one call. `tusk review begin` resolves the default branch (`tusk git-default-branch`), computes the `<default>...HEAD` primary range, falls back to the `[TASK-<id>]` commit-range recovery when the feature branch has already been merged and deleted, stamps the captured diff summary onto the new `code_reviews` row internally, and prints a single JSON object with `review_id`, `task_id`, `reviewer`, `range`, `diff_lines`, and `recovered_from_task_commits`. Pass `--pass-num` to bump the pass counter:
+1. Start a new review pass and capture the diff size in one call. `tusk review begin` resolves the default branch (`tusk git-default-branch`), computes the `<default>...HEAD` primary range, falls back to the `[TASK-<id>]` commit-range recovery when the feature branch has already been merged and deleted, stamps the captured diff summary onto the new `code_reviews` row internally, and prints a single JSON object with `review_id`, `task_id`, `reviewer`, `range`, `diff_lines`, `diff_lines_meaningful`, and `recovered_from_task_commits`. Pass `--pass-num` to bump the pass counter:
    ```bash
    REVIEW_BEGIN_JSON=$(tusk review begin $TASK_ID --pass-num <current_pass + 1>)
    DIFF_LINES=$(printf '%s' "$REVIEW_BEGIN_JSON" | jq -r .diff_lines)
+   DIFF_LINES_MEANINGFUL=$(printf '%s' "$REVIEW_BEGIN_JSON" | jq -r '.diff_lines_meaningful // .diff_lines')
    ```
 
    If the helper exits non-zero, no diff is recoverable for this pass — surface its stderr verbatim and stop the loop.
 
 2. **Branch on diff size to decide review strategy.**
 
-   **For small or documentation-only diffs (`$DIFF_LINES` below ~200, or only non-code files), when `review.reviewer` is absent from config, or when Tusk is running under a Codex install without an explicit subagent opt-in:** skip agent spawning and perform an inline review. Read the diff yourself, evaluate it against the reviewer focus area, and record the result directly (approve or request-changes + add-comment). After recording the inline decision, skip to step 3.
+   **For small or documentation-only diffs (`$DIFF_LINES_MEANINGFUL` below ~200, or only non-code files), when `review.reviewer` is absent from config, or when Tusk is running under a Codex install without an explicit subagent opt-in:** skip agent spawning and perform an inline review. Read the diff yourself, evaluate it against the reviewer focus area, and record the result directly (approve or request-changes + add-comment). The meaningful count subtracts auto-generated lockfile sections (issue #761) so a single `npm install --save-dev` does not push a small feature into agent-based review. After recording the inline decision, skip to step 3.
 
    To detect the Codex case, read the `install-mode` marker (Claude installs are marked `claude-…`; Codex installs are marked `codex-…`) and check whether the user's `/review-commits` invocation contains an explicit subagent opt-in phrase:
 
