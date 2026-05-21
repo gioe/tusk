@@ -12,16 +12,20 @@ Reviews the current conversation history to capture process learnings, instructi
 
 ## Step 0: Setup
 
-Fetch config, backlog, then determine retro mode. Also capture the most recent Done task's ID so the retro's cost can be attributed to it:
+`RETRO_TASK_ID` identifies the single just-closed task this retro is reviewing. Resolve it in this order (issue #805, original incident: with parallel worktrees finalizing tasks within seconds of each other, the most-recent-Done heuristic returns whichever sibling closed last — not the task `/tusk` just finalized):
+
+1. **Argv-supplied task id** — when the skill was invoked as `/retro <task_id>` (the normal handoff from `/tusk` Step 12 and `/address-issue` Step 10), use that id directly. Confirm with `tusk task-get <task_id>` and read its `complexity` field from the returned JSON. This is the authoritative path for handoffs.
+2. **Most-recent-Done fallback** — only when no argv was passed (stand-alone `/retro` invocations typed by the user). Use the ORDER BY heuristic below.
 
 ```bash
+# Fallback only — skip if RETRO_TASK_ID was supplied via argv:
 tusk "SELECT id, complexity FROM tasks WHERE status = 'Done' ORDER BY updated_at DESC LIMIT 1"
 tusk setup
 ```
 
-Parse the JSON from `tusk setup`: use `config` for metadata assignment and `backlog` for duplicate comparison.
+Parse the JSON from `tusk setup`: use `config` for metadata assignment and `backlog` for duplicate comparison. (Run `tusk setup` regardless of which path resolved `RETRO_TASK_ID` — config + backlog are always needed.)
 
-Store the `id` from the first query as `RETRO_TASK_ID` — it's the single just-closed task this retro is reviewing. Then start cost tracking:
+Store the resolved id as `RETRO_TASK_ID`. Then start cost tracking:
 
 ```bash
 tusk skill-run start retro --task-id $RETRO_TASK_ID

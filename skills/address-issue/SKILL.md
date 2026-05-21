@@ -515,7 +515,7 @@ tusk task-summary <task_id> --format markdown
 
 Show it verbatim — do not re-render or summarize. `/retro` Step LR-3 assumes this block has already been printed and intentionally does not re-emit it.
 
-Invoke `/retro` immediately — do not ask "shall I run retro?". Read and follow:
+Invoke `/retro <task_id>` immediately — do not ask "shall I run retro?". Pass the task id explicitly so `/retro` attributes cost to the task you just finalized rather than picking up whichever sibling worktree closed last (issue #805). Read and follow:
 
 ```
 Read file: <base_directory>/../retro/SKILL.md

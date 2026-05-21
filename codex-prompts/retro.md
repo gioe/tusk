@@ -14,15 +14,28 @@ cross-retro themes from a single CLI orchestrator.
 
 ## Step 0: Setup
 
-Capture the most recent Done task — the retro anchor — and start cost
-tracking:
+`RETRO_TASK_ID` is the just-closed task this retro is reviewing — its
+`complexity` becomes `RETRO_COMPLEXITY`. Resolve in this order
+(issue #805, original incident: with parallel worktrees finalizing
+tasks within seconds of each other, the most-recent-Done heuristic
+returns whichever sibling closed last — not the task `tusk.md` just
+finalized):
+
+1. **Argv-supplied task id** — when this prompt was invoked as
+   `retro.md <task_id>` (the normal handoff from `tusk.md` Step 12 and
+   `address-issue.md` Step 10), use that id directly. Confirm with
+   `tusk task-get <task_id>` and read its `complexity` field.
+2. **Most-recent-Done fallback** — only when no argv was passed
+   (stand-alone retro invocations typed by the user). Use the
+   `ORDER BY` heuristic below.
 
 ```bash
+# Fallback only — skip if RETRO_TASK_ID was supplied via argv:
 tusk "SELECT id, complexity FROM tasks WHERE status = 'Done' ORDER BY updated_at DESC LIMIT 1"
 ```
 
-Store the returned `id` as `RETRO_TASK_ID` and `complexity` as
-`RETRO_COMPLEXITY`. If the query returned no rows (no Done tasks exist
+Store the resolved `id` as `RETRO_TASK_ID` and `complexity` as
+`RETRO_COMPLEXITY`. If both paths yield nothing (no Done tasks exist
 yet), set both to null and start the run with no `--task-id`:
 
 ```bash

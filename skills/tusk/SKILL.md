@@ -337,7 +337,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
     This prints a single markdown block with the task identity, closed reason, total cost, wall/active duration, diff stats (files changed, lines added/removed, commit count), criteria counts, review pass count, and reopen count. Show it verbatim to the user — do not re-render or summarize it. Runs on both the merge and abandon paths; diff stats are filtered to commits that reference `[TASK-<id>]` so shared-branch pollution never appears in the numbers.
 
-    Then run `/retro` immediately — do not ask "shall I run retro?". Invoke it to review the session, surface process improvements, and create follow-up tasks.
+    Then run `/retro <id>` immediately — do not ask "shall I run retro?". Pass the task id explicitly so `/retro` attributes cost to the task you just finalized rather than picking up whichever sibling worktree closed last (issue #805). Invoke it to review the session, surface process improvements, and create follow-up tasks.
 
 ### Other Subcommands
 

@@ -574,10 +574,13 @@ JSON blob and the `skill_run.run_id` you already captured.
     the user — do not re-render or summarize it. Diff stats are
     filtered to commits that reference `[TASK-<id>]`.
 
-    Then follow `retro.md` immediately — do not ask "shall I run
-    retro?". The retro prompt expects the canonical task-summary
-    block to have already been printed and intentionally does not
-    re-emit it.
+    Then follow `retro.md` immediately with the just-finalized task
+    id as the argument — do not ask "shall I run retro?". Pass the
+    id explicitly so retro attributes cost to the task you just
+    finalized rather than picking up whichever sibling worktree
+    closed last (issue #805). The retro prompt expects the canonical
+    task-summary block to have already been printed and
+    intentionally does not re-emit it.
 
 ## Other Subcommands
 

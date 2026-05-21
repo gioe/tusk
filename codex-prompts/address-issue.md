@@ -529,6 +529,9 @@ tusk task-summary <task_id> --format markdown
 
 Show it verbatim — do not re-render or summarize.
 
-Follow `retro.md` immediately — do not ask "shall I run retro?".
-The retro prompt assumes this block has already been printed and
-intentionally does not re-emit it.
+Follow `retro.md` immediately with the just-finalized task id as
+the argument — do not ask "shall I run retro?". Pass the id
+explicitly so retro attributes cost to the task you just finalized
+rather than picking up whichever sibling worktree closed last
+(issue #805). The retro prompt assumes this block has already been
+printed and intentionally does not re-emit it.
