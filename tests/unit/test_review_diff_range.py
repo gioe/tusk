@@ -638,6 +638,163 @@ class TestPrefixCollisionHeuristic:
         assert result["diff_lines"] > 0
 
 
+class TestDiffLinesMeaningful:
+    """Issue #761: ``diff_lines_meaningful`` subtracts auto-generated lockfile
+    sections so the inline-vs-agent routing threshold tracks human-readable
+    change size rather than raw newline count.
+
+    The primary range and the [TASK-N] commit-recovery range must both
+    emit the field; lockfile-only diffs should report
+    ``diff_lines_meaningful == 0`` while ``diff_lines`` is non-zero."""
+
+    def test_primary_range_subtracts_package_lock(self, tmp_path, monkeypatch):
+        repo_root, _db_path = _make_repo(tmp_path, default_branch="main")
+        # Feature branch: one src/foo.py change + a big package-lock.json change
+        subprocess.run(
+            ["git", "-C", repo_root, "checkout", "-q", "-b", "feature/TASK-77-x"],
+            check=True,
+        )
+        os.makedirs(os.path.join(repo_root, "src"), exist_ok=True)
+        with open(os.path.join(repo_root, "src", "foo.py"), "w") as f:
+            f.write("def foo():\n    return 1\n")
+        lockfile_body = "{\n" + "  " + ",\n  ".join(f'"k{i}": {i}' for i in range(60)) + "\n}\n"
+        with open(os.path.join(repo_root, "package-lock.json"), "w") as f:
+            f.write(lockfile_body)
+        subprocess.run(["git", "-C", repo_root, "add", "src/foo.py", "package-lock.json"], check=True)
+        subprocess.run(
+            ["git", "-C", repo_root, "commit", "-q", "-m", "[TASK-77] feature + lockfile"],
+            check=True,
+        )
+
+        monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
+        result = mod.compute_range(77, repo_root, db_path=None)
+
+        assert result["recovered_from_task_commits"] is False
+        assert result["diff_lines"] > 0
+        assert "diff_lines_meaningful" in result
+        # Lockfile sections were subtracted → meaningful count is strictly less.
+        assert result["diff_lines_meaningful"] < result["diff_lines"]
+
+    def test_lockfile_only_diff_meaningful_is_zero(self, tmp_path, monkeypatch):
+        repo_root, _db_path = _make_repo(tmp_path, default_branch="main")
+        subprocess.run(
+            ["git", "-C", repo_root, "checkout", "-q", "-b", "feature/TASK-78-locks"],
+            check=True,
+        )
+        # Only a lockfile change.
+        lockfile_body = "{\n" + ",\n".join(f'  "k{i}": {i}' for i in range(20)) + "\n}\n"
+        with open(os.path.join(repo_root, "yarn.lock"), "w") as f:
+            f.write(lockfile_body)
+        subprocess.run(["git", "-C", repo_root, "add", "yarn.lock"], check=True)
+        subprocess.run(
+            ["git", "-C", repo_root, "commit", "-q", "-m", "[TASK-78] yarn"],
+            check=True,
+        )
+
+        monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
+        result = mod.compute_range(78, repo_root, db_path=None)
+
+        assert result["diff_lines"] > 0
+        assert result["diff_lines_meaningful"] == 0
+
+    def test_no_lockfiles_meaningful_equals_diff_lines(self, tmp_path, monkeypatch):
+        repo_root, _db_path = _make_repo(tmp_path, default_branch="main")
+        subprocess.run(
+            ["git", "-C", repo_root, "checkout", "-q", "-b", "feature/TASK-79-src"],
+            check=True,
+        )
+        with open(os.path.join(repo_root, "a.py"), "w") as f:
+            f.write("a = 1\n")
+        subprocess.run(["git", "-C", repo_root, "add", "a.py"], check=True)
+        subprocess.run(
+            ["git", "-C", repo_root, "commit", "-q", "-m", "[TASK-79] src"],
+            check=True,
+        )
+
+        monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
+        result = mod.compute_range(79, repo_root, db_path=None)
+
+        assert result["diff_lines"] > 0
+        assert result["diff_lines_meaningful"] == result["diff_lines"]
+
+
+class TestWorktreeFallback:
+    """Issue #777: ``tusk review begin`` invoked from a checkout that does
+    not carry the feature branch's commits should consult ``git worktree
+    list`` for a sibling worktree on ``feature/TASK-<id>-*`` and re-run
+    against it, instead of failing with a generic "No changes found".
+
+    These tests build a primary checkout plus a sibling worktree carrying
+    the [TASK-N] commit and assert that ``compute_range`` invoked against
+    the primary returns the sibling's payload."""
+
+    def _add_sibling_worktree(self, primary, task_id):
+        """Create a sibling worktree carrying a [TASK-N] commit on
+        ``feature/TASK-<id>-x``. Returns the worktree path."""
+        sibling = primary + f"-wt-{task_id}"
+        branch = f"feature/TASK-{task_id}-x"
+        subprocess.run(
+            ["git", "-C", primary, "worktree", "add", "-b", branch, sibling],
+            check=True, capture_output=True,
+        )
+        with open(os.path.join(sibling, "real.py"), "w") as f:
+            f.write("def real():\n    return 1\n")
+        subprocess.run(["git", "-C", sibling, "add", "real.py"], check=True)
+        subprocess.run(
+            ["git", "-C", sibling, "commit", "-q", "-m", f"[TASK-{task_id}] real"],
+            check=True,
+        )
+        return sibling
+
+    def test_falls_back_to_sibling_worktree(self, tmp_path, monkeypatch):
+        primary, _db_path = _make_repo(tmp_path, default_branch="main")
+        sibling = self._add_sibling_worktree(primary, task_id=88)
+
+        monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
+
+        # Invoked from the primary checkout (no [TASK-88] commit reachable
+        # from HEAD here, and no [TASK-88] commit in primary's git log).
+        result = mod.compute_range(88, primary, db_path=None)
+
+        assert result["diff_lines"] > 0
+        assert result["range"].endswith("HEAD") or "..." in result["range"]
+        # The diff content should reference the file from the sibling worktree.
+        sibling_diff = subprocess.run(
+            ["git", "-C", sibling, "diff", "main...HEAD"],
+            capture_output=True, text=True, encoding="utf-8", check=True,
+        ).stdout
+        # Primary's compute_range result should match the sibling's actual diff.
+        # (The summary is truncated to SUMMARY_CHARS so just compare prefix.)
+        assert result["summary"][:60] == sibling_diff[:60]
+
+    def test_no_sibling_means_clear_error(self, tmp_path, monkeypatch):
+        """No sibling worktree carries ``feature/TASK-99-*`` → SystemExit
+        with the updated message that names the invoking checkout (so the
+        user knows which repo state was actually consulted)."""
+        primary, _db_path = _make_repo(tmp_path, default_branch="main")
+        monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
+
+        with pytest.raises(SystemExit) as exc:
+            mod.compute_range(99, primary, db_path=None)
+        msg = str(exc.value)
+        assert "TASK-99" in msg
+        assert "No sibling worktree" in msg or "checkout" in msg.lower()
+
+    def test_find_task_feature_worktree_skips_invoking(self, tmp_path):
+        """The lookup must not return the invoking worktree as its own
+        sibling — otherwise the recursive compute_range call would loop."""
+        primary, _db_path = _make_repo(tmp_path, default_branch="main")
+        sibling = self._add_sibling_worktree(primary, task_id=70)
+
+        # Invoked from sibling: feature branch is on the invoking worktree,
+        # so the function should return None.
+        assert mod._find_task_feature_worktree(70, sibling) is None
+        # Invoked from primary: sibling is discovered.
+        found = mod._find_task_feature_worktree(70, primary)
+        assert found is not None
+        assert os.path.realpath(found) == os.path.realpath(sibling)
+
+
 class TestStartedAtScope:
     def test_recovery_excludes_task_commits_before_started_at(self, tmp_path, monkeypatch):
         """Issue #494: recycled task IDs from before the current task lifetime
