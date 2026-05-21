@@ -147,17 +147,77 @@ def _insert_abandon_note(db_path: str, task_id: int, reason: str, note: str) -> 
     Stored on commit_message so the note shows up in the same field that
     `tusk task-start` uses to brief the next agent. commit_hash and
     files_changed are intentionally NULL — abandoning produces no commit.
+
+    Idempotent on retry (issue #808): if a row with the same task / reason /
+    note already exists, skip the insert so retries after a partial-failure
+    don't pile up duplicate audit rows.
     """
+    target_message = f"[abandon: {reason}] {note}"
     conn = get_connection(db_path)
     try:
+        existing = conn.execute(
+            "SELECT 1 FROM task_progress "
+            "WHERE task_id = ? AND commit_message = ? LIMIT 1",
+            (task_id, target_message),
+        ).fetchone()
+        if existing is not None:
+            return
         conn.execute(
             "INSERT INTO task_progress (task_id, commit_message, next_steps) "
             "VALUES (?, ?, ?)",
-            (task_id, f"[abandon: {reason}] {note}", None),
+            (task_id, target_message, None),
         )
         conn.commit()
     finally:
         conn.close()
+
+
+def _synthesize_task_done_result(
+    db_path: str, task_id: int, sessions_closed_external: int
+) -> dict:
+    """Build the JSON shape that tusk-task-done.py would have returned.
+
+    Used on the idempotent-retry path (issue #808) when task-done refused
+    because the task is already Done. The task row is fetched as-is; the
+    sessions_closed counter mirrors `tusk-task-done`'s 0-because-already-closed
+    behavior, and the abandon caller layers in `sessions_closed_external`
+    afterwards (matching the existing `sessions_closed = 1` correction).
+    """
+    conn = get_connection(db_path)
+    try:
+        task_row = conn.execute(
+            "SELECT * FROM tasks WHERE id = ?", (task_id,)
+        ).fetchone()
+        if task_row is None:
+            raise RuntimeError(
+                f"task_id={task_id} unexpectedly missing during synthesis"
+            )
+        task_dict = {key: task_row[key] for key in task_row.keys()}
+        unblocked_rows = conn.execute(
+            "SELECT t.id, t.summary, t.priority, t.priority_score "
+            "FROM tasks t "
+            "JOIN task_dependencies d ON t.id = d.task_id "
+            "WHERE d.depends_on_id = ? "
+            "  AND t.status = 'To Do' "
+            "  AND NOT EXISTS ( "
+            "    SELECT 1 FROM task_dependencies d2 "
+            "    JOIN tasks blocker ON d2.depends_on_id = blocker.id "
+            "    WHERE d2.task_id = t.id AND blocker.status <> 'Done' "
+            "  ) "
+            "  AND NOT EXISTS ( "
+            "    SELECT 1 FROM external_blockers eb "
+            "    WHERE eb.task_id = t.id AND eb.is_resolved = 0 "
+            "  )",
+            (task_id,),
+        ).fetchall()
+        unblocked_list = [{key: row[key] for key in row.keys()} for row in unblocked_rows]
+    finally:
+        conn.close()
+    return {
+        "task": task_dict,
+        "sessions_closed": sessions_closed_external,
+        "unblocked_tasks": unblocked_list,
+    }
 
 
 def main(argv: list[str]) -> int:
@@ -412,16 +472,30 @@ def main(argv: list[str]) -> int:
     td = _run_tusk_subcommand(
         tusk_bin, ["task-done", str(task_id), "--reason", reason, "--force"]
     )
+    task_already_done = False
     if td.returncode != 0:
-        print(f"Error: task-done failed:\n{td.stderr.strip()}", file=sys.stderr)
-        return 2
+        # Idempotent-retry path (issue #808): when a prior abandon got past
+        # session-close + task-done but failed at worktree removal, retrying
+        # with the same args must treat 'already Done' as a no-op and proceed
+        # to the worktree cleanup rather than refusing to continue.
+        if "is already Done" in td.stderr:
+            print(f"Warning: {td.stderr.strip()}", file=sys.stderr)
+            task_already_done = True
+        else:
+            print(f"Error: task-done failed:\n{td.stderr.strip()}", file=sys.stderr)
+            return 2
 
-    try:
-        task_done_result = json.loads(td.stdout)
-    except json.JSONDecodeError:
-        if td.stdout.strip():
-            print(td.stdout.strip())
-        return 0
+    if task_already_done:
+        task_done_result = _synthesize_task_done_result(
+            db_path, task_id, sessions_closed_external=0
+        )
+    else:
+        try:
+            task_done_result = json.loads(td.stdout)
+        except json.JSONDecodeError:
+            if td.stdout.strip():
+                print(td.stdout.strip())
+            return 0
 
     # Mirror tusk merge's behavior: task-done sees 0 open sessions because
     # session-close already ran, so correct the counter for our caller.
