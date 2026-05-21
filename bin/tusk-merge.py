@@ -801,7 +801,88 @@ def _complete_no_checkout_fast_forward(
     if did_stash:
         _try_pop_stash(task_id)
     _warn_branch_auto_stash(task_id)
+    # Post-merge cleanup for the no-checkout fast-forward push path (issue #765).
+    # Before this fix the no-checkout path finalized session+task but left the
+    # recorded task worktree, the task_workspaces row, and the local feature
+    # branch behind — accumulating into 10+ stale worktrees across long-running
+    # projects. The local ff-only path already did this cleanup; we replicate
+    # it here so both paths converge on the same end-state.
+    _cleanup_no_checkout_workspace(db_path, task_id, branch_name)
     return _close_completed_task(tusk_bin, task_id, db_path, session_was_closed)
+
+
+def _cleanup_no_checkout_workspace(
+    db_path: str, task_id: int, branch_name: str
+) -> None:
+    """Remove the recorded task worktree and delete the local feature branch.
+
+    Called only on the success path of the no-checkout fast-forward push,
+    where origin/<default> has just been updated to the feature branch's
+    tip. Steps:
+      1. Look up the recorded task workspace; if none, fall through to a
+         best-effort branch delete and return.
+      2. ``chdir`` out of the worktree (to the repo root) so ``git worktree
+         remove`` can succeed — git refuses to remove the worktree it is
+         currently operating in.
+      3. ``git worktree remove`` via the existing ``_remove_recorded_task_worktree``
+         helper, which also clears the ``task_workspaces`` row.
+      4. ``git branch -D`` the local feature branch. ``-d``'s safety check
+         compares against HEAD (whatever the repo root happens to be on),
+         which after chdir is usually a branch that does NOT contain the
+         feature branch's commits — even though origin/<default> does.
+         Forcing the delete is safe here because the push has already
+         succeeded; the commits are durable on origin/<default>.
+
+    Any step that fails is surfaced as a Warning naming the remaining
+    artifact and the reason, so the operator can resolve it manually
+    rather than discovering a silent dangling state weeks later.
+    """
+    recorded = _recorded_task_workspace(db_path, task_id)
+    if recorded is None:
+        # No recorded workspace — legacy or hand-rolled feature branch.
+        # Try a safe branch-delete only.
+        result = run(["git", "branch", "-D", branch_name], check=False)
+        if result.returncode != 0:
+            print(
+                f"Warning: git branch -D {branch_name} failed:\n"
+                f"{result.stderr.strip()}",
+                file=sys.stderr,
+            )
+        return
+
+    workspace_path = recorded["workspace_path"]
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+    try:
+        os.chdir(repo_root)
+    except OSError as exc:
+        print(
+            f"Warning: failed to chdir to repo root {repo_root} before "
+            f"workspace cleanup: {exc}. Leaving worktree {workspace_path} "
+            f"and feature branch {branch_name} in place. Run "
+            f"`tusk task-worktree prune` and `git branch -D {branch_name}` "
+            "manually.",
+            file=sys.stderr,
+        )
+        return
+
+    if not _remove_recorded_task_worktree(
+        db_path, task_id, branch_name, workspace=recorded
+    ):
+        # _remove_recorded_task_worktree already printed the failure detail
+        # (dirty worktree, etc.). Skip branch delete — git would refuse
+        # anyway because the worktree still has the branch checked out.
+        return
+
+    result = run(["git", "branch", "-D", branch_name], check=False)
+    if result.returncode != 0:
+        print(
+            f"Warning: git branch -D {branch_name} failed:\n"
+            f"{result.stderr.strip()}\n"
+            "The recorded worktree was removed but the local branch "
+            "remained. Delete it manually with: "
+            f"git branch -D {branch_name}",
+            file=sys.stderr,
+        )
 
 
 def _recorded_task_workspace(db_path: str, task_id: int) -> sqlite3.Row | None:

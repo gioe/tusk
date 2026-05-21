@@ -200,7 +200,14 @@ class TestLinkedWorktreeDefaultBranchLocked:
         assert rc == 0, f"Expected exit 0\nstderr: {stderr_buf.getvalue()}"
         assert ["git", "push", "origin", f"{branch}:main"] in record
         assert not [c for c in record if c[:3] == ["git", "merge", "--ff-only"]]
-        assert not [c for c in record if c[:3] in (["git", "branch", "-d"], ["git", "branch", "-D"])]
+        # No-checkout fast-forward path now deletes the local feature branch
+        # after the push succeeds (issue #765). With no recorded workspace in
+        # this test fixture, the cleanup helper falls through to the
+        # branch-only delete using -D (the push has already shipped the
+        # commits to origin, so -D is safe).
+        assert [c for c in record if c[:3] == ["git", "branch", "-D"] and c[-1] == branch], (
+            f"Expected git branch -D {branch} after no-checkout push success; got: {record}"
+        )
         assert "no-checkout fast-forward" in stderr_buf.getvalue()
 
     def test_no_checkout_fetches_and_refuses_predictable_non_ff_before_push(
