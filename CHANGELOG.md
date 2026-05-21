@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [918] - 2026-05-20
+
+- [TASK-390] Fix: tusk merge no-checkout fast-forward push path now removes the recorded task worktree, deletes the local feature branch, and clears the task_workspaces row on success — previously these accumulated as stale state across many tasks (issue #765)
+
 ## [917] - 2026-05-20
 
 - [TASK-389] Fix: tusk merge now skips the push when origin/<default> already contains the commits to push — recognises the already-shipped state (operator pushed manually with --no-verify after a hook-blocked tusk push) instead of retrying the push and hitting the same pre-push hook rejection (issue #774)
