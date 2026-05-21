@@ -739,31 +739,39 @@ def _complete_no_checkout_fast_forward(
             if did_stash:
                 _try_pop_stash(task_id)
             return 2
-    result = run(["git", "push", "origin", f"{branch_name}:{default_branch}"], check=False)
-    if result.returncode != 0:
+    if _origin_already_contains(branch_name, default_branch):
         print(
-            f"Error: no-checkout fast-forward push failed:\n{result.stderr.strip()}\n"
-            "The remote default branch was not updated. This usually means the "
-            "feature branch is not a fast-forward of the remote default branch "
-            "or the remote rejected the update.\n"
-            "To resolve:\n"
-            f"  git fetch origin && git rebase origin/{default_branch}\n"
-            f"  tusk merge {task_id} --session {session_id}",
+            f"Note: origin/{default_branch} already contains {branch_name}'s "
+            "tip — skipping no-checkout fast-forward push; the work has already "
+            "shipped to origin (issue #774).",
             file=sys.stderr,
         )
-        if did_stash:
-            _try_pop_stash(task_id)
-        return 2
-    if result.stdout.strip():
-        print(result.stdout.strip(), file=sys.stderr)
-    if result.stderr.strip():
-        print(result.stderr.strip(), file=sys.stderr)
-    print(
-        f"Note: pushed {branch_name} to origin/{default_branch}; leaving the local "
-        "feature branch checked out because the default branch is locked by another "
-        "worktree.",
-        file=sys.stderr,
-    )
+    else:
+        result = run(["git", "push", "origin", f"{branch_name}:{default_branch}"], check=False)
+        if result.returncode != 0:
+            print(
+                f"Error: no-checkout fast-forward push failed:\n{result.stderr.strip()}\n"
+                "The remote default branch was not updated. This usually means the "
+                "feature branch is not a fast-forward of the remote default branch "
+                "or the remote rejected the update.\n"
+                "To resolve:\n"
+                f"  git fetch origin && git rebase origin/{default_branch}\n"
+                f"  tusk merge {task_id} --session {session_id}",
+                file=sys.stderr,
+            )
+            if did_stash:
+                _try_pop_stash(task_id)
+            return 2
+        if result.stdout.strip():
+            print(result.stdout.strip(), file=sys.stderr)
+        if result.stderr.strip():
+            print(result.stderr.strip(), file=sys.stderr)
+        print(
+            f"Note: pushed {branch_name} to origin/{default_branch}; leaving the local "
+            "feature branch checked out because the default branch is locked by another "
+            "worktree.",
+            file=sys.stderr,
+        )
     _delete_remote_feature_branch_if_tracking(branch_name)
     if not session_was_closed:
         checkpoint_wal(db_path)
@@ -828,6 +836,30 @@ def _branch_exists(branch_name: str) -> bool:
         check=False,
     )
     return result.returncode == 0
+
+
+def _origin_already_contains(ref_to_push: str, default_branch: str) -> bool:
+    """Return True when ``origin/<default_branch>`` already contains every commit
+    that ``ref_to_push`` would push to it — i.e. the push is a no-op.
+
+    Used to skip pushes that would otherwise blow up against a pre-push hook
+    after the operator manually pushed with ``--no-verify`` and fast-forwarded
+    local default to match (issue #774). On any rev-list failure (e.g. no
+    ``origin/<default>`` ref locally) the function returns False so the caller
+    falls through to the normal push and surfaces the real error.
+    """
+    result = run(
+        [
+            "git",
+            "rev-list",
+            f"origin/{default_branch}..{ref_to_push}",
+            "--count",
+        ],
+        check=False,
+    )
+    if result.returncode != 0:
+        return False
+    return result.stdout.strip() == "0"
 
 
 def _branch_has_task_commits(
@@ -1902,8 +1934,17 @@ def main(argv: list[str]) -> int:
 
         # Step 5: Push (skip when no remote is configured or unreachable)
         if has_origin:
-            result = run(["git", "push", "origin", default_branch], check=False)
-            if result.returncode != 0:
+            if _origin_already_contains(default_branch, default_branch):
+                print(
+                    f"Note: origin/{default_branch} already contains "
+                    f"{default_branch}'s commits — skipping push; the work has "
+                    "already shipped to origin (issue #774).",
+                    file=sys.stderr,
+                )
+                result = None
+            else:
+                result = run(["git", "push", "origin", default_branch], check=False)
+            if result is not None and result.returncode != 0:
                 if _is_remote_unreachable(result.stderr):
                     print(
                         f"Warning: could not reach origin — skipping push. "
