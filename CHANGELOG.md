@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [943] - 2026-05-22
+
+- [TASK-420] Fix: /review-commits Step 6 handles runtime-killed reviewer agent + refine inline-vs-agent routing
+
 ## [942] - 2026-05-22
 
 - [TASK-418] Auto-detect active task's domain in `tusk test-precheck` from the current branch, and repair `load_task_domain` in `tusk-commit.py` (broken by TASK-287's `tusk shell` arg ban) so both resolvers agree on `domain_test_commands[domain]` (issue #836)
