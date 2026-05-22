@@ -57,7 +57,11 @@ git diff "${OLDEST_COMMIT}^..${NEWEST_COMMIT}"
 
 If `TASK_COMMITS` is empty or the diff is still empty after recovery, report "No changes found to review." and stop.
 
+**The diff you just fetched is the complete universe of files you may review.** Files referenced from outside the diff — adjacent existing files you grep for context, files named in the task description, paths matching another task's commits, route handlers or tests that *look* related but never appear in `+++ b/<path>` headers — are NOT in scope. Use them to understand intent if you need to, but never file a finding against them. This applies even when an out-of-diff file appears to have a clear bug; that bug belongs to whichever task touched it, not this one.
+
 ### Step 2: Analyze for Issues
+
+**Every finding must anchor to a `+` or `-` line in the diff you just fetched.** Before recording any comment, confirm the behavior you are flagging appears on a line in your Step 1 diff output. Reference files outside that diff are context only — if you find yourself about to file a comment against a file that does not appear in a `+++ b/<file>` header from Step 1, stop and discard the finding. The seven-dimension checklist below operates strictly within the diff's scope, not within the wider repository.
 
 For each issue: category, severity, file path, line number, clear actionable description. Check all seven dimensions:
 
