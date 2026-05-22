@@ -65,7 +65,7 @@ When invoked as `/address-issue --cluster worktree --batch`, do **not** treat th
 
    On `edit`, update the grouping and show the table again. On `cancel`, stop.
 
-6. For each approved group, run Steps 2-10 using the canonical issue as the primary issue. In Step 4's task description, append:
+6. **Per-group loop.** For each approved group, run Steps 2-9 using the canonical issue as the primary issue. In Step 4's task description, append:
 
    ```markdown
    ## Covered GitHub Issues
@@ -80,7 +80,25 @@ When invoked as `/address-issue --cluster worktree --batch`, do **not** treat th
    gh issue close <covered_number> --repo <owner/repo> --comment "Resolved by the same root-cause fix as #<canonical> in <commit_sha>. Tracked as tusk task #<task_id>."
    ```
 
-   Apply Shared gh Failure Handling to every close/comment call. Continue to the next root-cause group only after Steps 8-10 complete for the current group.
+   Apply Shared gh Failure Handling to every close/comment call.
+
+   **Run Step 10's per-group sub-steps inline.** After Step 9 closes the issue(s), close the /tusk skill-run with `tusk skill-run finish <run_id>` and print the per-task rollup with `tusk task-summary <task_id> --format markdown` so each task gets its identity/cost/duration/diff/criteria block before the next group starts. **Do NOT invoke `/retro <task_id>` per group** — retro is deferred to Step 7 below.
+
+   Continue to the next root-cause group only after the per-group sub-steps above complete for the current group. Accumulate every merged task ID into a `BATCH_TASK_IDS` list as you go — Step 7 reads it.
+
+7. **End-of-batch consolidated retro (issue #832).** After every approved group has completed Steps 2-9 plus the per-group portion of Step 10, run `/retro` exactly **once** for the entire batch session — not once per group. Per-group `/retro` is intentionally redundant: each retro re-fetches config + backlog + retro-themes and re-analyses the same growing conversation tail, producing partial overlap with earlier retros and N skill-runs for N groups. One consolidated retro covering all merged task IDs is cheaper and produces fewer redundant findings.
+
+   Pass the most recently merged task ID as the retro's `<task_id>` argument so cost attribution lands on a real task (issue #805), and explicitly name every merged task ID in the surrounding conversation so the retro analysis covers the full batch:
+
+   ```
+   Read file: <base_directory>/../retro/SKILL.md
+   ```
+
+   Hand off to /retro with a short preface like:
+
+   > Batch session covered tusk tasks: TASK-<id1>, TASK-<id2>, …, TASK-<idN>. Running consolidated retro keyed to TASK-<idN>.
+
+   This is the **batch-mode override of Step 10's `/retro <task_id>` invocation**. Single-issue (non-batch) invocations of `/address-issue` still run `/retro` exactly once at Step 10 below as usual.
 
 ## Step 2: Fetch the Issue
 
