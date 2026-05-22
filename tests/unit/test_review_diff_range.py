@@ -810,6 +810,84 @@ class TestWorktreeFallback:
         assert os.path.realpath(found) == os.path.realpath(sibling)
 
 
+class TestPrimaryRangeTaskCommitCoverage:
+    """Issue #821 / TASK-412: ``compute_range`` must verify the chosen primary
+    range actually contains a ``[TASK-<id>]`` commit. When the orchestrator's
+    CWD is the primary checkout and that checkout has unpushed local-default
+    commits unrelated to the task, ``origin/<default>...HEAD`` is non-empty-
+    but-wrong; without the validation, ``validate-comments`` runs ``git diff``
+    against that range and silently dismisses every legitimate review finding.
+    """
+
+    def test_falls_through_when_primary_range_has_no_task_commits(
+        self, tmp_path, monkeypatch
+    ):
+        """Reproduces #821: primary checkout has unpushed local-default commits,
+        sibling worktree carries the feature branch. The primary range is non-
+        empty (it covers the unpushed commits) but contains no [TASK-N] commit,
+        so compute_range must fall through to the all-refs commit-grep and
+        return the feature branch's SHA range against the sibling worktree.
+        """
+        primary, _db_path = _make_repo(tmp_path, default_branch="main")
+
+        # Stand up an origin/main pointing at the seed commit so the primary
+        # range is `origin/main...HEAD`. Without this, the helper falls back
+        # to local `main...HEAD` and the unpushed-local-main shape doesn't
+        # reproduce.
+        seed_sha = subprocess.run(
+            ["git", "-C", primary, "rev-parse", "HEAD"],
+            capture_output=True, text=True, encoding="utf-8", check=True,
+        ).stdout.strip()
+        subprocess.run(
+            ["git", "-C", primary, "update-ref", "refs/remotes/origin/main", seed_sha],
+            check=True,
+        )
+
+        # Add an unpushed commit on local main (NOT tagged [TASK-N]).
+        with open(os.path.join(primary, "unrelated.txt"), "w") as f:
+            f.write("unrelated\n")
+        subprocess.run(["git", "-C", primary, "add", "unrelated.txt"], check=True)
+        subprocess.run(
+            ["git", "-C", primary, "commit", "-q", "-m", "Unrelated local change"],
+            check=True,
+        )
+
+        # Add a sibling worktree carrying the task's feature branch.
+        sibling = primary + "-wt-44"
+        subprocess.run(
+            ["git", "-C", primary, "worktree", "add", "-b",
+             "feature/TASK-44-x", sibling, "refs/remotes/origin/main"],
+            check=True, capture_output=True,
+        )
+        with open(os.path.join(sibling, "task.py"), "w") as f:
+            f.write("def task():\n    return 'task'\n")
+        subprocess.run(["git", "-C", sibling, "add", "task.py"], check=True)
+        subprocess.run(
+            ["git", "-C", sibling, "commit", "-q", "-m", "[TASK-44] task work"],
+            check=True,
+        )
+        task_sha = subprocess.run(
+            ["git", "-C", sibling, "rev-parse", "HEAD"],
+            capture_output=True, text=True, encoding="utf-8", check=True,
+        ).stdout.strip()
+
+        monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
+
+        # Invoked from primary, whose `origin/main...HEAD` would erroneously
+        # surface the "Unrelated local change" diff if the validation step
+        # weren't in place.
+        result = mod.compute_range(44, primary, db_path=None)
+
+        # The returned range must cover the feature branch's task commit,
+        # not the unrelated local-main commit.
+        assert result["recovered_from_task_commits"] is True
+        assert task_sha[:7] in result["range"]
+        # task.py is what the feature branch added; unrelated.txt must NOT
+        # appear in the resolved diff.
+        assert "task.py" in result["summary"]
+        assert "unrelated.txt" not in result["summary"]
+
+
 class TestStartedAtScope:
     def test_recovery_excludes_task_commits_before_started_at(self, tmp_path, monkeypatch):
         """Issue #494: recycled task IDs from before the current task lifetime

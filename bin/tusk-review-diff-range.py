@@ -313,14 +313,26 @@ def compute_range(
     diff_out = primary_result.stdout if primary_result.returncode == 0 else ""
     diff_lines = diff_out.count("\n") if diff_out else 0
     if diff_lines > 0:
-        return {
-            "range": primary,
-            "diff_lines": diff_lines,
-            "diff_lines_meaningful": _count_meaningful_lines(diff_out),
-            "summary": diff_out[:SUMMARY_CHARS],
-            "recovered_from_task_commits": False,
-            "resolved_repo_root": repo_root,
-        }
+        # Issue #821 / TASK-412: verify the chosen primary range actually
+        # contains at least one [TASK-<id>] commit before accepting it.
+        # When the orchestrator's CWD has unpushed local-default commits
+        # unrelated to this task, the primary range is non-empty-but-wrong;
+        # falling through to the commit-grep / worktree fallback recovers
+        # the real feature-branch range.
+        primary_task_commits = find_task_commits(
+            task_id, repo_root, refs=[primary],
+        )
+        if primary_task_commits:
+            return {
+                "range": primary,
+                "diff_lines": diff_lines,
+                "diff_lines_meaningful": _count_meaningful_lines(diff_out),
+                "summary": diff_out[:SUMMARY_CHARS],
+                "recovered_from_task_commits": False,
+                "resolved_repo_root": repo_root,
+            }
+        # Primary range is non-empty but contains no [TASK-N] commits.
+        # Fall through to commit-grep recovery as if it were empty.
 
     # Primary range is empty — recover from [TASK-N] commits across all refs
     # (issue #817 / TASK-412). Scanning `--all` lets the primary checkout
