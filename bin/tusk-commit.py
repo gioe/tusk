@@ -233,15 +233,32 @@ def _print_error(msg: str) -> None:
 
 
 def load_task_domain(tusk_bin: str, task_id: int) -> str:
-    """Return the domain of the given task, or empty string if unavailable."""
+    """Return the domain of the given task, or empty string if unavailable.
+
+    Uses ``tusk -json "<SQL>"`` rather than ``tusk shell <SQL>`` — the latter
+    has exited 1 since TASK-287 forbade positional SQL args to ``tusk
+    shell``, which silently zeroed out domain detection here and meant
+    ``load_test_command`` always fell through to the global ``test_command``
+    (issue #836).  ``tusk -json`` is the surviving channel for programmatic
+    one-off queries.
+    """
     try:
         result = subprocess.run(
-            [tusk_bin, "shell", f"SELECT COALESCE(domain, '') FROM tasks WHERE id = {task_id}"],
+            [tusk_bin, "-json",
+             f"SELECT COALESCE(domain, '') AS domain FROM tasks WHERE id = {task_id}"],
             capture_output=True, text=True, encoding="utf-8", check=False,
         )
-        return result.stdout.strip() if result.returncode == 0 else ""
     except Exception:
         return ""
+    if result.returncode != 0:
+        return ""
+    try:
+        rows = json.loads(result.stdout) if result.stdout.strip() else []
+    except json.JSONDecodeError:
+        return ""
+    if not rows or not isinstance(rows, list):
+        return ""
+    return (rows[0] or {}).get("domain", "") or ""
 
 
 def _normalize_path_for_match(path: str, repo_root: str = "") -> str:

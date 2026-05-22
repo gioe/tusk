@@ -179,7 +179,10 @@ def _detect_active_task_domain(repo_root: str, script_dir: str) -> str:
     Resolution:
       1. ``tusk branch-parse`` extracts the task id from the current branch
          (matches ``feature/TASK-<id>-<slug>``).
-      2. ``tusk shell`` reads ``tasks.domain`` for that id.
+      2. ``tusk -json "<SQL>"`` reads ``tasks.domain`` for that id.  The
+         ``tusk shell <SQL>`` shape exits 1 since TASK-287 forbade positional
+         SQL args to ``tusk shell``; ``tusk -json`` is the surviving channel
+         for programmatic one-off queries.
 
     Returns the domain string, or "" when no task can be detected (default
     branch, ad-hoc branch, missing tusk binary, DB unavailable, task without
@@ -207,8 +210,8 @@ def _detect_active_task_domain(repo_root: str, script_dir: str) -> str:
         return ""
     try:
         lookup = subprocess.run(
-            [tusk_bin, "shell",
-             f"SELECT COALESCE(domain, '') FROM tasks WHERE id = {task_id}"],
+            [tusk_bin, "-json",
+             f"SELECT COALESCE(domain, '') AS domain FROM tasks WHERE id = {task_id}"],
             cwd=repo_root,
             capture_output=True, text=True, encoding="utf-8", check=False,
         )
@@ -216,7 +219,13 @@ def _detect_active_task_domain(repo_root: str, script_dir: str) -> str:
         return ""
     if lookup.returncode != 0:
         return ""
-    return lookup.stdout.strip()
+    try:
+        rows = json.loads(lookup.stdout) if lookup.stdout.strip() else []
+    except json.JSONDecodeError:
+        return ""
+    if not rows or not isinstance(rows, list):
+        return ""
+    return (rows[0] or {}).get("domain", "") or ""
 
 
 def resolve_test_command(explicit: str, config_path: str, repo_root: str,
