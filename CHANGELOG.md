@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [944] - 2026-05-22
+
+- [TASK-421] Fix: tusk abandon emits fatal git CWD warning when run from recorded task worktree
+
 ## [943] - 2026-05-22
 
 - [TASK-420] Fix: /review-commits Step 6 handles runtime-killed reviewer agent + refine inline-vs-agent routing
