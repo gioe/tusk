@@ -140,6 +140,27 @@ def test_worktree_symlink_files_rejects_invalid_json(initialised_project):
     assert cfg == before, "config must be untouched on validation failure"
 
 
+def test_python_service_preserves_existing_symlink_files_customization(initialised_project):
+    """A re-run that passes --project-type python_service WITHOUT
+    --worktree-symlink-files must not clobber a previously-customized list.
+    The auto-default block only seeds when the existing list is missing or
+    empty (mirrors project_libs merge semantics — defaults augment, never
+    overwrite)."""
+    setup = _run(
+        initialised_project,
+        "--worktree-symlink-files", '["node_modules", ".env.local"]',
+    )
+    assert setup.returncode == 0, f"setup failed:\n{setup.stderr}"
+
+    result = _run(initialised_project, "--project-type", "python_service")
+    assert result.returncode == 0, f"init-write-config failed:\n{result.stderr}"
+
+    cfg = _read_config(initialised_project)
+    assert cfg["worktree"]["symlink_files"] == ["node_modules", ".env.local"], (
+        "user-customized symlink_files must survive a project_type re-run"
+    )
+
+
 def test_worktree_symlink_files_rejects_non_string_entries(initialised_project):
     """Non-string entries (e.g. ints) are rejected — symlink basenames must
     be strings since they map to path-walking targets in

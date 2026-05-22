@@ -33,7 +33,12 @@ Config flags (pass only what you want to override — other keys carry forward):
     --project-libs <json_object> JSON object {name: {repo, ref}}
     --worktree-symlink-files <json_array>
                                  JSON array of basenames to auto-symlink from the
-                                 primary checkout into new task worktrees.
+                                 primary checkout into new task worktrees. Not
+                                 prompted interactively — pass on the command
+                                 line, or rely on the project_type auto-default
+                                 in init-write-config (e.g. python_service →
+                                 [".venv", ".env"]). Interactive selection lives
+                                 in /tusk-init Step 5c.
 
 Behaviour flags:
     --auto-scan / --no-auto-scan   Run init-scan-codebase + test-detect to

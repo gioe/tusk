@@ -221,9 +221,13 @@ def main():
         merged_worktree["symlink_files"] = wsf
         updates["worktree"] = merged_worktree
     elif args.project_type and args.project_type in WORKTREE_SYMLINK_DEFAULTS:
-        merged_worktree = dict(existing.get("worktree") or {})
-        merged_worktree["symlink_files"] = list(WORKTREE_SYMLINK_DEFAULTS[args.project_type])
-        updates["worktree"] = merged_worktree
+        # Only seed when the existing list is missing or empty so re-runs
+        # preserve any user customization — mirrors the project_libs merge
+        # semantics above (defaults augment, never overwrite).
+        existing_worktree = dict(existing.get("worktree") or {})
+        if not existing_worktree.get("symlink_files"):
+            existing_worktree["symlink_files"] = list(WORKTREE_SYMLINK_DEFAULTS[args.project_type])
+            updates["worktree"] = existing_worktree
 
     # ── Merge: existing config wins for keys not provided ──
     merged = dict(existing)
