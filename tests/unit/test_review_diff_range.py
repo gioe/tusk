@@ -888,6 +888,53 @@ class TestPrimaryRangeTaskCommitCoverage:
         assert "unrelated.txt" not in result["summary"]
 
 
+class TestSiblingHint:
+    """Issue #817 / TASK-412: when ``compute_range`` raises "No changes found"
+    AND a sibling worktree carries ``feature/TASK-<id>-*``, the error must
+    name that worktree path so the operator knows where to re-run from."""
+
+    def test_filter_drops_everything_message_names_sibling(
+        self, tmp_path, monkeypatch
+    ):
+        """Prefix-collision filter empties the candidate list — a sibling
+        worktree exists but its commits don't overlap with the task's
+        referenced paths. The error message must surface the worktree path
+        so the operator can re-run from there."""
+        repo_root, db_path = _make_repo(tmp_path, default_branch="main")
+        _seed_db(
+            db_path,
+            task_id=88,
+            summary="Wire foo",
+            description="Update bin/tusk-foo.py for the foo case",
+        )
+
+        # Sibling worktree carrying feature/TASK-88-* with a [TASK-88] commit
+        # whose diff DOES NOT overlap with bin/tusk-foo.py.
+        sibling = str(tmp_path / "sibling-wt")
+        subprocess.run(
+            ["git", "-C", repo_root, "worktree", "add", "-b",
+             "feature/TASK-88-x", sibling],
+            check=True, capture_output=True,
+        )
+        with open(os.path.join(sibling, "unrelated-area.txt"), "w") as f:
+            f.write("touches neither bin/ nor anything else this task names\n")
+        subprocess.run(["git", "-C", sibling, "add", "unrelated-area.txt"], check=True)
+        subprocess.run(
+            ["git", "-C", sibling, "commit", "-q", "-m", "[TASK-88] off-scope"],
+            check=True,
+        )
+
+        monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
+
+        with pytest.raises(SystemExit) as exc:
+            mod.compute_range(88, repo_root, db_path)
+        msg = str(exc.value)
+        assert "issue #656" in msg
+        # TASK-412: the sibling worktree path must be named in the hint.
+        assert sibling in msg or os.path.realpath(sibling) in msg
+        assert f"tusk review begin 88" in msg
+
+
 class TestStartedAtScope:
     def test_recovery_excludes_task_commits_before_started_at(self, tmp_path, monkeypatch):
         """Issue #494: recycled task IDs from before the current task lifetime

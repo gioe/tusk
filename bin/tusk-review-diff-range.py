@@ -285,6 +285,23 @@ def _find_task_feature_worktree(
     return _maybe_return()
 
 
+def _sibling_hint(task_id: int, repo_root: str) -> str:
+    """Return a leading-space hint pointing at a sibling worktree, or ''.
+
+    Used by the "No changes found" error paths so the operator hitting
+    issue #817 from the primary checkout sees the feature-branch
+    worktree path in the error instead of having to guess where the
+    work actually lives.
+    """
+    sibling = _find_task_feature_worktree(task_id, repo_root)
+    if not sibling:
+        return ""
+    return (
+        f" Feature branch is checked out at sibling worktree '{sibling}'; "
+        f"re-run from there with `cd '{sibling}' && tusk review begin {task_id}`."
+    )
+
+
 def compute_range(
     task_id: int,
     repo_root: str,
@@ -387,7 +404,8 @@ def compute_range(
             f"No changes found — every [TASK-{task_id}] commit in recent git log "
             "touches files outside this task's referenced paths (prefix-match "
             "false positive, issue #656). The diff range cannot be determined "
-            "automatically. Confirm the correct commit range manually and re-run."
+            f"automatically.{_sibling_hint(task_id, repo_root)} Confirm the "
+            "correct commit range manually and re-run."
         )
     commits = filtered
 
@@ -399,7 +417,10 @@ def compute_range(
     diff_out = fallback_result.stdout or ""
     diff_lines = diff_out.count("\n")
     if diff_lines == 0:
-        raise SystemExit("No changes found compared to the base branch.")
+        raise SystemExit(
+            f"No changes found compared to the base branch for TASK-{task_id} "
+            f"in '{repo_root}'.{_sibling_hint(task_id, repo_root)}"
+        )
 
     return {
         "range": fallback,
