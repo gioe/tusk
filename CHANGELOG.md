@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [937] - 2026-05-22
+
+- [TASK-413] Tighten REVIEWER-PROMPT.md scope constraint so findings must anchor to a diff line
+
 ## [936] - 2026-05-22
 
 - [TASK-412] Fix tusk review diff resolution to verify task-commit coverage and propagate resolved checkout
