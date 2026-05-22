@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [932] - 2026-05-22
+
+- [TASK-407] Fix: bound tusk commit lint phase with timeout and surface diagnostics on hang
+
 ## [931] - 2026-05-22
 
 - [TASK-406] Fix: surface actionable errors on every tusk skill-run failure path
