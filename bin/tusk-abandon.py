@@ -535,6 +535,27 @@ def main(argv: list[str]) -> int:
         task_done_result["sessions_closed"] = 1
 
     if branch_name and has_recorded_workspace:
+        # chdir out of the worktree before removing it so the subsequent
+        # `git branch -D` invocation doesn't run from a now-missing CWD and
+        # emit `fatal: Unable to read current working directory` (issue #839).
+        # Mirrors the pattern in tusk-merge.py's `_cleanup_no_checkout_workspace`.
+        # db_path is `<repo>/tusk/tasks.db`, so repo_root is two dirnames up.
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+        workspace_path = recorded_workspace["workspace_path"]
+        try:
+            os.chdir(repo_root)
+        except OSError as exc:
+            print(
+                f"Warning: failed to chdir to repo root {repo_root} before "
+                f"workspace cleanup: {exc}. Leaving worktree {workspace_path} "
+                f"and feature branch {branch_name} in place. Run "
+                f"`tusk task-worktree prune` and `git branch -D {branch_name}` "
+                "manually.",
+                file=sys.stderr,
+            )
+            print(dumps(task_done_result))
+            return 0
+
         if not _remove_recorded_task_worktree(
             db_path,
             task_id,
