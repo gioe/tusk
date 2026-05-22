@@ -91,6 +91,18 @@ def test_python_service_seeds_symlink_files_default(initialised_project):
     assert cfg["worktree"]["symlink_files"] == [".venv", ".env"]
 
 
+def test_web_app_seeds_symlink_files_default(initialised_project):
+    """`--project-type web_app` (without --worktree-symlink-files) seeds
+    `worktree.symlink_files` to ["node_modules", ".env", ".env.local"] — the
+    canonical web-app default covering Next.js / Vite / Remix dotenv layering
+    plus node_modules. Mirror of test_python_service_seeds_symlink_files_default."""
+    result = _run(initialised_project, "--project-type", "web_app")
+    assert result.returncode == 0, f"init-write-config failed:\n{result.stderr}"
+
+    cfg = _read_config(initialised_project)
+    assert cfg["worktree"]["symlink_files"] == ["node_modules", ".env", ".env.local"]
+
+
 def test_ios_app_does_not_seed_symlink_files(initialised_project):
     """`--project-type ios_app` deliberately stays out of the defaults map —
     iOS projects have no canonical gitignored runtime files to symlink, so the
