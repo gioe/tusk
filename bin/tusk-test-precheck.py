@@ -20,7 +20,9 @@ This CLI wraps the logic safely:
 Resolution order for the test command:
   1. ``--command <cmd>`` argument
   2. ``config["path_test_commands"]`` — first pattern matching every path
-  3. ``config["domain_test_commands"][--domain]`` when ``--domain`` is set
+  3. ``config["domain_test_commands"][--domain]`` when ``--domain`` is set;
+     when ``--domain`` is omitted, auto-detect the active task's domain from
+     the current branch (``tusk branch-parse`` → task_id → tasks.domain)
   4. ``config["test_command"]``
   5. ``tusk test-detect`` result (when confidence != "none")
 
@@ -171,6 +173,52 @@ def _detect_changed_paths(repo_root: str) -> list:
     return deduped
 
 
+def _detect_active_task_domain(repo_root: str, script_dir: str) -> str:
+    """Auto-detect the domain of the active task from the current branch.
+
+    Resolution:
+      1. ``tusk branch-parse`` extracts the task id from the current branch
+         (matches ``feature/TASK-<id>-<slug>``).
+      2. ``tusk shell`` reads ``tasks.domain`` for that id.
+
+    Returns the domain string, or "" when no task can be detected (default
+    branch, ad-hoc branch, missing tusk binary, DB unavailable, task without
+    a domain).  Failures fall through silently so the resolver simply picks
+    up the global ``test_command``.
+    """
+    tusk_bin = os.path.join(script_dir, "tusk")
+    if not (os.path.isfile(tusk_bin) and os.access(tusk_bin, os.X_OK)):
+        return ""
+    try:
+        parse = subprocess.run(
+            [tusk_bin, "branch-parse"],
+            cwd=repo_root,
+            capture_output=True, text=True, encoding="utf-8", check=False,
+        )
+    except OSError:
+        return ""
+    if parse.returncode != 0 or not parse.stdout.strip():
+        return ""
+    try:
+        task_id = (json.loads(parse.stdout) or {}).get("task_id")
+    except json.JSONDecodeError:
+        return ""
+    if not isinstance(task_id, int) or task_id <= 0:
+        return ""
+    try:
+        lookup = subprocess.run(
+            [tusk_bin, "shell",
+             f"SELECT COALESCE(domain, '') FROM tasks WHERE id = {task_id}"],
+            cwd=repo_root,
+            capture_output=True, text=True, encoding="utf-8", check=False,
+        )
+    except OSError:
+        return ""
+    if lookup.returncode != 0:
+        return ""
+    return lookup.stdout.strip()
+
+
 def resolve_test_command(explicit: str, config_path: str, repo_root: str,
                          script_dir: str, paths=None, domain: str = "") -> str:
     """Resolve the test command.
@@ -183,7 +231,11 @@ def resolve_test_command(explicit: str, config_path: str, repo_root: str,
          lines up with the commit-time resolver without callers needing to
          replay the path list.
       3. ``domain_test_commands[domain]`` — when ``domain`` is set and a
-         matching entry exists.  Mirrors the resolution order in
+         matching entry exists.  When ``domain`` is empty (the argparse
+         default), auto-detect the active task's domain from the current
+         branch via ``_detect_active_task_domain`` so the precheck command
+         agrees with what ``tusk commit`` would resolve for the same
+         in-progress task.  Mirrors the resolution order in
          ``bin/tusk-commit.py::load_test_command`` so a frontend-only commit
          doesn't trigger the full multi-suite global command on the
          pre-existing-failure check.
@@ -207,8 +259,12 @@ def resolve_test_command(explicit: str, config_path: str, repo_root: str,
             cmd = _match_path_test_command(path_patterns, effective_paths, repo_root)
             if cmd:
                 return cmd
-        if domain:
-            cmd = (cfg.get("domain_test_commands") or {}).get(domain)
+        domain_commands = cfg.get("domain_test_commands") or {}
+        effective_domain = domain
+        if not effective_domain and domain_commands:
+            effective_domain = _detect_active_task_domain(repo_root, script_dir)
+        if effective_domain:
+            cmd = domain_commands.get(effective_domain)
             if cmd:
                 return cmd
         cmd = cfg.get("test_command") or ""
@@ -330,6 +386,8 @@ def main(argv):
         default="",
         help=(
             "Task domain used to resolve domain_test_commands[domain]. "
+            "When omitted, precheck auto-detects the active task's domain "
+            "from the current branch (feature/TASK-<id>-<slug>). "
             "Falls through to the global test_command when unset or no entry matches."
         ),
     )

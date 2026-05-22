@@ -244,6 +244,132 @@ class TestResolveTestCommandDomain:
         assert cmd == "global"
 
 
+class TestAutoDetectActiveTaskDomain:
+    """When --domain is omitted, the resolver consults
+    ``_detect_active_task_domain`` to recover the domain of the active task
+    from the current branch.  This mirrors what ``tusk commit`` already does
+    via ``load_task_domain`` (bin/tusk-commit.py:1098) so both CLIs agree on
+    the resolved command for the same in-progress task."""
+
+    def _write_cfg(self, tmp_path, payload):
+        cfg = tmp_path / "config.json"
+        cfg.write_text(json.dumps(payload))
+        return str(cfg)
+
+    def test_auto_detect_picks_domain_command(self, tmp_path, monkeypatch):
+        cfg = self._write_cfg(tmp_path, {
+            "test_command": "global",
+            "domain_test_commands": {"scraper": "cd apps/scraper && pytest"},
+        })
+        monkeypatch.setattr(mod, "_detect_active_task_domain", lambda _r, _s: "scraper")
+        cmd = mod.resolve_test_command(
+            explicit="", config_path=cfg, repo_root=str(tmp_path),
+            script_dir="/nonexistent", paths=None, domain="",
+        )
+        assert cmd == "cd apps/scraper && pytest"
+
+    def test_explicit_domain_overrides_auto_detect(self, tmp_path, monkeypatch):
+        cfg = self._write_cfg(tmp_path, {
+            "test_command": "global",
+            "domain_test_commands": {
+                "scraper": "scraper-cmd",
+                "frontend": "frontend-cmd",
+            },
+        })
+        called = {"count": 0}
+
+        def fake_detect(_r, _s):
+            called["count"] += 1
+            return "scraper"
+
+        monkeypatch.setattr(mod, "_detect_active_task_domain", fake_detect)
+        cmd = mod.resolve_test_command(
+            explicit="", config_path=cfg, repo_root=str(tmp_path),
+            script_dir="/nonexistent", paths=None, domain="frontend",
+        )
+        assert cmd == "frontend-cmd"
+        assert called["count"] == 0, (
+            "auto-detect must not run when --domain is passed explicitly"
+        )
+
+    def test_auto_detect_skipped_when_domain_test_commands_absent(
+        self, tmp_path, monkeypatch
+    ):
+        cfg = self._write_cfg(tmp_path, {"test_command": "global"})
+        called = {"count": 0}
+
+        def fake_detect(_r, _s):
+            called["count"] += 1
+            return "scraper"
+
+        monkeypatch.setattr(mod, "_detect_active_task_domain", fake_detect)
+        cmd = mod.resolve_test_command(
+            explicit="", config_path=cfg, repo_root=str(tmp_path),
+            script_dir="/nonexistent", paths=None, domain="",
+        )
+        assert cmd == "global"
+        assert called["count"] == 0, (
+            "auto-detect must not run when no domain_test_commands are configured"
+        )
+
+    def test_auto_detect_empty_falls_through_to_global(self, tmp_path, monkeypatch):
+        cfg = self._write_cfg(tmp_path, {
+            "test_command": "global",
+            "domain_test_commands": {"scraper": "scraper-cmd"},
+        })
+        monkeypatch.setattr(mod, "_detect_active_task_domain", lambda _r, _s: "")
+        cmd = mod.resolve_test_command(
+            explicit="", config_path=cfg, repo_root=str(tmp_path),
+            script_dir="/nonexistent", paths=None, domain="",
+        )
+        assert cmd == "global"
+
+    def test_auto_detect_returns_domain_with_no_entry_falls_through(
+        self, tmp_path, monkeypatch
+    ):
+        # Detected domain has no matching entry — resolver must not invent
+        # one; it falls through to the global test_command.
+        cfg = self._write_cfg(tmp_path, {
+            "test_command": "global",
+            "domain_test_commands": {"scraper": "scraper-cmd"},
+        })
+        monkeypatch.setattr(mod, "_detect_active_task_domain", lambda _r, _s: "frontend")
+        cmd = mod.resolve_test_command(
+            explicit="", config_path=cfg, repo_root=str(tmp_path),
+            script_dir="/nonexistent", paths=None, domain="",
+        )
+        assert cmd == "global"
+
+    def test_detect_helper_returns_empty_without_tusk_binary(self, tmp_path):
+        # script_dir points nowhere — the helper short-circuits before any
+        # subprocess call.  Guards against tusk_bin not being installed in
+        # the precheck environment (e.g. partial installs, sandbox tests).
+        assert mod._detect_active_task_domain(str(tmp_path), "/nonexistent/bin") == ""
+
+    def test_detect_helper_returns_empty_when_branch_parse_fails(
+        self, tmp_path, monkeypatch
+    ):
+        # Simulate `tusk branch-parse` exiting non-zero (e.g. on the default
+        # branch, where the branch name does not match feature/TASK-<id>-*).
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        fake_bin = bin_dir / "tusk"
+        fake_bin.write_text("#!/usr/bin/env bash\nexit 1\n")
+        fake_bin.chmod(0o755)
+        assert mod._detect_active_task_domain(str(tmp_path), str(bin_dir)) == ""
+
+    def test_detect_helper_returns_empty_on_invalid_branch_parse_json(
+        self, tmp_path, monkeypatch
+    ):
+        # Malformed JSON from branch-parse must not crash the resolver.
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        fake_bin = bin_dir / "tusk"
+        fake_bin.write_text("#!/usr/bin/env bash\necho 'not json'\nexit 0\n")
+        fake_bin.chmod(0o755)
+        assert mod._detect_active_task_domain(str(tmp_path), str(bin_dir)) == ""
+
+
 # ---------------------------------------------------------------------------
 # run_test raising: JSON must not appear, exit must be non-zero
 # ---------------------------------------------------------------------------
