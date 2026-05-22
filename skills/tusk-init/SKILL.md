@@ -361,11 +361,40 @@ If no manifest signals were found, ask:
 
 Store the confirmed value (empty string if skipped) for Step 6.
 
+## Step 5c: Suggest worktree symlink files
+
+`tusk task-worktree create` reads `worktree.symlink_files` from `tusk/config.json` and symlinks each named basename from the primary checkout into new task worktrees — the documented mechanism for letting gitignored runtime files (`.venv`, `.env`, `node_modules`, etc.) reach feature-branch worktrees without manual `ln -s`. The shipped default is `[]`, so projects must opt in.
+
+Resolve the suggestion based on the `project_type` confirmed in Step 2e (or carried in from the existing config when this is a re-run):
+
+| `project_type` | Behavior |
+|---|---|
+| `python_service` | Suggest `[".venv", ".env"]` — confirm, override, or skip |
+| `ios_app` | **Skip this step entirely** — iOS projects have no canonical gitignored runtime files to symlink |
+| `android_app`, `mobile_cross_platform`, `null`, or any other value | Interactive prompt with example basenames |
+
+For `python_service`, present:
+
+> Detected **`project_type=python_service`**. Suggesting `worktree.symlink_files: [".venv", ".env"]` so task worktrees auto-link your virtualenv and dotenv from the primary checkout.
+>
+> Options:
+> - **Confirm** — use `[".venv", ".env"]`
+> - **Override** — enter a JSON array of basenames
+> - **Skip** — leave at `[]`
+
+For project_types without a canonical default, present:
+
+> No default `worktree.symlink_files` suggestion for this project type. Common basenames to consider: `node_modules`, `.env`, `.env.local`, `.venv`.
+>
+> Enter a JSON array (e.g. `["node_modules", ".env.local"]`), or press Enter to skip.
+
+Store the confirmed value as a JSON array for Step 6. If the user **Skipped** (or `project_type` is `ios_app`), pass nothing — the helper's auto-default + the empty `config.default.json` value handle both cases. Otherwise pass the value through as `--worktree-symlink-files '<json_array>'`.
+
 ## Step 6: Write Config and Initialize
 
 Call `tusk init-write-config` with the values confirmed in the previous steps. This command reads the existing config, merges only the keys you provide (carrying forward everything else), backs up the config, writes the new file, runs `tusk init --force`, and restores the backup on failure — all atomically.
 
-Example call using values confirmed in Steps 3–5 (domains `["api","frontend"]`, agents `{"backend":"APIs and database work"}`, task types `["bug","feature","docs"]`, test command `pytest`, project type `python_service`):
+Example call using values confirmed in Steps 3–5 (domains `["api","frontend"]`, agents `{"backend":"APIs and database work"}`, task types `["bug","feature","docs"]`, test command `pytest`, project type `python_service`, and the worktree symlink list the user confirmed in Step 5c):
 
 ```bash
 tusk init-write-config \
@@ -373,7 +402,8 @@ tusk init-write-config \
   --agents '{"backend":"APIs and database work"}' \
   --task-types '["bug","feature","docs"]' \
   --test-command 'pytest' \
-  --project-type 'python_service'
+  --project-type 'python_service' \
+  --worktree-symlink-files '[".venv",".env"]'
 ```
 
 > **Agents value shape:** the config validator requires `agents` to be a JSON object mapping agent name → **description string**, not name → dict. Passing `{"backend":{"model":"sonnet"}}` will fail validation with `"agents.backend" value must be a string (got dict: ...)`.

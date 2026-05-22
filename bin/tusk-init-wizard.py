@@ -31,6 +31,9 @@ Config flags (pass only what you want to override — other keys carry forward):
     --test-command <string>      Test command (empty string clears)
     --project-type <string>      Project type key (empty string clears)
     --project-libs <json_object> JSON object {name: {repo, ref}}
+    --worktree-symlink-files <json_array>
+                                 JSON array of basenames to auto-symlink from the
+                                 primary checkout into new task worktrees.
 
 Behaviour flags:
     --auto-scan / --no-auto-scan   Run init-scan-codebase + test-detect to
@@ -273,6 +276,9 @@ def _interactive_collect(scan: dict, test_detect: dict, overrides: dict) -> dict
     if "project_libs" in overrides:
         picked["project_libs"] = overrides["project_libs"]
 
+    if "worktree_symlink_files" in overrides:
+        picked["worktree_symlink_files"] = overrides["worktree_symlink_files"]
+
     return picked
 
 
@@ -307,6 +313,9 @@ def _non_interactive_collect(scan: dict, test_detect: dict, overrides: dict, aut
     if "project_libs" in overrides:
         picked["project_libs"] = overrides["project_libs"]
 
+    if "worktree_symlink_files" in overrides:
+        picked["worktree_symlink_files"] = overrides["worktree_symlink_files"]
+
     return picked
 
 
@@ -326,6 +335,8 @@ def _apply_write_config(picked: dict) -> dict:
         cmd += ["--project-type", picked["project_type"]]
     if "project_libs" in picked:
         cmd += ["--project-libs", json.dumps(picked["project_libs"])]
+    if "worktree_symlink_files" in picked:
+        cmd += ["--worktree-symlink-files", json.dumps(picked["worktree_symlink_files"])]
 
     try:
         result = _run_tusk(cmd, timeout=120)
@@ -461,6 +472,11 @@ def main():
     parser.add_argument("--test-command", default=None, dest="test_command")
     parser.add_argument("--project-type", default=None, dest="project_type")
     parser.add_argument("--project-libs", default=None, dest="project_libs")
+    parser.add_argument(
+        "--worktree-symlink-files",
+        default=None,
+        dest="worktree_symlink_files",
+    )
     parser.add_argument("--auto-scan", dest="auto_scan", action="store_true", default=True)
     parser.add_argument("--no-auto-scan", dest="auto_scan", action="store_false")
     parser.add_argument(
@@ -497,6 +513,13 @@ def main():
         overrides["project_libs"] = _parse_json_arg(
             "project-libs", args.project_libs, dict, "object"
         )
+    if args.worktree_symlink_files is not None:
+        wsf = _parse_json_arg(
+            "worktree-symlink-files", args.worktree_symlink_files, list, "array"
+        )
+        if not all(isinstance(x, str) for x in wsf):
+            _fail("--worktree-symlink-files must be a JSON array of strings")
+        overrides["worktree_symlink_files"] = wsf
 
     if args.scaffold_spec is not None and args.no_scaffold:
         _fail("--scaffold-spec and --no-scaffold are mutually exclusive")

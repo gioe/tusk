@@ -54,8 +54,11 @@ tusk init-wizard --non-interactive \
   --agents '{"backend":"APIs and DB","frontend":"UI"}' \
   --task-types '["bug","feature","docs"]' \
   --test-command 'pytest -q' \
-  --project-type python_service
+  --project-type python_service \
+  --worktree-symlink-files '[".venv",".env"]'
 ```
+
+> **Worktree symlink defaults:** `--worktree-symlink-files` is optional. When omitted alongside `--project-type python_service`, the helper seeds `[".venv", ".env"]` automatically; `--project-type ios_app` leaves the existing value untouched. Pass the flag explicitly when you need a non-default basename list (e.g. for a Node monorepo: `'["node_modules",".env.local"]'`).
 
 > **Agents value shape:** `agents` is a JSON object mapping agent name →
 > description **string**, not name → dict. Passing `{"backend":{"model":"sonnet"}}`
