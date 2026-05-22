@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [935] - 2026-05-22
+
+- [TASK-410] Add web_app to WORKTREE_SYMLINK_DEFAULTS with node_modules and dotenv defaults
+
 ## [934] - 2026-05-22
 
 - [TASK-409] Seed worktree.symlink_files defaults during /tusk-init based on project_type
