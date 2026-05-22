@@ -84,6 +84,28 @@ def _run_tusk_subcommand(tusk_bin: str, args: list[str]) -> subprocess.Completed
             return subprocess.CompletedProcess(cmd, 127, stdout="", stderr=message)
 
 
+def _resolve_stable_tusk_bin(db_path: str, fallback: str) -> str:
+    """Resolve a primary-install tusk binary that survives task-worktree cleanup.
+
+    When tusk merge is invoked from a task worktree (the recommended workflow),
+    ``__file__`` lives inside that worktree's ``.claude/bin/`` — but the no-checkout
+    cleanup step deletes the worktree mid-flow, invalidating any ``__file__``-derived
+    binary path used for the subsequent session-close / task-done subprocess calls
+    (issue #834). Resolve to the primary checkout's binary instead, probing both
+    the Claude (``.claude/bin/tusk``) and Codex (``tusk/bin/tusk``) layouts. Falls
+    back to ``fallback`` when neither is present, preserving test-environment
+    behavior where the DB lives outside a real install tree.
+    """
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+    for candidate in (
+        os.path.join(repo_root, ".claude", "bin", "tusk"),
+        os.path.join(repo_root, "tusk", "bin", "tusk"),
+    ):
+        if os.path.exists(candidate) and os.path.realpath(candidate) != os.path.realpath(fallback):
+            return candidate
+    return fallback
+
+
 _INDEX_LOCK_RE = re.compile(r"Unable to create '[^']*\.git/index\.lock'")
 
 
@@ -1242,9 +1264,12 @@ def main(argv: list[str]) -> int:
         print(f"Error: Invalid task ID: {argv[2]}", file=sys.stderr)
         return 1
 
-    # Locate the tusk binary (sibling of this script in the same bin/ directory)
+    # Locate the tusk binary. Prefer the primary install (resolved from db_path's
+    # repo root) over a __file__-derived sibling so post-cleanup subprocess calls
+    # remain valid when this script runs inside a task worktree that gets removed
+    # mid-flow on the no-checkout fast-forward path (issue #834).
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    tusk_bin = os.path.join(script_dir, "tusk")
+    tusk_bin = _resolve_stable_tusk_bin(_db_path, os.path.join(script_dir, "tusk"))
 
     # Parse remaining flags
     remaining = argv[3:]
