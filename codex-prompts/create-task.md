@@ -35,6 +35,42 @@ Returns:
   `tusk dupes check` runs inside `tusk task-insert`, but it catches
   textual similarity only — semantic duplicates are your job).
 
+## Step 2.5: Bundled-Scope Pre-Check
+
+Before drafting tasks, scan the input for bundled-scope markers
+(issue #782). A bundle is suspected if any of these patterns appears
+in the summary or description:
+
+- ` + ` between two named features in the summary (e.g.
+  `Add A + B`)
+- `: ` followed by a connector list in the summary (e.g.
+  `flourishes: X, Y, and Z`)
+- Numbered enumeration `(1)` / `(2)` / `1.` / `2.` introducing
+  distinct deliverables in the description
+- Quantity-connector phrases in the description:
+  `both X and Y`, `X as well as Y`, `two <nouns>`,
+  `three <nouns>`, `each of`
+
+Do NOT fire on incidental connectives where one side is naturally
+subordinate to the other:
+
+- `add X and update Y's docs` — Y's docs naturally completes X
+- `fix bug X and add regression test` — the test verifies the fix
+- `refactor module and rename file` — the rename is incidental
+
+When any marker fires, surface a confirmation prompt naming the
+matched pattern verbatim:
+
+> Input appears to bundle multiple deliverables (matched:
+> `<verbatim quote>`). Should I split into separate tasks before
+> proposing? Options: Split / Keep as one / Show me the proposal
+> first.
+
+On Split, decompose into N sibling tasks in Step 3. On Keep as one,
+capture the rationale in the task description so future readers see
+the explicit decision. On Show me first, continue to Step 3
+unchanged; the operator can revisit after Step 4's review.
+
 ## Step 3: Analyze and Decompose
 
 For each candidate task, fill these fields:

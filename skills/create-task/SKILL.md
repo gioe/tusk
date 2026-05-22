@@ -33,6 +33,35 @@ This returns a JSON object with two keys:
 - **`config`** — full project config (domains, task_types, agents, priorities, complexity, etc.). Store for use when assigning metadata. If a field is an empty list (e.g., `"domains": []`), that field has no validation — use your best judgment or leave it NULL.
 - **`backlog`** — all open tasks as an array of objects. Hold in context for Step 3. The heuristic dupe checker (`tusk dupes check`) catches textually similar tasks, but you can catch **semantic** duplicates that differ in wording — e.g., "Implement password reset flow" vs. existing "Add forgot password endpoint" — which the heuristic would miss.
 
+## Step 2.5: Bundled-Scope Pre-Check
+
+Before drafting tasks, scan the input for **bundled-scope markers** that signal "this looks like one task but it's really N tasks glued together" (issue #782, original incident TASK-2178: a single L task `Add comedy-specific flourishes: room-history memory tile on comedian detail + clip-preview play button` had a description literally reading `(1) Room-history memory tile... (2) Clip-preview play button... Both require backend data coordinated with frontend presentation.` — accepted as-is, then decomposed and abandoned at /tusk pickup with zero code shipped).
+
+A bundle is suspected if **any** of these patterns appears in the summary or description:
+
+| Marker | Where | Example |
+|---|---|---|
+| ` + ` between two named features | summary | `Add A + B` |
+| `: ` followed by a connector list | summary | `flourishes: X, Y, and Z` |
+| Numbered enumeration `(1)` / `(2)` / `1.` / `2.` introducing distinct deliverables | description | `(1) memory tile (2) play button` |
+| Quantity-connector phrases: `both X and Y`, `X as well as Y`, `two <nouns>`, `three <nouns>`, `each of` | description | `Both require backend data...` |
+
+**Inverse — do NOT fire** on incidental connectives where one side is naturally subordinate to the other:
+
+| Allowed pattern | Why it's not a bundle |
+|---|---|
+| `add X and update Y's docs` | Y's docs is a natural completion of X, not a sibling deliverable |
+| `fix bug X and add regression test` | The regression test is verification of the fix, not a sibling feature |
+| `refactor module and rename file` | The rename is incidental to the refactor |
+
+When any bundling marker fires, **before** drafting tasks, surface a confirmation prompt naming the matched pattern verbatim:
+
+> Input appears to bundle multiple deliverables (matched: `<verbatim quote of the marker>`). Should I split into separate tasks before proposing?
+>
+> Options: **Split** (decompose into N sibling tasks now) / **Keep as one** (proceed with the bundle as a single task — the operator has decided the deliverables are inseparable) / **Show me the proposal first** (continue to Step 3 as if no bundle were detected; the operator will judge after seeing the draft).
+
+On **Split**, treat each deliverable as its own task during Step 3. On **Keep as one**, capture the rationale in the task description (e.g., `Kept bundled because backend+frontend must ship together`) so future readers see the explicit decision. On **Show me first**, continue to Step 3 unchanged; the operator can revisit after Step 4's review.
+
 ## Step 3: Analyze and Decompose
 
 Break the input into discrete, actionable tasks. For each task, determine:
