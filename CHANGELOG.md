@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [929] - 2026-05-21
+
+- [TASK-404] Detect bundled multi-deliverable tasks at /create-task filing time
+
 ## [928] - 2026-05-21
 
 - [TASK-403] Add TUSK_TRACE=1 env var to enable set -x in bin/tusk for silent-exit debugging
