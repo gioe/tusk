@@ -327,9 +327,36 @@ def main(argv: list[str]) -> int:
             session_id = None
 
     if session_id is None:
-        session_id, err_code = _autodetect_session(db_path, task_id, tusk_bin)
-        if err_code is not None:
-            return err_code
+        # Issue #829: abandon's three reasons (completed/duplicate/wont_do)
+        # all mean 'no session-tied work happened'. When the task has zero
+        # sessions at all, there is nothing to autodetect and nothing to
+        # close — skip both. The branch-safety check below still prevents
+        # losing any commits on a stray feature branch.
+        try:
+            conn = get_connection(db_path)
+            try:
+                session_count = conn.execute(
+                    "SELECT COUNT(*) FROM task_sessions WHERE task_id = ?",
+                    (task_id,),
+                ).fetchone()[0]
+            finally:
+                conn.close()
+        except sqlite3.Error as e:
+            print(f"Error: Could not query sessions: {e}", file=sys.stderr)
+            return 1
+
+        if session_count == 0:
+            print(
+                f"Note: No session found for task {task_id}; abandoning "
+                f"without a session-close (reason: {reason}).",
+                file=sys.stderr,
+            )
+            # session_id stays None — the session-close call below is gated
+            # on `session_id is not None`.
+        else:
+            session_id, err_code = _autodetect_session(db_path, task_id, tusk_bin)
+            if err_code is not None:
+                return err_code
 
     # Branch safety: refuse if the feature branch carries commits the user
     # would lose. This is the whole reason `abandon` exists as its own command —
@@ -452,19 +479,24 @@ def main(argv: list[str]) -> int:
     # surface explicit manual restore/drop commands.
     _warn_branch_auto_stash(task_id)
 
-    # Close the session (mirrors tusk merge step 2)
-    print(f"Closing session {session_id}...", file=sys.stderr)
-    sc = _run_tusk_subcommand(tusk_bin, ["session-close", str(session_id)])
-    session_was_closed = sc.returncode == 0
-    if sc.returncode != 0:
-        if "already closed" in sc.stderr or "No session found" in sc.stderr:
-            print(f"Warning: {sc.stderr.strip()}", file=sys.stderr)
-        else:
-            print(
-                f"Error: session-close failed:\n{sc.stderr.strip()}",
-                file=sys.stderr,
-            )
-            return 2
+    # Close the session (mirrors tusk merge step 2). When the no-session
+    # escape hatch above kept session_id as None (issue #829), there is
+    # nothing to close — skip this step and continue to task-done.
+    if session_id is not None:
+        print(f"Closing session {session_id}...", file=sys.stderr)
+        sc = _run_tusk_subcommand(tusk_bin, ["session-close", str(session_id)])
+        session_was_closed = sc.returncode == 0
+        if sc.returncode != 0:
+            if "already closed" in sc.stderr or "No session found" in sc.stderr:
+                print(f"Warning: {sc.stderr.strip()}", file=sys.stderr)
+            else:
+                print(
+                    f"Error: session-close failed:\n{sc.stderr.strip()}",
+                    file=sys.stderr,
+                )
+                return 2
+    else:
+        session_was_closed = False
 
     # Mark the task Done. Always pass --force because abandoned tasks
     # typically have open criteria the user has decided not to complete.
