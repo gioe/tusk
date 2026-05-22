@@ -71,6 +71,7 @@ def main():
     # types absent from the map carry `worktree.symlink_files` forward unchanged.
     WORKTREE_SYMLINK_DEFAULTS = {
         "python_service": [".venv", ".env"],
+        "web_app": ["node_modules", ".env", ".env.local"],
     }
 
     # ── Load existing config ──
