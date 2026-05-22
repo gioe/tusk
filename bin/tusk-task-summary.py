@@ -433,6 +433,39 @@ def _summarize_commit_files(commit_files: dict) -> dict:
     }
 
 
+def _try_fetch_default_branch(repo_root: str) -> None:
+    """Best-effort ``git fetch origin <default>`` to refresh ``refs/remotes/origin/<default>``.
+
+    Used by ``fetch_diff`` when the initial ``git log --all --grep`` scan returns
+    nothing: after a no-checkout fast-forward push (``tusk merge`` from a sibling
+    worktree while the default branch is locked in the primary), the local
+    feature branch is deleted and the local default branch never advances. The
+    remote-tracking ref ``refs/remotes/origin/<default>`` SHOULD have been
+    advanced by the push, but several real-world environments report the
+    summarizing checkout still seeing the pre-push tip — collapsing diff stats
+    to ``0 commits / 0 files`` even though the commits exist on origin.
+
+    Silent on failure: a missing remote, network outage, or unknown default
+    branch must not abort the summary — we just continue with what we already
+    have. A 10s timeout guards against a hanging remote.
+    """
+    try:
+        default = _git_helpers.default_branch(repo_root)
+    except Exception:
+        return
+    try:
+        subprocess.run(
+            ["git", "fetch", "origin", default],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=repo_root,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def fetch_diff(
     task_id: int,
     repo_root: str,
@@ -474,6 +507,16 @@ def fetch_diff(
     because their question is "is *this specific commit* a prefix collision
     we should ignore?", not "is this commit part of the cluster of work for
     this task?". Skipped here when ``conn`` is None or no scope signal exists.
+
+    **No-checkout fast-forward recovery** (issues #757/#797/#812/#816/#820/#822/#827):
+    when the initial ``--all`` scan returns empty, a best-effort
+    ``git fetch origin <default>`` is performed and the scan is retried. This
+    catches the post-no-checkout-push state where ``refs/remotes/origin/<default>``
+    was somehow not advanced by the push (some git configs/network conditions
+    leave the local remote-tracking ref behind even after a successful push).
+    The fetch is gated to the empty-scan case, so the common-path overhead is
+    zero. The existing ``_criterion_hash_numstats`` fallback still fires after
+    the retry if both attempts come up empty.
     """
     zero = {"commits": 0, "files_changed": 0, "lines_added": 0, "lines_removed": 0}
     cmd = [
@@ -488,22 +531,39 @@ def fetch_diff(
     ]
     if since:
         cmd.append(f"--since={since} UTC")
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            cwd=repo_root,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return zero
-    if result.returncode != 0:
+
+    def _run_scan() -> str | None:
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                cwd=repo_root,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if result.returncode != 0:
+            return None
+        return result.stdout
+
+    stdout = _run_scan()
+    if stdout is None:
         return zero
 
     # Bucket numstat rows by commit; track parents so we can group commits
     # into topological blocks before applying the file-overlap filter.
-    commit_files, commit_parents = _parse_numstat_blocks(result.stdout)
+    commit_files, commit_parents = _parse_numstat_blocks(stdout)
+
+    # No-checkout fast-forward recovery: when the initial scan is empty, refresh
+    # refs/remotes/origin/<default> and retry. Cheap when there's nothing to
+    # catch (no commits to summarize anyway); high value when the remote-tracking
+    # ref was left stale by the push.
+    if not commit_files:
+        _try_fetch_default_branch(repo_root)
+        stdout = _run_scan()
+        if stdout is not None:
+            commit_files, commit_parents = _parse_numstat_blocks(stdout)
 
     if conn is not None and not commit_files:
         commit_files, commit_parents = _criterion_hash_numstats(task_id, repo_root, conn)
