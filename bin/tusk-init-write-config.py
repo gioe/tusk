@@ -23,12 +23,13 @@ Usage:
     tusk-init-write-config.py <db_path> <config_path> [options]
 
 Options:
-    --domains <json_array>       JSON array of domain strings, e.g. '["api","frontend"]'
-    --agents <json_object>       JSON object mapping agent name to config, e.g. '{"backend":{"model":"sonnet"}}'
-    --task-types <json_array>    JSON array of task type strings, e.g. '["bug","feature"]'
-    --test-command <string>      Test command string, or empty string to clear
-    --project-type <string>      Project type identifier, or empty string to set null
-    --project-libs <json_object> JSON object mapping lib name to {repo, ref}, e.g. '{"ios_app":{"repo":"gioe/ios-libs","ref":"main"}}'
+    --domains <json_array>                JSON array of domain strings, e.g. '["api","frontend"]'
+    --agents <json_object>                JSON object mapping agent name to config, e.g. '{"backend":{"model":"sonnet"}}'
+    --task-types <json_array>             JSON array of task type strings, e.g. '["bug","feature"]'
+    --test-command <string>               Test command string, or empty string to clear
+    --project-type <string>               Project type identifier, or empty string to set null
+    --project-libs <json_object>          JSON object mapping lib name to {repo, ref}, e.g. '{"ios_app":{"repo":"gioe/ios-libs","ref":"main"}}'
+    --worktree-symlink-files <json_array> JSON array of basenames to auto-symlink from the primary checkout into new task worktrees, e.g. '[".venv",".env"]'
 
 Output (JSON):
     {"success": true, "config_path": "/path/to/config.json", "backed_up": true}
@@ -63,7 +64,14 @@ def main():
     parser.add_argument("--test-command", default=None)
     parser.add_argument("--project-type", default=None)
     parser.add_argument("--project-libs", default=None)
+    parser.add_argument("--worktree-symlink-files", default=None)
     args, _ = parser.parse_known_args(sys.argv[3:])
+
+    # Only types whose suggestion differs from the empty default appear here;
+    # types absent from the map carry `worktree.symlink_files` forward unchanged.
+    WORKTREE_SYMLINK_DEFAULTS = {
+        "python_service": [".venv", ".env"],
+    }
 
     # ── Load existing config ──
     existing = {}
@@ -189,6 +197,33 @@ def main():
                 updates["project_libs"] = merged_libs
         except (OSError, json.JSONDecodeError):
             pass  # silently ignore if config.default.json is missing or invalid
+
+    if args.worktree_symlink_files is not None:
+        try:
+            wsf = json.loads(args.worktree_symlink_files)
+        except json.JSONDecodeError as e:
+            print(dumps({
+                "success": False,
+                "config_path": config_path,
+                "backed_up": False,
+                "error": f"--worktree-symlink-files is not valid JSON: {e}",
+            }))
+            return
+        if not isinstance(wsf, list) or not all(isinstance(x, str) for x in wsf):
+            print(dumps({
+                "success": False,
+                "config_path": config_path,
+                "backed_up": False,
+                "error": "--worktree-symlink-files must be a JSON array of strings",
+            }))
+            return
+        merged_worktree = dict(existing.get("worktree") or {})
+        merged_worktree["symlink_files"] = wsf
+        updates["worktree"] = merged_worktree
+    elif args.project_type and args.project_type in WORKTREE_SYMLINK_DEFAULTS:
+        merged_worktree = dict(existing.get("worktree") or {})
+        merged_worktree["symlink_files"] = list(WORKTREE_SYMLINK_DEFAULTS[args.project_type])
+        updates["worktree"] = merged_worktree
 
     # ── Merge: existing config wins for keys not provided ──
     merged = dict(existing)
