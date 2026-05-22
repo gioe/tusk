@@ -575,6 +575,113 @@ class TestAbandonRecordedWorktreeCleanup:
         assert session_idx < done_idx < remove_idx
 
 
+class TestAbandonChdirsBeforeWorktreeRemove:
+    """Issue #839: abandon must chdir out of the recorded worktree before
+    removing it, otherwise the subsequent `git branch -D` invocation runs
+    from a now-missing CWD and emits `fatal: Unable to read current
+    working directory: No such file or directory`.
+    """
+
+    def test_chdir_to_repo_root_precedes_worktree_remove(
+        self, db_path, config_path, tmp_path, monkeypatch
+    ):
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+            branch_name = f"feature/TASK-{task_id}-cwd-fix"
+            workspace_path = tmp_path / "TASK-cwd-fix"
+            workspace_path.mkdir()
+            conn.execute(
+                "INSERT INTO task_workspaces (task_id, branch, workspace_path) "
+                "VALUES (?, ?, ?)",
+                (task_id, branch_name, str(workspace_path)),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        calls: list[list[str]] = []
+        chdir_calls: list[str] = []
+
+        def _mock_run(args, check=True):
+            calls.append(list(args))
+            if "session-close" in args:
+                return subprocess.CompletedProcess(args, 0, stdout="{}", stderr="")
+            if "task-done" in args:
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    stdout=json.dumps(
+                        {
+                            "task": {
+                                "id": task_id,
+                                "status": "Done",
+                                "closed_reason": "completed",
+                            },
+                            "sessions_closed": 0,
+                            "unblocked_tasks": [],
+                        }
+                    ),
+                    stderr="",
+                )
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        real_chdir = os.chdir
+
+        def _tracking_chdir(path):
+            chdir_calls.append(str(path))
+            real_chdir(path)
+
+        monkeypatch.setattr(tusk_abandon, "_branch_exists", lambda branch: True)
+        monkeypatch.setattr(
+            tusk_abandon,
+            "_branch_has_unmerged_commits",
+            lambda branch, default, tid: (False, None),
+        )
+        monkeypatch.setattr(tusk_abandon, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_abandon, "checkpoint_wal", lambda db: None)
+        monkeypatch.setattr(tusk_abandon, "run", _mock_run)
+        monkeypatch.setattr(tusk_abandon._merge, "run", _mock_run)
+        monkeypatch.setattr(tusk_abandon.os, "chdir", _tracking_chdir)
+
+        rc, result, stderr = _call(
+            db_path,
+            config_path,
+            task_id,
+            "--reason",
+            "completed",
+            "--session",
+            session_id,
+        )
+
+        assert rc == 0, f"abandon failed: {stderr}"
+        assert result is not None
+
+        # db_path is `<repo>/tusk/tasks.db` per the resolver invariant.
+        expected_repo_root = os.path.dirname(
+            os.path.dirname(os.path.abspath(str(db_path)))
+        )
+        assert expected_repo_root in chdir_calls, (
+            f"expected chdir({expected_repo_root}) before worktree removal, "
+            f"got chdir_calls={chdir_calls}"
+        )
+
+        remove_idx = next(
+            i for i, c in enumerate(calls) if c[:3] == ["git", "worktree", "remove"]
+        )
+        # Every chdir() call recorded before the worktree-remove subprocess
+        # must include the repo root — the whole point of the fix is to make
+        # git's CWD valid before we delete the worktree.
+        assert any(
+            path == expected_repo_root for path in chdir_calls
+        ), f"chdir to repo root never happened; chdir_calls={chdir_calls}"
+        assert remove_idx >= 0  # sanity: the remove call did happen
+
+        # And the canonical failure-mode signature must not appear in stderr.
+        assert "Unable to read current working directory" not in stderr, stderr
+
+
 class TestAbandonPreservesBranchAutoStash:
     """Issue #727.
 
