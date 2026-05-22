@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [941] - 2026-05-22
+
+- [TASK-417] Fix merge closeout invoking removed worktree-local tusk binary after no-checkout cleanup
+
 ## [940] - 2026-05-22
 
 - [TASK-416] Consolidate /retro to one end-of-session run in /address-issue --batch
