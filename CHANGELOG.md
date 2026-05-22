@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [928] - 2026-05-21
+
+- [TASK-403] Add TUSK_TRACE=1 env var to enable set -x in bin/tusk for silent-exit debugging
+
 ## [927] - 2026-05-21
 
 - [TASK-402] Reframe test_distribution_version_and_changelog test to self-validate from VERSION file
