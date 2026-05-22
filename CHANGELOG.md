@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [936] - 2026-05-22
+
+- [TASK-412] Fix tusk review diff resolution to verify task-commit coverage and propagate resolved checkout
+
 ## [935] - 2026-05-22
 
 - [TASK-410] Add web_app to WORKTREE_SYMLINK_DEFAULTS with node_modules and dotenv defaults
