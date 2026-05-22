@@ -500,13 +500,20 @@ def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
             print(exc.code, file=sys.stderr)
         return 1
     diff_range = payload["range"]
+    # Issue #821 / TASK-412: compute_range may have re-resolved into a
+    # sibling worktree to locate the feature branch. Re-run `git diff` in
+    # that same checkout so the file list matches the chosen range; using
+    # the orchestrator's CWD-derived repo_root here would silently dismiss
+    # every legitimate finding when the primary checkout has unpushed
+    # local-default commits.
+    diff_cwd = payload.get("resolved_repo_root") or repo_root
 
     name_only = subprocess.run(
         ["git", "diff", "--name-only", diff_range],
         capture_output=True,
         text=True,
         encoding="utf-8",
-        cwd=repo_root,
+        cwd=diff_cwd,
     )
     if name_only.returncode != 0:
         print(

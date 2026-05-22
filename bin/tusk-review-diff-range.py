@@ -32,8 +32,17 @@ Output JSON (stdout on success):
         "diff_lines": <int>,
         "diff_lines_meaningful": <int>,
         "summary": "<first 120 chars of git diff output>",
-        "recovered_from_task_commits": <bool>
+        "recovered_from_task_commits": <bool>,
+        "resolved_repo_root": "<path>"
     }
+
+``resolved_repo_root`` is the checkout against which the returned range
+should be interpreted (issue #821 / TASK-412). The primary checkout's
+``repo_root`` is used by default, but the worktree-fallback path may
+re-resolve into a sibling worktree to find the feature branch; callers
+that re-run ``git diff`` (e.g. ``tusk review validate-comments``) MUST
+use the returned ``resolved_repo_root`` as ``cwd`` to keep the diff
+consistent with the range.
 
 ``diff_lines`` counts every newline in the raw ``git diff`` output (legacy
 field, unchanged for backward compatibility). ``diff_lines_meaningful``
@@ -64,6 +73,7 @@ _git_helpers = tusk_loader.load("tusk-git-helpers")
 _db_lib = tusk_loader.load("tusk-db-lib")
 dumps = _json_lib.dumps
 task_grep_arg = _git_helpers.task_grep_arg
+find_task_commits = _git_helpers.find_task_commits
 commit_changed_files = _git_helpers.commit_changed_files
 task_referenced_paths = _git_helpers.task_referenced_paths
 filter_lockfile_diff_sections = _git_helpers.filter_lockfile_diff_sections
@@ -309,21 +319,21 @@ def compute_range(
             "diff_lines_meaningful": _count_meaningful_lines(diff_out),
             "summary": diff_out[:SUMMARY_CHARS],
             "recovered_from_task_commits": False,
+            "resolved_repo_root": repo_root,
         }
 
-    # Primary range is empty — recover from [TASK-N] commits in recent history.
-    log_args = [
-        "log",
-        "--format=%H",
-        task_grep_arg(task_id),
-        "-n",
-        str(TASK_COMMIT_LIMIT),
-    ]
+    # Primary range is empty — recover from [TASK-N] commits across all refs
+    # (issue #817 / TASK-412). Scanning `--all` lets the primary checkout
+    # discover commits on a sibling worktree's feature branch through the
+    # shared git object database, without depending on HEAD-reachability or
+    # on the secondary worktree-list fallback below.
     started_at = _task_started_at(db_path, task_id)
-    if started_at:
-        log_args.append(f"--since={started_at} UTC")
-    log_result = _git(log_args, repo_root)
-    commits = [c for c in (log_result.stdout or "").splitlines() if c.strip()]
+    commits = find_task_commits(
+        task_id,
+        repo_root,
+        refs=["--all", "-n", str(TASK_COMMIT_LIMIT)],
+        since=started_at,
+    )
     if not commits:
         # Sibling-worktree fallback (issue #777): the feature branch may
         # live in another worktree (typical when `tusk task-worktree create`
@@ -381,6 +391,7 @@ def compute_range(
 
     return {
         "range": fallback,
+        "resolved_repo_root": repo_root,
         "diff_lines": diff_lines,
         "diff_lines_meaningful": _count_meaningful_lines(diff_out),
         "summary": diff_out[:SUMMARY_CHARS],

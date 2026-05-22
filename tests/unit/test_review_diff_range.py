@@ -126,7 +126,10 @@ class TestPrimaryRange:
             "diff_lines_meaningful",
             "summary",
             "recovered_from_task_commits",
+            "resolved_repo_root",
         }
+        # TASK-412: the resolved checkout is the one we invoked against.
+        assert os.path.realpath(result["resolved_repo_root"]) == os.path.realpath(repo_root)
 
     def test_uses_origin_default_when_local_default_missing(self, tmp_path, monkeypatch):
         """Issue #696: linked worktrees can have a usable origin/main while the
@@ -377,9 +380,11 @@ class TestCLI:
             "diff_lines_meaningful",
             "summary",
             "recovered_from_task_commits",
+            "resolved_repo_root",
         }
         assert payload["range"] == "main...HEAD"
         assert payload["recovered_from_task_commits"] is False
+        assert os.path.realpath(payload["resolved_repo_root"]) == os.path.realpath(repo_root)
         # No lockfiles in this diff → meaningful count equals diff_lines.
         assert payload["diff_lines_meaningful"] == payload["diff_lines"]
         assert payload["diff_lines"] > 0
@@ -753,11 +758,21 @@ class TestWorktreeFallback:
         monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
 
         # Invoked from the primary checkout (no [TASK-88] commit reachable
-        # from HEAD here, and no [TASK-88] commit in primary's git log).
+        # from HEAD here). After TASK-412 the all-refs commit-grep finds
+        # the sibling worktree's commit through the shared object database
+        # without needing the secondary worktree-list fallback.
         result = mod.compute_range(88, primary, db_path=None)
 
         assert result["diff_lines"] > 0
-        assert result["range"].endswith("HEAD") or "..." in result["range"]
+        # Range may be the primary `main...HEAD` form (legacy worktree-
+        # fallback path) or the SHA-range `<sha>^..<sha>` form (TASK-412
+        # all-refs grep path). Both are valid resolutions of the sibling's
+        # diff; the substantive check is that the diff content matches.
+        assert (
+            result["range"].endswith("HEAD")
+            or "..." in result["range"]
+            or "^.." in result["range"]
+        )
         # The diff content should reference the file from the sibling worktree.
         sibling_diff = subprocess.run(
             ["git", "-C", sibling, "diff", "main...HEAD"],
