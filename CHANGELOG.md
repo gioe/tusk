@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [938] - 2026-05-22
+
+- [TASK-414] Fix: tusk task-unstart must restore validate_status_transition when regen-triggers fails
+
 ## [937] - 2026-05-22
 
 - [TASK-413] Tighten REVIEWER-PROMPT.md scope constraint so findings must anchor to a diff line
