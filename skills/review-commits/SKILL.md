@@ -183,7 +183,7 @@ Wait for the reviewer agent to finish. The agent was spawned with `run_in_backgr
 
 **Primary path: wait for the auto-completion notification.**
 
-No active polling required — the runtime delivers a notification when the background agent exits. When it arrives, fall through to the **Resolve the verdict** sub-step below.
+No active polling required — the runtime delivers a notification when the background agent exits or is killed. When it arrives, fall through to the **Resolve the verdict** sub-step below. The notification may carry `status="failed"` if the runtime watchdog killed the agent before it could post a verdict (e.g. `summary: "Agent stalled: no progress for 600s (stream watchdog did not recover)"`); that case is handled by the first branch under "Resolve the verdict" and is distinct from the orchestrator-side 2.5min stall fallback below — the orchestrator's stall deadline only fires when *no* notification arrives at all.
 
 **Stall detection (no notification within ~2.5 min):**
 
@@ -207,6 +207,12 @@ tusk review status <task_id>
 ```
 
 Parse the JSON.
+
+- **Most recent `<task-notification>` for this agent had `status="failed"`** → the runtime watchdog killed the agent mid-run before it could post a verdict (typical summary: `"Agent stalled: no progress for 600s (stream watchdog did not recover)"`, distinct from the orchestrator-side 2.5min stall fallback which only fires when no notification arrives at all). `tusk review status` will still report `"pending"` because the killed agent never wrote a verdict — read the failure signal off the most recent task-notification, not off the review row. Auto-approve with a kill-note containing the runtime's failure summary verbatim so retro analytics can pattern-match the kill-message across sessions. Pass `--model <your_model_id>` (the orchestrator's own ID) — the orchestrator, not the killed agent, is closing this review. **Cost note:** the row's `cost_dollars` reflects orchestrator-only attribution. Do **not** run the `tusk review-agent-cost` / `tusk review backfill-cost` block at the bottom of this step — the killed agent's in-progress JSONL transcript is unsafe to aggregate, the same way an agent killed mid-write to its transcript file may have written partial token-usage records. Accept the orchestrator-side cost; the kill-note on the row carries the audit signal:
+  ```bash
+  tusk review approve <review_id> --model <your_model_id> --note "Auto-approved (runtime kill): reviewer agent was killed by the runtime watchdog. Runtime summary: <verbatim summary from the failed task-notification>. The agent did not post a verdict before being killed; orchestrator is closing the review."
+  ```
+  Example trigger: a /review-commits invocation against a 316-line diff (issue #835 incident) where the reviewer agent stalled for ~10min with zero output and the runtime emitted `<task-notification status="failed" summary="Agent stalled: no progress for 600s (stream watchdog did not recover)">` — the orchestrator records the kill-note and continues to Step 7 with zero findings. After the approve call, `tusk review status <task_id>` returns `"approved"` (not `"pending"`). Continue as if the review returned no findings — do not re-spawn the agent in this branch.
 
 - **`status` is `"approved"` or `"changes_requested"`** → the agent posted its verdict normally. Now correct the cost attribution before moving on (see "Apply agent cost" below), then proceed to Step 7.
 
