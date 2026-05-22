@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [934] - 2026-05-22
+
+- [TASK-409] Seed worktree.symlink_files defaults during /tusk-init based on project_type
+
 ## [933] - 2026-05-22
 
 - [TASK-408] Fix tusk task-summary reporting zero diff stats after no-checkout fast-forward merge
