@@ -132,6 +132,11 @@ The bash CLI resolves all paths dynamically. The database lives at `<repo_root>/
 
 When neither override is set and an active session exists for a different project (tracked in `$TUSK_STATE_DIR/active-projects`, default `~/.tusk/active-projects`), tusk emits a stderr warning listing the pinned projects and the mismatched CWD — but only when stderr is a TTY. Agent callers (Codex), piped stderr, and CI runs are silent by default, since their captured stderr lands back in LLM context and clutters it without a human to read it. `task-start` registers the current `REPO_ROOT`; `session-close` (and the bulk `--task-id` path) deregister it when no open sessions remain. `TUSK_QUIET=1` forces silence in any context; `TUSK_FORCE_WARN=1` restores the warning when stderr isn't a TTY (used by the drift regression tests).
 
+**Debug env vars.** Two knobs are useful when isolating a silent-exit or unexpected-error path in `bin/tusk`:
+
+- **`TUSK_SILENT_EXIT_GUARD=0`** — disable the recursion-guarded inner-stderr capture (issue #785). Turn it off when the guard's "exited N with no diagnostic output" message itself is in the way.
+- **`TUSK_TRACE=1`** — enable `set -x` shell tracing in `bin/tusk`. Pair it with stderr redirection to capture a full transcript: `TUSK_TRACE=1 tusk skill-run finish 1927 2> trace.log`. Activates after the silent-exit guard so trace output isn't swallowed. Also exports `TUSK_TRACE_ACTIVE=1` so nested `tusk` invocations and Python helpers can opt into matching verbose modes (issue #800).
+
 ### Config-Driven Validation
 
 `config.default.json` defines domains, task_types, statuses, priorities, closed_reasons, complexity, criterion_types, and agents. On `tusk init`, SQLite validation triggers are **auto-generated** from the config via an embedded Python snippet in `bin/tusk`. Empty arrays (e.g., `"domains": []`) disable validation for that column. After editing config post-install, run `tusk regen-triggers` to update triggers without destroying the database (unlike `tusk init --force` which recreates the DB).

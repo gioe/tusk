@@ -94,6 +94,19 @@ if [[ ! -t 2 && "${TUSK_SILENT_EXIT_GUARD:-1}" != "0" && -z "${TUSK_GUARD_ACTIVE
   exit "$_tusk_rc"
 fi
 
+# ── Verbose trace (issue #800) ───────────────────────────────────────
+# TUSK_TRACE=1 turns on `set -x` shell tracing so operators can reproduce
+# silent failures with a line-level transcript:
+#     TUSK_TRACE=1 tusk skill-run finish 1927 2> trace.log
+# Gated AFTER the silent-exit guard above so the trace output goes to the
+# operator's stderr instead of the guard's captured inner-stderr buffer.
+# TUSK_TRACE_ACTIVE is exported so nested `tusk` invocations and Python
+# helpers can opt into matching verbose modes (e.g. logger.DEBUG).
+if [[ "${TUSK_TRACE:-0}" == "1" ]]; then
+  set -x
+  export TUSK_TRACE_ACTIVE=1
+fi
+
 # ── Resolve paths ────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
