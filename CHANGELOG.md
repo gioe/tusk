@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [930] - 2026-05-22
+
+- [TASK-405] Add near-match top-3 to tusk dupes check output when no above-threshold duplicates
+
 ## [929] - 2026-05-21
 
 - [TASK-404] Detect bundled multi-deliverable tasks at /create-task filing time
