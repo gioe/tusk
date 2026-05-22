@@ -334,8 +334,44 @@ def cmd_check(args: argparse.Namespace, db_path: str) -> int:
 
     recently_closed.sort(key=lambda m: m["similarity"], reverse=True)
 
+    # Near-match surfacing (issue #772): when no above-threshold match exists,
+    # the operator still wants the top-N most-similar open tasks so they can
+    # eyeball structural overlap that pure Jaccard / character similarity
+    # missed (e.g. two summaries naming the same camelCase entity but using
+    # different verbs). Bound by NEAR_MATCH_LIMIT and a minimum-similarity
+    # floor so completely-unrelated tasks don't bleed in.
+    NEAR_MATCH_LIMIT = 3
+    NEAR_MATCH_FLOOR = 0.2
+    matched_ids = {m["id"] for m in matches}
+    near_matches: list[dict] = []
+    for task in tasks:
+        if task["id"] in matched_ids:
+            continue
+        score = similarity_cached(norm_input, cache[task["id"]])
+        if score < NEAR_MATCH_FLOOR:
+            continue
+        near_matches.append(
+            {
+                "id": task["id"],
+                "summary": task["summary"],
+                "domain": task["domain"],
+                "similarity": round(score, 3),
+                "match_type": "near_match",
+            }
+        )
+    near_matches.sort(key=lambda m: m["similarity"], reverse=True)
+    near_matches = near_matches[:NEAR_MATCH_LIMIT]
+
     if args.json:
-        print(dumps({"duplicates": matches, "recently_closed": recently_closed}))
+        print(
+            dumps(
+                {
+                    "duplicates": matches,
+                    "recently_closed": recently_closed,
+                    "near_matches": near_matches,
+                }
+            )
+        )
     elif matches:
         print(f"Duplicates found for: {args.summary!r}")
         print(f"{'ID':<6} {'Score':<7} {'Type':<10} {'Summary / Criterion'}")
@@ -351,6 +387,16 @@ def cmd_check(args: argparse.Namespace, db_path: str) -> int:
             print(f"{m['id']:<6} {m['similarity']:<7.3f} {m['match_type']:<10} {detail}")
     else:
         print(f"No duplicates found for: {args.summary!r}")
+        if near_matches:
+            print()
+            print(
+                f"Top {len(near_matches)} nearest below threshold "
+                "(eyeball for structural overlap before filing):"
+            )
+            print(f"{'ID':<6} {'Score':<7} {'Summary'}")
+            print("-" * 80)
+            for m in near_matches:
+                print(f"{m['id']:<6} {m['similarity']:<7.3f} {m['summary']}")
 
     if not args.json and recently_closed:
         for match in recently_closed:
