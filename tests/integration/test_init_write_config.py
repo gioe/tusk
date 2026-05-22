@@ -77,3 +77,78 @@ def test_android_app_project_type_round_trips(initialised_project):
     assert libs_after == libs_before, (
         "project_libs must carry forward unchanged when android_app is selected"
     )
+
+
+def test_python_service_seeds_symlink_files_default(initialised_project):
+    """`--project-type python_service` (without --worktree-symlink-files) seeds
+    `worktree.symlink_files` to [".venv", ".env"] — the canonical Python-service
+    default. This is the seam that TASK-409 fixes: a fresh consumer install no
+    longer ships with an empty list discoverable only via manual config edit."""
+    result = _run(initialised_project, "--project-type", "python_service")
+    assert result.returncode == 0, f"init-write-config failed:\n{result.stderr}"
+
+    cfg = _read_config(initialised_project)
+    assert cfg["worktree"]["symlink_files"] == [".venv", ".env"]
+
+
+def test_ios_app_does_not_seed_symlink_files(initialised_project):
+    """`--project-type ios_app` deliberately stays out of the defaults map —
+    iOS projects have no canonical gitignored runtime files to symlink, so the
+    existing value must carry forward unchanged."""
+    before = _read_config(initialised_project)
+    symlinks_before = before["worktree"]["symlink_files"]
+    assert symlinks_before == [], "fresh install should start empty"
+
+    result = _run(initialised_project, "--project-type", "ios_app")
+    assert result.returncode == 0, f"init-write-config failed:\n{result.stderr}"
+
+    cfg = _read_config(initialised_project)
+    assert cfg["worktree"]["symlink_files"] == symlinks_before
+
+
+def test_explicit_worktree_symlink_files_overrides_default(initialised_project):
+    """`--worktree-symlink-files` takes precedence over the project_type
+    auto-default — the wizard's interactive prompt path passes the
+    user-confirmed value through this flag."""
+    result = _run(
+        initialised_project,
+        "--project-type", "python_service",
+        "--worktree-symlink-files", '["node_modules", ".env.local"]',
+    )
+    assert result.returncode == 0, f"init-write-config failed:\n{result.stderr}"
+
+    cfg = _read_config(initialised_project)
+    assert cfg["worktree"]["symlink_files"] == ["node_modules", ".env.local"]
+
+
+def test_worktree_symlink_files_rejects_invalid_json(initialised_project):
+    """Malformed JSON exits with success=false and leaves the existing
+    config untouched — matches the validation behavior of every other
+    JSON-typed flag in this helper."""
+    before = _read_config(initialised_project)
+
+    result = _run(
+        initialised_project,
+        "--worktree-symlink-files", "not-a-json-array",
+    )
+    assert result.returncode == 0, "helper returns 0 but reports success=false"
+    payload = json.loads(result.stdout)
+    assert payload["success"] is False
+    assert "--worktree-symlink-files is not valid JSON" in payload["error"]
+
+    cfg = _read_config(initialised_project)
+    assert cfg == before, "config must be untouched on validation failure"
+
+
+def test_worktree_symlink_files_rejects_non_string_entries(initialised_project):
+    """Non-string entries (e.g. ints) are rejected — symlink basenames must
+    be strings since they map to path-walking targets in
+    `bin/tusk-task-worktree.py`."""
+    result = _run(
+        initialised_project,
+        "--worktree-symlink-files", '[".venv", 42]',
+    )
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["success"] is False
+    assert "must be a JSON array of strings" in payload["error"]
