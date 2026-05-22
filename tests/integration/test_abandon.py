@@ -891,3 +891,155 @@ class TestAbandonIdempotentRetry:
             f"expected idempotent insert; first run wrote {count_after_first} note(s), "
             f"retry wrote {count_after_retry - count_after_first} additional row(s)"
         )
+
+
+class TestAbandonNoSession:
+    """Issue #829: abandon's three reasons (completed/duplicate/wont_do) all
+    mean 'no session-tied work happened'. When a task has zero sessions and
+    no feature branch, abandon must proceed without a session-close rather
+    than refuse — the branch-safety check still guards against losing
+    committed work."""
+
+    @pytest.mark.parametrize("reason", ["wont_do", "duplicate", "completed"])
+    def test_abandon_no_session_succeeds(
+        self, db_path, config_path, monkeypatch, reason
+    ):
+        """Task with zero sessions + no feature branch → abandon exits 0,
+        task marked Done with the given closed_reason, no session-close
+        invoked, sessions_closed counter is 0."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            # No session inserted — this is the issue #829 case.
+        finally:
+            conn.close()
+
+        # No feature branch and no recorded workspace.
+        monkeypatch.setattr(
+            tusk_abandon,
+            "find_task_branch",
+            lambda tid: (None, f"No branch found matching feature/TASK-{tid}-*", False),
+        )
+        monkeypatch.setattr(tusk_abandon, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_abandon, "checkpoint_wal", lambda db: None)
+
+        rc, result, stderr = _call(
+            db_path,
+            config_path,
+            task_id,
+            "--reason",
+            reason,
+        )
+
+        assert rc == 0, f"abandon failed: {stderr}"
+        assert result is not None, f"expected JSON on stdout; stderr was:\n{stderr}"
+        assert result["task"]["status"] == "Done"
+        assert result["task"]["closed_reason"] == reason
+        # No session existed, so nothing was closed.
+        assert result["sessions_closed"] == 0
+
+        # The escape-hatch Note line should be on stderr so operators can
+        # see why session-close was skipped.
+        assert "No session found for task" in stderr
+        assert f"reason: {reason}" in stderr
+
+        # Sanity-check: no session row was synthesized as a side effect.
+        conn = sqlite3.connect(str(db_path))
+        try:
+            session_count = conn.execute(
+                "SELECT COUNT(*) FROM task_sessions WHERE task_id = ?", (task_id,)
+            ).fetchone()[0]
+            assert session_count == 0, (
+                f"abandon's no-session path must not create a session row "
+                f"(got {session_count})"
+            )
+        finally:
+            conn.close()
+
+    def test_abandon_no_session_records_note(
+        self, db_path, config_path, monkeypatch
+    ):
+        """--note still lands on task_progress even when no session exists —
+        the rationale must survive whether or not a session was attached."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+        finally:
+            conn.close()
+
+        monkeypatch.setattr(
+            tusk_abandon,
+            "find_task_branch",
+            lambda tid: (None, f"No branch found matching feature/TASK-{tid}-*", False),
+        )
+        monkeypatch.setattr(tusk_abandon, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_abandon, "checkpoint_wal", lambda db: None)
+
+        rc, _, stderr = _call(
+            db_path,
+            config_path,
+            task_id,
+            "--reason",
+            "completed",
+            "--note",
+            "Subsumed by TASK-999 commit abc1234.",
+        )
+
+        assert rc == 0, f"abandon failed: {stderr}"
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            row = conn.execute(
+                "SELECT commit_message FROM task_progress WHERE task_id = ? "
+                "ORDER BY id DESC LIMIT 1",
+                (task_id,),
+            ).fetchone()
+            assert row is not None, "expected a task_progress row for the note"
+            assert "[abandon: completed]" in row[0]
+            assert "Subsumed by TASK-999" in row[0]
+        finally:
+            conn.close()
+
+    def test_abandon_with_session_unaffected_by_no_session_escape_hatch(
+        self, db_path, config_path, monkeypatch
+    ):
+        """Regression guard: when a session DOES exist, abandon must take
+        the normal autodetect/session-close path. The no-session escape
+        hatch from issue #829 must not short-circuit this case."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        monkeypatch.setattr(
+            tusk_abandon,
+            "find_task_branch",
+            lambda tid: (None, f"No branch found matching feature/TASK-{tid}-*", False),
+        )
+        monkeypatch.setattr(tusk_abandon, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_abandon, "checkpoint_wal", lambda db: None)
+
+        # Do NOT pass --session — exercise autodetect's existing path with
+        # an open session present.
+        rc, result, stderr = _call(
+            db_path, config_path, task_id, "--reason", "completed"
+        )
+
+        assert rc == 0, f"abandon failed: {stderr}"
+        assert result["sessions_closed"] == 1, (
+            "abandon with an existing open session must still close it"
+        )
+        # The no-session Note must NOT appear when a session exists.
+        assert "No session found for task" not in stderr
+
+        # Verify the session is actually closed in the DB.
+        conn = sqlite3.connect(str(db_path))
+        try:
+            ended = conn.execute(
+                "SELECT ended_at FROM task_sessions WHERE id = ?", (session_id,)
+            ).fetchone()[0]
+            assert ended is not None, "open session should have been closed"
+        finally:
+            conn.close()
