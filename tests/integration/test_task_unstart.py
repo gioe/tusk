@@ -409,3 +409,73 @@ class TestPrefixCollisionHeuristic:
         assert rc == 2
         assert "git commit" in err.lower()
         assert _read_status(db, task_id) == "In Progress"
+
+
+# ── regen-triggers failure restore path (issue #824) ──────────────
+
+
+class TestRegenTriggersFailureRestore:
+    """Issue #824: when `tusk regen-triggers` fails in the finally block,
+    task-unstart must restore validate_status_transition from the pre-DROP
+    snapshot so the DB is never left without the status-transition guard."""
+
+    @staticmethod
+    def _fake_regen_failure(*args, **kwargs):
+        """Drop-in replacement for subprocess.run that simulates a failing
+        regen-triggers without invoking the real binary. The first positional
+        arg is the argv list; only the `tusk regen-triggers` call is
+        intercepted."""
+        argv = args[0] if args else kwargs.get("args", [])
+        if isinstance(argv, list) and len(argv) >= 2 and argv[-1] == "regen-triggers":
+            return subprocess.CompletedProcess(
+                args=argv,
+                returncode=1,
+                stdout="",
+                stderr="Error: config validator rejected newer keys\n",
+            )
+        return subprocess.run(*args, **kwargs)
+
+    def test_regen_failure_restores_trigger_from_snapshot(
+        self, db_path, config_path, monkeypatch
+    ):
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        try:
+            task_id = _insert_task(conn, status="In Progress")
+        finally:
+            conn.close()
+
+        monkeypatch.setattr(
+            tusk_task_unstart.subprocess, "run", self._fake_regen_failure
+        )
+
+        rc, result, err = _call(
+            db_path, config_path, task_id, "--force", monkeypatch=monkeypatch
+        )
+
+        # The unstart itself still succeeds — the regen failure is a warning,
+        # not a fatal error.
+        assert rc == 0, f"expected 0, got {rc}; stderr={err}"
+        assert result is not None
+        assert result["task"]["status"] == "To Do"
+        assert result["task"]["started_at"] is None
+
+        # The status-transition guard must still be present in sqlite_master
+        # even though regen-triggers failed.
+        conn = sqlite3.connect(str(db_path))
+        try:
+            triggers = conn.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='trigger' AND name='validate_status_transition'"
+            ).fetchall()
+            assert len(triggers) == 1, (
+                "validate_status_transition should be restored from the "
+                "pre-DROP snapshot when regen-triggers fails"
+            )
+        finally:
+            conn.close()
+
+        # The regen-failure warning must still be surfaced (the underlying
+        # config problem is real and the user needs to address it).
+        assert "regen-triggers failed" in err
+        assert "restored from snapshot" in err
