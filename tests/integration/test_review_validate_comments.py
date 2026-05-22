@@ -177,3 +177,92 @@ class TestValidateComments:
         result = _run(["review", "validate-comments", "99999"], cwd=repo, env=env)
         assert result.returncode == 2
         assert "Review 99999 not found" in result.stderr
+
+    def test_primary_cwd_with_unpushed_main_does_not_dismiss_real_findings(
+        self, tmp_path, monkeypatch
+    ):
+        """Issue #821 / TASK-412: when invoked from the primary repo's CWD,
+        validate-comments must compute its diff against the *feature-branch*
+        commits — not against unpushed local-default commits that happen to
+        share the primary checkout. Before the fix, ``origin/main...HEAD`` in
+        the primary returned the unpushed-local-main diff, and every legitimate
+        review comment whose ``file_path`` was on the feature branch was
+        silently dismissed under the issue #783 fabrication-guard rationale.
+        """
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        task_id = _insert_in_progress_task(db_path)
+
+        # Stand up an origin/main pointing at the seed commit so the primary
+        # range is `origin/main...HEAD`.
+        seed_sha = _git(["rev-parse", "HEAD"], cwd=repo).stdout.strip()
+        _git(["update-ref", "refs/remotes/origin/main", seed_sha], cwd=repo)
+
+        # Unpushed local commit on main — NOT tagged [TASK-N]. This is the
+        # shape that caused #821: the orchestrator's CWD diff resolves
+        # against this commit, hiding the real feature branch.
+        (repo / "unrelated.txt").write_text("unrelated\n", encoding="utf-8")
+        _git(["add", "unrelated.txt"], cwd=repo, env=env)
+        _git(["commit", "-m", "Unrelated local change"], cwd=repo, env=env)
+
+        # Sibling worktree carries the feature branch with the real commit.
+        sibling = tmp_path / "repo-wt"
+        _git(
+            ["worktree", "add", "-b", f"feature/TASK-{task_id}-x",
+             str(sibling), "refs/remotes/origin/main"],
+            cwd=repo,
+        )
+        (sibling / "task.py").write_text("def task():\n    return 1\n", encoding="utf-8")
+        _git(["add", "task.py"], cwd=sibling, env=env)
+        _git(["commit", "-m", f"[TASK-{task_id}] task work"], cwd=sibling, env=env)
+
+        # Invoke review begin + validate-comments from the PRIMARY repo CWD.
+        # This is exactly the orchestrator-side invocation pattern from #821.
+        begin = _run(["review", "begin", str(task_id)], cwd=repo, env=env)
+        assert begin.returncode == 0, begin.stderr
+        review_id = json.loads(begin.stdout)["review_id"]
+
+        # Add one in-diff comment (task.py, feature-branch only) and one
+        # genuinely fabricated comment (src/fake.py, never exists).
+        for args in [
+            ["review", "add-comment", str(review_id), "real issue on task.py",
+             "--file", "task.py", "--line-start", "1",
+             "--category", "must_fix", "--severity", "minor"],
+            ["review", "add-comment", str(review_id), "fabricated path",
+             "--file", "src/fake.py", "--line-start", "10",
+             "--category", "must_fix", "--severity", "minor"],
+        ]:
+            r = _run(args, cwd=repo, env=env)
+            assert r.returncode == 0, r.stderr
+
+        # Run validate-comments from the primary CWD.
+        result = _run(["review", "validate-comments", str(review_id)], cwd=repo, env=env)
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+
+        # task.py is the file the feature branch added — it must be in the
+        # diff_files list and the in-diff comment must NOT be dismissed.
+        assert "task.py" in payload["diff_files"], (
+            f"task.py expected in diff_files, got {payload['diff_files']}"
+        )
+        # unrelated.txt is the orchestrator's unpushed-local-main shape; it
+        # must NOT contaminate the diff_files list.
+        assert "unrelated.txt" not in payload["diff_files"], (
+            f"unrelated.txt must not appear in diff_files, got {payload['diff_files']}"
+        )
+        # Only the fabricated comment should be dismissed.
+        assert len(payload["dismissed"]) == 1
+        assert payload["dismissed"][0]["file_path"] == "src/fake.py"
+        assert payload["in_diff"] == 1
+
+        # Confirm in the DB: real comment untouched, fabricated dismissed.
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT file_path, resolution FROM review_comments"
+                " WHERE review_id = ? ORDER BY id",
+                (review_id,),
+            ).fetchall()
+        kept = next(r for r in rows if r["file_path"] == "task.py")
+        dismissed = next(r for r in rows if r["file_path"] == "src/fake.py")
+        assert kept["resolution"] is None, "task.py comment must NOT be dismissed"
+        assert dismissed["resolution"] == "dismissed"
