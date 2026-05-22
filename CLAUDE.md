@@ -71,7 +71,7 @@ bin/tusk retro-patches [--window-days N] [--unconfirmed]   # → [{finding_id, s
 bin/tusk test-detect               # → {"command": "<cmd>", "confidence": "high|medium|low|none"}
 bin/tusk add-lib [--lib <name>] [--repo <owner/repo>] [--ref <branch|tag|sha>]  # → {"lib": "<name>", "tasks": [...], "error": null}
 bin/tusk init-fetch-bootstrap      # → {"libs": [{name, repo, tasks, error}, ...]}
-bin/tusk init-write-config [--domains <json>] [--agents <json>] [--task-types <json>] [--test-command <cmd>] [--project-type <type>] [--project-libs <json>]  # → {"success": bool, "config_path": "...", "backed_up": bool}
+bin/tusk init-write-config [--domains <json>] [--agents <json>] [--task-types <json>] [--test-command <cmd>] [--project-type <type>] [--project-libs <json>] [--worktree-symlink-files <json>]  # → {"success": bool, "config_path": "...", "backed_up": bool}
 bin/tusk git-default-branch        # → prints default branch name (e.g. "main"); symbolic-ref → gh fallback → "main"
 bin/tusk branch-parse [--branch <name>]  # → {"task_id": N}; parses task ID from current or named branch
 bin/tusk sql-quote "O'Reilly's book"   # → 'O''Reilly''s book'
@@ -99,7 +99,7 @@ The default isolated unit of work is a task workspace: a task-owned git worktree
 
 `bin/tusk merge <task_id> --session <session_id>` removes the recorded task workspace before deleting the feature branch. If the task workspace is dirty, cleanup refuses so local files are not lost; clean or stash in that workspace and retry. If the local files are intentionally disposable, force-remove the worktree with git and rerun the tusk command so the task workspace registry can be cleaned up.
 
-**Auto-symlink gitignored runtime files (issue #752):** `task-worktree create` reads the `worktree.symlink_files` array from `tusk/config.json`. For each basename in the list, the command walks the primary repo (skipping `.git`) and creates an **absolute-path** symlink at the corresponding worktree path for every match — top-level and nested. Default is empty (`[]`), so projects must opt in. Typical Python-service value is `[".venv", ".env"]`. Symlink targets are absolute (survive worktree relocation), `.git` is excluded from the walk, and existing worktree paths are skipped silently (no overwrite). Individual symlink failures are best-effort and never abort worktree creation.
+**Auto-symlink gitignored runtime files (issue #752):** `task-worktree create` reads the `worktree.symlink_files` array from `tusk/config.json`. For each basename in the list, the command walks the primary repo (skipping `.git`) and creates an **absolute-path** symlink at the corresponding worktree path for every match — top-level and nested. The shipped `config.default.json` value is `[]`, so projects must opt in. `/tusk-init` (and the `tusk init-wizard` CLI) seeds reasonable defaults during install based on `project_type`: `python_service` → `[".venv", ".env"]`; `ios_app` → no change (no canonical gitignored runtime files for iOS). Other project types and re-runs pass through whatever the user explicitly confirms via `--worktree-symlink-files`. Symlink targets are absolute (survive worktree relocation), `.git` is excluded from the walk, and existing worktree paths are skipped silently (no overwrite). Individual symlink failures are best-effort and never abort worktree creation.
 
 ## Running the test suite
 
