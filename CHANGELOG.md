@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [939] - 2026-05-22
+
+- [TASK-415] Fix: tusk abandon should close tasks without requiring a session for terminal reasons
+
 ## [938] - 2026-05-22
 
 - [TASK-414] Fix: tusk task-unstart must restore validate_status_transition when regen-triggers fails
