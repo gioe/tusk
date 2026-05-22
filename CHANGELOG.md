@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [931] - 2026-05-22
+
+- [TASK-406] Fix: surface actionable errors on every tusk skill-run failure path
+
 ## [930] - 2026-05-22
 
 - [TASK-405] Add near-match top-3 to tusk dupes check output when no above-threshold duplicates
