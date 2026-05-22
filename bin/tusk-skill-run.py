@@ -18,6 +18,7 @@ Arguments received from tusk:
 
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 
@@ -38,10 +39,28 @@ def cmd_start(conn, skill_name: str, task_id: int | None = None) -> None:
     attribute this skill run to the originating task. Task-scoped skills
     (/tusk, /chain, /review-commits, /retro) should always pass it.
     """
-    cur = conn.execute(
-        "INSERT INTO skill_runs (skill_name, task_id) VALUES (?, ?)",
-        (skill_name, task_id),
-    )
+    try:
+        cur = conn.execute(
+            "INSERT INTO skill_runs (skill_name, task_id) VALUES (?, ?)",
+            (skill_name, task_id),
+        )
+    except sqlite3.IntegrityError as exc:
+        # Worst-offender path from issue #789: skill-run start --task-id <missing>
+        # raised a bare FOREIGN KEY traceback before this guard landed.
+        msg = str(exc)
+        if task_id is not None and "FOREIGN KEY" in msg.upper():
+            print(
+                f"Error: skill-run start: task_id {task_id} does not exist "
+                f"in tasks — cannot attribute skill '{skill_name}' to a missing task.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"Error: skill-run start: integrity constraint failed for skill "
+                f"'{skill_name}' (task_id={task_id}): {msg}",
+                file=sys.stderr,
+            )
+        sys.exit(1)
     conn.commit()
     run_id = cur.lastrowid
 
@@ -317,7 +336,17 @@ def main():
                     i += 2
                 else:
                     i += 1
-            cmd_start(conn, skill_name, task_id)
+            try:
+                cmd_start(conn, skill_name, task_id)
+            except SystemExit as exc:
+                if isinstance(exc.code, int) and exc.code != 0:
+                    task_id_str = f", task_id {task_id}" if task_id is not None else ""
+                    print(
+                        f"Error: skill-run start failed with exit code {exc.code} "
+                        f"for skill '{skill_name}'{task_id_str}.",
+                        file=sys.stderr,
+                    )
+                raise
 
         elif subcommand == "finish":
             if len(args) >= 2 and args[1] in ("--help", "-h"):
@@ -367,7 +396,16 @@ def main():
             except ValueError:
                 print(f"Error: run_id must be an integer, got '{args[1]}'", file=sys.stderr)
                 sys.exit(1)
-            cmd_cancel(conn, run_id)
+            try:
+                cmd_cancel(conn, run_id)
+            except SystemExit as exc:
+                if isinstance(exc.code, int) and exc.code != 0:
+                    print(
+                        f"Error: skill-run cancel failed with exit code {exc.code} "
+                        f"for run_id {run_id}.",
+                        file=sys.stderr,
+                    )
+                raise
 
         elif subcommand == "list":
             skill_filter = None
@@ -388,6 +426,23 @@ def main():
             print(f"Error: unknown subcommand '{subcommand}'. Use start, finish, cancel, or list.", file=sys.stderr)
             sys.exit(1)
 
+    except SystemExit:
+        # Already handled by per-subcommand wrappers or explicit sys.exit calls.
+        raise
+    except Exception as exc:
+        # Catch-all so an uncaught exception (DB error, transcript I/O failure,
+        # unexpected type error) leaves an actionable stderr message rather than
+        # a bare Python traceback or a generic 'exited N with no diagnostic
+        # output' from the silent-exit guard at bin/tusk:73-95 (issue #785).
+        # Issues #775 / #789: the worst-offender paths bypassed the existing
+        # finish-only wrapper.
+        subcmd = args[0] if args else "(no-subcommand)"
+        print(
+            f"Error: skill-run {subcmd} crashed with "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     finally:
         conn.close()
 
