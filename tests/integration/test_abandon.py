@@ -627,11 +627,11 @@ class TestAbandonChdirsBeforeWorktreeRemove:
                 )
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
-        real_chdir = os.chdir
-
         def _tracking_chdir(path):
+            # Do NOT actually chdir — the test mocks all subprocess calls, so
+            # production code never needs a real CWD change, and mutating the
+            # test process's CWD would leak into sibling tests.
             chdir_calls.append(str(path))
-            real_chdir(path)
 
         monkeypatch.setattr(tusk_abandon, "_branch_exists", lambda branch: True)
         monkeypatch.setattr(
