@@ -52,6 +52,7 @@ Exit codes:
         Fix the violations, or bypass with --skip-lint / --skip-verify.
     7 — current branch does not match the task's recorded workspace branch, or no workspace
         is recorded and HEAD is the default branch. Bypass with --allow-branch-mismatch.
+    8 — `tusk lint` exceeded its configured timeout (see lint_timeout_sec / TUSK_LINT_TIMEOUT).
 """
 
 import fnmatch
@@ -334,6 +335,13 @@ DEFAULT_TEST_COMMAND_TIMEOUT_SEC = 240
 AUTO_TIMEOUT_SAMPLE_COUNT = 20
 AUTO_TIMEOUT_MULTIPLIER = 2.0
 
+# Lint runs on every `tusk commit`; in tusk's own repo it finishes in well
+# under 5s. A 60s ceiling is generous against any single rule that genuinely
+# needs filesystem I/O while keeping the worst-case hang under the four
+# minutes operators were observing (issue #795). Override via the
+# TUSK_LINT_TIMEOUT env var or config key `lint_timeout_sec`.
+DEFAULT_LINT_TIMEOUT_SEC = 60
+
 
 def _resolve_db_path(repo_root: str) -> str:
     """Best-effort DB path lookup mirroring bin/tusk's resolution.
@@ -472,6 +480,41 @@ def load_test_command_timeout(
         if auto_val is not None:
             return auto_val, "auto"
     return DEFAULT_TEST_COMMAND_TIMEOUT_SEC, "default"
+
+
+def load_lint_timeout(config_path: str) -> tuple[int, str]:
+    """Return (timeout_seconds, source) for the `tusk lint --quiet` subprocess.
+
+    Resolution order mirrors load_test_command_timeout:
+      1. TUSK_LINT_TIMEOUT env var (must parse as a positive int)
+      2. config["lint_timeout_sec"] (must parse as a positive int)
+      3. DEFAULT_LINT_TIMEOUT_SEC (60)
+
+    source is one of: "env", "config", "default". Invalid values at any layer
+    fall through to the next layer — a bad config value should not abort
+    commits. Issue #795: this resolver lets `tusk commit` bound the lint
+    subprocess so a hung lint rule produces an actionable error instead of a
+    silent four-minute wait.
+    """
+    env_val = os.environ.get("TUSK_LINT_TIMEOUT")
+    if env_val is not None:
+        try:
+            n = int(env_val)
+            if n > 0:
+                return n, "env"
+        except ValueError:
+            pass
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            config = json.load(f)
+        cfg_val = config.get("lint_timeout_sec")
+        if cfg_val is not None:
+            n = int(cfg_val)
+            if n > 0:
+                return n, "config"
+    except (OSError, ValueError, json.JSONDecodeError):
+        pass
+    return DEFAULT_LINT_TIMEOUT_SEC, "default"
 
 
 def is_linked_worktree(repo_root: str) -> bool:
@@ -1013,17 +1056,40 @@ def _run_commit(argv: list[str], state: dict) -> int:
             print(f"=== Skipping tusk lint ({reason}) ===")
             sys.stdout.flush()
     else:
+        # Issue #795: bound the lint subprocess so a hung rule produces an
+        # actionable error instead of a silent four-minute wait. Resolved once
+        # and reused for the auto-recovery retry below.
+        lint_timeout_sec, lint_timeout_source = load_lint_timeout(config_path)
         if announce_status:
-            print("=== Running tusk lint ===")
+            print(f"=== Running tusk lint (timeout {lint_timeout_sec}s) ===")
             sys.stdout.flush()
         # `--task <task_id>` narrows Rule 6 (Done with incomplete acceptance
         # criteria) to the current task so unrelated historical state cannot
         # block this commit (Issue #568). All other rules ignore the flag.
-        lint = subprocess.run(
-            [tusk_bin, "lint", "--quiet", "--task", str(task_id)],
-            capture_output=True,
-            text=True, encoding="utf-8",
-        )
+        try:
+            lint = subprocess.run(
+                [tusk_bin, "lint", "--quiet", "--task", str(task_id)],
+                capture_output=True,
+                text=True, encoding="utf-8",
+                timeout=lint_timeout_sec,
+            )
+        except subprocess.TimeoutExpired:
+            source_hint = {
+                "env": 'env var "TUSK_LINT_TIMEOUT"',
+                "config": 'config key "lint_timeout_sec"',
+                "default": (
+                    'default (override with "lint_timeout_sec" in tusk/config.json '
+                    'or TUSK_LINT_TIMEOUT env var)'
+                ),
+            }[lint_timeout_source]
+            _print_error(
+                f"\nError: tusk lint timed out after {lint_timeout_sec}s "
+                f"({source_hint}) — aborting commit.\n"
+                "  A lint rule appears to be hung. Bypass with --skip-lint "
+                "(lint only) or --skip-verify (lint, tests, and pre-commit hooks), "
+                "or raise the timeout."
+            )
+            return 8
         if lint.returncode != 0:
             # Issue #674: when the only blocking violations are MANIFEST drift
             # (Rules 18/19), the fix is the canonical idempotent
@@ -1048,11 +1114,30 @@ def _run_commit(argv: list[str], state: dict) -> int:
                     if regen.stdout:
                         sys.stdout.write(regen.stdout)
                         sys.stdout.flush()
-                    lint = subprocess.run(
-                        [tusk_bin, "lint", "--quiet", "--task", str(task_id)],
-                        capture_output=True,
-                        text=True, encoding="utf-8",
-                    )
+                    try:
+                        lint = subprocess.run(
+                            [tusk_bin, "lint", "--quiet", "--task", str(task_id)],
+                            capture_output=True,
+                            text=True, encoding="utf-8",
+                            timeout=lint_timeout_sec,
+                        )
+                    except subprocess.TimeoutExpired:
+                        source_hint = {
+                            "env": 'env var "TUSK_LINT_TIMEOUT"',
+                            "config": 'config key "lint_timeout_sec"',
+                            "default": (
+                                'default (override with "lint_timeout_sec" in '
+                                'tusk/config.json or TUSK_LINT_TIMEOUT env var)'
+                            ),
+                        }[lint_timeout_source]
+                        _print_error(
+                            f"\nError: tusk lint timed out after "
+                            f"{lint_timeout_sec}s ({source_hint}) on the "
+                            "MANIFEST-recovery retry — aborting commit.\n"
+                            "  Bypass with --skip-lint or --skip-verify, or "
+                            "raise the timeout."
+                        )
+                        return 8
                     if lint.returncode == 0:
                         for rel in ("MANIFEST", ".claude/tusk-manifest.json"):
                             abs_path = os.path.join(repo_root, rel)
