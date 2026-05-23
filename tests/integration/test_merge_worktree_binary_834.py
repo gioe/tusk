@@ -136,6 +136,89 @@ class TestResolveStableTuskBin:
         )
 
 
+class TestResolveSourceRepoInvariant:
+    """Issue #841 — in the tusk source repo, ``bin/`` is the source of truth
+    and ``.claude/bin/`` is a refresh-on-demand cache populated by
+    ``bin/tusk dev-sync``. The cache can lag ``bin/`` after migrations land,
+    so source-repo installs must prefer ``bin/tusk`` over ``.claude/bin/tusk``.
+    """
+
+    def test_source_repo_layout_prefers_bin_over_claude_bin(self, tmp_path):
+        """Source-repo signal (``bin/tusk-migrate.py`` next to ``bin/tusk``)
+        flips the preference: ``bin/tusk`` wins over ``.claude/bin/tusk``."""
+        (tmp_path / "bin").mkdir(parents=True)
+        (tmp_path / ".claude" / "bin").mkdir(parents=True)
+        source_bin = tmp_path / "bin" / "tusk"
+        source_bin.write_text("")
+        (tmp_path / "bin" / "tusk-migrate.py").write_text("")
+        claude_bin = tmp_path / ".claude" / "bin" / "tusk"
+        claude_bin.write_text("")
+        db = tmp_path / "tusk" / "tasks.db"
+        db.parent.mkdir(parents=True, exist_ok=True)
+        db.write_text("")
+        fallback = "/nonexistent/worktree/.claude/bin/tusk"
+
+        assert (
+            tusk_merge._resolve_stable_tusk_bin(str(db), fallback) == str(source_bin)
+        )
+
+    def test_source_repo_layout_prefers_bin_when_claude_bin_absent(self, tmp_path):
+        """Source-repo install with no ``.claude/bin/`` cache yet — ``bin/tusk``
+        still wins."""
+        (tmp_path / "bin").mkdir(parents=True)
+        source_bin = tmp_path / "bin" / "tusk"
+        source_bin.write_text("")
+        (tmp_path / "bin" / "tusk-migrate.py").write_text("")
+        db = tmp_path / "tusk" / "tasks.db"
+        db.parent.mkdir(parents=True, exist_ok=True)
+        db.write_text("")
+        fallback = "/nonexistent/worktree/.claude/bin/tusk"
+
+        assert (
+            tusk_merge._resolve_stable_tusk_bin(str(db), fallback) == str(source_bin)
+        )
+
+    def test_target_project_with_bin_but_no_migrate_signal_falls_back_to_claude(
+        self, tmp_path
+    ):
+        """A target project that happens to have a ``bin/tusk`` (e.g. an
+        unrelated project binary) but no ``bin/tusk-migrate.py`` must NOT be
+        treated as a source repo — the canonical Claude install path still
+        applies."""
+        (tmp_path / "bin").mkdir(parents=True)
+        (tmp_path / "bin" / "tusk").write_text("")  # unrelated binary
+        (tmp_path / ".claude" / "bin").mkdir(parents=True)
+        claude_bin = tmp_path / ".claude" / "bin" / "tusk"
+        claude_bin.write_text("")
+        db = tmp_path / "tusk" / "tasks.db"
+        db.parent.mkdir(parents=True, exist_ok=True)
+        db.write_text("")
+        fallback = "/nonexistent/worktree/.claude/bin/tusk"
+
+        # No tusk-migrate.py in bin/ → not a source-repo install → Claude branch.
+        assert (
+            tusk_merge._resolve_stable_tusk_bin(str(db), fallback) == str(claude_bin)
+        )
+
+    def test_source_repo_fallback_equals_source_bin_returns_fallback(self, tmp_path):
+        """When invoked from the source-repo's own ``bin/tusk-merge.py``,
+        ``fallback`` already points at the source ``bin/tusk``. Preserve
+        identity rather than returning a re-derived path (mirrors the
+        primary-checkout guard for the Claude branch)."""
+        (tmp_path / "bin").mkdir(parents=True)
+        source_bin = tmp_path / "bin" / "tusk"
+        source_bin.write_text("")
+        (tmp_path / "bin" / "tusk-migrate.py").write_text("")
+        db = tmp_path / "tusk" / "tasks.db"
+        db.parent.mkdir(parents=True, exist_ok=True)
+        db.write_text("")
+
+        assert (
+            tusk_merge._resolve_stable_tusk_bin(str(db), str(source_bin))
+            == str(source_bin)
+        )
+
+
 class TestNoCheckoutMergeUsesStableBin:
     """End-to-end: the no-checkout path's subprocess calls must use the primary binary."""
 
