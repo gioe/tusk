@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [947] - 2026-05-22
+
+- [TASK-423] Print actionable diagnostic when tusk retro-signals fails
+
 ## [946] - 2026-05-22
 
 - [TASK-422] Stop hardcoding cluster names in /address-issue SKILL.md
