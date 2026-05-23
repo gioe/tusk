@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [948] - 2026-05-22
+
+- [TASK-425] Fix: prefer bin/tusk over .claude/bin/tusk in source-repo installs
+
 ## [947] - 2026-05-22
 
 - [TASK-423] Print actionable diagnostic when tusk retro-signals fails
