@@ -18,7 +18,7 @@ Invoked with an optional issue number, full URL, or cluster selector:
 - no argument to default to the newest open issue
 
 Parse flags first:
-- `--cluster <name>` sets `$CLUSTER`. Valid values: `worktree`, `merge`, `review-diff`, `summary`, `docs`, `test-precheck`, `small-fix`, `triage-needed`.
+- `--cluster <name>` sets `$CLUSTER`. Any `cluster:<name>` label currently present on the repo is accepted — the skill does not validate against a closed list, so new clusters added to GitHub work immediately without a skill edit. Run `gh label list --repo gioe/tusk --search "cluster:"` to see the current set if you're unsure which clusters exist.
 - `--batch` is valid only with `--cluster`.
 - A number or full URL must not be combined with `--cluster`; if both are present, stop and ask the user to choose one mode.
 
