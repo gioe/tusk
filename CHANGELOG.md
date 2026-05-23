@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [949] - 2026-05-22
+
+- [TASK-426] Fix: snapshot validate_status_transition trigger in task-reopen before DROP
+
 ## [948] - 2026-05-22
 
 - [TASK-425] Fix: prefer bin/tusk over .claude/bin/tusk in source-repo installs
