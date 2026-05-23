@@ -185,3 +185,32 @@ def test_worktree_symlink_files_rejects_non_string_entries(initialised_project):
     payload = json.loads(result.stdout)
     assert payload["success"] is False
     assert "must be a JSON array of strings" in payload["error"]
+
+
+def test_tusk_update_path_clears_worktree_symlink_files_to_empty(initialised_project):
+    """The /tusk-update path: a project with a populated symlink_files list can
+    pass `--worktree-symlink-files '[]'` to clear it back to empty (disabling
+    auto-symlink). Verifies the round-trip set→clear flow that Step 5c of
+    skills/tusk-update/SKILL.md documents."""
+    setup = _run(
+        initialised_project,
+        "--worktree-symlink-files", '[".venv", ".env"]',
+    )
+    assert setup.returncode == 0, f"setup failed:\n{setup.stderr}"
+    cfg = _read_config(initialised_project)
+    assert cfg["worktree"]["symlink_files"] == [".venv", ".env"], (
+        "setup must populate the list before clearing"
+    )
+
+    result = _run(
+        initialised_project,
+        "--worktree-symlink-files", "[]",
+    )
+    assert result.returncode == 0, f"init-write-config failed:\n{result.stderr}"
+    payload = json.loads(result.stdout)
+    assert payload["success"] is True
+
+    cfg = _read_config(initialised_project)
+    assert cfg["worktree"]["symlink_files"] == [], (
+        "passing an empty JSON array must clear the list"
+    )
