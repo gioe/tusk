@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [950] - 2026-05-23
+
+- [TASK-424] Sweep remaining cluster-name mirror surfaces and drop CLI enum in tusk report-issue
+
 ## [949] - 2026-05-22
 
 - [TASK-426] Fix: snapshot validate_status_transition trigger in task-reopen before DROP
