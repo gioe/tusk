@@ -386,3 +386,165 @@ class TestFetchDiffRetryIsOptOutForCommonPath:
             f"Expected _try_fetch_default_branch to be invoked exactly once with "
             f"{primary}; got: {calls}"
         )
+
+
+class TestFetchDiffUnreachableObjectRecovery:
+    """Regression coverage for issue #845: the manual ``tusk task-done --reason
+    completed`` closeout path when (a) the local remote-tracking ref is missing
+    or stale, (b) the TASK-408 fetch retry can't recover the ref (remote URL is
+    broken / unreachable), and (c) the criteria carry no commit_hash so the
+    criterion-hash fallback also turns up empty.
+
+    The commit object still lives in the shared ``.git/objects`` directory
+    because the no-checkout push deposited it before the sibling worktree was
+    removed — ``git fsck --unreachable --no-reflogs`` is the only local-only
+    mechanism that finds it.
+    """
+
+    def _break_remote(self, primary, tmp_path):
+        """Force the TASK-408 fetch retry to fail silently: drop the
+        remote-tracking ref AND point origin at an unreachable URL so
+        ``git fetch origin <default>`` exits non-zero without recovering.
+        """
+        _run(
+            ["git", "update-ref", "-d", "refs/remotes/origin/main"],
+            cwd=primary,
+        )
+        broken = str(tmp_path / "no-such-remote.git")
+        _run(["git", "remote", "set-url", "origin", broken], cwd=primary)
+
+    def test_recovers_when_ref_missing_and_remote_unreachable_and_no_commit_hash(
+        self, repo_with_pushed_task, tmp_path
+    ):
+        primary, _ = repo_with_pushed_task
+        self._break_remote(primary, tmp_path)
+
+        # Sanity: every ref-based scan must come up empty before the fallback
+        # is the only thing that can save us.
+        initial = _run(
+            ["git", "log", "--all", "--grep=[TASK-99]", "--fixed-strings", "--format=%H"],
+            cwd=primary,
+        ).stdout.strip()
+        assert initial == "", (
+            "Test precondition failed: expected --all scan to be empty after "
+            f"breaking remote and dropping origin/main; got: {initial}"
+        )
+
+        db_path, conn = _make_db_with_task(tmp_path, 99)
+        # Criterion with NO commit_hash — the criterion-hash fallback is useless.
+        conn.execute(
+            "INSERT INTO acceptance_criteria "
+            "(task_id, criterion, is_completed, commit_hash) VALUES (?, ?, ?, ?)",
+            (99, "task is done", 1, None),
+        )
+        conn.commit()
+        try:
+            diff = mod.fetch_diff(99, primary, conn=conn)
+        finally:
+            conn.close()
+
+        assert diff["commits"] == 1, (
+            f"Expected fsck unreachable-object recovery to find the [TASK-99] "
+            f"commit in the local object store; got diff: {diff}"
+        )
+        assert diff["files_changed"] == 1
+        assert diff["lines_added"] == 1
+        assert diff["lines_removed"] == 0
+
+    def test_recovers_when_criterion_hash_is_stale_pre_rebase_sha(
+        self, repo_with_pushed_task, tmp_path
+    ):
+        """The commit_hash recorded on the criterion may point to a pre-rebase
+        SHA that's been GC'd. The fallback should still find the post-rebase
+        commit via fsck because it lives in the object store (deposited by the
+        no-checkout push).
+        """
+        primary, _ = repo_with_pushed_task
+        self._break_remote(primary, tmp_path)
+
+        db_path, conn = _make_db_with_task(tmp_path, 99)
+        # Stale commit_hash — points to a SHA that doesn't exist. _criterion_hash_numstats
+        # will run `git show <stale>` which fails non-zero and is skipped.
+        conn.execute(
+            "INSERT INTO acceptance_criteria "
+            "(task_id, criterion, is_completed, commit_hash) VALUES (?, ?, ?, ?)",
+            (99, "task is done", 1, "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"),
+        )
+        conn.commit()
+        try:
+            diff = mod.fetch_diff(99, primary, conn=conn)
+        finally:
+            conn.close()
+
+        assert diff["commits"] == 1, (
+            f"Expected fsck fallback to recover the real [TASK-99] commit despite "
+            f"the stale criterion commit_hash; got diff: {diff}"
+        )
+        assert diff["files_changed"] == 1
+
+    def test_fsck_not_invoked_when_initial_scan_succeeds(
+        self, repo_with_pushed_task, tmp_path, monkeypatch
+    ):
+        """Performance guard: when ``--all`` finds the commit on the first
+        try, the unreachable-object scan must NOT fire. fsck is O(objects)
+        and would otherwise penalize every well-merged task.
+        """
+        primary, _ = repo_with_pushed_task
+
+        calls = []
+        real = mod._unreachable_task_commits
+
+        def _spy(task_id, repo_root):
+            calls.append((task_id, repo_root))
+            return real(task_id, repo_root)
+
+        monkeypatch.setattr(mod, "_unreachable_task_commits", _spy)
+
+        db_path, conn = _make_db_with_task(tmp_path, 99)
+        try:
+            diff = mod.fetch_diff(99, primary, conn=conn)
+        finally:
+            conn.close()
+
+        assert diff["commits"] == 1
+        assert calls == [], (
+            "Initial --all scan succeeded; _unreachable_task_commits should "
+            f"NOT have been invoked, but was called: {calls}"
+        )
+
+    def test_fsck_not_invoked_when_criterion_hash_fallback_succeeds(
+        self, repo_with_pushed_task, tmp_path, monkeypatch
+    ):
+        """When the criterion-hash fallback recovers the commit, fsck must
+        not fire — we only pay the fsck cost when every cheaper path is exhausted.
+        """
+        primary, task_sha = repo_with_pushed_task
+        self._break_remote(primary, tmp_path)
+
+        calls = []
+        real = mod._unreachable_task_commits
+
+        def _spy(task_id, repo_root):
+            calls.append((task_id, repo_root))
+            return real(task_id, repo_root)
+
+        monkeypatch.setattr(mod, "_unreachable_task_commits", _spy)
+
+        db_path, conn = _make_db_with_task(tmp_path, 99)
+        # Real commit_hash — criterion-hash fallback handles it via `git show`.
+        conn.execute(
+            "INSERT INTO acceptance_criteria "
+            "(task_id, criterion, is_completed, commit_hash) VALUES (?, ?, ?, ?)",
+            (99, "task is done", 1, task_sha),
+        )
+        conn.commit()
+        try:
+            diff = mod.fetch_diff(99, primary, conn=conn)
+        finally:
+            conn.close()
+
+        assert diff["commits"] == 1
+        assert calls == [], (
+            "Criterion-hash fallback recovered the commit; "
+            f"_unreachable_task_commits should NOT have been invoked: {calls}"
+        )

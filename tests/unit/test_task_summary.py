@@ -516,6 +516,12 @@ class TestDiff:
         `git log --all --grep` scan in the summarizing checkout. If completed
         criteria point at the rewritten commit, use those hashes as a recovery
         source instead of reporting a zero diff.
+
+        Issue #845 layered the fsck unreachable-object fallback after this
+        criterion-hash path. The criterion-hash recovery is still the cheaper
+        and more targeted route when the commit_hash is known to be valid, so
+        gating the fsck path on ``conn is None`` (i.e. no criterion hashes to
+        try first) keeps both fallbacks doing their distinct jobs.
         """
         repo = str(tmp_path / "repo")
         os.makedirs(repo)
@@ -543,12 +549,13 @@ class TestDiff:
         )
         conn.commit()
 
-        assert mod.fetch_diff(735, repo) == {
-            "commits": 0,
-            "files_changed": 0,
-            "lines_added": 0,
-            "lines_removed": 0,
-        }
+        # With the issue #845 fsck fallback, fetch_diff is now strictly
+        # more robust — even without a conn it can recover the unreachable
+        # commit. This is a strict improvement over the prior "no conn =>
+        # zero diff" behavior the test originally asserted.
+        diff_no_conn = mod.fetch_diff(735, repo)
+        assert diff_no_conn["commits"] == 1
+        assert diff_no_conn["files_changed"] == 1
 
         diff = mod.fetch_diff(735, repo, conn=conn)
         assert diff["commits"] == 1
