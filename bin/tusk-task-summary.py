@@ -433,6 +433,32 @@ def _summarize_commit_files(commit_files: dict) -> dict:
     }
 
 
+def _emit_recovery_tier_diagnostic(tier_name: str) -> None:
+    """Print a single-line stderr note naming the recovery tier that produced commits.
+
+    Gated identically to ``bin/tusk``'s ``maybe_warn_cross_repo_drift`` /
+    ``maybe_warn_source_repo_stale`` precedent (issue #850): silent when
+    stderr is not a TTY (agent callers, piped/captured stderr, CI logs),
+    silenced unconditionally by ``TUSK_QUIET=1``, force-emitted in non-TTY
+    contexts by ``TUSK_FORCE_WARN=1``.
+
+    The TTY gate keeps agent transcripts and CI logs clean — these are
+    downstream-consumed by LLMs and humans who can't act on the note; the
+    diagnostic only helps an operator watching the terminal of a one-off
+    ``tusk task-summary`` invocation.
+    """
+    if os.environ.get("TUSK_QUIET"):
+        return
+    if not os.environ.get("TUSK_FORCE_WARN") and not sys.stderr.isatty():
+        return
+    print(
+        f"tusk: note — task-summary recovered diff via {tier_name} "
+        f"(refresh-fetch / criterion-hash / fsck-unreachable). "
+        f"(TUSK_QUIET=1 to silence)",
+        file=sys.stderr,
+    )
+
+
 def _try_fetch_default_branch(repo_root: str) -> None:
     """Best-effort ``git fetch origin <default>`` to refresh ``refs/remotes/origin/<default>``.
 
@@ -655,6 +681,11 @@ def fetch_diff(
     # into topological blocks before applying the file-overlap filter.
     commit_files, commit_parents = _parse_numstat_blocks(stdout)
 
+    # Track which recovery tier produced the final non-empty result so a single
+    # TTY-gated diagnostic can be emitted below (issue #850). The cheap path
+    # leaves this None and never emits.
+    recovered_via: str | None = None
+
     # No-checkout fast-forward recovery: when the initial scan is empty, refresh
     # refs/remotes/origin/<default> and retry. Cheap when there's nothing to
     # catch (no commits to summarize anyway); high value when the remote-tracking
@@ -664,9 +695,13 @@ def fetch_diff(
         stdout = _run_scan()
         if stdout is not None:
             commit_files, commit_parents = _parse_numstat_blocks(stdout)
+            if commit_files:
+                recovered_via = "refresh-fetch"
 
     if conn is not None and not commit_files:
         commit_files, commit_parents = _criterion_hash_numstats(task_id, repo_root, conn)
+        if commit_files:
+            recovered_via = "criterion-hash"
 
     # Unreachable-object recovery (issue #845): last-resort scan when every
     # ref-based and criterion-hash lookup has come up empty. Gated tightly so
@@ -674,6 +709,11 @@ def fetch_diff(
     # _unreachable_task_commits.
     if not commit_files:
         commit_files, commit_parents = _unreachable_task_commits(task_id, repo_root)
+        if commit_files:
+            recovered_via = "fsck-unreachable"
+
+    if recovered_via is not None:
+        _emit_recovery_tier_diagnostic(recovered_via)
 
     # Apply prefix-collision file-overlap heuristic (issue #656) at the
     # block level (issue #663). A "block" is a connected component on the
