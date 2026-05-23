@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [954] - 2026-05-23
+
+- [TASK-430] Surface task-summary fetch_diff recovery tier via TTY-gated stderr
+
 ## [953] - 2026-05-23
 
 - [TASK-429] Fix: task-summary reports zero diff stats when task closed manually after merge push (issue #845)
