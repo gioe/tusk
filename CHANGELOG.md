@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [946] - 2026-05-22
+
+- [TASK-422] Stop hardcoding cluster names in /address-issue SKILL.md
+
 ## [945] - 2026-05-22
 
 - [TASK-411] Expose worktree.symlink_files as editable in /tusk-update
