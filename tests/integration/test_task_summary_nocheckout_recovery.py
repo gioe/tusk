@@ -548,3 +548,166 @@ class TestFetchDiffUnreachableObjectRecovery:
             "Criterion-hash fallback recovered the commit; "
             f"_unreachable_task_commits should NOT have been invoked: {calls}"
         )
+
+
+class TestFetchDiffRecoveryTierDiagnostic:
+    """Issue #850: when a recovery tier produces commits after a cheaper layer
+    came up empty, fetch_diff emits a single stderr line naming the tier.
+    The line is TTY-gated identically to bin/tusk's active-projects drift
+    warning — silent on captured stderr (agent/CI), forced on with
+    ``TUSK_FORCE_WARN=1``, silenced unconditionally by ``TUSK_QUIET=1``.
+
+    Pytest's ``capsys`` captures stderr, which means ``sys.stderr.isatty()``
+    returns False during the test — perfect for exercising both gate sides.
+    """
+
+    def _break_remote(self, primary, tmp_path):
+        _run(
+            ["git", "update-ref", "-d", "refs/remotes/origin/main"],
+            cwd=primary,
+        )
+        broken = str(tmp_path / "no-such-remote.git")
+        _run(["git", "remote", "set-url", "origin", broken], cwd=primary)
+
+    def _force_stale(self, primary):
+        pre_push_sha = _run(
+            ["git", "rev-list", "--max-parents=0", "refs/remotes/origin/main"],
+            cwd=primary,
+        ).stdout.strip()
+        _run(
+            ["git", "update-ref", "refs/remotes/origin/main", pre_push_sha],
+            cwd=primary,
+        )
+
+    def test_happy_path_emits_no_diagnostic(
+        self, repo_with_pushed_task, tmp_path, capsys, monkeypatch
+    ):
+        """When the initial --all scan succeeds, no recovery tier fired and
+        no diagnostic line may appear — even under TUSK_FORCE_WARN=1."""
+        monkeypatch.setenv("TUSK_FORCE_WARN", "1")
+        monkeypatch.delenv("TUSK_QUIET", raising=False)
+        primary, _ = repo_with_pushed_task
+        db_path, conn = _make_db_with_task(tmp_path, 99)
+        try:
+            mod.fetch_diff(99, primary, conn=conn)
+        finally:
+            conn.close()
+        err = capsys.readouterr().err
+        assert "recovered diff via" not in err, (
+            f"Happy path should emit no recovery-tier diagnostic; got: {err!r}"
+        )
+
+    def test_refresh_fetch_tier_emits_diagnostic(
+        self, repo_with_pushed_task, tmp_path, capsys, monkeypatch
+    ):
+        """Tier 1 (TASK-408 refresh-fetch) fires when the initial scan is
+        empty but a refreshed remote-tracking ref recovers the commit."""
+        monkeypatch.setenv("TUSK_FORCE_WARN", "1")
+        monkeypatch.delenv("TUSK_QUIET", raising=False)
+        primary, _ = repo_with_pushed_task
+        self._force_stale(primary)
+
+        db_path, conn = _make_db_with_task(tmp_path, 99)
+        try:
+            mod.fetch_diff(99, primary, conn=conn)
+        finally:
+            conn.close()
+        err = capsys.readouterr().err
+        assert "recovered diff via refresh-fetch" in err, (
+            f"Expected refresh-fetch tier diagnostic; got: {err!r}"
+        )
+
+    def test_criterion_hash_tier_emits_diagnostic(
+        self, repo_with_pushed_task, tmp_path, capsys, monkeypatch
+    ):
+        """Tier 2 fires when the refresh-fetch retry also comes up empty
+        (broken remote) but the criterion-hash fallback recovers the commit
+        via its recorded SHA."""
+        monkeypatch.setenv("TUSK_FORCE_WARN", "1")
+        monkeypatch.delenv("TUSK_QUIET", raising=False)
+        primary, task_sha = repo_with_pushed_task
+        self._break_remote(primary, tmp_path)
+
+        db_path, conn = _make_db_with_task(tmp_path, 99)
+        conn.execute(
+            "INSERT INTO acceptance_criteria "
+            "(task_id, criterion, is_completed, commit_hash) VALUES (?, ?, ?, ?)",
+            (99, "task is done", 1, task_sha),
+        )
+        conn.commit()
+        try:
+            mod.fetch_diff(99, primary, conn=conn)
+        finally:
+            conn.close()
+        err = capsys.readouterr().err
+        assert "recovered diff via criterion-hash" in err, (
+            f"Expected criterion-hash tier diagnostic; got: {err!r}"
+        )
+
+    def test_fsck_unreachable_tier_emits_diagnostic(
+        self, repo_with_pushed_task, tmp_path, capsys, monkeypatch
+    ):
+        """Tier 3 (TASK-429 fsck) fires when refresh-fetch and criterion-hash
+        both come up empty but the commit is still in the local object store."""
+        monkeypatch.setenv("TUSK_FORCE_WARN", "1")
+        monkeypatch.delenv("TUSK_QUIET", raising=False)
+        primary, _ = repo_with_pushed_task
+        self._break_remote(primary, tmp_path)
+
+        db_path, conn = _make_db_with_task(tmp_path, 99)
+        # No commit_hash → criterion-hash fallback turns up nothing.
+        conn.execute(
+            "INSERT INTO acceptance_criteria "
+            "(task_id, criterion, is_completed, commit_hash) VALUES (?, ?, ?, ?)",
+            (99, "task is done", 1, None),
+        )
+        conn.commit()
+        try:
+            mod.fetch_diff(99, primary, conn=conn)
+        finally:
+            conn.close()
+        err = capsys.readouterr().err
+        assert "recovered diff via fsck-unreachable" in err, (
+            f"Expected fsck-unreachable tier diagnostic; got: {err!r}"
+        )
+
+    def test_non_tty_stderr_suppresses_diagnostic(
+        self, repo_with_pushed_task, tmp_path, capsys, monkeypatch
+    ):
+        """Without TUSK_FORCE_WARN, captured (non-TTY) stderr must be silent
+        even when a recovery tier fired — agent/CI transcripts stay clean."""
+        monkeypatch.delenv("TUSK_FORCE_WARN", raising=False)
+        monkeypatch.delenv("TUSK_QUIET", raising=False)
+        primary, _ = repo_with_pushed_task
+        self._force_stale(primary)
+
+        db_path, conn = _make_db_with_task(tmp_path, 99)
+        try:
+            mod.fetch_diff(99, primary, conn=conn)
+        finally:
+            conn.close()
+        err = capsys.readouterr().err
+        assert "recovered diff via" not in err, (
+            f"Captured stderr is non-TTY; diagnostic should be suppressed "
+            f"without TUSK_FORCE_WARN; got: {err!r}"
+        )
+
+    def test_tusk_quiet_overrides_force_warn(
+        self, repo_with_pushed_task, tmp_path, capsys, monkeypatch
+    ):
+        """TUSK_QUIET=1 silences the diagnostic even when TUSK_FORCE_WARN=1
+        is also set — mirrors maybe_warn_cross_repo_drift's ordering."""
+        monkeypatch.setenv("TUSK_QUIET", "1")
+        monkeypatch.setenv("TUSK_FORCE_WARN", "1")
+        primary, _ = repo_with_pushed_task
+        self._force_stale(primary)
+
+        db_path, conn = _make_db_with_task(tmp_path, 99)
+        try:
+            mod.fetch_diff(99, primary, conn=conn)
+        finally:
+            conn.close()
+        err = capsys.readouterr().err
+        assert "recovered diff via" not in err, (
+            f"TUSK_QUIET=1 must override TUSK_FORCE_WARN=1; got: {err!r}"
+        )
