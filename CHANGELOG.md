@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [953] - 2026-05-23
+
+- [TASK-429] Fix: task-summary reports zero diff stats when task closed manually after merge push (issue #845)
+
 ## [952] - 2026-05-23
 
 - [TASK-428] Document /address-issue Step 4.6 origin-staleness check and Step 9 gh comment quoting hazard
