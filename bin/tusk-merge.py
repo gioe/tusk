@@ -95,8 +95,23 @@ def _resolve_stable_tusk_bin(db_path: str, fallback: str) -> str:
     the Claude (``.claude/bin/tusk``) and Codex (``tusk/bin/tusk``) layouts. Falls
     back to ``fallback`` when neither is present, preserving test-environment
     behavior where the DB lives outside a real install tree.
+
+    Source-repo invariant (issue #841): in the tusk source repo, ``bin/`` is the
+    source of truth and ``.claude/bin/`` is a refresh-on-demand cache populated
+    by ``bin/tusk dev-sync`` that can lag ``bin/`` after migrations land. When
+    ``bin/tusk-migrate.py`` exists next to ``bin/tusk`` in the primary repo root,
+    treat that as the source-repo signal and prefer ``bin/tusk`` over the cache
+    — otherwise the schema preflight reads the stale ``.claude/bin/tusk-migrate.py``
+    and refuses the post-push session-close / task-done subprocess calls with a
+    misleading "Run 'tusk upgrade' to update" diagnostic.
     """
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+    source_repo_bin = os.path.join(repo_root, "bin", "tusk")
+    source_repo_migrate = os.path.join(repo_root, "bin", "tusk-migrate.py")
+    if os.path.exists(source_repo_bin) and os.path.exists(source_repo_migrate):
+        if os.path.realpath(source_repo_bin) != os.path.realpath(fallback):
+            return source_repo_bin
+        return fallback
     for candidate in (
         os.path.join(repo_root, ".claude", "bin", "tusk"),
         os.path.join(repo_root, "tusk", "bin", "tusk"),
