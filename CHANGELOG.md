@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [952] - 2026-05-23
+
+- [TASK-428] Document /address-issue Step 4.6 origin-staleness check and Step 9 gh comment quoting hazard
+
 ## [951] - 2026-05-23
 
 - [TASK-428] Fix: defer task-worktree cleanup until task-done finishes during merge closeout
