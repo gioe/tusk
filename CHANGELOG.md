@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [945] - 2026-05-22
+
+- [TASK-411] Expose worktree.symlink_files as editable in /tusk-update
+
 ## [944] - 2026-05-22
 
 - [TASK-421] Fix: tusk abandon emits fatal git CWD warning when run from recorded task worktree
