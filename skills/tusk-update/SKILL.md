@@ -86,6 +86,7 @@ Analyze the findings from Step 1 and form a prioritized, numbered recommendation
 | `test_command` is set but differs from auto-detected command (high confidence) | Update `test_command` to the detected command | Detected command better matches current project tooling |
 | Pillars list is empty | Note: no pillars configured; suggest running `/tusk-init` to seed them | Pillars provide design vocabulary for task evaluation |
 | N open tasks have no domain assigned and the user has requested adding a new domain | Reassign N unassigned tasks to `<new_domain>` | Keeps the backlog organized without manual follow-up |
+| `worktree.symlink_files` is empty and `project_type` has a canonical default (`python_service` → `[".venv", ".env"]`; `web_app` → `["node_modules", ".env", ".env.local"]`) | Suggest adopting the canonical default | `/tusk-init` seeds these for fresh installs; pre-TASK-409 installs need an explicit opt-in to adopt them |
 | User invoked `/tusk-update <description of changes>` | Include the user-requested changes as explicit recommendation items | User intent overrides auto-detection |
 
 > **Note on low/none confidence:** If `test-detect` returns `low` or `none` confidence, no `test_command` recommendation is generated — auto-detection could not identify the project's test tooling with sufficient certainty. To set or clear `test_command` in this case, describe the change explicitly when invoking the skill (e.g., `/tusk-update set test_command to pytest tests/`).
@@ -121,6 +122,7 @@ After the list, include the configurable fields reference table so the user know
 | `review_severities` | Yes | Valid severity levels; empty array disables validation |
 | `project_type` | No | String key identifying the project type (e.g. `python_service`, `ios_app`); `null` if unset |
 | `project_libs.*.ref` | No | Pin a project lib's bootstrap ref to a tag or commit SHA; defaults to `"main"` |
+| `worktree.symlink_files` | No | JSON array of basenames symlinked from the primary checkout into new task worktrees; empty array disables auto-symlink. See Step 5c for set/clear/append semantics. |
 
 **Agents object shape:** `{ "<agent_name>": "<description string>" }` — e.g. `{ "backend": "API, business logic, data layer", "frontend": "UI components, styling, client-side" }`.
 
@@ -198,6 +200,43 @@ tusk "SELECT changes() AS rows_updated"
 ```
 
 Report the `rows_updated` count. If multiple domains were added, repeat for each.
+
+## Step 5c: Edit `worktree.symlink_files` (if approved)
+
+`worktree.symlink_files` is a JSON array nested under `worktree` in `tusk/config.json`. `tusk task-worktree create` reads it and symlinks each basename from the primary checkout into new task worktrees (the documented mechanism for letting gitignored runtime files like `.venv`, `.env`, `node_modules` reach feature-branch worktrees). All edits route through `tusk init-write-config --worktree-symlink-files '<json_array>'`. The helper **replaces the entire array** on every call — there is no append flag, so append flows must read the current value, merge, and pass the full merged list.
+
+**Show the current value before editing:**
+
+```bash
+tusk config worktree
+```
+
+This returns the `worktree` JSON subtree (e.g. `{"symlink_files":[".venv",".env"]}`). Pull `symlink_files` from it. If the `worktree` key is absent or `symlink_files` is missing, treat it as `[]`.
+
+**Set:** pass the full desired list.
+
+```bash
+tusk init-write-config --worktree-symlink-files '[".venv", ".env"]'
+```
+
+**Clear** (revert to `[]`, disables auto-symlink):
+
+```bash
+tusk init-write-config --worktree-symlink-files '[]'
+```
+
+**Append:** read the current value (e.g. `[".venv", ".env"]`), concatenate the new basenames, deduplicate, then pass the full merged array. Do **not** pass only the new basename(s) — that overwrites the existing list.
+
+```bash
+# Current: [".venv", ".env"]; appending "node_modules"
+tusk init-write-config --worktree-symlink-files '[".venv", ".env", "node_modules"]'
+```
+
+**Validation:** the value must be a JSON array of strings. Non-string entries (e.g. `[".venv", 42]`) are rejected with `--worktree-symlink-files must be a JSON array of strings`, and the existing config is left untouched.
+
+**Effect:** immediate for any new `tusk task-worktree create` calls. Existing worktrees are **not** retroactively re-symlinked — they retain whatever symlinks (or lack thereof) they had at creation time. To apply a new list to an existing worktree, remove and recreate it.
+
+This field is not trigger-validated, so Step 6 (regen-triggers) is **not** required after editing it.
 
 ## Step 6: Regenerate Triggers (if needed)
 
