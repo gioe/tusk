@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [951] - 2026-05-23
+
+- [TASK-428] Fix: defer task-worktree cleanup until task-done finishes during merge closeout
+
 ## [950] - 2026-05-23
 
 - [TASK-424] Sweep remaining cluster-name mirror surfaces and drop CLI enum in tusk report-issue
