@@ -1,5 +1,7 @@
 # Issue Cluster Labels Design
 
+> **Superseded by TASK-422 / TASK-424 (issue #828).** The closed `cluster:*` enum and the "invalid values should fail before invoking `gh`" behavior described below are no longer authoritative. `bin/tusk cmd_report_issue` no longer hardcodes the cluster list, and the report skill now points at live `gh label list` output for the current set. This document is kept for historical context.
+
 ## Goal
 
 Make tusk GitHub issues easier to batch by requiring one `cluster:*` label before backlog work starts, while keeping issue filing lightweight.
