@@ -23,7 +23,7 @@ Prompt the user for the standard `tusk report-issue` fields. Pre-fill from any o
 3. **Steps to reproduce** (optional) — numbered steps. If the user can't supply them (e.g. it's a UX gap rather than a bug), accept "n/a" and skip.
 4. **Expected behavior** (optional) — what should have happened instead. For feature requests, treat this as the proposed behavior.
 5. **Project context** (optional) — language, team size, rough task count. **No confidential details.** If the user declines, leave empty — `tusk report-issue` will inline the placeholder comment, which is fine for tusk-team triage.
-6. **Cluster** (required) — choose exactly one of: `worktree`, `merge`, `review-diff`, `summary`, `docs`, `test-precheck`, `small-fix`, or `triage-needed`. Default to `triage-needed` only when no specific cluster fits.
+6. **Cluster** (required) — any `cluster:<name>` label currently present on the repo is accepted; the CLI does not validate against a closed list, so new clusters added to GitHub work immediately. Run `gh label list --repo gioe/tusk --search "cluster:"` to see the current set. Default to `triage-needed` only when no specific cluster fits.
 
 Don't pad missing fields with filler. An empty Steps/Expected section is more honest than invented content; tusk maintainers can ask follow-ups on the issue if needed.
 
