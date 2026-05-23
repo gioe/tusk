@@ -113,7 +113,7 @@ Label each finding with its classification. This drives the routing in LR-2.
    ```bash
    tusk report-issue --title "<finding title>" --cluster triage-needed --context "<finding description>"
    ```
-   Choose a more specific cluster (`worktree`, `merge`, `review-diff`, `summary`, `docs`, `test-precheck`, or `small-fix`) when it is clear from the finding; use `triage-needed` only as the fallback. Do **not** call `tusk task-insert` for tusk-issues. Track the count of issues filed for LR-3.
+   Pick the most specific `cluster:<name>` label that fits the finding — the CLI accepts any cluster name currently labelled on the repo, so new clusters work immediately. Run `gh label list --repo gioe/tusk --search "cluster:"` to see the current set. Use `triage-needed` only as the fallback. Do **not** call `tusk task-insert` for tusk-issues. Track the count of issues filed for LR-3.
 
    **Include a `## Failing Test` section** in `--context` whenever a concrete test can be derived from the finding. This matters because `/address-issue` Factor 0 treats a missing failing test as the highest-priority signal to Defer — issues filed without one will be deprioritized automatically. Format:
 
