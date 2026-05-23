@@ -682,6 +682,28 @@ class TestMainOutput:
             [sys.executable, os.path.join(BIN, "tusk-retro-signals.py")],
             capture_output=True,
             text=True,
+            encoding="utf-8",
         )
         assert result.returncode != 0
         assert "tusk wrapper" in result.stderr or "retro-signals" in result.stderr
+
+    def test_phase_diagnostic_on_db_failure(self, tmp_path):
+        """A missing table during signal collection must emit a one-line stderr
+        diagnostic naming the failing phase, not exit silently (issue #815)."""
+        db_path, conn = _make_db(tmp_path, task_id=1)
+        # Drop the table queried by fetch_reopen_count to force a sqlite3 error
+        # at the very first signal-collection phase.
+        conn.execute("DROP TABLE task_status_transitions")
+        conn.commit()
+        conn.close()
+        rc, stdout, stderr = _run_main(db_path, 1)
+        assert rc != 0
+        # Diagnostic was written to stderr, not silent.
+        assert stderr.strip(), f"expected non-empty stderr, got: {stderr!r}"
+        # Names the tool, the failing phase, and the underlying error class so
+        # operators have something to act on rather than a bare exit code.
+        assert "tusk retro-signals" in stderr
+        assert "reopen_count" in stderr
+        assert "OperationalError" in stderr
+        # No partial signal JSON should reach stdout on the failure path.
+        assert stdout.strip() == ""
