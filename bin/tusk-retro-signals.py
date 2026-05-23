@@ -346,24 +346,47 @@ def fetch_unconsumed_next_steps(conn: sqlite3.Connection, task_id: int) -> list[
     return [{"created_at": r["created_at"], "next_steps": r["next_steps"]} for r in rows]
 
 
+class RetroSignalsError(Exception):
+    """Wraps an underlying exception with the build_signals phase that raised it,
+    so main() can emit a phase-named diagnostic to stderr instead of a bare
+    traceback or silent non-zero exit (issue #815)."""
+
+    def __init__(self, phase: str, original: BaseException):
+        self.phase = phase
+        self.original = original
+        super().__init__(f"{phase}: {type(original).__name__}: {original}")
+
+
 def build_signals(conn: sqlite3.Connection, task_id: int) -> dict:
     """Fetch every signal and bundle into the output dict. Callers handle
-    task-not-found separately so this function always returns populated keys."""
-    task_row = conn.execute(
-        "SELECT complexity FROM tasks WHERE id = ?", (task_id,)
-    ).fetchone()
+    task-not-found separately so this function always returns populated keys.
+
+    Each fetch is wrapped so an underlying failure is re-raised as
+    RetroSignalsError(phase=...) — main() catches that and prints a one-line
+    stderr diagnostic naming the failing phase (issue #815)."""
+    try:
+        task_row = conn.execute(
+            "SELECT complexity FROM tasks WHERE id = ?", (task_id,)
+        ).fetchone()
+    except Exception as e:
+        raise RetroSignalsError("task_complexity_lookup", e) from e
     complexity = task_row["complexity"] if task_row else None
-    return {
-        "task_id": task_id,
-        "complexity": complexity,
-        "reopen_count": fetch_reopen_count(conn, task_id),
-        "rework_chain": fetch_rework_chain(conn, task_id),
-        "review_themes": fetch_review_themes(conn, task_id),
-        "skipped_criteria": fetch_skipped_criteria(conn, task_id),
-        "tool_call_outliers": fetch_tool_call_outliers(conn, task_id, complexity),
-        "tool_errors": fetch_tool_errors(conn, task_id),
-        "unconsumed_next_steps": fetch_unconsumed_next_steps(conn, task_id),
-    }
+    signals: dict = {"task_id": task_id, "complexity": complexity}
+    phases = (
+        ("reopen_count", lambda: fetch_reopen_count(conn, task_id)),
+        ("rework_chain", lambda: fetch_rework_chain(conn, task_id)),
+        ("review_themes", lambda: fetch_review_themes(conn, task_id)),
+        ("skipped_criteria", lambda: fetch_skipped_criteria(conn, task_id)),
+        ("tool_call_outliers", lambda: fetch_tool_call_outliers(conn, task_id, complexity)),
+        ("tool_errors", lambda: fetch_tool_errors(conn, task_id)),
+        ("unconsumed_next_steps", lambda: fetch_unconsumed_next_steps(conn, task_id)),
+    )
+    for key, fn in phases:
+        try:
+            signals[key] = fn()
+        except Exception as e:
+            raise RetroSignalsError(key, e) from e
+    return signals
 
 
 def main(argv: list) -> int:
@@ -382,12 +405,47 @@ def main(argv: list) -> int:
         print(f"Invalid task ID: {args.task_id}", file=sys.stderr)
         return 1
 
-    conn = get_connection(db_path)
     try:
-        if not conn.execute("SELECT 1 FROM tasks WHERE id = ?", (task_id,)).fetchone():
+        conn = get_connection(db_path)
+    except Exception as e:
+        print(
+            f"tusk retro-signals: failed to open database '{db_path}': "
+            f"{type(e).__name__}: {e}",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        try:
+            exists = conn.execute(
+                "SELECT 1 FROM tasks WHERE id = ?", (task_id,)
+            ).fetchone()
+        except Exception as e:
+            print(
+                f"tusk retro-signals: failed during 'task_existence_check' phase "
+                f"for task {task_id}: {type(e).__name__}: {e}",
+                file=sys.stderr,
+            )
+            return 1
+        if not exists:
             print(f"Task {task_id} not found", file=sys.stderr)
             return 1
-        print(dumps(build_signals(conn, task_id)))
+        try:
+            payload = build_signals(conn, task_id)
+        except RetroSignalsError as e:
+            print(
+                f"tusk retro-signals: failed during '{e.phase}' phase for "
+                f"task {task_id}: {type(e.original).__name__}: {e.original}",
+                file=sys.stderr,
+            )
+            return 1
+        except Exception as e:
+            print(
+                f"tusk retro-signals: unexpected error while collecting signals "
+                f"for task {task_id}: {type(e).__name__}: {e}",
+                file=sys.stderr,
+            )
+            return 1
+        print(dumps(payload))
         return 0
     finally:
         conn.close()
