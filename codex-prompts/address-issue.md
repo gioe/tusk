@@ -278,8 +278,12 @@ the bug is still present. Use at most 3 tool calls (Grep, Read, or
 Bash read-only). **Prefer invoking the affected code path directly**
 (e.g. running the actual command with a known input) over grepping
 for static markers — a live invocation surfaces regex bugs, off-by-one
-errors, and silent failures that grep-and-read miss. If you find clear
-evidence the bug is already fixed, surface this before proceeding:
+errors, and silent failures that grep-and-read miss. **Confirm local
+default branch isn't stale relative to origin** (`git fetch origin
+<default> 2>/dev/null && git log <default>..origin/<default>
+--oneline | head`) — recent fixes may already be on origin. If you
+find clear evidence the bug is already fixed, surface this before
+proceeding:
 
 > **Reproducibility note:** The issue may already be fixed —
 > [brief explanation]. Do you still want to create a task?
@@ -504,6 +508,17 @@ URL from the merge output or `gh pr list --state merged --limit 1`.
 ```bash
 gh issue close <number> --repo <owner/repo> --comment "Resolved in <commit_sha> — <pr_url_or_branch>. Tracked as tusk task #<task_id>."
 ```
+
+**Avoid backticks and unescaped `$` in the comment body** —
+`--comment` values (and the `--body` of any `gh issue comment`
+fallback) are shell arguments, so zsh and bash expand backticks and
+`$VAR` / `$(...)` even inside double quotes. Drop markdown code ticks
+around identifiers (write `_resolve_stable_tusk_bin` and
+`bin/tusk-merge.py` as plain text, not in backticks) and avoid literal
+dollar signs unless every metacharacter is escaped deliberately.
+Mirrors the same hazard documented for `tusk commit` messages (tusk
+Step 7) and `tusk review add-comment` values (review-commits Step
+5.1).
 
 Use the `commit_sha` from Step 8 (include the PR URL if available,
 else the branch name). On failure, apply **Shared gh Failure
