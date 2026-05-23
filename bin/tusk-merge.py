@@ -816,14 +816,18 @@ def _complete_no_checkout_fast_forward(
     if did_stash:
         _try_pop_stash(task_id)
     _warn_branch_auto_stash(task_id)
-    # Post-merge cleanup for the no-checkout fast-forward push path (issue #765).
-    # Before this fix the no-checkout path finalized session+task but left the
-    # recorded task worktree, the task_workspaces row, and the local feature
-    # branch behind — accumulating into 10+ stale worktrees across long-running
-    # projects. The local ff-only path already did this cleanup; we replicate
-    # it here so both paths converge on the same end-state.
+    # Order matters: task-done must run BEFORE worktree cleanup (issue #846).
+    # _close_completed_task shells out to ``tusk_bin task-done``; when
+    # _resolve_stable_tusk_bin falls through to the worktree-local fallback
+    # (no primary .claude/bin/tusk or tusk/bin/tusk in the project checkout),
+    # tusk_bin points inside the very worktree _cleanup_no_checkout_workspace
+    # is about to remove. Running cleanup first deletes that binary out from
+    # under the still-pending subprocess invocation and the task stays In
+    # Progress with a "Missing executable" diagnostic. The cleanup itself
+    # (issue #765) still runs on success; only the ordering is reversed.
+    rc = _close_completed_task(tusk_bin, task_id, db_path, session_was_closed)
     _cleanup_no_checkout_workspace(db_path, task_id, branch_name)
-    return _close_completed_task(tusk_bin, task_id, db_path, session_was_closed)
+    return rc
 
 
 def _cleanup_no_checkout_workspace(
