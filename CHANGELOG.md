@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [967] - 2026-05-24
+
+- [TASK-445] Document worktree tusk CLI dispatching primary's bin/tusk-*.py modules (issue #860)
+
 ## [966] - 2026-05-24
 
 - [TASK-444] Fix: downgrade check-deliverables to manual_pending when all criteria are manual and zero commits
