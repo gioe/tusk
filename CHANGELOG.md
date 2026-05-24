@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [963] - 2026-05-24
+
+- [TASK-441] Add tusk sync-main helper for /address-issue staleness recovery (fetch + ff-pull + migrate)
+
 ## [962] - 2026-05-24
 
 - [TASK-440] Fix: bump tusk-lint Rule 15 grouped-criteria threshold to >=4 to match documented /tusk allowance
