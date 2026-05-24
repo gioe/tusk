@@ -89,6 +89,7 @@ CREATE TABLE tasks (
     updated_at TEXT DEFAULT (datetime('now')),
     started_at TEXT,
     closed_at TEXT,
+    merge_commit_sha TEXT,
     fixes_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
     bakeoff_id INTEGER,
     bakeoff_shadow INTEGER NOT NULL DEFAULT 0 CHECK (bakeoff_shadow IN (0, 1))

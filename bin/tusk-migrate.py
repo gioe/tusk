@@ -2736,6 +2736,111 @@ def migrate_69(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 69: added code_reviews.diff_range column")
 
 
+def migrate_70(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add ``tasks.merge_commit_sha`` and recreate tasks-dependent views.
+
+    ``tusk merge`` (default-branch ff, no-checkout fast-forward push, and
+    PR-squash paths) stamps the final merge commit SHA onto this column so
+    ``bin/tusk-task-summary.py``'s ``fetch_diff`` can fast-path to
+    ``git show --numstat <sha>`` instead of walking the 3-tier ref →
+    criterion-hash → fsck recovery chain (issues #757/#797/#812/#816/#820/
+    #822/#827/#845). The recovery chain still fires for legacy tasks closed
+    before this migration — ``merge_commit_sha`` stays NULL for those rows
+    and ``fetch_diff`` falls through unchanged. Issue #849.
+
+    Per the CLAUDE.md "Migrations" guidance: any ALTER TABLE tasks change
+    must also DROP+CREATE every view that projects ``t.*`` (column-list
+    freezing). The views recreated here mirror ``cmd_init``'s v70 shape
+    verbatim — that shape also carries ``WHERE t.bakeoff_shadow = 0``
+    introduced by migration 58.
+
+    Idempotent: column-add is guarded by ``has_column()``; view recreation
+    is DROP IF EXISTS + CREATE.
+    """
+    if get_version(db_path) >= 70:
+        _progress("  Migration 70: added tasks.merge_commit_sha and recreated tasks-dependent views")
+        return
+
+    if not has_column(db_path, "tasks", "merge_commit_sha"):
+        run_script(
+            db_path,
+            "ALTER TABLE tasks ADD COLUMN merge_commit_sha TEXT;",
+        )
+
+    script = """
+        DROP VIEW IF EXISTS task_metrics;
+        CREATE VIEW task_metrics AS
+        SELECT t.*,
+            COUNT(s.id) as session_count,
+            SUM(s.duration_seconds) as total_duration_seconds,
+            SUM(s.cost_dollars) as total_cost,
+            SUM(s.tokens_in) as total_tokens_in,
+            SUM(s.tokens_out) as total_tokens_out,
+            SUM(s.lines_added) as total_lines_added,
+            SUM(s.lines_removed) as total_lines_removed,
+            SUM(s.request_count) as total_request_count,
+            (SELECT COUNT(*) FROM task_status_transitions tst
+              WHERE tst.task_id = t.id AND tst.to_status = 'To Do') as reopen_count
+        FROM tasks t
+        LEFT JOIN task_sessions s ON t.id = s.task_id
+        WHERE t.bakeoff_shadow = 0
+        GROUP BY t.id;
+
+        DROP VIEW IF EXISTS v_ready_tasks;
+        CREATE VIEW v_ready_tasks AS
+        SELECT t.*
+        FROM tasks t
+        WHERE t.status = 'To Do'
+          AND t.bakeoff_shadow = 0
+          AND NOT EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks blocker ON d.depends_on_id = blocker.id
+            WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM external_blockers eb
+            WHERE eb.task_id = t.id AND eb.is_resolved = 0
+          );
+
+        DROP VIEW IF EXISTS v_chain_heads;
+        CREATE VIEW v_chain_heads AS
+        SELECT t.*
+        FROM tasks t
+        WHERE t.status <> 'Done'
+          AND t.bakeoff_shadow = 0
+          AND EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks downstream ON d.task_id = downstream.id
+            WHERE d.depends_on_id = t.id AND downstream.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks blocker ON d.depends_on_id = blocker.id
+            WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM external_blockers eb
+            WHERE eb.task_id = t.id AND eb.is_resolved = 0
+          );
+
+        DROP VIEW IF EXISTS v_criteria_coverage;
+        CREATE VIEW v_criteria_coverage AS
+        SELECT t.id AS task_id,
+               t.summary,
+               COUNT(CASE WHEN ac.is_deferred = 0 OR ac.is_deferred IS NULL THEN 1 END) AS total_criteria,
+               COALESCE(SUM(CASE WHEN ac.is_completed = 1 AND (ac.is_deferred = 0 OR ac.is_deferred IS NULL) THEN 1 ELSE 0 END), 0) AS completed_criteria,
+               COUNT(CASE WHEN ac.is_deferred = 0 OR ac.is_deferred IS NULL THEN 1 END) - COALESCE(SUM(CASE WHEN ac.is_completed = 1 AND (ac.is_deferred = 0 OR ac.is_deferred IS NULL) THEN 1 ELSE 0 END), 0) AS remaining_criteria
+        FROM tasks t
+        LEFT JOIN acceptance_criteria ac ON ac.task_id = t.id
+        WHERE t.bakeoff_shadow = 0
+        GROUP BY t.id, t.summary;
+
+        PRAGMA user_version = 70;
+    """
+    run_script(db_path, script)
+    _progress("  Migration 70: added tasks.merge_commit_sha and recreated tasks-dependent views")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -2808,6 +2913,7 @@ MIGRATIONS = [
     (67, migrate_67),
     (68, migrate_68),
     (69, migrate_69),
+    (70, migrate_70),
 ]
 
 

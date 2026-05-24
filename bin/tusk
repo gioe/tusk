@@ -599,6 +599,11 @@ CREATE TABLE tasks (
     updated_at TEXT DEFAULT (datetime('now')),
     started_at TEXT,
     closed_at TEXT,
+    -- merge_commit_sha: stamped by `tusk merge` for ff, no-checkout, and PR
+    -- paths; consumed by tusk-task-summary.py's fetch_diff fast-path so the
+    -- 3-tier ref/criterion-hash/fsck recovery chain is unneeded for tasks
+    -- closed via merge after migration 70 (issue #849).
+    merge_commit_sha TEXT,
     fixes_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
     bakeoff_id INTEGER,
     bakeoff_shadow INTEGER NOT NULL DEFAULT 0 CHECK (bakeoff_shadow IN (0, 1))
@@ -1089,7 +1094,7 @@ TEST_RUNS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 69;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 70;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."
