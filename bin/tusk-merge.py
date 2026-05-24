@@ -612,7 +612,7 @@ def _detect_id_gaps(db_path: str, task_id: int) -> list[int]:
         return []
 
 
-def _maybe_refresh_deployed_bin(db_path: str, tusk_bin: str) -> None:
+def _maybe_refresh_deployed_bin(db_path: str, tusk_bin: str) -> bool:
     """Auto-refresh the primary's .claude/bin/ when it has drifted from bin/.
 
     Source-repo only: silent no-op unless both `bin/tusk-*.py` and the deployed
@@ -621,16 +621,22 @@ def _maybe_refresh_deployed_bin(db_path: str, tusk_bin: str) -> None:
     this is self-healing (catches any stale state, not only this merge's) and
     works regardless of which merge path ran (ff, rebase, PR squash, no-checkout).
 
+    Returns True when drift was detected and `tusk dev-sync` was invoked
+    (regardless of dev-sync's exit code — a failed refresh still emitted a
+    stderr advisory, which is what the no-checkout caller routes on to avoid
+    a contradictory follow-up). Returns False on silent no-op paths (env-var
+    disable, missing layout, no drift).
+
     Disable explicitly with TUSK_NO_DEPLOYED_BIN_REFRESH=1.
     """
     if os.environ.get("TUSK_NO_DEPLOYED_BIN_REFRESH") == "1":
-        return
+        return False
     from pathlib import Path
     primary_root = Path(os.path.dirname(os.path.dirname(os.path.abspath(db_path))))
     src_bin = primary_root / "bin"
     dst_bin = primary_root / ".claude" / "bin"
     if not src_bin.is_dir() or not dst_bin.is_dir():
-        return
+        return False
     drifted = []
     try:
         for src_file in sorted(src_bin.glob("tusk-*.py")):
@@ -643,9 +649,9 @@ def _maybe_refresh_deployed_bin(db_path: str, tusk_bin: str) -> None:
                 and src_wrapper.read_bytes() != dst_wrapper.read_bytes()):
             drifted.append("tusk")
     except OSError:
-        return
+        return False
     if not drifted:
-        return
+        return False
     result = subprocess.run(
         [tusk_bin, "dev-sync"],
         cwd=str(primary_root),
@@ -663,9 +669,12 @@ def _maybe_refresh_deployed_bin(db_path: str, tusk_bin: str) -> None:
             f"run `tusk dev-sync` manually. stderr: {result.stderr.strip()[:200]}",
             file=sys.stderr,
         )
+    return True
 
 
-def _maybe_advise_stale_deployed_bin(db_path: str) -> None:
+def _maybe_advise_stale_deployed_bin(
+    db_path: str, refresh_fired: bool = False,
+) -> None:
     """Advise the operator that .claude/bin/ may be stale after a no-checkout merge.
 
     The no-checkout fast-forward path pushes to origin/<default> without updating
@@ -673,6 +682,15 @@ def _maybe_advise_stale_deployed_bin(db_path: str) -> None:
     primary's bin/ and primary's .claude/bin/ — both stay at primary's pre-merge
     content. The deployed cache remains stale relative to origin/<default> until
     the operator pulls primary (issue #865).
+
+    When ``refresh_fired`` is True, the auto-refresh helper just announced that
+    it synced .claude/bin/ from primary's bin/. Keeping the original
+    ".claude/bin/ may be stale ... run tusk dev-sync" wording immediately after
+    that line reads as a contradiction (issue #869); reframe the message around
+    primary's working tree being behind origin (the actual remaining state) so
+    the two lines are coherent. The recovery command is unchanged — after the
+    user pulls, primary's bin/ moves ahead of .claude/bin/ again and dev-sync
+    re-deploys.
 
     Emits a single stderr line naming the recovery command. Wording adapts to
     primary's working-tree state: clean → plain `git pull && tusk dev-sync`;
@@ -694,7 +712,22 @@ def _maybe_advise_stale_deployed_bin(db_path: str) -> None:
     if status.returncode != 0:
         return
     working_tree_clean = not status.stdout.strip()
-    if working_tree_clean:
+    if refresh_fired:
+        if working_tree_clean:
+            print(
+                "tusk: primary's working tree is behind origin — this no-checkout "
+                f"merge updated the remote only. Run `git pull && tusk dev-sync` in {primary_root} "
+                "when convenient.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "tusk: primary's working tree is behind origin — this no-checkout "
+                "merge updated the remote only. Stash or commit local changes in "
+                f"{primary_root}, then run `git pull && tusk dev-sync`.",
+                file=sys.stderr,
+            )
+    elif working_tree_clean:
         print(
             "tusk: .claude/bin/ may be stale — primary's working tree was not "
             "updated by this no-checkout merge. Run `git pull && tusk dev-sync` "
@@ -863,7 +896,6 @@ def _close_completed_task(
                     file=sys.stderr,
                 )
             print(dumps(synthetic))
-            _maybe_refresh_deployed_bin(db_path, tusk_bin)
             return 0
         print(f"Error: task-done failed:\n{result.stderr.strip()}", file=sys.stderr)
         return 2
@@ -888,7 +920,6 @@ def _close_completed_task(
         task_done_result["sessions_closed"] = 1
 
     print(dumps(task_done_result))
-    _maybe_refresh_deployed_bin(db_path, tusk_bin)
     return 0
 
 
@@ -1088,12 +1119,20 @@ def _complete_no_checkout_fast_forward(
         tusk_bin, task_id, db_path, session_was_closed,
         merge_commit_sha=merge_commit_sha,
     )
+    # Refresh BEFORE cleanup: dev-sync shells out via tusk_bin, which may
+    # resolve to the worktree's own bin/ in source-repo layouts where neither
+    # primary's .claude/bin/tusk nor tusk/bin/tusk exists; cleanup removes that
+    # worktree and would invalidate the path mid-call.
+    refreshed = _maybe_refresh_deployed_bin(db_path, tusk_bin)
     _cleanup_no_checkout_workspace(db_path, task_id, branch_name)
-    # The auto-refresh inside _close_completed_task compares primary's bin/
-    # against primary's .claude/bin/, but the no-checkout path never updates
-    # primary's working tree — so both stay at primary's pre-merge content and
-    # no drift is detected. Surface the staleness explicitly (issue #865).
-    _maybe_advise_stale_deployed_bin(db_path)
+    # The auto-refresh above compares primary's bin/ against primary's
+    # .claude/bin/, but the no-checkout path never updates primary's working
+    # tree — so any drift here was pre-existing, not caused by this merge.
+    # When refresh fired, the advisory below reframes around primary's working
+    # tree being behind origin (issue #869) instead of repeating the
+    # ".claude/bin/ may be stale, run dev-sync" line that the refresh has
+    # already addressed.
+    _maybe_advise_stale_deployed_bin(db_path, refresh_fired=refreshed)
     return rc
 
 
@@ -2465,10 +2504,13 @@ def main(argv: list[str]) -> int:
     # explicit manual restore/drop commands.
     _warn_branch_auto_stash(task_id)
 
-    return _close_completed_task(
+    rc = _close_completed_task(
         tusk_bin, task_id, _db_path, session_was_closed,
         merge_commit_sha=merge_commit_sha,
     )
+    if rc == 0:
+        _maybe_refresh_deployed_bin(_db_path, tusk_bin)
+    return rc
 
 
 if __name__ == "__main__":
