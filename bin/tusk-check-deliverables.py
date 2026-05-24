@@ -16,14 +16,15 @@ Output JSON:
         "files": ["path/that/exists", ...],
         "default_branch_commits": ["sha1", ...],
         "default_branch_commit_files": ["path/changed/by/default/commits", ...],
-        "recommendation": "commits_found" | "merged_not_closed" | "merged_not_closed_low_confidence" | "mark_done" | "criteria_complete_no_commits" | "implement_fresh"
+        "recommendation": "commits_found" | "merged_not_closed" | "merged_not_closed_low_confidence" | "mark_done" | "manual_pending" | "criteria_complete_no_commits" | "implement_fresh"
     }
 
 Recommendations:
     "commits_found"                       — commits referencing this task exist on a non-default branch — normal path
     "merged_not_closed"                   — commits already on the default branch and their diff overlaps with task scope (or there is no scope signal to compare) — skip implementation, go straight to finalize
     "merged_not_closed_low_confidence"    — commits exist on the default branch but their diff doesn't overlap with files referenced in the task or with files modified on any feature branch — likely a [TASK-N] prefix-match false positive — verify before acting
-    "mark_done"                           — no commits, but deliverable files found on disk — mark criteria done and merge
+    "mark_done"                           — no commits, but deliverable files found on disk AND at least one non-deferred criterion is non-manual — mark criteria done and merge
+    "manual_pending"                      — no commits, deliverable files found on disk, BUT every non-deferred criterion is criterion_type='manual' (issue #806) — the file-existence signal is noise for manual criteria (a referenced gitignored file may exist regardless of whether the human performed the external work). Do NOT auto-close; proceed with implementation manually.
     "criteria_complete_no_commits"        — every non-deferred acceptance criterion is marked is_completed=1 but there are no [TASK-N] commits anywhere and no deliverable files on disk — salvage / converged-work / speculative-mark signal — investigate before re-implementing
     "implement_fresh"                     — no commits, no files found, and at least one criterion is still incomplete (or the task has no criteria) — proceed with implementation
 
@@ -144,6 +145,34 @@ def all_active_criteria_complete(task_id: int, conn: sqlite3.Connection) -> bool
     return active > 0 and active == done
 
 
+def all_active_criteria_are_manual(task_id: int, conn: sqlite3.Connection) -> bool:
+    """True iff the task has at least one non-deferred criterion AND every
+    non-deferred criterion has criterion_type='manual'.
+
+    Issue #806: when this holds and a referenced file exists on disk,
+    the "file exists implies deliverable shipped" heuristic is unreliable
+    — manual criteria don't leave file artifacts (e.g., OAuth secret
+    rotations live in external dashboards). Callers should downgrade
+    mark_done to manual_pending in that case so the task is not silently
+    auto-closed. The criterion_type column is NULL on old rows that pre-
+    date the column; COALESCE treats NULL as 'manual' so legacy data
+    follows the safer manual_pending path rather than the auto-close path.
+    """
+    row = conn.execute(
+        "SELECT "
+        "  COUNT(CASE WHEN COALESCE(is_deferred, 0) = 0 THEN 1 END) AS active, "
+        "  COALESCE(SUM(CASE WHEN COALESCE(is_deferred, 0) = 0 "
+        "                    AND COALESCE(criterion_type, 'manual') = 'manual' "
+        "                THEN 1 ELSE 0 END), 0) AS manual_count "
+        "FROM acceptance_criteria WHERE task_id = ?",
+        (task_id,),
+    ).fetchone()
+    if row is None:
+        return False
+    active, manual_count = row[0], row[1]
+    return active > 0 and active == manual_count
+
+
 def _task_started_at(conn: sqlite3.Connection, task_id: int) -> str | None:
     try:
         row = conn.execute(
@@ -228,7 +257,14 @@ def main(argv: list) -> int:
             files = find_existing_files(task_id, conn, repo_root)
             files_found = bool(files)
             if files_found:
-                recommendation = "mark_done"
+                # Issue #806: when every non-deferred criterion is manual,
+                # file existence is noise — manual criteria don't leave
+                # file artifacts. Surface the file-existence signal via
+                # manual_pending so callers do not silently auto-close.
+                if all_active_criteria_are_manual(task_id, conn):
+                    recommendation = "manual_pending"
+                else:
+                    recommendation = "mark_done"
             elif all_active_criteria_complete(task_id, conn):
                 recommendation = "criteria_complete_no_commits"
             else:
