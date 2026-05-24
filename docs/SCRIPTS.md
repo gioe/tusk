@@ -118,6 +118,7 @@ require it).
 | **tusk-sync-skills.py** | `tusk sync-skills` | `skills/`, `skills-internal/` | `.claude/skills/` (recreates symlinks) |
 | **tusk-reconcile-skills.py** | `tusk reconcile-skills [--source-dir <p>] [--dry-run] [--quiet] [--json]` | `tusk/config.json:project_type`, source `skills/` (local or `--source-dir`) | installs / removes `applies_to_project_types`-gated entries under `.claude/skills/` to match the current `project_type` |
 | **tusk-upgrade.py** | `tusk upgrade [--no-commit] [--force]` | GitHub releases tarball, `VERSION` | copies updated files to `.claude/bin/` and `.claude/skills/`; runs `tusk migrate` |
+| **tusk-sync-main.py** | `tusk sync-main` | `origin` git refs, working tree | git working tree (fetch + ff-only pull of `origin/<default>` + stash-by-ref + pop); runs `tusk migrate`. Recovery helper for `/address-issue` Step 4.6 staleness check |
 
 ---
 
