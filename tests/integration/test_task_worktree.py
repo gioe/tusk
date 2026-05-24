@@ -568,11 +568,16 @@ class TestTaskWorktreeCreateSymlinks:
             with open(full, "w", encoding="utf-8") as f:
                 f.write(content)
 
-    def test_default_empty_config_creates_no_symlinks(self, tmp_path, monkeypatch):
-        """Shipped default for worktree.symlink_files is [] — behavior must be
-        bit-for-bit identical to pre-feature versions.
+    def test_default_empty_config_creates_no_symlinks_when_opted_out(
+        self, tmp_path, monkeypatch
+    ):
+        """With worktree.symlink_files=[] AND TUSK_NO_AUTO_SYMLINK=1, no
+        symlinks are created even when canonical runtime artifacts are
+        present in the primary checkout (issue #854 opt-out path).
         """
         repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        env = dict(env)
+        env["TUSK_NO_AUTO_SYMLINK"] = "1"
         task_id = _insert_task(db_path)
         workspace_root = tmp_path / "workspaces"
         self._plant_files(repo, [(".venv/marker", "venv-content")])
@@ -733,6 +738,168 @@ class TestTaskWorktreeCreateSymlinks:
         payload = json.loads(result.stdout)
         wt = payload["workspace_path"]
         assert not os.path.lexists(os.path.join(wt, ".git", "config"))
+
+
+class TestTaskWorktreeCreateCanonicalFallback:
+    """Issue #854 — when worktree.symlink_files is empty (install.sh installs
+    never invoke the init-write-config auto-seed), task-worktree create falls
+    back to a canonical name set (node_modules, .venv, .env, .env.local) and
+    emits a stderr advisory pointing at /tusk-update. Explicit config always
+    wins; TUSK_NO_AUTO_SYMLINK=1 disables the fallback.
+    """
+
+    def _set_symlink_files(self, repo, names):
+        cfg_path = os.path.join(str(repo), "tusk", "config.json")
+        with open(cfg_path, encoding="utf-8") as f:
+            cfg = json.load(f)
+        cfg.setdefault("worktree", {})["symlink_files"] = list(names)
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+
+    def _plant_files(self, repo, paths_and_content):
+        for rel, content in paths_and_content:
+            full = os.path.join(str(repo), rel)
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            with open(full, "w", encoding="utf-8") as f:
+                f.write(content)
+
+    def test_fallback_links_nested_node_modules_with_empty_config(
+        self, tmp_path, monkeypatch
+    ):
+        """Empty worktree.symlink_files + apps/web/node_modules in primary →
+        nested node_modules is symlinked AND advisory is printed.
+        """
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        self._plant_files(repo, [("apps/web/node_modules/vitest/bin", "fake")])
+        primary_nm = os.path.join(str(repo), "apps", "web", "node_modules")
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+
+        result = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "auto-link",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        wt = payload["workspace_path"]
+        wt_nm = os.path.join(wt, "apps", "web", "node_modules")
+        assert os.path.islink(wt_nm), f"expected node_modules symlink at {wt_nm}"
+        assert os.readlink(wt_nm) == primary_nm
+        # Advisory criterion: named basenames + /tusk-update pointer + opt-out
+        assert "auto-linked" in result.stderr
+        assert "node_modules" in result.stderr
+        assert "/tusk-update" in result.stderr
+        assert "TUSK_NO_AUTO_SYMLINK" in result.stderr
+
+    def test_explicit_config_wins_over_canonical_fallback(
+        self, tmp_path, monkeypatch
+    ):
+        """Non-empty worktree.symlink_files suppresses the fallback even when
+        canonical artifacts are present. Linked set must equal the explicit
+        list — no canonical names leak in.
+        """
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        # Explicit list contains ONLY one canonical name (.venv); node_modules
+        # exists in primary but must NOT be linked.
+        self._set_symlink_files(repo, [".venv"])
+        self._plant_files(repo, [(".venv/marker", "v")])
+        self._plant_files(repo, [("apps/web/node_modules/p/x", "n")])
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+
+        result = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "explicit-wins",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        wt = payload["workspace_path"]
+        assert os.path.islink(os.path.join(wt, ".venv"))
+        assert not os.path.lexists(os.path.join(wt, "apps", "web", "node_modules"))
+        # No fallback advisory when config was explicit (even though links happened).
+        assert "auto-linked" not in result.stderr
+
+    def test_opt_out_env_disables_fallback_even_with_artifacts(
+        self, tmp_path, monkeypatch
+    ):
+        """TUSK_NO_AUTO_SYMLINK=1 disables the fallback completely; no
+        symlinks created and no advisory emitted even when canonical
+        artifacts are present and config is empty.
+        """
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        env = dict(env)
+        env["TUSK_NO_AUTO_SYMLINK"] = "1"
+        self._plant_files(repo, [("apps/web/node_modules/p/x", "n")])
+        self._plant_files(repo, [(".env", "K=V")])
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+
+        result = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "opt-out",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        wt = payload["workspace_path"]
+        assert not os.path.lexists(os.path.join(wt, "apps", "web", "node_modules"))
+        assert not os.path.lexists(os.path.join(wt, ".env"))
+        assert "auto-linked" not in result.stderr
+
+    def test_no_advisory_when_no_canonical_artifacts_present(
+        self, tmp_path, monkeypatch
+    ):
+        """Empty config + no canonical artifacts in primary → walk runs but
+        creates zero symlinks; advisory must NOT print (its trigger is
+        ≥1 created link).
+        """
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        # Plant a non-canonical file so the walk runs but matches nothing.
+        self._plant_files(repo, [("src/main.py", "print('hi')")])
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+
+        result = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "no-advisory",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "auto-linked" not in result.stderr
 
 
 class TestTaskWorktreeCreateStaleRow:

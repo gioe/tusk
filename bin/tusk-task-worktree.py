@@ -17,6 +17,14 @@ get_connection = _db_lib.get_connection
 _json = tusk_loader.load("tusk-json-lib")
 dumps = _json.dumps
 
+# Canonical runtime artifacts auto-linked when `worktree.symlink_files` is
+# empty (issue #854). install.sh-only installs never run the project_type
+# auto-seed in `init-write-config`, leaving the list empty even for projects
+# that obviously need these files. The fallback links them anyway and prints
+# a stderr advisory pointing at /tusk-update so the implicit list can be made
+# explicit; `TUSK_NO_AUTO_SYMLINK=1` disables it.
+CANONICAL_RUNTIME_FILES = ["node_modules", ".venv", ".env", ".env.local"]
+
 
 def _list_workspaces(conn: sqlite3.Connection) -> list[dict]:
     return _list_workspaces_with_live_state(conn, {})
@@ -426,15 +434,32 @@ def cmd_create(
             (cur.lastrowid,),
         ).fetchone()
         # Seed gitignored runtime files (e.g. .venv, .env) from the primary
-        # repo per worktree.symlink_files config (issue #752). Opt-in: empty
-        # list (default) creates no symlinks. Best-effort: any individual
-        # symlink failure is swallowed inside _link_gitignored_files so a
-        # permissions or race issue does not abort the worktree creation we
-        # just recorded above.
+        # repo per worktree.symlink_files config (issue #752), or — when that
+        # list is empty and TUSK_NO_AUTO_SYMLINK is unset — fall back to the
+        # canonical name set so install.sh-only installs that never ran the
+        # init-write-config auto-seed still pick up node_modules / .venv /
+        # .env / .env.local (issue #854). Best-effort throughout: individual
+        # symlink failures are swallowed inside _link_gitignored_files.
         symlink_names = _load_symlink_files(config_path)
+        is_fallback = False
+        if not symlink_names and not os.environ.get("TUSK_NO_AUTO_SYMLINK"):
+            symlink_names = list(CANONICAL_RUNTIME_FILES)
+            is_fallback = True
         if symlink_names:
             primary_root = _primary_repo_root(repo_root)
-            _link_gitignored_files(primary_root, workspace_path, symlink_names)
+            created = _link_gitignored_files(
+                primary_root, workspace_path, symlink_names
+            )
+            if is_fallback and created:
+                linked_basenames = sorted({os.path.basename(c["dst"]) for c in created})
+                print(
+                    "Note: auto-linked "
+                    + ", ".join(linked_basenames)
+                    + " from primary (worktree.symlink_files is empty). "
+                    "Run /tusk-update to set the list explicitly, or "
+                    "TUSK_NO_AUTO_SYMLINK=1 to disable this fallback.",
+                    file=sys.stderr,
+                )
         print(dumps(_workspace_payload(row, created=True)))
         return 0
     except sqlite3.IntegrityError as exc:
