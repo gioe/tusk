@@ -902,6 +902,157 @@ class TestTaskWorktreeCreateCanonicalFallback:
         assert "auto-linked" not in result.stderr
 
 
+class TestTaskWorktreeCreatePathStyleSymlinks:
+    """Issue #867 — worktree.symlink_files entries containing ``/`` are
+    treated as project-relative paths and link exactly once at that location,
+    instead of being silently dropped by the bare-basename matcher. Lets
+    monorepo users scope a symlink to one specific subdirectory (e.g.
+    ``apps/web/node_modules``) without over-matching every nested copy.
+    """
+
+    def _set_symlink_files(self, repo, names):
+        cfg_path = os.path.join(str(repo), "tusk", "config.json")
+        with open(cfg_path, encoding="utf-8") as f:
+            cfg = json.load(f)
+        cfg.setdefault("worktree", {})["symlink_files"] = list(names)
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+
+    def _plant_files(self, repo, paths_and_content):
+        for rel, content in paths_and_content:
+            full = os.path.join(str(repo), rel)
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            with open(full, "w", encoding="utf-8") as f:
+                f.write(content)
+
+    def test_path_style_entry_links_exact_subdir_only(self, tmp_path, monkeypatch):
+        """Configured 'apps/web/node_modules' creates exactly one symlink at
+        that relative path; sibling nested node_modules are NOT linked.
+        """
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        self._set_symlink_files(repo, ["apps/web/node_modules"])
+        self._plant_files(
+            repo,
+            [
+                ("apps/web/node_modules/vitest/bin", "fake-vitest"),
+                ("apps/api/node_modules/tsx/bin", "fake-tsx"),
+            ],
+        )
+        primary_target = os.path.join(
+            str(repo), "apps", "web", "node_modules"
+        )
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+
+        result = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "path-style",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        wt = payload["workspace_path"]
+        wt_target = os.path.join(wt, "apps", "web", "node_modules")
+        wt_sibling = os.path.join(wt, "apps", "api", "node_modules")
+        assert os.path.islink(wt_target), (
+            f"expected path-style symlink at {wt_target}"
+        )
+        assert os.readlink(wt_target) == primary_target
+        # The sibling path-style miss must NOT be linked — that's the whole
+        # point of path-style over bare basename in a monorepo.
+        assert not os.path.lexists(wt_sibling)
+        # Symlink content is readable from the primary.
+        assert os.path.exists(os.path.join(wt_target, "vitest", "bin"))
+
+    def test_path_style_entry_missing_primary_skipped_silently(
+        self, tmp_path, monkeypatch
+    ):
+        """A path-style entry whose primary target does not exist is skipped
+        — no symlink, no error — consistent with bare-basename miss behavior.
+        """
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        self._set_symlink_files(repo, ["apps/web/node_modules"])
+        # Plant a sibling file so the worktree exists but the target doesn't.
+        self._plant_files(repo, [("apps/web/src/main.ts", "console.log(1)")])
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+
+        result = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "path-style-miss",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        wt = payload["workspace_path"]
+        assert not os.path.lexists(os.path.join(wt, "apps", "web", "node_modules"))
+
+    def test_mixed_basename_and_path_style_both_honored(
+        self, tmp_path, monkeypatch
+    ):
+        """A config mixing bare basenames and path-style entries honors each
+        per its kind: basename walks-and-matches, path-style links exactly
+        the configured location.
+        """
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        self._set_symlink_files(repo, [".env", "apps/web/node_modules"])
+        self._plant_files(
+            repo,
+            [
+                (".env", "TOP=1"),
+                ("apps/web/.env", "WEB=1"),  # nested .env — basename should match
+                ("apps/web/node_modules/p/x", "n"),
+                ("apps/api/node_modules/p/x", "n"),  # NOT in path-style list
+            ],
+        )
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+
+        result = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "mixed",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        wt = payload["workspace_path"]
+        # Bare-basename .env: matched at every depth.
+        assert os.path.islink(os.path.join(wt, ".env"))
+        assert os.path.islink(os.path.join(wt, "apps", "web", ".env"))
+        # Path-style apps/web/node_modules: matched at the exact path only.
+        assert os.path.islink(
+            os.path.join(wt, "apps", "web", "node_modules")
+        )
+        # apps/api/node_modules: NOT in the list, must not be linked.
+        assert not os.path.lexists(
+            os.path.join(wt, "apps", "api", "node_modules")
+        )
+
+
 class TestTaskWorktreeCreateStaleRow:
     """Issue #803 — when task_workspaces has a row but workspace_path is gone
     from disk, the old behavior returned `created:false` and the caller `cd`'d
