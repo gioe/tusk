@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [969] - 2026-05-24
+
+- [TASK-448] Document tusk sync-main in CLAUDE.md Commands section
+
 ## [968] - 2026-05-24
 
 - [TASK-446] Auto-link canonical runtime files in task-worktree create when symlink_files is empty (issue #854)
