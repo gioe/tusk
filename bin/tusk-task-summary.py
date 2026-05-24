@@ -331,6 +331,18 @@ def _filter_blocks_by_overlap(
         if (block_files & task_paths) or (block_basenames & basenames):
             kept.update(block_shas)
 
+    # Extraction-miss fall-through (issue #851): if zero blocks intersect the
+    # scope signal, the signal is almost certainly off-scope (e.g. a precedent
+    # citation in the description like "matching CLAUDE.md's pinning section")
+    # rather than every [TASK-N] commit being a prefix collision. The latter
+    # would require an entire session's worth of commits to all be recycled-ID
+    # strays, which is far less likely than a description that name-checks an
+    # unrelated file. Return commit_files unchanged so the summary at least
+    # reflects the real diff — false-positive inflation is recoverable; silent
+    # zero-stats is not.
+    if not kept:
+        return commit_files
+
     return {sha: rows for sha, rows in commit_files.items() if sha in kept}
 
 
