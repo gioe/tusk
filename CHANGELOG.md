@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [958] - 2026-05-23
+
+- [TASK-434] Fix: tusk review begin recovery drops sibling [TASK-N] commits via per-commit scope filter
+
 ## [957] - 2026-05-23
 
 - [TASK-433] Fix task-summary scope filter dropping all commits when description references off-scope files
