@@ -39,8 +39,7 @@ _git_helpers = tusk_loader.load("tusk-git-helpers")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 find_task_commits = _git_helpers.find_task_commits
-commit_changed_files = _git_helpers.commit_changed_files
-task_referenced_paths = _git_helpers.task_referenced_paths
+filter_commits_by_block_overlap = _git_helpers.filter_commits_by_block_overlap
 
 
 def _commits_are_prefix_collision(
@@ -51,30 +50,25 @@ def _commits_are_prefix_collision(
 ) -> bool:
     """Return True if `commits` are likely a [TASK-<id>] prefix-match false positive.
 
-    Mirrors the aggregate file-overlap heuristic in tusk-check-deliverables.py's
-    ``merged_not_closed_low_confidence`` recommendation: a set of commits is
-    suspect when its combined diff has no overlap with the task's scope (paths
-    referenced in summary, description, or acceptance criteria text/specs).
+    Delegates to the shared block-level scope filter in tusk-git-helpers.py
+    (issue #855) with ``fallthrough=False`` so an empty kept set means
+    "every block is off-scope" rather than the filter-caller default of
+    "no signal — keep all". Centralizes the heuristic that previously
+    lived inline as an aggregate intersection: the binary refuse/permit
+    decision is invariant to block vs. aggregate grouping, since either
+    answers the same "does any commit hit a scope path?" question.
 
-    Aggregate-level by design (intentionally distinct from
-    tusk-task-summary.py's block-level variant — issue #663). The decision
-    surface here is binary "refuse to unstart vs. permit unstart", so unioning
-    every matched commit's files into one set is the right granularity. If
-    even one in-scope commit exists in the batch, the task has real work and
-    unstart should be refused.
-
-    Conservative on empty signal: returns False when ``commits`` is empty or
-    the task has no scope signal — preserving the existing refusal behavior in
-    those cases. Tasks that genuinely don't reference any paths in their text
-    cannot benefit from this escape hatch and must close via task-done / merge.
+    Conservative on empty signal: returns False when ``commits`` is empty
+    or the task has no scope signal — the helper returns ``list(commits)``
+    unchanged in the no-signal case regardless of *fallthrough*, so
+    ``not kept`` is False and the original refusal stands.
     """
     if not commits:
         return False
-    task_paths = set(task_referenced_paths(task_id, conn))
-    if not task_paths:
-        return False
-    files = commit_changed_files(commits, repo_root)
-    return not (task_paths & files)
+    kept = filter_commits_by_block_overlap(
+        commits, task_id, repo_root, conn, fallthrough=False
+    )
+    return not kept
 
 
 def main(argv: list[str]) -> int:
