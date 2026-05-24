@@ -554,6 +554,21 @@ class TestPrefixCollisionHeuristic:
     task's work."""
 
     def test_drops_unrelated_commit_and_keeps_real_one(self, tmp_path, monkeypatch):
+        """A stray [TASK-N] commit on a side branch with no parent-link to
+        the real commit's chain must be dropped by the block-level scope
+        filter, leaving only the real commit in the recovered range.
+
+        Issue #856: the previous version of this test put stray and real on
+        the same linear chain on main. After TASK-434's block-level filter,
+        contiguous strays form one block with the real commit and both are
+        kept under the new policy — and this test's only assertion (that
+        tusk-foo.py is somewhere in the diff) silently passed even when the
+        stray's file was also present, defeating the stated drop semantic.
+        The non-contiguous layout (stray on a side branch unreachable from
+        the real commit's parent chain) is the canonical regression vector
+        — the two commits form separate blocks, only the real block's
+        files overlap task scope, so the stray block is dropped.
+        """
         repo_root, db_path = _make_repo(tmp_path, default_branch="main")
         _seed_db(
             db_path,
@@ -562,7 +577,13 @@ class TestPrefixCollisionHeuristic:
             description="Update bin/tusk-foo.py to handle the new foo case",
         )
 
-        # Stray [TASK-42] commit from a recycled task ID — touches an unrelated path
+        # Stray [TASK-42] commit on a side branch unreachable from main's chain.
+        # Under the block-level filter, its parent (seed) is not in the matched
+        # set, so the stray forms a block by itself with files = {noise.txt}.
+        subprocess.run(
+            ["git", "-C", repo_root, "checkout", "-q", "-b", "side"],
+            check=True,
+        )
         with open(os.path.join(repo_root, "noise.txt"), "w") as f:
             f.write("noise\n")
         subprocess.run(["git", "-C", repo_root, "add", "noise.txt"], check=True)
@@ -571,7 +592,11 @@ class TestPrefixCollisionHeuristic:
             check=True,
         )
 
-        # Real [TASK-42] commit on bin/tusk-foo.py
+        # Real [TASK-42] commit on main (non-contiguous with the side branch).
+        subprocess.run(
+            ["git", "-C", repo_root, "checkout", "-q", "main"],
+            check=True,
+        )
         bin_dir = os.path.join(repo_root, "bin")
         os.makedirs(bin_dir, exist_ok=True)
         real_path = os.path.join(bin_dir, "tusk-foo.py")
@@ -586,13 +611,23 @@ class TestPrefixCollisionHeuristic:
         monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
 
         result = mod.compute_range(42, repo_root, db_path)
-        # Range should contain only the real commit's SHA on both endpoints
         assert result["recovered_from_task_commits"] is True
-        # Diff should not contain noise.txt — only bin/tusk-foo.py
-        assert "tusk-foo.py" in result["summary"] or "tusk-foo.py" in subprocess.run(
+
+        recovered_diff = subprocess.run(
             ["git", "-C", repo_root, "diff", result["range"]],
             capture_output=True, text=True, encoding="utf-8", check=True,
         ).stdout
+
+        # Real commit's file IS in the diff.
+        assert "tusk-foo.py" in result["summary"] or "tusk-foo.py" in recovered_diff
+        # Stray commit's file IS NOT in the diff — the prefix-collision drop
+        # semantic the docstring describes.
+        assert "noise.txt" not in result["summary"], (
+            f"noise.txt must not be in result['summary']; got {result['summary']!r}"
+        )
+        assert "noise.txt" not in recovered_diff, (
+            f"noise.txt must not be in the recovered diff; got:\n{recovered_diff}"
+        )
 
     def test_falls_through_when_no_block_overlaps_scope_signal(
         self, tmp_path, monkeypatch
