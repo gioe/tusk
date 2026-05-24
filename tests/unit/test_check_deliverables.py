@@ -40,9 +40,13 @@ def _make_db(tmp_path, task_id=99, summary="Create /foo skill", description="", 
     DB is placed at tmp_path/tusk/tasks.db so that repo_root resolves to
     tmp_path (two dirname() calls up), matching the real tusk layout.
 
-    Each entry in `criteria` is either a 2-tuple `(criterion, verification_spec)`
-    (defaults `is_completed=0, is_deferred=0`) or a 4-tuple
-    `(criterion, verification_spec, is_completed, is_deferred)`.
+    Each entry in `criteria` is one of:
+      - 2-tuple `(criterion, verification_spec)` — defaults
+        `is_completed=0, is_deferred=0, criterion_type='manual'`
+      - 4-tuple `(criterion, verification_spec, is_completed, is_deferred)` —
+        `criterion_type` defaults to 'manual'
+      - 5-tuple `(criterion, verification_spec, is_completed, is_deferred,
+        criterion_type)` — full control (issue #806)
     """
     tusk_dir = tmp_path / "tusk"
     tusk_dir.mkdir(exist_ok=True)
@@ -63,7 +67,8 @@ def _make_db(tmp_path, task_id=99, summary="Create /foo skill", description="", 
             criterion TEXT,
             verification_spec TEXT,
             is_completed INTEGER DEFAULT 0,
-            is_deferred INTEGER DEFAULT 0
+            is_deferred INTEGER DEFAULT 0,
+            criterion_type TEXT DEFAULT 'manual'
         );
     """)
     conn.execute(
@@ -73,15 +78,19 @@ def _make_db(tmp_path, task_id=99, summary="Create /foo skill", description="", 
     for entry in (criteria or []):
         if len(entry) == 2:
             crit, spec = entry
-            is_completed, is_deferred = 0, 0
+            is_completed, is_deferred, criterion_type = 0, 0, "manual"
         elif len(entry) == 4:
             crit, spec, is_completed, is_deferred = entry
+            criterion_type = "manual"
+        elif len(entry) == 5:
+            crit, spec, is_completed, is_deferred, criterion_type = entry
         else:
-            raise ValueError(f"criteria entry must have 2 or 4 elements: {entry!r}")
+            raise ValueError(f"criteria entry must have 2, 4, or 5 elements: {entry!r}")
         conn.execute(
-            "INSERT INTO acceptance_criteria (task_id, criterion, verification_spec, is_completed, is_deferred) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (task_id, crit, spec, is_completed, is_deferred),
+            "INSERT INTO acceptance_criteria (task_id, criterion, verification_spec, "
+            "is_completed, is_deferred, criterion_type) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (task_id, crit, spec, is_completed, is_deferred, criterion_type),
         )
     conn.commit()
     conn.close()
@@ -438,6 +447,59 @@ class TestMainRecommendations:
         assert data["recommendation"] == "mark_done"
         assert data["default_branch_commits"] == []
         assert data["default_branch_commit_files"] == []
+
+    def test_manual_pending_when_files_found_and_all_criteria_manual(self, tmp_path):
+        """Issue #806: all-manual non-deferred criteria + file on disk → manual_pending.
+
+        File existence is a noise signal when every criterion is manual —
+        a referenced gitignored file (e.g. apps/web/.env.local) may exist
+        regardless of whether the operator performed the external work
+        (e.g. OAuth rotation in a dashboard). manual_pending blocks the
+        silent auto-close path that mark_done triggers in /tusk.
+        """
+        present = tmp_path / "apps" / "web"
+        present.mkdir(parents=True)
+        (present / ".env.local").write_text("OAUTH_SECRET=stub")
+        db_path = _make_db(
+            tmp_path,
+            task_id=8061,
+            summary="Rotate OAuth secrets",
+            description="Rotate values in apps/web/.env.local plus external dashboards.",
+            criteria=[
+                ("Update Google client secret in apps/web/.env.local", None, 0, 0, "manual"),
+                ("Update Apple key ID in apps/web/.env.local", None, 0, 0, "manual"),
+                ("Confirm Vercel env vars match", None, 0, 0, "manual"),
+            ],
+        )
+        rc, stdout, _ = _run_main(db_path, 8061)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["files_found"] is True
+        assert "apps/web/.env.local" in data["files"]
+        assert data["recommendation"] == "manual_pending"
+
+    def test_mark_done_when_files_found_and_mixed_criteria(self, tmp_path):
+        """Regression for issue #806: a single non-manual criterion keeps
+        the mark_done path live — file existence IS a meaningful signal
+        for code/test/file-typed criteria.
+        """
+        present = tmp_path / "skills" / "mixed"
+        present.mkdir(parents=True)
+        (present / "SKILL.md").write_text("# mixed")
+        db_path = _make_db(
+            tmp_path,
+            task_id=8062,
+            summary="Create skills/mixed/SKILL.md and document it",
+            criteria=[
+                ("Operator confirms doc reads correctly", None, 0, 0, "manual"),
+                ("skills/mixed/SKILL.md exists", None, 0, 0, "file"),
+            ],
+        )
+        rc, stdout, _ = _run_main(db_path, 8062)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["files_found"] is True
+        assert data["recommendation"] == "mark_done"
 
     def test_direct_invocation_guard(self):
         """Direct invocation without .db first arg should exit nonzero with usage hint."""
@@ -812,7 +874,9 @@ class TestCriteriaCompleteNoCommits:
     def test_mark_done_still_wins_when_files_found(self, tmp_path):
         """If criteria are all complete AND a deliverable file exists, the
         mark_done branch still takes precedence — files-on-disk are stronger
-        evidence than is_completed flags."""
+        evidence than is_completed flags. The criterion is declared
+        `criterion_type='file'` because the verification_spec points at a
+        file artifact (issue #806 only downgrades all-manual tasks)."""
         skill_dir = tmp_path / "skills" / "salvaged"
         skill_dir.mkdir(parents=True)
         (skill_dir / "SKILL.md").write_text("# salvaged")
@@ -820,7 +884,7 @@ class TestCriteriaCompleteNoCommits:
             tmp_path,
             task_id=5785,
             summary="Create skills/salvaged/SKILL.md",
-            criteria=[("Skill exists", "skills/salvaged/SKILL.md", 1, 0)],
+            criteria=[("Skill exists", "skills/salvaged/SKILL.md", 1, 0, "file")],
         )
         rc, stdout, _ = _run_main(db_path, 5785)
         assert rc == 0
