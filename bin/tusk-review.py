@@ -256,9 +256,17 @@ def cmd_begin(args: argparse.Namespace, db_path: str, config_path: str) -> int:
             reviewer_name = None
 
         conn.execute(
-            "INSERT INTO code_reviews (task_id, reviewer, status, review_pass, diff_summary, agent_name)"
-            " VALUES (?, ?, 'pending', ?, ?, ?)",
-            (args.task_id, reviewer_name, args.pass_num, diff_summary, args.agent),
+            "INSERT INTO code_reviews"
+            " (task_id, reviewer, status, review_pass, diff_summary, diff_range, agent_name)"
+            " VALUES (?, ?, 'pending', ?, ?, ?, ?)",
+            (
+                args.task_id,
+                reviewer_name,
+                args.pass_num,
+                diff_summary,
+                diff_payload["range"],
+                args.agent,
+            ),
         )
         conn.commit()
         rid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -476,13 +484,14 @@ def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
     conn = get_connection(db_path)
     try:
         review = conn.execute(
-            "SELECT id, task_id FROM code_reviews WHERE id = ?",
+            "SELECT id, task_id, diff_range FROM code_reviews WHERE id = ?",
             (args.review_id,),
         ).fetchone()
         if not review:
             print(f"Error: Review {args.review_id} not found", file=sys.stderr)
             return 2
         task_id = review["task_id"]
+        stored_range = review["diff_range"]
 
         pending = conn.execute(
             "SELECT id, file_path, comment, category FROM review_comments"
@@ -493,20 +502,32 @@ def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
         conn.close()
 
     repo_root = diff_range_mod.resolve_repo_root(db_path)
-    try:
-        payload = diff_range_mod.compute_range(task_id, repo_root, db_path)
-    except SystemExit as exc:
-        if isinstance(exc.code, str):
-            print(exc.code, file=sys.stderr)
-        return 1
-    diff_range = payload["range"]
-    # Issue #821 / TASK-412: compute_range may have re-resolved into a
-    # sibling worktree to locate the feature branch. Re-run `git diff` in
-    # that same checkout so the file list matches the chosen range; using
-    # the orchestrator's CWD-derived repo_root here would silently dismiss
-    # every legitimate finding when the primary checkout has unpushed
-    # local-default commits.
-    diff_cwd = payload.get("resolved_repo_root") or repo_root
+
+    # Issue #847: prefer the range stamped at review-begin time. The validator
+    # used to re-derive via compute_range every call, which drifts when new
+    # commits land between begin and validate-comments or the worktree
+    # fallback resolves into a different checkout. Reuse keeps the validator
+    # in lockstep with the range used to record findings. Fall back to
+    # compute_range only when the row predates migration 69 and has no
+    # stored value.
+    if stored_range:
+        diff_range = stored_range
+        diff_cwd = repo_root
+    else:
+        try:
+            payload = diff_range_mod.compute_range(task_id, repo_root, db_path)
+        except SystemExit as exc:
+            if isinstance(exc.code, str):
+                print(exc.code, file=sys.stderr)
+            return 1
+        diff_range = payload["range"]
+        # Issue #821 / TASK-412: compute_range may have re-resolved into a
+        # sibling worktree to locate the feature branch. Re-run `git diff`
+        # in that same checkout so the file list matches the chosen range;
+        # using the orchestrator's CWD-derived repo_root here would silently
+        # dismiss every legitimate finding when the primary checkout has
+        # unpushed local-default commits.
+        diff_cwd = payload.get("resolved_repo_root") or repo_root
 
     name_only = subprocess.run(
         ["git", "diff", "--name-only", diff_range],

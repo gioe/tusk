@@ -48,6 +48,7 @@ def _make_db(tmp_path):
             status TEXT DEFAULT 'pending',
             review_pass INTEGER DEFAULT 1,
             diff_summary TEXT,
+            diff_range TEXT,
             agent_name TEXT,
             note TEXT,
             created_at TEXT,
