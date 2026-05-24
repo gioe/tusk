@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [971] - 2026-05-24
+
+- [TASK-450] Fix: tusk merge no-checkout path leaves .claude/bin/ stale (auto-refresh sees zero drift)
+
 ## [970] - 2026-05-24
 
 - [TASK-449] Auto-refresh .claude/bin/ after source-repo commits touching bin/tusk-*.py
