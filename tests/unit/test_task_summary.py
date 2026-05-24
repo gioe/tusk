@@ -314,6 +314,7 @@ class TestAbandonPath:
             "files_changed": 0,
             "lines_added": 0,
             "lines_removed": 0,
+            "recovered_via": None,
         }
         assert data["criteria"]["skip_notes"] == 1
         assert data["criteria"]["deferred"] == 1
@@ -435,6 +436,7 @@ class TestDiff:
             "files_changed": 0,
             "lines_added": 0,
             "lines_removed": 0,
+            "recovered_via": None,
         }
 
     def test_diff_gracefully_handles_missing_repo(self, tmp_path):
@@ -995,3 +997,34 @@ class TestRenderMarkdown:
             },
         ))
         assert "XL bucket has 0/10 closed tasks" in out
+
+    def test_recovered_via_note_omitted_when_null(self):
+        """Cheap-path diff (recovered_via=None) must not surface the recovery
+        note — the line is conditional so the common case stays uncluttered."""
+        out = mod.render_markdown(self._sample(
+            diff={"commits": 1, "files_changed": 1, "lines_added": 5,
+                  "lines_removed": 2, "recovered_via": None},
+        ))
+        assert "recovered via" not in out
+
+    def test_recovered_via_note_omitted_when_field_missing(self):
+        """Backwards compatibility: a diff dict without the recovered_via key
+        (e.g. legacy callers) must not surface the note either."""
+        out = mod.render_markdown(self._sample(
+            diff={"commits": 1, "files_changed": 1, "lines_added": 5,
+                  "lines_removed": 2},
+        ))
+        assert "recovered via" not in out
+
+    def test_recovered_via_note_renders_when_tier_set(self):
+        """Issue #852: when recovered_via is set, a one-line note appears
+        between the Criteria line and the deferred details — giving operators
+        a visible signal that stats came from a fallback tier."""
+        for tier in ("refresh-fetch", "criterion-hash", "fsck-unreachable"):
+            out = mod.render_markdown(self._sample(
+                diff={"commits": 1, "files_changed": 1, "lines_added": 5,
+                      "lines_removed": 2, "recovered_via": tier},
+            ))
+            assert f"recovered via `{tier}` tier" in out, (
+                f"Expected recovered_via note for tier {tier!r}; got: {out!r}"
+            )

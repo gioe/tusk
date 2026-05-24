@@ -644,7 +644,13 @@ def fetch_diff(
     before ``git worktree remove`` tears the sibling worktree down — fsck is
     the only local-only mechanism that finds it.
     """
-    zero = {"commits": 0, "files_changed": 0, "lines_added": 0, "lines_removed": 0}
+    zero = {
+        "commits": 0,
+        "files_changed": 0,
+        "lines_added": 0,
+        "lines_removed": 0,
+        "recovered_via": None,
+    }
     cmd = [
         "git", "log", "--all",
         task_grep_arg(task_id),
@@ -732,7 +738,14 @@ def fetch_diff(
                 commit_files, commit_parents, task_paths, task_basenames
             )
 
-    return _summarize_commit_files(commit_files)
+    result = _summarize_commit_files(commit_files)
+    # Surface the recovery tier to JSON consumers (issue #852). The stderr
+    # diagnostic above is TTY-gated and invisible to agent callers that capture
+    # stderr; this field is the machine-readable equivalent so /tusk Step 12
+    # and /address-issue Step 10 can answer "why are my stats zero" from the
+    # JSON output alone. None on the cheap path (initial scan succeeded).
+    result["recovered_via"] = recovered_via
+    return result
 
 
 def fetch_criteria(conn: sqlite3.Connection, task_id: int) -> dict:
@@ -891,6 +904,11 @@ def render_markdown(data: dict) -> str:
         )
         + (f" · {crit['deferred']} deferred" if crit["deferred"] else ""),
     ]
+    if diff.get("recovered_via"):
+        lines.append(
+            f"- **Note:** diff stats recovered via `{diff['recovered_via']}` tier "
+            f"(initial scan empty; surfaced from fallback)"
+        )
     for d in crit.get("deferred_details", []):
         reason = d.get("deferred_reason") or "no reason given"
         lines.append(f"  - _Deferred #{d['id']} ({reason}):_ {d['criterion']}")
