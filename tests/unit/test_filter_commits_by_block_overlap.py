@@ -204,6 +204,144 @@ class TestFilterCommitsByBlockOverlap:
         assert kept == [b, a]
 
 
+class TestFallthroughGateMode:
+    """``fallthrough=False`` is the opt-in for gate callers (tusk-merge,
+    tusk-task-unstart, issue #855). Two cases matter for the gate's
+    binary refuse/permit decision:
+
+    - **no-overlap** — every block is off-scope. Filter callers want the
+      input back (extraction-miss fallthrough, issue #851); gate callers
+      want ``[]`` so they can detect "all matched commits are prefix-match
+      false positives" and override the gate.
+    - **partial-overlap** — at least one block intersects scope. Both
+      modes must agree: the in-scope blocks come back, regardless of
+      fallthrough.
+
+    Conservative "no decision" paths (no-scope-signal, empty commits, None
+    conn) MUST still return *commits* unchanged regardless of fallthrough —
+    the flag only governs the case where the helper actively determined no
+    overlap.
+    """
+
+    @pytest.mark.parametrize("layout", ["no_overlap", "partial_overlap"])
+    def test_fallthrough_false_returns_empty_only_when_no_block_intersects(
+        self, tmp_path, layout
+    ):
+        repo = _make_repo(tmp_path)
+        conn = _seed_db(
+            tmp_path, task_id=20,
+            summary="Wire foo",
+            description="Update bin/tusk-foo.py",
+        )
+
+        if layout == "no_overlap":
+            # Two non-contiguous off-scope commits → two blocks, neither
+            # intersects scope.
+            subprocess.run(
+                ["git", "-C", repo, "checkout", "-q", "-b", "side"], check=True
+            )
+            stray_a = _commit(repo, "noise_a.txt", "a\n", "[TASK-20] stray a")
+            subprocess.run(["git", "-C", repo, "checkout", "-q", "main"], check=True)
+            stray_b = _commit(repo, "noise_b.txt", "b\n", "[TASK-20] stray b")
+            commits = [stray_a, stray_b]
+
+            # fallthrough=True (filter default) → commits unchanged.
+            kept_filter = git_helpers.filter_commits_by_block_overlap(
+                commits, 20, repo, conn,
+            )
+            assert kept_filter == commits
+
+            # fallthrough=False (gate opt-in) → empty.
+            kept_gate = git_helpers.filter_commits_by_block_overlap(
+                commits, 20, repo, conn, fallthrough=False,
+            )
+            assert kept_gate == []
+        else:  # partial_overlap
+            # Non-contiguous: real on main, stray on side branch → two
+            # blocks. Real block intersects scope; stray block doesn't.
+            subprocess.run(
+                ["git", "-C", repo, "checkout", "-q", "-b", "side"], check=True
+            )
+            stray = _commit(repo, "noise.txt", "y\n", "[TASK-20] stray")
+            subprocess.run(["git", "-C", repo, "checkout", "-q", "main"], check=True)
+            real = _commit(repo, "bin/tusk-foo.py", "x\n", "[TASK-20] real")
+            commits = [real, stray]
+
+            # Both modes must keep only the real-block commit.
+            kept_filter = git_helpers.filter_commits_by_block_overlap(
+                commits, 20, repo, conn,
+            )
+            assert kept_filter == [real]
+
+            kept_gate = git_helpers.filter_commits_by_block_overlap(
+                commits, 20, repo, conn, fallthrough=False,
+            )
+            assert kept_gate == [real]
+
+    def test_fallthrough_false_preserves_no_scope_signal_passthrough(self, tmp_path):
+        """No-scope-signal is the "can't decide" path — the helper returns
+        *commits* unchanged regardless of *fallthrough*. Gate callers rely
+        on this to preserve their refusal when the task description has no
+        path or basename to compare against."""
+        repo = _make_repo(tmp_path)
+        conn = _seed_db(tmp_path, task_id=21, summary="generic", description="no paths")
+        sha = _commit(repo, "anything.txt", "x\n", "[TASK-21] commit")
+
+        kept = git_helpers.filter_commits_by_block_overlap(
+            [sha], 21, repo, conn, fallthrough=False,
+        )
+        # Same as the filter-default case — no scope signal means no decision.
+        assert kept == [sha]
+
+    def test_fallthrough_false_preserves_empty_and_none_conn(self, tmp_path):
+        """Empty *commits* and ``conn is None`` are pre-decision early
+        returns; the helper returns *commits* unchanged regardless of
+        *fallthrough*."""
+        repo = _make_repo(tmp_path)
+        sha = _commit(repo, "x.txt", "x\n", "[TASK-22] commit")
+
+        # Empty commits.
+        assert git_helpers.filter_commits_by_block_overlap(
+            [], 22, repo, None, fallthrough=False,
+        ) == []
+
+        # None conn → caller signals "no DB available".
+        assert git_helpers.filter_commits_by_block_overlap(
+            [sha], 22, repo, None, fallthrough=False,
+        ) == [sha]
+
+    def test_precomputed_task_paths_basenames_skip_db_queries(self, tmp_path):
+        """``task_paths`` / ``task_basenames`` precomputed inputs bypass
+        the helper's in-line DB queries — issue #855 follow-up that lets
+        callers inject the scope signal (e.g. when the helper's conn is a
+        unit-test mock without the full tasks/acceptance_criteria shape)."""
+        repo = _make_repo(tmp_path)
+        sha = _commit(repo, "bin/tusk-foo.py", "x\n", "[TASK-23] commit")
+
+        # Empty conn — would raise if the helper hit the DB. Pre-resolved
+        # path matches the commit, so kept includes it.
+        class _NullConn:
+            def execute(self, *args, **kwargs):  # pragma: no cover - guard
+                raise AssertionError("DB should not be touched when task_paths is precomputed")
+
+        kept = git_helpers.filter_commits_by_block_overlap(
+            [sha], 23, repo, _NullConn(),
+            task_paths={"bin/tusk-foo.py"},
+            task_basenames=set(),
+            fallthrough=False,
+        )
+        assert kept == [sha]
+
+        # Same setup, no overlap — gate-mode returns [].
+        kept_off = git_helpers.filter_commits_by_block_overlap(
+            [sha], 23, repo, _NullConn(),
+            task_paths={"bin/elsewhere.py"},
+            task_basenames=set(),
+            fallthrough=False,
+        )
+        assert kept_off == []
+
+
 class TestFilterCallerSymmetry:
     """The three filter callers — review-diff-range, task-summary, task-done —
     all route through ``filter_commits_by_block_overlap`` and must produce
