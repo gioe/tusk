@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [957] - 2026-05-23
+
+- [TASK-433] Fix task-summary scope filter dropping all commits when description references off-scope files
+
 ## [956] - 2026-05-23
 
 - [TASK-432] Warn against speculative -c user.email / gpg.gpgsign overrides in review-commits Step 9
