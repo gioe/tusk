@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [972] - 2026-05-24
+
+- [TASK-451] Stamp tasks.merge_commit_sha at merge time; fast-path fetch_diff lookup (issue #849)
+
 ## [971] - 2026-05-24
 
 - [TASK-450] Fix: tusk merge no-checkout path leaves .claude/bin/ stale (auto-refresh sees zero drift)
