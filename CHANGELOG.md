@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [959] - 2026-05-23
+
+- [TASK-435] Fix: validate-comments re-derives diff range, dismissing real findings as fabrications
+
 ## [958] - 2026-05-23
 
 - [TASK-434] Fix: tusk review begin recovery drops sibling [TASK-N] commits via per-commit scope filter
