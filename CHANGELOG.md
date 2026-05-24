@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [955] - 2026-05-23
+
+- [TASK-431] Expose recovery_tier in task-summary JSON output
+
 ## [954] - 2026-05-23
 
 - [TASK-430] Surface task-summary fetch_diff recovery tier via TTY-gated stderr
