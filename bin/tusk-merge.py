@@ -181,6 +181,60 @@ def _worktree_path_for_branch(branch: str) -> str | None:
     return None
 
 
+def _rebase_in_feature_worktree(
+    worktree_path: str,
+    branch_name: str,
+    rebase_target: str,
+    task_id: int,
+    did_stash: bool,
+) -> int:
+    """Rebase ``branch_name`` onto ``rebase_target`` from inside its linked worktree.
+
+    Used when the feature branch lives in a task worktree (the normal /tusk
+    flow). The primary checkout cannot ``git checkout`` the feature branch in
+    that case — git refuses with "is already used by worktree at <path>"
+    (issue #858). Running the rebase via ``git -C <worktree_path>`` updates
+    refs/heads/<branch_name> in place; the primary checkout's HEAD stays on
+    the default branch, so no checkout dance is needed.
+
+    Returns 0 on a clean rebase, 2 on rebase failure. On failure the recovery
+    hint surfaces the feature worktree path so the operator knows where to
+    ``cd`` to resolve conflicts (the rebase-in-progress state lives there,
+    not in the primary checkout).
+    """
+    rebase_result = run(
+        ["git", "-C", worktree_path, "rebase", rebase_target], check=False
+    )
+    if rebase_result.returncode == 0:
+        return 0
+    if rebase_result.stderr.strip():
+        print(rebase_result.stderr.strip(), file=sys.stderr)
+    stash_note = ""
+    if did_stash:
+        stash_note = (
+            f"\nNote: your pre-merge working-tree changes are saved in stash "
+            f"entry 'tusk-merge: auto-stash for TASK-{task_id}' in the primary "
+            "checkout. Restore them with `git stash list` + `git stash pop <ref>` "
+            "after the rebase completes."
+        )
+    print(
+        f"Error: git -C {worktree_path} rebase {rebase_target} failed — "
+        "conflicts must be resolved manually.\n"
+        f"The rebase-in-progress state lives in the feature worktree, NOT the "
+        f"primary checkout. To finish:\n"
+        f"  1. cd {worktree_path}\n"
+        "  2. Fix the conflicting files (git status lists them)\n"
+        "  3. git add <resolved files>\n"
+        "  4. git rebase --continue\n"
+        "  5. Repeat steps 2–4 until the rebase completes\n"
+        f"  6. Re-run: tusk merge {task_id} --rebase\n"
+        "To abort the rebase and return to the pre-rebase state:\n"
+        f"  cd {worktree_path} && git rebase --abort{stash_note}",
+        file=sys.stderr,
+    )
+    return 2
+
+
 def _local_default_unpushed_commits(default_branch: str) -> list[tuple[str, str]] | None:
     """Return [(sha, subject), ...] for commits on local <default_branch> that are
     not yet on origin/<default_branch>.
@@ -1952,67 +2006,97 @@ def main(argv: list[str]) -> int:
                     if did_stash:
                         _try_pop_stash(task_id)
                     return 2
-            print(f"Rebasing {branch_name} onto {rebase_target}...", file=sys.stderr)
-            # Switch to feature branch — move db files aside first (same pattern as above)
-            for src, dst in zip(db_siblings, db_tmp):
-                if os.path.exists(src):
-                    os.rename(src, dst)
-            co_result = run(["git", "checkout", branch_name], check=False)
-            for src, dst in zip(db_siblings, db_tmp):
-                if os.path.exists(dst):
-                    os.rename(dst, src)
-            if co_result.returncode != 0:
+            # Issue #858: when the feature branch lives in a task worktree (the
+            # normal /tusk flow), git refuses to check it out in the primary repo
+            # ("is already used by worktree at <path>"). _worktree_path_for_branch
+            # already enumerates linked worktrees for the ff-only path — consult it
+            # before swapping HEAD and, when a path is returned, rebase via
+            # `git -C <worktree_path>` instead. The primary checkout stays on
+            # default; the feature branch's ref is still updated, so the
+            # subsequent ff-only merge picks up the new tip without any
+            # checkout dance.
+            feature_worktree_path = _worktree_path_for_branch(branch_name)
+            if feature_worktree_path:
                 print(
-                    f"Error: git checkout {branch_name} failed:\n{co_result.stderr.strip()}",
+                    f"Rebasing {branch_name} onto {rebase_target} from worktree "
+                    f"{feature_worktree_path} (issue #858)...",
                     file=sys.stderr,
                 )
-                run(["git", "checkout", default_branch], check=False)
-                if did_stash:
-                    _try_pop_stash(task_id)
-                return 2
-
-            rebase_result = run(["git", "rebase", rebase_target], check=False)
-            if rebase_result.returncode != 0:
-                if rebase_result.stderr.strip():
-                    print(rebase_result.stderr.strip(), file=sys.stderr)
-                stash_note = ""
-                if did_stash:
-                    stash_note = (
-                        f"\nNote: your pre-merge working-tree changes are saved in stash "
-                        f"entry 'tusk-merge: auto-stash for TASK-{task_id}'. "
-                        "Restore them with `git stash list` + `git stash pop <ref>` "
-                        "after the rebase completes."
+                worktree_rebase_rc = _rebase_in_feature_worktree(
+                    feature_worktree_path,
+                    branch_name,
+                    rebase_target,
+                    task_id,
+                    did_stash,
+                )
+                if worktree_rebase_rc != 0:
+                    if did_stash:
+                        _try_pop_stash(task_id)
+                    return worktree_rebase_rc
+                # Skip the checkout/in-place-rebase/checkout-back dance entirely
+                # and fall through to the ff-only merge below.
+            else:
+                print(f"Rebasing {branch_name} onto {rebase_target}...", file=sys.stderr)
+                # Switch to feature branch — move db files aside first (same pattern as above)
+                for src, dst in zip(db_siblings, db_tmp):
+                    if os.path.exists(src):
+                        os.rename(src, dst)
+                co_result = run(["git", "checkout", branch_name], check=False)
+                for src, dst in zip(db_siblings, db_tmp):
+                    if os.path.exists(dst):
+                        os.rename(dst, src)
+                if co_result.returncode != 0:
+                    print(
+                        f"Error: git checkout {branch_name} failed:\n{co_result.stderr.strip()}",
+                        file=sys.stderr,
                     )
-                print(
-                    f"Error: git rebase {rebase_target} failed — conflicts must be resolved manually.\n"
-                    f"You are on '{branch_name}' with the rebase in progress. To finish:\n"
-                    "  1. Fix the conflicting files (git status lists them)\n"
-                    "  2. git add <resolved files>\n"
-                    "  3. git rebase --continue\n"
-                    "  4. Repeat steps 1–3 until the rebase completes\n"
-                    f"  5. Re-run: tusk merge {task_id}\n"
-                    "To abort the rebase and return to the pre-rebase state:\n"
-                    f"  git rebase --abort{stash_note}",
-                    file=sys.stderr,
-                )
-                return 2
+                    run(["git", "checkout", default_branch], check=False)
+                    if did_stash:
+                        _try_pop_stash(task_id)
+                    return 2
 
-            # Rebase succeeded — switch back to default branch for ff-only merge
-            for src, dst in zip(db_siblings, db_tmp):
-                if os.path.exists(src):
-                    os.rename(src, dst)
-            co_back = run(["git", "checkout", default_branch], check=False)
-            for src, dst in zip(db_siblings, db_tmp):
-                if os.path.exists(dst):
-                    os.rename(dst, src)
-            if co_back.returncode != 0:
-                print(
-                    f"Error: git checkout {default_branch} failed after rebase:\n{co_back.stderr.strip()}",
-                    file=sys.stderr,
-                )
-                if did_stash:
-                    _try_pop_stash(task_id)
-                return 2
+                rebase_result = run(["git", "rebase", rebase_target], check=False)
+                if rebase_result.returncode != 0:
+                    if rebase_result.stderr.strip():
+                        print(rebase_result.stderr.strip(), file=sys.stderr)
+                    stash_note = ""
+                    if did_stash:
+                        stash_note = (
+                            f"\nNote: your pre-merge working-tree changes are saved in stash "
+                            f"entry 'tusk-merge: auto-stash for TASK-{task_id}'. "
+                            "Restore them with `git stash list` + `git stash pop <ref>` "
+                            "after the rebase completes."
+                        )
+                    print(
+                        f"Error: git rebase {rebase_target} failed — conflicts must be resolved manually.\n"
+                        f"You are on '{branch_name}' with the rebase in progress. To finish:\n"
+                        "  1. Fix the conflicting files (git status lists them)\n"
+                        "  2. git add <resolved files>\n"
+                        "  3. git rebase --continue\n"
+                        "  4. Repeat steps 1–3 until the rebase completes\n"
+                        f"  5. Re-run: tusk merge {task_id}\n"
+                        "To abort the rebase and return to the pre-rebase state:\n"
+                        f"  git rebase --abort{stash_note}",
+                        file=sys.stderr,
+                    )
+                    return 2
+
+                # Rebase succeeded — switch back to default branch for ff-only merge
+                for src, dst in zip(db_siblings, db_tmp):
+                    if os.path.exists(src):
+                        os.rename(src, dst)
+                co_back = run(["git", "checkout", default_branch], check=False)
+                for src, dst in zip(db_siblings, db_tmp):
+                    if os.path.exists(dst):
+                        os.rename(dst, src)
+                if co_back.returncode != 0:
+                    print(
+                        f"Error: git checkout {default_branch} failed after rebase:\n{co_back.stderr.strip()}",
+                        file=sys.stderr,
+                    )
+                    if did_stash:
+                        _try_pop_stash(task_id)
+                    return 2
 
         # Step 4 (cont): Fast-forward merge (skipped when task commit already on default)
         if not task_on_default:
