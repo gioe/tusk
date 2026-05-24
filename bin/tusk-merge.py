@@ -709,9 +709,107 @@ def _maybe_advise_stale_deployed_bin(db_path: str) -> None:
         )
 
 
+def _stamp_merge_commit_sha(
+    db_path: str, task_id: int, merge_commit_sha: str | None
+) -> None:
+    """Best-effort write of the merge commit SHA onto tasks.merge_commit_sha.
+
+    Consumed by ``bin/tusk-task-summary.py``'s ``fetch_diff`` fast-path so the
+    3-tier ref/criterion-hash/fsck recovery chain (issues #757/#797/#812/#816/
+    #820/#822/#827/#845) is unneeded for tasks closed via merge after
+    migration 70. Legacy tasks without a stamped SHA fall through to the
+    existing recovery chain. Issue #849.
+
+    Best-effort by design: any write failure emits a single stderr warning
+    and returns; never aborts the merge close-out path. Pre-migration DBs
+    lacking the column (defensive — ``tusk merge`` runs ``tusk migrate``
+    first so this branch is unreachable in practice) skip silently.
+    """
+    if not merge_commit_sha:
+        return
+    try:
+        conn = get_connection(db_path)
+    except sqlite3.Error as exc:
+        print(
+            f"Warning: could not open DB to stamp tasks.merge_commit_sha for "
+            f"TASK-{task_id}: {exc}",
+            file=sys.stderr,
+        )
+        return
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()}
+        if "merge_commit_sha" not in cols:
+            return
+        conn.execute(
+            "UPDATE tasks SET merge_commit_sha = ? WHERE id = ?",
+            (merge_commit_sha, task_id),
+        )
+        conn.commit()
+    except sqlite3.Error as exc:
+        print(
+            f"Warning: failed to stamp tasks.merge_commit_sha for "
+            f"TASK-{task_id} ({merge_commit_sha[:7]}): {exc}",
+            file=sys.stderr,
+        )
+    finally:
+        conn.close()
+
+
+def _resolve_merge_commit_sha_pr(pr_number: int) -> str | None:
+    """Query ``gh pr view <pr> --json mergeCommit`` for the squash SHA.
+
+    Returns the full 40-char SHA or None if gh is missing, the call fails,
+    or the response lacks a mergeCommit oid (e.g. the PR is not yet merged
+    on GitHub's side at the time we query). Best-effort — the stamp itself
+    is best-effort too, so any failure here just leaves the column NULL
+    and ``fetch_diff`` falls through to the existing recovery chain.
+    """
+    try:
+        result = subprocess.run(
+            ["gh", "pr", "view", str(pr_number), "--json", "mergeCommit"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    merge_commit = payload.get("mergeCommit") or {}
+    oid = merge_commit.get("oid")
+    if isinstance(oid, str) and oid:
+        return oid
+    return None
+
+
+def _resolve_local_ref_sha(ref: str) -> str | None:
+    """Return ``git rev-parse <ref>`` output, or None on any failure.
+
+    Used by the merge-close paths to capture the SHA that lands on the
+    default branch (HEAD after ff-merge; branch_name tip for the
+    no-checkout push since that path doesn't switch HEAD).
+    """
+    result = run(["git", "rev-parse", ref], check=False)
+    if result.returncode != 0:
+        return None
+    sha = result.stdout.strip()
+    return sha or None
+
+
 def _close_completed_task(
-    tusk_bin: str, task_id: int, db_path: str, session_was_closed: bool
+    tusk_bin: str, task_id: int, db_path: str, session_was_closed: bool,
+    merge_commit_sha: str | None = None,
 ) -> int:
+    # Stamp the merge SHA before task-done flips the row to Done. The stamp
+    # is best-effort: a write failure logs a warning but does NOT abort the
+    # close-out, so the existing fetch_diff recovery chain still handles
+    # diff retrieval for tasks whose stamp didn't land (issue #849).
+    _stamp_merge_commit_sha(db_path, task_id, merge_commit_sha)
     # Pass --force up front so task-done emits "Warning:" (not "Error:") for
     # criteria that legitimately lack a commit hash. The user has explicitly
     # chosen to ship the merge, so implicit --force on close is consistent with
@@ -979,7 +1077,16 @@ def _complete_no_checkout_fast_forward(
     # under the still-pending subprocess invocation and the task stays In
     # Progress with a "Missing executable" diagnostic. The cleanup itself
     # (issue #765) still runs on success; only the ordering is reversed.
-    rc = _close_completed_task(tusk_bin, task_id, db_path, session_was_closed)
+    # Capture the SHA that landed on origin/<default_branch> before the
+    # feature branch is deleted by _cleanup_no_checkout_workspace below.
+    # branch_name's tip equals the SHA the push deposited on the destination
+    # ref (no-checkout pushes don't rewrite SHAs; the local branch is the
+    # source of truth). Issue #849.
+    merge_commit_sha = _resolve_local_ref_sha(branch_name)
+    rc = _close_completed_task(
+        tusk_bin, task_id, db_path, session_was_closed,
+        merge_commit_sha=merge_commit_sha,
+    )
     _cleanup_no_checkout_workspace(db_path, task_id, branch_name)
     # The auto-refresh inside _close_completed_task compares primary's bin/
     # against primary's .claude/bin/, but the no-checkout path never updates
@@ -1836,6 +1943,12 @@ def main(argv: list[str]) -> int:
                 _try_pop_stash(task_id)
             return 2
 
+    # Captured at each merge path; passed to _close_completed_task so the
+    # tasks.merge_commit_sha column gets stamped before task-done flips the
+    # row to Done. Best-effort — None falls through to the existing
+    # fetch_diff recovery chain (issue #849).
+    merge_commit_sha: str | None = None
+
     if use_pr:
         # PR mode: delegate to gh pr merge
         print(f"Merging PR #{pr_number} via gh...", file=sys.stderr)
@@ -1848,6 +1961,10 @@ def main(argv: list[str]) -> int:
             return 2
         if result.stdout.strip():
             print(result.stdout.strip(), file=sys.stderr)
+        # Query gh for the squash SHA created on the default branch. The
+        # local repo doesn't reflect this commit (gh does the merge on the
+        # GitHub side); querying gh is the only deterministic source.
+        merge_commit_sha = _resolve_merge_commit_sha_pr(pr_number)
     else:
         # Local mode: ff-only merge
         if default_branch is None:
@@ -2223,6 +2340,12 @@ def main(argv: list[str]) -> int:
                 if did_stash:
                     _try_pop_stash(task_id)
                 return 2
+            # HEAD now points at the feature-branch tip on the default
+            # branch — that's the SHA fetch_diff will fast-path against.
+            # task_on_default short-circuits leave merge_commit_sha None and
+            # fall through to the existing recovery chain (the [TASK-N]
+            # commit is already reachable from default by definition).
+            merge_commit_sha = _resolve_local_ref_sha("HEAD")
 
         # Step 5: Push (skip when no remote is configured or unreachable)
         if has_origin:
@@ -2320,7 +2443,10 @@ def main(argv: list[str]) -> int:
     # explicit manual restore/drop commands.
     _warn_branch_auto_stash(task_id)
 
-    return _close_completed_task(tusk_bin, task_id, _db_path, session_was_closed)
+    return _close_completed_task(
+        tusk_bin, task_id, _db_path, session_was_closed,
+        merge_commit_sha=merge_commit_sha,
+    )
 
 
 if __name__ == "__main__":
