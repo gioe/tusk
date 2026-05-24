@@ -651,9 +651,11 @@ def rule12_python_syntax(root):
 def rule15_big_bang_commits(root):
     """In Progress tasks where all completed non-deferred criteria share one commit_hash.
 
-    Advisory only — fires when 2+ eligible criteria exist and all share a single hash.
+    Advisory only — fires when 4+ eligible criteria exist and all share a single hash.
+    The 2–3 co-located grouping allowance is documented in /tusk SKILL.md (issue #862),
+    so we suppress the advisory at that count and only flag genuine big-bang commits.
     Partial grouping (some criteria on one hash, others on another) is NOT flagged.
-    Tasks with zero or one eligible criterion are NOT flagged.
+    Tasks with three or fewer eligible criteria are NOT flagged.
     """
     db_path = _db_path_from_root(root)
     if not db_path:
