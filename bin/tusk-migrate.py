@@ -2704,6 +2704,38 @@ def migrate_68(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 68: added task_workspaces table")
 
 
+def migrate_69(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add ``code_reviews.diff_range`` so the validator can reuse the
+    range resolved at review-begin time.
+
+    ``tusk review validate-comments`` previously re-derived the diff
+    range via ``compute_range``, which can drift from the range
+    ``tusk review begin`` recorded findings against (new commits land
+    between begin and validate; worktree-aware fallback resolves into a
+    different checkout). Valid findings on files in the original range
+    then got dismissed as fabrications via the ``(issue #783
+    fabrication guard)`` resolution note. Persisting the range on the
+    review row removes the drift entirely (issue #847).
+
+    Pre-migration rows stay NULL; the validator falls back to
+    ``compute_range`` only when ``diff_range IS NULL``, so historical
+    reviews keep their current behavior.
+    """
+    if get_version(db_path) >= 69:
+        _progress("  Migration 69: added code_reviews.diff_range column")
+        return
+
+    ddl_stmts = []
+    if not has_column(db_path, "code_reviews", "diff_range"):
+        ddl_stmts.append("ALTER TABLE code_reviews ADD COLUMN diff_range TEXT;")
+
+    script = "\n".join(ddl_stmts) + """
+        PRAGMA user_version = 69;
+    """
+    run_script(db_path, script)
+    _progress("  Migration 69: added code_reviews.diff_range column")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -2775,6 +2807,7 @@ MIGRATIONS = [
     (66, migrate_66),
     (67, migrate_67),
     (68, migrate_68),
+    (69, migrate_69),
 ]
 
 
