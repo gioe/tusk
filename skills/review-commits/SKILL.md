@@ -457,6 +457,8 @@ git commit -m "[TASK-<task_id>] Apply review fixes"
 git push --set-upstream origin HEAD
 ```
 
+**Do not override identity or signing on this commit.** Do NOT pass `-c user.email=`, `-c user.name=`, or `-c gpg.gpgsign=false` to `git commit` unless the user has explicitly asked. Defensive overrides produce commits authored as `Claude <noreply@anthropic.com>` instead of the operator and pollute the audit trail. If the wrong author already landed on the most recent commit (and only that commit), recover before pushing with `git commit --amend --reset-author --no-edit` — `--amend` only rewrites HEAD, so any earlier commit in the branch with the same defect must be fixed with `git rebase -i` instead.
+
 `--set-upstream origin HEAD` is required on the **first** push of a brand-new feature branch when `push.autoSetupRemote` is not set in the user's git config — bare `git push` aborts with "no upstream branch". The flag is idempotent on subsequent pushes (just re-binds the existing tracking ref), so it is safe to use unconditionally.
 
 ## Step 10: Final Summary
