@@ -566,10 +566,17 @@ class TestPrefixCollisionHeuristic:
             capture_output=True, text=True, encoding="utf-8", check=True,
         ).stdout
 
-    def test_raises_when_filter_drops_every_commit(self, tmp_path, monkeypatch):
-        """The only [TASK-N] commits in history are prefix-match false positives
-        — filter empties the list, raise SystemExit with a #656-specific
-        message rather than silently handing the reviewer the wrong diff."""
+    def test_falls_through_when_no_block_overlaps_scope_signal(
+        self, tmp_path, monkeypatch
+    ):
+        """Extraction-miss fall-through (mirrors issue #851 from
+        tusk-task-summary): when no block intersects the task's scope
+        signal, return every commit unchanged rather than refusing.
+        The signal is more likely off-scope (a precedent citation in
+        the description) than every matched commit being a recycled-ID
+        stray; over-inclusion is recoverable, silent zero-range refusal
+        is not. Pre-#842 behavior was to raise the #656 prefix-collision
+        SystemExit here; the fallthrough subsumes that refusal."""
         repo_root, db_path = _make_repo(tmp_path, default_branch="main")
         _seed_db(
             db_path,
@@ -578,7 +585,9 @@ class TestPrefixCollisionHeuristic:
             description="Update bin/tusk-bar.py for the bar case",
         )
 
-        # Only [TASK-99] commits in history are unrelated
+        # Only [TASK-99] commit in history touches a file that's outside
+        # the scope signal (bin/tusk-bar.py). With the block-level
+        # filter and fallthrough, the commit is kept rather than dropped.
         with open(os.path.join(repo_root, "stray.txt"), "w") as f:
             f.write("stray\n")
         subprocess.run(["git", "-C", repo_root, "add", "stray.txt"], check=True)
@@ -589,11 +598,10 @@ class TestPrefixCollisionHeuristic:
 
         monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
 
-        with pytest.raises(SystemExit) as exc:
-            mod.compute_range(99, repo_root, db_path)
-        msg = str(exc.value)
-        assert "[TASK-99]" in msg
-        assert "issue #656" in msg
+        result = mod.compute_range(99, repo_root, db_path)
+        assert result["recovered_from_task_commits"] is True
+        assert result["diff_lines"] > 0
+        assert "stray.txt" in result["summary"]
 
     def test_skipped_when_task_has_no_scope_signal(self, tmp_path, monkeypatch):
         """Task with no referenced paths in summary/description → no basis to
@@ -641,6 +649,103 @@ class TestPrefixCollisionHeuristic:
         result = mod.compute_range(22, repo_root, "/nonexistent/path/db")
         assert result["recovered_from_task_commits"] is True
         assert result["diff_lines"] > 0
+
+    def test_block_keeps_sibling_commits_842(self, tmp_path, monkeypatch):
+        """Issue #842 regression: when a contiguous run of [TASK-N]
+        commits includes both an in-scope source commit AND off-scope
+        sibling commits (test, VERSION bump, CHANGELOG), the block-level
+        filter keeps the whole block so the recovered range covers all
+        commits — not just the single source commit.
+
+        Mirrors TASK-421's incident: 3 commits where only the source
+        commit touches a referenced path; under the old per-commit
+        filter the recovered range was <src>^..<src> covering 1 commit;
+        under the block-level filter it covers all 3."""
+        repo_root, db_path = _make_repo(tmp_path, default_branch="main")
+        _seed_db(
+            db_path,
+            task_id=421,
+            summary="Fix abandon cwd",
+            description="Update bin/tusk-abandon.py to handle CWD correctly",
+        )
+
+        # Commit 1: source fix touching the referenced path.
+        os.makedirs(os.path.join(repo_root, "bin"), exist_ok=True)
+        with open(os.path.join(repo_root, "bin", "tusk-abandon.py"), "w") as f:
+            f.write("source fix\n")
+        subprocess.run(
+            ["git", "-C", repo_root, "add", "bin/tusk-abandon.py"], check=True
+        )
+        subprocess.run(
+            ["git", "-C", repo_root, "commit", "-q", "-m", "[TASK-421] fix"],
+            check=True,
+        )
+
+        # Commit 2: sibling test commit touching only a new test file.
+        os.makedirs(os.path.join(repo_root, "tests", "integration"), exist_ok=True)
+        with open(
+            os.path.join(repo_root, "tests", "integration", "test_abandon.py"), "w"
+        ) as f:
+            f.write("test\n")
+        subprocess.run(
+            ["git", "-C", repo_root, "add", "tests/integration/test_abandon.py"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", repo_root, "commit", "-q", "-m", "[TASK-421] test"],
+            check=True,
+        )
+
+        # Commit 3: sibling VERSION bump touching only VERSION + CHANGELOG.
+        with open(os.path.join(repo_root, "VERSION"), "w") as f:
+            f.write("999\n")
+        with open(os.path.join(repo_root, "CHANGELOG.md"), "w") as f:
+            f.write("# Changelog\n")
+        subprocess.run(
+            ["git", "-C", repo_root, "add", "VERSION", "CHANGELOG.md"], check=True
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                repo_root,
+                "commit",
+                "-q",
+                "-m",
+                "[TASK-421] Bump VERSION to 999 and update CHANGELOG",
+            ],
+            check=True,
+        )
+
+        monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
+
+        result = mod.compute_range(421, repo_root, db_path)
+        assert result["recovered_from_task_commits"] is True
+
+        # The recovered range must cover all 3 commits, not just the source.
+        rev_list = subprocess.run(
+            ["git", "-C", repo_root, "rev-list", result["range"]],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        )
+        covered = [line for line in rev_list.stdout.splitlines() if line.strip()]
+        assert len(covered) == 3, (
+            f"expected 3 commits covered, got {len(covered)}: range={result['range']!r}"
+        )
+
+        diff = subprocess.run(
+            ["git", "-C", repo_root, "diff", result["range"]],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        ).stdout
+        assert "bin/tusk-abandon.py" in diff
+        assert "tests/integration/test_abandon.py" in diff
+        assert "VERSION" in diff
+        assert "CHANGELOG.md" in diff
 
 
 class TestDiffLinesMeaningful:
@@ -891,15 +996,26 @@ class TestPrimaryRangeTaskCommitCoverage:
 class TestSiblingHint:
     """Issue #817 / TASK-412: when ``compute_range`` raises "No changes found"
     AND a sibling worktree carries ``feature/TASK-<id>-*``, the error must
-    name that worktree path so the operator knows where to re-run from."""
+    name that worktree path so the operator knows where to re-run from.
 
-    def test_filter_drops_everything_message_names_sibling(
+    Issue #842: with the block-level scope filter and fallthrough, the
+    "filter drops everything" raise path is subsumed — when a scope
+    signal exists but no block intersects it, the function returns the
+    over-broad range rather than refusing. The sibling-hint enrichment
+    is still exercised by the other raise paths in ``compute_range``
+    (covered by ``TestWorktreeFallback::test_no_sibling_means_clear_error``)."""
+
+    def test_filter_no_longer_drops_everything_falls_through_842(
         self, tmp_path, monkeypatch
     ):
-        """Prefix-collision filter empties the candidate list — a sibling
-        worktree exists but its commits don't overlap with the task's
-        referenced paths. The error message must surface the worktree path
-        so the operator can re-run from there."""
+        """Pre-#842 behavior: when [TASK-N] commits exist in the sibling
+        worktree but none overlap the task's referenced paths, the
+        prefix-collision filter emptied the candidate list and the
+        function raised a #656 SystemExit with the sibling hint.
+
+        Post-#842: the fallthrough returns the off-scope commits as the
+        recovered range instead of refusing — over-inclusion is
+        recoverable, silent zero-range refusal is not."""
         repo_root, db_path = _make_repo(tmp_path, default_branch="main")
         _seed_db(
             db_path,
@@ -926,13 +1042,10 @@ class TestSiblingHint:
 
         monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
 
-        with pytest.raises(SystemExit) as exc:
-            mod.compute_range(88, repo_root, db_path)
-        msg = str(exc.value)
-        assert "issue #656" in msg
-        # TASK-412: the sibling worktree path must be named in the hint.
-        assert sibling in msg or os.path.realpath(sibling) in msg
-        assert f"tusk review begin 88" in msg
+        result = mod.compute_range(88, repo_root, db_path)
+        assert result["recovered_from_task_commits"] is True
+        assert result["diff_lines"] > 0
+        assert "unrelated-area.txt" in result["summary"]
 
 
 class TestStartedAtScope:
