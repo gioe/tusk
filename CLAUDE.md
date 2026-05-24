@@ -244,6 +244,8 @@ Two independent version tracks:
 
 `tusk upgrade` downloads the latest tarball from GitHub, copies all files to their installed locations (never touching `tusk/config.json` or `tusk/tasks.db`), then runs `tusk migrate`.
 
+**Source-repo auto-refresh of `.claude/bin/` after `tusk merge` (issue #863):** in the tusk source repo, `bin/` is the source of truth and `.claude/bin/` is a refresh-on-demand cache populated by `tusk dev-sync`. When `tusk merge` finishes in a primary checkout that has a `.claude/bin/` directory, it compares each `bin/tusk-*.py` (and `bin/tusk`) against its deployed counterpart and, if any pair drifts, invokes `tusk dev-sync` automatically before returning. A single stderr line names the drifted files. Consumer installs (no `.claude/bin/` in the primary) are a silent no-op. Set `TUSK_NO_DEPLOYED_BIN_REFRESH=1` to disable. This closes the gap where source-repo fixes to `bin/tusk-*.py` shipped via merge but did not take effect for subsequent same-session tasks because `PreToolUse` hooks kept loading the stale `.claude/bin/` copies.
+
 ### Migrations
 
 See `docs/MIGRATIONS.md` for table-recreation and trigger-only migration templates, including the ordering rules and gotchas.
