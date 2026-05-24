@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [966] - 2026-05-24
+
+- [TASK-444] Fix: downgrade check-deliverables to manual_pending when all criteria are manual and zero commits
+
 ## [965] - 2026-05-24
 
 - [TASK-443] Fix: tusk merge --rebase worktree-aware via git -C <worktree> when feature branch lives in task worktree
