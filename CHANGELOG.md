@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [964] - 2026-05-24
+
+- [TASK-442] Fix: scope tusk conventions inject filter to topic-tag membership (drop text-LIKE over-match)
+
 ## [963] - 2026-05-24
 
 - [TASK-441] Add tusk sync-main helper for /address-issue staleness recovery (fetch + ff-pull + migrate)
