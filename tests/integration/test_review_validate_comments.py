@@ -400,3 +400,94 @@ class TestValidateComments:
         assert "kept.py" in payload["diff_files"]
         assert payload["dismissed"] == []
         assert payload["in_diff"] == 1
+
+    def test_review_begin_stamps_concrete_sha_not_symbolic_head_857(
+        self, tmp_path, monkeypatch
+    ):
+        """Issue #857: the stamped ``diff_range`` for the primary path must
+        be the concrete ``origin/<base>...<sha>`` form, not the symbolic
+        ``origin/<base>...HEAD``. The symbolic form drifts when validate is
+        invoked from a different cwd than begin (HEAD resolves against the
+        validator's cwd, not the begin-time cwd). The concrete SHA form is
+        cwd-independent thanks to the shared git object database. Recovery
+        path's ``<sha>^..<sha>`` shape is already concrete and is verified
+        separately by the unit tests in TestTaskCommitRecovery."""
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        task_id = _insert_in_progress_task(db_path)
+        _git(["checkout", "-b", f"feature/TASK-{task_id}-x"], cwd=repo)
+        (repo / "feat.py").write_text("x\n", encoding="utf-8")
+        _git(["add", "feat.py"], cwd=repo, env=env)
+        _git(["commit", "-m", f"[TASK-{task_id}] feat"], cwd=repo, env=env)
+        begin_head_sha = _git(["rev-parse", "HEAD"], cwd=repo).stdout.strip()
+
+        begin = _run(["review", "begin", str(task_id)], cwd=repo, env=env)
+        assert begin.returncode == 0, begin.stderr
+        review_id = json.loads(begin.stdout)["review_id"]
+
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT diff_range FROM code_reviews WHERE id = ?",
+                (review_id,),
+            ).fetchone()
+        stored = row[0]
+        assert not stored.endswith("...HEAD"), (
+            f"stamped diff_range must be concretized; got {stored!r}"
+        )
+        assert stored.endswith(f"...{begin_head_sha}"), (
+            f"stamped diff_range must end with begin-time HEAD SHA "
+            f"{begin_head_sha!r}; got {stored!r}"
+        )
+
+    def test_validate_comments_unaffected_by_post_begin_head_movement_857(
+        self, tmp_path, monkeypatch
+    ):
+        """Issue #857 end-to-end: the consequence of concretizing the
+        stamped range is that HEAD movement between ``tusk review begin``
+        and ``tusk review validate-comments`` does not change which files
+        the validator considers in-diff. Without the fix, the stamped
+        ``origin/main...HEAD`` would re-resolve at validate time and pick
+        up the post-begin commit, contaminating the file list."""
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        task_id = _insert_in_progress_task(db_path)
+        _git(["checkout", "-b", f"feature/TASK-{task_id}-x"], cwd=repo)
+        (repo / "feat.py").write_text("x\n", encoding="utf-8")
+        _git(["add", "feat.py"], cwd=repo, env=env)
+        _git(["commit", "-m", f"[TASK-{task_id}] feat"], cwd=repo, env=env)
+
+        begin = _run(["review", "begin", str(task_id)], cwd=repo, env=env)
+        assert begin.returncode == 0, begin.stderr
+        review_id = json.loads(begin.stdout)["review_id"]
+
+        # Add a comment on feat.py — the file from the begin-time HEAD.
+        r = _run(
+            ["review", "add-comment", str(review_id), "issue on feat",
+             "--file", "feat.py", "--line-start", "1",
+             "--category", "must_fix", "--severity", "minor"],
+            cwd=repo, env=env,
+        )
+        assert r.returncode == 0, r.stderr
+
+        # Advance HEAD on the same checkout with an unrelated commit.
+        # Under the symbolic-HEAD bug, the validator would re-resolve
+        # ...HEAD to this new commit and include unrelated.txt in
+        # diff_files. With concretization, the stored SHA pins to the
+        # begin-time HEAD and unrelated.txt stays out.
+        (repo / "unrelated.txt").write_text("unrelated\n", encoding="utf-8")
+        _git(["add", "unrelated.txt"], cwd=repo, env=env)
+        _git(["commit", "-m", "unrelated post-begin commit"], cwd=repo, env=env)
+
+        result = _run(["review", "validate-comments", str(review_id)], cwd=repo, env=env)
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+
+        # The post-begin commit's file must not be in diff_files — the
+        # stored range pins to the begin-time HEAD.
+        assert "unrelated.txt" not in payload["diff_files"], (
+            f"unrelated.txt from post-begin commit must not contaminate "
+            f"diff_files when the stored range is concrete; "
+            f"got {payload['diff_files']}"
+        )
+        # The feat.py comment must survive (in-diff under the stamped range).
+        assert "feat.py" in payload["diff_files"]
+        assert payload["dismissed"] == []
+        assert payload["in_diff"] == 1
