@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [956] - 2026-05-23
+
+- [TASK-432] Warn against speculative -c user.email / gpg.gpgsign overrides in review-commits Step 9
+
 ## [955] - 2026-05-23
 
 - [TASK-431] Expose recovery_tier in task-summary JSON output
