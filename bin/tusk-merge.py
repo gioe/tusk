@@ -664,6 +664,51 @@ def _maybe_refresh_deployed_bin(db_path: str, tusk_bin: str) -> None:
         )
 
 
+def _maybe_advise_stale_deployed_bin(db_path: str) -> None:
+    """Advise the operator that .claude/bin/ may be stale after a no-checkout merge.
+
+    The no-checkout fast-forward path pushes to origin/<default> without updating
+    primary's working tree, so _maybe_refresh_deployed_bin sees zero drift between
+    primary's bin/ and primary's .claude/bin/ — both stay at primary's pre-merge
+    content. The deployed cache remains stale relative to origin/<default> until
+    the operator pulls primary (issue #865).
+
+    Emits a single stderr line naming the recovery command. Wording adapts to
+    primary's working-tree state: clean → plain `git pull && tusk dev-sync`;
+    dirty → add a stash-first note. Gated identically to _maybe_refresh_deployed_bin
+    (source-repo layout — both bin/ and .claude/bin/ must exist in primary; honors
+    TUSK_NO_DEPLOYED_BIN_REFRESH=1 as the single off-switch).
+    """
+    if os.environ.get("TUSK_NO_DEPLOYED_BIN_REFRESH") == "1":
+        return
+    from pathlib import Path
+    primary_root = Path(os.path.dirname(os.path.dirname(os.path.abspath(db_path))))
+    src_bin = primary_root / "bin"
+    dst_bin = primary_root / ".claude" / "bin"
+    if not src_bin.is_dir() or not dst_bin.is_dir():
+        return
+    status = run(
+        ["git", "-C", str(primary_root), "status", "--porcelain"], check=False,
+    )
+    if status.returncode != 0:
+        return
+    working_tree_clean = not status.stdout.strip()
+    if working_tree_clean:
+        print(
+            "tusk: .claude/bin/ may be stale — primary's working tree was not "
+            "updated by this no-checkout merge. Run `git pull && tusk dev-sync` "
+            f"in {primary_root} when convenient.",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            "tusk: .claude/bin/ may be stale — primary's working tree was not "
+            "updated by this no-checkout merge. Stash or commit local changes in "
+            f"{primary_root}, then run `git pull && tusk dev-sync`.",
+            file=sys.stderr,
+        )
+
+
 def _close_completed_task(
     tusk_bin: str, task_id: int, db_path: str, session_was_closed: bool
 ) -> int:
@@ -936,6 +981,11 @@ def _complete_no_checkout_fast_forward(
     # (issue #765) still runs on success; only the ordering is reversed.
     rc = _close_completed_task(tusk_bin, task_id, db_path, session_was_closed)
     _cleanup_no_checkout_workspace(db_path, task_id, branch_name)
+    # The auto-refresh inside _close_completed_task compares primary's bin/
+    # against primary's .claude/bin/, but the no-checkout path never updates
+    # primary's working tree — so both stay at primary's pre-merge content and
+    # no drift is detected. Surface the staleness explicitly (issue #865).
+    _maybe_advise_stale_deployed_bin(db_path)
     return rc
 
 
