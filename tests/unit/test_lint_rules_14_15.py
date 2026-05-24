@@ -52,6 +52,7 @@ def _make_big_bang_db(tmp_dir, tasks, criteria):
 
 class TestRule15BigBangCommits:
     def test_all_criteria_on_one_commit_is_flagged(self):
+        # Threshold is 4+ shared criteria (issue #862) — use 4 to confirm the rule still fires.
         with tempfile.TemporaryDirectory() as tmp:
             db_path = _make_big_bang_db(
                 tmp,
@@ -60,6 +61,7 @@ class TestRule15BigBangCommits:
                     (101, 1, 1, 0, "abc123"),
                     (102, 1, 1, 0, "abc123"),
                     (103, 1, 1, 0, "abc123"),
+                    (104, 1, 1, 0, "abc123"),
                 ],
             )
             with patch.object(lint, "_db_path_from_root", return_value=db_path):
@@ -67,7 +69,22 @@ class TestRule15BigBangCommits:
         assert len(violations) == 1
         assert "TASK-1" in violations[0]
         assert "Big bang" in violations[0]
-        assert "3" in violations[0]
+        assert "4" in violations[0]
+
+    def test_three_criteria_on_one_commit_not_flagged(self):
+        # /tusk SKILL.md documents a 2-3 co-located grouping allowance (issue #862).
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = _make_big_bang_db(
+                tmp,
+                tasks=[(8, "Documented grouping", "In Progress")],
+                criteria=[
+                    (801, 8, 1, 0, "shared"),
+                    (802, 8, 1, 0, "shared"),
+                    (803, 8, 1, 0, "shared"),
+                ],
+            )
+            with patch.object(lint, "_db_path_from_root", return_value=db_path):
+                assert lint.rule15_big_bang_commits(tmp) == []
 
     def test_criteria_on_distinct_commits_not_flagged(self):
         with tempfile.TemporaryDirectory() as tmp:

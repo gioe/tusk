@@ -672,7 +672,7 @@ def rule15_big_bang_commits(root):
                 "  AND ac.is_deferred = 0 "
                 "  AND ac.commit_hash IS NOT NULL "
                 "GROUP BY t.id "
-                "HAVING COUNT(ac.id) > 1 AND COUNT(DISTINCT ac.commit_hash) = 1 "
+                "HAVING COUNT(ac.id) > 3 AND COUNT(DISTINCT ac.commit_hash) = 1 "
                 "ORDER BY t.id"
             ).fetchall()
         except sqlite3.OperationalError:
