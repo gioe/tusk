@@ -266,3 +266,137 @@ class TestValidateComments:
         dismissed = next(r for r in rows if r["file_path"] == "src/fake.py")
         assert kept["resolution"] is None, "task.py comment must NOT be dismissed"
         assert dismissed["resolution"] == "dismissed"
+
+    def test_review_begin_stamps_diff_range_on_row_847(self, tmp_path, monkeypatch):
+        """Issue #847: ``tusk review begin`` must populate
+        ``code_reviews.diff_range`` with the resolved range so
+        ``tusk review validate-comments`` can reuse it instead of
+        re-deriving via ``compute_range``."""
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        task_id = _insert_in_progress_task(db_path)
+        _git(["checkout", "-b", f"feature/TASK-{task_id}-x"], cwd=repo)
+        (repo / "feat.py").write_text("x\n", encoding="utf-8")
+        _git(["add", "feat.py"], cwd=repo, env=env)
+        _git(["commit", "-m", f"[TASK-{task_id}] feat"], cwd=repo, env=env)
+
+        begin = _run(["review", "begin", str(task_id)], cwd=repo, env=env)
+        assert begin.returncode == 0, begin.stderr
+        payload = json.loads(begin.stdout)
+        review_id = payload["review_id"]
+        returned_range = payload["range"]
+
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT diff_range FROM code_reviews WHERE id = ?",
+                (review_id,),
+            ).fetchone()
+        assert row is not None
+        assert row[0] == returned_range, (
+            f"stamped diff_range {row[0]!r} should match the returned range "
+            f"{returned_range!r}"
+        )
+
+    def test_validate_comments_uses_stored_diff_range_not_recompute_847(
+        self, tmp_path, monkeypatch
+    ):
+        """Issue #847 regression: ``validate-comments`` must use the
+        ``diff_range`` stamped by ``tusk review begin``, not re-derive
+        via ``compute_range``. Demonstrated by manually overwriting the
+        stored value with a range that excludes the comment's file —
+        if the validator recomputed, the file would still be in the diff
+        and the comment would survive; using the (overwritten) stored
+        range dismisses it."""
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        task_id = _insert_in_progress_task(db_path)
+        _git(["checkout", "-b", f"feature/TASK-{task_id}-x"], cwd=repo)
+        (repo / "feat.py").write_text("x\n", encoding="utf-8")
+        _git(["add", "feat.py"], cwd=repo, env=env)
+        _git(["commit", "-m", f"[TASK-{task_id}] feat"], cwd=repo, env=env)
+        feat_sha = _git(["rev-parse", "HEAD"], cwd=repo).stdout.strip()
+
+        begin = _run(["review", "begin", str(task_id)], cwd=repo, env=env)
+        assert begin.returncode == 0, begin.stderr
+        review_id = json.loads(begin.stdout)["review_id"]
+
+        # Add a comment on feat.py. With the begin-time range, this file IS
+        # in the diff — under recompute behavior the comment would NOT be
+        # dismissed.
+        r = _run(
+            ["review", "add-comment", str(review_id), "issue on feat",
+             "--file", "feat.py", "--line-start", "1",
+             "--category", "must_fix", "--severity", "minor"],
+            cwd=repo, env=env,
+        )
+        assert r.returncode == 0, r.stderr
+
+        # Overwrite the stored diff_range with an empty range (a sha
+        # compared against itself produces no diff). If validate-comments
+        # uses the stored value, feat.py will be absent from the diff and
+        # the comment will be dismissed as a fabrication. If it recomputes,
+        # the comment will survive because feat.py IS on the feature branch.
+        empty_range = f"{feat_sha}..{feat_sha}"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "UPDATE code_reviews SET diff_range = ? WHERE id = ?",
+                (empty_range, review_id),
+            )
+            conn.commit()
+
+        result = _run(["review", "validate-comments", str(review_id)], cwd=repo, env=env)
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+
+        # Stored range was honoured: feat.py is not in its diff_files set,
+        # so the comment got dismissed.
+        assert payload["range"] == empty_range, (
+            f"validate-comments must report the stored range, got "
+            f"{payload['range']!r}"
+        )
+        assert "feat.py" not in payload["diff_files"], (
+            f"feat.py must not be in diff_files when using the empty stored "
+            f"range, got {payload['diff_files']}"
+        )
+        assert len(payload["dismissed"]) == 1
+        assert payload["dismissed"][0]["file_path"] == "feat.py"
+
+    def test_validate_comments_falls_back_when_stored_range_null(
+        self, tmp_path, monkeypatch
+    ):
+        """Back-compat for pre-v69 rows: when ``diff_range IS NULL``,
+        ``validate-comments`` falls back to ``compute_range`` so historical
+        reviews keep working without a backfill."""
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        task_id = _insert_in_progress_task(db_path)
+        _git(["checkout", "-b", f"feature/TASK-{task_id}-x"], cwd=repo)
+        (repo / "kept.py").write_text("k\n", encoding="utf-8")
+        _git(["add", "kept.py"], cwd=repo, env=env)
+        _git(["commit", "-m", f"[TASK-{task_id}] kept"], cwd=repo, env=env)
+
+        begin = _run(["review", "begin", str(task_id)], cwd=repo, env=env)
+        assert begin.returncode == 0, begin.stderr
+        review_id = json.loads(begin.stdout)["review_id"]
+
+        r = _run(
+            ["review", "add-comment", str(review_id), "issue on kept",
+             "--file", "kept.py", "--line-start", "1",
+             "--category", "suggest", "--severity", "minor"],
+            cwd=repo, env=env,
+        )
+        assert r.returncode == 0, r.stderr
+
+        # Simulate a pre-migration row by NULL-ing diff_range.
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "UPDATE code_reviews SET diff_range = NULL WHERE id = ?",
+                (review_id,),
+            )
+            conn.commit()
+
+        result = _run(["review", "validate-comments", str(review_id)], cwd=repo, env=env)
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+
+        # The recomputed range covers kept.py — comment survives.
+        assert "kept.py" in payload["diff_files"]
+        assert payload["dismissed"] == []
+        assert payload["in_diff"] == 1
