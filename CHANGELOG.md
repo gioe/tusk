@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [970] - 2026-05-24
+
+- [TASK-449] Auto-refresh .claude/bin/ after source-repo commits touching bin/tusk-*.py
+
 ## [969] - 2026-05-24
 
 - [TASK-448] Document tusk sync-main in CLAUDE.md Commands section
