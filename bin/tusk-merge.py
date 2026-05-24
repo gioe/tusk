@@ -55,6 +55,7 @@ task_grep_arg = _git_helpers.task_grep_arg
 find_task_commits = _git_helpers.find_task_commits
 commit_changed_files = _git_helpers.commit_changed_files
 task_referenced_paths = _git_helpers.task_referenced_paths
+filter_commits_by_block_overlap = _git_helpers.filter_commits_by_block_overlap
 iter_branch_auto_stashes = _git_helpers.iter_branch_auto_stashes
 _GENERATED_LOCKFILES = _git_helpers.GENERATED_LOCKFILES
 
@@ -2178,16 +2179,37 @@ def main(argv: list[str]) -> int:
                 )
                 task_on_default = False
             else:
-                _matched_files = commit_changed_files(
-                    _matched_default_commits, _repo_root
-                )
+                # Centralized scope-filter (issue #855): the binary
+                # "any matched commit in scope?" decision is invariant to
+                # block grouping, so we pass a singleton-block parent map
+                # and per-commit files (preserves the existing mockable
+                # commit_changed_files surface in tests). fallthrough=False
+                # opts into "empty kept → override" semantics; the helper
+                # still returns commits unchanged when the task has no
+                # scope signal, so the high-confidence path fires there.
+                # task_basenames=set() preserves the legacy path-only gate
+                # behavior so this refactor is a pure consolidation; enabling
+                # basename matching for the gate is a downstream follow-up.
+                _commit_files = {
+                    sha: commit_changed_files([sha], _repo_root)
+                    for sha in _matched_default_commits
+                }
+                _commit_parents = {sha: [] for sha in _matched_default_commits}
                 _conn = get_connection(_db_path)
                 try:
                     _task_paths = set(task_referenced_paths(task_id, _conn))
+                    _kept = filter_commits_by_block_overlap(
+                        _matched_default_commits, task_id, _repo_root, _conn,
+                        commit_files=_commit_files,
+                        commit_parents=_commit_parents,
+                        task_paths=_task_paths,
+                        task_basenames=set(),
+                        fallthrough=False,
+                    )
                 finally:
                     _conn.close()
                 _sha_list = " ".join(s[:7] for s in _matched_default_commits)
-                if _task_paths and not (_task_paths & _matched_files):
+                if not _kept:
                     print(
                         f"Note: TASK-{task_id} — matched [TASK-{task_id}] commits "
                         f"on {default_branch} ({_sha_list}) don't overlap with this "

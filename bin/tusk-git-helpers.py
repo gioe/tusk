@@ -426,6 +426,8 @@ def filter_commits_by_block_overlap(
     *,
     commit_files: dict | None = None,
     commit_parents: dict | None = None,
+    task_paths: set | None = None,
+    task_basenames: set | None = None,
     fallthrough: bool = True,
 ) -> list:
     """Drop commits whose connected-component block doesn't overlap this task's scope signal.
@@ -453,11 +455,17 @@ def filter_commits_by_block_overlap(
         *fallthrough* is True (the filter-caller default)
 
     Optional inputs let callers reuse precomputed values to avoid redundant
-    git subprocess calls:
+    git subprocess calls or DB queries:
       - *commit_files* — ``{sha: set(paths)}`` per-commit changed-file sets.
         Falls back to ``commit_changed_files([sha], repo_root)`` per block.
       - *commit_parents* — ``{sha: [parent_shas]}`` parent map. Falls back
         to a single ``commit_parents_map(commits, repo_root)`` call.
+      - *task_paths* — pre-resolved scope-signal full-path set. Skips the
+        in-helper ``task_referenced_paths`` DB query when provided. Pass
+        an empty set to actively suppress the path leg of the match.
+      - *task_basenames* — pre-resolved scope-signal basename set. Same
+        contract as *task_paths*. Gate callers that want to preserve the
+        legacy path-only behavior pass ``set()`` here.
       - *fallthrough* — when False, the "no block intersects" path returns
         ``[]`` instead of *commits* unchanged. Gate callers (tusk-merge,
         tusk-task-unstart) opt in so they can distinguish "every block is
@@ -470,8 +478,10 @@ def filter_commits_by_block_overlap(
     """
     if not commits or conn is None:
         return list(commits)
-    task_paths = set(task_referenced_paths(task_id, conn))
-    task_basenames = set(task_referenced_basenames(task_id, conn))
+    if task_paths is None:
+        task_paths = set(task_referenced_paths(task_id, conn))
+    if task_basenames is None:
+        task_basenames = set(task_referenced_basenames(task_id, conn))
     if not task_paths and not task_basenames:
         return list(commits)
 
