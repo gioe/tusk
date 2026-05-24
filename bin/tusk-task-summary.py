@@ -91,8 +91,7 @@ dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 task_grep_arg = _git_helpers.task_grep_arg
 commit_changed_files = _git_helpers.commit_changed_files
-task_referenced_paths = _git_helpers.task_referenced_paths
-task_referenced_basenames = _git_helpers.task_referenced_basenames
+filter_commits_by_block_overlap = _git_helpers.filter_commits_by_block_overlap
 
 
 def _resolve_task_id(raw: str) -> int:
@@ -264,86 +263,6 @@ def fetch_duration(conn: sqlite3.Connection, task_id: int, identity: dict) -> di
         "closed_at": closed_at,
         "session_count": int(row["cnt"] or 0),
     }
-
-
-def _filter_blocks_by_overlap(
-    commit_files: dict,
-    commit_parents: dict,
-    task_paths: set,
-    task_basenames: set | None = None,
-) -> dict:
-    """Group commits into connected components by parent chain, then keep
-    blocks whose aggregate file set overlaps ``task_paths`` (full-path
-    equality) or whose aggregate basename set overlaps ``task_basenames``
-    (issue #670).
-
-    Two grep-matched commits join the same block if one is a parent of the
-    other (i.e. they're contiguous in git history with no non-matched commit
-    between them). A block survives the filter when *any* of its commits
-    touches a path named in the task's scope signal — which means a VERSION
-    bump or new-file commit rides along on the back of the in-block commit
-    that actually names a referenced path. Genuine prefix collisions land in
-    their own block (no parent-child link to the legitimate work) and drop
-    out when their files don't overlap the scope signal.
-
-    Basename-level matching covers descriptions that name a file by bare
-    basename (e.g. ``FULL-RETRO.md`` instead of ``skills/retro/FULL-RETRO.md``)
-    — the strict full-path filter would otherwise drop every block when the
-    description happens to also name a sibling file by full path.
-    """
-    matched = set(commit_files.keys())
-    if not matched:
-        return commit_files
-
-    basenames = task_basenames or set()
-
-    parent: dict[str, str] = {sha: sha for sha in matched}
-
-    def find(x: str) -> str:
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    def union(a: str, b: str) -> None:
-        ra, rb = find(a), find(b)
-        if ra != rb:
-            parent[ra] = rb
-
-    for sha, parents in commit_parents.items():
-        if sha not in matched:
-            continue
-        for p in parents:
-            if p in matched:
-                union(sha, p)
-
-    blocks: dict[str, list[str]] = {}
-    for sha in matched:
-        blocks.setdefault(find(sha), []).append(sha)
-
-    kept: set[str] = set()
-    for block_shas in blocks.values():
-        block_files: set[str] = set()
-        for sha in block_shas:
-            for _, _, path in commit_files[sha]:
-                block_files.add(path)
-        block_basenames = {os.path.basename(p) for p in block_files}
-        if (block_files & task_paths) or (block_basenames & basenames):
-            kept.update(block_shas)
-
-    # Extraction-miss fall-through (issue #851): if zero blocks intersect the
-    # scope signal, the signal is almost certainly off-scope (e.g. a precedent
-    # citation in the description like "matching CLAUDE.md's pinning section")
-    # rather than every [TASK-N] commit being a prefix collision. The latter
-    # would require an entire session's worth of commits to all be recycled-ID
-    # strays, which is far less likely than a description that name-checks an
-    # unrelated file. Return commit_files unchanged so the summary at least
-    # reflects the real diff — false-positive inflation is recoverable; silent
-    # zero-stats is not.
-    if not kept:
-        return commit_files
-
-    return {sha: rows for sha, rows in commit_files.items() if sha in kept}
 
 
 def _parse_numstat_blocks(stdout: str) -> tuple[dict, dict]:
@@ -734,21 +653,33 @@ def fetch_diff(
         _emit_recovery_tier_diagnostic(recovered_via)
 
     # Apply prefix-collision file-overlap heuristic (issue #656) at the
-    # block level (issue #663). A "block" is a connected component on the
-    # parent graph restricted to grep-matched commits — i.e. a contiguous
-    # run of [TASK-N] commits in git history. The block survives if any of
-    # its commits touch a referenced path.
+    # block level (issue #663) via the centralized helper (issue #855).
+    # A "block" is a connected component on the parent graph restricted to
+    # grep-matched commits — i.e. a contiguous run of [TASK-N] commits in
+    # git history. The block survives if any of its commits touch a
+    # referenced path (full path or basename, issue #670). Bare-basename
+    # tokens like ``FULL-RETRO.md`` are resolved inside the helper so they
+    # pull in commits touching e.g. skills/retro/FULL-RETRO.md. We pre-build
+    # a path-set view of ``commit_files`` (numstat tuples → paths) and pass
+    # the pre-fetched ``commit_parents`` so the helper does not re-issue
+    # the git log subprocess for parent resolution.
     if conn is not None and commit_files:
-        task_paths = set(task_referenced_paths(task_id, conn))
-        # Bare-basename tokens (issue #670) — descriptions like "FULL-RETRO.md"
-        # whose containing directory the author elided. Resolved at basename
-        # match level inside _filter_blocks_by_overlap so they pull in commits
-        # touching e.g. skills/retro/FULL-RETRO.md.
-        task_basenames = set(task_referenced_basenames(task_id, conn))
-        if task_paths or task_basenames:
-            commit_files = _filter_blocks_by_overlap(
-                commit_files, commit_parents, task_paths, task_basenames
-            )
+        commits = list(commit_files.keys())
+        cf_paths = {
+            sha: {path for (_a, _r, path) in rows}
+            for sha, rows in commit_files.items()
+        }
+        kept = filter_commits_by_block_overlap(
+            commits, task_id, repo_root, conn,
+            commit_files=cf_paths,
+            commit_parents=commit_parents,
+        )
+        kept_set = set(kept)
+        if kept_set != set(commits):
+            commit_files = {
+                sha: rows for sha, rows in commit_files.items()
+                if sha in kept_set
+            }
 
     result = _summarize_commit_files(commit_files)
     # Surface the recovery tier to JSON consumers (issue #852). The stderr

@@ -36,8 +36,7 @@ dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 load_config = _db_lib.load_config
 find_task_commits = _git_helpers.find_task_commits
-commit_changed_files = _git_helpers.commit_changed_files
-task_referenced_paths = _git_helpers.task_referenced_paths
+filter_commits_by_block_overlap = _git_helpers.filter_commits_by_block_overlap
 
 
 def _find_task_commits(task_id: int, repo_root: str) -> list[str]:
@@ -73,31 +72,29 @@ def _repo_root_for_git(db_path: str) -> str:
 def _filter_commits_by_task_overlap(
     task_id: int, commits: list[str], conn: sqlite3.Connection, repo_root: str
 ) -> tuple[list[str], list[str]]:
-    """Split ``commits`` into (overlapping, non_overlapping) by file diff.
+    """Split ``commits`` into (overlapping, non_overlapping) via the
+    block-level scope filter (issue #855).
 
-    Applies the prefix-collision file-overlap heuristic from
-    tusk-git-helpers (issue #627 / #656): a [TASK-<id>]-tagged commit is
-    treated as belonging to this task only when its file diff intersects
-    the paths referenced in the task's summary, description, criteria, or
-    verification specs. When the task has no scope signal (no referenced
-    paths at all) every commit is treated as overlapping, since we have no
-    basis to discriminate. Used to gate the auto-mark-criteria step at the
-    `task_commits = _find_task_commits(...)` call site so a stray
-    prefix-match doesn't stamp open criteria with another task's hash and
-    silently close the task as completed (issue #656).
+    Delegates to the centralized ``filter_commits_by_block_overlap`` helper
+    in ``tusk-git-helpers.py``: commits that survive the block-level scope
+    filter are treated as overlapping with this task, and the rest are
+    treated as non-overlapping. The migration from per-commit to block-level
+    semantics (issues #842/#851) means sibling commits (VERSION bumps,
+    CHANGELOG entries, new-file tests) ride along on the back of an
+    in-block commit that names a referenced path, instead of being dropped
+    individually — which matches task-summary's recovery shape.
+
+    The (overlapping, non_overlapping) split is preserved for back-compat
+    with the auto-mark-criteria gating call site below: only ``overlapping``
+    SHAs are eligible to stamp criteria; ``non_overlapping`` survives the
+    diagnostic surface that warns about prefix-collision strays.
     """
     if not commits:
         return [], []
-    task_paths = set(task_referenced_paths(task_id, conn))
-    if not task_paths:
-        return list(commits), []
-    overlapping: list[str] = []
-    non_overlapping: list[str] = []
-    for sha in commits:
-        if commit_changed_files([sha], repo_root) & task_paths:
-            overlapping.append(sha)
-        else:
-            non_overlapping.append(sha)
+    kept = filter_commits_by_block_overlap(commits, task_id, repo_root, conn)
+    kept_set = set(kept)
+    overlapping = [sha for sha in commits if sha in kept_set]
+    non_overlapping = [sha for sha in commits if sha not in kept_set]
     return overlapping, non_overlapping
 
 

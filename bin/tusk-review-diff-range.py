@@ -76,9 +76,7 @@ _db_lib = tusk_loader.load("tusk-db-lib")
 dumps = _json_lib.dumps
 task_grep_arg = _git_helpers.task_grep_arg
 find_task_commits = _git_helpers.find_task_commits
-commit_changed_files = _git_helpers.commit_changed_files
-task_referenced_paths = _git_helpers.task_referenced_paths
-task_referenced_basenames = _git_helpers.task_referenced_basenames
+filter_commits_by_block_overlap = _git_helpers.filter_commits_by_block_overlap
 filter_lockfile_diff_sections = _git_helpers.filter_lockfile_diff_sections
 get_connection = _db_lib.get_connection
 
@@ -203,61 +201,17 @@ def _concretize_primary(primary: str, repo_root: str) -> str:
     return primary[: -len("HEAD")] + sha
 
 
-def _commit_parents(shas: list, repo_root: str) -> dict:
-    """Return ``{sha: [parent_shas]}`` for the given commit SHAs.
-
-    A single ``git log --no-walk --format='%H %P'`` call covers the whole
-    set so block-grouping below stays at one subprocess regardless of
-    commit count.
-    """
-    if not shas:
-        return {}
-    result = subprocess.run(
-        ["git", "log", "--no-walk", "--format=%H %P", *shas],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        cwd=repo_root,
-    )
-    parents: dict[str, list[str]] = {sha: [] for sha in shas}
-    if result.returncode != 0:
-        return parents
-    for line in result.stdout.splitlines():
-        parts = line.strip().split()
-        if parts:
-            parents[parts[0]] = parts[1:]
-    return parents
-
-
 def _filter_commits_by_task_overlap(
     task_id: int, commits: list, repo_root: str, db_path: str | None
 ) -> list:
-    """Drop commits whose file diff doesn't overlap this task's scope signal.
+    """Drop commits whose connected-component block doesn't overlap this task's scope signal.
 
-    Block-level variant of the prefix-collision file-overlap heuristic
-    originally wired into ``tusk merge`` (TASK-308) and ``tusk task-done``
-    (TASK-309). The earlier per-commit form dropped sibling commits
-    (VERSION bumps, CHANGELOG, new-file tests) whose paths happened not
-    to appear in ``task_referenced_paths``, collapsing the recovered
-    range to a single source commit (issue #842, original incident
-    TASK-421). The block-level form mirrors the fix landed in
-    ``tusk-task-summary.py`` (TASK-433 / issues #663, #670, #851): group
-    commits into connected components on the parent chain, then keep
-    each block whose aggregate files overlap ``task_paths`` (full-path
-    equality) OR whose basenames overlap ``task_basenames``. Sibling
-    commits in the same block ride along on the back of an in-block
-    commit that names a referenced path.
-
-    Extraction-miss fall-through (mirrors issue #851): when zero blocks
-    intersect the scope signal, return all commits unchanged. The signal
-    is more likely off-scope (a precedent citation in the description)
-    than every matched commit being a recycled-ID stray; over-inclusion
-    is recoverable, silent zero-range refusal is not.
-
-    Skipped (returns every commit) when the task has no scope signal
-    (no referenced paths and no referenced basenames), or when the DB
-    is unreachable. Order is preserved so callers can still take
-    ``commits[0]`` as newest, ``commits[-1]`` as oldest.
+    Thin caller-local wrapper around the shared
+    ``filter_commits_by_block_overlap`` helper in ``tusk-git-helpers.py``
+    (issue #855). Opens the DB connection here so the helper stays
+    connection-agnostic, then delegates the block-grouping + scope-match
+    logic to the centralized implementation. Returns *commits* unchanged
+    when the DB path is missing/unreachable.
     """
     if not commits or not db_path or not os.path.isfile(db_path):
         return list(commits)
@@ -266,51 +220,9 @@ def _filter_commits_by_task_overlap(
     except Exception:
         return list(commits)
     try:
-        task_paths = set(task_referenced_paths(task_id, conn))
-        task_basenames = set(task_referenced_basenames(task_id, conn))
+        return filter_commits_by_block_overlap(commits, task_id, repo_root, conn)
     finally:
         conn.close()
-    if not task_paths and not task_basenames:
-        return list(commits)
-
-    matched = set(commits)
-    commit_parents = _commit_parents(commits, repo_root)
-
-    uf: dict[str, str] = {sha: sha for sha in matched}
-
-    def find(x: str) -> str:
-        while uf[x] != x:
-            uf[x] = uf[uf[x]]
-            x = uf[x]
-        return x
-
-    def union(a: str, b: str) -> None:
-        ra, rb = find(a), find(b)
-        if ra != rb:
-            uf[ra] = rb
-
-    for sha, parents in commit_parents.items():
-        if sha not in matched:
-            continue
-        for p in parents:
-            if p in matched:
-                union(sha, p)
-
-    blocks: dict[str, list[str]] = {}
-    for sha in matched:
-        blocks.setdefault(find(sha), []).append(sha)
-
-    kept: set[str] = set()
-    for block_shas in blocks.values():
-        block_files = commit_changed_files(block_shas, repo_root)
-        block_basenames = {os.path.basename(p) for p in block_files}
-        if (block_files & task_paths) or (block_basenames & task_basenames):
-            kept.update(block_shas)
-
-    if not kept:
-        return list(commits)
-
-    return [sha for sha in commits if sha in kept]
 
 
 def _task_started_at(db_path: str | None, task_id: int) -> str | None:

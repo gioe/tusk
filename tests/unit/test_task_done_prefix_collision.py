@@ -101,27 +101,30 @@ def _commit(repo_root, path, content, message):
 class TestFilterCommitsByTaskOverlap:
     """The helper underlying the auto-mark-criteria gate at line 131."""
 
-    def test_drops_commit_whose_diff_does_not_overlap_task_paths(self, tmp_path):
-        """Recycled-task-ID shape: a [TASK-99] commit exists from a prior
-        incarnation of the same numeric ID but touches files this task
-        knows nothing about. The heuristic must drop it."""
+    def test_extraction_miss_fallthrough_keeps_off_scope_solo_commit(self, tmp_path):
+        """Extraction-miss fallthrough (issue #851, applied to task-done via #855):
+        when the only [TASK-N] commit in the set touches no scope-signal path,
+        the helper keeps it rather than dropping. Rationale: with a single
+        off-scope commit the path extraction is more likely wrong (e.g. a
+        precedent citation in the description) than the commit being a
+        recycled-ID stray — over-inclusion is recoverable, silent zero-stats
+        is not. The drop semantic is preserved for the multi-block layout
+        below."""
         repo, _db_path, conn = _make_repo(tmp_path)
-        # This task's scope references bin/tusk-foo.py
         conn.execute(
             "INSERT INTO tasks (id, summary, description) VALUES (?, ?, ?)",
             (99, "Wire bar", "Update bin/tusk-foo.py to handle bar"),
         )
         conn.commit()
 
-        # Stray [TASK-99] commit from a prior incarnation — touches an unrelated path
         stray = _commit(
             repo, "unrelated/other.py", "x\n", "[TASK-99] unrelated"
         )
 
         kept, dropped = mod._filter_commits_by_task_overlap(99, [stray], conn, repo)
 
-        assert kept == []
-        assert dropped == [stray]
+        assert kept == [stray]
+        assert dropped == []
 
     def test_keeps_commit_whose_diff_overlaps_task_paths(self, tmp_path):
         repo, _db_path, conn = _make_repo(tmp_path)
@@ -158,9 +161,20 @@ class TestFilterCommitsByTaskOverlap:
         assert kept == [sha]
         assert dropped == []
 
-    def test_partitions_mixed_set(self, tmp_path):
-        """One real [TASK-N] commit on relevant code + one stray [TASK-N]
-        commit on unrelated code → kept = [real], dropped = [stray]."""
+    def test_keeps_contiguous_block_siblings(self, tmp_path):
+        """Block-level + sibling ride-along (issue #842 / #855): when a
+        real [TASK-N] commit on a scope-signal path and a stray [TASK-N]
+        commit on an unrelated path are contiguous on the parent chain
+        (no non-matched commit between them), they form one block. The
+        block's aggregate files include the scope-signal path, so the
+        entire block — including the off-scope sibling — is kept.
+
+        This is the intentional new policy migrated from per-commit
+        (TASK-308/309) to block-level (TASK-433/434, centralized in #855):
+        sibling commits (VERSION bumps, CHANGELOG entries, new-file tests)
+        ride along on the back of an in-block commit that names a
+        referenced path. The recycled-ID drop case is preserved by the
+        non-contiguous layout in the next test."""
         repo, _db_path, conn = _make_repo(tmp_path)
         conn.execute(
             "INSERT INTO tasks (id, summary, description) VALUES (?, ?, ?)",
@@ -170,6 +184,42 @@ class TestFilterCommitsByTaskOverlap:
 
         real = _commit(repo, "bin/tusk-baz.py", "x\n", "[TASK-5] real")
         stray = _commit(repo, "noise/foo.txt", "y\n", "[TASK-5] stray")
+
+        kept, dropped = mod._filter_commits_by_task_overlap(
+            5, [real, stray], conn, repo
+        )
+
+        assert set(kept) == {real, stray}
+        assert dropped == []
+
+    def test_drops_off_scope_block_under_non_contiguous_layout(self, tmp_path):
+        """Genuine recycled-ID drop case (issue #855 / #856 regression
+        vector): when a real [TASK-N] commit lands on main and a stray
+        [TASK-N] commit lives on a side branch with no parent-link to the
+        real commit, they form two separate blocks. The real block's
+        files overlap task_paths and is kept; the stray block has no
+        overlap with task scope and is dropped — fallthrough does NOT fire
+        because the real block intersected."""
+        repo, _db_path, conn = _make_repo(tmp_path)
+        conn.execute(
+            "INSERT INTO tasks (id, summary, description) VALUES (?, ?, ?)",
+            (5, "Wire baz", "Update bin/tusk-baz.py for baz handling"),
+        )
+        conn.commit()
+
+        # Stray on a side branch (parent = seed, unrelated to main's head)
+        subprocess.run(
+            ["git", "-C", repo, "checkout", "-q", "-b", "side"],
+            check=True,
+        )
+        stray = _commit(repo, "noise/foo.txt", "y\n", "[TASK-5] stray")
+
+        # Real on main (parent = seed, no parent-link to stray)
+        subprocess.run(
+            ["git", "-C", repo, "checkout", "-q", "main"],
+            check=True,
+        )
+        real = _commit(repo, "bin/tusk-baz.py", "x\n", "[TASK-5] real")
 
         kept, dropped = mod._filter_commits_by_task_overlap(
             5, [real, stray], conn, repo
