@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [965] - 2026-05-24
+
+- [TASK-443] Fix: tusk merge --rebase worktree-aware via git -C <worktree> when feature branch lives in task worktree
+
 ## [964] - 2026-05-24
 
 - [TASK-442] Fix: scope tusk conventions inject filter to topic-tag membership (drop text-LIKE over-match)
