@@ -711,3 +711,128 @@ class TestFetchDiffRecoveryTierDiagnostic:
         assert "recovered diff via" not in err, (
             f"TUSK_QUIET=1 must override TUSK_FORCE_WARN=1; got: {err!r}"
         )
+
+
+class TestFetchDiffRecoveredViaField:
+    """Issue #852: the recovery-tier diagnostic is TTY-gated, but agent callers
+    capture stderr and never see it. The diff dict returned by ``fetch_diff``
+    must include a ``recovered_via`` field naming the tier that produced the
+    final result — ``"refresh-fetch"`` / ``"criterion-hash"`` / ``"fsck-unreachable"``
+    / ``None`` — so JSON consumers (``tusk task-summary --format json``)
+    can answer "why are my stats zero" from the output alone.
+    """
+
+    def _break_remote(self, primary, tmp_path):
+        _run(
+            ["git", "update-ref", "-d", "refs/remotes/origin/main"],
+            cwd=primary,
+        )
+        broken = str(tmp_path / "no-such-remote.git")
+        _run(["git", "remote", "set-url", "origin", broken], cwd=primary)
+
+    def _force_stale(self, primary):
+        pre_push_sha = _run(
+            ["git", "rev-list", "--max-parents=0", "refs/remotes/origin/main"],
+            cwd=primary,
+        ).stdout.strip()
+        _run(
+            ["git", "update-ref", "refs/remotes/origin/main", pre_push_sha],
+            cwd=primary,
+        )
+
+    def test_cheap_path_emits_null_recovered_via(self, repo_with_pushed_task, tmp_path):
+        """Initial --all scan succeeds → no tier fired → recovered_via is None.
+        Crucially, the key must be present (not missing) so JSON consumers
+        can read ``.diff.recovered_via`` unconditionally."""
+        primary, _ = repo_with_pushed_task
+        db_path, conn = _make_db_with_task(tmp_path, 99)
+        try:
+            diff = mod.fetch_diff(99, primary, conn=conn)
+        finally:
+            conn.close()
+        assert "recovered_via" in diff, (
+            f"recovered_via must be present even on the cheap path; "
+            f"got keys: {sorted(diff.keys())}"
+        )
+        assert diff["recovered_via"] is None
+
+    def test_git_log_failure_zero_path_emits_null_recovered_via(self, tmp_path):
+        """Early-return zero path (git log fails before any tier could fire)
+        must also include ``recovered_via: None`` so callers can read the field
+        unconditionally on the failure path."""
+        # Non-existent repo root → subprocess raises and fetch_diff returns zero.
+        bogus = str(tmp_path / "does-not-exist")
+        db_path, conn = _make_db_with_task(tmp_path, 99)
+        try:
+            diff = mod.fetch_diff(99, bogus, conn=conn)
+        finally:
+            conn.close()
+        assert diff == {
+            "commits": 0,
+            "files_changed": 0,
+            "lines_added": 0,
+            "lines_removed": 0,
+            "recovered_via": None,
+        }
+
+    def test_refresh_fetch_tier_surfaces_in_recovered_via(
+        self, repo_with_pushed_task, tmp_path
+    ):
+        primary, _ = repo_with_pushed_task
+        self._force_stale(primary)
+
+        db_path, conn = _make_db_with_task(tmp_path, 99)
+        try:
+            diff = mod.fetch_diff(99, primary, conn=conn)
+        finally:
+            conn.close()
+        assert diff["recovered_via"] == "refresh-fetch", (
+            f"Tier 1 should set recovered_via='refresh-fetch'; got: {diff!r}"
+        )
+        # Sanity: recovery actually produced the commit
+        assert diff["commits"] == 1
+
+    def test_criterion_hash_tier_surfaces_in_recovered_via(
+        self, repo_with_pushed_task, tmp_path
+    ):
+        primary, task_sha = repo_with_pushed_task
+        self._break_remote(primary, tmp_path)
+
+        db_path, conn = _make_db_with_task(tmp_path, 99)
+        conn.execute(
+            "INSERT INTO acceptance_criteria "
+            "(task_id, criterion, is_completed, commit_hash) VALUES (?, ?, ?, ?)",
+            (99, "task is done", 1, task_sha),
+        )
+        conn.commit()
+        try:
+            diff = mod.fetch_diff(99, primary, conn=conn)
+        finally:
+            conn.close()
+        assert diff["recovered_via"] == "criterion-hash", (
+            f"Tier 2 should set recovered_via='criterion-hash'; got: {diff!r}"
+        )
+        assert diff["commits"] == 1
+
+    def test_fsck_unreachable_tier_surfaces_in_recovered_via(
+        self, repo_with_pushed_task, tmp_path
+    ):
+        primary, _ = repo_with_pushed_task
+        self._break_remote(primary, tmp_path)
+
+        db_path, conn = _make_db_with_task(tmp_path, 99)
+        # No commit_hash → criterion-hash fallback turns up nothing.
+        conn.execute(
+            "INSERT INTO acceptance_criteria "
+            "(task_id, criterion, is_completed, commit_hash) VALUES (?, ?, ?, ?)",
+            (99, "task is done", 1, None),
+        )
+        conn.commit()
+        try:
+            diff = mod.fetch_diff(99, primary, conn=conn)
+        finally:
+            conn.close()
+        assert diff["recovered_via"] == "fsck-unreachable", (
+            f"Tier 3 should set recovered_via='fsck-unreachable'; got: {diff!r}"
+        )
+        assert diff["commits"] == 1
