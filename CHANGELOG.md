@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [974] - 2026-05-24
+
+- [TASK-454] Fix: worktree.symlink_files silently skips path-style entries (monorepo scoping)
+
 ## [973] - 2026-05-24
 
 - [TASK-439] Migrate gate callers (tusk-merge, tusk-task-unstart) to shared block-level scope filter
