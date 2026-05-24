@@ -611,6 +611,59 @@ def _detect_id_gaps(db_path: str, task_id: int) -> list[int]:
         return []
 
 
+def _maybe_refresh_deployed_bin(db_path: str, tusk_bin: str) -> None:
+    """Auto-refresh the primary's .claude/bin/ when it has drifted from bin/.
+
+    Source-repo only: silent no-op unless both `bin/tusk-*.py` and the deployed
+    cache at `.claude/bin/` exist in the primary checkout. The gate is content
+    drift between matching pairs, not what the just-completed merge touched —
+    this is self-healing (catches any stale state, not only this merge's) and
+    works regardless of which merge path ran (ff, rebase, PR squash, no-checkout).
+
+    Disable explicitly with TUSK_NO_DEPLOYED_BIN_REFRESH=1.
+    """
+    if os.environ.get("TUSK_NO_DEPLOYED_BIN_REFRESH") == "1":
+        return
+    from pathlib import Path
+    primary_root = Path(os.path.dirname(os.path.dirname(os.path.abspath(db_path))))
+    src_bin = primary_root / "bin"
+    dst_bin = primary_root / ".claude" / "bin"
+    if not src_bin.is_dir() or not dst_bin.is_dir():
+        return
+    drifted = []
+    try:
+        for src_file in sorted(src_bin.glob("tusk-*.py")):
+            dst_file = dst_bin / src_file.name
+            if not dst_file.is_file() or src_file.read_bytes() != dst_file.read_bytes():
+                drifted.append(src_file.name)
+        src_wrapper = src_bin / "tusk"
+        dst_wrapper = dst_bin / "tusk"
+        if (src_wrapper.is_file() and dst_wrapper.is_file()
+                and src_wrapper.read_bytes() != dst_wrapper.read_bytes()):
+            drifted.append("tusk")
+    except OSError:
+        return
+    if not drifted:
+        return
+    result = subprocess.run(
+        [tusk_bin, "dev-sync"],
+        cwd=str(primary_root),
+        capture_output=True, text=True, encoding="utf-8", check=False,
+    )
+    if result.returncode == 0:
+        print(
+            f"tusk: auto-refreshed .claude/bin/ — {len(drifted)} file(s) drifted "
+            f"({', '.join(drifted[:3])}{'...' if len(drifted) > 3 else ''})",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            f"tusk: auto-refresh of .claude/bin/ failed ({len(drifted)} file(s) drifted) — "
+            f"run `tusk dev-sync` manually. stderr: {result.stderr.strip()[:200]}",
+            file=sys.stderr,
+        )
+
+
 def _close_completed_task(
     tusk_bin: str, task_id: int, db_path: str, session_was_closed: bool
 ) -> int:
@@ -666,6 +719,7 @@ def _close_completed_task(
                     file=sys.stderr,
                 )
             print(dumps(synthetic))
+            _maybe_refresh_deployed_bin(db_path, tusk_bin)
             return 0
         print(f"Error: task-done failed:\n{result.stderr.strip()}", file=sys.stderr)
         return 2
@@ -690,6 +744,7 @@ def _close_completed_task(
         task_done_result["sessions_closed"] = 1
 
     print(dumps(task_done_result))
+    _maybe_refresh_deployed_bin(db_path, tusk_bin)
     return 0
 
 
