@@ -175,3 +175,50 @@ class TestCmdInject:
         rc, out, _ = capture("skills/foo/SKILL.md", conn)
         assert rc == 0
         assert "Total:" in out
+
+    def test_text_mentioning_topic_but_not_tagged_is_not_injected(self):
+        """Issue #859 regression: cmd_inject must NOT pull in a convention
+        whose `text` mentions a topic keyword in prose when the convention's
+        `topics` column does not include that tag. The previous
+        `text LIKE ? OR topics LIKE ?` filter over-matched 2-3x on every
+        Edit/Write; the strict comma-anchored topics filter prevents that.
+        """
+        conn = make_db(
+            (1, "Always pass encoding='utf-8' when running in Python scripts.", "cli"),
+            (2, "Some testing convention with the word python in its body.", "testing"),
+        )
+        # bin/foo.py derives topics = ['python']. With the strict filter,
+        # only conventions tagged 'python' should match — neither of the
+        # above has 'python' in its `topics` column.
+        rc, out, _ = capture("lib/helpers.py", conn)
+        assert rc == 0
+        assert "Total: 0" not in out  # no Total line on zero rows
+        assert "Always pass encoding" not in out
+        assert "Some testing convention" not in out
+
+    def test_topic_tag_match_still_injects(self):
+        """Companion regression: a convention whose `topics` column includes
+        the derived tag must still be injected after the filter tightens.
+        """
+        conn = make_db(
+            (1, "Real python convention", "python,cli"),
+            (2, "Body mentions python only in prose", "docs"),
+        )
+        rc, out, _ = capture("lib/helpers.py", conn)
+        assert rc == 0
+        assert "Real python convention" in out
+        assert "Body mentions python only in prose" not in out
+
+    def test_prefix_overlap_does_not_false_match(self):
+        """The comma-anchored filter must not let 'test' match a convention
+        tagged 'testing' (or vice versa) — substring collisions inside the
+        topic list are exactly what the strict filter exists to prevent.
+        """
+        conn = make_db(
+            (1, "tagged with testing not test", "testing,pytest"),
+        )
+        # Use a path whose derived topic set is exactly ['python']; nothing
+        # there should match 'testing'. The path triggers no 'testing' topic.
+        rc, out, _ = capture("lib/helpers.py", conn)
+        assert rc == 0
+        assert "tagged with testing not test" not in out

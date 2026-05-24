@@ -183,13 +183,17 @@ def cmd_inject(args: argparse.Namespace, db_path: str, config: dict) -> int:
         seen_ids: set[int] = set()
         rows = []
         for topic in topics:
-            term = f"%{topic}%"
+            # Strict comma-anchored topic-tag membership — mirrors cmd_list's
+            # filter at line 51. The previous "text LIKE ? OR topics LIKE ?"
+            # filter (issue #859) pulled in every convention whose body
+            # mentioned a topic keyword in prose, inflating injections 2-3x.
+            term = f"%,{topic},%"
             for row in conn.execute(
                 "SELECT id, text, source_skill, violation_count, topics "
                 "FROM conventions "
-                "WHERE text LIKE ? OR topics LIKE ? "
+                "WHERE ',' || COALESCE(topics, '') || ',' LIKE ? "
                 "ORDER BY id",
-                (term, term),
+                (term,),
             ).fetchall():
                 if row["id"] not in seen_ids:
                     seen_ids.add(row["id"])
