@@ -426,6 +426,7 @@ def filter_commits_by_block_overlap(
     *,
     commit_files: dict | None = None,
     commit_parents: dict | None = None,
+    fallthrough: bool = True,
 ) -> list:
     """Drop commits whose connected-component block doesn't overlap this task's scope signal.
 
@@ -448,7 +449,8 @@ def filter_commits_by_block_overlap(
       - *commits* is empty
       - *conn* is ``None`` (caller signaling no DB available)
       - the task has no scope signal (no referenced paths and no basenames)
-      - the extraction-miss fallthrough fires (no block intersects)
+      - the extraction-miss fallthrough fires (no block intersects) AND
+        *fallthrough* is True (the filter-caller default)
 
     Optional inputs let callers reuse precomputed values to avoid redundant
     git subprocess calls:
@@ -456,6 +458,13 @@ def filter_commits_by_block_overlap(
         Falls back to ``commit_changed_files([sha], repo_root)`` per block.
       - *commit_parents* — ``{sha: [parent_shas]}`` parent map. Falls back
         to a single ``commit_parents_map(commits, repo_root)`` call.
+      - *fallthrough* — when False, the "no block intersects" path returns
+        ``[]`` instead of *commits* unchanged. Gate callers (tusk-merge,
+        tusk-task-unstart) opt in so they can distinguish "every block is
+        off-scope" (treat as prefix-match false positive, override the
+        gate) from "no scope signal to discriminate" (preserve the gate's
+        refusal). Filter callers keep the default so extraction misses
+        don't silently collapse a real-work diff to empty (issue #855).
 
     Returns kept SHAs in their original order in *commits*.
     """
@@ -507,7 +516,9 @@ def filter_commits_by_block_overlap(
             kept.update(block_shas)
 
     if not kept:
-        return list(commits)
+        if fallthrough:
+            return list(commits)
+        return []
 
     return [sha for sha in commits if sha in kept]
 
