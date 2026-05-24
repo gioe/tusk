@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [962] - 2026-05-24
+
+- [TASK-440] Fix: bump tusk-lint Rule 15 grouped-criteria threshold to >=4 to match documented /tusk allowance
+
 ## [961] - 2026-05-24
 
 - [TASK-438] Centralize block-level scope filter for filter-callers; defer gate-callers to follow-up
