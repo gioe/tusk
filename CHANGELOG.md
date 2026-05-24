@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [973] - 2026-05-24
+
+- [TASK-439] Migrate gate callers (tusk-merge, tusk-task-unstart) to shared block-level scope filter
+
 ## [972] - 2026-05-24
 
 - [TASK-451] Stamp tasks.merge_commit_sha at merge time; fast-path fetch_diff lookup (issue #849)
