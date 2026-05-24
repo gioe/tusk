@@ -1186,7 +1186,7 @@ candidates = [
   'test-detect','test-precheck','add-lib','address-issue',
   'init-scan-codebase','init-scan-todos','init-fetch-bootstrap','init-write-config','init-write-manifest-files','init-wizard','init-scaffold',
   'loop','merge','abandon','bakeoff','progress','setup',
-  'token-audit','sync-skills','reconcile-skills','generate-manifest','uninstall-hooks','pricing-update','dev-sync','wsjf','shell',
+  'token-audit','sync-skills','sync-main','reconcile-skills','generate-manifest','uninstall-hooks','pricing-update','dev-sync','wsjf','shell',
   'version','version-bump','report-issue','changelog-add','migrate','update-gitignore','regen-triggers','upgrade',
 ]
 matches = difflib.get_close_matches(sys.argv[1], candidates, n=1, cutoff=0.6)
@@ -1611,7 +1611,7 @@ preflight_schema_version() {
     # are exactly what this preflight needs to guard.
     ""|init|path|config|version|version-bump|upgrade|migrate|regen-triggers|\
       sql-quote|typed-criteria-build|git-default-branch|branch-parse|report-issue|update-gitignore|\
-      sync-skills|reconcile-skills|generate-manifest|pricing-update|dev-sync|token-audit)
+      sync-skills|sync-main|reconcile-skills|generate-manifest|pricing-update|dev-sync|token-audit)
       return 0 ;;
   esac
   local user_version supported_max
@@ -1721,6 +1721,7 @@ case "${1:-}" in
   setup) shift; exec python3 "$SCRIPT_DIR/tusk-setup.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   token-audit) shift; exec python3 "$SCRIPT_DIR/tusk-token-audit.py" "$REPO_ROOT" "$@" ;;
   sync-skills) shift; exec python3 "$SCRIPT_DIR/tusk-sync-skills.py" "$@" ;;
+  sync-main) shift; exec python3 "$SCRIPT_DIR/tusk-sync-main.py" "$REPO_ROOT" "$@" ;;
   reconcile-skills) shift; exec python3 "$SCRIPT_DIR/tusk-reconcile-skills.py" "$@" ;;
   generate-manifest) shift; exec python3 "$SCRIPT_DIR/tusk-generate-manifest.py" "$@" ;;
   uninstall-hooks) shift; exec python3 "$SCRIPT_DIR/tusk-uninstall-hooks.py" "$REPO_ROOT" "$@" ;;
