@@ -798,9 +798,64 @@ class TestBareBasenameMatching:
         assert filtered["commits"] == 2
         assert filtered["files_changed"] == 2
 
-    def test_block_drops_when_basename_does_not_match(self, tmp_path):
-        """Symmetry: bare-basename in description that matches NO commit
-        file basename still drops the block (no widening of no-scope path).
+    def test_off_scope_citation_keeps_real_work(self, tmp_path):
+        """Issue #851 / TASK-433 / original TASK-430 reproduction: the task
+        description mentions a file as a precedent citation
+        ("matching the precedent set by ... (CLAUDE.md section)") rather than
+        as the work subject. Path extraction picks up CLAUDE.md as a
+        referenced path; the actual commits touch bin/tusk-task-summary.py
+        and friends, none touch CLAUDE.md.
+
+        Pre-#851: filter dropped every block, summary reported 0/0/0/0 for
+        every shipped commit. Post-#851: extraction-miss fall-through keeps
+        all blocks so the summary at least reflects the real diff.
+        """
+        repo = str(tmp_path / "repo")
+        os.makedirs(repo)
+        self._init_repo(repo)
+
+        # Three contiguous [TASK-430] commits touching the real subject —
+        # none touch CLAUDE.md (the parenthetical citation).
+        self._commit(repo, "bin/tusk-task-summary.py", "x\n",
+                     "[TASK-430] surface recovery tier")
+        self._commit(repo, "tests/integration/test_recovery.py", "x\n",
+                     "[TASK-430] regression coverage")
+        self._commit(repo, "VERSION", "954\n", "[TASK-430] bump VERSION")
+
+        db_path, conn = _make_db(tmp_path)
+        conn.execute(
+            "INSERT INTO tasks (id, summary, description, status) "
+            "VALUES (?, ?, ?, ?)",
+            (
+                430,
+                "Surface recovery tier via stderr",
+                "Surface the recovery tier (matching the precedent set by "
+                "bin/tusk active-projects drift warning "
+                "(CLAUDE.md Cross-repo CWD pinning section)).",
+                "Done",
+            ),
+        )
+        conn.commit()
+
+        filtered = mod.fetch_diff(430, repo, conn=conn)
+        # All three real commits surface — extraction-miss fall-through is
+        # the right call here even though scope signal CLAUDE.md exists.
+        assert filtered["commits"] == 3
+        assert filtered["files_changed"] == 3
+
+    def test_extraction_miss_falls_through_to_keep_all(self, tmp_path):
+        """Issue #851 / TASK-433: when scope signal exists but NO block in the
+        candidate set overlaps it, the policy is to keep every commit rather
+        than drop them all. The off-scope-citation case (description name-checks
+        an unrelated file like CLAUDE.md as a precedent) is far more common
+        than the all-stray-collision case (every [TASK-N] commit in the session
+        window is a recycled-ID accident). Silent zero-stats is worse than a
+        small false-positive surface — the latter is recoverable on inspection.
+
+        Pre-#851: this scenario asserted filtered["commits"] == 0 (drop). The
+        policy was flipped because TASK-430 (and similar) reported zero diff
+        stats for completed tasks whose description happened to cite an
+        off-scope path while the commits touched the real subject.
         """
         repo = str(tmp_path / "repo")
         os.makedirs(repo)
@@ -829,9 +884,11 @@ class TestBareBasenameMatching:
         conn.commit()
 
         # The bare-basename FULL-RETRO.md does not match unrelated.txt's
-        # basename → block drops, zero commits surface.
+        # basename — under the issue #851 extraction-miss fall-through, the
+        # filter returns every grep-matched commit unchanged.
         filtered = mod.fetch_diff(30, repo, conn=conn)
-        assert filtered["commits"] == 0
+        assert filtered["commits"] == 1
+        assert filtered["files_changed"] == 1
 
 
 # ── end-to-end: CLI exit codes and output modes ───────────────────────
