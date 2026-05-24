@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [968] - 2026-05-24
+
+- [TASK-446] Auto-link canonical runtime files in task-worktree create when symlink_files is empty (issue #854)
+
 ## [967] - 2026-05-24
 
 - [TASK-445] Document worktree tusk CLI dispatching primary's bin/tusk-*.py modules (issue #860)
