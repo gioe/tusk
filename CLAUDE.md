@@ -83,6 +83,7 @@ bin/tusk version-bump                              # increment VERSION by 1, sta
 bin/tusk changelog-add [--from-version-file] [<version>] [<task_id>...]   # prepend dated entry to CHANGELOG.md; <version> defaults to VERSION-file content and must match if passed explicitly
 bin/tusk migrate
 bin/tusk regen-triggers
+bin/tusk sync-main                                # fetch + ff-only pull of origin/<default> + stash-by-ref + tusk migrate — staleness recovery for /address-issue Step 4.6 when local main is behind origin
 bin/tusk dev-sync [--dry-run]                     # source-repo only: copy bin/tusk + bin/tusk-*.py + UNDERSCORE_BIN_FILES into .claude/bin/ and refresh tusk-lint.py.hash. Refuses outside the source repo.
 bin/tusk upgrade [--no-commit] [--force]  # --no-commit: skip auto-commit; --force: upgrade even if version matches or exceeds remote
 ```
