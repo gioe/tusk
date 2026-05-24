@@ -85,6 +85,8 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
    ```
    This creates a recorded task workspace and feature branch, or returns the existing recorded workspace for the task. Parse the JSON response, then `cd` into `workspace_path` before exploring, editing, testing, committing, or merging. If `created` is `false`, continue from that existing workspace; do not create another branch or overlapping worktree. If you are already in the returned `workspace_path`, stay there.
 
+   **CLI behavior testing from a worktree — invoke `$workspace_path/bin/tusk`, not `tusk`.** When validating the live behavior of a `bin/tusk-*.py` change you made inside the worktree (only relevant for tusk source-repo tasks), the `tusk` wrapper on `$PATH` resolves to the **primary checkout's** `bin/tusk` — its `$SCRIPT_DIR/tusk-*.py` dispatch then runs the primary's Python helpers regardless of CWD, so your worktree-local edits are silently ignored. The CLI exits 0 with stale-but-plausible output, which is the symptom — **silently stale behavior** masquerading as a passing live check. Unit tests don't have this problem because they resolve `SCRIPT = os.path.join(REPO_ROOT, 'bin', '...')` relative to the test file's own path and naturally pick up the worktree's modules. To exercise the worktree's helpers from the CLI, invoke the worktree's wrapper explicitly: `$workspace_path/bin/tusk <subcommand>` (or `./bin/tusk <subcommand>` when already `cd`'d into the worktree). Originally surfaced as issue #860 during TASK-436.
+
    If you need to inspect recorded workspaces before deciding where to continue, run:
    ```bash
    tusk task-worktree list --format json
