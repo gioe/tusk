@@ -110,7 +110,11 @@ class TestPrimaryRange:
         monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
         result = mod.compute_range(42, repo_root)
 
-        assert result["range"] == "main...HEAD"
+        head_sha = subprocess.run(
+            ["git", "-C", repo_root, "rev-parse", "HEAD"],
+            capture_output=True, text=True, encoding="utf-8", check=True,
+        ).stdout.strip()
+        assert result["range"] == f"main...{head_sha}"
         assert result["recovered_from_task_commits"] is False
         assert result["diff_lines"] > 0
         assert result["summary"].startswith("diff --git")
@@ -159,7 +163,11 @@ class TestPrimaryRange:
         monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
         result = mod.compute_range(42, repo_root)
 
-        assert result["range"] == "origin/main...HEAD"
+        head_sha = subprocess.run(
+            ["git", "-C", repo_root, "rev-parse", "HEAD"],
+            capture_output=True, text=True, encoding="utf-8", check=True,
+        ).stdout.strip()
+        assert result["range"] == f"origin/main...{head_sha}"
         assert result["recovered_from_task_commits"] is False
         assert result["diff_lines"] > 0
 
@@ -210,7 +218,11 @@ class TestPrimaryRange:
             check=True,
         ).stdout
 
-        assert result["range"] == "origin/main...HEAD"
+        head_sha = subprocess.run(
+            ["git", "-C", repo_root, "rev-parse", "HEAD"],
+            capture_output=True, text=True, encoding="utf-8", check=True,
+        ).stdout.strip()
+        assert result["range"] == f"origin/main...{head_sha}"
         assert result["recovered_from_task_commits"] is False
         assert result["diff_lines"] == remote_diff.count("\n")
         assert "task.txt" in result["summary"]
@@ -271,7 +283,11 @@ class TestPrimaryRange:
         monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
         result = mod.compute_range(43, repo_root)
 
-        assert result["range"] == "origin/main...HEAD"
+        head_sha = subprocess.run(
+            ["git", "-C", repo_root, "rev-parse", "HEAD"],
+            capture_output=True, text=True, encoding="utf-8", check=True,
+        ).stdout.strip()
+        assert result["range"] == f"origin/main...{head_sha}"
         assert "task.txt" in result["summary"]
         assert "local.txt" not in subprocess.run(
             ["git", "-C", repo_root, "diff", result["range"]],
@@ -382,7 +398,11 @@ class TestCLI:
             "recovered_from_task_commits",
             "resolved_repo_root",
         }
-        assert payload["range"] == "main...HEAD"
+        head_sha = subprocess.run(
+            ["git", "-C", repo_root, "rev-parse", "HEAD"],
+            capture_output=True, text=True, encoding="utf-8", check=True,
+        ).stdout.strip()
+        assert payload["range"] == f"main...{head_sha}"
         assert payload["recovered_from_task_commits"] is False
         assert os.path.realpath(payload["resolved_repo_root"]) == os.path.realpath(repo_root)
         # No lockfiles in this diff → meaningful count equals diff_lines.
@@ -413,7 +433,11 @@ class TestCLI:
 
         assert code == 0, err
         payload = json.loads(out)
-        assert payload["range"] == "main...HEAD"
+        head_sha = subprocess.run(
+            ["git", "-C", str(worktree), "rev-parse", "HEAD"],
+            capture_output=True, text=True, encoding="utf-8", check=True,
+        ).stdout.strip()
+        assert payload["range"] == f"main...{head_sha}"
         assert payload["recovered_from_task_commits"] is False
         assert payload["diff_lines"] > 0
         assert "linked.txt" in payload["summary"]
@@ -481,7 +505,11 @@ class TestCLI:
             check=True,
         ).stdout
 
-        assert payload["range"] == "origin/main...HEAD"
+        head_sha = subprocess.run(
+            ["git", "-C", str(worktree), "rev-parse", "HEAD"],
+            capture_output=True, text=True, encoding="utf-8", check=True,
+        ).stdout.strip()
+        assert payload["range"] == f"origin/main...{head_sha}"
         assert "task-worktree.txt" in payload["summary"]
         assert "other-checkout.txt" not in payload["summary"]
         assert "task-worktree.txt" in diff

@@ -3,11 +3,13 @@
 
 Given a task_id, determine the most meaningful git diff range for the review:
 
-    1. Primary range — ``origin/<default_branch>...HEAD`` when the
+    1. Primary range — ``origin/<default_branch>...<head_sha>`` when the
        remote-tracking default exists and is at least as current as the local
-       default, otherwise ``<default_branch>...HEAD``. The default branch name
-       is resolved by shelling out to ``tusk git-default-branch`` so the
+       default, otherwise ``<default_branch>...<head_sha>``. The default branch
+       name is resolved by shelling out to ``tusk git-default-branch`` so the
        remote-HEAD → gh → "main" detection stays in lockstep with the wrapper.
+       ``HEAD`` is resolved to its concrete commit SHA at stamp time so the
+       returned range is cwd-independent (issue #857).
     2. Fallback — if the primary range has an empty diff (e.g. the feature
        branch has already been merged into the default branch and deleted),
        scan ``git log`` for the 50 most recent commits whose message contains
@@ -28,7 +30,7 @@ Arguments received from tusk:
 
 Output JSON (stdout on success):
     {
-        "range": "<default>...HEAD" | "<sha>^..<sha>",
+        "range": "<default>...<head_sha>" | "<sha>^..<sha>",
         "diff_lines": <int>,
         "diff_lines_meaningful": <int>,
         "summary": "<first 120 chars of git diff output>",
@@ -171,6 +173,34 @@ def primary_range(base: str, repo_root: str) -> str:
     if remote_exists:
         return f"{remote}...HEAD"
     return f"{base}...HEAD"
+
+
+def _resolve_head_sha(repo_root: str) -> str | None:
+    """Return ``HEAD``'s concrete commit SHA in *repo_root*, or ``None``."""
+    sha = _git_stdout(["rev-parse", "--verify", "HEAD"], repo_root)
+    return sha or None
+
+
+def _concretize_primary(primary: str, repo_root: str) -> str:
+    """Replace a trailing ``...HEAD`` in *primary* with the current HEAD SHA.
+
+    Issue #857: storing the symbolic ``origin/<base>...HEAD`` on
+    ``code_reviews.diff_range`` makes the validator's ``git diff`` cwd-
+    dependent — if ``tusk review begin`` runs in one checkout and
+    ``tusk review validate-comments`` in another, ``HEAD`` resolves to a
+    different commit and the stored range yields a different diff. Resolve
+    ``HEAD`` at stamp time so the returned range is cwd-independent. The
+    recovery path's ``<sha>^..<sha>`` form is already concrete and is not
+    routed through this helper. Falls back to the unmodified ``primary``
+    when ``rev-parse`` fails (e.g. detached-HEAD edge cases) — preserves
+    pre-fix behavior rather than failing the begin call.
+    """
+    if not primary.endswith("...HEAD"):
+        return primary
+    sha = _resolve_head_sha(repo_root)
+    if not sha:
+        return primary
+    return primary[: -len("HEAD")] + sha
 
 
 def _commit_parents(shas: list, repo_root: str) -> dict:
@@ -419,7 +449,7 @@ def compute_range(
         )
         if primary_task_commits:
             return {
-                "range": primary,
+                "range": _concretize_primary(primary, repo_root),
                 "diff_lines": diff_lines,
                 "diff_lines_meaningful": _count_meaningful_lines(diff_out),
                 "summary": diff_out[:SUMMARY_CHARS],
