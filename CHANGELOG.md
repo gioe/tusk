@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [961] - 2026-05-24
+
+- [TASK-438] Centralize block-level scope filter for filter-callers; defer gate-callers to follow-up
+
 ## [960] - 2026-05-23
 
 - [TASK-436] Fix: concretize symbolic diff_range at review begin to stabilize cross-cwd validate-comments
