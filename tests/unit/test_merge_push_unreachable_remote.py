@@ -265,14 +265,17 @@ class TestMergePushUnreachableRemote:
         # real helpers run subprocess against tmp_path (not a git repo) and would
         # otherwise return empty, flipping task_on_default back to False and
         # routing the merge through the normal ff-merge path instead of the
-        # task_on_default path this test is asserting against. task_referenced_paths
-        # is stubbed to [] so the heuristic takes the "no scope signal" branch
-        # and keeps task_on_default=True even with overlap absent.
+        # task_on_default path this test is asserting against. Both
+        # task_referenced_paths and task_referenced_basenames are stubbed to []
+        # so the heuristic takes the "no scope signal" branch and keeps
+        # task_on_default=True even with overlap absent (issue #855 follow-up:
+        # tusk-merge.py now reads both legs of the scope signal).
         mod.find_task_commits = lambda task_id, repo_root, refs=None, since=None: [
             "deadbeef" + "0" * 32
         ]
         mod.commit_changed_files = lambda commits, repo_root: {"some/file.py"}
         mod.task_referenced_paths = lambda task_id, conn: []
+        mod.task_referenced_basenames = lambda task_id, conn: []
         rc = self._run_merge(mod, fake_run_task_on_default, tmp_path)
 
         assert rc == 2

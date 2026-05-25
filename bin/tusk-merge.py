@@ -55,6 +55,7 @@ task_grep_arg = _git_helpers.task_grep_arg
 find_task_commits = _git_helpers.find_task_commits
 commit_changed_files = _git_helpers.commit_changed_files
 task_referenced_paths = _git_helpers.task_referenced_paths
+task_referenced_basenames = _git_helpers.task_referenced_basenames
 filter_commits_by_block_overlap = _git_helpers.filter_commits_by_block_overlap
 iter_branch_auto_stashes = _git_helpers.iter_branch_auto_stashes
 _GENERATED_LOCKFILES = _git_helpers.GENERATED_LOCKFILES
@@ -2306,9 +2307,10 @@ def main(argv: list[str]) -> int:
                 # opts into "empty kept → override" semantics; the helper
                 # still returns commits unchanged when the task has no
                 # scope signal, so the high-confidence path fires there.
-                # task_basenames=set() preserves the legacy path-only gate
-                # behavior so this refactor is a pure consolidation; enabling
-                # basename matching for the gate is a downstream follow-up.
+                # Pass a populated task_basenames set so descriptions that
+                # name a touched file by bare basename (issue #670) still
+                # land in the high-confidence path — passing set() here
+                # would silently suppress the basename leg of the match.
                 _commit_files = {
                     sha: commit_changed_files([sha], _repo_root)
                     for sha in _matched_default_commits
@@ -2317,12 +2319,13 @@ def main(argv: list[str]) -> int:
                 _conn = get_connection(_db_path)
                 try:
                     _task_paths = set(task_referenced_paths(task_id, _conn))
+                    _task_basenames = set(task_referenced_basenames(task_id, _conn))
                     _kept = filter_commits_by_block_overlap(
                         _matched_default_commits, task_id, _repo_root, _conn,
                         commit_files=_commit_files,
                         commit_parents=_commit_parents,
                         task_paths=_task_paths,
-                        task_basenames=set(),
+                        task_basenames=_task_basenames,
                         fallthrough=False,
                     )
                 finally:
