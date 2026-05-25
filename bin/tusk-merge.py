@@ -820,15 +820,25 @@ def _maybe_advise_stale_deployed_bin(
 
 
 def _stamp_merge_commit_sha(
-    db_path: str, task_id: int, merge_commit_sha: str | None
+    db_path: str, task_id: int, merge_commit_sha: str | None,
+    merge_base_sha: str | None = None,
 ) -> None:
-    """Best-effort write of the merge commit SHA onto tasks.merge_commit_sha.
+    """Best-effort write of the merge commit (and base) SHA onto the tasks row.
 
     Consumed by ``bin/tusk-task-summary.py``'s ``fetch_diff`` fast-path so the
     3-tier ref/criterion-hash/fsck recovery chain (issues #757/#797/#812/#816/
     #820/#822/#827/#845) is unneeded for tasks closed via merge after
     migration 70. Legacy tasks without a stamped SHA fall through to the
     existing recovery chain. Issue #849.
+
+    ``merge_base_sha`` (migration 72, TASK-452) is stamped alongside the tip
+    SHA for fast-forward and no-checkout fast-forward push paths so the
+    fast-path can run ``git log --first-parent --numstat <base>..<tip>``
+    instead of ``git show --numstat <tip>``. Without it, multi-commit ff
+    merges only reported the tip commit's numstat (TASK-451 closeout
+    surfaced this against TASK-454's own merge stats). PR squash callers
+    leave ``merge_base_sha`` as None — the squash flattens everything to
+    one commit, so ``git show`` already gives correct stats.
 
     Best-effort by design: any write failure emits a single stderr warning
     and returns; never aborts the merge close-out path. Pre-migration DBs
@@ -850,10 +860,20 @@ def _stamp_merge_commit_sha(
         cols = {r[1] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()}
         if "merge_commit_sha" not in cols:
             return
-        conn.execute(
-            "UPDATE tasks SET merge_commit_sha = ? WHERE id = ?",
-            (merge_commit_sha, task_id),
-        )
+        if "merge_base_sha" in cols:
+            conn.execute(
+                "UPDATE tasks SET merge_commit_sha = ?, merge_base_sha = ? "
+                "WHERE id = ?",
+                (merge_commit_sha, merge_base_sha, task_id),
+            )
+        else:
+            # Pre-migration-72 DB: stamp only the tip. Defensive — tusk
+            # merge runs tusk migrate first so this branch is unreachable
+            # in practice. Caller's merge_base_sha is silently dropped.
+            conn.execute(
+                "UPDATE tasks SET merge_commit_sha = ? WHERE id = ?",
+                (merge_commit_sha, task_id),
+            )
         conn.commit()
     except sqlite3.Error as exc:
         print(
@@ -911,15 +931,45 @@ def _resolve_local_ref_sha(ref: str) -> str | None:
     return sha or None
 
 
+def _resolve_merge_base(feature_branch: str, default_branch: str) -> str | None:
+    """Return the merge-base of ``feature_branch`` and origin/<default_branch>.
+
+    Captured **before** the merge so the fast-forward and no-checkout push
+    paths can stamp the parent of the first task commit on the feature
+    branch — the base for the range-aware ``git log <base>..<tip>``
+    fast-path consumed by ``bin/tusk-task-summary.py``. Migration 72
+    follow-up to TASK-451 (issue #849).
+
+    Tries ``origin/<default_branch>`` first because that's the actual ref
+    the merge will fast-forward against; falls back to the local
+    ``<default_branch>`` ref when origin isn't reachable (the no-checkout
+    push path already issues a ``git fetch origin`` so the remote ref is
+    fresh in that flow). Returns None on any failure — caller stamps NULL
+    base and ``fetch_diff`` falls through to ``git show <tip>`` for that
+    row (correct for single-commit task work; understates multi-commit).
+    """
+    for ref in (f"origin/{default_branch}", default_branch):
+        result = run(["git", "merge-base", ref, feature_branch], check=False)
+        if result.returncode == 0:
+            sha = result.stdout.strip()
+            if sha:
+                return sha
+    return None
+
+
 def _close_completed_task(
     tusk_bin: str, task_id: int, db_path: str, session_was_closed: bool,
     merge_commit_sha: str | None = None,
+    merge_base_sha: str | None = None,
 ) -> int:
-    # Stamp the merge SHA before task-done flips the row to Done. The stamp
+    # Stamp the merge SHAs before task-done flips the row to Done. The stamp
     # is best-effort: a write failure logs a warning but does NOT abort the
     # close-out, so the existing fetch_diff recovery chain still handles
     # diff retrieval for tasks whose stamp didn't land (issue #849).
-    _stamp_merge_commit_sha(db_path, task_id, merge_commit_sha)
+    # merge_base_sha is set by the ff and no-checkout paths so the fast-path
+    # can run a range query; PR squash passes None (the single squash SHA
+    # is sufficient for git show). Migration 72, TASK-452.
+    _stamp_merge_commit_sha(db_path, task_id, merge_commit_sha, merge_base_sha)
     # Pass --force up front so task-done emits "Warning:" (not "Error:") for
     # criteria that legitimately lack a commit hash. The user has explicitly
     # chosen to ship the merge, so implicit --force on close is consistent with
@@ -1114,6 +1164,18 @@ def _complete_no_checkout_fast_forward(
             if did_stash:
                 _try_pop_stash(task_id)
             return 2
+    # Capture the merge-base BEFORE the push. After the push, git updates
+    # refs/remotes/origin/<default_branch> to branch_name's tip, which
+    # would collapse the merge-base to the tip and lose the range. The
+    # local <default_branch> ref is unchanged by the no-checkout flow
+    # (that's the whole reason we're here — the worktree holding default
+    # is locked) so it remains a stable pre-push base reference if the
+    # remote-tracking ref is stale or origin-relative resolution fails.
+    # In --rebase mode this runs after the rebase, so branch_name now
+    # descends directly from origin/<default_branch>'s tip and the
+    # merge-base equals that tip (= parent of the first task commit on
+    # the rebased branch). Migration 72, TASK-452.
+    pre_push_merge_base_sha = _resolve_merge_base(branch_name, default_branch)
     if _origin_already_contains(branch_name, default_branch):
         print(
             f"Note: origin/{default_branch} already contains {branch_name}'s "
@@ -1191,9 +1253,13 @@ def _complete_no_checkout_fast_forward(
     # ref (no-checkout pushes don't rewrite SHAs; the local branch is the
     # source of truth). Issue #849.
     merge_commit_sha = _resolve_local_ref_sha(branch_name)
+    # Use the pre-push merge-base captured above. Re-resolving here would
+    # collapse to the tip because origin/<default_branch> got advanced by
+    # the push. Migration 72, TASK-452.
     rc = _close_completed_task(
         tusk_bin, task_id, db_path, session_was_closed,
         merge_commit_sha=merge_commit_sha,
+        merge_base_sha=pre_push_merge_base_sha,
     )
     # Refresh BEFORE cleanup: dev-sync shells out via tusk_bin, which may
     # resolve to the worktree's own bin/ in source-repo layouts where neither
@@ -2069,6 +2135,14 @@ def main(argv: list[str]) -> int:
     # row to Done. Best-effort — None falls through to the existing
     # fetch_diff recovery chain (issue #849).
     merge_commit_sha: str | None = None
+    # merge_base_sha is set only on the ff path (and the no-checkout path
+    # captures its own pre-push value inline) so fetch_diff can run
+    # `git log --first-parent --numstat <base>..<tip>` across all N task
+    # commits instead of `git show --numstat <tip>` which only sees the
+    # last commit. PR squash leaves base None — the squash flattens
+    # everything to one commit, so the single-SHA path is already
+    # correct. Migration 72, TASK-452.
+    merge_base_sha: str | None = None
 
     if use_pr:
         # PR mode: delegate to gh pr merge
@@ -2466,6 +2540,13 @@ def main(argv: list[str]) -> int:
 
         # Step 4 (cont): Fast-forward merge (skipped when task commit already on default)
         if not task_on_default:
+            # Capture the merge-base BEFORE the merge — afterwards
+            # default_branch and branch_name point at the same SHA, which
+            # would collapse merge-base to the tip and erase the range.
+            # In --rebase mode the rebase moved branch_name onto
+            # origin/<default>, so the merge-base equals origin/<default>'s
+            # tip = parent of the first (rebased) task commit. Migration 72.
+            merge_base_sha = _resolve_merge_base(branch_name, default_branch)
             result = _run_with_index_lock_retry(
                 ["git", "merge", "--ff-only", branch_name],
                 f"git merge --ff-only {branch_name}",
@@ -2590,6 +2671,7 @@ def main(argv: list[str]) -> int:
     rc = _close_completed_task(
         tusk_bin, task_id, _db_path, session_was_closed,
         merge_commit_sha=merge_commit_sha,
+        merge_base_sha=merge_base_sha,
     )
     if rc == 0:
         _maybe_refresh_deployed_bin(_db_path, tusk_bin)

@@ -453,25 +453,50 @@ def _unreachable_task_commits(task_id: int, repo_root: str) -> tuple[dict, dict]
 
 
 def _fetch_diff_from_stamped_sha(
-    merge_commit_sha: str, repo_root: str
+    merge_commit_sha: str, repo_root: str,
+    merge_base_sha: str | None = None,
 ) -> dict | None:
-    """Summarize the merge commit's numstat output from a stamped SHA.
+    """Summarize the merge's numstat output from stamped SHAs.
 
     Returns the same shape as ``_summarize_commit_files`` plus
-    ``recovered_via="stamped-sha"`` on success, or None when
-    ``git show --numstat`` fails (missing object, corrupt repo). On None,
-    the caller falls through to the existing scan + recovery chain so the
+    ``recovered_via="stamped-sha"`` on success, or None when the git
+    invocation fails (missing object, corrupt repo). On None, the caller
+    falls through to the existing scan + recovery chain so the
     stamped-but-unreachable case still produces stats. Issue #849.
 
-    Uses ``--first-parent`` so squash merges (where ``--numstat`` would
-    otherwise expand against both parents) report the rolled-up diff once.
-    Plain ff merges and the no-checkout push path stamp a non-merge commit,
-    where ``--first-parent`` is a no-op.
+    Two modes, gated by whether ``merge_base_sha`` was stamped:
+
+    - **Range mode** (``merge_base_sha`` set and distinct from
+      ``merge_commit_sha``, migration 72, TASK-452): runs
+      ``git log --first-parent --numstat <base>..<tip>`` so a multi-commit
+      fast-forward or no-checkout fast-forward push reports cumulative
+      stats across every task commit on the branch — not just the tip
+      that ``tusk merge`` stamped as the "merge commit". Without this,
+      ``tusk task-summary`` understated multi-commit ff merges as 1
+      commit / last-commit numstat (TASK-451's own closeout flagged the
+      regression against TASK-454).
+
+    - **Single-SHA mode** (``merge_base_sha`` None, or equal to
+      ``merge_commit_sha``): runs ``git show --first-parent --numstat
+      <merge_commit_sha>`` — correct for PR squash merges (one commit
+      holds all task work) and for legacy pre-migration-72 rows where
+      only the tip was stamped. ``--first-parent`` ensures squash merges
+      don't double-count via the second parent.
     """
+    if merge_base_sha and merge_base_sha != merge_commit_sha:
+        cmd = [
+            "git", "log", "--first-parent", "--numstat",
+            "--format=__COMMIT__ %H %P",
+            f"{merge_base_sha}..{merge_commit_sha}",
+        ]
+    else:
+        cmd = [
+            "git", "show", "--first-parent", "--numstat",
+            "--format=__COMMIT__ %H %P", merge_commit_sha,
+        ]
     try:
         result = subprocess.run(
-            ["git", "show", "--first-parent", "--numstat",
-             "--format=__COMMIT__ %H %P", merge_commit_sha],
+            cmd,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -565,21 +590,39 @@ def fetch_diff(
 
     # Fast-path: when ``tusk merge`` stamped tasks.merge_commit_sha at close
     # time (migration 70, issue #849), short-circuit the ref/grep scan and
-    # the 3-tier recovery chain entirely — ``git show --numstat <sha>`` is
-    # deterministic regardless of ref state, network reachability, or rebase
-    # rewrites. Legacy tasks closed pre-migration carry NULL and fall through
-    # to the existing scan + recovery chain unchanged.
+    # the 3-tier recovery chain entirely. Migration 72 (TASK-452) added a
+    # companion ``merge_base_sha`` so the ff and no-checkout paths can run
+    # ``git log <base>..<tip>`` for cumulative multi-commit stats instead
+    # of ``git show <tip>`` (which only sees the last commit). PR squash
+    # rows continue to stamp base NULL and use the single-SHA path —
+    # one squash commit holds all task work, so ``git show`` is correct.
+    # Legacy pre-migration-70 tasks carry both NULLs and fall through to
+    # the existing scan + recovery chain unchanged.
     if conn is not None:
         try:
             row = conn.execute(
-                "SELECT merge_commit_sha FROM tasks WHERE id = ?", (task_id,)
+                "SELECT merge_commit_sha, merge_base_sha FROM tasks WHERE id = ?",
+                (task_id,),
             ).fetchone()
         except sqlite3.OperationalError:
-            row = None  # column absent on pre-migration-70 DBs
+            # Pre-migration-72 DB: merge_base_sha column absent. Retry with
+            # the v70 column shape so the fast-path stays available; the
+            # absent base means single-SHA mode, identical to today.
+            try:
+                row = conn.execute(
+                    "SELECT merge_commit_sha FROM tasks WHERE id = ?",
+                    (task_id,),
+                ).fetchone()
+            except sqlite3.OperationalError:
+                row = None  # column absent on pre-migration-70 DBs
         if row is not None:
-            stamped_sha = row["merge_commit_sha"] if "merge_commit_sha" in row.keys() else row[0]
+            keys = row.keys() if hasattr(row, "keys") else ()
+            stamped_sha = row["merge_commit_sha"] if "merge_commit_sha" in keys else row[0]
+            base_sha = row["merge_base_sha"] if "merge_base_sha" in keys else None
             if stamped_sha:
-                fast_path = _fetch_diff_from_stamped_sha(stamped_sha, repo_root)
+                fast_path = _fetch_diff_from_stamped_sha(
+                    stamped_sha, repo_root, merge_base_sha=base_sha,
+                )
                 if fast_path is not None:
                     return fast_path
 
