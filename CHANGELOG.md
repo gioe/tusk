@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [994] - 2026-05-25
+
+- [TASK-470] Use sparse-checkout to limit worktree materialization to task scope + always-include set
+
 ## [993] - 2026-05-25
 
 - [TASK-468] Namespace task worktrees by repo to fix cross-project collisions in ~/.tusk/worktrees/
