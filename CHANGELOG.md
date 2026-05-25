@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [978] - 2026-05-24
+
+- [TASK-459] Add a plans table + tusk plans CLI to record flat subscription cost as the ROI denominator
+
 ## [977] - 2026-05-24
 
 - [TASK-458] Add fetch-retry and unreachable-object fallback to tusk task-done auto-mark
