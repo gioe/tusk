@@ -753,6 +753,50 @@ def _print_test_command_failure(
     )
 
 
+# Reject commit messages containing shell-substitution metacharacters that zsh
+# and bash expand BEFORE tusk sees the argv — backticks, $(...), ${...}, and
+# bare $VAR. The boundary guard fires before any git/sqlite subprocess so a
+# substituted message never lands on origin (issue #881; original incident
+# TASK-464 shipped a JSON blob into commit 984ca1a/main when a literal
+# `tusk sync-main` inside a double-quoted message got executed by zsh).
+_METACHAR_RE = re.compile(r"`|\$\(|\$\{|\$[A-Za-z_]")
+
+
+def _validate_message_metacharacters(message: str) -> tuple[bool, str]:
+    """Return (True, "") when the message is safe, else (False, diagnostic).
+
+    Rejects any backtick (`), $(...) command substitution, ${...} braced
+    variable substitution, or bare $<identifier> substitution. The agent's
+    intended literal must be rewritten without metacharacters (plain
+    identifiers) — auto-escaping would silently mutate the message and is
+    deliberately not offered.
+    """
+    match = _METACHAR_RE.search(message)
+    if match is None:
+        return True, ""
+    metachar = match.group(0)
+    if metachar == "`":
+        name = "backtick"
+    elif metachar == "$(":
+        name = "$(...) command substitution"
+    elif metachar == "${":
+        name = "${...} variable substitution"
+    else:
+        name = f"{metachar} variable substitution"
+    diagnostic = (
+        f"Error: commit message contains shell-substitution metacharacter "
+        f"({name}) at position {match.start()}:\n"
+        f"  message: {message!r}\n"
+        f"zsh and bash expand this BEFORE tusk sees the argv, even inside "
+        f"double quotes. The corrupted message would land on origin and cannot "
+        f"be amended.\n"
+        f"Fix: rewrite the message without the metacharacter (use plain "
+        f"identifiers, not backticked code spans), or wrap the entire message "
+        f"in single quotes if the literal character must appear."
+    )
+    return False, diagnostic
+
+
 def main(argv: list[str]) -> int:
     """Entry point — wraps _run_commit so a final summary line is always emitted.
 
@@ -879,6 +923,11 @@ def _run_commit(argv: list[str], state: dict) -> int:
 
     if not message.strip():
         print("Error: Commit message must not be empty", file=sys.stderr)
+        return 1
+
+    ok, diagnostic = _validate_message_metacharacters(message)
+    if not ok:
+        print(diagnostic, file=sys.stderr)
         return 1
 
     # ── Announce status lines? ───────────────────────────────────────
