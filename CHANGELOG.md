@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [989] - 2026-05-25
+
+- [TASK-467] Generalize schema-mismatch worktree-binary fallback to all tusk entry points
+
 ## [988] - 2026-05-25
 
 - [TASK-466] Fix: hoist install.sh project_type manifest detection above the skill-filter loop
