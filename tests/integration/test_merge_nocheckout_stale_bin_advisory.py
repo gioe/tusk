@@ -186,3 +186,144 @@ def test_refresh_fired_still_silent_when_env_var_disabled(
     tusk_merge_module._maybe_advise_stale_deployed_bin(db_path, refresh_fired=True)
 
     assert capsys.readouterr().err == ""
+
+
+# Issue #880: when tusk_bin is provided and TUSK_NO_AUTO_SYNC_MAIN is unset,
+# the advisory turns into an auto-action — invoke `tusk sync-main` against the
+# primary checkout, emit a status line on success, fall back to the existing
+# advisory on failure, and re-run the deployed-bin refresh so any newly-pulled
+# bin/tusk-*.py content propagates to .claude/bin/ before the next session.
+
+
+def _fake_completed(returncode, stdout="", stderr=""):
+    return subprocess.CompletedProcess(
+        args=["tusk", "sync-main"], returncode=returncode, stdout=stdout, stderr=stderr,
+    )
+
+
+def test_auto_sync_success_emits_status_line(
+    tmp_path, tusk_merge_module, capsys, monkeypatch,
+):
+    db_path = _source_repo_layout(tmp_path)
+    sync_calls = []
+
+    def fake_run_sync_main(tusk_bin, primary_root):
+        sync_calls.append((tusk_bin, str(primary_root)))
+        return _fake_completed(0, stdout='{"default_branch": "main", "success": true}')
+
+    refresh_calls = []
+
+    def fake_refresh(db_path_arg, tusk_bin_arg):
+        refresh_calls.append((db_path_arg, tusk_bin_arg))
+        return False
+
+    monkeypatch.setattr(tusk_merge_module, "_run_sync_main", fake_run_sync_main)
+    monkeypatch.setattr(tusk_merge_module, "_maybe_refresh_deployed_bin", fake_refresh)
+
+    tusk_merge_module._maybe_advise_stale_deployed_bin(
+        db_path, tusk_bin="/fake/tusk",
+    )
+
+    err = capsys.readouterr().err
+    assert "auto-synced primary to origin/main via tusk sync-main" in err
+    assert ".claude/bin/ may be stale" not in err, (
+        "auto-sync success path must replace, not append to, the advisory wording"
+    )
+    assert "Run `tusk sync-main && tusk dev-sync`" not in err, (
+        "auto-sync success path must not still instruct the operator to run sync-main"
+    )
+    assert sync_calls == [("/fake/tusk", str(tmp_path))], (
+        "tusk sync-main should be invoked exactly once from primary_root"
+    )
+
+
+def test_auto_sync_failure_falls_back_to_advisory(
+    tmp_path, tusk_merge_module, capsys, monkeypatch,
+):
+    db_path = _source_repo_layout(tmp_path)
+
+    def fake_run_sync_main(tusk_bin, primary_root):
+        return _fake_completed(1, stderr="fatal: refusing to merge unrelated histories\n")
+
+    refresh_calls = []
+    monkeypatch.setattr(tusk_merge_module, "_run_sync_main", fake_run_sync_main)
+    monkeypatch.setattr(
+        tusk_merge_module, "_maybe_refresh_deployed_bin",
+        lambda *a, **kw: refresh_calls.append(a) or False,
+    )
+
+    tusk_merge_module._maybe_advise_stale_deployed_bin(
+        db_path, tusk_bin="/fake/tusk",
+    )
+
+    err = capsys.readouterr().err
+    assert "auto-sync failed (tusk sync-main exit 1)" in err, (
+        "failure prefix must name the sync-main exit code"
+    )
+    assert "fall back to manual recovery below" in err
+    # The existing four-variant advisory wording must follow the failure prefix —
+    # this is a clean tree so it's the "may be stale ... Run tusk sync-main && tusk dev-sync"
+    # variant from issue #877.
+    assert ".claude/bin/ may be stale" in err
+    assert "Run `tusk sync-main && tusk dev-sync`" in err
+    assert refresh_calls == [], (
+        "the deployed-bin refresh should not chain after a failed auto-sync"
+    )
+
+
+def test_tusk_no_auto_sync_main_env_var_preserves_existing_advisory(
+    tmp_path, tusk_merge_module, capsys, monkeypatch,
+):
+    monkeypatch.setenv("TUSK_NO_AUTO_SYNC_MAIN", "1")
+    db_path = _source_repo_layout(tmp_path)
+
+    sync_calls = []
+    monkeypatch.setattr(
+        tusk_merge_module, "_run_sync_main",
+        lambda *a, **kw: sync_calls.append(a) or _fake_completed(0),
+    )
+
+    tusk_merge_module._maybe_advise_stale_deployed_bin(
+        db_path, tusk_bin="/fake/tusk",
+    )
+
+    err = capsys.readouterr().err
+    # Auto-action is opted out — operator sees the same advisory issue #877 emits.
+    assert ".claude/bin/ may be stale" in err
+    assert "Run `tusk sync-main && tusk dev-sync`" in err
+    assert "auto-synced primary" not in err, (
+        "TUSK_NO_AUTO_SYNC_MAIN=1 must suppress the auto-action status line"
+    )
+    assert "auto-sync failed" not in err
+    assert sync_calls == [], "tusk sync-main must NOT run when TUSK_NO_AUTO_SYNC_MAIN=1"
+
+
+def test_auto_sync_success_chains_deployed_bin_refresh(
+    tmp_path, tusk_merge_module, capsys, monkeypatch,
+):
+    """After a successful auto-sync, re-run _maybe_refresh_deployed_bin so any
+    bin/tusk-*.py drift introduced by sync-main propagates to .claude/bin/.
+    """
+    db_path = _source_repo_layout(tmp_path)
+
+    monkeypatch.setattr(
+        tusk_merge_module, "_run_sync_main",
+        lambda *a, **kw: _fake_completed(0, stdout='{"default_branch": "main"}'),
+    )
+
+    refresh_calls = []
+
+    def fake_refresh(db_path_arg, tusk_bin_arg):
+        refresh_calls.append((db_path_arg, tusk_bin_arg))
+        return False
+
+    monkeypatch.setattr(tusk_merge_module, "_maybe_refresh_deployed_bin", fake_refresh)
+
+    tusk_merge_module._maybe_advise_stale_deployed_bin(
+        db_path, tusk_bin="/fake/tusk",
+    )
+
+    assert refresh_calls == [(db_path, "/fake/tusk")], (
+        "deployed-bin refresh must chain after a successful auto-sync, "
+        "with the same db_path and tusk_bin"
+    )
