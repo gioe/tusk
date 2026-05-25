@@ -51,6 +51,7 @@
   ".claude/bin/tusk-progress.py",
   ".claude/bin/tusk-rank-lib.py",
   ".claude/bin/tusk-reconcile-skills.py",
+  ".claude/bin/tusk-resolve-schema-bin.py",
   ".claude/bin/tusk-retro-finding.py",
   ".claude/bin/tusk-retro-patches.py",
   ".claude/bin/tusk-retro-signals.py",

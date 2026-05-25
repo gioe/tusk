@@ -1200,7 +1200,7 @@ cmd_query() {
         _fuzzy_match="$(python3 - "$_subcmd_lc" <<'PYEOF' 2>/dev/null  # suppress errors; no hint shown on failure
 import difflib, sys
 candidates = [
-  'init','path','config','validate','sql-quote','typed-criteria-build','branch','commit',
+  'init','path','config','validate','sql-quote','typed-criteria-build','resolve-schema-bin','branch','commit',
   'lint','lint-rule','dupes','conventions','pillars','glossary','plans','criteria','dashboard','chain','blockers',
   'review','review-verdict','review-pass-status','review-final-summary','review-diff-range','review-wait','review-check-perms','review-agent-cost',
   'deps','session-stats','session-recalc','session-close','skill-run','jot','jots','call-breakdown',
@@ -1623,6 +1623,19 @@ snapshot_db() {
 # sqlite3.OperationalError instead of an actionable upgrade prompt. The
 # reverse direction (binary newer than DB) stays the responsibility of
 # `tusk migrate`.
+#
+# Worktree-binary fallback (issue #876): before emitting the mismatch error,
+# consult tusk-resolve-schema-bin.py. It scans `git worktree list
+# --porcelain` for a sibling worktree whose `bin/tusk-migrate.py` knows about
+# the higher schema version, and prints that binary's path. If one is found,
+# re-exec into it with the original argv preserved so every subcommand —
+# skill-run finish, task-summary, commit, lint, glossary, etc. — survives
+# the same primary-stale-after-worktree-migration scenario that TASK-457
+# fixed only inside tusk-merge.py. The exec re-enters this script's
+# preflight; since the new binary supports the schema, it returns 0 and
+# proceeds normally. TUSK_NESTED_CALL is left unset so exactly one snapshot
+# is taken per operator invocation. Receives full argv via "$@" so the exec
+# below carries the original command intact.
 preflight_schema_version() {
   # No DB on disk → nothing to compare. The subcommand will either init a
   # fresh DB or fail with its own clearer message.
@@ -1634,9 +1647,14 @@ preflight_schema_version() {
     # blocked. Mirrors but does NOT reuse `is_readonly_subcmd` because that
     # list also includes DB-reading commands (task-get, task-list, …) which
     # are exactly what this preflight needs to guard.
+    #
+    # `resolve-schema-bin` is exempt because it IS part of the recovery
+    # path: bash invokes it directly below, and operators may run it
+    # manually to debug a mismatch.
     ""|init|path|config|version|version-bump|upgrade|migrate|regen-triggers|\
       sql-quote|typed-criteria-build|git-default-branch|branch-parse|report-issue|update-gitignore|\
-      sync-skills|sync-main|reconcile-skills|generate-manifest|pricing-update|dev-sync|token-audit)
+      sync-skills|sync-main|reconcile-skills|generate-manifest|pricing-update|dev-sync|token-audit|\
+      resolve-schema-bin)
       return 0 ;;
   esac
   local user_version supported_max
@@ -1651,12 +1669,17 @@ preflight_schema_version() {
     | sort -n | tail -1)"
   [[ -n "$supported_max" ]] || return 0
   if (( user_version > supported_max )); then
+    local alt_bin
+    alt_bin="$(python3 "$SCRIPT_DIR/tusk-resolve-schema-bin.py" "$DB_PATH" "$SCRIPT_DIR/tusk")" || alt_bin=""
+    if [[ -n "$alt_bin" && -x "$alt_bin" ]]; then
+      exec "$alt_bin" "$@"
+    fi
     echo "Schema mismatch: this database is at v${user_version}, but this tusk binary expects <=v${supported_max}. Run 'tusk upgrade' to update." >&2
     exit 1
   fi
 }
 
-preflight_schema_version "${1:-}"
+preflight_schema_version "$@"
 
 if [[ -z "${TUSK_NESTED_CALL:-}" ]] && ! is_readonly_subcmd "${1:-}"; then
   snapshot_db
@@ -1674,6 +1697,7 @@ case "${1:-}" in
   validate) shift; cmd_validate "$@" ;;
   sql-quote) shift; sql_quote "${1:-}" ;;
   typed-criteria-build) shift; exec python3 "$SCRIPT_DIR/tusk-typed-criteria-build.py" "$@" ;;
+  resolve-schema-bin) shift; exec python3 "$SCRIPT_DIR/tusk-resolve-schema-bin.py" "$@" ;;
   branch) shift; exec python3 "$SCRIPT_DIR/tusk-branch.py" "$REPO_ROOT" "$@" ;;
   commit) shift; exec python3 "$SCRIPT_DIR/tusk-commit.py" "$REPO_ROOT" "$(resolve_config)" "$@" ;;
   lint)   shift; exec python3 "$SCRIPT_DIR/tusk-lint.py" "$REPO_ROOT" "$@" ;;
