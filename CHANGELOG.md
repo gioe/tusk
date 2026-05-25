@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [995] - 2026-05-25
+
+- [TASK-474] Trim scope-discipline advisory prose from /tusk, /address-issue, /chain skill bodies
+
 ## [994] - 2026-05-25
 
 - [TASK-470] Use sparse-checkout to limit worktree materialization to task scope + always-include set
