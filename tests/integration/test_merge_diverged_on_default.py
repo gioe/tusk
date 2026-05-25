@@ -948,3 +948,159 @@ class TestPrefixMatchFalsePositive:
         assert "matched [TASK-" in err and "abcdef1" in err, (
             f"Expected matched-commit SHA in stderr, got:\n{err}"
         )
+
+
+def _insert_basename_only_task(conn: sqlite3.Connection) -> int:
+    """Insert a task whose description references only a bare basename
+    (no directory prefix). task_referenced_paths returns []; only
+    task_referenced_basenames carries the scope signal. Exercises the
+    basename leg of filter_commits_by_block_overlap added to tusk-merge's
+    prefix-collision gate (issue #855 follow-up).
+    """
+    cur = conn.execute(
+        "INSERT INTO tasks (summary, description, status, task_type, priority, complexity, priority_score)"
+        " VALUES ('test task basename only',"
+        " 'Refactor palm_beach_improv.py to use the new base class.',"
+        " 'In Progress', 'feature', 'Medium', 'S', 50)"
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+class TestPrefixMatchBasenameOnlyScopeSignal:
+    """Issue #855 follow-up (TASK-453): tusk-merge's prefix-collision gate must
+    use the basename leg of filter_commits_by_block_overlap. Previously the
+    caller passed ``task_basenames=set()``, which silently suppressed
+    basename-only descriptions and routed them through the no-signal
+    fallthrough path. Two shapes covered:
+
+    1. **Basename-only scope, commit overlaps** — matched-commit files include
+       the full path whose basename appears in the task description. Block
+       basenames intersect ``task_referenced_basenames``; kept is non-empty;
+       gate REFUSES override and treats the [TASK-X] commit on default as
+       legitimate this-task work.
+    2. **Basename-only scope, commit doesn't overlap** — matched-commit files
+       touch unrelated paths. Block basenames don't intersect; kept is empty;
+       gate OVERRIDES task_on_default and proceeds with ff-merge. Old behavior
+       would have routed through the no-signal fallthrough here and REFUSED
+       the override even though the [TASK-X] commit is genuinely unrelated.
+    """
+
+    def test_basename_only_overlap_keeps_task_on_default(
+        self, db_path, config_path, monkeypatch
+    ):
+        """Case 1: basename-only scope signal + commit files include the full
+        path — block_basenames overlap; kept is non-empty; gate REFUSES
+        override (no ff-merge, force-delete branch)."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_basename_only_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        branch = f"feature/TASK-{task_id}-basename-overlap"
+        record = []
+
+        monkeypatch.setattr(tusk_merge, "find_task_branch", lambda tid: (branch, None, False))
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        mock_run, _ = _make_run(
+            branch, task_id=task_id, task_on_default=True,
+            cherry_pick_diverged=False, record_calls=record,
+        )
+        # Matched commit's files include the full path whose basename
+        # ("palm_beach_improv.py") is referenced bare in the description.
+        _patch_overlap_helpers(
+            monkeypatch,
+            matched_default_shas=["cafe5678" + "0" * 32],
+            matched_files={"apps/api/scrapers/palm_beach_improv.py"},
+        )
+        monkeypatch.setattr(tusk_merge, "run", mock_run)
+
+        stderr_buf = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(stderr_buf):
+            rc = tusk_merge.main(
+                [str(db_path), str(config_path), str(task_id), "--session", str(session_id)]
+            )
+
+        assert rc == 0, f"Expected exit 0\nstderr: {stderr_buf.getvalue()}"
+
+        ff_calls = [c for c in record if c[:3] == ["git", "merge", "--ff-only"]]
+        assert not ff_calls, (
+            "Expected git merge --ff-only NOT to be called — basename-only "
+            "scope signal overlaps the matched commit's files, so the gate "
+            "must keep task_on_default=True"
+        )
+
+        # High-confidence log line should print the matched SHA prefix.
+        err = stderr_buf.getvalue()
+        assert "matched [TASK-" in err and "cafe567" in err, (
+            f"Expected matched-commit SHA in stderr, got:\n{err}"
+        )
+
+    def test_basename_only_no_overlap_proceeds_with_ff_merge(
+        self, db_path, config_path, monkeypatch
+    ):
+        """Case 2: basename-only scope signal + commit files DON'T include the
+        referenced basename — block_basenames don't overlap; kept is empty;
+        gate OVERRIDES task_on_default (ff-merge runs, no force-delete).
+
+        Pre-fix behavior: ``task_basenames=set()`` suppressed the basename leg,
+        so the helper saw task_paths=set() / task_basenames=set() → no signal →
+        returned commits unchanged → kept non-empty → REFUSE override, blocking
+        the merge even though the [TASK-X] commit is a prefix-match false
+        positive. Post-fix: the basename signal participates, so genuinely
+        unrelated [TASK-X] commits get filtered out.
+        """
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_basename_only_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        branch = f"feature/TASK-{task_id}-basename-no-overlap"
+        record = []
+
+        monkeypatch.setattr(tusk_merge, "find_task_branch", lambda tid: (branch, None, False))
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        mock_run, _ = _make_run(
+            branch, task_id=task_id, task_on_default=True,
+            cherry_pick_diverged=False, record_calls=record,
+        )
+        # Matched commit's files don't share a basename with the task
+        # description's bare reference ("palm_beach_improv.py").
+        _patch_overlap_helpers(
+            monkeypatch,
+            matched_default_shas=["8badf00d" + "0" * 32],
+            matched_files={"apps/api/config/proxy_keys.json"},
+        )
+        monkeypatch.setattr(tusk_merge, "run", mock_run)
+
+        stderr_buf = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(stderr_buf):
+            rc = tusk_merge.main(
+                [str(db_path), str(config_path), str(task_id), "--session", str(session_id)]
+            )
+
+        assert rc == 0, f"Expected exit 0\nstderr: {stderr_buf.getvalue()}"
+
+        ff_calls = [c for c in record if c[:3] == ["git", "merge", "--ff-only"]]
+        assert ff_calls, (
+            "Expected git merge --ff-only to be called — basename-only scope "
+            "signal does NOT overlap matched commit files, so the gate must "
+            "override task_on_default and treat the matched commit as a "
+            "prefix-match false positive"
+        )
+
+        force_delete_calls = [c for c in record if c[:3] == ["git", "branch", "-D"]]
+        assert not force_delete_calls, (
+            f"Expected NO force-delete on the false-positive path, got: {force_delete_calls}"
+        )
+
+        assert "prefix-match false positive" in stderr_buf.getvalue(), (
+            "Expected the override's prefix-match-false-positive diagnostic in "
+            f"stderr:\n{stderr_buf.getvalue()}"
+        )
