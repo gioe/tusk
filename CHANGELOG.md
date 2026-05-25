@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [988] - 2026-05-25
+
+- [TASK-466] Fix: hoist install.sh project_type manifest detection above the skill-filter loop
+
 ## [987] - 2026-05-25
 
 - [TASK-465] Fix: reject unescaped backticks and $(...) substitution in tusk commit message args
