@@ -1206,7 +1206,7 @@ candidates = [
   'deps','session-stats','session-recalc','session-close','skill-run','jot','jots','call-breakdown',
   'active-project','git-default-branch','branch-parse',
   'task-get','task-get-multi','task-select','task-start','task-done','task-insert','task-update','task-reopen','task-unstart','task-list','task-summary','task-worktree',
-  'audit','autoclose','backlog-scan','groom','check-deliverables',
+  'audit','autoclose','backlog-scan','groom','check-deliverables','scope-paths',
   'retro','retro-signals','retro-themes','retro-finding','retro-patches',
   'test-detect','test-precheck','add-lib','address-issue',
   'init-scan-codebase','init-scan-todos','init-fetch-bootstrap','init-write-config','init-write-manifest-files','init-wizard','init-scaffold',
@@ -1590,7 +1590,7 @@ is_readonly_subcmd() {
     git-default-branch|branch-parse|report-issue|\
     sync-skills|reconcile-skills|generate-manifest|pricing-update|dev-sync|token-audit|\
     task-get|task-get-multi|task-list|task-select|task-summary|setup|\
-    backlog-scan|blockers|check-deliverables|test-detect|test-precheck|review-check-perms|review-diff-range|review-final-summary|review-agent-cost|jots|retro-patches|\
+    backlog-scan|blockers|check-deliverables|scope-paths|test-detect|test-precheck|review-check-perms|review-diff-range|review-final-summary|review-agent-cost|jots|retro-patches|\
     init-fetch-bootstrap|init-scan-codebase|init-scan-todos)
       return 0 ;;
     *) return 1 ;;
@@ -1745,6 +1745,7 @@ case "${1:-}" in
   backlog-scan) shift; exec python3 "$SCRIPT_DIR/tusk-backlog-scan.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   groom) shift; exec python3 "$SCRIPT_DIR/tusk-groom.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   check-deliverables) shift; exec python3 "$SCRIPT_DIR/tusk-check-deliverables.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  scope-paths) shift; exec python3 "$SCRIPT_DIR/tusk-scope-paths.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   retro-signals) shift; exec python3 "$SCRIPT_DIR/tusk-retro-signals.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   retro-themes) shift; exec python3 "$SCRIPT_DIR/tusk-retro-themes.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   retro-finding) shift; exec python3 "$SCRIPT_DIR/tusk-retro-finding.py" "$DB_PATH" "$(resolve_config)" "$@" ;;

@@ -448,7 +448,7 @@ if [[ -d "$GIT_HOOKS_DIR" ]]; then
   else
     pre_push_guards="branch-naming version-bump-check"
   fi
-  write_dispatcher pre-commit "block-raw-sqlite block-sql-neq dupe-gate"
+  write_dispatcher pre-commit "block-raw-sqlite block-sql-neq dupe-gate scope-guard"
   write_dispatcher pre-push   "$pre_push_guards"
   write_dispatcher commit-msg "commit-msg-format"
 else
