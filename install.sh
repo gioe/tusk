@@ -84,6 +84,47 @@ SOURCE_ONLY_HOOK_BASENAMES="auto-lint.sh version-bump-check.sh"
 
 echo "Installing tusker into $REPO_ROOT (mode: $INSTALL_MODE, role: $INSTALL_ROLE, install dir: $INSTALL_DIR)"
 
+# ── 1b. Resolve project_type before the skill-filter loop ───────────
+# Issue #878: the project_type-gated skill-filter loop in section 3 ran
+# before any manifest detection, so a fresh ios_app install (Package.swift
+# present, no tusk/config.json yet) silently skipped /ios-libs-issue and
+# /ios-libs-contribute. Compute project_type here — existing config value
+# wins over detection, mirroring the post-init block's no-clobber guard.
+# The post-init block at section 5b still writes the detected value into
+# tusk/config.json via 'tusk init-write-config'; this hoist only changes
+# which value section 3's skill filter sees.
+EXISTING_PROJECT_TYPE_EARLY="$(python3 -c "
+import json, os
+p = os.path.join('$REPO_ROOT', 'tusk', 'config.json')
+if os.path.isfile(p):
+    try:
+        v = json.load(open(p, encoding='utf-8')).get('project_type')
+        print(v if v is not None else '')
+    except Exception:
+        print('')
+")"
+DETECTED_PROJECT_TYPE="$(python3 -c "
+import glob, os
+root = '$REPO_ROOT'
+if (os.path.isfile(os.path.join(root, 'Package.swift'))
+    or glob.glob(os.path.join(root, '*.xcodeproj'))
+    or glob.glob(os.path.join(root, '*.xcworkspace'))):
+    print('ios_app')
+elif (os.path.isfile(os.path.join(root, 'pyproject.toml'))
+      or os.path.isfile(os.path.join(root, 'setup.py'))
+      or os.path.isfile(os.path.join(root, 'requirements.txt'))):
+    print('python_service')
+elif os.path.isfile(os.path.join(root, 'package.json')):
+    print('web_app')
+else:
+    print('')
+")"
+if [[ -n "$EXISTING_PROJECT_TYPE_EARLY" ]]; then
+  PROJECT_TYPE="$EXISTING_PROJECT_TYPE_EARLY"
+else
+  PROJECT_TYPE="$DETECTED_PROJECT_TYPE"
+fi
+
 # ── 1. Copy bin + support files ──────────────────────────────────────
 mkdir -p "$REPO_ROOT/$INSTALL_DIR"
 cp "$SCRIPT_DIR/bin/tusk" "$REPO_ROOT/$INSTALL_DIR/tusk"
@@ -147,21 +188,13 @@ echo "  Stamped $INSTALL_DIR/install-mode (${INSTALL_MODE}-${INSTALL_ROLE})"
 
 # ── 3. Copy skills (claude mode) or codex prompts (codex mode) ───────
 # Skills that declare `applies_to_project_types` in their SKILL.md frontmatter
-# install only when the target's tusk/config.json:project_type matches one of
-# the listed types. Universal skills (no field) always install. Gated skills
-# are deferred when project_type is unset — typical for fresh installs before
-# /tusk-init runs.
+# install only when the target's project_type matches one of the listed types.
+# Universal skills (no field) always install. PROJECT_TYPE was resolved in
+# section 1b above — existing tusk/config.json wins, otherwise the manifest
+# detection result is used. On fresh installs without a manifest signal,
+# PROJECT_TYPE is empty and gated skills are still deferred (typical
+# pre-/tusk-init state).
 if [[ "$INSTALL_MODE" == "claude" || "$INSTALL_MODE" == "dual" ]]; then
-  PROJECT_TYPE="$(python3 -c "
-import json, os
-p = os.path.join('$REPO_ROOT', 'tusk', 'config.json')
-if os.path.isfile(p):
-    try:
-        v = json.load(open(p, encoding='utf-8')).get('project_type')
-        print(v if v is not None else '')
-    except Exception:
-        print('')
-")"
   for skill_dir in "$SCRIPT_DIR"/skills/*/; do
     skill_name="$(basename "$skill_dir")"
     if ! python3 "$SCRIPT_DIR/bin/tusk_skill_filter.py" --skill "$skill_dir" --project-type "$PROJECT_TYPE"; then

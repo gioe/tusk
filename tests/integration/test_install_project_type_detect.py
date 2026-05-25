@@ -159,3 +159,89 @@ def test_install_python_takes_priority_over_web(tmp_path):
     _run(["bash", INSTALL_SH], tmp_path)
     cfg = _read_config(tmp_path)
     assert cfg.get("project_type") == "python_service"
+
+
+# Issue #878: the project_type-gated skill-filter loop ran before manifest
+# detection, so a fresh ios_app install (Package.swift present, no tusk/
+# config.json yet) silently skipped /ios-libs-issue and /ios-libs-contribute.
+# The hoist computes project_type before the skill-filter loop reads it.
+
+def test_install_ios_app_installs_gated_skills_from_package_swift(tmp_path):
+    """A Package.swift-only fresh install installs the ios_app-gated skills."""
+    _setup_consumer(tmp_path, manifest_files=["Package.swift"])
+    _run(["bash", INSTALL_SH], tmp_path)
+    assert (tmp_path / ".claude" / "skills" / "ios-libs-issue").exists(), (
+        "/ios-libs-issue is gated on project_type=ios_app; install.sh detected "
+        "ios_app from Package.swift but skipped the skill because the "
+        "skill-filter loop ran before detection (issue #878)"
+    )
+    assert (tmp_path / ".claude" / "skills" / "ios-libs-contribute").exists(), (
+        "/ios-libs-contribute is gated on project_type=ios_app; install.sh detected "
+        "ios_app from Package.swift but skipped the skill because the "
+        "skill-filter loop ran before detection (issue #878)"
+    )
+
+
+def test_install_ios_app_installs_gated_skills_from_xcodeproj(tmp_path):
+    """An .xcodeproj-only fresh install installs the ios_app-gated skills."""
+    _setup_consumer(tmp_path, manifest_dirs=["MyApp.xcodeproj"])
+    _run(["bash", INSTALL_SH], tmp_path)
+    assert (tmp_path / ".claude" / "skills" / "ios-libs-issue").exists()
+    assert (tmp_path / ".claude" / "skills" / "ios-libs-contribute").exists()
+
+
+def test_install_python_service_skips_ios_gated_skills(tmp_path):
+    """A pyproject.toml-only install must NOT install ios_app-gated skills."""
+    _setup_consumer(tmp_path, manifest_files=["pyproject.toml"])
+    _run(["bash", INSTALL_SH], tmp_path)
+    assert not (tmp_path / ".claude" / "skills" / "ios-libs-issue").exists(), (
+        "ios-libs-issue must not install for project_type=python_service"
+    )
+    assert not (tmp_path / ".claude" / "skills" / "ios-libs-contribute").exists(), (
+        "ios-libs-contribute must not install for project_type=python_service"
+    )
+
+
+def test_install_web_app_skips_ios_gated_skills(tmp_path):
+    """A package.json-only install must NOT install ios_app-gated skills."""
+    _setup_consumer(tmp_path, manifest_files=["package.json"])
+    _run(["bash", INSTALL_SH], tmp_path)
+    assert not (tmp_path / ".claude" / "skills" / "ios-libs-issue").exists()
+    assert not (tmp_path / ".claude" / "skills" / "ios-libs-contribute").exists()
+
+
+def test_install_no_manifest_skips_ios_gated_skills(tmp_path):
+    """A fresh install with no manifest signals must NOT install gated skills.
+
+    project_type stays unresolved so the gated skill stays deferred until
+    /tusk-init runs and reconciles via tusk-reconcile-skills.py.
+    """
+    _setup_consumer(tmp_path)
+    _run(["bash", INSTALL_SH], tmp_path)
+    assert not (tmp_path / ".claude" / "skills" / "ios-libs-issue").exists()
+    assert not (tmp_path / ".claude" / "skills" / "ios-libs-contribute").exists()
+
+
+def test_install_preserves_existing_project_type_for_skill_filter(tmp_path):
+    """Re-running install.sh respects user's explicit project_type for skills too.
+
+    First install with package.json seeds project_type=web_app. After the
+    user overwrites to ios_app and re-runs install.sh, the hoist must read
+    the existing config.json value (not re-detect from manifest), so the
+    ios-libs-* skills install on the re-run.
+    """
+    _setup_consumer(tmp_path, manifest_files=["package.json"])
+    _run(["bash", INSTALL_SH], tmp_path)
+    assert not (tmp_path / ".claude" / "skills" / "ios-libs-issue").exists()
+
+    cfg_path = tmp_path / "tusk" / "config.json"
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    cfg["project_type"] = "ios_app"
+    cfg_path.write_text(json.dumps(cfg, indent=2) + "\n")
+
+    _run(["bash", INSTALL_SH], tmp_path)
+    assert (tmp_path / ".claude" / "skills" / "ios-libs-issue").exists(), (
+        "user's explicit project_type=ios_app must reach the skill-filter loop "
+        "on install.sh re-run, even when the manifest suggests web_app"
+    )
+    assert (tmp_path / ".claude" / "skills" / "ios-libs-contribute").exists()
