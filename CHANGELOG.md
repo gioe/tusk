@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [983] - 2026-05-25
+
+- [TASK-461] Rewrite no-checkout merge staleness advisory to recommend tusk sync-main && tusk dev-sync
+
 ## [982] - 2026-05-25
 
 - [TASK-460] Fix: _resolve_merge_base picks descendant merge-base; skip in origin-already-contains path
