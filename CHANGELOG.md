@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [980] - 2026-05-25
+
+- [TASK-447] install.sh: detect project_type from manifest files and call init-write-config to seed worktree.symlink_files at install time
+
 ## [979] - 2026-05-25
 
 - [TASK-453] Enable basename matching in tusk-merge prefix-collision gate
