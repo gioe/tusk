@@ -36,17 +36,28 @@ dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 load_config = _db_lib.load_config
 find_task_commits = _git_helpers.find_task_commits
+find_task_commits_with_recovery = _git_helpers.find_task_commits_with_recovery
 filter_commits_by_block_overlap = _git_helpers.filter_commits_by_block_overlap
 
 
 def _find_task_commits(task_id: int, repo_root: str) -> list[str]:
-    """Return commit hashes referencing [TASK-<task_id>] in git log.
+    """Return commit hashes referencing [TASK-<task_id>] across all refs.
 
-    Thin wrapper around the centralized ``find_task_commits`` helper so the
-    POSIX BRE bracket-escape policy (TASK-149/TASK-150) and any future change
-    to the grep contract stays in lockstep with every other call site.
+    Routes through ``find_task_commits_with_recovery`` (issue #848) so the
+    auto-mark step has the same three-layer recovery as
+    ``tusk task-summary``'s ``fetch_diff``: ``git log --all --grep`` →
+    best-effort ``git fetch origin <default>`` retry → ``git fsck
+    --unreachable`` scan of the local object store. Without recovery, a
+    ``tusk task-done --reason completed`` against a task whose commits only
+    live in the local object store (no-checkout fast-forward push + broken
+    remote URL) failed to auto-mark criteria and exited 3.
+
+    Returns the SHA list; the ``recovered_via`` tier is discarded here —
+    it's an informational field, and the auto-mark behavior is identical
+    regardless of which tier surfaced the commits.
     """
-    return find_task_commits(task_id, repo_root)
+    commits, _ = find_task_commits_with_recovery(task_id, repo_root)
+    return commits
 
 
 def _repo_root_for_git(db_path: str) -> str:
