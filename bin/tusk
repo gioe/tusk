@@ -1057,6 +1057,20 @@ CREATE TABLE glossary (
 );
 GLOSSARY_SCHEMA
 
+  # Plans (flat subscription cost rows — denominator for ROI rollups; issue #873)
+  sqlite3 "$DB_PATH" <<'PLANS_SCHEMA'
+CREATE TABLE plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    monthly_cost_dollars REAL NOT NULL CHECK (monthly_cost_dollars >= 0),
+    effective_from TEXT NOT NULL,
+    effective_to TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_plans_name_effective ON plans(name, effective_from);
+PLANS_SCHEMA
+
   # Test runs (per-repo successful test_command elapsed history; read by
   # tusk-commit.py to auto-scale test_command_timeout_sec from p95)
   sqlite3 "$DB_PATH" <<'TEST_RUNS_SCHEMA'
@@ -1094,7 +1108,7 @@ TEST_RUNS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 70;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 71;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."

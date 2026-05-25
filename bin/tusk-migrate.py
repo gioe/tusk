@@ -2841,6 +2841,59 @@ def migrate_70(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 70: added tasks.merge_commit_sha and recreated tasks-dependent views")
 
 
+def migrate_71(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add ``plans`` table — flat subscription cost denominator for ROI.
+
+    Records the user's flat-rate subscription history (e.g. Claude Max,
+    ChatGPT Pro) so cost rollups can answer "what metered value did I
+    consume vs what I actually paid?". The companion time-windowed
+    metered rollup is issue #871; the dashboard ROI annotation is a
+    follow-up once both halves ship. Issue #873.
+
+    Multiple rows per ``name`` are allowed — repeated ``tusk plans set``
+    calls record subscription-cost changes over time. ``effective_from``
+    is required; ``effective_to`` NULL means the period is still open.
+    The ``(name, effective_from)`` index supports the date-range
+    selection helper that downstream ROI consumers will use.
+
+    Idempotent: table creation is guarded via ``sqlite_master`` lookup.
+    """
+    if get_version(db_path) >= 71:
+        _progress("  Migration 71: added plans table")
+        return
+
+    conn = sqlite3.connect(db_path)
+    try:
+        existing = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='plans'"
+        ).fetchone()
+    finally:
+        conn.close()
+
+    ddl_stmts = []
+    if not existing:
+        ddl_stmts.append(
+            """
+            CREATE TABLE plans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                monthly_cost_dollars REAL NOT NULL CHECK (monthly_cost_dollars >= 0),
+                effective_from TEXT NOT NULL,
+                effective_to TEXT,
+                notes TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX idx_plans_name_effective ON plans(name, effective_from);
+            """
+        )
+
+    script = "\n".join(ddl_stmts) + """
+        PRAGMA user_version = 71;
+    """
+    run_script(db_path, script)
+    _progress("  Migration 71: added plans table")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -2914,6 +2967,7 @@ MIGRATIONS = [
     (68, migrate_68),
     (69, migrate_69),
     (70, migrate_70),
+    (71, migrate_71),
 ]
 
 
