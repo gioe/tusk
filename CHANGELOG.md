@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [987] - 2026-05-25
+
+- [TASK-465] Fix: reject unescaped backticks and $(...) substitution in tusk commit message args
+
 ## [986] - 2026-05-25
 
 - [TASK-464] Auto-invoke sync-main && dev-sync at no-checkout merge end when primary is stale
