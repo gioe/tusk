@@ -36,7 +36,8 @@
     "symlink_files": []
   },
   "scope": {
-    "always_allowed": ["VERSION", "CHANGELOG.md", "MANIFEST", ".claude/tusk-manifest.json"]
+    "always_allowed": ["VERSION", "CHANGELOG.md", "MANIFEST", ".claude/tusk-manifest.json"],
+    "sparse_always_include": ["bin/tusk", "tests/conftest.py"]
   },
   "issue_scoring": {
     "factors": {
