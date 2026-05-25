@@ -10,13 +10,16 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader  # loads tusk-db-lib.py and tusk-json-lib.py
+import tusk_loader  # loads tusk-db-lib.py, tusk-json-lib.py, and tusk-git-helpers.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 get_connection = _db_lib.get_connection
 
 _json = tusk_loader.load("tusk-json-lib")
 dumps = _json.dumps
+
+_git_helpers = tusk_loader.load("tusk-git-helpers")
+task_referenced_paths = _git_helpers.task_referenced_paths
 
 # Canonical runtime artifacts auto-linked when `worktree.symlink_files` is
 # empty (issue #854). install.sh-only installs never run the project_type
@@ -189,6 +192,67 @@ def _create_worktree(
         ["worktree", "add", "-b", branch, worktree_path, base_branch],
     )
     return result.returncode == 0, result.stderr.strip()
+
+
+def _load_scope_list(config_path: str, key: str) -> list[str]:
+    """Load ``scope.<key>`` from the project config, returning [] on any error."""
+    if not config_path or not os.path.exists(config_path):
+        return []
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return []
+    scope_cfg = cfg.get("scope")
+    if not isinstance(scope_cfg, dict):
+        return []
+    values = scope_cfg.get(key)
+    if not isinstance(values, list):
+        return []
+    return [str(v) for v in values if isinstance(v, str) and v]
+
+
+def _derive_sparse_cone(paths: list[str]) -> list[str]:
+    """Derive cone-mode sparse-checkout directory entries from a path list.
+
+    Root-level entries (no ``/``) are dropped — cone mode auto-includes every
+    file at the toplevel of the worktree, and ``git sparse-checkout set`` in
+    cone mode rejects file paths anyway. Nested entries contribute their
+    parent directory (e.g. ``.claude/tusk-manifest.json`` → ``.claude``,
+    ``tests/integration/test_a.py`` → ``tests/integration``). Returns a
+    sorted unique list.
+    """
+    cone: set[str] = set()
+    for p in paths:
+        if not p:
+            continue
+        p = p.strip().rstrip("/")
+        if not p or "/" not in p:
+            continue
+        cone.add(os.path.dirname(p))
+    return sorted(cone)
+
+
+def _apply_sparse_checkout(worktree_path: str, cone: list[str]) -> tuple[bool, str]:
+    """Initialize cone-mode sparse-checkout on ``worktree_path`` and set the cone.
+
+    Runs ``git sparse-checkout init --cone`` (which auto-enables
+    ``extensions.worktreeConfig`` so the resulting state is per-worktree and
+    does not affect the primary checkout) followed by
+    ``git sparse-checkout set <cone>`` when ``cone`` is non-empty. Returns
+    ``(ok, stderr)``; failures are surfaced to the caller but treated as
+    advisory — sparse-checkout is an optimization and never blocks worktree
+    creation.
+    """
+    init = _run_git(worktree_path, ["sparse-checkout", "init", "--cone"])
+    if init.returncode != 0:
+        return False, init.stderr.strip()
+    if not cone:
+        return True, ""
+    set_result = _run_git(
+        worktree_path, ["sparse-checkout", "set", *cone]
+    )
+    return set_result.returncode == 0, set_result.stderr.strip()
 
 
 def _primary_repo_root(repo_root: str) -> str:
@@ -593,6 +657,40 @@ def cmd_create(
         if not ok:
             print(f"Error: git worktree add failed:\n{err}", file=sys.stderr)
             return 2
+
+        # Apply cone-mode sparse-checkout when the task has referenced paths,
+        # so the worktree materializes only the task scope plus the always-
+        # include and always-allowed sets (TASK-470). Skipped when the task
+        # has no referenced paths (full checkout — the pre-TASK-470 default)
+        # or when TUSK_NO_SPARSE_WORKTREE=1. Best-effort: a sparse-checkout
+        # failure prints an advisory and continues, never blocking create.
+        if not os.environ.get("TUSK_NO_SPARSE_WORKTREE"):
+            referenced = task_referenced_paths(task_id, conn)
+            if referenced:
+                always_include = _load_scope_list(
+                    config_path, "sparse_always_include"
+                )
+                always_allowed = _load_scope_list(config_path, "always_allowed")
+                cone = _derive_sparse_cone(
+                    [*referenced, *always_include, *always_allowed]
+                )
+                sparse_ok, sparse_err = _apply_sparse_checkout(
+                    workspace_path, cone
+                )
+                if sparse_ok:
+                    cone_display = ", ".join(cone) if cone else "(root only)"
+                    print(
+                        f"Note: sparse-checkout applied (cone: {cone_display}). "
+                        "Extend in-worktree via "
+                        "`git sparse-checkout add <path>`.",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(
+                        "Note: sparse-checkout setup failed; worktree falls "
+                        f"back to a full checkout. git stderr: {sparse_err}",
+                        file=sys.stderr,
+                    )
 
         cur = conn.execute(
             """
