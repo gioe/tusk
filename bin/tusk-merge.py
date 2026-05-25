@@ -1365,10 +1365,12 @@ def _complete_no_checkout_fast_forward(
     # Gate on rc == 0 to preserve original behavior: the refresh used to live
     # inside _close_completed_task's success branches only, never on the
     # task-done error path.
+    # Issue #880: the advisory call below now also shells out via tusk_bin
+    # (to invoke `tusk sync-main` against primary_root), so it joins the
+    # before-cleanup ordering for the same worktree-path-removal reason.
     refreshed = False
     if rc == 0:
         refreshed = _maybe_refresh_deployed_bin(db_path, tusk_bin)
-    _cleanup_no_checkout_workspace(db_path, task_id, branch_name)
     # The auto-refresh above compares primary's bin/ against primary's
     # .claude/bin/, but the no-checkout path never updates primary's working
     # tree — so any drift here was pre-existing, not caused by this merge.
@@ -1377,6 +1379,7 @@ def _complete_no_checkout_fast_forward(
     # ".claude/bin/ may be stale, run dev-sync" line that the refresh has
     # already addressed.
     _maybe_advise_stale_deployed_bin(db_path, tusk_bin=tusk_bin, refresh_fired=refreshed)
+    _cleanup_no_checkout_workspace(db_path, task_id, branch_name)
     return rc
 
 
