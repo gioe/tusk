@@ -748,10 +748,57 @@ def _maybe_refresh_deployed_bin(db_path: str, tusk_bin: str) -> bool:
     return True
 
 
+def _format_stale_deployed_bin_advisory(
+    primary_root, working_tree_clean: bool, refresh_fired: bool,
+) -> str:
+    """Return the four-variant advisory wording emitted when auto-sync is disabled or fails.
+
+    The four variants are selected by the ``refresh_fired`` x ``working_tree_clean``
+    matrix established by issue #877. Extracted so the wording is reusable from
+    both the env-var-disabled fast-path and the auto-sync-failure fallback path
+    (issue #880).
+    """
+    if refresh_fired:
+        if working_tree_clean:
+            return (
+                "tusk: primary's working tree is behind origin — this no-checkout "
+                f"merge updated the remote only. Run `tusk sync-main && tusk dev-sync` "
+                f"in {primary_root} when convenient."
+            )
+        return (
+            "tusk: primary's working tree is behind origin — this no-checkout "
+            "merge updated the remote only. Run `tusk sync-main && tusk dev-sync` "
+            f"in {primary_root} — sync-main stashes local changes by ref before "
+            "the ff-only pull, so no manual stash is needed."
+        )
+    if working_tree_clean:
+        return (
+            "tusk: .claude/bin/ may be stale — primary's working tree was not "
+            "updated by this no-checkout merge. Run `tusk sync-main && tusk dev-sync` "
+            f"in {primary_root} to fetch + ff-pull + migrate + refresh the deployed "
+            "bin/ cache."
+        )
+    return (
+        "tusk: .claude/bin/ may be stale — primary's working tree was not "
+        "updated by this no-checkout merge. Run `tusk sync-main && tusk dev-sync` "
+        f"in {primary_root} — sync-main stashes local changes by ref before "
+        "the ff-only pull, so no manual stash is needed."
+    )
+
+
+def _run_sync_main(tusk_bin: str, primary_root) -> subprocess.CompletedProcess:
+    """Run `tusk sync-main` against primary_root. Separated for testability (issue #880)."""
+    return subprocess.run(
+        [tusk_bin, "sync-main"],
+        cwd=str(primary_root),
+        capture_output=True, text=True, encoding="utf-8", check=False,
+    )
+
+
 def _maybe_advise_stale_deployed_bin(
-    db_path: str, refresh_fired: bool = False,
+    db_path: str, *, tusk_bin: str | None = None, refresh_fired: bool = False,
 ) -> None:
-    """Advise the operator that .claude/bin/ may be stale after a no-checkout merge.
+    """Advise or auto-action when primary's working tree is behind origin after a no-checkout merge.
 
     The no-checkout fast-forward path pushes to origin/<default> without updating
     primary's working tree, so _maybe_refresh_deployed_bin sees zero drift between
@@ -759,25 +806,31 @@ def _maybe_advise_stale_deployed_bin(
     content. The deployed cache remains stale relative to origin/<default> until
     the operator pulls primary (issue #865).
 
-    When ``refresh_fired`` is True, the auto-refresh helper just announced that
-    it synced .claude/bin/ from primary's bin/. Keeping the original
-    ".claude/bin/ may be stale ... run tusk dev-sync" wording immediately after
-    that line reads as a contradiction (issue #869); reframe the message around
-    primary's working tree being behind origin (the actual remaining state) so
-    the two lines are coherent. The recovery command is unchanged — after the
-    user pulls, primary's bin/ moves ahead of .claude/bin/ again and dev-sync
-    re-deploys.
+    Issue #880: when ``tusk_bin`` is provided and ``TUSK_NO_AUTO_SYNC_MAIN`` is
+    unset, invoke `tusk sync-main` directly from primary_root and emit a status
+    line ("tusk: auto-synced primary to origin/<default> via tusk sync-main")
+    instead of asking the operator to run it manually. On success, re-invoke
+    ``_maybe_refresh_deployed_bin`` so any bin/tusk-*.py content the sync just
+    pulled propagates into .claude/bin/ before the next session boots. On
+    failure (or when auto-sync is disabled), fall back to the four-variant
+    advisory wording established by issue #877; the failure path prefixes the
+    advisory with the sync-main exit code so the operator sees both the
+    diagnostic and the manual recovery command.
 
-    Emits a single stderr line naming the recovery command. The recovery
-    command is `tusk sync-main && tusk dev-sync` in all four variants
-    (issue #877): sync-main stashes local changes by ref before the ff-only
-    pull and runs `tusk migrate` afterwards, replacing the manual
-    stash/pull/dev-sync/pop sequence the advisory used to recommend. The
-    dirty-tree variants add a one-line note pointing out the implicit
-    stash-by-ref so operators don't reach for `git stash` manually. Gated
-    identically to _maybe_refresh_deployed_bin (source-repo layout — both
-    bin/ and .claude/bin/ must exist in primary; honors
-    TUSK_NO_DEPLOYED_BIN_REFRESH=1 as the single off-switch).
+    Gates carried over from the original advisory path (issue #865):
+      * ``TUSK_NO_DEPLOYED_BIN_REFRESH=1`` — single off-switch shared with
+        ``_maybe_refresh_deployed_bin``; suppresses both the auto-action and
+        the advisory.
+      * Source-repo layout — both ``bin/`` and ``.claude/bin/`` must exist in
+        primary; consumer installs are a silent no-op.
+      * ``git status --porcelain`` must succeed on primary_root; if not (e.g.
+        not a git repo), stay silent rather than guess clean-vs-dirty.
+
+    Issue #880 off-switches:
+      * ``TUSK_NO_AUTO_SYNC_MAIN=1`` — keep the four-variant advisory; do not
+        invoke ``tusk sync-main`` automatically.
+      * ``tusk_bin is None`` — backwards-compatible advisory-only path used by
+        callers that don't have a resolved binary in scope.
     """
     if os.environ.get("TUSK_NO_DEPLOYED_BIN_REFRESH") == "1":
         return
@@ -793,38 +846,43 @@ def _maybe_advise_stale_deployed_bin(
     if status.returncode != 0:
         return
     working_tree_clean = not status.stdout.strip()
-    if refresh_fired:
-        if working_tree_clean:
-            print(
-                "tusk: primary's working tree is behind origin — this no-checkout "
-                f"merge updated the remote only. Run `tusk sync-main && tusk dev-sync` "
-                f"in {primary_root} when convenient.",
-                file=sys.stderr,
-            )
-        else:
-            print(
-                "tusk: primary's working tree is behind origin — this no-checkout "
-                "merge updated the remote only. Run `tusk sync-main && tusk dev-sync` "
-                f"in {primary_root} — sync-main stashes local changes by ref before "
-                "the ff-only pull, so no manual stash is needed.",
-                file=sys.stderr,
-            )
-    elif working_tree_clean:
+    advisory = _format_stale_deployed_bin_advisory(
+        primary_root, working_tree_clean, refresh_fired,
+    )
+
+    auto_sync_disabled = os.environ.get("TUSK_NO_AUTO_SYNC_MAIN") == "1"
+    if tusk_bin is None or auto_sync_disabled:
+        print(advisory, file=sys.stderr)
+        return
+
+    sync_result = _run_sync_main(tusk_bin, primary_root)
+    if sync_result.returncode == 0:
+        default_branch = "<default>"
+        try:
+            parsed = json.loads(sync_result.stdout or "")
+            branch_value = parsed.get("default_branch")
+            if isinstance(branch_value, str) and branch_value:
+                default_branch = branch_value
+        except (json.JSONDecodeError, ValueError, AttributeError):
+            pass
         print(
-            "tusk: .claude/bin/ may be stale — primary's working tree was not "
-            "updated by this no-checkout merge. Run `tusk sync-main && tusk dev-sync` "
-            f"in {primary_root} to fetch + ff-pull + migrate + refresh the deployed "
-            "bin/ cache.",
+            f"tusk: auto-synced primary to origin/{default_branch} via tusk sync-main "
+            f"in {primary_root}.",
             file=sys.stderr,
         )
-    else:
-        print(
-            "tusk: .claude/bin/ may be stale — primary's working tree was not "
-            "updated by this no-checkout merge. Run `tusk sync-main && tusk dev-sync` "
-            f"in {primary_root} — sync-main stashes local changes by ref before "
-            "the ff-only pull, so no manual stash is needed.",
-            file=sys.stderr,
-        )
+        # sync-main may have pulled new bin/tusk-*.py content into primary's bin/;
+        # re-run the deployed-bin refresh so .claude/bin/ catches up before the
+        # next session boots. _maybe_refresh_deployed_bin owns its own stderr
+        # advisory and TUSK_NO_DEPLOYED_BIN_REFRESH check.
+        _maybe_refresh_deployed_bin(db_path, tusk_bin)
+        return
+
+    print(
+        f"tusk: auto-sync failed (tusk sync-main exit {sync_result.returncode}) — "
+        "fall back to manual recovery below.",
+        file=sys.stderr,
+    )
+    print(advisory, file=sys.stderr)
 
 
 def _stamp_merge_commit_sha(
@@ -1318,7 +1376,7 @@ def _complete_no_checkout_fast_forward(
     # tree being behind origin (issue #869) instead of repeating the
     # ".claude/bin/ may be stale, run dev-sync" line that the refresh has
     # already addressed.
-    _maybe_advise_stale_deployed_bin(db_path, refresh_fired=refreshed)
+    _maybe_advise_stale_deployed_bin(db_path, tusk_bin=tusk_bin, refresh_fired=refreshed)
     return rc
 
 
