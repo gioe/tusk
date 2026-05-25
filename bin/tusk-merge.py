@@ -768,10 +768,15 @@ def _maybe_advise_stale_deployed_bin(
     user pulls, primary's bin/ moves ahead of .claude/bin/ again and dev-sync
     re-deploys.
 
-    Emits a single stderr line naming the recovery command. Wording adapts to
-    primary's working-tree state: clean → plain `git pull && tusk dev-sync`;
-    dirty → add a stash-first note. Gated identically to _maybe_refresh_deployed_bin
-    (source-repo layout — both bin/ and .claude/bin/ must exist in primary; honors
+    Emits a single stderr line naming the recovery command. The recovery
+    command is `tusk sync-main && tusk dev-sync` in all four variants
+    (issue #877): sync-main stashes local changes by ref before the ff-only
+    pull and runs `tusk migrate` afterwards, replacing the manual
+    stash/pull/dev-sync/pop sequence the advisory used to recommend. The
+    dirty-tree variants add a one-line note pointing out the implicit
+    stash-by-ref so operators don't reach for `git stash` manually. Gated
+    identically to _maybe_refresh_deployed_bin (source-repo layout — both
+    bin/ and .claude/bin/ must exist in primary; honors
     TUSK_NO_DEPLOYED_BIN_REFRESH=1 as the single off-switch).
     """
     if os.environ.get("TUSK_NO_DEPLOYED_BIN_REFRESH") == "1":
@@ -792,29 +797,32 @@ def _maybe_advise_stale_deployed_bin(
         if working_tree_clean:
             print(
                 "tusk: primary's working tree is behind origin — this no-checkout "
-                f"merge updated the remote only. Run `git pull && tusk dev-sync` in {primary_root} "
-                "when convenient.",
+                f"merge updated the remote only. Run `tusk sync-main && tusk dev-sync` "
+                f"in {primary_root} when convenient.",
                 file=sys.stderr,
             )
         else:
             print(
                 "tusk: primary's working tree is behind origin — this no-checkout "
-                "merge updated the remote only. Stash or commit local changes in "
-                f"{primary_root}, then run `git pull && tusk dev-sync`.",
+                "merge updated the remote only. Run `tusk sync-main && tusk dev-sync` "
+                f"in {primary_root} — sync-main stashes local changes by ref before "
+                "the ff-only pull, so no manual stash is needed.",
                 file=sys.stderr,
             )
     elif working_tree_clean:
         print(
             "tusk: .claude/bin/ may be stale — primary's working tree was not "
-            "updated by this no-checkout merge. Run `git pull && tusk dev-sync` "
-            f"in {primary_root} when convenient.",
+            "updated by this no-checkout merge. Run `tusk sync-main && tusk dev-sync` "
+            f"in {primary_root} to fetch + ff-pull + migrate + refresh the deployed "
+            "bin/ cache.",
             file=sys.stderr,
         )
     else:
         print(
             "tusk: .claude/bin/ may be stale — primary's working tree was not "
-            "updated by this no-checkout merge. Stash or commit local changes in "
-            f"{primary_root}, then run `git pull && tusk dev-sync`.",
+            "updated by this no-checkout merge. Run `tusk sync-main && tusk dev-sync` "
+            f"in {primary_root} — sync-main stashes local changes by ref before "
+            "the ff-only pull, so no manual stash is needed.",
             file=sys.stderr,
         )
 

@@ -62,11 +62,20 @@ def test_clean_tree_advisory(tmp_path, tusk_merge_module, capsys):
     err = capsys.readouterr().err
     assert "tusk: .claude/bin/ may be stale" in err
     assert "no-checkout merge" in err
-    assert "git pull && tusk dev-sync" in err
-    assert "Stash or commit" not in err, "clean tree should not get the stash-first hint"
+    # Issue #877: advisory recommends `tusk sync-main && tusk dev-sync` (one
+    # call that fetches + ff-pulls + migrates + refreshes the deployed cache)
+    # rather than the manual `git pull && tusk dev-sync` sequence the
+    # original wording emitted.
+    assert "tusk sync-main && tusk dev-sync" in err
+    assert "git pull" not in err, (
+        "advisory should not recommend `git pull` — sync-main replaces it"
+    )
+    assert "Stash or commit" not in err, (
+        "clean tree should not get the manual-stash hint"
+    )
 
 
-def test_dirty_tree_advisory_includes_stash_hint(tmp_path, tusk_merge_module, capsys):
+def test_dirty_tree_advisory_recommends_sync_main(tmp_path, tusk_merge_module, capsys):
     db_path = _source_repo_layout(tmp_path)
     # Dirty the working tree so `git status --porcelain` reports a change.
     (tmp_path / "CLAUDE.md").write_text("dirty\n")
@@ -75,8 +84,16 @@ def test_dirty_tree_advisory_includes_stash_hint(tmp_path, tusk_merge_module, ca
 
     err = capsys.readouterr().err
     assert "tusk: .claude/bin/ may be stale" in err
-    assert "Stash or commit local changes" in err
-    assert "git pull && tusk dev-sync" in err
+    # Issue #877: dirty tree no longer asks the operator to stash manually;
+    # the advisory points out that sync-main stashes by ref internally.
+    assert "tusk sync-main && tusk dev-sync" in err
+    assert "stashes local changes by ref" in err
+    assert "git pull" not in err, (
+        "advisory should not recommend `git pull` — sync-main replaces it"
+    )
+    assert "Stash or commit" not in err, (
+        "manual-stash hint is obsolete — sync-main handles it automatically"
+    )
 
 
 def test_silent_in_consumer_install(tmp_path, tusk_merge_module, capsys):
@@ -130,11 +147,15 @@ def test_refresh_fired_clean_tree_does_not_contradict(tmp_path, tusk_merge_modul
         "refresh-fired advisory should drop the .claude/bin/ noun the first line owned"
     )
     assert "primary's working tree is behind origin" in err
-    assert "git pull && tusk dev-sync" in err
+    # Issue #877: refresh-fired clean-tree advisory recommends sync-main too.
+    assert "tusk sync-main && tusk dev-sync" in err
+    assert "git pull" not in err, (
+        "refresh-fired advisory should not recommend `git pull` — sync-main replaces it"
+    )
     assert "Stash or commit" not in err, "clean tree should not get the stash-first hint"
 
 
-def test_refresh_fired_dirty_tree_keeps_stash_hint(tmp_path, tusk_merge_module, capsys):
+def test_refresh_fired_dirty_tree_recommends_sync_main(tmp_path, tusk_merge_module, capsys):
     db_path = _source_repo_layout(tmp_path)
     (tmp_path / "CLAUDE.md").write_text("dirty\n")
 
@@ -144,8 +165,16 @@ def test_refresh_fired_dirty_tree_keeps_stash_hint(tmp_path, tusk_merge_module, 
     assert "may be stale" not in err
     assert ".claude/bin/" not in err
     assert "primary's working tree is behind origin" in err
-    assert "Stash or commit local changes" in err
-    assert "git pull && tusk dev-sync" in err
+    # Issue #877: dirty tree no longer asks the operator to stash manually;
+    # the advisory points out that sync-main stashes by ref internally.
+    assert "tusk sync-main && tusk dev-sync" in err
+    assert "stashes local changes by ref" in err
+    assert "git pull" not in err, (
+        "refresh-fired advisory should not recommend `git pull` — sync-main replaces it"
+    )
+    assert "Stash or commit" not in err, (
+        "manual-stash hint is obsolete — sync-main handles it automatically"
+    )
 
 
 def test_refresh_fired_still_silent_when_env_var_disabled(
