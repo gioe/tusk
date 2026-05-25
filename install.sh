@@ -527,6 +527,58 @@ TUSK="$REPO_ROOT/$INSTALL_DIR/tusk"
 "$TUSK" init
 "$TUSK" migrate
 
+# ── 5b. Auto-detect project_type from manifest files ────────────────
+# Issue #854 follow-up: TASK-446 added a runtime canonical-fallback in
+# 'task-worktree create' for projects whose worktree.symlink_files is empty,
+# but install.sh-only installs still ship with an empty list in
+# tusk/config.json. This block closes that gap by detecting project_type
+# from manifest signatures and invoking 'tusk init-write-config --project-type
+# <detected>' so the existing WORKTREE_SYMLINK_DEFAULTS auto-seed in
+# bin/tusk-init-write-config.py populates worktree.symlink_files explicitly.
+#
+# Detection order (most-specific signal first; first match wins):
+#   1. ios_app:        Package.swift OR *.xcodeproj OR *.xcworkspace
+#   2. python_service: pyproject.toml OR setup.py OR requirements.txt
+#   3. web_app:        package.json
+#
+# When no signals match, behavior is identical to pre-task install.sh —
+# project_type stays at the default null and the TASK-446 runtime fallback
+# handles the gap when a worktree is created. When project_type is already
+# set in tusk/config.json (e.g. install.sh re-run after /tusk-init), this
+# block is a no-op so user customization is never overwritten.
+EXISTING_PROJECT_TYPE="$(python3 -c "
+import json, os
+p = os.path.join('$REPO_ROOT', 'tusk', 'config.json')
+if os.path.isfile(p):
+    try:
+        v = json.load(open(p, encoding='utf-8')).get('project_type')
+        print(v if v is not None else '')
+    except Exception:
+        print('')
+")"
+if [[ -z "$EXISTING_PROJECT_TYPE" ]]; then
+  DETECTED_TYPE="$(python3 -c "
+import glob, os
+root = '$REPO_ROOT'
+if (os.path.isfile(os.path.join(root, 'Package.swift'))
+    or glob.glob(os.path.join(root, '*.xcodeproj'))
+    or glob.glob(os.path.join(root, '*.xcworkspace'))):
+    print('ios_app')
+elif (os.path.isfile(os.path.join(root, 'pyproject.toml'))
+      or os.path.isfile(os.path.join(root, 'setup.py'))
+      or os.path.isfile(os.path.join(root, 'requirements.txt'))):
+    print('python_service')
+elif os.path.isfile(os.path.join(root, 'package.json')):
+    print('web_app')
+else:
+    print('')
+")"
+  if [[ -n "$DETECTED_TYPE" ]]; then
+    echo "  Detected project_type: $DETECTED_TYPE — seeding tusk/config.json via init-write-config"
+    "$TUSK" init-write-config --project-type "$DETECTED_TYPE" > /dev/null
+  fi
+fi
+
 # ── 6. Print next steps ───────────────────────────────────────────────
 echo ""
 echo "════════════════════════════════════════════════════════════════"
