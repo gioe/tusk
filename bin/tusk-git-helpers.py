@@ -157,6 +157,174 @@ def find_task_commits(
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
+# ── Three-layer recovery for [TASK-N] commit lookups (issue #848) ──────
+#
+# Both tusk-task-summary's fetch_diff and tusk-task-done's auto-mark walk
+# git history for [TASK-<id>] commits. Before issue #848 the two paths had
+# divergent recovery: task-summary layered (1) the plain --all scan,
+# (2) a best-effort `git fetch origin <default>` retry, and (3) an
+# `_unreachable_task_commits` fsck-based scan; task-done had only (1).
+# A `tusk task-done --reason completed` against a task whose commits only
+# lived in the local object store (no-checkout fast-forward push + broken
+# remote URL) failed to auto-mark criteria and exited 3.
+#
+# The two SHA-finding building blocks below — `try_fetch_default_branch`
+# and `find_unreachable_task_commits` — are the shared primitives, and
+# `find_task_commits_with_recovery` orchestrates the (initial → fetch+retry
+# → fsck) chain for SHA-only callers. task-summary preserves its
+# numstat-fetching path (criterion-hash fallback included); task-done
+# routes its auto-mark commit lookup through the recovery-aware helper.
+
+
+def try_fetch_default_branch(repo_root: str) -> None:
+    """Best-effort ``git fetch origin <default>`` to refresh ``refs/remotes/origin/<default>``.
+
+    Used by recovery paths when the initial ``git log --all --grep`` scan
+    returns nothing: after a no-checkout fast-forward push (``tusk merge``
+    from a sibling worktree while the default branch is locked in the
+    primary), the local feature branch is deleted and the local default
+    branch never advances. The remote-tracking ref ``refs/remotes/origin/<default>``
+    SHOULD have been advanced by the push, but several real-world
+    environments report the summarizing checkout still seeing the pre-push
+    tip — collapsing diff stats to ``0 commits / 0 files`` even though the
+    commits exist on origin.
+
+    Silent on failure: a missing remote, network outage, or unknown default
+    branch must not abort the recovery — callers just continue with what
+    they already have. A 10s timeout guards against a hanging remote.
+    """
+    try:
+        default = default_branch(repo_root)
+    except Exception:
+        return
+    try:
+        subprocess.run(
+            ["git", "fetch", "origin", default],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=repo_root,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def find_unreachable_task_commits(task_id: int, repo_root: str) -> list:
+    r"""Return SHAs of unreachable ``[TASK-<id>]`` commits in the local object store.
+
+    Last-resort recovery (issue #845, generalized in issue #848): catches the
+    post-no-checkout-push state where every ref-based lookup has come up empty:
+      * ``refs/remotes/origin/<default>`` was never advanced (or was deleted)
+      * the best-effort ``git fetch`` retry failed silently (broken remote
+        URL, no network, no remote configured)
+
+    The commit object is still in the local object store: ``tusk merge``'s
+    no-checkout fast-forward push deposits it before removing the sibling
+    worktree, and ``git worktree remove`` does NOT prune objects from the
+    shared ``.git/objects`` directory. We just need to scan unreachable
+    objects and filter by the ``[TASK-<id>]`` commit-message prefix.
+
+    Gated on the prior layers producing nothing — ``git fsck`` walks the
+    full object store and is O(objects), so paying this cost on the common
+    path would penalize every well-merged task. Silent on every error:
+    fsck failures, no candidates, and grep failures all return ``[]`` so
+    callers continue with empty results rather than aborting.
+    """
+    try:
+        fsck = subprocess.run(
+            ["git", "fsck", "--unreachable", "--no-reflogs"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=repo_root,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if fsck.returncode != 0:
+        return []
+
+    candidates = [
+        parts[2]
+        for parts in (line.split() for line in fsck.stdout.splitlines())
+        if len(parts) >= 3 and parts[0] == "unreachable" and parts[1] == "commit"
+    ]
+    if not candidates:
+        return []
+
+    # Single ``git log --no-walk`` filters candidates by the [TASK-<id>] grep
+    # without spawning a subprocess per SHA. ``task_grep_arg`` returns a BRE
+    # pattern (brackets escaped), so do NOT pass ``--fixed-strings``.
+    try:
+        filter_res = subprocess.run(
+            ["git", "log", "--no-walk", task_grep_arg(task_id), "--format=%H"]
+            + candidates,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=repo_root,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if filter_res.returncode != 0:
+        return []
+
+    return [line.strip() for line in filter_res.stdout.splitlines() if line.strip()]
+
+
+def find_task_commits_with_recovery(
+    task_id: int,
+    repo_root: str,
+    refs: list | None = None,
+    since: str | None = None,
+) -> tuple:
+    r"""Return ``(commits, recovered_via)`` from a layered SHA lookup.
+
+    Layered recovery (issue #848) for callers that need SHAs but not numstat
+    data (``tusk task-done``'s auto-mark, future SHA-only consumers):
+
+      1. ``find_task_commits(task_id, repo_root, refs, since)`` — the
+         standard ``git log --grep`` scan.
+      2. If empty: ``try_fetch_default_branch(repo_root)`` to refresh
+         ``refs/remotes/origin/<default>``, then retry step 1.
+      3. If still empty: ``find_unreachable_task_commits(task_id, repo_root)``
+         (scans the local object store via ``git fsck``).
+
+    ``refs`` defaults to ``["--all"]`` so the recovery layers can actually
+    see commits that aren't reachable from HEAD (the canonical no-checkout
+    fast-forward push scenario). Callers that want HEAD-only semantics pass
+    ``refs=["HEAD"]`` explicitly.
+
+    ``recovered_via`` is ``None`` on the cheap (step 1) path, ``"refresh-fetch"``
+    if step 2 produced the result, and ``"fsck-unreachable"`` if step 3 did.
+    Callers may use this to emit a diagnostic, but the field is informational
+    only — behavior is identical regardless.
+
+    Mirrors ``tusk-task-summary``'s layering except for the criterion-hash
+    tier, which is only meaningful when the criteria are already closed
+    (``commit_hash`` populated) — irrelevant to task-done's auto-mark, which
+    runs against open criteria. Returns ``([], None)`` if every layer comes
+    up empty.
+    """
+    if refs is None:
+        refs = ["--all"]
+
+    commits = find_task_commits(task_id, repo_root, refs=refs, since=since)
+    if commits:
+        return commits, None
+
+    try_fetch_default_branch(repo_root)
+    commits = find_task_commits(task_id, repo_root, refs=refs, since=since)
+    if commits:
+        return commits, "refresh-fetch"
+
+    commits = find_unreachable_task_commits(task_id, repo_root)
+    if commits:
+        return commits, "fsck-unreachable"
+
+    return [], None
+
+
 # ── Prefix-collision file-overlap heuristic ───────────────────────────
 #
 # Originally embedded in tusk-check-deliverables.py. Hoisted here so

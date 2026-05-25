@@ -391,36 +391,17 @@ def _emit_recovery_tier_diagnostic(tier_name: str) -> None:
 
 
 def _try_fetch_default_branch(repo_root: str) -> None:
-    """Best-effort ``git fetch origin <default>`` to refresh ``refs/remotes/origin/<default>``.
+    """Thin wrapper around ``tusk-git-helpers.try_fetch_default_branch``.
 
-    Used by ``fetch_diff`` when the initial ``git log --all --grep`` scan returns
-    nothing: after a no-checkout fast-forward push (``tusk merge`` from a sibling
-    worktree while the default branch is locked in the primary), the local
-    feature branch is deleted and the local default branch never advances. The
-    remote-tracking ref ``refs/remotes/origin/<default>`` SHOULD have been
-    advanced by the push, but several real-world environments report the
-    summarizing checkout still seeing the pre-push tip — collapsing diff stats
-    to ``0 commits / 0 files`` even though the commits exist on origin.
-
-    Silent on failure: a missing remote, network outage, or unknown default
-    branch must not abort the summary — we just continue with what we already
-    have. A 10s timeout guards against a hanging remote.
+    Kept as a module-level function (not an alias) so existing monkeypatch
+    points in ``tests/integration/test_task_summary_nocheckout_recovery.py``
+    continue to work — those tests do ``monkeypatch.setattr(mod,
+    "_try_fetch_default_branch", _spy)`` and the wrapper preserves the
+    module-attribute lookup that makes the rebind effective from within
+    ``fetch_diff`` (issue #848: the actual fetch logic is now shared with
+    ``tusk task-done`` via ``find_task_commits_with_recovery``).
     """
-    try:
-        default = _git_helpers.default_branch(repo_root)
-    except Exception:
-        return
-    try:
-        subprocess.run(
-            ["git", "fetch", "origin", default],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            cwd=repo_root,
-            timeout=10,
-        )
-    except (OSError, subprocess.SubprocessError):
-        pass
+    _git_helpers.try_fetch_default_branch(repo_root)
 
 
 def _unreachable_task_commits(task_id: int, repo_root: str) -> tuple[dict, dict]:
@@ -435,11 +416,10 @@ def _unreachable_task_commits(task_id: int, repo_root: str) -> tuple[dict, dict]
         via ``tusk task-done --force`` (so commit_hash is NULL), or the
         recorded commit_hash points to a pre-rebase SHA that's been GC'd
 
-    The commit object is still in the local object store: tusk merge's
-    no-checkout fast-forward push deposits it before removing the sibling
-    worktree, and ``git worktree remove`` does NOT prune objects from the
-    shared ``.git/objects`` directory. We just need to scan unreachable
-    objects and filter by the [TASK-<id>] commit-message prefix.
+    SHA discovery is delegated to ``find_unreachable_task_commits`` in
+    ``tusk-git-helpers.py`` (issue #848) so ``tusk task-done``'s auto-mark
+    can share the same fsck logic; the numstat fetch below stays here
+    because it is only meaningful for the diff-stats summary.
 
     Gated on the prior fallbacks producing nothing — ``git fsck`` walks the
     full object store and is O(objects), so paying this cost on the common
@@ -447,45 +427,7 @@ def _unreachable_task_commits(task_id: int, repo_root: str) -> tuple[dict, dict]
     fsck failures, no candidates, and grep failures all return empty so
     fetch_diff continues with zeros rather than aborting the summary.
     """
-    try:
-        fsck = subprocess.run(
-            ["git", "fsck", "--unreachable", "--no-reflogs"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            cwd=repo_root,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return {}, {}
-    if fsck.returncode != 0:
-        return {}, {}
-
-    candidates = [
-        parts[2]
-        for parts in (line.split() for line in fsck.stdout.splitlines())
-        if len(parts) >= 3 and parts[0] == "unreachable" and parts[1] == "commit"
-    ]
-    if not candidates:
-        return {}, {}
-
-    # Single ``git log --no-walk`` filters candidates by the [TASK-<id>] grep
-    # without spawning a subprocess per SHA. ``task_grep_arg`` returns a BRE
-    # pattern (brackets escaped), so do NOT pass ``--fixed-strings``.
-    try:
-        filter_res = subprocess.run(
-            ["git", "log", "--no-walk", task_grep_arg(task_id), "--format=%H"]
-            + candidates,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            cwd=repo_root,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return {}, {}
-    if filter_res.returncode != 0:
-        return {}, {}
-
-    matching = [line.strip() for line in filter_res.stdout.splitlines() if line.strip()]
+    matching = _git_helpers.find_unreachable_task_commits(task_id, repo_root)
     if not matching:
         return {}, {}
 
