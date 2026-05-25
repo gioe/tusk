@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [984] - 2026-05-25
+
+- [TASK-462] Fix: tusk glossary export writes to worktree's docs/GLOSSARY.md when invoked from a worktree branch
+
 ## [983] - 2026-05-25
 
 - [TASK-461] Rewrite no-checkout merge staleness advisory to recommend tusk sync-main && tusk dev-sync
