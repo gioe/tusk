@@ -85,6 +85,48 @@ def _run_tusk_subcommand(tusk_bin: str, args: list[str]) -> subprocess.Completed
             return subprocess.CompletedProcess(cmd, 127, stdout="", stderr=message)
 
 
+_MIGRATE_REGISTRY_RE = re.compile(r"^\s*\((\d+),\s*migrate_\d+\)", re.MULTILINE)
+
+
+def _bin_supports_schema(tusk_bin: str, required_version: int) -> bool:
+    """Return True iff <tusk_bin>'s sibling tusk-migrate.py knows about >= required_version.
+
+    Mirrors bin/tusk's ``preflight_schema_version`` logic in Python so
+    ``_resolve_stable_tusk_bin`` can avoid handing back a binary that bin/tusk's
+    preflight would reject (issue #866). Returns True when no tusk-migrate.py
+    exists next to ``tusk_bin`` or when the registry has no parseable entries —
+    bash's preflight returns 0 in those cases too, so there is no schema-grounds
+    reason to disqualify the binary.
+    """
+    migrate_py = os.path.join(os.path.dirname(tusk_bin), "tusk-migrate.py")
+    if not os.path.isfile(migrate_py):
+        return True
+    try:
+        with open(migrate_py, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return True
+    versions = [int(m) for m in _MIGRATE_REGISTRY_RE.findall(text)]
+    if not versions:
+        return True
+    return max(versions) >= required_version
+
+
+def _db_user_version(db_path: str) -> int | None:
+    """Read ``PRAGMA user_version``. Returns None on any sqlite error or empty result."""
+    try:
+        conn = sqlite3.connect(db_path)
+        try:
+            row = conn.execute("PRAGMA user_version").fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+    if not row or row[0] is None:
+        return None
+    return int(row[0])
+
+
 def _resolve_stable_tusk_bin(db_path: str, fallback: str) -> str:
     """Resolve a primary-install tusk binary that survives task-worktree cleanup.
 
@@ -105,20 +147,53 @@ def _resolve_stable_tusk_bin(db_path: str, fallback: str) -> str:
     — otherwise the schema preflight reads the stale ``.claude/bin/tusk-migrate.py``
     and refuses the post-push session-close / task-done subprocess calls with a
     misleading "Run 'tusk upgrade' to update" diagnostic.
+
+    Schema-aware fallback (issue #866): the no-checkout fast-forward path pushes
+    to ``origin/<default>`` without advancing local ``<default>``, so primary's
+    ``bin/tusk-migrate.py`` can stay at vN even after a worktree authored
+    migration N+1. ``_maybe_fall_back_on_schema_mismatch`` interposes one extra
+    check: if the chosen primary binary's ``tusk-migrate.py`` does not know
+    about the DB's current ``PRAGMA user_version`` AND ``fallback``'s does, use
+    ``fallback`` (typically the worktree-local ``bin/tusk`` that just authored
+    the migration). The worktree's binary is alive during the post-push
+    session-close / task-done calls — only post-merge cleanup risks removing
+    it, and that runs strictly after these subprocess calls (issue #846).
     """
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
     source_repo_bin = os.path.join(repo_root, "bin", "tusk")
     source_repo_migrate = os.path.join(repo_root, "bin", "tusk-migrate.py")
     if os.path.exists(source_repo_bin) and os.path.exists(source_repo_migrate):
         if os.path.realpath(source_repo_bin) != os.path.realpath(fallback):
-            return source_repo_bin
+            return _maybe_fall_back_on_schema_mismatch(source_repo_bin, fallback, db_path)
         return fallback
     for candidate in (
         os.path.join(repo_root, ".claude", "bin", "tusk"),
         os.path.join(repo_root, "tusk", "bin", "tusk"),
     ):
         if os.path.exists(candidate) and os.path.realpath(candidate) != os.path.realpath(fallback):
-            return candidate
+            return _maybe_fall_back_on_schema_mismatch(candidate, fallback, db_path)
+    return fallback
+
+
+def _maybe_fall_back_on_schema_mismatch(primary: str, fallback: str, db_path: str) -> str:
+    """Return ``fallback`` when ``primary``'s tusk-migrate.py is behind the DB schema
+    and ``fallback``'s is not. See ``_resolve_stable_tusk_bin`` for the issue #866
+    context. Emits a single stderr line when the fallback path fires so the operator
+    can correlate the behavior with a pending migration.
+    """
+    required = _db_user_version(db_path)
+    if required is None:
+        return primary
+    if _bin_supports_schema(primary, required):
+        return primary
+    if not _bin_supports_schema(fallback, required):
+        return primary
+    print(
+        f"tusk: primary install binary {primary} does not support DB schema "
+        f"v{required}; using worktree-local binary {fallback} for post-merge "
+        "subprocess calls (issue #866).",
+        file=sys.stderr,
+    )
     return fallback
 
 
