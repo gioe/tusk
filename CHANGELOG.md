@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [979] - 2026-05-25
+
+- [TASK-453] Enable basename matching in tusk-merge prefix-collision gate
+
 ## [978] - 2026-05-24
 
 - [TASK-459] Add a plans table + tusk plans CLI to record flat subscription cost as the ROI denominator
