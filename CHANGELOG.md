@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [985] - 2026-05-25
+
+- [TASK-463] Add --config <path> override to tusk task-worktree create for pre-merge verification of config changes
+
 ## [984] - 2026-05-25
 
 - [TASK-462] Fix: tusk glossary export writes to worktree's docs/GLOSSARY.md when invoked from a worktree branch
