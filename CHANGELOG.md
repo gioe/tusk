@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [975] - 2026-05-24
+
+- [TASK-455] Fix: stop tusk merge no-checkout from printing contradictory .claude/bin/ advisories
+
 ## [974] - 2026-05-24
 
 - [TASK-454] Fix: worktree.symlink_files silently skips path-style entries (monorepo scoping)
