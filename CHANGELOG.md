@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [986] - 2026-05-25
+
+- [TASK-464] Auto-invoke sync-main && dev-sync at no-checkout merge end when primary is stale
+
 ## [985] - 2026-05-25
 
 - [TASK-463] Add --config <path> override to tusk task-worktree create for pre-merge verification of config changes
