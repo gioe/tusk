@@ -932,7 +932,7 @@ def _resolve_local_ref_sha(ref: str) -> str | None:
 
 
 def _resolve_merge_base(feature_branch: str, default_branch: str) -> str | None:
-    """Return the merge-base of ``feature_branch`` and origin/<default_branch>.
+    """Return the merge-base of ``feature_branch`` and the default-branch tip.
 
     Captured **before** the merge so the fast-forward and no-checkout push
     paths can stamp the parent of the first task commit on the feature
@@ -940,21 +940,45 @@ def _resolve_merge_base(feature_branch: str, default_branch: str) -> str | None:
     fast-path consumed by ``bin/tusk-task-summary.py``. Migration 72
     follow-up to TASK-451 (issue #849).
 
-    Tries ``origin/<default_branch>`` first because that's the actual ref
-    the merge will fast-forward against; falls back to the local
-    ``<default_branch>`` ref when origin isn't reachable (the no-checkout
-    push path already issues a ``git fetch origin`` so the remote ref is
-    fresh in that flow). Returns None on any failure — caller stamps NULL
-    base and ``fetch_diff`` falls through to ``git show <tip>`` for that
-    row (correct for single-commit task work; understates multi-commit).
+    Resolves both candidate refs (``origin/<default_branch>`` and the
+    local ``<default_branch>``) and picks the **descendant** of the two
+    via ``git merge-base --is-ancestor``. When local default is ahead of
+    origin (operator has unpushed commits and the feature branch was
+    cut from the ahead-of-origin tip), the origin-relative merge-base
+    is an older ancestor and ``git log <old_base>..<tip>`` over-includes
+    the local-default unpushed commits in the numstat — inflating the
+    stats reported for the task. Picking the descendant base trims the
+    range to exactly the task's commits (issue #879, Edge 1).
+
+    Returns None on any failure — caller stamps NULL base and
+    ``fetch_diff`` falls back to ``git show <tip>`` for that row (correct
+    for single-commit task work; understates multi-commit).
     """
+    candidates: list[str] = []
     for ref in (f"origin/{default_branch}", default_branch):
         result = run(["git", "merge-base", ref, feature_branch], check=False)
         if result.returncode == 0:
             sha = result.stdout.strip()
-            if sha:
-                return sha
-    return None
+            if sha and sha not in candidates:
+                candidates.append(sha)
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+    a, b = candidates
+    # If a is an ancestor of b, b is the descendant (more recent base).
+    if run(
+        ["git", "merge-base", "--is-ancestor", a, b], check=False
+    ).returncode == 0:
+        return b
+    # Symmetric check — keep the explicit fallback so unrelated refs
+    # (no ancestor relationship in either direction) return a stable
+    # answer rather than silently picking the wrong candidate.
+    if run(
+        ["git", "merge-base", "--is-ancestor", b, a], check=False
+    ).returncode == 0:
+        return a
+    return a
 
 
 def _close_completed_task(
@@ -1175,8 +1199,14 @@ def _complete_no_checkout_fast_forward(
     # descends directly from origin/<default_branch>'s tip and the
     # merge-base equals that tip (= parent of the first task commit on
     # the rebased branch). Migration 72, TASK-452.
-    pre_push_merge_base_sha = _resolve_merge_base(branch_name, default_branch)
     if _origin_already_contains(branch_name, default_branch):
+        # Work already shipped — origin/<default_branch>'s tip equals
+        # branch_name's tip, so any merge-base resolved here would collapse
+        # to the tip and route fetch_diff into single-SHA tip-only mode
+        # (issue #879, Edge 2). Leave the stamp NULL so fetch_diff falls
+        # through to the recovery chain, which reproduces the cumulative
+        # stats from the actual [TASK-N] commit history.
+        pre_push_merge_base_sha = None
         print(
             f"Note: origin/{default_branch} already contains {branch_name}'s "
             "tip — skipping no-checkout fast-forward push; the work has already "
@@ -1184,6 +1214,7 @@ def _complete_no_checkout_fast_forward(
             file=sys.stderr,
         )
     else:
+        pre_push_merge_base_sha = _resolve_merge_base(branch_name, default_branch)
         result = run(["git", "push", "origin", f"{branch_name}:{default_branch}"], check=False)
         if result.returncode != 0:
             print(
