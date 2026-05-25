@@ -590,6 +590,276 @@ def cmd_list(db_path: str, repo_root: str, argv: list[str]) -> int:
     return 0
 
 
+def _worktree_is_clean(workspace_path: str) -> tuple[bool, str]:
+    """Return ``(clean, raw_status)`` for ``workspace_path``.
+
+    ``clean`` is True when ``git status --porcelain`` produces no output. The
+    second element is the raw porcelain text so callers can surface what was
+    dirty in error messages. Missing directories report as not clean with a
+    synthetic reason — reconcile should refuse to touch them rather than fall
+    through and let a downstream git command produce a confusing error.
+    """
+    if not os.path.isdir(workspace_path):
+        return False, "(workspace path missing)"
+    result = subprocess.run(
+        ["git", "-C", workspace_path, "status", "--porcelain"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    if result.returncode != 0:
+        return False, (result.stderr.strip() or "(git status failed)")
+    text = result.stdout
+    return (text.strip() == ""), text
+
+
+def _branch_is_merged(repo_root: str, branch: str, default_branch: str) -> bool:
+    """Return True when every commit on ``branch`` is an ancestor of ``default_branch``."""
+    result = _run_git(
+        repo_root,
+        ["merge-base", "--is-ancestor", branch, default_branch],
+    )
+    return result.returncode == 0
+
+
+def _classify_reconcile_row(
+    conn: sqlite3.Connection,
+    repo_root: str,
+    row: dict,
+    default_branch: str,
+) -> dict:
+    """Augment ``row`` with task status / merged / clean / eligibility fields.
+
+    Eligibility = task Done AND branch fully merged into default AND worktree
+    clean AND branch still resolvable. Any miss is recorded under ``reason``
+    so JSON consumers (and the per-row prompt) can explain the skip.
+    """
+    task = conn.execute(
+        "SELECT status, closed_reason FROM tasks WHERE id = ?",
+        (row["task_id"],),
+    ).fetchone()
+    task_status = task["status"] if task else None
+    closed_reason = task["closed_reason"] if task else None
+
+    branch_present = _branch_exists(repo_root, row["branch"])
+    if branch_present:
+        merged = _branch_is_merged(repo_root, row["branch"], default_branch)
+    else:
+        merged = False
+    clean, dirty_detail = _worktree_is_clean(row["workspace_path"])
+
+    eligible = (
+        task_status == "Done"
+        and branch_present
+        and merged
+        and clean
+    )
+    reasons: list[str] = []
+    if task_status != "Done":
+        reasons.append(f"task not Done (status={task_status!r})")
+    if not branch_present:
+        reasons.append(f"branch {row['branch']!r} not found in local refs")
+    elif not merged:
+        reasons.append(
+            f"branch {row['branch']!r} not fully merged into {default_branch!r}"
+        )
+    if not clean:
+        reasons.append(f"worktree not clean: {dirty_detail.strip() or '(unknown)'}")
+
+    return {
+        **row,
+        "task_status": task_status,
+        "closed_reason": closed_reason,
+        "branch_present": branch_present,
+        "merged_into_default": merged,
+        "clean": clean,
+        "eligible": eligible,
+        "skip_reasons": reasons,
+    }
+
+
+def _perform_reconcile(
+    conn: sqlite3.Connection,
+    repo_root: str,
+    row: dict,
+) -> tuple[bool, list[str]]:
+    """Remove the worktree, delete the branch, drop the registry row.
+
+    Returns ``(ok, errors)``. Each step is best-effort independent of the
+    others — registry row is always dropped last so a partial git failure
+    still surfaces and the operator can clean up by hand without losing
+    DB consistency.
+    """
+    errors: list[str] = []
+
+    if os.path.isdir(row["workspace_path"]):
+        result = _run_git(
+            repo_root,
+            ["worktree", "remove", row["workspace_path"]],
+        )
+        if result.returncode != 0:
+            errors.append(
+                f"git worktree remove {row['workspace_path']} failed: "
+                f"{(result.stderr.strip() or result.stdout.strip())}"
+            )
+            return False, errors
+
+    if _branch_exists(repo_root, row["branch"]):
+        result = _run_git(repo_root, ["branch", "-D", row["branch"]])
+        if result.returncode != 0:
+            errors.append(
+                f"git branch -D {row['branch']} failed: "
+                f"{(result.stderr.strip() or result.stdout.strip())}"
+            )
+
+    conn.execute("DELETE FROM task_workspaces WHERE id = ?", (row["workspace_id"],))
+    conn.commit()
+    return True, errors
+
+
+def cmd_reconcile(db_path: str, repo_root: str, argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="tusk task-worktree reconcile",
+        description=(
+            "Clean up worktrees whose tasks are Done and whose branches are "
+            "already fully merged into the default branch. Refuses to touch "
+            "dirty worktrees or unmerged branches."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the plan without removing anything.",
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip per-worktree confirmation prompts.",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (default: text).",
+    )
+    args = parser.parse_args(argv)
+
+    conn = get_connection(db_path)
+    try:
+        default_branch = _detect_default_branch(repo_root)
+        live_by_branch = _parse_git_worktrees(repo_root)
+        rows = _list_workspaces_with_live_state(conn, live_by_branch)
+        classified = [
+            _classify_reconcile_row(conn, repo_root, row, default_branch)
+            for row in rows
+        ]
+        eligible = [r for r in classified if r["eligible"]]
+        skipped = [r for r in classified if not r["eligible"]]
+
+        if args.format == "json":
+            results: list[dict] = []
+            removed_count = 0
+            if not args.dry_run:
+                for row in eligible:
+                    ok, errors = _perform_reconcile(conn, repo_root, row)
+                    if ok:
+                        removed_count += 1
+                    results.append({
+                        "task_id": row["task_id"],
+                        "branch": row["branch"],
+                        "workspace_path": row["workspace_path"],
+                        "ok": ok,
+                        "errors": errors,
+                    })
+            print(
+                dumps(
+                    {
+                        "dry_run": args.dry_run,
+                        "default_branch": default_branch,
+                        "eligible": eligible,
+                        "skipped": skipped,
+                        "removed_count": removed_count,
+                        "results": results,
+                    }
+                )
+            )
+            return 0
+
+        # Text mode.
+        if not eligible:
+            print(
+                f"No eligible worktrees to reconcile (default branch: "
+                f"{default_branch}).",
+                file=sys.stderr,
+            )
+            for row in skipped:
+                print(
+                    f"  skip TASK-{row['task_id']} branch={row['branch']}: "
+                    + "; ".join(row["skip_reasons"]),
+                    file=sys.stderr,
+                )
+            return 0
+
+        print(
+            f"Reconcile plan ({len(eligible)} eligible, default branch: "
+            f"{default_branch}):",
+            file=sys.stderr,
+        )
+        for row in eligible:
+            print(
+                f"  TASK-{row['task_id']} branch={row['branch']} "
+                f"path={row['workspace_path']}",
+                file=sys.stderr,
+            )
+        if skipped:
+            print(f"Skipped ({len(skipped)}):", file=sys.stderr)
+            for row in skipped:
+                print(
+                    f"  TASK-{row['task_id']} branch={row['branch']}: "
+                    + "; ".join(row["skip_reasons"]),
+                    file=sys.stderr,
+                )
+
+        if args.dry_run:
+            print("Dry run — no changes made.", file=sys.stderr)
+            return 0
+
+        removed = 0
+        for row in eligible:
+            if not args.yes:
+                prompt = (
+                    f"Remove worktree for TASK-{row['task_id']} "
+                    f"({row['workspace_path']})? [y/N] "
+                )
+                try:
+                    answer = input(prompt).strip().lower()
+                except EOFError:
+                    answer = ""
+                if answer not in {"y", "yes"}:
+                    print(
+                        f"  skipped TASK-{row['task_id']} (declined)",
+                        file=sys.stderr,
+                    )
+                    continue
+            ok, errors = _perform_reconcile(conn, repo_root, row)
+            if ok:
+                removed += 1
+                print(
+                    f"  removed TASK-{row['task_id']} ({row['workspace_path']})",
+                    file=sys.stderr,
+                )
+            else:
+                for err in errors:
+                    print(f"  error TASK-{row['task_id']}: {err}", file=sys.stderr)
+            for err in errors:
+                if ok:
+                    print(f"  warning TASK-{row['task_id']}: {err}", file=sys.stderr)
+        print(f"Reconciled {removed}/{len(eligible)} eligible worktrees.", file=sys.stderr)
+        return 0
+    finally:
+        conn.close()
+
+
 def cmd_prune(db_path: str, repo_root: str, argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="tusk task-worktree prune",
@@ -654,11 +924,14 @@ def main(argv: list[str]) -> int:
         return cmd_list(db_path, repo_root, rest)
     if command == "prune":
         return cmd_prune(db_path, repo_root, rest)
+    if command == "reconcile":
+        return cmd_reconcile(db_path, repo_root, rest)
 
     print(
         "Usage: tusk task-worktree create <task_id> <slug> [--workspace-root <path>]\n"
         "       tusk task-worktree list [--format json]\n"
-        "       tusk task-worktree prune [--dry-run] [--format json]",
+        "       tusk task-worktree prune [--dry-run] [--format json]\n"
+        "       tusk task-worktree reconcile [--dry-run] [--yes] [--format text|json]",
         file=sys.stderr,
     )
     return 1
