@@ -1123,7 +1123,12 @@ def _complete_no_checkout_fast_forward(
     # resolve to the worktree's own bin/ in source-repo layouts where neither
     # primary's .claude/bin/tusk nor tusk/bin/tusk exists; cleanup removes that
     # worktree and would invalidate the path mid-call.
-    refreshed = _maybe_refresh_deployed_bin(db_path, tusk_bin)
+    # Gate on rc == 0 to preserve original behavior: the refresh used to live
+    # inside _close_completed_task's success branches only, never on the
+    # task-done error path.
+    refreshed = False
+    if rc == 0:
+        refreshed = _maybe_refresh_deployed_bin(db_path, tusk_bin)
     _cleanup_no_checkout_workspace(db_path, task_id, branch_name)
     # The auto-refresh above compares primary's bin/ against primary's
     # .claude/bin/, but the no-checkout path never updates primary's working
