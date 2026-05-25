@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [993] - 2026-05-25
+
+- [TASK-468] Namespace task worktrees by repo to fix cross-project collisions in ~/.tusk/worktrees/
+
 ## [992] - 2026-05-25
 
 - [TASK-476] Add tusk task-worktree reconcile to clean up worktrees for already-merged Done tasks
