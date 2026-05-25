@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [981] - 2026-05-25
+
+- [TASK-452] Fix fetch_diff stamped-sha fast-path for ff/no-checkout merges (single SHA insufficient for multi-commit ff)
+
 ## [980] - 2026-05-25
 
 - [TASK-447] install.sh: detect project_type from manifest files and call init-write-config to seed worktree.symlink_files at install time
