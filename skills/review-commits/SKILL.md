@@ -115,7 +115,7 @@ Treat the user as having opted into the agent path only when their `/review-comm
 
 Read the diff yourself, evaluate it, and record the result directly. Always pass `--model <your_model_id>` — the canonical ID matching the format in `task_sessions.model` (e.g. `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5`). Strip any suffixes like `[1m]` or date-stamps from your system prompt's ID so the value joins cleanly against other model-tagged tables (e.g. `claude-opus-4-7[1m]` → `claude-opus-4-7`):
 
-**Avoid backticks and unescaped `$` in review notes and comments** — `--note` values and `add-comment` descriptions are shell arguments, so zsh and bash expand backticks and `$VAR` / `$(...)` even inside double quotes. Drop markdown code ticks around identifiers and avoid literal dollar signs in these arguments unless you escape every metacharacter deliberately.
+**Avoid backticks and unescaped `$` in review notes and comments — no automatic guard covers this surface** — `--note` values and `add-comment` descriptions are shell arguments, so zsh and bash expand backticks and `$VAR` / `$(...)` even inside double quotes. Drop markdown code ticks around identifiers and avoid literal dollar signs in these arguments unless you escape every metacharacter deliberately. **Note:** `tusk commit` enforces a metacharacter boundary guard at `_validate_message_metacharacters` (issue #881), but `tusk review approve|request-changes|add-comment` does not run through that helper — the substitution hazard remains entirely manual to avoid here. Same caveat applies to `gh issue close --comment` (`/address-issue` Step 9).
 
 ```bash
 # Approve with no findings:
