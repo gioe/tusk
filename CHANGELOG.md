@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [977] - 2026-05-24
+
+- [TASK-458] Add fetch-retry and unreachable-object fallback to tusk task-done auto-mark
+
 ## [976] - 2026-05-24
 
 - [TASK-457] Fix: tusk merge close-out fails on schema mismatch when worktree adds migration N+1
