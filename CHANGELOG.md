@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [991] - 2026-05-25
+
+- [TASK-477] Auto-prune orphaned registry rows at the start of tusk task-worktree create
+
 ## [990] - 2026-05-25
 
 - [TASK-469] Add pre-commit scope guard hook that rejects commits touching paths outside the task scope

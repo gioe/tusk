@@ -295,6 +295,32 @@ def _parse_git_worktrees(repo_root: str) -> dict[str, str]:
     return by_branch
 
 
+def _auto_prune_stale_workspaces(
+    conn: sqlite3.Connection, repo_root: str, exclude_task_id: int
+) -> int:
+    """Drop registry rows whose ``workspace_path`` is gone AND not in ``git worktree list``.
+
+    Same staleness predicate as ``tusk task-worktree prune`` (``_is_stale_workspace``),
+    scoped to exclude ``exclude_task_id`` so the per-task reconcile logic in
+    ``cmd_create`` (re-attach when branch survives, refuse when fully stale) runs
+    intact for the current task's own row. Returns the count of rows deleted.
+    """
+    stale = [
+        row
+        for row in _list_workspaces_with_live_state(
+            conn, _parse_git_worktrees(repo_root)
+        )
+        if _is_stale_workspace(row) and row["task_id"] != exclude_task_id
+    ]
+    if stale:
+        conn.executemany(
+            "DELETE FROM task_workspaces WHERE id = ?",
+            [(row["workspace_id"],) for row in stale],
+        )
+        conn.commit()
+    return len(stale)
+
+
 def _list_workspaces_with_live_state(
     conn: sqlite3.Connection, live_by_branch: dict[str, str]
 ) -> list[dict]:
@@ -408,6 +434,14 @@ def cmd_create(
                 file=sys.stderr,
             )
             return 1
+
+        # Reconcile sibling tasks' stale registry rows before adding a new
+        # workspace, so registry accumulation is capped without operator
+        # effort (TASK-477). Scoped to ``task_id != exclude_task_id`` so the
+        # issue #803 reconcile logic (re-attach when branch survives, refuse
+        # when fully stale) for THIS task's own row runs intact.
+        if not os.environ.get("TUSK_NO_AUTO_PRUNE"):
+            _auto_prune_stale_workspaces(conn, repo_root, task_id)
 
         existing = conn.execute(
             """
