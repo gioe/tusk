@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [976] - 2026-05-24
+
+- [TASK-457] Fix: tusk merge close-out fails on schema mismatch when worktree adds migration N+1
+
 ## [975] - 2026-05-24
 
 - [TASK-455] Fix: stop tusk merge no-checkout from printing contradictory .claude/bin/ advisories
