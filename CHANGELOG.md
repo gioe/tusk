@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [982] - 2026-05-25
+
+- [TASK-460] Fix: _resolve_merge_base picks descendant merge-base; skip in origin-already-contains path
+
 ## [981] - 2026-05-25
 
 - [TASK-452] Fix fetch_diff stamped-sha fast-path for ff/no-checkout merges (single SHA insufficient for multi-commit ff)
