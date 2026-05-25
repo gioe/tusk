@@ -15,6 +15,7 @@ import json
 import os
 import re
 import sqlite3
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -65,9 +66,33 @@ def parse_glossary_md(content: str) -> list:
     return entries
 
 
+def _resolve_worktree_repo_root(db_path: str) -> str:
+    """Resolve repo root for output paths, worktree-aware.
+
+    `git rev-parse --show-toplevel` from CWD returns the worktree root inside a
+    linked worktree (and the primary root inside the primary), so glossary
+    exports follow the operator's checkout instead of always landing in the
+    primary via db_path's parent. Falls back to db_path-derived resolution when
+    CWD isn't inside any git repo (issue #875).
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        if result.returncode == 0:
+            top = result.stdout.strip()
+            if top:
+                return top
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+
+
 def _default_md_path(db_path: str) -> str:
-    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
-    return os.path.join(repo_root, "docs", "GLOSSARY.md")
+    return os.path.join(_resolve_worktree_repo_root(db_path), "docs", "GLOSSARY.md")
 
 
 def _normalize_topics(raw: str | None) -> str | None:
@@ -349,6 +374,7 @@ def cmd_export(args: argparse.Namespace, db_path: str, config: dict) -> int:
     os.makedirs(os.path.dirname(md_path), exist_ok=True)
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(rendered)
+    print(f"Wrote: {md_path}", file=sys.stderr)
     print(dumps({"path": md_path, "entries": len(rows)}))
     return 0
 
