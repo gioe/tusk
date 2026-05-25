@@ -354,7 +354,27 @@ def cmd_create(
             "or $HOME/.tusk/worktrees."
         ),
     )
+    parser.add_argument(
+        "--config",
+        default=None,
+        help=(
+            "Override path to tusk/config.json for this invocation — use to "
+            "verify dispatcher-consumed config changes (e.g. "
+            "worktree.symlink_files) from a feature worktree before merging. "
+            "Default: primary checkout's tusk/config.json via dispatcher."
+        ),
+    )
     args = parser.parse_args(argv)
+
+    if args.config is not None:
+        if not os.path.isfile(args.config):
+            print(
+                f"Error: --config path does not exist or is not a regular file: "
+                f"{args.config}",
+                file=sys.stderr,
+            )
+            return 1
+        config_path = args.config
 
     try:
         task_id = _resolve_task_id(args.task_id)

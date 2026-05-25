@@ -1226,3 +1226,170 @@ class TestTaskWorktreeCreateStaleRow:
             ).fetchall()
         assert len(rows) == 1
         assert rows[0][0] == payload["workspace_id"]
+
+
+class TestTaskWorktreeCreateConfigOverride:
+    """Issue #874 — `tusk task-worktree create --config <path>` overrides
+    PROJECT_CONFIG so a feature branch that modifies dispatcher-consumed config
+    keys (worktree.symlink_files, etc.) can be end-to-end verified before
+    merge, instead of forcing operators to edit the primary config in place or
+    import the helper via Python.
+    """
+
+    def _write_config(self, path, names):
+        cfg = {"worktree": {"symlink_files": list(names)}}
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+
+    def _plant(self, repo, rel, content):
+        full = os.path.join(str(repo), rel)
+        os.makedirs(os.path.dirname(full) or ".", exist_ok=True)
+        with open(full, "w", encoding="utf-8") as f:
+            f.write(content)
+
+    def test_config_override_honored_for_symlink_files(
+        self, tmp_path, monkeypatch
+    ):
+        """When --config points at a config with a custom symlink_files list,
+        the worktree gets symlinks for THAT list — not the primary's.
+        """
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        # Pin TUSK_NO_AUTO_SYMLINK=1 so the canonical fallback can't bleed in
+        # and create a false positive (issue #854 fallback would also create
+        # .venv / .env links if either basename existed in the primary).
+        env = dict(env)
+        env["TUSK_NO_AUTO_SYMLINK"] = "1"
+
+        # The primary's config is whatever `tusk init` produced (empty
+        # worktree.symlink_files). Plant a uniquely-named marker file in the
+        # primary so we know the symlink came from the override path.
+        marker = ".custom-override-marker"
+        self._plant(repo, marker, "override-evidence")
+
+        override_path = tmp_path / "override-config.json"
+        self._write_config(str(override_path), [marker])
+
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+
+        result = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "with-override",
+                "--workspace-root",
+                str(workspace_root),
+                "--config",
+                str(override_path),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        wt_marker = os.path.join(payload["workspace_path"], marker)
+        assert os.path.islink(wt_marker), (
+            f"expected --config override to create {marker} symlink in the "
+            f"worktree; got: {os.listdir(payload['workspace_path'])}"
+        )
+        # Symlink must point at the primary's marker (absolute target).
+        assert os.readlink(wt_marker) == os.path.join(str(repo), marker)
+
+    def test_without_config_flag_behavior_unchanged(self, tmp_path, monkeypatch):
+        """Without --config, dispatcher's resolve_config (primary) is used. The
+        primary's empty worktree.symlink_files plus TUSK_NO_AUTO_SYMLINK=1
+        means no symlinks should appear for the override-only marker file.
+        """
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        env = dict(env)
+        env["TUSK_NO_AUTO_SYMLINK"] = "1"
+
+        marker = ".custom-override-marker"
+        self._plant(repo, marker, "primary-only")
+
+        # An override config exists on disk but is NOT passed via --config —
+        # the primary's empty config should win.
+        override_path = tmp_path / "override-config.json"
+        self._write_config(str(override_path), [marker])
+
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+
+        result = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "no-override",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        wt_marker = os.path.join(payload["workspace_path"], marker)
+        assert not os.path.lexists(wt_marker), (
+            f"expected NO symlink without --config; found {wt_marker}"
+        )
+
+    def test_config_override_rejects_missing_path(self, tmp_path, monkeypatch):
+        """A missing/unreadable --config path must error clearly naming the
+        path, not silently fall back to the primary config.
+        """
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+
+        bogus_path = tmp_path / "does-not-exist.json"
+        assert not bogus_path.exists()
+
+        result = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "rejects-missing",
+                "--workspace-root",
+                str(workspace_root),
+                "--config",
+                str(bogus_path),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert result.returncode != 0, (
+            "expected non-zero exit when --config path is missing; "
+            f"got 0 with stdout: {result.stdout!r} stderr: {result.stderr!r}"
+        )
+        assert str(bogus_path) in result.stderr, (
+            f"expected error message to name the missing path; got: {result.stderr!r}"
+        )
+        # Registry must not have an orphan row for this failed attempt.
+        with sqlite3.connect(db_path) as conn:
+            rows = conn.execute(
+                "SELECT id FROM task_workspaces WHERE task_id = ?",
+                (task_id,),
+            ).fetchall()
+        assert rows == []
+
+    def test_config_override_help_text_documents_flag(self, tmp_path, monkeypatch):
+        """Argparse --help must mention --config so operators discover it."""
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        result = _run(
+            ["task-worktree", "create", "--help"],
+            cwd=repo,
+            env=env,
+        )
+        assert result.returncode == 0, result.stderr
+        assert "--config" in result.stdout, (
+            f"expected --config in help output; got: {result.stdout!r}"
+        )
+        # Help must hint at the pre-merge verification use case so the flag's
+        # purpose is discoverable without reading the issue body.
+        assert "verify" in result.stdout.lower() or "pre-merge" in result.stdout.lower()
