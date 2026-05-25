@@ -35,6 +35,9 @@
   "worktree": {
     "symlink_files": []
   },
+  "scope": {
+    "always_allowed": ["VERSION", "CHANGELOG.md", "MANIFEST", ".claude/tusk-manifest.json"]
+  },
   "issue_scoring": {
     "factors": {
       "test_present":   { "yes": 2, "no": -1, "unverifiable": 1 },
