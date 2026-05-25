@@ -105,7 +105,7 @@ class TestCloseTaskRunsBeforeWorktreeCleanup:
 
         call_order: list[str] = []
 
-        def _spy_close(tusk_bin, tid, db, session_was_closed):
+        def _spy_close(tusk_bin, tid, db, session_was_closed, merge_commit_sha=None):
             call_order.append("close")
             return 0
 
@@ -204,7 +204,7 @@ class TestCloseTaskRunsBeforeWorktreeCleanup:
 
         cleanup_called = []
 
-        def _failing_close(tusk_bin, tid, db, session_was_closed):
+        def _failing_close(tusk_bin, tid, db, session_was_closed, merge_commit_sha=None):
             return 2
 
         def _spy_cleanup(db, tid, br):
