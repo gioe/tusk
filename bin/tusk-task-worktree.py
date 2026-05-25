@@ -2,6 +2,7 @@
 """Create and inspect task-owned git worktrees."""
 
 import argparse
+import hashlib
 import json
 import os
 import sqlite3
@@ -24,6 +25,72 @@ dumps = _json.dumps
 # a stderr advisory pointing at /tusk-update so the implicit list can be made
 # explicit; `TUSK_NO_AUTO_SYMLINK=1` disables it.
 CANONICAL_RUNTIME_FILES = ["node_modules", ".venv", ".env", ".env.local"]
+
+# Marker file written into a namespace subdir on first claim — names the
+# absolute primary-repo path that owns the subdir. Future create calls read
+# it to disambiguate same-basename collisions across repos (TASK-468).
+PRIMARY_MARKER_FILE = ".tusk-primary"
+
+
+def _namespace_for(workspace_root: str, repo_root: str) -> str:
+    """Return the per-repo namespace subdir name under ``workspace_root``.
+
+    Default is ``os.path.basename(<primary_repo_root>)``. If that subdir
+    already exists with a ``.tusk-primary`` marker naming a different repo,
+    fall back to ``<basename>-<sha256(repo_root)[:6]>`` so two repos with
+    the same basename never share the worktree pool. First creation writes
+    the marker so future creates resolve in O(1) (one read + compare).
+
+    Hash input is the absolute primary-repo path — NOT the git remote URL,
+    which is unreliable (missing/multiple remotes, fork-vs-upstream).
+
+    Best-effort: marker write failures are swallowed so a read-only home
+    directory cannot break worktree creation. The fallback hash form never
+    depends on a marker, so a swallowed write still yields a usable path
+    (the same call site will recompute the same namespace on every retry).
+    """
+    primary = _primary_repo_root(os.path.abspath(repo_root))
+    basename = os.path.basename(primary.rstrip(os.sep)) or "tusk"
+    candidate_dir = os.path.join(workspace_root, basename)
+    marker_path = os.path.join(candidate_dir, PRIMARY_MARKER_FILE)
+
+    def _claim(dst: str) -> None:
+        try:
+            os.makedirs(dst, exist_ok=True)
+            with open(os.path.join(dst, PRIMARY_MARKER_FILE), "w", encoding="utf-8") as fh:
+                fh.write(primary + "\n")
+        except OSError:
+            pass
+
+    if not os.path.isdir(candidate_dir):
+        _claim(candidate_dir)
+        return basename
+
+    existing_marker: str | None = None
+    if os.path.isfile(marker_path):
+        try:
+            with open(marker_path, encoding="utf-8") as fh:
+                existing_marker = fh.read().strip() or None
+        except OSError:
+            existing_marker = None
+
+    if existing_marker is None:
+        # Dir exists but unclaimed — claim it for this repo. The dir may have
+        # been created by a prior tusk version, by `mkdir -p`, or by an
+        # earlier _namespace_for call that failed mid-write; in all cases
+        # taking ownership is safe because no marker means no other repo
+        # has staked a claim.
+        _claim(candidate_dir)
+        return basename
+
+    if existing_marker == primary:
+        return basename
+
+    # Collision: marker names a different repo. Hash form is keyed to this
+    # repo's path, so a parallel call from another colliding repo would get
+    # its own distinct hash subdir.
+    digest = hashlib.sha256(primary.encode("utf-8")).hexdigest()[:6]
+    return f"{basename}-{digest}"
 
 
 def _list_workspaces(conn: sqlite3.Connection) -> list[dict]:
@@ -419,7 +486,10 @@ def cmd_create(
         or os.environ.get("TUSK_WORKTREE_ROOT")
         or os.path.join(os.path.expanduser("~"), ".tusk", "worktrees")
     )
-    workspace_path = os.path.join(workspace_root, f"TASK-{task_id}-{slug}")
+    # workspace_path is computed lazily on the new-create branch below so
+    # existing rows keep their persisted path (which may be from the legacy
+    # flat-pool layout) and so the marker write only fires when we are
+    # actually about to create a fresh worktree (TASK-468).
 
     conn = get_connection(db_path)
     try:
@@ -506,6 +576,13 @@ def cmd_create(
         if not base_ok:
             print(f"Error: {base_err}", file=sys.stderr)
             return 2
+
+        # Resolve the per-repo namespace just before the actual create so the
+        # marker write never fires for reused existing rows above (TASK-468).
+        namespace = _namespace_for(workspace_root, repo_root)
+        workspace_path = os.path.join(
+            workspace_root, namespace, f"TASK-{task_id}-{slug}"
+        )
 
         ok, err = _create_worktree(
             repo_root,
