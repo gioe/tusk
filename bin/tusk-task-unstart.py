@@ -58,6 +58,13 @@ def _commits_are_prefix_collision(
     decision is invariant to block vs. aggregate grouping, since either
     answers the same "does any commit hit a scope path?" question.
 
+    ``task_paths`` and ``task_basenames`` are intentionally left unset:
+    the helper auto-resolves both legs from the DB (issue #670), matching
+    the tusk-merge gate's behavior (issue #855 follow-up). Descriptions
+    that name a touched file by bare basename only — e.g. ``FULL-RETRO.md``
+    matched against a commit touching ``skills/retro/FULL-RETRO.md`` — are
+    correctly recognized as in-scope and preserve the existing refusal.
+
     Conservative on empty signal: returns False when ``commits`` is empty
     or the task has no scope signal — the helper returns ``list(commits)``
     unchanged in the no-signal case regardless of *fallthrough*, so
