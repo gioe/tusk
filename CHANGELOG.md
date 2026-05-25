@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [992] - 2026-05-25
+
+- [TASK-476] Add tusk task-worktree reconcile to clean up worktrees for already-merged Done tasks
+
 ## [991] - 2026-05-25
 
 - [TASK-477] Auto-prune orphaned registry rows at the start of tusk task-worktree create
