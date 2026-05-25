@@ -523,6 +523,22 @@ A canonical term definition referenced across tusk documentation, skills, and CL
 
 ---
 
+### Plan
+
+A recorded flat-rate subscription period — the denominator for ROI calculations against tusk's metered token value. Managed via `tusk plans set|list|end`. Multiple rows per `name` are allowed and intentional: each row represents one effective period, so price changes and lapses are recorded as separate rows rather than mutating an existing one. `effective_to=NULL` means the period is currently open. The companion time-windowed metered rollup (issue #871) and the dashboard ROI annotation are downstream consumers of this table; the `select_active_plans` helper in `bin/tusk-plans.py` is the canonical date-range selector. Explicit non-goal: tusk does not ingest cross-provider usage data — only what the user declares here.
+
+| Attribute | Type | Constraints | Description |
+|-----------|------|-------------|-------------|
+| `id` | INTEGER | PK, autoincrement | Stable identifier |
+| `name` | TEXT | NOT NULL | Plan name (e.g. `claude_max_20x`, `chatgpt_pro`); intentionally non-unique to allow a price-change history per plan |
+| `monthly_cost_dollars` | REAL | NOT NULL, CHECK (>= 0) | Monthly cost in USD; annual subscriptions should be divided by 12 at record time |
+| `effective_from` | TEXT | NOT NULL | ISO date (YYYY-MM-DD) when this period began; inclusive |
+| `effective_to` | TEXT | nullable | ISO date when this period ended; exclusive (`select_active_plans` treats the cutover day as belonging to the replacement plan). NULL means the period is still open |
+| `notes` | TEXT | nullable | Free-text annotation (e.g. invoice reference) |
+| `created_at` | TEXT | NOT NULL, default now | When the row was recorded |
+
+---
+
 ## Status Transitions
 
 Task `status` follows a one-way lifecycle. The `validate_status_transition` trigger (in `bin/tusk`, recreated by `tusk regen-triggers`) enforces this graph:

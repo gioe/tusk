@@ -54,6 +54,14 @@ An acceptance criterion closed via `tusk criteria skip --reason <text>` (sets `i
 
 ---
 
+## plan
+
+A recorded flat-rate subscription period (e.g. Claude Max 20x at $200/month) stored in the plans table — the denominator for ROI calculations against tusk's metered token value. Multiple rows per name are allowed so price changes and lapses are recorded as separate effective periods; see also subscription cost.
+
+→ See `plans` table in `docs/DOMAIN.md`.
+
+---
+
 ## session
 
 A bounded work unit on a task, tracking timestamps, token usage, and cost. One task can accumulate multiple sessions across days or agents. At most one session per task may be open at a time; `tusk task-start` opens a session and `tusk merge` closes it.
@@ -67,6 +75,14 @@ A bounded work unit on a task, tracking timestamps, token usage, and cost. One t
 A recorded execution of a tusk skill (e.g., `/groom-backlog`), storing start/end time, token counts, estimated cost, and skill-specific metadata. Skill runs let you track the operational cost of maintenance operations over time.
 
 → See [`DOMAIN.md`](DOMAIN.md#skill-run) and `tusk skill-run start/finish`.
+
+---
+
+## subscription cost
+
+The flat-rate amount a user pays per billing period for an AI provider (e.g. Claude Max, ChatGPT Pro). tusk records this via tusk plans set as the ROI denominator; the companion metered rollup (issue #871) supplies the numerator. tusk explicitly does NOT ingest cross-provider usage data — only what the user declares.
+
+→ See `plans` table in `docs/DOMAIN.md`; alias of `plan`.
 
 ---
 
