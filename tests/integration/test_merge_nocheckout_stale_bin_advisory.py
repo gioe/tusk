@@ -111,3 +111,49 @@ def test_silent_when_not_a_git_repo(tmp_path, tusk_merge_module, capsys):
     tusk_merge_module._maybe_advise_stale_deployed_bin(db_path)
 
     assert capsys.readouterr().err == ""
+
+
+def test_refresh_fired_clean_tree_does_not_contradict(tmp_path, tusk_merge_module, capsys):
+    # Issue #869: when _maybe_refresh_deployed_bin just announced a successful
+    # auto-refresh, the immediately-following advisory must not tell the user
+    # ".claude/bin/ may be stale" or to "run tusk dev-sync" as if nothing had
+    # been done. Reframe around primary's working tree being behind origin.
+    db_path = _source_repo_layout(tmp_path)
+
+    tusk_merge_module._maybe_advise_stale_deployed_bin(db_path, refresh_fired=True)
+
+    err = capsys.readouterr().err
+    assert "may be stale" not in err, (
+        "refresh-fired advisory must not repeat the .claude/bin/-stale framing"
+    )
+    assert ".claude/bin/" not in err, (
+        "refresh-fired advisory should drop the .claude/bin/ noun the first line owned"
+    )
+    assert "primary's working tree is behind origin" in err
+    assert "git pull && tusk dev-sync" in err
+    assert "Stash or commit" not in err, "clean tree should not get the stash-first hint"
+
+
+def test_refresh_fired_dirty_tree_keeps_stash_hint(tmp_path, tusk_merge_module, capsys):
+    db_path = _source_repo_layout(tmp_path)
+    (tmp_path / "CLAUDE.md").write_text("dirty\n")
+
+    tusk_merge_module._maybe_advise_stale_deployed_bin(db_path, refresh_fired=True)
+
+    err = capsys.readouterr().err
+    assert "may be stale" not in err
+    assert ".claude/bin/" not in err
+    assert "primary's working tree is behind origin" in err
+    assert "Stash or commit local changes" in err
+    assert "git pull && tusk dev-sync" in err
+
+
+def test_refresh_fired_still_silent_when_env_var_disabled(
+    tmp_path, tusk_merge_module, capsys, monkeypatch,
+):
+    monkeypatch.setenv("TUSK_NO_DEPLOYED_BIN_REFRESH", "1")
+    db_path = _source_repo_layout(tmp_path)
+
+    tusk_merge_module._maybe_advise_stale_deployed_bin(db_path, refresh_fired=True)
+
+    assert capsys.readouterr().err == ""
