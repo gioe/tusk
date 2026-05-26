@@ -38,6 +38,7 @@ _json_lib = tusk_loader.load("tusk-json-lib")
 _git_helpers = tusk_loader.load("tusk-git-helpers")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
+status_transition_trigger_bypassed = _db_lib.status_transition_trigger_bypassed
 find_task_commits = _git_helpers.find_task_commits
 filter_commits_by_block_overlap = _git_helpers.filter_commits_by_block_overlap
 
@@ -208,71 +209,16 @@ def main(argv: list[str]) -> int:
             )
             return 2
 
-        # Snapshot the trigger DDL before dropping it so the finally block can
-        # restore it if `tusk regen-triggers` fails — typically when
-        # tusk/config.json carries newer keys the installed validator does
-        # not accept (issue #824). If the trigger is already missing for some
-        # reason, the snapshot is None and the finally falls back to the
-        # pre-existing "run regen-triggers manually" warning.
-        trigger_row = conn.execute(
-            "SELECT sql FROM sqlite_master "
-            "WHERE type='trigger' AND name='validate_status_transition'"
-        ).fetchone()
-        trigger_ddl = trigger_row[0] if trigger_row else None
-
-        # Mirrors tusk-task-reopen.py's trigger-bypass: explicit transaction so
-        # DROP TRIGGER and the UPDATE commit atomically, then regen-triggers in
-        # the finally block restores the guard even on rollback.
-        conn.isolation_level = None
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            conn.execute("DROP TRIGGER IF EXISTS validate_status_transition")
+        # Drop validate_status_transition for the duration of the UPDATE so
+        # the In Progress -> To Do transition isn't blocked. The helper
+        # handles the snapshot/restore/regen-triggers choreography that was
+        # duplicated in this script and tusk-task-reopen.py prior to #844.
+        with status_transition_trigger_bypassed(conn):
             conn.execute(
                 "UPDATE tasks SET status = 'To Do', started_at = NULL, "
                 "updated_at = datetime('now') WHERE id = ?",
                 (task_id,),
             )
-            conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
-            raise
-        finally:
-            regen = subprocess.run(
-                ["tusk", "regen-triggers"],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-            )
-            if regen.returncode != 0:
-                msg = regen.stderr.strip() or regen.stdout.strip() or "(no output)"
-                restored = False
-                restore_err = None
-                if trigger_ddl:
-                    try:
-                        conn.execute(trigger_ddl)
-                        restored = True
-                    except sqlite3.Error as exc:
-                        restore_err = str(exc)
-                if restored:
-                    print(
-                        f"Warning: tusk regen-triggers failed (exit {regen.returncode}): {msg}\n"
-                        "Status-transition guard restored from snapshot; the "
-                        "underlying config problem still needs to be fixed "
-                        "(run 'tusk regen-triggers' after addressing it).",
-                        file=sys.stderr,
-                    )
-                else:
-                    extra = (
-                        f"Snapshot restore also failed: {restore_err}\n"
-                        if restore_err
-                        else ""
-                    )
-                    print(
-                        f"Warning: tusk regen-triggers failed (exit {regen.returncode}): {msg}\n"
-                        f"{extra}"
-                        "Run 'tusk regen-triggers' manually to restore the status-transition guard.",
-                        file=sys.stderr,
-                    )
 
         updated = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         result = {

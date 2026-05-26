@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1008] - 2026-05-26
+
+- [TASK-487] Extract status_transition_trigger_bypassed helper to prevent third recurrence
+
 ## [1007] - 2026-05-26
 
 - [TASK-486] Add BSD wc -l portability guidance to /create-task spec generation
