@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1010] - 2026-05-26
+
+- [TASK-490] Persist input-token cache split (cache_read/cache_write/uncached) in task_sessions and skill_runs
+
 ## [1009] - 2026-05-26
 
 - [TASK-488] Make tusk version-bump / changelog-add accept --task-id and resolve worktree from registry
