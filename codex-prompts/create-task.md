@@ -58,18 +58,23 @@ subordinate to the other:
 - `fix bug X and add regression test` — the test verifies the fix
 - `refactor module and rename file` — the rename is incidental
 
-When any marker fires, surface a confirmation prompt naming the
-matched pattern verbatim:
+When any marker fires, surface an informational advisory naming the
+matched pattern verbatim — this is a heads-up, not a gate. The
+commit-time scope guard is the real enforcement boundary; bundled
+tasks fail loudly at commit time when the agent tries to commit the
+second deliverable outside the originally-named files, so this
+prompt is a UX courtesy that lets the operator decide before the
+draft instead of after the rejected commit.
 
-> Input appears to bundle multiple deliverables (matched:
-> `<verbatim quote>`). Should I split into separate tasks before
-> proposing? Options: Split / Keep as one / Show me the proposal
-> first.
+> Heads up — input appears to bundle multiple deliverables
+> (matched: `<verbatim quote>`). The scope guard will likely reject
+> mid-task commits that wander outside the originally-named files.
+> Options: Show me the proposal first (default) / Split / Keep as
+> one.
 
-On Split, decompose into N sibling tasks in Step 3. On Keep as one,
-capture the rationale in the task description so future readers see
-the explicit decision. On Show me first, continue to Step 3
-unchanged; the operator can revisit after Step 4's review.
+On Split, decompose into N sibling tasks in Step 3. On Show me
+first or Keep as one, continue to Step 3 unchanged; the operator
+can revisit after Step 4's review.
 
 ## Step 3: Analyze and Decompose
 

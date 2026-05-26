@@ -54,13 +54,13 @@ A bundle is suspected if **any** of these patterns appears in the summary or des
 | `fix bug X and add regression test` | The regression test is verification of the fix, not a sibling feature |
 | `refactor module and rename file` | The rename is incidental to the refactor |
 
-When any bundling marker fires, **before** drafting tasks, surface a confirmation prompt naming the matched pattern verbatim:
+When any bundling marker fires, surface an informational advisory naming the matched pattern verbatim — this is a heads-up, not a gate. The commit-time scope guard is the real enforcement boundary; bundled tasks fail loudly at commit time when the agent tries to commit the second deliverable outside the originally-named files, so this prompt is a UX courtesy that lets the operator decide before the draft instead of after the rejected commit.
 
-> Input appears to bundle multiple deliverables (matched: `<verbatim quote of the marker>`). Should I split into separate tasks before proposing?
+> Heads up — input appears to bundle multiple deliverables (matched: `<verbatim quote of the marker>`). The scope guard will likely reject mid-task commits that wander outside the originally-named files, so a bundled task will hit friction at commit time. Consider splitting now.
 >
-> Options: **Split** (decompose into N sibling tasks now) / **Keep as one** (proceed with the bundle as a single task — the operator has decided the deliverables are inseparable) / **Show me the proposal first** (continue to Step 3 as if no bundle were detected; the operator will judge after seeing the draft).
+> Options: **Show me the proposal first** *(default)* (continue to Step 3 unchanged; revisit after seeing the draft) / **Split** (decompose into N sibling tasks now) / **Keep as one** (proceed with the bundle as a single task).
 
-On **Split**, treat each deliverable as its own task during Step 3. On **Keep as one**, capture the rationale in the task description (e.g., `Kept bundled because backend+frontend must ship together`) so future readers see the explicit decision. On **Show me first**, continue to Step 3 unchanged; the operator can revisit after Step 4's review.
+On **Split**, treat each deliverable as its own task during Step 3. On **Show me first** or **Keep as one**, continue to Step 3 unchanged; the operator can revisit after Step 4's review.
 
 ## Step 3: Analyze and Decompose
 

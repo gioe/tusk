@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [998] - 2026-05-25
+
+- [TASK-473] Reframe /create-task bundled-scope detector from data integrity to UX courtesy
+
 ## [997] - 2026-05-25
 
 - [TASK-471] Make task scope a first-class declared concept with lifecycle, schema, and operator API
