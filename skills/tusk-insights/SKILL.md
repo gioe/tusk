@@ -115,6 +115,33 @@ If the query returns no rows, display:
 ### Velocity — No completed tasks recorded yet
 ```
 
+#### Step 5: Worktree Pool Health
+
+Always run this step regardless of audit findings — like Velocity, this is informational signal that surfaces a slow-accumulating problem (lingering worktrees consuming disk, registry rows pointing at deleted paths) the six audit categories don't cover. Originally added in TASK-478 because 11 stale worktrees went unnoticed for two weeks.
+
+Run the insights command:
+
+```bash
+tusk insights --format text
+```
+
+The output is a pre-rendered section. Include it verbatim in the audit report under its own heading:
+
+```
+### Worktree Pool Health
+- Reconcile-eligible rows: {N}
+- Prune-eligible rows:     {N}
+- Total disk usage:        {bytes}
+- {accumulation_note}
+```
+
+Surface the findings as actions, not just numbers:
+
+- **Reconcile-eligible rows > 0** — registered workspaces whose directories no longer exist on disk OR are missing from `git worktree list`. Recommend `tusk task-worktree list --format json` to inspect, then `tusk task-worktree prune` (with `--dry-run` first) to clean up.
+- **Prune-eligible rows > 0** — same recommendation; prune resolves these.
+- **Total disk usage** climbing without active in-progress tasks — workspaces from already-merged tasks aren't being torn down. Mention this as friction worth raising in `/retro` for the operator to investigate.
+- **All zero** — show the section anyway with `✓ No worktree accumulation detected.` so operators see the surface exists.
+
 ---
 
 ### Phase 2: Interactive Q&A
