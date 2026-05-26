@@ -255,8 +255,11 @@ A bounded work session on a task, tracking cost and metrics. A task can have mul
 | `ended_at` | TEXT | nullable | When the session was closed |
 | `duration_seconds` | INTEGER | nullable | Wall-clock time |
 | `cost_dollars` | REAL | nullable | AI API cost |
-| `tokens_in` | INTEGER | nullable | Input tokens |
+| `tokens_in` | INTEGER | nullable | Input tokens (collapsed sum of `cache_read_tokens_in + cache_write_tokens_in + uncached_tokens_in`; kept as the legacy aggregate column) |
 | `tokens_out` | INTEGER | nullable | Output tokens |
+| `cache_read_tokens_in` | INTEGER | nullable | Cached input tokens — priced ~10% of regular input by the Anthropic API. Populated from `totals[cache_read_input_tokens]` by `update_session_stats()` in `bin/tusk-pricing-lib.py`. Added in migration 74 (issue #872); NULL for sessions closed before migration. |
+| `cache_write_tokens_in` | INTEGER | nullable | Cache-creation input tokens — priced ~125% of regular input. Populated from `totals[cache_creation_input_tokens]` (sum of 5m + 1h + default-TTL cache writes). Added in migration 74. |
+| `uncached_tokens_in` | INTEGER | nullable | Non-cached input tokens — priced as regular input. Populated from `totals[input_tokens]`. Added in migration 74. |
 | `lines_added` | INTEGER | nullable | Git diff lines added |
 | `lines_removed` | INTEGER | nullable | Git diff lines removed |
 | `model` | TEXT | nullable | Claude model ID used |
@@ -377,8 +380,11 @@ A record of a single execution of a tusk skill, capturing start/end timestamps, 
 | `started_at` | TEXT | NOT NULL, default now | When `tusk skill-run start` was called |
 | `ended_at` | TEXT | nullable | Set by `tusk skill-run finish` or `tusk skill-run cancel` |
 | `cost_dollars` | REAL | nullable | Estimated cost from transcript parsing |
-| `tokens_in` | INTEGER | nullable | Total input tokens (base + cache write + cache read) |
+| `tokens_in` | INTEGER | nullable | Total input tokens (base + cache write + cache read); collapsed sum of the three split columns below — kept as the legacy aggregate |
 | `tokens_out` | INTEGER | nullable | Output tokens |
+| `cache_read_tokens_in` | INTEGER | nullable | Cached input tokens — priced ~10% of regular input. Populated from `totals[cache_read_input_tokens]` by the `tusk skill-run finish` path in `bin/tusk-skill-run.py`. Added in migration 74 (issue #872); NULL for runs closed before migration. |
+| `cache_write_tokens_in` | INTEGER | nullable | Cache-creation input tokens — priced ~125%. Populated from `totals[cache_creation_input_tokens]`. Added in migration 74. |
+| `uncached_tokens_in` | INTEGER | nullable | Non-cached input tokens — priced as regular input. Populated from `totals[input_tokens]`. Added in migration 74. |
 | `model` | TEXT | nullable | Dominant model used during the run |
 | `metadata` | TEXT | nullable | JSON blob with skill-specific stats (e.g. tasks_done, tasks_deleted) |
 | `request_count` | INTEGER | nullable | Deduplicated Claude API request count for the run (distinct requestIds in the transcript time window); populated by `tusk skill-run finish`, zeroed by `tusk skill-run cancel` |
