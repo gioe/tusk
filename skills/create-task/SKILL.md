@@ -365,6 +365,32 @@ JSON=$(printf '%s' "$SPEC" | tusk typed-criteria-build --type code --text "apps/
 
 For `test` and `code`, `spec` is a shell command — exit 0 = pass; use `! …` to invert. For `file`, `spec` is a glob (recursive `**` works).
 
+### Code criterion portability — avoid `wc -l | grep -q "^N$"` (issue #889)
+
+`code`-type specs run on whatever host marks the criterion done (commonly macOS for local dev, Linux for CI). `wc -l` output differs between the two: GNU coreutils prints `3`, BSD wc prints `       3` (leading whitespace padded to column 8). A spec like `... | wc -l | grep -q "^3$"` is **portable-broken** — it exits nonzero on macOS for whitespace reasons even when the count is correct. The criterion ends up semantically satisfied but unable to auto-verify, forcing `tusk criteria done <cid> --skip-verify`. Original incident: TASK-474 / criterion 2197 / issue #889.
+
+**Do not generate** specs matching this anti-pattern:
+
+```bash
+# WRONG — BSD wc on macOS prints leading spaces; ^N$ fails
+grep -l "<pattern>" A B C | wc -l | grep -q "^3$"
+```
+
+**Use one of these portable forms instead:**
+
+```bash
+# OK — strip whitespace before comparing
+test "$(grep -l "<pattern>" A B C | wc -l | tr -d '[:space:]')" = "3"
+
+# OK — awk normalises the field width
+[ "$(grep -l "<pattern>" A B C | wc -l | awk '{print $1}')" = "3" ]
+
+# Best — when you only care that ALL named files match, drop the count entirely
+grep -l "<pattern>" A B C | sort -u | diff -q - <(printf 'A\nB\nC\n' | sort -u)
+```
+
+Same hazard class applies to any text-tool output that may differ between GNU and BSD: `du`, `df`, `stat`, `date -r` formatting. When in doubt, pipe through `tr -d '[:space:]'` or `awk '{print $1}'` before string-comparing the result.
+
 ### Manual fallback
 
 Reach for plain `--criteria` only when the check requires genuine human judgment and cannot be encoded as a test, code grep, or file glob. The test-first default does **not** apply in these cases:

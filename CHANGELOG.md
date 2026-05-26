@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1007] - 2026-05-26
+
+- [TASK-486] Add BSD wc -l portability guidance to /create-task spec generation
+
 ## [1006] - 2026-05-26
 
 - [TASK-485] Extend scope-paths to cover config.default.json bare names and Rule-42 companions for new tusk-*.py scripts
