@@ -106,6 +106,95 @@ class TestScopeAdd:
         assert result.returncode != 0
         assert "not found" in result.stderr.lower()
 
+    def test_scope_add_rejects_absolute_path(self, db_path):
+        """`scope add` rejects absolute paths (issue #899) — the commit-time
+        guard does literal repo-root-relative matching, so /etc/passwd-style
+        patterns are noise rows that never enforce anything."""
+        task_id = _seed_task(str(db_path))
+        result = _run(["scope", "add", str(task_id), "/etc/passwd"])
+        assert result.returncode == 2, result.stderr
+        assert "repo-root-relative" in result.stderr
+        assert _scope_rows(str(db_path), task_id) == []
+
+    def test_scope_add_rejects_parent_traversal(self, db_path):
+        """`scope add` rejects patterns with '..' segments (issue #899)."""
+        task_id = _seed_task(str(db_path))
+        result = _run(["scope", "add", str(task_id), "../escape"])
+        assert result.returncode == 2, result.stderr
+        assert ".." in result.stderr
+        assert _scope_rows(str(db_path), task_id) == []
+
+    def test_scope_add_rejects_embedded_parent_traversal(self, db_path):
+        """`..` segments embedded mid-pattern are also rejected, not just
+        leading ones."""
+        task_id = _seed_task(str(db_path))
+        result = _run(["scope", "add", str(task_id), "bin/../etc/passwd"])
+        assert result.returncode == 2, result.stderr
+        assert _scope_rows(str(db_path), task_id) == []
+
+    def test_scope_add_accepts_normal_path(self, db_path):
+        """Sanity guard: the validator must not reject legitimate
+        repo-root-relative paths."""
+        task_id = _seed_task(str(db_path))
+        result = _run(["scope", "add", str(task_id), "bin/tusk-foo.py"])
+        assert result.returncode == 0, result.stderr
+
+
+# ── readonly snapshot routing (issue #900) ───────────────────────────────────
+
+class TestScopeSnapshotRouting:
+    """`scope list` is read-only and must not trigger `snapshot_db`;
+    `scope add` and `scope lock` mutate and must trigger it."""
+
+    @staticmethod
+    def _backup_dir(db: str) -> str:
+        return os.path.join(os.path.dirname(db), "backups")
+
+    @staticmethod
+    def _count_snapshots(backup_dir: str) -> int:
+        if not os.path.isdir(backup_dir):
+            return 0
+        return sum(1 for n in os.listdir(backup_dir) if n.startswith("tasks.db."))
+
+    def test_scope_list_does_not_snapshot(self, db_path):
+        task_id = _seed_task(str(db_path))
+        backup_dir = self._backup_dir(str(db_path))
+        before = self._count_snapshots(backup_dir)
+        result = _run(["scope", "list", str(task_id)])
+        assert result.returncode == 0, result.stderr
+        after = self._count_snapshots(backup_dir)
+        assert after == before, (
+            f"`scope list` created a snapshot ({before} -> {after}); the dispatcher "
+            f"must recognise `scope list` as read-only (issue #900)"
+        )
+
+    def test_scope_add_still_snapshots(self, db_path):
+        """Sanity guard: `scope add` mutates and must still snapshot."""
+        task_id = _seed_task(str(db_path))
+        backup_dir = self._backup_dir(str(db_path))
+        before = self._count_snapshots(backup_dir)
+        result = _run(["scope", "add", str(task_id), "bin/foo.py"])
+        assert result.returncode == 0, result.stderr
+        after = self._count_snapshots(backup_dir)
+        assert after > before, (
+            f"`scope add` did not snapshot ({before} -> {after}); the dispatcher "
+            f"narrowed readonly-routing too far"
+        )
+
+    def test_scope_lock_still_snapshots(self, db_path):
+        """Sanity guard: `scope lock` mutates and must still snapshot."""
+        task_id = _seed_task(str(db_path))
+        _run(["scope", "add", str(task_id), "bin/foo.py"])
+        backup_dir = self._backup_dir(str(db_path))
+        before = self._count_snapshots(backup_dir)
+        result = _run(["scope", "lock", str(task_id)])
+        assert result.returncode == 0, result.stderr
+        after = self._count_snapshots(backup_dir)
+        assert after > before, (
+            f"`scope lock` did not snapshot ({before} -> {after}); the dispatcher "
+            f"narrowed readonly-routing too far"
+        )
+
 
 # ── scope list ───────────────────────────────────────────────────────────────
 

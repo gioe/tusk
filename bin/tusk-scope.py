@@ -66,6 +66,21 @@ def _ensure_task_exists(conn: sqlite3.Connection, task_id: int) -> None:
         sys.exit(1)
 
 
+def _validate_pattern(pattern: str) -> "str | None":
+    """Reject patterns the commit-time scope guard could never match.
+
+    The guard does literal repo-root-relative string matching, so absolute
+    paths and parent-traversal segments are noise rows that never enforce
+    anything. Returning a non-None error string causes cmd_add to exit 2.
+    """
+    if pattern.startswith("/"):
+        return f"Error: pattern must be a repo-root-relative path; got {pattern!r}"
+    segments = pattern.split("/")
+    if any(seg == ".." for seg in segments):
+        return f"Error: pattern must not contain '..' segments; got {pattern!r}"
+    return None
+
+
 def cmd_list(args: argparse.Namespace, db_path: str) -> int:
     task_id = _parse_task_id(args.task_id)
     with get_connection(db_path) as conn:
@@ -93,6 +108,10 @@ def cmd_add(args: argparse.Namespace, db_path: str) -> int:
     if not pattern:
         print("Error: <pattern> required", file=sys.stderr)
         return 1
+    err = _validate_pattern(pattern)
+    if err is not None:
+        print(err, file=sys.stderr)
+        return 2
 
     with get_connection(db_path) as conn:
         _ensure_task_exists(conn, task_id)

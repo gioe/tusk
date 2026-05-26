@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1003] - 2026-05-26
+
+- [TASK-482] tusk scope CLI hardening: validate patterns + mark list readonly
+
 ## [1002] - 2026-05-26
 
 - [TASK-481] migrate_73 cleanup: drop unnecessary reload + gate scope_enforced UPDATE

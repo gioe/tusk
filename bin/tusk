@@ -1614,6 +1614,12 @@ is_readonly_subcmd() {
   # Subcommands that never mutate tusk/tasks.db. Everything else triggers
   # a snapshot. When in doubt, omit from this list — a redundant backup is
   # cheaper than a missed one.
+  # `scope` is dispatched at the second positional: only `scope list` is
+  # read-only — `scope add` and `scope lock` mutate task_scope rows.
+  if [[ "${1:-}" == "scope" ]]; then
+    [[ "${2:-}" == "list" ]] && return 0
+    return 1
+  fi
   case "${1:-}" in
     ""|path|config|validate|sql-quote|typed-criteria-build|version|version-bump|\
     git-default-branch|branch-parse|report-issue|\
@@ -1710,7 +1716,7 @@ preflight_schema_version() {
 
 preflight_schema_version "$@"
 
-if [[ -z "${TUSK_NESTED_CALL:-}" ]] && ! is_readonly_subcmd "${1:-}"; then
+if [[ -z "${TUSK_NESTED_CALL:-}" ]] && ! is_readonly_subcmd "${1:-}" "${2:-}"; then
   snapshot_db
 fi
 # Any nested `tusk` invoked by a Python child inherits this and skips the
