@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1000] - 2026-05-25
+
+- [TASK-472] Skip retroactive scope-detection heuristics for tasks with scope_enforced=true
+
 ## [999] - 2026-05-25
 
 - [TASK-475] Update /create-task to auto-extract scope hints and surface --creates / --unbounded flags
