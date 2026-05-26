@@ -276,6 +276,15 @@ echo 14 > VERSION   # increment by 1
 
 Commit the bump in the same branch as the feature. Also update `CHANGELOG.md` in the same commit under a new `## [<version>] - <YYYY-MM-DD>` heading. **One VERSION bump per PR.**
 
+> **Worktree routing — the resolution key is the invoking checkout's `REPO_ROOT`, NOT the active task's worktree branch (issue #903).** `tusk version-bump` and `tusk changelog-add` walk up from `$PWD` to the nearest `.git` and write VERSION/CHANGELOG.md against that checkout. Run them from inside the task worktree and the bump lands there cleanly (issues #798/#801). Run them from the primary checkout while it is on the default branch and the bump silently lands in the primary instead. To bump a task worktree's files from any CWD, pass `--task-id`:
+>
+> ```bash
+> tusk version-bump --task-id <N>
+> tusk changelog-add --task-id <N> [<task_id>...]
+> ```
+>
+> The CLI resolves the matching workspace via the `task_workspaces` registry and writes/stages against `workspace_path`. Both commands refuse with a clear error if `--task-id` is passed but the task has no recorded workspace or the workspace path no longer exists on disk.
+
 ## Reference Docs
 
 - **`docs/SCRIPTS.md`** — Reference for all `bin/tusk-*.py` helper scripts: purpose, inputs, outputs, and usage examples.
