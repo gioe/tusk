@@ -2,6 +2,8 @@
 
 Companion file for `/tusk-insights`. Contains detail SQL queries for all 6 audit categories. Only load this file for categories with findings > 0 in the pre-check.
 
+> **Worktree Pool Health** (SKILL.md Phase 1 Step 5) is rendered directly by `tusk insights --format text` — no SQL queries here. The subcommand returns a pre-formatted section listing reconcile-eligible rows, prune-eligible rows, and disk usage.
+
 ---
 
 ## 1. Config Fitness
