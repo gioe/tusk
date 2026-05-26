@@ -866,14 +866,24 @@ def update_session_stats(conn: sqlite3.Connection, session_id: int, totals: dict
     last_context = totals.get("last_context_tokens")
     request_count = totals.get("request_count")
     context_window = get_context_window(model) if model else None
+    # Cache split — schema 74 (issue #872). The Anthropic usage block
+    # already exposes these separately (cache read priced ~10%, cache write
+    # ~125%); aggregate_session() collects them into the three totals keys
+    # below. Persisting them is what makes cache-hit-rate visible in stored
+    # data and provider-agnostic token repricing possible.
+    cache_read_tokens_in = totals.get("cache_read_input_tokens", 0)
+    cache_write_tokens_in = totals.get("cache_creation_input_tokens", 0)
+    uncached_tokens_in = totals.get("input_tokens", 0)
 
     conn.execute(
         """UPDATE task_sessions
            SET tokens_in = ?, tokens_out = ?, cost_dollars = ?, model = ?,
                peak_context_tokens = ?, first_context_tokens = ?, last_context_tokens = ?,
-               context_window = ?, request_count = ?
+               context_window = ?, request_count = ?,
+               cache_read_tokens_in = ?, cache_write_tokens_in = ?, uncached_tokens_in = ?
            WHERE id = ?""",
-        (tokens_in, tokens_out, cost, model, peak_context, first_context, last_context, context_window, request_count, session_id),
+        (tokens_in, tokens_out, cost, model, peak_context, first_context, last_context, context_window, request_count,
+         cache_read_tokens_in, cache_write_tokens_in, uncached_tokens_in, session_id),
     )
 
 
