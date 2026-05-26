@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [999] - 2026-05-25
+
+- [TASK-475] Update /create-task to auto-extract scope hints and surface --creates / --unbounded flags
+
 ## [998] - 2026-05-25
 
 - [TASK-473] Reframe /create-task bundled-scope detector from data integrity to UX courtesy
