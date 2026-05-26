@@ -30,10 +30,11 @@ import sys
 from datetime import date
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader
+import tusk_loader  # loads tusk-db-lib.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 get_connection = _db_lib.get_connection
+resolve_task_workspace = _db_lib.resolve_task_workspace
 
 
 def fetch_summaries(conn: sqlite3.Connection, task_ids: list[str]) -> list[dict]:
@@ -98,12 +99,21 @@ def main() -> None:
             "Prepend a versioned CHANGELOG entry with DB-fetched task bullet summaries. "
             "Version defaults to the VERSION file; an explicit positional version must match."
         ),
-        usage="tusk changelog-add [--from-version-file] [<version>] [<task_id>...]",
+        usage="tusk changelog-add [--from-version-file] [--task-id <N>] [<version>] [<task_id>...]",
     )
     parser.add_argument(
         "--from-version-file",
         action="store_true",
         help="Force-read version from the VERSION file; positional args are all task IDs.",
+    )
+    parser.add_argument(
+        "--task-id",
+        type=int,
+        default=None,
+        help=(
+            "Resolve VERSION / CHANGELOG.md against this task's recorded workspace_path "
+            "(issue #903). Use from the primary checkout to target an active task worktree."
+        ),
     )
     parser.add_argument(
         "args",
@@ -112,6 +122,8 @@ def main() -> None:
     )
     parsed = parser.parse_args(user_args)
     raw_args = list(parsed.args)
+    if parsed.task_id is not None:
+        repo_root = resolve_task_workspace(db_path, parsed.task_id)
     file_version = _read_version_file(repo_root)
 
     if parsed.from_version_file:
