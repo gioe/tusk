@@ -1377,7 +1377,27 @@ cmd_migrate() {
     echo "tusk migrate: takes no arguments — applies all pending schema migrations in order" >&2
     return 1
   fi
-  exec python3 "$SCRIPT_DIR/tusk-migrate.py" "$DB_PATH" "$(resolve_config)"
+  # Worktree-CWD preference (TASK-480 criterion 2232, issue #893): in the
+  # tusk source repo, when a worktree adds a new migration to its own
+  # bin/tusk-migrate.py before the primary's .claude/bin/ has been refreshed,
+  # the tusk wrapper on PATH (primary's .claude/bin/tusk) still routes
+  # `tusk migrate` to the primary's older tusk-migrate.py and silently no-ops
+  # at the prior schema version. Prefer the worktree's binary when present
+  # and distinct from $SCRIPT_DIR so a worktree-local migration applies.
+  # Outside the source repo (target projects without bin/), $REPO_ROOT has
+  # no bin/tusk-migrate.py and this condition is silently false — the legacy
+  # path is unchanged.
+  local migrate_py="$SCRIPT_DIR/tusk-migrate.py"
+  if [[ -f "$REPO_ROOT/bin/tusk-migrate.py" ]]; then
+    local worktree_bin_realpath script_bin_realpath
+    worktree_bin_realpath="$(cd "$REPO_ROOT/bin" 2>/dev/null && pwd -P)" || worktree_bin_realpath=""
+    script_bin_realpath="$(cd "$SCRIPT_DIR" 2>/dev/null && pwd -P)" || script_bin_realpath=""
+    if [[ -n "$worktree_bin_realpath" && "$worktree_bin_realpath" != "$script_bin_realpath" ]]; then
+      migrate_py="$REPO_ROOT/bin/tusk-migrate.py"
+      echo "Note: dispatching to worktree migrate binary at $migrate_py" >&2
+    fi
+  fi
+  exec python3 "$migrate_py" "$DB_PATH" "$(resolve_config)"
 }
 
 cmd_upgrade() {

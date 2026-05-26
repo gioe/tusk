@@ -420,6 +420,87 @@ def test_test_command_outside_sparse_cone_present_path(tmp_path, monkeypatch):
     assert outside is False
 
 
+# ── Criterion 2232 (issue #893) ─────────────────────────────────────
+
+
+def test_migrate_dispatches_to_worktree_binary(tmp_path, monkeypatch):
+    """When invoked from a worktree CWD whose ``bin/tusk-migrate.py`` differs
+    from the invoking dispatcher's ``$SCRIPT_DIR/tusk-migrate.py``, ``tusk
+    migrate`` re-execs into the worktree binary. Without this, a worktree-
+    local new migration silently no-ops against the primary's older binary
+    (issue #893, original incident TASK-471).
+    """
+    # Build a separate git repo that pretends to be a tusk worktree: it has
+    # its own bin/tusk-migrate.py that prints a sentinel and exits 0, so we
+    # can detect whether that script ran (vs the primary's real migrate).
+    worktree = tmp_path / "worktree-repo"
+    worktree.mkdir()
+    _git(["init", "-b", "main"], cwd=worktree)
+    _git(["config", "user.email", "tusk@example.test"], cwd=worktree)
+    _git(["config", "user.name", "Tusk Tests"], cwd=worktree)
+    (worktree / "bin").mkdir()
+    (worktree / "bin" / "tusk-migrate.py").write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "print('TUSK_MIGRATE_WORKTREE_SENTINEL', file=sys.stderr)\n"
+        "sys.exit(0)\n",
+        encoding="utf-8",
+    )
+    (worktree / "README.md").write_text("worktree\n", encoding="utf-8")
+    _git(["add", "."], cwd=worktree)
+    _git(["commit", "-m", "init"], cwd=worktree)
+
+    # Pin a DB path so the primary's tusk dispatcher has a real DB to point
+    # tusk-migrate.py at — the sentinel script ignores it but the dispatcher
+    # still needs DB_PATH to be resolvable.
+    db_path = tmp_path / "tasks.db"
+    env = os.environ.copy()
+    env["TUSK_DB"] = str(db_path)
+    env["TUSK_QUIET"] = "1"
+    # tusk init pinned to a known path (it doesn't need to be in the worktree).
+    init_repo = tmp_path / "init-repo"
+    init_repo.mkdir()
+    _git(["init", "-b", "main"], cwd=init_repo)
+    _git(["config", "user.email", "tusk@example.test"], cwd=init_repo)
+    _git(["config", "user.name", "Tusk Tests"], cwd=init_repo)
+    (init_repo / "README.md").write_text("init\n", encoding="utf-8")
+    _git(["add", "."], cwd=init_repo)
+    _git(["commit", "-m", "initial"], cwd=init_repo)
+    result = _run(["init", "--force", "--skip-gitignore"], cwd=init_repo, env=env)
+    assert result.returncode == 0, result.stderr
+
+    # Now invoke the primary's tusk migrate from the worktree CWD. The
+    # dispatcher should detect the worktree's bin/tusk-migrate.py and re-exec
+    # into it instead of the primary's tusk-migrate.py.
+    result = _run(["migrate"], cwd=worktree, env=env)
+    combined = result.stdout + result.stderr
+    assert "TUSK_MIGRATE_WORKTREE_SENTINEL" in combined, (
+        f"primary tusk migrate should have dispatched to worktree's "
+        f"bin/tusk-migrate.py; combined output was:\n{combined}"
+    )
+
+
+def test_migrate_legacy_path_when_no_worktree_binary(tmp_path, monkeypatch):
+    """When the CWD's REPO_ROOT has no ``bin/tusk-migrate.py``, ``tusk
+    migrate`` uses the primary's binary as before — confirms the dispatch
+    preference is gated strictly on the worktree-binary presence."""
+    repo, _db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+    # _repo_with_tusk's repo has bin/some-script but NOT bin/tusk-migrate.py,
+    # so the legacy path applies.
+    assert not (repo / "bin" / "tusk-migrate.py").exists(), (
+        "fixture invariant: bin/tusk-migrate.py should not exist in this repo"
+    )
+    result = _run(["migrate"], cwd=repo, env=env)
+    assert result.returncode == 0, (
+        f"legacy migrate path should succeed;\n"
+        f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+    )
+    # The dispatch advisory must NOT fire when worktree binary is absent.
+    assert "dispatching to worktree migrate binary" not in result.stderr, (
+        f"legacy path should not announce worktree dispatch; stderr was:\n{result.stderr}"
+    )
+
+
 def test_commit_info_skips_when_test_command_path_outside_cone(
     tmp_path, monkeypatch
 ):
