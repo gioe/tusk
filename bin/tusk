@@ -612,7 +612,15 @@ CREATE TABLE tasks (
     merge_base_sha TEXT,
     fixes_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
     bakeoff_id INTEGER,
-    bakeoff_shadow INTEGER NOT NULL DEFAULT 0 CHECK (bakeoff_shadow IN (0, 1))
+    bakeoff_shadow INTEGER NOT NULL DEFAULT 0 CHECK (bakeoff_shadow IN (0, 1)),
+    -- scope_enforced: 1 means the commit-time scope guard reads from the
+    -- authoritative task_scope table; 0 means fall back to the legacy
+    -- task_referenced_paths hint cache. Fresh tasks default to 1. Migration
+    -- 73 backfills existing rows to 0 so already-running tasks keep their
+    -- inferred-scope behavior. Set explicitly via `tusk task-insert
+    -- --unbounded` (stamps scope_enforced=1 with an 'unbounded' row that
+    -- signals "no path restriction").
+    scope_enforced INTEGER NOT NULL DEFAULT 1 CHECK (scope_enforced IN (0, 1))
 );
 
 -- task_dependencies
@@ -641,6 +649,27 @@ CREATE TABLE task_workspaces (
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
 );
 CREATE INDEX idx_task_workspaces_task_id ON task_workspaces(task_id);
+
+-- task_scope (authoritative scope declaration per task; supersedes the
+-- task_referenced_paths hint cache when present). Each row is one pattern
+-- (today: literal repo-root-relative path) attributed to a source. The
+-- commit-time scope guard reads via `tusk scope-paths <id>` which prefers
+-- this table over task_referenced_paths and silently passes when any row
+-- has source='unbounded'. Multiple rows per (task_id, pattern) are
+-- allowed so the same path can carry both an 'auto_derived' and a later
+-- 'operator_declared' entry without losing provenance.
+CREATE TABLE task_scope (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    pattern TEXT NOT NULL,
+    source TEXT NOT NULL CHECK (source IN ('auto_derived', 'operator_declared', 'expanded_mid_task', 'creates', 'unbounded')),
+    reason TEXT,
+    locked_at TEXT,
+    locked_by TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_task_scope_task_id ON task_scope(task_id);
 
 -- task_progress (checkpoint log for context recovery)
 CREATE TABLE task_progress (
@@ -1114,7 +1143,7 @@ TEST_RUNS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 72;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 73;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."
@@ -1206,7 +1235,7 @@ candidates = [
   'deps','session-stats','session-recalc','session-close','skill-run','jot','jots','call-breakdown',
   'active-project','git-default-branch','branch-parse',
   'task-get','task-get-multi','task-select','task-start','task-done','task-insert','task-update','task-reopen','task-unstart','task-list','task-summary','task-worktree',
-  'audit','insights','autoclose','backlog-scan','groom','check-deliverables','scope-paths',
+  'audit','insights','autoclose','backlog-scan','groom','check-deliverables','scope-paths','scope',
   'retro','retro-signals','retro-themes','retro-finding','retro-patches',
   'test-detect','test-precheck','add-lib','address-issue',
   'init-scan-codebase','init-scan-todos','init-fetch-bootstrap','init-write-config','init-write-manifest-files','init-wizard','init-scaffold',
@@ -1747,6 +1776,7 @@ case "${1:-}" in
   groom) shift; exec python3 "$SCRIPT_DIR/tusk-groom.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   check-deliverables) shift; exec python3 "$SCRIPT_DIR/tusk-check-deliverables.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   scope-paths) shift; exec python3 "$SCRIPT_DIR/tusk-scope-paths.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  scope) shift; exec python3 "$SCRIPT_DIR/tusk-scope.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   retro-signals) shift; exec python3 "$SCRIPT_DIR/tusk-retro-signals.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   retro-themes) shift; exec python3 "$SCRIPT_DIR/tusk-retro-themes.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   retro-finding) shift; exec python3 "$SCRIPT_DIR/tusk-retro-finding.py" "$DB_PATH" "$(resolve_config)" "$@" ;;

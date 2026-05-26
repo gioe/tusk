@@ -3004,6 +3004,181 @@ def migrate_72(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 72: added tasks.merge_base_sha and recreated tasks-dependent views")
 
 
+def migrate_73(db_path: str, config_path: str, script_dir: str) -> None:
+    """Promote scope to a first-class concept: add ``task_scope`` and
+    ``tasks.scope_enforced``, backfill from ``task_referenced_paths``.
+
+    Schema:
+      - ``tasks.scope_enforced`` INTEGER NOT NULL DEFAULT 1. Fresh inserts
+        (after this migration) get 1 from cmd_init; this migration overrides
+        existing rows to 0 so already-running tasks keep their inferred-scope
+        behavior until an operator declares scope explicitly.
+      - ``task_scope`` table holds the authoritative scope per task, one row
+        per pattern. ``source`` enumerates how the row was added:
+        ``auto_derived`` (backfill or future auto-extraction),
+        ``operator_declared`` (``tusk task-insert --scope``),
+        ``creates`` (``--creates``), ``unbounded`` (``--unbounded``,
+        signals "no path restriction"), ``expanded_mid_task``
+        (``tusk scope add`` after the task started).
+
+    Backfill: for every existing task with at least one referenced path
+    (per ``task_referenced_paths``), insert one ``auto_derived`` row per
+    path. Tasks with no scope signal get no rows — the guard's existing
+    "empty scope → silent pass" behavior carries over unchanged.
+
+    Tasks-dependent views (``task_metrics``, ``v_ready_tasks``,
+    ``v_chain_heads``, ``v_criteria_coverage``) are DROPped + CREATEd so the
+    new ``scope_enforced`` column propagates through ``SELECT t.*`` views
+    on migrated DBs (per the CLAUDE.md tasks-column migration guidance).
+
+    Idempotent: column-add and table-create are guarded; backfill skips when
+    the task already has any ``task_scope`` rows.
+    """
+    if get_version(db_path) >= 73:
+        _progress("  Migration 73: added task_scope, tasks.scope_enforced, and backfilled from task_referenced_paths")
+        return
+
+    if not has_column(db_path, "tasks", "scope_enforced"):
+        run_script(
+            db_path,
+            "ALTER TABLE tasks ADD COLUMN scope_enforced INTEGER NOT NULL DEFAULT 1 CHECK (scope_enforced IN (0, 1));",
+        )
+
+    run_script(
+        db_path,
+        """
+        CREATE TABLE IF NOT EXISTS task_scope (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL,
+            pattern TEXT NOT NULL,
+            source TEXT NOT NULL CHECK (source IN ('auto_derived', 'operator_declared', 'expanded_mid_task', 'creates', 'unbounded')),
+            reason TEXT,
+            locked_at TEXT,
+            locked_by TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_task_scope_task_id ON task_scope(task_id);
+        """,
+    )
+
+    # Override DEFAULT 1 for existing rows so already-running tasks stay in
+    # legacy mode. Future inserts (after this migration runs) honor the
+    # DEFAULT 1 from cmd_init / the ALTER TABLE above.
+    conn = db_connect(db_path)
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("UPDATE tasks SET scope_enforced = 0")
+
+        # Backfill task_scope from the legacy hint cache. Load the helper
+        # dynamically so this module stays importable for tests that don't
+        # have tusk_loader on sys.path.
+        if script_dir:
+            sys.path.insert(0, script_dir)
+            try:
+                import importlib
+                import tusk_loader  # type: ignore
+                importlib.reload(tusk_loader)
+                git_helpers = tusk_loader.load("tusk-git-helpers")
+                task_referenced_paths_fn = git_helpers.task_referenced_paths
+            finally:
+                if sys.path and sys.path[0] == script_dir:
+                    sys.path.pop(0)
+
+            task_ids = [r["id"] for r in conn.execute("SELECT id FROM tasks").fetchall()]
+            for tid in task_ids:
+                existing = conn.execute(
+                    "SELECT 1 FROM task_scope WHERE task_id = ? LIMIT 1", (tid,)
+                ).fetchone()
+                if existing:
+                    continue
+                for pattern in task_referenced_paths_fn(tid, conn):
+                    conn.execute(
+                        "INSERT INTO task_scope (task_id, pattern, source) "
+                        "VALUES (?, ?, 'auto_derived')",
+                        (tid, pattern),
+                    )
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Recreate tasks-dependent views so the new column propagates through
+    # SELECT t.* projections on already-migrated DBs (column-list freezing
+    # under ALTER TABLE — see migrate_72 doc / TASK-131).
+    script = """
+        DROP VIEW IF EXISTS task_metrics;
+        CREATE VIEW task_metrics AS
+        SELECT t.*,
+            COUNT(s.id) as session_count,
+            SUM(s.duration_seconds) as total_duration_seconds,
+            SUM(s.cost_dollars) as total_cost,
+            SUM(s.tokens_in) as total_tokens_in,
+            SUM(s.tokens_out) as total_tokens_out,
+            SUM(s.lines_added) as total_lines_added,
+            SUM(s.lines_removed) as total_lines_removed,
+            SUM(s.request_count) as total_request_count,
+            (SELECT COUNT(*) FROM task_status_transitions tst
+              WHERE tst.task_id = t.id AND tst.to_status = 'To Do') as reopen_count
+        FROM tasks t
+        LEFT JOIN task_sessions s ON t.id = s.task_id
+        WHERE t.bakeoff_shadow = 0
+        GROUP BY t.id;
+
+        DROP VIEW IF EXISTS v_ready_tasks;
+        CREATE VIEW v_ready_tasks AS
+        SELECT t.*
+        FROM tasks t
+        WHERE t.status = 'To Do'
+          AND t.bakeoff_shadow = 0
+          AND NOT EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks blocker ON d.depends_on_id = blocker.id
+            WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM external_blockers eb
+            WHERE eb.task_id = t.id AND eb.is_resolved = 0
+          );
+
+        DROP VIEW IF EXISTS v_chain_heads;
+        CREATE VIEW v_chain_heads AS
+        SELECT t.*
+        FROM tasks t
+        WHERE t.status <> 'Done'
+          AND t.bakeoff_shadow = 0
+          AND EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks downstream ON d.task_id = downstream.id
+            WHERE d.depends_on_id = t.id AND downstream.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM task_dependencies d
+            JOIN tasks blocker ON d.depends_on_id = blocker.id
+            WHERE d.task_id = t.id AND d.relationship_type = 'blocks' AND blocker.status <> 'Done'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM external_blockers eb
+            WHERE eb.task_id = t.id AND eb.is_resolved = 0
+          );
+
+        DROP VIEW IF EXISTS v_criteria_coverage;
+        CREATE VIEW v_criteria_coverage AS
+        SELECT t.id AS task_id,
+               t.summary,
+               COUNT(CASE WHEN ac.is_deferred = 0 OR ac.is_deferred IS NULL THEN 1 END) AS total_criteria,
+               COALESCE(SUM(CASE WHEN ac.is_completed = 1 AND (ac.is_deferred = 0 OR ac.is_deferred IS NULL) THEN 1 ELSE 0 END), 0) AS completed_criteria,
+               COUNT(CASE WHEN ac.is_deferred = 0 OR ac.is_deferred IS NULL THEN 1 END) - COALESCE(SUM(CASE WHEN ac.is_completed = 1 AND (ac.is_deferred = 0 OR ac.is_deferred IS NULL) THEN 1 ELSE 0 END), 0) AS remaining_criteria
+        FROM tasks t
+        LEFT JOIN acceptance_criteria ac ON ac.task_id = t.id
+        WHERE t.bakeoff_shadow = 0
+        GROUP BY t.id, t.summary;
+
+        PRAGMA user_version = 73;
+    """
+    run_script(db_path, script)
+    _progress("  Migration 73: added task_scope, tasks.scope_enforced, and backfilled from task_referenced_paths")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -3079,6 +3254,7 @@ MIGRATIONS = [
     (70, migrate_70),
     (71, migrate_71),
     (72, migrate_72),
+    (73, migrate_73),
 ]
 
 

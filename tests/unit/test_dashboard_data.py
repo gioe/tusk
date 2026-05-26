@@ -55,7 +55,8 @@ CREATE TABLE tasks (
     merge_base_sha TEXT,
     fixes_task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
     bakeoff_id INTEGER,
-    bakeoff_shadow INTEGER NOT NULL DEFAULT 0 CHECK (bakeoff_shadow IN (0, 1))
+    bakeoff_shadow INTEGER NOT NULL DEFAULT 0 CHECK (bakeoff_shadow IN (0, 1)),
+    scope_enforced INTEGER NOT NULL DEFAULT 1 CHECK (scope_enforced IN (0, 1))
 );
 
 CREATE TABLE task_sessions (
