@@ -56,6 +56,29 @@ def main(argv: list) -> int:
         if row is None:
             print(f"Error: task {task_id} not found", file=sys.stderr)
             return 1
+        # Prefer the authoritative task_scope table when any rows exist for
+        # this task (TASK-471). When any row has source='unbounded', emit
+        # nothing so the commit-time scope guard silently passes (the task
+        # has been explicitly opted out of path restriction). Fall back to
+        # the legacy task_referenced_paths hint cache only when task_scope
+        # has no rows for this task — preserves behavior for tasks created
+        # before migration 73 (scope_enforced=0) until an operator declares
+        # scope explicitly via `tusk scope add` or recreates the task with
+        # `tusk task-insert --scope/--creates/--unbounded`.
+        scope_rows = conn.execute(
+            "SELECT pattern, source FROM task_scope WHERE task_id = ? ORDER BY id",
+            (task_id,),
+        ).fetchall()
+        if scope_rows:
+            if any(r["source"] == "unbounded" for r in scope_rows):
+                return 0
+            seen: set = set()
+            for r in scope_rows:
+                pattern = r["pattern"]
+                if pattern and pattern not in seen:
+                    seen.add(pattern)
+                    print(pattern)
+            return 0
         for p in task_referenced_paths(task_id, conn):
             print(p)
     return 0

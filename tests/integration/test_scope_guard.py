@@ -229,3 +229,103 @@ def test_no_scope_signal_silent_pass(codex_sandbox):
         f"stderr={result.stderr!r}"
     )
     assert "scope-guard rejected" not in result.stderr
+
+
+# ── TASK-471: scope-paths prefers task_scope over task_referenced_paths ────
+
+
+def test_prefers_authoritative_scope(codex_sandbox):
+    """When the authoritative ``task_scope`` table has rows, the guard
+    reads those patterns and ignores the legacy
+    ``task_referenced_paths`` hint cache extracted from the task
+    description (criterion 2184).
+
+    The task description references ``hint/legacy.txt`` (which would be in
+    scope under the legacy fallback) but the operator declared
+    ``declared/path.txt`` via ``tusk task-insert --scope``. The guard must
+    reject a commit that stages ``hint/legacy.txt`` — proof that
+    ``task_scope`` overrides the legacy cache — and accept a commit that
+    stages ``declared/path.txt``.
+    """
+    env = _sandbox_env(codex_sandbox)
+    result = _run(
+        [
+            "tusk", "task-insert",
+            "Prefer authoritative scope",
+            "Mention hint/legacy.txt in the description — this would land "
+            "in task_referenced_paths under the legacy fallback.",
+            "--criteria", "seed",
+            "--scope", "declared/path.txt",
+        ],
+        codex_sandbox,
+        env=env,
+    )
+    import json as _json
+    task_id = int(_json.loads(result.stdout)["task_id"])
+
+    # Verify scope-paths emits ONLY the declared pattern, not the legacy hint.
+    sp = _run(["tusk", "scope-paths", str(task_id)], codex_sandbox, env=env)
+    paths = [line for line in sp.stdout.splitlines() if line]
+    assert paths == ["declared/path.txt"], (
+        f"scope-paths must emit only task_scope patterns when present; got {paths}"
+    )
+    assert "hint/legacy.txt" not in paths
+
+    _git(["checkout", "-b", f"feature/TASK-{task_id}-x"], codex_sandbox)
+
+    # Staging the legacy-cache path must be rejected (task_scope wins).
+    (codex_sandbox / "hint").mkdir(exist_ok=True)
+    (codex_sandbox / "hint" / "legacy.txt").write_text("hint\n")
+    _git(["add", "hint/legacy.txt"], codex_sandbox)
+    rejected = _invoke_pre_commit(codex_sandbox, env=env)
+    assert rejected.returncode != 0, (
+        "guard must reject the legacy-cache path once task_scope is authoritative"
+    )
+    assert "scope-guard rejected" in rejected.stderr
+    assert "hint/legacy.txt" in rejected.stderr
+
+    # Reset the index, stage the declared path, and confirm the guard passes.
+    _git(["reset"], codex_sandbox)
+    (codex_sandbox / "declared").mkdir(exist_ok=True)
+    (codex_sandbox / "declared" / "path.txt").write_text("declared\n")
+    _git(["add", "declared/path.txt"], codex_sandbox)
+    accepted = _invoke_pre_commit(codex_sandbox, env=env)
+    assert accepted.returncode == 0, (
+        f"guard must accept the operator-declared path: stderr={accepted.stderr!r}"
+    )
+
+
+def test_unbounded_silent_pass(codex_sandbox):
+    """``task_scope`` rows with ``source='unbounded'`` make scope-paths
+    emit nothing, so the guard silent-passes any staged file. The same
+    flag prevents the description's referenced paths from ever being
+    enforced — opting out of the entire restriction is the explicit
+    contract."""
+    env = _sandbox_env(codex_sandbox)
+    result = _run(
+        [
+            "tusk", "task-insert",
+            "Unbounded refactor",
+            "Touches anywhere/across/the/repo.txt — unbounded opts out of "
+            "the scope guard entirely.",
+            "--criteria", "seed",
+            "--unbounded",
+        ],
+        codex_sandbox,
+        env=env,
+    )
+    import json as _json
+    task_id = int(_json.loads(result.stdout)["task_id"])
+
+    sp = _run(["tusk", "scope-paths", str(task_id)], codex_sandbox, env=env)
+    assert sp.stdout.strip() == "", (
+        f"unbounded must suppress all patterns; got {sp.stdout!r}"
+    )
+
+    _git(["checkout", "-b", f"feature/TASK-{task_id}-x"], codex_sandbox)
+    (codex_sandbox / "anything_at_all.txt").write_text("anywhere\n")
+    _git(["add", "anything_at_all.txt"], codex_sandbox)
+    accepted = _invoke_pre_commit(codex_sandbox, env=env)
+    assert accepted.returncode == 0, (
+        f"unbounded scope must silent-pass any staged file: stderr={accepted.stderr!r}"
+    )
