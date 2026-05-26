@@ -3182,6 +3182,54 @@ def migrate_73(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 73: added task_scope, tasks.scope_enforced, and backfilled from task_referenced_paths")
 
 
+def migrate_74(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add input-token cache-split columns to task_sessions and skill_runs.
+
+    Three new columns each on both tables:
+      - cache_read_tokens_in: cached input tokens (priced ~10% of input)
+      - cache_write_tokens_in: cache-creation input tokens (priced ~125%
+        of input; sum of 5m + 1h + default-TTL cache writes)
+      - uncached_tokens_in: non-cached input tokens (priced as input)
+
+    aggregate_session() in bin/tusk-pricing-lib.py already parses the
+    Anthropic usage block into totals["input_tokens"],
+    totals["cache_creation_input_tokens"], and totals["cache_read_input_tokens"].
+    Before this migration, compute_tokens_in() collapsed them into a
+    single tokens_in and the breakdown was discarded — making
+    cache-hit-rate invisible in stored data and provider-agnostic token
+    repricing impossible. After this migration, update_session_stats()
+    and the bin/tusk-skill-run.py finish path also persist the split.
+
+    No tasks-table columns change, so the SELECT t.* view-recreation
+    gotcha (task_metrics / v_ready_tasks / v_chain_heads /
+    v_criteria_coverage) does not apply.
+
+    Idempotent: each ALTER TABLE is guarded by has_column().
+
+    Issue #872.
+    """
+    if get_version(db_path) >= 74:
+        _progress("  Migration 74: added cache-split columns to task_sessions and skill_runs")
+        return
+
+    for table, column in (
+        ("task_sessions", "cache_read_tokens_in"),
+        ("task_sessions", "cache_write_tokens_in"),
+        ("task_sessions", "uncached_tokens_in"),
+        ("skill_runs", "cache_read_tokens_in"),
+        ("skill_runs", "cache_write_tokens_in"),
+        ("skill_runs", "uncached_tokens_in"),
+    ):
+        if not has_column(db_path, table, column):
+            run_script(
+                db_path,
+                f"ALTER TABLE {table} ADD COLUMN {column} INTEGER;",
+            )
+
+    set_version(db_path, 74)
+    _progress("  Migration 74: added cache-split columns to task_sessions and skill_runs")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -3258,6 +3306,7 @@ MIGRATIONS = [
     (71, migrate_71),
     (72, migrate_72),
     (73, migrate_73),
+    (74, migrate_74),
 ]
 
 

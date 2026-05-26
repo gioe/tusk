@@ -694,6 +694,9 @@ CREATE TABLE task_sessions (
     cost_dollars REAL,
     tokens_in INTEGER,
     tokens_out INTEGER,
+    cache_read_tokens_in INTEGER,
+    cache_write_tokens_in INTEGER,
+    uncached_tokens_in INTEGER,
     lines_added INTEGER,
     lines_removed INTEGER,
     model TEXT,
@@ -935,6 +938,9 @@ CREATE TABLE skill_runs (
     cost_dollars REAL,
     tokens_in INTEGER,
     tokens_out INTEGER,
+    cache_read_tokens_in INTEGER,
+    cache_write_tokens_in INTEGER,
+    uncached_tokens_in INTEGER,
     model TEXT,
     metadata TEXT,
     request_count INTEGER,
@@ -1143,7 +1149,7 @@ TEST_RUNS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 73;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 74;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."
