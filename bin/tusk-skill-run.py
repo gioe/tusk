@@ -120,6 +120,11 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
     request_count = 0
     user_prompt_tokens = 0
     user_prompt_count = 0
+    # Cache split — schema 74 (issue #872). See update_session_stats() in
+    # bin/tusk-pricing-lib.py for the parallel task_sessions writer.
+    cache_read_tokens_in = 0
+    cache_write_tokens_in = 0
+    uncached_tokens_in = 0
 
     if transcript_path and os.path.isfile(transcript_path):
         totals = lib.aggregate_session(transcript_path, started_at, ended_at)
@@ -129,6 +134,9 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
             tokens_out = totals["output_tokens"]
             model = totals["model"]
             request_count = totals["request_count"]
+            cache_read_tokens_in = totals.get("cache_read_input_tokens", 0)
+            cache_write_tokens_in = totals.get("cache_creation_input_tokens", 0)
+            uncached_tokens_in = totals.get("input_tokens", 0)
         user_prompt_tokens = totals.get("user_prompt_tokens", 0)
         user_prompt_count = totals.get("user_prompt_count", 0)
     else:
@@ -141,10 +149,12 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
         """UPDATE skill_runs
            SET cost_dollars = ?, tokens_in = ?, tokens_out = ?, model = ?,
                metadata = ?, request_count = ?,
-               user_prompt_tokens = ?, user_prompt_count = ?
+               user_prompt_tokens = ?, user_prompt_count = ?,
+               cache_read_tokens_in = ?, cache_write_tokens_in = ?, uncached_tokens_in = ?
            WHERE id = ?""",
         (cost, tokens_in, tokens_out, model, metadata, request_count,
-         user_prompt_tokens, user_prompt_count, run_id),
+         user_prompt_tokens, user_prompt_count,
+         cache_read_tokens_in, cache_write_tokens_in, uncached_tokens_in, run_id),
     )
     conn.commit()
     # Close connection before spawning subprocess to avoid SQLITE_BUSY (two write
