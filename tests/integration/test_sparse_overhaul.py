@@ -368,3 +368,114 @@ def test_generate_manifest_runs_in_full_checkout(tmp_path, monkeypatch):
         f"generate-manifest should succeed in a full checkout;\n"
         f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}"
     )
+
+
+# ── Criterion 2229 (issue #906) ─────────────────────────────────────
+
+
+def _load_commit_helpers(monkeypatch):
+    """Import the sparse-aware helpers from ``bin/tusk-commit.py`` by path."""
+    import importlib.util
+
+    bin_dir = os.path.join(REPO_ROOT, "bin")
+    monkeypatch.syspath_prepend(bin_dir)
+    spec = importlib.util.spec_from_file_location(
+        "_tusk_commit_for_test",
+        os.path.join(bin_dir, "tusk-commit.py"),
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_test_command_outside_sparse_cone_detects_missing_path(
+    tmp_path, monkeypatch
+):
+    """``_test_command_outside_sparse_cone`` returns (True, target) when the
+    test command's path token is absent on disk under sparse-checkout."""
+    repo, _db_path, _env = _repo_with_tusk(tmp_path, monkeypatch)
+    _git(["sparse-checkout", "init", "--cone"], cwd=repo)
+    _git(["sparse-checkout", "set", "bin"], cwd=repo)
+    # tests/unit/ exists in the repo's HEAD but the cone is 'bin', so it's not
+    # materialized on disk.
+    assert not (repo / "tests" / "unit").exists(), (
+        "fixture invariant: tests/unit should not be materialized under cone=bin"
+    )
+    commit = _load_commit_helpers(monkeypatch)
+    outside, target = commit._test_command_outside_sparse_cone(
+        "python3 -m pytest tests/unit/ -q", str(repo)
+    )
+    assert outside is True
+    assert target == "tests/unit/"
+
+
+def test_test_command_outside_sparse_cone_present_path(tmp_path, monkeypatch):
+    """When the test command's target IS materialized, the helper returns False."""
+    repo, _db_path, _env = _repo_with_tusk(tmp_path, monkeypatch)
+    # No sparse-checkout, so tests/unit/ exists on disk.
+    commit = _load_commit_helpers(monkeypatch)
+    outside, _target = commit._test_command_outside_sparse_cone(
+        "python3 -m pytest tests/unit/ -q", str(repo)
+    )
+    assert outside is False
+
+
+def test_commit_info_skips_when_test_command_path_outside_cone(
+    tmp_path, monkeypatch
+):
+    """End-to-end: ``tusk commit`` succeeds (info-skip) when sparse-checkout
+    excludes the configured test_command's target path. Without the fix,
+    every commit in the session would exit 2 forcing --skip-verify everywhere.
+    """
+    repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+    # Pin test_command to a path that will be outside the cone.
+    config_path = repo / "tusk" / "config.json"
+    cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    cfg["test_command"] = "python3 -m pytest tests/unit/ -q"
+    config_path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+
+    task = _insert_task(db_path, "Edit bin/some-script for issue X")
+    # Build a feature branch manually so we don't depend on task-worktree.
+    _git(["checkout", "-b", "feature/TASK-1-test"], cwd=repo)
+    _git(["sparse-checkout", "init", "--cone"], cwd=repo)
+    _git(["sparse-checkout", "set", "bin"], cwd=repo)
+    # Record the workspace so tusk commit doesn't refuse on branch-mismatch.
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO task_workspaces (task_id, branch, workspace_path) "
+            "VALUES (?, ?, ?)",
+            (task, "feature/TASK-1-test", str(repo)),
+        )
+        conn.commit()
+    # Add a criterion so commit --criteria has something to mark.
+    cres = _run(
+        ["criteria", "add", str(task), "Stub criterion for sparse skip test"],
+        cwd=repo,
+        env=env,
+    )
+    assert cres.returncode == 0, cres.stderr
+    cid = json.loads(cres.stdout)["id"]
+
+    # Modify an in-cone file so there's a real change to commit.
+    (repo / "bin" / "some-script").write_text("#!/bin/sh\necho hi\n", encoding="utf-8")
+
+    result = _run(
+        [
+            "commit",
+            str(task),
+            "Edit bin/some-script",
+            "bin/some-script",
+            "--criteria",
+            str(cid),
+        ],
+        cwd=repo,
+        env=env,
+    )
+    assert result.returncode == 0, (
+        f"tusk commit should info-skip the test gate under sparse-cone-miss; "
+        f"exit={result.returncode}\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+    )
+    combined = result.stdout + result.stderr
+    assert "sparse-checkout cone" in combined or "skipping test gate" in combined, (
+        f"expected sparse-skip info line; output was:\n{combined}"
+    )
