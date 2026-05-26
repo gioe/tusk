@@ -239,3 +239,89 @@ def test_cone_flag_help_text(tmp_path, monkeypatch):
     assert "--cone" in result.stdout, (
         f"--cone missing from help text; stdout was: {result.stdout}"
     )
+
+
+# ── Criterion 2227 (issue #904) ─────────────────────────────────────
+
+
+# ── Criterion 2227 (issue #904) ─────────────────────────────────────
+
+
+def _load_rule18(monkeypatch):
+    """Import ``rule18_manifest_drift`` from ``bin/tusk-lint.py``.
+
+    The file is named with a hyphen so it's not a normal importable module;
+    use importlib by path so the test can call the function directly without
+    going through the full ``tusk lint`` driver (which would run all 25+
+    rules against a minimal test repo and produce noisy unrelated output).
+    """
+    import importlib.util
+
+    bin_dir = os.path.join(REPO_ROOT, "bin")
+    monkeypatch.syspath_prepend(bin_dir)
+    spec = importlib.util.spec_from_file_location(
+        "_tusk_lint_for_test",
+        os.path.join(bin_dir, "tusk-lint.py"),
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _seed_source_repo_layout(repo):
+    """Stamp the test repo with enough source-repo layout to drive Rule 18.
+
+    Rule 18 is gated on ``bin/tusk`` existing at the repo root (source-repo
+    sentinel). We also write a MANIFEST referencing files that don't exist
+    on disk so the rule would report drift in a non-sparse worktree — that's
+    how we prove the sparse-aware short-circuit is the thing suppressing the
+    drift output, not just an empty MANIFEST.
+    """
+    (repo / "bin" / "tusk").write_text("#!/bin/sh\n", encoding="utf-8")
+    (repo / "bin" / "dist-excluded.txt").write_text("", encoding="utf-8")
+    (repo / "MANIFEST").write_text(
+        json.dumps([
+            ".claude/bin/tusk",
+            ".claude/skills/tusk/SKILL.md",
+            ".claude/hooks/noop.sh",
+        ], indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def test_rule18_skipped_under_sparse_checkout(tmp_path, monkeypatch):
+    """Rule 18 returns [] when sparse-checkout is active.
+
+    Without the fix, Rule 18 walks the on-disk source tree and reports every
+    file present in MANIFEST but absent in the sparse view as "extra in
+    MANIFEST but not in source tree" — the issue #904 cluster (17+ false
+    positives in a typical sparse worktree, which then trigger the auto-
+    `generate-manifest` retry path and silently destroy MANIFEST entries).
+    """
+    repo, _db_path, _env = _repo_with_tusk(tmp_path, monkeypatch)
+    _seed_source_repo_layout(repo)
+    _git(["sparse-checkout", "init", "--cone"], cwd=repo)
+    _git(["sparse-checkout", "set", "bin"], cwd=repo)
+
+    lint = _load_rule18(monkeypatch)
+    violations = lint.rule18_manifest_drift(str(repo))
+    assert violations == [], (
+        f"Rule 18 should return [] under sparse-checkout; got {violations}"
+    )
+
+
+def test_rule18_still_fires_without_sparse_checkout(tmp_path, monkeypatch):
+    """Rule 18 still reports drift when sparse-checkout is NOT active.
+
+    Confirms the short-circuit is gated strictly on the sparse-checkout
+    signal — normal drift detection survives intact.
+    """
+    repo, _db_path, _env = _repo_with_tusk(tmp_path, monkeypatch)
+    _seed_source_repo_layout(repo)
+    # No sparse-checkout enabled.
+    lint = _load_rule18(monkeypatch)
+    violations = lint.rule18_manifest_drift(str(repo))
+    assert violations, (
+        "Rule 18 should report drift when sparse-checkout is off but MANIFEST "
+        "references files absent from the source tree"
+    )

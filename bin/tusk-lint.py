@@ -1030,6 +1030,27 @@ def rule17_db_rules_advisory(root):
     return _run_lint_rules(root, rules)
 
 
+def _sparse_checkout_active(root):
+    """Return True when the worktree at ``root`` has cone-mode sparse-checkout
+    enabled — i.e. ``git config core.sparseCheckout`` reads ``true``.
+
+    Rules that enumerate the on-disk source tree (Rule 18) and the auto-retry
+    ``tusk generate-manifest`` path in ``tusk commit`` rely on this signal to
+    skip drift checks and refuse manifest rewrites that would otherwise treat
+    unmaterialized out-of-cone files as deletions (TASK-480, issues #904/#905).
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", root, "config", "--get", "core.sparseCheckout"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0 and result.stdout.strip().lower() == "true"
+
+
 def rule18_manifest_drift(root):
     """MANIFEST file is out of sync with files distributed by install.sh."""
     import glob as _glob
@@ -1037,6 +1058,18 @@ def rule18_manifest_drift(root):
     # This rule is only meaningful in the tusk source repo.  Target projects
     # don't have a MANIFEST or a bin/tusk shell script.  Mirror rule8's guard.
     if not os.path.isfile(os.path.join(root, "bin", "tusk")):
+        return []
+
+    # In a sparse-checkout worktree, the on-disk enumeration below is a
+    # subset of the canonical source tree — every file outside the cone is
+    # absent on disk but present in MANIFEST. Reporting each as "extra in
+    # MANIFEST but not in source tree" was the issue #904 false-positive
+    # cluster (TASK-480, criterion 2227): a typical sparse worktree scored
+    # 17+ violations, which then triggered tusk commit's auto-`generate-
+    # manifest` retry path and silently destroyed every out-of-cone entry.
+    # Skip the drift check entirely under sparse-checkout — MANIFEST drift
+    # can only be assessed reliably from a full checkout.
+    if _sparse_checkout_active(root):
         return []
 
     manifest_path = os.path.join(root, "MANIFEST")
