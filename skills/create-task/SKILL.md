@@ -95,6 +95,8 @@ Each task carries three text fields with distinct intents — keep them sharp. B
 - **Good:** "Migration 55 added `tasks.fixes_task_id`; views need to be recreated to pick it up"
 - **Avoid:** "See line 88 of bin/tusk-migrate.py for the migration logic"
 
+**Paths are scope hints (TASK-471 / TASK-475).** Any file path you name in the description or criteria is **interpreted as a scope hint** — the commit-time scope guard (and the `task-insert` auto-extractor that seeds `task_scope`) read those paths as "this task is authorized to touch them." Be deliberate: only name paths the task will actually edit. Cite an external design doc by title or by section anchor, not by repo-relative path, unless the task will also modify it. Padding the description with unrelated path citations widens the implicit scope and undermines the guard's ability to flag accidental sprawl mid-task.
+
 ### Task Type Decision Guide
 
 The key question: **Is this type the primary deliverable, or is it proof that another deliverable is done?**
@@ -196,6 +198,46 @@ For each proposed task, count `len(summary)` and `len(description)`. If **either
 
 Apply the user's chosen fix, recount lengths against the same caps (150 / 1200), and only proceed to Step 4 once **every** task is within both limits. Do not skip this validation — a task that exceeds either cap must not reach `tusk task-insert`.
 
+## Step 3.8: Extract Scope Hints
+
+Before presenting the task list, ask `tusk scope-hint` to derive the **proposed scope** for each task — the set of paths the task is authorized to touch, plus any signals that the task is unbounded (refactor / cross-cutting). Surfacing scope at planning time is what makes the commit-time scope guard actionable: the operator sees what scope the task will have *before* it ships, instead of discovering the boundary the first time a mid-task commit gets rejected.
+
+For each proposed task, run:
+
+```bash
+tusk scope-hint \
+  --summary "<summary>" \
+  --description "<description>" \
+  --task-type "<task_type>" \
+  --domain "<domain>" \
+  --criterion "<criterion 1 text>" [--criterion "<criterion 2 text>" ...] \
+  --typed-spec "<typed-criterion spec 1>" [--typed-spec "<typed-criterion spec 2>" ...]
+```
+
+The command returns JSON of the shape:
+
+```json
+{
+  "scope": ["bin/foo.py", "tests/integration/test_foo.py"],
+  "creates": ["bin/foo.py"],
+  "unbounded": false,
+  "rationale": {
+    "scope": "extracted from summary/description/criteria/specs",
+    "creates": "description names a path as a new file/script"
+  }
+}
+```
+
+Three signals to act on:
+
+- **`scope`** — file paths extracted from the prose. These are paths the task is expected to touch. They will be passed to `tusk task-insert` as `--scope` only when you want them recorded as `operator_declared`; otherwise, the `task-insert` auto-extractor will record the same set as `auto_derived` rows at insert time without an explicit flag (see Step 5). Either way, the operator should review the list — if any path looks accidental (a citation, an external link, a path the task does NOT mean to modify), edit the description in Step 4's review loop to remove it.
+
+- **`creates`** — paths the description explicitly marks as new files (e.g. `"Create a new file bin/foo.py"`). These deserve `--creates` rather than `--scope` so the scope source is recorded accurately (the file does not exist yet — `auto_derived` would imply it does). Surface to the operator: *"This task proposes creating bin/foo.py — confirm?"*
+
+- **`unbounded`** — `true` when the task is a refactor or contains cross-cutting signal phrases (`"across all"`, `"every skill"`, `"sweep through"`, etc.). An unbounded task short-circuits the commit-time scope guard, so flag it for explicit confirmation before insertion: *"This looks unbounded (`rationale.unbounded`). Pass `--unbounded` to short-circuit the scope guard, or split into per-area tasks instead?"*
+
+The hint is advisory — the operator can confirm, edit, or override every suggestion in Step 4. Treat it as a starting point, not a verdict. If the suggested scope is clearly wrong (e.g. extracted a URL fragment that looked like a path), drop it.
+
 ## Step 4: Present Task List for Review
 
 ### Single-task fast path
@@ -207,11 +249,16 @@ If analysis produced **exactly 1 task**, use the compact inline format instead o
 
 **Add login endpoint with JWT auth** (High · api · feature · M · backend)
 > Implement POST /auth/login that validates credentials and returns a JWT token. Include refresh token support.
+>
+> **Proposed scope** (from `tusk scope-hint`):
+> - touches: `apps/api/auth/login.py`, `tests/integration/test_login.py`
+> - creates: `apps/api/auth/login.py`
+> - unbounded: no
 ```
 
 Then ask:
 
-> Create this task? You can **confirm**, **edit** (e.g., "change priority to Medium"), or **remove** it.
+> Create this task? You can **confirm**, **edit** (e.g., "change priority to Medium" or "remove tests/integration/test_login.py from scope"), or **remove** it.
 
 ### Multi-task presentation
 
@@ -229,9 +276,13 @@ If analysis produced **2 or more tasks**, show the full numbered table:
 
 **1. Add login endpoint with JWT auth**
 > Implement POST /auth/login that validates credentials and returns a JWT token. Include refresh token support.
+>
+> **Proposed scope:** touches `apps/api/auth/login.py`, `tests/integration/test_login.py` · creates `apps/api/auth/login.py` · unbounded: no
 
 **2. Add signup page with form validation**
 > Create signup form with email, password, and confirm password fields. Validate on blur and on submit.
+>
+> **Proposed scope:** touches `apps/web/signup.tsx`, `tests/integration/test_signup.py` · creates `apps/web/signup.tsx` · unbounded: no
 ```
 
 Then ask:
@@ -239,8 +290,10 @@ Then ask:
 > Does this look right? You can:
 > - **Confirm** to create all tasks
 > - **Remove** specific numbers (e.g., "remove 3")
-> - **Edit** a task (e.g., "change 2 priority to High")
+> - **Edit** a task (e.g., "change 2 priority to High", "remove tests/integration/test_signup.py from 2's scope", "mark 1 as unbounded")
 > - **Add** a task you think is missing
+
+When the operator amends scope (e.g. *"remove tests/integration/test_signup.py from 2's scope"*), update the in-memory `scope` / `creates` / `unbounded` set you got from `tusk scope-hint`; don't re-run the hint — the operator's edits override the heuristic.
 
 ### For both paths
 
@@ -355,7 +408,7 @@ Before inserting, apply these rules to every generated criterion:
 
 Revise the criterion and present it to the user for approval before proceeding to insertion.
 
-Then insert the task with criteria in a single call using `tusk task-insert`. This validates enum values against config, runs a heuristic duplicate check internally, and inserts the task + criteria in one transaction:
+Then insert the task with criteria in a single call using `tusk task-insert`. This validates enum values against config, runs a heuristic duplicate check internally, and inserts the task + criteria in one transaction. Pass the scope decisions confirmed in Step 4 as `--scope` / `--creates` / `--unbounded` flags — the operator's review is the gate, not the heuristic:
 
 ```bash
 tusk task-insert "<summary>" "<description>" \
@@ -366,8 +419,25 @@ tusk task-insert "<summary>" "<description>" \
   --complexity "<complexity>" \
   --criteria "<criterion 1>" \
   --criteria "<criterion 2>" \
-  --criteria "<criterion 3>"
+  --criteria "<criterion 3>" \
+  --creates "<creates path>" \
+  --scope "<additional scope path operator confirmed>"
 ```
+
+**Scope-flag rules** (consumed from the confirmed Step 3.8 + Step 4 state):
+
+- **`--unbounded`** — pass when the operator confirmed the task is cross-cutting. When set, omit `--scope` and `--creates` entirely; the unbounded sentinel short-circuits the commit-time scope guard regardless of the other rows.
+- **`--creates "<path>"`** — repeat once per path the operator confirmed as newly-created. These should be paths that do not yet exist on disk.
+- **`--scope "<path>"`** — repeat once per **additional** path the operator explicitly authorized that the description does not name. Paths the description already names will be auto-extracted by `task-insert` as `auto_derived` rows; do not re-list them under `--scope` (it would create duplicate scope rows with different source attribution, which clutters audit trails).
+- **Removed scope** — if the operator dropped a path the description still mentions, edit the description before insertion so the auto-extractor does not re-introduce it. The auto-extractor is path-agnostic; it cannot tell that a path was deliberately excluded.
+
+After insertion succeeds, confirm the derived scope was recorded as expected:
+
+```bash
+tusk scope list <task_id>
+```
+
+Show the resulting list to the operator so they can sanity-check the final state before moving on. If anything looks wrong (auto-extractor picked up an unintended path, `--unbounded` was omitted by mistake), the operator can amend immediately via `tusk scope add` / `tusk scope` rather than discovering the gap when the first commit gets rejected.
 
 If the task was linked to a source task in Step 3.6, append `--fixes-task-id <N>` so the follow-up relationship is persisted to `tasks.fixes_task_id`:
 
