@@ -327,3 +327,171 @@ def test_auto_sync_success_chains_deployed_bin_refresh(
         "deployed-bin refresh must chain after a successful auto-sync, "
         "with the same db_path and tusk_bin"
     )
+
+
+# Issue #908: when sync-main exits non-zero from inside tusk merge, the
+# fallback advisory should route by the specific failure mode (stash refused,
+# ff refused, pop failed, migrate failed, fetch failed) instead of
+# re-recommending `tusk sync-main` verbatim — the command that just exited 1.
+# Unmerged-conflict detection on primary takes priority because it is the most
+# common root cause (the original incident on this issue was a pre-session
+# UU CLAUDE.md preventing the internal stash push).
+
+
+def _stderr_routed_advisory(tmp_path, tusk_merge_module, monkeypatch, capsys, stderr):
+    """Drive _maybe_advise_stale_deployed_bin with a fake sync-main failure
+    carrying the given stderr and return the captured stderr text."""
+    db_path = _source_repo_layout(tmp_path)
+    monkeypatch.setattr(
+        tusk_merge_module, "_run_sync_main",
+        lambda *a, **kw: _fake_completed(
+            1, stdout='{"default_branch": "main", "success": false}',
+            stderr=stderr,
+        ),
+    )
+    monkeypatch.setattr(
+        tusk_merge_module, "_maybe_refresh_deployed_bin", lambda *a, **kw: False,
+    )
+    tusk_merge_module._maybe_advise_stale_deployed_bin(db_path, tusk_bin="/fake/tusk")
+    return capsys.readouterr().err
+
+
+def test_auto_sync_fetch_failure_routes_to_fetch_advisory(
+    tmp_path, tusk_merge_module, monkeypatch, capsys,
+):
+    err = _stderr_routed_advisory(
+        tmp_path, tusk_merge_module, monkeypatch, capsys,
+        stderr="Error: git fetch origin main failed: network unreachable",
+    )
+    assert "auto-sync failed (tusk sync-main exit 1)" in err
+    assert "`git fetch origin main` failed inside sync-main" in err
+    assert "Check network/auth" in err
+    assert ".claude/bin/ may be stale" not in err, (
+        "routed advisory must not append the indeterminate four-variant fallback"
+    )
+
+
+def test_auto_sync_stash_failure_routes_to_stash_advisory(
+    tmp_path, tusk_merge_module, monkeypatch, capsys,
+):
+    err = _stderr_routed_advisory(
+        tmp_path, tusk_merge_module, monkeypatch, capsys,
+        stderr="Error: git stash push failed: could not write index",
+    )
+    assert "auto-sync failed (tusk sync-main exit 1)" in err
+    assert "`git stash push` refused inside sync-main" in err
+    assert "unmerged paths or a corrupt index" in err
+    assert ".claude/bin/ may be stale" not in err
+
+
+def test_auto_sync_ff_failure_routes_to_ff_advisory(
+    tmp_path, tusk_merge_module, monkeypatch, capsys,
+):
+    err = _stderr_routed_advisory(
+        tmp_path, tusk_merge_module, monkeypatch, capsys,
+        stderr=(
+            "Error: git merge --ff-only origin/main failed: "
+            "fatal: Not possible to fast-forward"
+        ),
+    )
+    assert "auto-sync failed (tusk sync-main exit 1)" in err
+    assert "`git merge --ff-only origin/main` refused" in err
+    assert "local has diverged from origin" in err
+    assert "git pull --rebase origin main" in err
+    assert ".claude/bin/ may be stale" not in err
+
+
+def test_auto_sync_pop_failure_routes_to_pop_advisory(
+    tmp_path, tusk_merge_module, monkeypatch, capsys,
+):
+    err = _stderr_routed_advisory(
+        tmp_path, tusk_merge_module, monkeypatch, capsys,
+        stderr="Error: git stash pop stash@{0} failed: conflict in CLAUDE.md",
+    )
+    assert "auto-sync failed (tusk sync-main exit 1)" in err
+    assert "`git stash pop` failed after the ff-pull" in err
+    assert "remain stashed" in err
+    assert ".claude/bin/ may be stale" not in err
+
+
+def test_auto_sync_migrate_failure_routes_to_migrate_advisory(
+    tmp_path, tusk_merge_module, monkeypatch, capsys,
+):
+    err = _stderr_routed_advisory(
+        tmp_path, tusk_merge_module, monkeypatch, capsys,
+        stderr="Error: tusk migrate failed: schema version mismatch",
+    )
+    assert "auto-sync failed (tusk sync-main exit 1)" in err
+    assert "`tusk migrate` failed after a successful sync" in err
+    assert "pending schema migrations were not applied" in err
+    assert ".claude/bin/ may be stale" not in err
+
+
+def test_auto_sync_failure_with_unmerged_paths_takes_priority_over_stderr(
+    tmp_path, tusk_merge_module, monkeypatch, capsys,
+):
+    """Pre-existing UU/AA/DD rows on primary trump any sync-main stderr signature.
+
+    This is the actual root-cause scenario from issue #908: primary had a
+    pre-session UU CLAUDE.md, so sync-main's stash push failed. The advisory
+    should name the unmerged path instead of routing to the (correct but less
+    actionable) `git stash push refused` message.
+    """
+    db_path = _source_repo_layout(tmp_path)
+
+    # Create a real UU unmerged conflict on CLAUDE.md in the tmp repo.
+    _run(["git", "checkout", "-q", "-b", "feat-conflict"], cwd=tmp_path)
+    (tmp_path / "CLAUDE.md").write_text("from feat-conflict\n")
+    _run(["git", "add", "CLAUDE.md"], cwd=tmp_path)
+    _run(["git", "commit", "-q", "-m", "feat-conflict edit"], cwd=tmp_path)
+    _run(["git", "checkout", "-q", "main"], cwd=tmp_path)
+    (tmp_path / "CLAUDE.md").write_text("from main\n")
+    _run(["git", "add", "CLAUDE.md"], cwd=tmp_path)
+    _run(["git", "commit", "-q", "-m", "main edit"], cwd=tmp_path)
+    # `git merge feat-conflict` exits non-zero on conflict — don't use _run
+    # (which raises) here.
+    subprocess.run(
+        ["git", "merge", "feat-conflict"], cwd=str(tmp_path),
+        capture_output=True, encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        tusk_merge_module, "_run_sync_main",
+        lambda *a, **kw: _fake_completed(
+            1, stdout='{"default_branch": "main", "success": false}',
+            stderr="Error: git stash push failed: could not write index",
+        ),
+    )
+    monkeypatch.setattr(
+        tusk_merge_module, "_maybe_refresh_deployed_bin", lambda *a, **kw: False,
+    )
+
+    tusk_merge_module._maybe_advise_stale_deployed_bin(db_path, tusk_bin="/fake/tusk")
+    err = capsys.readouterr().err
+
+    assert "auto-sync failed (tusk sync-main exit 1)" in err
+    assert "primary has unmerged paths" in err
+    assert "CLAUDE.md" in err
+    # Unmerged-path branch wins over the stderr-based stash classification.
+    assert "`git stash push` refused" not in err, (
+        "unmerged-path detection must take priority over stderr-signature routing"
+    )
+    assert ".claude/bin/ may be stale" not in err
+
+
+def test_auto_sync_indeterminate_failure_falls_back_to_four_variant(
+    tmp_path, tusk_merge_module, monkeypatch, capsys,
+):
+    """When stderr matches no known signature AND primary is clean, fall back
+    to the issue #877 four-variant advisory verbatim. This is the
+    backwards-compatible escape hatch that preserves the original wording for
+    failure modes the classifier doesn't recognize yet."""
+    err = _stderr_routed_advisory(
+        tmp_path, tusk_merge_module, monkeypatch, capsys,
+        stderr="fatal: some novel error sync-main has not seen before\n",
+    )
+    assert "auto-sync failed (tusk sync-main exit 1)" in err
+    assert "fall back to manual recovery below" in err
+    # The four-variant clean-tree wording must follow the prefix line.
+    assert ".claude/bin/ may be stale" in err
+    assert "Run `tusk sync-main && tusk dev-sync`" in err
