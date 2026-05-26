@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1012] - 2026-05-26
+
+- [TASK-480] Sparse-checkout overhaul: fix MANIFEST + Rule 18 + cone defaults
+
 ## [1011] - 2026-05-26
 
 - [TASK-493] Fix: route tusk merge fallback advisory by sync-main failure mode instead of re-suggesting sync-main
