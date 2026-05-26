@@ -15,12 +15,20 @@ Output:
     scope-guard hook to enforce that staged files fall within the inferred
     task scope.
 
+When the scope set references a ``bin/tusk-*.py`` path that is not yet
+tracked by git, the output is augmented with Rule-42's same-commit
+companions (``bin/tusk``, ``MANIFEST``, ``.claude/tusk-manifest.json``)
+so new-script tasks don't need ``TUSK_SCOPE_GUARD_BYPASS=1`` for the
+dispatcher + manifest commit (issue #891).
+
 Exit codes:
     0 — success (always, even when no paths)
     1 — error (bad arguments, task not found, DB issue)
 """
 
+import fnmatch
 import os
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -30,6 +38,62 @@ _db_lib = tusk_loader.load("tusk-db-lib")
 _git_helpers = tusk_loader.load("tusk-git-helpers")
 get_connection = _db_lib.get_connection
 task_referenced_paths = _git_helpers.task_referenced_paths
+
+
+_NEW_TUSK_SCRIPT_COMPANIONS = (
+    "bin/tusk",
+    "MANIFEST",
+    ".claude/tusk-manifest.json",
+)
+
+
+def _repo_root_for_db(db_path: str) -> str:
+    """Return the repo root for a tusk DB path.
+
+    Tusk stores the DB at ``<repo>/tusk/tasks.db``, so the repo root is two
+    levels up. Falls back to ``git rev-parse`` when the path layout is
+    unconventional.
+    """
+    candidate = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+    if os.path.isdir(os.path.join(candidate, ".git")) or os.path.isfile(
+        os.path.join(candidate, ".git")
+    ):
+        return candidate
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=os.path.dirname(os.path.abspath(db_path)) or ".",
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except OSError:
+        pass
+    return candidate
+
+
+def _untracked_tusk_scripts(paths: list, repo_root: str) -> list:
+    """Return ``bin/tusk-*.py`` entries from ``paths`` that git does not
+    currently track (untracked or absent — treated as new for Rule-42)."""
+    candidates = [p for p in paths if fnmatch.fnmatchcase(p, "bin/tusk-*.py")]
+    if not candidates:
+        return []
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--", *candidates],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=repo_root,
+        )
+    except OSError:
+        return []
+    if result.returncode != 0:
+        return []
+    tracked = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    return [c for c in candidates if c not in tracked]
 
 
 def _parse_task_id(raw: str) -> int:
@@ -72,15 +136,33 @@ def main(argv: list) -> int:
         if scope_rows:
             if any(r["source"] == "unbounded" for r in scope_rows):
                 return 0
-            seen: set = set()
+            seen: list = []
+            seen_set: set = set()
             for r in scope_rows:
                 pattern = r["pattern"]
-                if pattern and pattern not in seen:
-                    seen.add(pattern)
-                    print(pattern)
-            return 0
-        for p in task_referenced_paths(task_id, conn):
-            print(p)
+                if pattern and pattern not in seen_set:
+                    seen_set.add(pattern)
+                    seen.append(pattern)
+            paths = seen
+        else:
+            paths = list(task_referenced_paths(task_id, conn))
+
+    # Rule-42 companion augmentation: when any referenced bin/tusk-*.py
+    # path is not yet tracked by git, the same commit will need to touch
+    # bin/tusk + MANIFEST + .claude/tusk-manifest.json (the dispatcher
+    # case branch and the regenerated manifest) for lint Rules 8/18 to
+    # pass. Union those companions in so new-script tasks don't need
+    # TUSK_SCOPE_GUARD_BYPASS=1 for the choreography commit (issue #891).
+    repo_root = _repo_root_for_db(db_path)
+    if _untracked_tusk_scripts(paths, repo_root):
+        path_set = set(paths)
+        for companion in _NEW_TUSK_SCRIPT_COMPANIONS:
+            if companion not in path_set:
+                paths.append(companion)
+                path_set.add(companion)
+
+    for p in paths:
+        print(p)
     return 0
 
 

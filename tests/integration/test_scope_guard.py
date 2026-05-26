@@ -329,3 +329,128 @@ def test_unbounded_silent_pass(codex_sandbox):
     assert accepted.returncode == 0, (
         f"unbounded scope must silent-pass any staged file: stderr={accepted.stderr!r}"
     )
+
+
+# ── Issue #886: config.default.json / config.json bare-name extraction ─────
+
+
+def test_scope_paths_extracts_config_default_json_bare_name(codex_sandbox):
+    """A description that names ``config.default.json`` without a directory
+    prefix must extract through ``_BARE_TOPLEVEL_WHITELIST`` so the
+    commit-time guard authorises edits to that file (issue #886)."""
+    env = _sandbox_env(codex_sandbox)
+    result = _run(
+        [
+            "tusk", "task-insert",
+            "Add foo key to config",
+            "Edit config.default.json to introduce the foo key.",
+            "--criteria", "seed",
+        ],
+        codex_sandbox,
+        env=env,
+    )
+    import json as _json
+    task_id = int(_json.loads(result.stdout)["task_id"])
+
+    sp = _run(["tusk", "scope-paths", str(task_id)], codex_sandbox, env=env)
+    paths = [line for line in sp.stdout.splitlines() if line]
+    assert "config.default.json" in paths, (
+        f"config.default.json must be extracted from the description; got {paths}"
+    )
+
+
+def test_scope_paths_extracts_config_json_bare_name(codex_sandbox):
+    """Same as above for the live ``config.json`` filename (issue #886)."""
+    env = _sandbox_env(codex_sandbox)
+    result = _run(
+        [
+            "tusk", "task-insert",
+            "Tune live config",
+            "Rewrite config.json review block to use ai_only mode.",
+            "--criteria", "seed",
+        ],
+        codex_sandbox,
+        env=env,
+    )
+    import json as _json
+    task_id = int(_json.loads(result.stdout)["task_id"])
+
+    sp = _run(["tusk", "scope-paths", str(task_id)], codex_sandbox, env=env)
+    paths = [line for line in sp.stdout.splitlines() if line]
+    assert "config.json" in paths, (
+        f"config.json must be extracted from the description; got {paths}"
+    )
+
+
+# ── Issue #891: Rule-42 companions auto-union for new bin/tusk-*.py scripts ──
+
+
+def test_scope_paths_auto_unions_rule42_companions_for_new_tusk_script(codex_sandbox):
+    """When a task description references a ``bin/tusk-*.py`` path that is
+    not yet tracked by git, ``tusk scope-paths`` augments the output with
+    ``bin/tusk`` + ``MANIFEST`` + ``.claude/tusk-manifest.json`` so Rule 42's
+    same-commit choreography lands without TUSK_SCOPE_GUARD_BYPASS=1
+    (issue #891)."""
+    env = _sandbox_env(codex_sandbox)
+    result = _run(
+        [
+            "tusk", "task-insert",
+            "Add bin/tusk-fresh-script.py",
+            "Create bin/tusk-fresh-script.py to do the thing.",
+            "--criteria", "seed",
+        ],
+        codex_sandbox,
+        env=env,
+    )
+    import json as _json
+    task_id = int(_json.loads(result.stdout)["task_id"])
+
+    sp = _run(["tusk", "scope-paths", str(task_id)], codex_sandbox, env=env)
+    paths = [line for line in sp.stdout.splitlines() if line]
+    assert "bin/tusk-fresh-script.py" in paths
+    assert "bin/tusk" in paths, (
+        f"Rule-42 dispatcher companion missing for a new bin/tusk-*.py task; got {paths}"
+    )
+    assert "MANIFEST" in paths, (
+        f"Rule-42 MANIFEST companion missing for a new bin/tusk-*.py task; got {paths}"
+    )
+    assert ".claude/tusk-manifest.json" in paths, (
+        f"Rule-42 .claude/tusk-manifest.json companion missing; got {paths}"
+    )
+
+
+def test_scope_paths_no_companions_for_existing_tusk_script(codex_sandbox):
+    """If every referenced ``bin/tusk-*.py`` path is already tracked by git,
+    the augmentation must not fire — existing-script edits do not need the
+    Rule-42 same-commit choreography."""
+    env = _sandbox_env(codex_sandbox)
+    # The codex sandbox puts tusk binaries under tusk/bin/, not bin/, so
+    # no bin/tusk-*.py exists by default. Pre-create + commit one so the
+    # untracked-script branch does NOT fire when the task references it.
+    (codex_sandbox / "bin").mkdir(exist_ok=True)
+    tracked_script = "bin/tusk-already-tracked.py"
+    (codex_sandbox / tracked_script).write_text("# pre-existing\n", encoding="utf-8")
+    _git(["add", tracked_script], codex_sandbox)
+    _git(["commit", "-m", "seed existing script"], codex_sandbox)
+
+    result = _run(
+        [
+            "tusk", "task-insert",
+            "Tweak existing script",
+            f"Patch a regression in {tracked_script} only.",
+            "--criteria", "seed",
+        ],
+        codex_sandbox,
+        env=env,
+    )
+    import json as _json
+    task_id = int(_json.loads(result.stdout)["task_id"])
+
+    sp = _run(["tusk", "scope-paths", str(task_id)], codex_sandbox, env=env)
+    paths = [line for line in sp.stdout.splitlines() if line]
+    assert tracked_script in paths
+    assert "bin/tusk" not in paths, (
+        f"existing-script tasks must not auto-include Rule-42 companions; got {paths}"
+    )
+    assert "MANIFEST" not in paths
+    assert ".claude/tusk-manifest.json" not in paths

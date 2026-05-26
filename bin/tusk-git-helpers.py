@@ -346,6 +346,8 @@ _BARE_TOPLEVEL_WHITELIST = frozenset({
     "VERSION",
     "README.md",
     "CHANGELOG.md",
+    "config.default.json",
+    "config.json",
     # Python project deliverables
     "pyproject.toml",
     "setup.py",
