@@ -173,6 +173,51 @@ def all_active_criteria_are_manual(task_id: int, conn: sqlite3.Connection) -> bo
     return active > 0 and active == manual_count
 
 
+def _task_scope_enforced(conn: sqlite3.Connection, task_id: int) -> bool:
+    """Return True iff ``tasks.scope_enforced=1`` for ``task_id``.
+
+    Legacy DBs without the column (pre-migration-73) treat the task as
+    unenforced (returns False), so the merged_not_closed_low_confidence
+    heuristic continues to fire on those rows.
+    """
+    try:
+        row = conn.execute(
+            "SELECT scope_enforced FROM tasks WHERE id = ?", (task_id,)
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return False
+    if not row:
+        return False
+    if isinstance(row, sqlite3.Row) and "scope_enforced" in row.keys():
+        return bool(row["scope_enforced"])
+    return bool(row[0])
+
+
+def _emit_scope_enforced_bypass(task_id: int) -> None:
+    """One-line stderr note when the scope_enforced=1 bypass fires.
+
+    TASK-472: when ``tasks.scope_enforced=1``, the commit-time scope guard
+    ensured every [TASK-<id>] commit only touched authorized paths, so the
+    merged_not_closed_low_confidence downgrade can't represent a real
+    prefix-match false positive. The note records that the bypass fired
+    so an operator can verify the new flow is hot.
+
+    TTY-gated like ``maybe_warn_cross_repo_drift`` (issue #850): silent
+    when stderr is not a TTY, silenced unconditionally by ``TUSK_QUIET=1``,
+    force-emitted in non-TTY contexts by ``TUSK_FORCE_WARN=1``.
+    """
+    if os.environ.get("TUSK_QUIET"):
+        return
+    if not os.environ.get("TUSK_FORCE_WARN") and not sys.stderr.isatty():
+        return
+    print(
+        f"tusk: note — check-deliverables bypassed scope-overlap downgrade for TASK-{task_id} "
+        f"(scope_enforced=1; merged commits are authoritative). "
+        f"(TUSK_QUIET=1 to silence)",
+        file=sys.stderr,
+    )
+
+
 def _task_started_at(conn: sqlite3.Connection, task_id: int) -> str | None:
     try:
         row = conn.execute(
@@ -223,6 +268,15 @@ def main(argv: list) -> int:
             )
             feature_files = commit_changed_files(feature_commits, repo_root)
             scope = task_paths | feature_files
+            # TASK-472: when scope_enforced=1 the commit-time guard ensured
+            # every [TASK-N] commit on the default branch only touched
+            # authorized paths — there is no prefix-match false positive
+            # to downgrade. Trust the merged state and short-circuit.
+            # Legacy tasks (scope_enforced=0) fall through to the
+            # aggregate-level file-overlap heuristic below.
+            if _task_scope_enforced(conn, task_id):
+                _emit_scope_enforced_bypass(task_id)
+                recommendation = "merged_not_closed"
             # Aggregate-level file-overlap (intentional, distinct from
             # tusk-task-summary.py's block-level variant — issue #663).
             # `default_files` is the union of ALL matched commits on the
@@ -232,7 +286,7 @@ def main(argv: list) -> int:
             # Downgrade only when we have a positive scope signal that
             # fails to overlap. Empty scope = no signal, not a downgrade
             # trigger — preserve existing behavior.
-            if scope and not (scope & default_files):
+            elif scope and not (scope & default_files):
                 recommendation = "merged_not_closed_low_confidence"
             else:
                 recommendation = "merged_not_closed"
