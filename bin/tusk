@@ -1357,33 +1357,13 @@ BODY
 }
 
 cmd_version_bump() {
-  if [[ $# -gt 0 ]]; then
-    echo "tusk version-bump: takes no arguments — increments VERSION by 1; explicit values not supported" >&2
-    return 1
-  fi
-  # Resolve VERSION against the worktree's checkout first so a bump from a
-  # task-owned worktree writes the worktree's file and stages it cleanly via
-  # `git -C "$REPO_ROOT" add`. Fall back to the source bin's $SCRIPT_DIR /
-  # $INSTALL_DIR only when the worktree has no VERSION file (e.g. consumer
-  # projects installed via install.sh whose root contains no VERSION). Mirrors
-  # tusk-changelog-add.py's worktree-aware resolution (issues #798, #801).
-  local version_file
-  if [[ -f "$REPO_ROOT/VERSION" ]]; then
-    version_file="$REPO_ROOT/VERSION"
-  elif [[ -f "$SCRIPT_DIR/VERSION" ]]; then
-    version_file="$SCRIPT_DIR/VERSION"
-  elif [[ -f "$INSTALL_DIR/VERSION" ]]; then
-    version_file="$INSTALL_DIR/VERSION"
-  else
-    echo "Error: VERSION file not found" >&2
-    exit 1
-  fi
-  local current_version new_version
-  current_version="$(cat "$version_file")"
-  new_version=$(( current_version + 1 ))
-  echo "$new_version" > "$version_file"
-  git -C "$REPO_ROOT" add "$version_file"
-  echo "$new_version"
+  # Resolution order is implemented in tusk-version-bump.py:
+  #   --task-id N → task_workspaces.workspace_path/VERSION (registry lookup,
+  #     authoritative for primary-CWD bumps targeting a worktree, issue #903).
+  #   default     → REPO_ROOT/VERSION (preserves the worktree-aware fallback
+  #     from issues #798/#801 when invoked inside the worktree) →
+  #     SCRIPT_DIR/VERSION → INSTALL_DIR/VERSION (consumer-install fallback).
+  exec python3 "$SCRIPT_DIR/tusk-version-bump.py" "$REPO_ROOT" "$DB_PATH" "$SCRIPT_DIR" "$INSTALL_DIR" "$@"
 }
 
 cmd_migrate() {

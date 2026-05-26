@@ -32,6 +32,47 @@ def get_connection(db_path: str) -> sqlite3.Connection:
     return conn
 
 
+def resolve_task_workspace(db_path: str, task_id: int) -> str:
+    """Return the on-disk workspace_path for ``task_id``.
+
+    Raises ``SystemExit(1)`` with a clear stderr message when the task has no
+    ``task_workspaces`` row, or when the row's ``workspace_path`` no longer
+    exists on disk. Used by ``tusk version-bump --task-id`` and
+    ``tusk changelog-add --task-id`` to route writes to the worktree's
+    checkout from any CWD (issue #903).
+    """
+    try:
+        conn = get_connection(db_path)
+    except sqlite3.Error as exc:
+        print(f"Error: cannot open tusk DB at {db_path}: {exc}", file=sys.stderr)
+        sys.exit(1)
+    try:
+        row = conn.execute(
+            "SELECT workspace_path FROM task_workspaces WHERE task_id = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (int(task_id),),
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        print(
+            f"Error: --task-id {task_id} has no recorded task workspace. "
+            f"Create one with 'tusk task-worktree create {task_id} <slug>' first, "
+            "or omit --task-id to bump VERSION in the current checkout.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    workspace_path = row["workspace_path"]
+    if not os.path.isdir(workspace_path):
+        print(
+            f"Error: --task-id {task_id} workspace {workspace_path!r} no longer exists on disk. "
+            "Run 'tusk task-worktree prune' to drop the stale row, then recreate the workspace.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return workspace_path
+
+
 def load_config(config_path: str) -> dict:
     """Load and return the tusk config JSON."""
     with open(config_path) as f:
