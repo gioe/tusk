@@ -94,6 +94,13 @@ def main(argv: list[str]) -> int:
                         help="Set expires_at to +N days")
     parser.add_argument("--fixes-task-id", type=int, default=None, dest="fixes_task_id", metavar="ID",
                         help="Link this task as a follow-up/rework of the given task id")
+    parser.add_argument("--scope", action="append", default=[], metavar="PATTERN",
+                        help="Declare an in-scope path (source='operator_declared'). Repeatable.")
+    parser.add_argument("--creates", action="append", default=[], metavar="PATH",
+                        help="Declare a path the task will create (source='creates'). Repeatable.")
+    parser.add_argument("--unbounded", action="store_true", default=False,
+                        help="Mark this task as legitimately spanning the repo — emits an 'unbounded' "
+                             "scope row that signals the commit-time scope guard to silently pass.")
     args = parser.parse_args(argv[2:])
 
     summary = args.summary
@@ -108,6 +115,9 @@ def main(argv: list[str]) -> int:
     typed_criteria: list[dict] = args.typed_criteria
     expires_in_days = args.expires_in_days
     fixes_task_id = args.fixes_task_id
+    scope_patterns: list[str] = args.scope
+    creates_paths: list[str] = args.creates
+    unbounded: bool = args.unbounded
 
     if not criteria and not typed_criteria:
         parser.error(
@@ -234,6 +244,28 @@ def main(argv: list[str]) -> int:
             )
             cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
             criteria_ids.append(cid)
+
+        for pattern in scope_patterns:
+            conn.execute(
+                "INSERT INTO task_scope (task_id, pattern, source) "
+                "VALUES (?, ?, 'operator_declared')",
+                (task_id, pattern),
+            )
+        for path in creates_paths:
+            conn.execute(
+                "INSERT INTO task_scope (task_id, pattern, source) "
+                "VALUES (?, ?, 'creates')",
+                (task_id, path),
+            )
+        if unbounded:
+            # Pattern is a sentinel — the scope guard short-circuits when any
+            # row for the task has source='unbounded' (emits no patterns,
+            # silent pass).
+            conn.execute(
+                "INSERT INTO task_scope (task_id, pattern, source) "
+                "VALUES (?, '**', 'unbounded')",
+                (task_id,),
+            )
 
         conn.commit()
     except sqlite3.Error as e:
