@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1009] - 2026-05-26
+
+- [TASK-488] Make tusk version-bump / changelog-add accept --task-id and resolve worktree from registry
+
 ## [1008] - 2026-05-26
 
 - [TASK-487] Extract status_transition_trigger_bypassed helper to prevent third recurrence
