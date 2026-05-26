@@ -218,6 +218,46 @@ def _load_scope_list(config_path: str, key: str) -> list[str]:
     return [str(v) for v in values if isinstance(v, str) and v]
 
 
+def _test_command_cone_paths(config_path: str) -> list[str]:
+    """Extract path-shaped tokens from the configured global ``test_command``.
+
+    Returns the list of tokens that look like file or directory paths
+    (contain ``/``, don't start with ``-``, don't contain ``=``), so they
+    can be unioned into the sparse-checkout cone at worktree-create time.
+    This is the issue #892 fix: a task whose referenced paths exclude
+    ``tests/unit/`` but whose configured ``test_command`` is
+    ``python3 -m pytest tests/unit/ -q`` would otherwise fail every
+    ``tusk commit`` test gate with "file or directory not found" until
+    the operator manually extended the cone.
+
+    Heuristic-only — does not parse shell syntax. ``path_test_commands``
+    and ``domain_test_commands`` overrides are NOT included here because
+    they depend on staged paths and task domain that aren't known at
+    create time; the global ``test_command`` is the conservative
+    fallback that always runs.
+    """
+    if not config_path or not os.path.exists(config_path):
+        return []
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return []
+    cmd = cfg.get("test_command") or ""
+    if not isinstance(cmd, str) or not cmd.strip():
+        return []
+    paths: list[str] = []
+    for tok in cmd.split():
+        tok = tok.strip().strip('"').strip("'")
+        if not tok:
+            continue
+        if tok.startswith("-") or "=" in tok:
+            continue
+        if "/" in tok:
+            paths.append(tok)
+    return paths
+
+
 def _derive_sparse_cone(paths: list[str]) -> list[str]:
     """Derive cone-mode sparse-checkout directory entries from a path list.
 
@@ -527,6 +567,19 @@ def cmd_create(
             "Default: primary checkout's tusk/config.json via dispatcher."
         ),
     )
+    parser.add_argument(
+        "--cone",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help=(
+            "Pre-declare extra sparse-checkout cone paths (repeatable). "
+            "Unioned with task_referenced_paths, scope.sparse_always_include, "
+            "scope.always_allowed, and the configured test_command's target "
+            "paths. Skipped entirely when sparse-checkout itself is disabled "
+            "(zero referenced paths or TUSK_NO_SPARSE_WORKTREE=1)."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if args.config is not None:
@@ -670,6 +723,21 @@ def cmd_create(
         # has no referenced paths (full checkout — the pre-TASK-470 default)
         # or when TUSK_NO_SPARSE_WORKTREE=1. Best-effort: a sparse-checkout
         # failure prints an advisory and continues, never blocking create.
+        #
+        # Cone sources unioned together (TASK-480, issues #892/#896):
+        #   1. task_referenced_paths — extracted from the task description
+        #      and criteria.
+        #   2. scope.sparse_always_include — project-level "always materialize"
+        #      paths from tusk/config.json.
+        #   3. scope.always_allowed — auto-allowed files (VERSION, MANIFEST,
+        #      etc.); cone derivation drops root-level entries.
+        #   4. test_command's target paths — so `tusk commit`'s default test
+        #      gate (typically `python3 -m pytest tests/unit/`) does not fail
+        #      with "file or directory not found" the first time it runs
+        #      (issue #892, criterion 2230).
+        #   5. --cone <path> CLI flag — operator-declared extras for tasks
+        #      that obviously touch skills/docs/hooks without describing
+        #      every path up front (issue #896, criterion 2231).
         if not os.environ.get("TUSK_NO_SPARSE_WORKTREE"):
             referenced = task_referenced_paths(task_id, conn)
             if referenced:
@@ -677,9 +745,29 @@ def cmd_create(
                     config_path, "sparse_always_include"
                 )
                 always_allowed = _load_scope_list(config_path, "always_allowed")
-                cone = _derive_sparse_cone(
-                    [*referenced, *always_include, *always_allowed]
+                test_cmd_paths = _test_command_cone_paths(config_path)
+                # File-path inputs go through _derive_sparse_cone, which drops
+                # root-level entries (cone mode auto-materializes top-level
+                # files) and takes the parent dir of nested file paths.
+                cone_set = set(
+                    _derive_sparse_cone(
+                        [
+                            *referenced,
+                            *always_include,
+                            *always_allowed,
+                            *test_cmd_paths,
+                        ]
+                    )
                 )
+                # --cone <path> entries are directory-shaped; pass them through
+                # verbatim so `--cone docs` survives the single-segment drop
+                # and `--cone skills/tusk` lands as a targeted subtree entry
+                # rather than being widened to `skills` (issue #896).
+                for raw in args.cone:
+                    d = (raw or "").strip().strip("/")
+                    if d:
+                        cone_set.add(d)
+                cone = sorted(cone_set)
                 sparse_ok, sparse_err = _apply_sparse_checkout(
                     workspace_path, cone
                 )
