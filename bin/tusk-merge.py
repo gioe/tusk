@@ -795,6 +795,122 @@ def _run_sync_main(tusk_bin: str, primary_root) -> subprocess.CompletedProcess:
     )
 
 
+_UNMERGED_STATUS_CODES = frozenset({"DD", "AU", "UD", "UA", "DU", "AA", "UU"})
+
+
+def _parse_unmerged_paths(porcelain_stdout: str) -> list[str]:
+    """Extract unmerged paths from `git status --porcelain` output."""
+    paths: list[str] = []
+    for line in (porcelain_stdout or "").splitlines():
+        if len(line) >= 3 and line[:2] in _UNMERGED_STATUS_CODES:
+            paths.append(line[3:])
+    return paths
+
+
+def _classify_sync_main_failure(parsed_json: dict, stderr: str) -> str | None:
+    """Identify which sync-main step failed given the JSON payload and stderr.
+
+    Returns one of 'fetch', 'stash', 'ff', 'pop', 'migrate', or None when the
+    data is insufficient to classify (caller falls back to the four-variant
+    advisory). Stderr signatures are pinned to the `Error:` prefixes emitted
+    by bin/tusk-sync-main.py — JSON-only routing is intentionally absent
+    because the result dict alone cannot distinguish fetch-failure from
+    migrate-failure on a zero-commit pull.
+    """
+    if not isinstance(parsed_json, dict):
+        parsed_json = {}
+    stderr_text = stderr or ""
+
+    if "tusk migrate failed" in stderr_text:
+        return "migrate"
+    if ("git stash pop" in stderr_text and "failed" in stderr_text) or (
+        "stash entry" in stderr_text and "disappeared" in stderr_text
+    ):
+        return "pop"
+    if "git merge --ff-only" in stderr_text and "failed" in stderr_text:
+        return "ff"
+    if "git stash push failed" in stderr_text:
+        return "stash"
+    if "git fetch" in stderr_text and "failed" in stderr_text:
+        return "fetch"
+    return None
+
+
+def _format_sync_main_failure_advisory(
+    sync_returncode: int,
+    failure_step: str | None,
+    unmerged_paths: list[str],
+    primary_root,
+    default_branch: str,
+    fallback_advisory: str,
+) -> str:
+    """Build the multi-line stderr block emitted after a sync-main failure.
+
+    Issue #908: route on the specific failure mode instead of re-suggesting
+    `tusk sync-main` (the command that just exited non-zero). The
+    unmerged-paths case takes priority over stderr-based classification —
+    pre-existing UU/AA/DD rows are the most common root cause and the
+    actionable fix is always "resolve conflicts first," regardless of which
+    sync-main step ultimately raised.
+    """
+    prefix = f"tusk: auto-sync failed (tusk sync-main exit {sync_returncode}) — "
+
+    if unmerged_paths:
+        sample = ", ".join(unmerged_paths[:3])
+        more = (
+            "" if len(unmerged_paths) <= 3
+            else f" (+{len(unmerged_paths) - 3} more)"
+        )
+        return (
+            f"{prefix}primary has unmerged paths.\n"
+            f"  Unmerged: {sample}{more}\n"
+            f"  Resolve the conflicts in {primary_root} (git add the resolved "
+            f"files, or git checkout --ours/--theirs), then re-run "
+            f"`tusk sync-main && tusk dev-sync`."
+        )
+
+    branch = default_branch or "<default>"
+
+    if failure_step == "fetch":
+        return (
+            f"{prefix}`git fetch origin {branch}` failed inside sync-main.\n"
+            f"  Check network/auth, then re-run `tusk sync-main && tusk "
+            f"dev-sync` in {primary_root}."
+        )
+    if failure_step == "stash":
+        return (
+            f"{prefix}`git stash push` refused inside sync-main.\n"
+            f"  This usually means primary has unmerged paths or a corrupt "
+            f"index. Inspect `git status` in {primary_root}, resolve the "
+            f"dirty/unmerged state, then re-run `tusk sync-main && tusk "
+            f"dev-sync`."
+        )
+    if failure_step == "ff":
+        return (
+            f"{prefix}`git merge --ff-only origin/{branch}` refused — local "
+            f"has diverged from origin.\n"
+            f"  Run `git pull --rebase origin {branch}` in {primary_root} "
+            f"(or `git reset --hard origin/{branch}` if local commits are "
+            f"disposable), then `tusk dev-sync`."
+        )
+    if failure_step == "pop":
+        return (
+            f"{prefix}`git stash pop` failed after the ff-pull.\n"
+            f"  Your changes remain stashed. Inspect `git stash list` in "
+            f"{primary_root}, resolve any conflicts, then `git stash pop "
+            f"<ref>` manually. Then run `tusk dev-sync`."
+        )
+    if failure_step == "migrate":
+        return (
+            f"{prefix}`tusk migrate` failed after a successful sync.\n"
+            f"  The remote was pulled successfully but pending schema "
+            f"migrations were not applied. Re-run `tusk migrate` in "
+            f"{primary_root} after resolving the migration error."
+        )
+
+    return f"{prefix}fall back to manual recovery below.\n{fallback_advisory}"
+
+
 def _maybe_advise_stale_deployed_bin(
     db_path: str, *, tusk_bin: str | None = None, refresh_fired: bool = False,
 ) -> None:
@@ -811,11 +927,16 @@ def _maybe_advise_stale_deployed_bin(
     line ("tusk: auto-synced primary to origin/<default> via tusk sync-main")
     instead of asking the operator to run it manually. On success, re-invoke
     ``_maybe_refresh_deployed_bin`` so any bin/tusk-*.py content the sync just
-    pulled propagates into .claude/bin/ before the next session boots. On
-    failure (or when auto-sync is disabled), fall back to the four-variant
-    advisory wording established by issue #877; the failure path prefixes the
-    advisory with the sync-main exit code so the operator sees both the
-    diagnostic and the manual recovery command.
+    pulled propagates into .claude/bin/ before the next session boots.
+
+    Issue #908: on auto-sync failure, route the advisory by the specific
+    sync-main step that failed (stash/ff/pop/migrate/fetch) rather than
+    re-suggesting `tusk sync-main` — the command that just exited non-zero.
+    The unmerged-paths case takes priority: if a fresh `git status --porcelain`
+    on primary shows UU/AA/DD rows, the advisory recommends resolving conflicts
+    first regardless of which sync-main step raised. Indeterminate failures
+    (stderr signature not matched, no unmerged paths) fall through to the
+    four-variant advisory wording established by issue #877.
 
     Gates carried over from the original advisory path (issue #865):
       * ``TUSK_NO_DEPLOYED_BIN_REFRESH=1`` — single off-switch shared with
@@ -877,12 +998,35 @@ def _maybe_advise_stale_deployed_bin(
         _maybe_refresh_deployed_bin(db_path, tusk_bin)
         return
 
+    parsed_json: dict = {}
+    try:
+        decoded = json.loads(sync_result.stdout or "")
+        if isinstance(decoded, dict):
+            parsed_json = decoded
+    except (json.JSONDecodeError, ValueError, AttributeError):
+        pass
+
+    post_status = run(
+        ["git", "-C", str(primary_root), "status", "--porcelain"], check=False,
+    )
+    post_stdout = post_status.stdout if post_status.returncode == 0 else ""
+    unmerged_paths = _parse_unmerged_paths(post_stdout)
+
+    failure_step = _classify_sync_main_failure(
+        parsed_json, sync_result.stderr or "",
+    )
+    default_branch_value = parsed_json.get("default_branch")
+    default_branch = (
+        default_branch_value if isinstance(default_branch_value, str) else ""
+    )
+
     print(
-        f"tusk: auto-sync failed (tusk sync-main exit {sync_result.returncode}) — "
-        "fall back to manual recovery below.",
+        _format_sync_main_failure_advisory(
+            sync_result.returncode, failure_step, unmerged_paths,
+            primary_root, default_branch, advisory,
+        ),
         file=sys.stderr,
     )
-    print(advisory, file=sys.stderr)
 
 
 def _stamp_merge_commit_sha(
