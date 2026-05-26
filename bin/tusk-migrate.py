@@ -3038,7 +3038,8 @@ def migrate_73(db_path: str, config_path: str, script_dir: str) -> None:
         _progress("  Migration 73: added task_scope, tasks.scope_enforced, and backfilled from task_referenced_paths")
         return
 
-    if not has_column(db_path, "tasks", "scope_enforced"):
+    column_just_added = not has_column(db_path, "tasks", "scope_enforced")
+    if column_just_added:
         run_script(
             db_path,
             "ALTER TABLE tasks ADD COLUMN scope_enforced INTEGER NOT NULL DEFAULT 1 CHECK (scope_enforced IN (0, 1));",
@@ -3064,11 +3065,15 @@ def migrate_73(db_path: str, config_path: str, script_dir: str) -> None:
 
     # Override DEFAULT 1 for existing rows so already-running tasks stay in
     # legacy mode. Future inserts (after this migration runs) honor the
-    # DEFAULT 1 from cmd_init / the ALTER TABLE above.
+    # DEFAULT 1 from cmd_init / the ALTER TABLE above. Gate on
+    # column_just_added so a retry-after-crash (column already added but
+    # user_version not yet stamped) doesn't re-zero scope_enforced rows the
+    # operator may have set to 1 between the partial run and the retry.
     conn = db_connect(db_path)
     try:
         conn.row_factory = sqlite3.Row
-        conn.execute("UPDATE tasks SET scope_enforced = 0")
+        if column_just_added:
+            conn.execute("UPDATE tasks SET scope_enforced = 0")
 
         # Backfill task_scope from the legacy hint cache. Load the helper
         # dynamically so this module stays importable for tests that don't
@@ -3076,9 +3081,7 @@ def migrate_73(db_path: str, config_path: str, script_dir: str) -> None:
         if script_dir:
             sys.path.insert(0, script_dir)
             try:
-                import importlib
-                import tusk_loader  # type: ignore
-                importlib.reload(tusk_loader)
+                import tusk_loader  # type: ignore  # loads tusk-git-helpers.py
                 git_helpers = tusk_loader.load("tusk-git-helpers")
                 task_referenced_paths_fn = git_helpers.task_referenced_paths
             finally:
