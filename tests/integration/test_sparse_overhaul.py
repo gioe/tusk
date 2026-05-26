@@ -325,3 +325,46 @@ def test_rule18_still_fires_without_sparse_checkout(tmp_path, monkeypatch):
         "Rule 18 should report drift when sparse-checkout is off but MANIFEST "
         "references files absent from the source tree"
     )
+
+
+# ── Criterion 2228 (issues #895 / #905) ─────────────────────────────
+
+
+def test_generate_manifest_refuses_under_sparse(tmp_path, monkeypatch):
+    """``tusk generate-manifest`` exits non-zero and leaves MANIFEST untouched
+    when invoked under a sparse-checkout worktree.
+
+    The before-fix behavior silently regenerated MANIFEST from the sparse
+    view, dropping entries for every unmaterialized file (issues #895/#905).
+    """
+    repo, _db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+    _seed_source_repo_layout(repo)
+    manifest_before = (repo / "MANIFEST").read_text(encoding="utf-8")
+    _git(["sparse-checkout", "init", "--cone"], cwd=repo)
+    _git(["sparse-checkout", "set", "bin"], cwd=repo)
+
+    result = _run(["generate-manifest"], cwd=repo, env=env)
+    assert result.returncode != 0, (
+        f"generate-manifest should refuse under sparse-checkout; "
+        f"exit={result.returncode}\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+    )
+    assert "sparse" in result.stderr.lower(), (
+        f"refusal message should mention sparse-checkout; stderr was:\n{result.stderr}"
+    )
+    manifest_after = (repo / "MANIFEST").read_text(encoding="utf-8")
+    assert manifest_before == manifest_after, (
+        "MANIFEST should not have been rewritten when refused"
+    )
+
+
+def test_generate_manifest_runs_in_full_checkout(tmp_path, monkeypatch):
+    """In a non-sparse worktree, generate-manifest runs as before — confirms
+    the sparse refusal is gated strictly on the sparse-checkout signal."""
+    repo, _db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+    _seed_source_repo_layout(repo)
+    # No sparse-checkout.
+    result = _run(["generate-manifest"], cwd=repo, env=env)
+    assert result.returncode == 0, (
+        f"generate-manifest should succeed in a full checkout;\n"
+        f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+    )
