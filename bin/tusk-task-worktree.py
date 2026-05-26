@@ -35,7 +35,7 @@ CANONICAL_RUNTIME_FILES = ["node_modules", ".venv", ".env", ".env.local"]
 PRIMARY_MARKER_FILE = ".tusk-primary"
 
 
-def _namespace_for(workspace_root: str, repo_root: str) -> str:
+def _namespace_for(workspace_root: str, repo_root: str, *, claim: bool = True) -> str:
     """Return the per-repo namespace subdir name under ``workspace_root``.
 
     Default is ``os.path.basename(<primary_repo_root>)``. If that subdir
@@ -51,6 +51,10 @@ def _namespace_for(workspace_root: str, repo_root: str) -> str:
     directory cannot break worktree creation. The fallback hash form never
     depends on a marker, so a swallowed write still yields a usable path
     (the same call site will recompute the same namespace on every retry).
+
+    Pass ``claim=False`` to compute the namespace without creating the
+    namespace dir or writing the marker file — used by ``relocate
+    --dry-run`` so the planning phase never touches the filesystem.
     """
     primary = _primary_repo_root(os.path.abspath(repo_root))
     basename = os.path.basename(primary.rstrip(os.sep)) or "tusk"
@@ -58,6 +62,8 @@ def _namespace_for(workspace_root: str, repo_root: str) -> str:
     marker_path = os.path.join(candidate_dir, PRIMARY_MARKER_FILE)
 
     def _claim(dst: str) -> None:
+        if not claim:
+            return
         try:
             os.makedirs(dst, exist_ok=True)
             with open(os.path.join(dst, PRIMARY_MARKER_FILE), "w", encoding="utf-8") as fh:
@@ -1035,6 +1041,337 @@ def cmd_reconcile(db_path: str, repo_root: str, argv: list[str]) -> int:
         conn.close()
 
 
+def _perform_relocate(
+    conn: sqlite3.Connection,
+    repo_root: str,
+    row: dict,
+    new_path: str,
+) -> tuple[bool, list[str]]:
+    """Run ``git worktree move`` then update the registry row.
+
+    Returns ``(ok, errors)``. Fails fast on git failure — the registry row is
+    left pointing at the old (still-valid) path so a retry has accurate state.
+    """
+    errors: list[str] = []
+    parent = os.path.dirname(new_path)
+    try:
+        os.makedirs(parent, exist_ok=True)
+    except OSError as exc:
+        errors.append(f"could not create destination parent {parent}: {exc}")
+        return False, errors
+
+    result = _run_git(
+        repo_root,
+        ["worktree", "move", row["workspace_path"], new_path],
+    )
+    if result.returncode != 0:
+        errors.append(
+            f"git worktree move failed: "
+            f"{(result.stderr.strip() or result.stdout.strip() or '(no output)')}"
+        )
+        return False, errors
+
+    conn.execute(
+        "UPDATE task_workspaces "
+        "SET workspace_path = ?, updated_at = CURRENT_TIMESTAMP "
+        "WHERE id = ?",
+        (new_path, row["workspace_id"]),
+    )
+    conn.commit()
+    return True, errors
+
+
+def _classify_relocate_row(
+    row: dict,
+    workspace_root: str,
+    namespace_dir: str,
+) -> dict:
+    """Decide whether ``row`` should be relocated, skipped, or is already namespaced.
+
+    Returns ``{row, new_path, action, reason}``. ``action`` is one of
+    ``"move"``, ``"skip"``, or ``"already_namespaced"``. Idempotency is
+    enforced by the ``already_namespaced`` branch — a second relocate pass
+    against the same registry never re-moves a workspace that landed in the
+    target namespace dir on a prior run.
+    """
+    old_path = row["workspace_path"]
+    slug_dir = os.path.basename(old_path.rstrip(os.sep)) or os.path.basename(old_path)
+    new_path = os.path.join(namespace_dir, slug_dir)
+
+    if os.path.normpath(old_path) == os.path.normpath(new_path):
+        return {
+            "row": row,
+            "new_path": new_path,
+            "action": "already_namespaced",
+            "reason": "workspace path already matches the target namespace layout",
+        }
+
+    if not row["exists_on_disk"]:
+        return {
+            "row": row,
+            "new_path": new_path,
+            "action": "skip",
+            "reason": f"workspace path missing on disk: {old_path}",
+        }
+
+    old_parent = os.path.dirname(old_path.rstrip(os.sep))
+    if os.path.normpath(old_parent) != os.path.normpath(workspace_root):
+        return {
+            "row": row,
+            "new_path": new_path,
+            "action": "skip",
+            "reason": (
+                f"parent dir {old_parent!r} is not the configured workspace "
+                f"root {workspace_root!r}"
+            ),
+        }
+
+    if os.path.lexists(new_path):
+        return {
+            "row": row,
+            "new_path": new_path,
+            "action": "skip",
+            "reason": f"destination already exists: {new_path}",
+        }
+
+    clean, dirty_detail = _worktree_is_clean(old_path)
+    if not clean:
+        detail = dirty_detail.strip() or "(unknown)"
+        return {
+            "row": row,
+            "new_path": new_path,
+            "action": "skip",
+            "reason": f"worktree dirty: {detail}",
+        }
+
+    return {"row": row, "new_path": new_path, "action": "move", "reason": None}
+
+
+def cmd_relocate(
+    db_path: str, config_path: str, repo_root: str, argv: list[str]
+) -> int:
+    parser = argparse.ArgumentParser(
+        prog="tusk task-worktree relocate",
+        description=(
+            "Migrate existing flat-pool task worktrees into the per-repo "
+            "namespaced layout. Operates on the current repo's registry "
+            "only — to migrate another repo's worktrees, run this command "
+            "from inside that repo."
+        ),
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the plan without moving anything or pruning stale rows.",
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip per-worktree confirmation prompts.",
+    )
+    parser.add_argument(
+        "--workspace-root",
+        default=None,
+        help=(
+            "Parent directory for task worktrees. Default: $TUSK_WORKTREE_ROOT "
+            "or $HOME/.tusk/worktrees. Rows whose workspace_path lives "
+            "directly under this root are candidates for relocation."
+        ),
+    )
+    parser.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (default: text).",
+    )
+    args = parser.parse_args(argv)
+
+    workspace_root = (
+        args.workspace_root
+        or os.environ.get("TUSK_WORKTREE_ROOT")
+        or os.path.join(os.path.expanduser("~"), ".tusk", "worktrees")
+    )
+
+    conn = get_connection(db_path)
+    try:
+        # Step 1: prune stale rows first (path missing on disk AND not in
+        # `git worktree list`). Matches the predicate used by
+        # `tusk task-worktree prune`. Honors --dry-run.
+        pre_live = _parse_git_worktrees(repo_root)
+        pre_rows = _list_workspaces_with_live_state(conn, pre_live)
+        stale_rows = [r for r in pre_rows if _is_stale_workspace(r)]
+        if stale_rows and not args.dry_run:
+            conn.executemany(
+                "DELETE FROM task_workspaces WHERE id = ?",
+                [(r["workspace_id"],) for r in stale_rows],
+            )
+            conn.commit()
+        pruned_count = len(stale_rows)
+
+        # Step 2: compute the per-repo namespace for THIS repo. Skip the
+        # marker write under --dry-run so planning never touches the FS.
+        namespace = _namespace_for(
+            workspace_root, repo_root, claim=not args.dry_run
+        )
+        namespace_dir = os.path.join(workspace_root, namespace)
+
+        # Step 3: classify the remaining (non-stale) rows. Re-read live state
+        # because the prune above mutated the registry.
+        if args.dry_run:
+            remaining = [r for r in pre_rows if not _is_stale_workspace(r)]
+        else:
+            remaining = _list_workspaces_with_live_state(
+                conn, _parse_git_worktrees(repo_root)
+            )
+        plan = [
+            _classify_relocate_row(r, workspace_root, namespace_dir)
+            for r in remaining
+        ]
+        to_move = [p for p in plan if p["action"] == "move"]
+        skipped = [p for p in plan if p["action"] == "skip"]
+        already = [p for p in plan if p["action"] == "already_namespaced"]
+
+        if args.format == "json":
+            results: list[dict] = []
+            if not args.dry_run:
+                for entry in to_move:
+                    ok, errors = _perform_relocate(
+                        conn, repo_root, entry["row"], entry["new_path"]
+                    )
+                    results.append(
+                        {
+                            "task_id": entry["row"]["task_id"],
+                            "branch": entry["row"]["branch"],
+                            "old_path": entry["row"]["workspace_path"],
+                            "new_path": entry["new_path"],
+                            "ok": ok,
+                            "errors": errors,
+                        }
+                    )
+            print(
+                dumps(
+                    {
+                        "dry_run": args.dry_run,
+                        "workspace_root": workspace_root,
+                        "namespace": namespace,
+                        "pruned_count": pruned_count,
+                        "plan": [
+                            {
+                                "task_id": p["row"]["task_id"],
+                                "branch": p["row"]["branch"],
+                                "old_path": p["row"]["workspace_path"],
+                                "new_path": p["new_path"],
+                                "action": p["action"],
+                                "reason": p["reason"],
+                            }
+                            for p in plan
+                        ],
+                        "results": results,
+                    }
+                )
+            )
+            return 0
+
+        # Text mode.
+        if pruned_count:
+            verb = "Would prune" if args.dry_run else "Pruned"
+            print(
+                f"{verb} {pruned_count} stale registry row(s) before relocate.",
+                file=sys.stderr,
+            )
+
+        if not to_move:
+            print(
+                f"No worktrees to relocate (namespace: {namespace}).",
+                file=sys.stderr,
+            )
+            for entry in already:
+                print(
+                    f"  ok TASK-{entry['row']['task_id']} branch="
+                    f"{entry['row']['branch']}: already namespaced",
+                    file=sys.stderr,
+                )
+            for entry in skipped:
+                print(
+                    f"  skip TASK-{entry['row']['task_id']} branch="
+                    f"{entry['row']['branch']}: {entry['reason']}",
+                    file=sys.stderr,
+                )
+            return 0
+
+        print(
+            f"Relocate plan ({len(to_move)} eligible, namespace: {namespace}):",
+            file=sys.stderr,
+        )
+        for entry in to_move:
+            print(
+                f"  TASK-{entry['row']['task_id']} "
+                f"{entry['row']['workspace_path']} -> {entry['new_path']}",
+                file=sys.stderr,
+            )
+        if already:
+            print(f"Already namespaced ({len(already)}):", file=sys.stderr)
+            for entry in already:
+                print(
+                    f"  TASK-{entry['row']['task_id']} branch="
+                    f"{entry['row']['branch']}",
+                    file=sys.stderr,
+                )
+        if skipped:
+            print(f"Skipped ({len(skipped)}):", file=sys.stderr)
+            for entry in skipped:
+                print(
+                    f"  TASK-{entry['row']['task_id']}: {entry['reason']}",
+                    file=sys.stderr,
+                )
+
+        if args.dry_run:
+            print("Dry run — no changes made.", file=sys.stderr)
+            return 0
+
+        moved = 0
+        for entry in to_move:
+            if not args.yes:
+                prompt = (
+                    f"Move TASK-{entry['row']['task_id']} from "
+                    f"{entry['row']['workspace_path']} to {entry['new_path']}? "
+                    "[y/N] "
+                )
+                try:
+                    answer = input(prompt).strip().lower()
+                except EOFError:
+                    answer = ""
+                if answer not in {"y", "yes"}:
+                    print(
+                        f"  skipped TASK-{entry['row']['task_id']} (declined)",
+                        file=sys.stderr,
+                    )
+                    continue
+            ok, errors = _perform_relocate(
+                conn, repo_root, entry["row"], entry["new_path"]
+            )
+            if ok:
+                moved += 1
+                print(
+                    f"  moved TASK-{entry['row']['task_id']} -> "
+                    f"{entry['new_path']}",
+                    file=sys.stderr,
+                )
+            else:
+                for err in errors:
+                    print(
+                        f"  error TASK-{entry['row']['task_id']}: {err}",
+                        file=sys.stderr,
+                    )
+        print(
+            f"Relocated {moved}/{len(to_move)} worktrees.",
+            file=sys.stderr,
+        )
+        return 0
+    finally:
+        conn.close()
+
+
 def cmd_prune(db_path: str, repo_root: str, argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="tusk task-worktree prune",
@@ -1101,12 +1438,15 @@ def main(argv: list[str]) -> int:
         return cmd_prune(db_path, repo_root, rest)
     if command == "reconcile":
         return cmd_reconcile(db_path, repo_root, rest)
+    if command == "relocate":
+        return cmd_relocate(db_path, config_path, repo_root, rest)
 
     print(
         "Usage: tusk task-worktree create <task_id> <slug> [--workspace-root <path>]\n"
         "       tusk task-worktree list [--format json]\n"
         "       tusk task-worktree prune [--dry-run] [--format json]\n"
-        "       tusk task-worktree reconcile [--dry-run] [--yes] [--format text|json]",
+        "       tusk task-worktree reconcile [--dry-run] [--yes] [--format text|json]\n"
+        "       tusk task-worktree relocate [--dry-run] [--yes] [--workspace-root <path>] [--format text|json]",
         file=sys.stderr,
     )
     return 1
