@@ -65,6 +65,7 @@
   ".claude/bin/tusk-review-wait.py",
   ".claude/bin/tusk-review.py",
   ".claude/bin/tusk-scope-paths.py",
+  ".claude/bin/tusk-scope.py",
   ".claude/bin/tusk-session-recalc.py",
   ".claude/bin/tusk-session-stats.py",
   ".claude/bin/tusk-setup.py",
