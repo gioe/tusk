@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1011] - 2026-05-26
+
+- [TASK-493] Fix: route tusk merge fallback advisory by sync-main failure mode instead of re-suggesting sync-main
+
 ## [1010] - 2026-05-26
 
 - [TASK-490] Persist input-token cache split (cache_read/cache_write/uncached) in task_sessions and skill_runs
