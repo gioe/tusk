@@ -590,8 +590,12 @@ class TestBakeoffIsolationClone:
             assert "isolation=clone" in d, f"isolation marker missing: {d!r}"
 
         # One fetch per clone attempt so repo_root sees the attempt branches.
-        assert len(fetch_calls) == 2
-        for call in fetch_calls:
+        # tusk merge's auto-sync-main path (TASK-461/TASK-464) runs `git fetch
+        # origin <default>` at end-of-merge; those calls land in this mock
+        # buffer but are unrelated to the clone-isolation contract under test.
+        attempt_fetches = [c for c in fetch_calls if not (len(c) >= 4 and c[2] == "origin")]
+        assert len(attempt_fetches) == 2
+        for call in attempt_fetches:
             assert call[0] == "git" and call[1] == "fetch"
             assert call[3].count(":") == 1
             src, dst = call[3].split(":")

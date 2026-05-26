@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1004] - 2026-05-26
+
+- [TASK-483] Fix test_bakeoff fetch-count assertion to tolerate auto-sync-main fetches
+
 ## [1003] - 2026-05-26
 
 - [TASK-482] tusk scope CLI hardening: validate patterns + mark list readonly
