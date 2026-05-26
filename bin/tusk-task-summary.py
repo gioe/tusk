@@ -364,6 +364,32 @@ def _summarize_commit_files(commit_files: dict) -> dict:
     }
 
 
+def _emit_scope_enforced_bypass(task_id: int) -> None:
+    """One-line stderr note when the scope_enforced=1 bypass fires.
+
+    TASK-472: when ``tasks.scope_enforced=1``, the commit-time scope guard
+    has already filtered out-of-scope writes — the block-level prefix-
+    collision filter is unnecessary, so every [TASK-<id>] commit is kept.
+    This note records that the bypass path was hit so an operator can
+    verify the new flow is hot.
+
+    TTY-gated identically to ``_emit_recovery_tier_diagnostic`` (issue #850):
+    silent when stderr is not a TTY (agent transcripts, piped logs, CI runs),
+    silenced unconditionally by ``TUSK_QUIET=1``, force-emitted in non-TTY
+    contexts by ``TUSK_FORCE_WARN=1`` (used by the regression tests).
+    """
+    if os.environ.get("TUSK_QUIET"):
+        return
+    if not os.environ.get("TUSK_FORCE_WARN") and not sys.stderr.isatty():
+        return
+    print(
+        f"tusk: note — task-summary bypassed block-level scope filter for TASK-{task_id} "
+        f"(scope_enforced=1; commits are authoritative). "
+        f"(TUSK_QUIET=1 to silence)",
+        file=sys.stderr,
+    )
+
+
 def _emit_recovery_tier_diagnostic(tier_name: str) -> None:
     """Print a single-line stderr note naming the recovery tier that produced commits.
 
@@ -696,6 +722,26 @@ def fetch_diff(
     if recovered_via is not None:
         _emit_recovery_tier_diagnostic(recovered_via)
 
+    # TASK-472: when scope_enforced=1, the commit-time scope guard ensured
+    # every [TASK-N] commit only touched authorized paths — prefix-collision
+    # filtering is unnecessary, so all matched commits are kept verbatim. Read
+    # the flag inside the same conn handle; legacy DBs without the column
+    # behave as scope_enforced=0 and fall through to the existing block filter.
+    scope_enforced = False
+    if conn is not None and commit_files:
+        try:
+            row = conn.execute(
+                "SELECT scope_enforced FROM tasks WHERE id = ?", (task_id,)
+            ).fetchone()
+            if row is not None:
+                keys = row.keys() if hasattr(row, "keys") else ()
+                val = row["scope_enforced"] if "scope_enforced" in keys else row[0]
+                scope_enforced = bool(val)
+        except sqlite3.OperationalError:
+            scope_enforced = False
+    if scope_enforced:
+        _emit_scope_enforced_bypass(task_id)
+
     # Apply prefix-collision file-overlap heuristic (issue #656) at the
     # block level (issue #663) via the centralized helper (issue #855).
     # A "block" is a connected component on the parent graph restricted to
@@ -707,7 +753,7 @@ def fetch_diff(
     # a path-set view of ``commit_files`` (numstat tuples → paths) and pass
     # the pre-fetched ``commit_parents`` so the helper does not re-issue
     # the git log subprocess for parent resolution.
-    if conn is not None and commit_files:
+    if not scope_enforced and conn is not None and commit_files:
         commits = list(commit_files.keys())
         cf_paths = {
             sha: {path for (_a, _r, path) in rows}
