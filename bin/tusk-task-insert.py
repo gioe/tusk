@@ -28,16 +28,18 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader
+import tusk_loader  # loads tusk-db-lib.py, tusk-git-helpers.py, tusk-json-lib.py
 
 TUSK_BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
 
 _db_lib = tusk_loader.load("tusk-db-lib")
+_git_helpers = tusk_loader.load("tusk-git-helpers")
 _json_lib = tusk_loader.load("tusk-json-lib")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 load_config = _db_lib.load_config
 validate_enum = _db_lib.validate_enum
+extract_paths = _git_helpers.extract_paths
 
 
 def _typed_criterion_type(value: str) -> dict:
@@ -266,6 +268,32 @@ def main(argv: list[str]) -> int:
                 "VALUES (?, '**', 'unbounded')",
                 (task_id,),
             )
+        else:
+            # Auto-extract paths from summary/description/criteria/specs.
+            # Mirrors the migration-73 backfill (which used
+            # task_referenced_paths) so new tasks land with the same
+            # task_scope shape that the scope-paths fallback would have
+            # inferred from a legacy task. Explicit --scope and --creates
+            # rows already inserted above win — auto_derived is only added
+            # for paths the operator didn't already declare.
+            explicit_patterns = set(scope_patterns) | set(creates_paths)
+            text_blocks = [summary or "", description or ""]
+            for c in criteria:
+                text_blocks.append(c or "")
+            for tc in typed_criteria:
+                text_blocks.append(tc.get("text") or "")
+                text_blocks.append(tc.get("spec") or "")
+            seen_auto: set = set()
+            for text in text_blocks:
+                for p in extract_paths(text):
+                    if p in explicit_patterns or p in seen_auto:
+                        continue
+                    seen_auto.add(p)
+                    conn.execute(
+                        "INSERT INTO task_scope (task_id, pattern, source) "
+                        "VALUES (?, ?, 'auto_derived')",
+                        (task_id, p),
+                    )
 
         conn.commit()
     except sqlite3.Error as e:
