@@ -306,16 +306,24 @@ def _git_commit_with_files(repo_root, message, file_specs):
     ).stdout.strip()
 
 
-def _insert_task_in_progress(db_file, summary, description):
-    """Insert an In Progress task with the given summary/description, return id."""
+def _insert_task_in_progress(db_file, summary, description, scope_enforced=0):
+    """Insert an In Progress task with the given summary/description, return id.
+
+    Defaults to ``scope_enforced=0`` so the prefix-collision heuristic tests
+    below (issue #627) exercise the legacy code path — the fresh-DB column
+    default is 1 (commit-time guard), under which those tests would refuse
+    rather than fall through the heuristic. Tests that exercise the
+    TASK-472 scope_enforced=1 bypass pass ``scope_enforced=1`` explicitly
+    via ``_set_scope_enforced``.
+    """
     conn = sqlite3.connect(str(db_file))
     conn.row_factory = sqlite3.Row
     try:
         cur = conn.execute(
             "INSERT INTO tasks (summary, description, status, task_type, priority, "
-            "complexity, priority_score, started_at) "
-            "VALUES (?, ?, 'In Progress', 'feature', 'Medium', 'S', 50, datetime('now'))",
-            (summary, description),
+            "complexity, priority_score, started_at, scope_enforced) "
+            "VALUES (?, ?, 'In Progress', 'feature', 'Medium', 'S', 50, datetime('now'), ?)",
+            (summary, description, scope_enforced),
         )
         conn.commit()
         return cur.lastrowid
@@ -409,6 +417,53 @@ class TestPrefixCollisionHeuristic:
         assert rc == 2
         assert "git commit" in err.lower()
         assert _read_status(db, task_id) == "In Progress"
+
+
+def _set_scope_enforced(db_file, task_id, value):
+    conn = sqlite3.connect(str(db_file))
+    try:
+        conn.execute(
+            "UPDATE tasks SET scope_enforced = ? WHERE id = ?",
+            (value, task_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_scope_enforced_skips_overlap(tmp_path, config_path, monkeypatch):
+    """TASK-472: with scope_enforced=1, the file-overlap heuristic is skipped
+    and every [TASK-N] commit is treated as authoritative — even one whose
+    diff doesn't intersect any path the task names. Same fixture shape as
+    test_unstart_succeeds_when_historical_commit_unrelated_to_task_paths;
+    the only difference is scope_enforced=1, and the expected rc flips to 2.
+    """
+    db = _setup_nested_repo(tmp_path, monkeypatch)
+    task_id = _insert_task_in_progress(
+        db,
+        summary="Ship ios-libs-contribute skill",
+        description="Lives at skills/ios-libs-contribute/SKILL.md and registers in CLAUDE.md.",
+    )
+    _set_scope_enforced(db, task_id, 1)
+    # Same off-scope commit shape as the legacy fixture above: a [TASK-N]
+    # commit whose diff doesn't intersect the description's scope. Under
+    # scope_enforced=0 the heuristic treats this as a prefix collision and
+    # unstart succeeds; under scope_enforced=1 the commit is trusted and
+    # unstart refuses with the standard guard message.
+    _git_commit_with_files(
+        tmp_path,
+        f"[TASK-{task_id}] Skip branch-naming check gracefully in detached HEAD state",
+        [(".claude/hooks/branch-naming.sh", "#!/bin/bash\necho hi\n")],
+    )
+
+    monkeypatch.setenv("TUSK_FORCE_WARN", "1")
+    rc, _, err = _call(db, config_path, task_id, "--force", no_commits=False)
+    assert rc == 2, f"expected 2 (commit guard refuses), got {rc}; stderr={err}"
+    assert "[TASK-" in err
+    assert "git commit" in err.lower()
+    assert _read_status(db, task_id) == "In Progress"
+    # Bypass stderr note fires (force-emitted via TUSK_FORCE_WARN above).
+    assert f"task-unstart bypassed prefix-collision check for TASK-{task_id}" in err
 
 
 # ── regen-triggers failure restore path (issue #824) ──────────────

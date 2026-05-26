@@ -42,6 +42,31 @@ find_task_commits = _git_helpers.find_task_commits
 filter_commits_by_block_overlap = _git_helpers.filter_commits_by_block_overlap
 
 
+def _emit_scope_enforced_bypass(task_id: int) -> None:
+    """One-line stderr note when the scope_enforced=1 bypass fires.
+
+    Issue/TASK-472: with the commit-time scope guard in place, [TASK-<id>]
+    commits are scope-guaranteed by construction — the prefix-collision
+    file-overlap heuristic is unnecessary. This note records that the
+    bypass path was hit so an operator can confirm the new flow is hot.
+
+    TTY-gated like ``maybe_warn_cross_repo_drift`` (issue #850): silent
+    when stderr is not a TTY (agent transcripts, piped logs, CI runs),
+    silenced unconditionally by ``TUSK_QUIET=1``, force-emitted via
+    ``TUSK_FORCE_WARN=1`` (used by the regression tests).
+    """
+    if os.environ.get("TUSK_QUIET"):
+        return
+    if not os.environ.get("TUSK_FORCE_WARN") and not sys.stderr.isatty():
+        return
+    print(
+        f"tusk: note — task-unstart bypassed prefix-collision check for TASK-{task_id} "
+        f"(scope_enforced=1; commits are authoritative). "
+        f"(TUSK_QUIET=1 to silence)",
+        file=sys.stderr,
+    )
+
+
 def _commits_are_prefix_collision(
     task_id: int,
     conn: sqlite3.Connection,
@@ -147,8 +172,19 @@ def main(argv: list[str]) -> int:
             return 2
 
         task_commits = find_task_commits(task_id, repo_root, ["--all"])
-        if task_commits and not _commits_are_prefix_collision(
-            task_id, conn, repo_root, task_commits
+        # TASK-472: when scope_enforced=1, the commit-time guard ensured every
+        # [TASK-N] commit touched only authorized paths — there are no prefix
+        # collisions to filter out. Skip the heuristic and treat any matching
+        # commit as authoritative. Legacy tasks (scope_enforced=0) still run
+        # the file-overlap check below to discount historical false positives.
+        scope_enforced = bool(task["scope_enforced"]) if "scope_enforced" in task.keys() else False
+        if task_commits and scope_enforced:
+            _emit_scope_enforced_bypass(task_id)
+        if task_commits and (
+            scope_enforced
+            or not _commits_are_prefix_collision(
+                task_id, conn, repo_root, task_commits
+            )
         ):
             sample = ", ".join(c[:7] for c in task_commits[:3])
             more = f" (+{len(task_commits) - 3} more)" if len(task_commits) > 3 else ""
