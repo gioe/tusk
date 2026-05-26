@@ -134,7 +134,13 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
    Report findings before writing any code.
 
-5b. **Scope check.** The commit-time scope guard enforces the file-path boundary (task's referenced paths ∪ `scope.always_allowed`); externally referenced design docs are background context, not scope.
+5b. **Declare scope before the first commit.** The commit-time scope guard reads from the authoritative `task_scope` table (TASK-471), falling back to the `task_referenced_paths` hint cache only when no scope rows exist. Before staging the first commit, run `tusk scope list <id>` to see what the table currently authorizes:
+
+   - **If the list already covers the files you plan to touch**, proceed to commit; no action needed. Migration 73 backfilled `auto_derived` rows from your description and acceptance criteria; tasks created with `tusk task-insert --scope/--creates` have `operator_declared`/`creates` rows from the start.
+   - **If exploration revealed extra paths the description didn't name** (a helper you have to extend, a sibling test file, an unrelated config that has to change), run `tusk scope add <id> <path> --reason "<why>"` for each one before staging. Each call inserts an `expanded_mid_task` row with your rationale, so the retro audit can answer "why did scope grow mid-task?" without guessing.
+   - **If the task is a legitimately repo-wide refactor** (e.g. a rename across every skill or every Python file), it should have been created with `tusk task-insert --unbounded`. If it wasn't, you can stamp it now: `tusk scope add <id> "**" --source operator_declared --reason "..."` is a partial workaround, but the long-term fix is to recreate the task with `--unbounded` so the guard silently passes any staged file.
+
+   Externally referenced design docs (e.g. a `docs/PILLARS.md` link in the description) are background context, not scope — do not add them via `scope add` unless you actually plan to edit them.
 
 6. **Delegate the work** to the chosen subagent(s).
 

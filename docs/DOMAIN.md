@@ -51,6 +51,7 @@ The core unit of work. Every piece of planned work is a task.
 | `fixes_task_id` | INTEGER | nullable; FK → `tasks(id)` ON DELETE SET NULL | ID of the source task this is a follow-up/rework of. Set by `tusk task-insert --fixes-task-id <id>` or by `/create-task` when the input says "fixes TASK-N", "follow-up from TASK-N", or "retro follow-up from TASK-N". Added in migration 55 with a best-effort backfill over existing task descriptions and git-log commit bodies |
 | `bakeoff_id` | INTEGER | nullable | Shared id grouping a set of shadow attempts produced by `tusk bakeoff`. A single bake-off run clones the source task N times (one per model) and stamps every shadow row with the same `bakeoff_id` so the parallel attempts can be aggregated into the comparison report. Added in migration 58 |
 | `bakeoff_shadow` | INTEGER | CHECK IN (0, 1); NOT NULL DEFAULT 0 | 1 for rows created by `tusk bakeoff` as throwaway per-model attempts; 0 for normal tasks. Every view that projects `tasks` (`task_metrics`, `v_ready_tasks`, `v_chain_heads`, `v_blocked_tasks`, `v_criteria_coverage`) filters on `WHERE t.bakeoff_shadow = 0` so shadows never leak into ready/chain-head/blocked/coverage aggregates; the default `tusk task-list` output also hides them. Added in migration 58 |
+| `scope_enforced` | INTEGER | CHECK IN (0, 1); NOT NULL DEFAULT 1 | 1 means the commit-time scope guard reads from the authoritative `task_scope` table. 0 means fall back to the legacy `task_referenced_paths` hint cache for guard decisions — used for tasks that existed before migration 73 backfilled them. Fresh inserts default to 1; migration 73 stamps existing rows to 0 so already-running tasks keep their inferred-scope behavior. `tusk task-insert --unbounded` stamps a `source='unbounded'` row in `task_scope` rather than flipping this flag — the column distinguishes "legacy task whose scope was never declared" (0) from "modern task whose scope is intentionally open" (1 + unbounded). Added in migration 73 |
 
 **Canonical values:**
 - `status`: `To Do`, `In Progress`, `Done`
@@ -184,6 +185,41 @@ A recorded git worktree owned by a normal task. Bakeoff attempts use shadow task
 | `updated_at` | TEXT | NOT NULL, default now | Last metadata update timestamp |
 
 `tusk task-worktree list` reconciles these rows with `git worktree list --porcelain`, so rows remain visible even when a workspace directory was removed outside tusk. The list output reports both the recorded path and the live path currently advertised by git for the branch.
+
+---
+
+### Task Scope
+
+Authoritative declaration of which paths a task is allowed to touch. The commit-time scope guard (`hooks/git/scope-guard.sh` → `tusk scope-paths <id>`) reads `task_scope` when any rows exist for the current task and falls back to the legacy `task_referenced_paths` hint cache only when the table is empty (`tasks.scope_enforced = 0` legacy tasks, or new tasks that didn't declare scope explicitly).
+
+| Attribute | Type | Constraints | Description |
+|-----------|------|-------------|-------------|
+| `id` | INTEGER | PK, autoincrement | |
+| `task_id` | INTEGER | FK → tasks(id) ON DELETE CASCADE | Owning task |
+| `pattern` | TEXT | NOT NULL | Repo-root-relative path (literal match today; glob expansion is a future extension) |
+| `source` | TEXT | CHECK IN (auto_derived, operator_declared, expanded_mid_task, creates, unbounded) | How this row was added |
+| `reason` | TEXT | nullable | Free-text rationale; required-by-convention on `expanded_mid_task` rows so retros can see *why* a scope grew mid-task |
+| `locked_at` | TEXT | nullable | When `tusk scope lock` was called; future scope guard hardening may refuse mid-task additions after this is set |
+| `locked_by` | TEXT | nullable | Lock attribution (defaults to `$USER` when not passed via `--by`) |
+| `created_at` | TEXT | NOT NULL, default now | Row creation timestamp |
+
+**Indexes:** `idx_task_scope_task_id`.
+
+**Sources:**
+- `auto_derived` — backfilled from `task_referenced_paths` during migration 73, or inserted by a future auto-extraction pass during task creation.
+- `operator_declared` — set via `tusk task-insert --scope <pattern>` (repeatable). The operator named these paths up-front.
+- `creates` — set via `tusk task-insert --creates <path>` (repeatable). Distinguished from `operator_declared` so the guard could in future verify the paths don't yet exist on the default branch.
+- `expanded_mid_task` — added by `tusk scope add <task_id> <pattern> [--reason ...]` after the task is already in progress. The reason is the audit trail for "why did scope grow mid-flight" retro questions.
+- `unbounded` — set via `tusk task-insert --unbounded`. The pattern is a sentinel (`**`); `scope-paths` short-circuits and emits nothing when any row has this source, so the commit-time guard silently passes. Used for refactors that legitimately span the repo.
+
+**Backfill (migration 73).** For each existing task with at least one referenced path, one `auto_derived` row was inserted per path. Tasks with no scope signal (no paths in description / criteria / verification specs) got no rows — the guard's "empty scope → silent pass" contract is preserved unchanged.
+
+**Lifecycle.** Tasks start `loose` (no `locked_at`). The intended hardening path is:
+1. `tusk task-insert --scope/--creates` declares initial scope.
+2. Exploration may surface paths the operator didn't anticipate; `tusk scope add ... --reason "..."` records each expansion as an `expanded_mid_task` row.
+3. `tusk scope lock` stamps `locked_at` on every entry once the operator is confident the scope is complete.
+
+The lock column is informational today — the guard does not yet refuse `tusk scope add` against locked tasks — but the audit data is captured for retro analysis.
 
 ---
 

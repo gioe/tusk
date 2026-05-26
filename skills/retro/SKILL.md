@@ -74,6 +74,21 @@ tusk jots --task-id $RETRO_TASK_ID
 
 The output is an array of `{id, skill_run_id, task_id, category, note, file_hint, skill_hint, created_at}` rows. Each jot is a **pre-classified finding candidate** captured at the moment of friction — treat its `category` as a strong hint when bucketing into the categories below, and quote the `note` verbatim in the finding's summary. Jots are the highest-fidelity input to retro because they were not reconstructed from memory at close time. Empty array → no jots were filed; proceed using conversation context alone.
 
+**Read scope-quality signals next.** Fetch the task's declared scope (TASK-471):
+
+```bash
+tusk scope list $RETRO_TASK_ID
+```
+
+The output is an array of `{id, task_id, pattern, source, reason, locked_at, locked_by, created_at}` rows. Inspect for the following signals — they are independent of jots and may surface findings the operator never wrote down:
+
+- **`expanded_mid_task` rows** — each one is the operator answering "I had to grow scope and here's why". Quote the `pattern` and `reason` verbatim. If multiple expansions cite the same root cause (e.g. "missed during decomposition"), that's a Category A finding: `/create-task` didn't enumerate the full scope and the decomposition rule needs sharpening. If expansions cite genuine exploration discoveries, no finding — scope growth from new information is healthy.
+- **`auto_derived`-only tasks that ended up needing `TUSK_SCOPE_GUARD_BYPASS=1`** — the legacy hint cache wasn't precise enough. Category A: encourage future tasks to use `tusk task-insert --scope/--creates` so the table is authoritative from the start.
+- **`unbounded` rows on tasks that turned out to touch < 5 files** — the operator opted out of the guard for a task that didn't actually need it. Category A: the next similar task should declare scope explicitly instead.
+- **Locked-but-still-grew tasks** — a `locked_at` timestamp followed by a later `expanded_mid_task` row means the lock was an aspirational ceremony, not a hard checkpoint. Category B (tangential): consider whether `tusk scope add` should refuse after lock, or whether lock should require an explicit `--unlock` for further growth.
+
+Empty array on a task that has commits → the operator bypassed the guard for the entire session, or the task was created before migration 73 and scope was never declared. The former is a Category A finding; the latter is expected for legacy work and produces no finding.
+
 **Check for custom focus areas first.** Attempt to read `<base_directory>/FOCUS.md`.
 - If the file exists: use the categories defined in it for the analysis below.
 - If the file does not exist: use the default categories:
