@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1001] - 2026-05-25
+
+- [TASK-479] Add tusk task-worktree relocate to migrate existing flat-pool worktrees into the namespaced layout
+
 ## [1000] - 2026-05-25
 
 - [TASK-472] Skip retroactive scope-detection heuristics for tasks with scope_enforced=true
