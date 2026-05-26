@@ -58,6 +58,29 @@ def _read_version_file(repo_root: str) -> str | None:
         return None
 
 
+def _is_task_id(db_path: str, candidate: int) -> bool:
+    """Return True iff ``candidate`` matches a row in ``tasks.id``.
+
+    Used to disambiguate ``tusk changelog-add <N>`` when ``N`` could be
+    parsed as either a version or a task ID (issue #902). Best-effort:
+    swallows any DB-open failure so callers still hit the original
+    version-mismatch error path on degraded environments.
+    """
+    try:
+        conn = get_connection(db_path)
+    except sqlite3.Error:
+        return False
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM tasks WHERE id = ?", (candidate,)
+        ).fetchone()
+        return row is not None
+    except sqlite3.Error:
+        return False
+    finally:
+        conn.close()
+
+
 def main() -> None:
     if len(sys.argv) < 3:
         print(
@@ -113,6 +136,19 @@ def main() -> None:
     else:
         version = raw_args[0]
         task_ids = raw_args[1:]
+        if (
+            file_version is not None
+            and version != file_version
+            and version.isdigit()
+            and _is_task_id(db_path, int(version))
+        ):
+            # Caller wrote `tusk changelog-add <task_id>` — the natural
+            # post-version-bump form — but the dispatcher parsed task_id
+            # as the version arg. Reroute as if --from-version-file was
+            # passed: the file version wins, every positional is a task ID
+            # (issue #902).
+            version = file_version
+            task_ids = raw_args
 
     if not version.isdigit() or int(version) == 0:
         print(

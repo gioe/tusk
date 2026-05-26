@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1005] - 2026-05-26
+
+- [TASK-484] Fix tusk changelog-add to detect bare task_id arg as task ID not version
+
 ## [1004] - 2026-05-26
 
 - [TASK-483] Fix test_bakeoff fetch-count assertion to tolerate auto-sync-main fetches

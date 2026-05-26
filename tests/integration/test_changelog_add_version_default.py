@@ -138,6 +138,93 @@ def test_help_does_not_write_changelog(tmp_path):
     assert (repo / "CHANGELOG.md").read_text(encoding="utf-8") == original_changelog
 
 
+def _init_db_with_task(repo, env, task_id: int):
+    """Initialise the tusk DB inside ``repo`` and insert a single task whose
+    ``id`` equals ``task_id``, so ``tasks.id`` can be used as a disambiguator
+    in the heuristic under test."""
+    init = subprocess.run(
+        [TUSK_BIN, "init", "--force"],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert init.returncode == 0, init.stderr
+    insert = subprocess.run(
+        [
+            TUSK_BIN, "task-insert",
+            "task-id-detect-target",
+            "test task for #902 disambiguation",
+            "--priority", "Low",
+            "--task-type", "feature",
+            "--complexity", "XS",
+            "--criteria", "noop",
+        ],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert insert.returncode == 0, insert.stderr
+    new_id = int(__import__("json").loads(insert.stdout)["task_id"])
+    if new_id != task_id:
+        sqlite3 = __import__("sqlite3")
+        conn = sqlite3.connect(env["TUSK_DB"])
+        conn.execute("UPDATE tasks SET id = ? WHERE id = ?", (task_id, new_id))
+        conn.commit()
+        conn.close()
+
+
+def test_bare_task_id_routes_to_version_file(tmp_path):
+    """Passing a single positional that matches a tasks.id row treats it as
+    a task ID, not a version (issue #902). The result must be identical to
+    `tusk changelog-add --from-version-file <task_id>`."""
+    repo = _seed_repo(tmp_path, version="998")
+    env = _env_with_db(repo)
+    _init_db_with_task(repo, env, task_id=473)
+
+    result = _tusk(["changelog-add", "473"], cwd=repo, env=env)
+
+    assert result.returncode == 0, f"stderr: {result.stderr}\nstdout: {result.stdout}"
+    changelog = (repo / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert "## [998] - " in changelog
+    assert "- [TASK-473]" in changelog
+    assert "## [473]" not in changelog
+
+
+def test_bare_non_task_id_still_errors_as_version_mismatch(tmp_path):
+    """A bare positional that does NOT match any task row must still hit the
+    original drift error — the heuristic must not silently absorb arbitrary
+    integers."""
+    repo = _seed_repo(tmp_path, version="998")
+    env = _env_with_db(repo)
+    _init_db_with_task(repo, env, task_id=473)
+    original_changelog = (repo / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    result = _tusk(["changelog-add", "999999"], cwd=repo, env=env)
+
+    assert result.returncode != 0
+    assert "disagrees with VERSION file content" in result.stderr
+    assert (repo / "CHANGELOG.md").read_text(encoding="utf-8") == original_changelog
+
+
+def test_explicit_version_plus_task_id_still_works(tmp_path):
+    """Two positionals where the first equals VERSION continues to work as
+    `<version> <task_id>` — the heuristic must not break the explicit form."""
+    repo = _seed_repo(tmp_path, version="998")
+    env = _env_with_db(repo)
+    _init_db_with_task(repo, env, task_id=473)
+
+    result = _tusk(["changelog-add", "998", "473"], cwd=repo, env=env)
+
+    assert result.returncode == 0, f"stderr: {result.stderr}\nstdout: {result.stdout}"
+    changelog = (repo / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert "## [998] - " in changelog
+    assert "- [TASK-473]" in changelog
+
+
 def test_missing_version_file_with_no_args_errors(tmp_path):
     """No positional version and no VERSION file → clear error, no CHANGELOG mutation."""
     repo = tmp_path / "repo"
