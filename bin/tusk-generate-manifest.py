@@ -59,6 +59,29 @@ _DIST_EXCLUDED = _load_dist_excluded()
 
 
 def build_manifest(root):
+    # Refuse under sparse-checkout to prevent silent MANIFEST destruction
+    # (TASK-480 criterion 2228, issues #895 / #905; defense-in-depth move
+    # from main() per issue #909). The on-disk source-tree walk below
+    # silently omits every file outside the sparse cone — a regenerated
+    # MANIFEST would drop ~17+ entries for unmaterialized hooks, skills,
+    # codex-prompts, etc. The downstream impact is high: ``tusk upgrade``
+    # for consumers would stop distributing the missing files. The gate
+    # lives at this lowest-level write point so any direct caller (Python
+    # import or future subprocess wrapper) is protected — not only the
+    # ``main()`` entry point.
+    if _sparse_checkout_active(root):
+        print(
+            "Error: tusk generate-manifest refuses to run under a sparse "
+            "worktree — every file outside the cone would be silently dropped "
+            "from MANIFEST, corrupting tusk upgrade for downstream installs.\n"
+            f"  Worktree: {root}\n"
+            "  Recover: run from the primary checkout (a full checkout of "
+            "the source repo) or run `git sparse-checkout disable` in this "
+            "worktree first, then retry.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     files = []
 
     files.append(".claude/bin/tusk")
@@ -116,26 +139,8 @@ def main():
         print("Error: this command must be run inside the tusk source repo", file=sys.stderr)
         sys.exit(1)
 
-    # Refuse under sparse-checkout to prevent silent MANIFEST destruction
-    # (TASK-480 criterion 2228, issues #895 / #905). build_manifest walks the
-    # on-disk source tree via os.listdir / glob, which silently omits every
-    # file outside the sparse cone — a regenerated MANIFEST would drop ~17+
-    # entries for unmaterialized hooks, skills, codex-prompts, etc. The
-    # downstream impact is high: ``tusk upgrade`` for consumers would stop
-    # distributing the missing files. Operators must regenerate from a full
-    # checkout (e.g. the primary, or `git sparse-checkout disable` first).
-    if _sparse_checkout_active(root):
-        print(
-            "Error: tusk generate-manifest refuses to run under a sparse "
-            "worktree — every file outside the cone would be silently dropped "
-            "from MANIFEST, corrupting tusk upgrade for downstream installs.\n"
-            f"  Worktree: {root}\n"
-            "  Recover: run from the primary checkout (a full checkout of "
-            "the source repo) or run `git sparse-checkout disable` in this "
-            "worktree first, then retry.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    # Sparse-checkout refusal lives at the top of build_manifest() so every
+    # caller is protected, not just this entry point (issue #909).
 
     manifest_path = os.path.join(root, "MANIFEST")
     tusk_manifest_path = os.path.join(root, ".claude", "tusk-manifest.json")
