@@ -509,6 +509,91 @@ class TestRebaseFailure:
         assert not ff_calls, "ff-only merge must not be attempted after rebase failure"
 
 
+class TestVersionChangelogRebaseRecovery:
+    """Version-bump conflicts during --rebase are recoverable without manual edits."""
+
+    def test_recovers_version_changelog_conflict_and_amends_bump_subject(
+        self, tmp_path, monkeypatch
+    ):
+        worktree = tmp_path / "task-worktree"
+        worktree.mkdir()
+        record = []
+
+        upstream_changelog = (
+            "## [1022] - 2026-05-27\n\n"
+            "- [TASK-503] Earlier sibling bump\n\n"
+            "## [1021] - 2026-05-27\n\n"
+            "- Prior entry\n"
+        )
+        task_changelog = (
+            "## [1022] - 2026-05-27\n\n"
+            "- [TASK-504] Later task bump\n\n"
+            "## [1021] - 2026-05-27\n\n"
+            "- Prior entry\n"
+        )
+
+        def _run(args, check=True):
+            record.append(list(args))
+            if args[:5] == [
+                "git",
+                "-C",
+                str(worktree),
+                "diff",
+                "--name-only",
+            ]:
+                return subprocess.CompletedProcess(
+                    args, 0, stdout="VERSION\nCHANGELOG.md\n", stderr=""
+                )
+            if args == ["git", "-C", str(worktree), "show", "origin/main:VERSION"]:
+                return subprocess.CompletedProcess(args, 0, stdout="1022\n", stderr="")
+            if args == ["git", "-C", str(worktree), "show", ":2:VERSION"]:
+                return subprocess.CompletedProcess(args, 0, stdout="1022\n", stderr="")
+            if args == ["git", "-C", str(worktree), "show", ":3:VERSION"]:
+                return subprocess.CompletedProcess(args, 0, stdout="1022\n", stderr="")
+            if args == ["git", "-C", str(worktree), "show", ":2:CHANGELOG.md"]:
+                return subprocess.CompletedProcess(args, 0, stdout=upstream_changelog, stderr="")
+            if args == ["git", "-C", str(worktree), "show", ":3:CHANGELOG.md"]:
+                return subprocess.CompletedProcess(args, 0, stdout=task_changelog, stderr="")
+            if args == ["git", "-C", str(worktree), "rebase", "--continue"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args == ["git", "-C", str(worktree), "log", "-1", "--format=%s"]:
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    stdout="[TASK-504] Bump VERSION to 1022 and add CHANGELOG entry for TASK-504.\n",
+                    stderr="",
+                )
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(tusk_merge, "run", _run)
+
+        recovered = tusk_merge._recover_version_changelog_rebase_conflict(
+            str(worktree), "origin/main"
+        )
+
+        assert recovered is True
+        assert (worktree / "VERSION").read_text() == "1023\n"
+        assert (worktree / "CHANGELOG.md").read_text() == (
+            "## [1023] - 2026-05-27\n\n"
+            "- [TASK-504] Later task bump\n\n"
+            "## [1022] - 2026-05-27\n\n"
+            "- [TASK-503] Earlier sibling bump\n\n"
+            "## [1021] - 2026-05-27\n\n"
+            "- Prior entry\n"
+        )
+        assert ["git", "-C", str(worktree), "add", "VERSION", "CHANGELOG.md"] in record
+        assert ["git", "-C", str(worktree), "rebase", "--continue"] in record
+        assert [
+            "git",
+            "-C",
+            str(worktree),
+            "commit",
+            "--amend",
+            "-m",
+            "[TASK-504] Bump VERSION to 1023 and add CHANGELOG entry for TASK-504.",
+        ] in record
+
+
 class TestFfOnlyErrorMessage:
     """When ff-only merge fails without --rebase, error message includes exact rebase commands."""
 

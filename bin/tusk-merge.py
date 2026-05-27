@@ -258,6 +258,104 @@ def _worktree_path_for_branch(branch: str) -> str | None:
     return None
 
 
+def _git_show_text(worktree_path: str, rev_path: str) -> str | None:
+    result = run(["git", "-C", worktree_path, "show", rev_path], check=False)
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
+def _parse_version(text: str | None) -> int | None:
+    if text is None:
+        return None
+    stripped = text.strip()
+    if not re.fullmatch(r"\d+", stripped):
+        return None
+    return int(stripped)
+
+
+def _first_changelog_section(text: str) -> tuple[str, str] | None:
+    match = re.search(
+        r"^## \[(?P<version>\d+)\] - (?P<date>\d{4}-\d{2}-\d{2})\n(?P<body>.*?)(?=^## \[|\Z)",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    if not match:
+        return None
+    return match.group("date"), match.group("body").rstrip() + "\n"
+
+
+def _recover_version_changelog_rebase_conflict(
+    worktree_path: str,
+    rebase_target: str,
+) -> bool:
+    """Resolve the common parallel-worktree VERSION/CHANGELOG.md bump race."""
+    unmerged = run(
+        ["git", "-C", worktree_path, "diff", "--name-only", "--diff-filter=U"],
+        check=False,
+    )
+    if unmerged.returncode != 0:
+        return False
+    paths = {line.strip() for line in unmerged.stdout.splitlines() if line.strip()}
+    if paths != {"VERSION", "CHANGELOG.md"}:
+        return False
+
+    versions = [
+        _parse_version(_git_show_text(worktree_path, f"{rebase_target}:VERSION")),
+        _parse_version(_git_show_text(worktree_path, ":2:VERSION")),
+        _parse_version(_git_show_text(worktree_path, ":3:VERSION")),
+    ]
+    if any(version is None for version in versions):
+        return False
+    next_version = max(version for version in versions if version is not None) + 1
+
+    upstream_changelog = _git_show_text(worktree_path, ":2:CHANGELOG.md")
+    task_changelog = _git_show_text(worktree_path, ":3:CHANGELOG.md")
+    if upstream_changelog is None or task_changelog is None:
+        return False
+    task_section = _first_changelog_section(task_changelog)
+    if task_section is None:
+        return False
+    section_date, section_body = task_section
+
+    with open(os.path.join(worktree_path, "VERSION"), "w", encoding="utf-8") as handle:
+        handle.write(f"{next_version}\n")
+    with open(os.path.join(worktree_path, "CHANGELOG.md"), "w", encoding="utf-8") as handle:
+        handle.write(f"## [{next_version}] - {section_date}\n{section_body}\n")
+        handle.write(upstream_changelog)
+
+    add_result = run(
+        ["git", "-C", worktree_path, "add", "VERSION", "CHANGELOG.md"],
+        check=False,
+    )
+    if add_result.returncode != 0:
+        return False
+    continue_result = run(["git", "-C", worktree_path, "rebase", "--continue"], check=False)
+    if continue_result.returncode != 0:
+        return False
+
+    subject_result = run(
+        ["git", "-C", worktree_path, "log", "-1", "--format=%s"],
+        check=False,
+    )
+    if subject_result.returncode != 0:
+        return True
+    subject = subject_result.stdout.strip()
+    corrected_subject = re.sub(
+        r"\bBump VERSION to \d+\b",
+        f"Bump VERSION to {next_version}",
+        subject,
+        count=1,
+    )
+    if corrected_subject == subject:
+        return True
+    amend_result = run(
+        ["git", "-C", worktree_path, "commit", "--amend", "-m", corrected_subject],
+        check=False,
+    )
+    return amend_result.returncode == 0
+
+
 def _rebase_in_feature_worktree(
     worktree_path: str,
     branch_name: str,
@@ -283,6 +381,13 @@ def _rebase_in_feature_worktree(
         ["git", "-C", worktree_path, "rebase", rebase_target], check=False
     )
     if rebase_result.returncode == 0:
+        return 0
+    if _recover_version_changelog_rebase_conflict(worktree_path, rebase_target):
+        print(
+            "Resolved VERSION/CHANGELOG.md rebase conflict by assigning the next "
+            "available version.",
+            file=sys.stderr,
+        )
         return 0
     if rebase_result.stderr.strip():
         print(rebase_result.stderr.strip(), file=sys.stderr)
@@ -1361,29 +1466,37 @@ def _complete_no_checkout_fast_forward(
                 return 2
             rebase_result = run(["git", "rebase", rebase_target], check=False)
             if rebase_result.returncode != 0:
-                if rebase_result.stderr.strip():
-                    print(rebase_result.stderr.strip(), file=sys.stderr)
-                stash_note = ""
-                if did_stash:
-                    stash_note = (
-                        f"\nNote: your pre-merge working-tree changes are saved in stash "
-                        f"entry 'tusk-merge: auto-stash for TASK-{task_id}'. "
-                        "Restore them with `git stash list` + `git stash pop <ref>` "
-                        "after the rebase completes."
+                if _recover_version_changelog_rebase_conflict(os.getcwd(), rebase_target):
+                    print(
+                        "Resolved VERSION/CHANGELOG.md rebase conflict by assigning "
+                        "the next available version.",
+                        file=sys.stderr,
                     )
-                print(
-                    f"Error: git rebase {rebase_target} failed — conflicts must be resolved manually.\n"
-                    f"You are on '{branch_name}' with the rebase in progress. To finish:\n"
-                    "  1. Fix the conflicting files (git status lists them)\n"
-                    "  2. git add <resolved files>\n"
-                    "  3. git rebase --continue\n"
-                    "  4. Repeat steps 1–3 until the rebase completes\n"
-                    f"  5. Re-run: tusk merge {task_id}\n"
-                    "To abort the rebase and return to the pre-rebase state:\n"
-                    f"  git rebase --abort{stash_note}",
-                    file=sys.stderr,
-                )
-                return 2
+                else:
+                    if rebase_result.stderr.strip():
+                        print(rebase_result.stderr.strip(), file=sys.stderr)
+                    stash_note = ""
+                    if did_stash:
+                        stash_note = (
+                            f"\nNote: your pre-merge working-tree changes are saved in stash "
+                            f"entry 'tusk-merge: auto-stash for TASK-{task_id}'. "
+                            "Restore them with `git stash list` + `git stash pop <ref>` "
+                            "after the rebase completes."
+                        )
+                    print(
+                        f"Error: git rebase {rebase_target} failed — conflicts must be resolved manually.\n"
+                        f"You are on '{branch_name}' with the rebase in progress. To finish:\n"
+                        "  1. Fix the conflicting files (git status lists them)\n"
+                        "  2. git add <resolved files>\n"
+                        "  3. git rebase --continue\n"
+                        "  4. Repeat steps 1–3 until the rebase completes\n"
+                        f"  5. Re-run: tusk merge {task_id}\n"
+                        "To abort the rebase and return to the pre-rebase state:\n"
+                        f"  git rebase --abort{stash_note}",
+                        file=sys.stderr,
+                    )
+                    return 2
+
     else:
         fetch_result = run(["git", "fetch", "origin"], check=False)
         if fetch_result.returncode == 0:

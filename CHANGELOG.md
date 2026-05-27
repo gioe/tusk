@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1025] - 2026-05-27
+
+- [TASK-506] Fix: auto-resync version bump conflicts during rebase merge
+
 ## [1024] - 2026-05-27
 
 - [TASK-505] Fix: prevent merge retry from leaving primary on feature branch
