@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1023] - 2026-05-27
+
+- [TASK-504] tusk merge exits 0 even when post-merge worktree cleanup fails
+
 ## [1022] - 2026-05-27
 
 - [TASK-503] Fix: add progress and recovery handling for no-checkout merge push
