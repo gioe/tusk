@@ -1037,7 +1037,7 @@ def _format_sync_main_failure_advisory(
 
 def _maybe_advise_stale_deployed_bin(
     db_path: str, *, tusk_bin: str | None = None, refresh_fired: bool = False,
-) -> None:
+) -> str | None:
     """Advise or auto-action when primary's working tree is behind origin after a no-checkout merge.
 
     The no-checkout fast-forward path pushes to origin/<default> without updating
@@ -1069,6 +1069,26 @@ def _maybe_advise_stale_deployed_bin(
     the one path where stderr is the only diagnostic signal. Empty or
     whitespace-only stderr leaves the original wording unchanged.
 
+    Issue #921: callers in the no-checkout fast-forward path read the return
+    value to decide whether ``_cleanup_no_checkout_workspace`` is safe to run.
+    A failed auto-sync means primary is still stale and may be the only
+    binary the operator's next subcommands can reach if the schema-mismatch
+    preflight fires — preserving the worktree gives them a recovery handle.
+
+    Returns one of:
+      * ``None`` — gates suppressed the advisory entirely (env-var disabled,
+        not a source-repo layout, or ``git status`` failed); caller should
+        proceed as today.
+      * ``"clean"`` — the four-variant advisory was printed without invoking
+        sync-main (``tusk_bin is None`` or ``TUSK_NO_AUTO_SYNC_MAIN=1``);
+        caller should proceed with cleanup since there is no in-flight
+        recovery state to preserve.
+      * ``"sync_succeeded"`` — sync-main was invoked and exited 0; primary
+        is now current and cleanup is safe.
+      * ``"sync_failed"`` — sync-main was invoked and exited non-zero; the
+        caller should defer ``_cleanup_no_checkout_workspace`` so the
+        worktree's bin/ remains reachable as the operator's recovery handle.
+
     Gates carried over from the original advisory path (issue #865):
       * ``TUSK_NO_DEPLOYED_BIN_REFRESH=1`` — single off-switch shared with
         ``_maybe_refresh_deployed_bin``; suppresses both the auto-action and
@@ -1085,18 +1105,18 @@ def _maybe_advise_stale_deployed_bin(
         callers that don't have a resolved binary in scope.
     """
     if os.environ.get("TUSK_NO_DEPLOYED_BIN_REFRESH") == "1":
-        return
+        return None
     from pathlib import Path
     primary_root = Path(os.path.dirname(os.path.dirname(os.path.abspath(db_path))))
     src_bin = primary_root / "bin"
     dst_bin = primary_root / ".claude" / "bin"
     if not src_bin.is_dir() or not dst_bin.is_dir():
-        return
+        return None
     status = run(
         ["git", "-C", str(primary_root), "status", "--porcelain"], check=False,
     )
     if status.returncode != 0:
-        return
+        return None
     working_tree_clean = not status.stdout.strip()
     advisory = _format_stale_deployed_bin_advisory(
         primary_root, working_tree_clean, refresh_fired,
@@ -1105,7 +1125,7 @@ def _maybe_advise_stale_deployed_bin(
     auto_sync_disabled = os.environ.get("TUSK_NO_AUTO_SYNC_MAIN") == "1"
     if tusk_bin is None or auto_sync_disabled:
         print(advisory, file=sys.stderr)
-        return
+        return "clean"
 
     sync_result = _run_sync_main(tusk_bin, primary_root)
     if sync_result.returncode == 0:
@@ -1127,7 +1147,7 @@ def _maybe_advise_stale_deployed_bin(
         # next session boots. _maybe_refresh_deployed_bin owns its own stderr
         # advisory and TUSK_NO_DEPLOYED_BIN_REFRESH check.
         _maybe_refresh_deployed_bin(db_path, tusk_bin)
-        return
+        return "sync_succeeded"
 
     parsed_json: dict = {}
     try:
@@ -1159,6 +1179,7 @@ def _maybe_advise_stale_deployed_bin(
         ),
         file=sys.stderr,
     )
+    return "sync_failed"
 
 
 def _stamp_merge_commit_sha(
@@ -1669,7 +1690,25 @@ def _complete_no_checkout_fast_forward(
     # tree being behind origin (issue #869) instead of repeating the
     # ".claude/bin/ may be stale, run dev-sync" line that the refresh has
     # already addressed.
-    _maybe_advise_stale_deployed_bin(db_path, tusk_bin=tusk_bin, refresh_fired=refreshed)
+    advisory_outcome = _maybe_advise_stale_deployed_bin(
+        db_path, tusk_bin=tusk_bin, refresh_fired=refreshed,
+    )
+    # Issue #921: when auto-sync-main failed, primary is still stale and may
+    # be the only binary the operator's next subcommands can reach if the
+    # schema-mismatch preflight fires. Preserving the worktree gives them a
+    # recovery handle — <workspace>/bin/tusk is at the version that
+    # successfully wrote to the DB and is therefore schema-compatible.
+    # Cleanup is deferred; rerunning tusk merge after resolving the
+    # underlying sync-main failure will close out the remaining state.
+    if advisory_outcome == "sync_failed":
+        _emit_worktree_preservation_advisory(db_path, task_id, branch_name)
+        # Surface as partial-cleanup (exit 3) so automation can detect
+        # deferred state without grepping stderr (TASK-504 contract).
+        # If rc is already non-zero (task-done failed), preserve that more
+        # severe signal — same precedence rule the original cleanup path used.
+        if rc == 0:
+            return 3
+        return rc
     cleanup_ok = _cleanup_no_checkout_workspace(db_path, task_id, branch_name)
     # Distinguish "fully succeeded" from "succeeded but cleanup needs manual
     # attention" so automation can detect a leftover worktree / branch
@@ -1679,6 +1718,71 @@ def _complete_no_checkout_fast_forward(
     if rc == 0 and not cleanup_ok:
         return 3
     return rc
+
+
+def _emit_worktree_preservation_advisory(
+    db_path: str, task_id: int, branch_name: str,
+) -> None:
+    """Tell the operator that the worktree (and feature branch) have been
+    preserved as a recovery handle because ``tusk sync-main`` failed.
+
+    Called when ``_maybe_advise_stale_deployed_bin`` returned ``"sync_failed"``
+    and ``_cleanup_no_checkout_workspace`` was therefore skipped. The worktree
+    holds a tusk binary that successfully wrote to the DB at its current
+    schema version — invoking ``<workspace>/bin/tusk`` lets operator-flow
+    commands run even when primary's binary fails the schema-mismatch
+    preflight (issue #921).
+
+    Best-effort: a missing or stale ``task_workspaces`` row means the
+    worktree we'd preserve was already gone before this advisory; in that
+    case stay silent rather than emit a misleading "recovery handle"
+    pointing at a path that does not exist. The deferred cleanup is still
+    correct — the operator has a stale registry row plus an absent path,
+    which is the same state ``task-worktree list --format json`` shows for
+    any pruneable workspace.
+    """
+    workspace_row = _recorded_task_workspace(db_path, task_id)
+    if workspace_row is None:
+        return
+    workspace_path = workspace_row["workspace_path"]
+    if not workspace_path or not os.path.isdir(workspace_path):
+        return
+    # Probe the canonical bin/ locations inside the worktree in the same
+    # order tusk-resolve-schema-bin.py does. The first hit is the recovery
+    # handle we surface; if none exists (no bin/ shipped to the worktree),
+    # still emit the preservation note but omit the handle.
+    candidates = (
+        os.path.join(workspace_path, "bin", "tusk"),
+        os.path.join(workspace_path, ".claude", "bin", "tusk"),
+        os.path.join(workspace_path, "tusk", "bin", "tusk"),
+    )
+    recovery_handle = None
+    for candidate in candidates:
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            recovery_handle = candidate
+            break
+    print(
+        f"Note: leaving worktree {workspace_path} (branch {branch_name}) "
+        f"intact for recovery because tusk sync-main failed; primary may "
+        f"still be at a schema version behind the DB. Issue #921.",
+        file=sys.stderr,
+    )
+    if recovery_handle is not None:
+        print(
+            f"  Recovery handle: invoke operator-flow tusk commands via "
+            f"{recovery_handle} while primary remains stale (e.g. "
+            f"{recovery_handle} skill-run finish <run_id>, "
+            f"{recovery_handle} task-summary <task_id>).",
+            file=sys.stderr,
+        )
+    print(
+        f"  After resolving the underlying sync-main failure, rerun "
+        f"tusk merge {task_id} --session <session_id> to finish cleanup, "
+        f"or remove the worktree manually: "
+        f"git worktree remove --force {workspace_path} && "
+        f"git branch -D {branch_name}.",
+        file=sys.stderr,
+    )
 
 
 def _cleanup_no_checkout_workspace(
