@@ -123,6 +123,7 @@ class TestValidateComments:
         assert payload["general"] == 1
         assert len(payload["dismissed"]) == 1
         assert payload["dismissed"][0]["file_path"] == "src/never_existed.py"
+        assert payload["dismissed_general"] == []
         assert "real.py" in payload["diff_files"]
 
         # Confirm the dismissal landed in the DB with a non-empty note.
@@ -491,3 +492,150 @@ class TestValidateComments:
         assert "feat.py" in payload["diff_files"]
         assert payload["dismissed"] == []
         assert payload["in_diff"] == 1
+
+
+class TestValidateCommentsGeneralBodyScan:
+    """Issue #912: general comments (null file_path) are body-scanned for
+    file-path-shaped tokens. A general comment whose cited paths are all
+    absent from the diff is dismissed under the same fabrication-guard
+    rationale; one that cites at least one in-diff path or no path tokens
+    at all is preserved."""
+
+    def _setup_real_branch(self, tmp_path, monkeypatch):
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        task_id = _insert_in_progress_task(db_path)
+        _git(["checkout", "-b", f"feature/TASK-{task_id}-x"], cwd=repo)
+        (repo / "real.py").write_text("def real():\n    return 1\n", encoding="utf-8")
+        _git(["add", "real.py"], cwd=repo, env=env)
+        _git(["commit", "-m", f"[TASK-{task_id}] real"], cwd=repo, env=env)
+        begin = _run(["review", "begin", str(task_id)], cwd=repo, env=env)
+        assert begin.returncode == 0, begin.stderr
+        review_id = json.loads(begin.stdout)["review_id"]
+        return repo, db_path, env, task_id, review_id
+
+    def test_general_comment_with_out_of_diff_path_is_dismissed(
+        self, tmp_path, monkeypatch
+    ):
+        """Issue #912 reproduction: a general comment naming
+        ``apps/foo/nonexistent.py`` when the diff has only ``real.py`` is
+        auto-dismissed via the body-scan branch."""
+        repo, db_path, env, _task_id, review_id = self._setup_real_branch(
+            tmp_path, monkeypatch
+        )
+        r = _run(
+            ["review", "add-comment", str(review_id),
+             "Scope: this branch also bundles an unrelated change to apps/foo/nonexistent.py",
+             "--category", "suggest", "--severity", "minor"],
+            cwd=repo, env=env,
+        )
+        assert r.returncode == 0, r.stderr
+
+        result = _run(["review", "validate-comments", str(review_id)], cwd=repo, env=env)
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+
+        assert payload["dismissed"] == []
+        assert payload["general"] == 0, (
+            "the general comment got dismissed, not preserved"
+        )
+        assert len(payload["dismissed_general"]) == 1
+        entry = payload["dismissed_general"][0]
+        assert entry["cited_paths"] == ["apps/foo/nonexistent.py"]
+
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT resolution, resolution_note FROM review_comments"
+                " WHERE id = ?",
+                (entry["comment_id"],),
+            ).fetchone()
+        assert row["resolution"] == "dismissed"
+        assert "apps/foo/nonexistent.py" in (row["resolution_note"] or "")
+        assert "issue #912" in (row["resolution_note"] or "")
+
+    def test_general_comment_citing_in_diff_path_is_preserved(
+        self, tmp_path, monkeypatch
+    ):
+        repo, db_path, env, _task_id, review_id = self._setup_real_branch(
+            tmp_path, monkeypatch
+        )
+        r = _run(
+            ["review", "add-comment", str(review_id),
+             "Scope concern: the change to real.py needs broader review",
+             "--category", "suggest", "--severity", "minor"],
+            cwd=repo, env=env,
+        )
+        assert r.returncode == 0, r.stderr
+
+        result = _run(["review", "validate-comments", str(review_id)], cwd=repo, env=env)
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+
+        assert payload["dismissed_general"] == [], (
+            "general comment citing an in-diff path must NOT be dismissed"
+        )
+        assert payload["general"] == 1
+
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT resolution FROM review_comments WHERE review_id = ?",
+                (review_id,),
+            ).fetchone()
+        assert row["resolution"] is None
+
+    def test_general_comment_citing_no_paths_is_preserved(
+        self, tmp_path, monkeypatch
+    ):
+        """Truly generic remarks with no file-path-shaped tokens must
+        still be preserved — the orchestrator's diff-line-quote rule
+        handles those at the per-comment loop."""
+        repo, db_path, env, _task_id, review_id = self._setup_real_branch(
+            tmp_path, monkeypatch
+        )
+        r = _run(
+            ["review", "add-comment", str(review_id),
+             "Overall the diff feels OK; consider tightening error messages.",
+             "--category", "suggest", "--severity", "minor"],
+            cwd=repo, env=env,
+        )
+        assert r.returncode == 0, r.stderr
+
+        result = _run(["review", "validate-comments", str(review_id)], cwd=repo, env=env)
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+
+        assert payload["dismissed_general"] == []
+        assert payload["general"] == 1
+
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT resolution FROM review_comments WHERE review_id = ?",
+                (review_id,),
+            ).fetchone()
+        assert row["resolution"] is None
+
+    def test_general_comment_with_mixed_in_and_out_of_diff_paths_is_preserved(
+        self, tmp_path, monkeypatch
+    ):
+        """Mixed citations: if at least one cited path IS in the diff,
+        the comment is preserved — partial overlap is enough to clear
+        the fabrication-guard bar."""
+        repo, db_path, env, _task_id, review_id = self._setup_real_branch(
+            tmp_path, monkeypatch
+        )
+        r = _run(
+            ["review", "add-comment", str(review_id),
+             "real.py is fine but also touch apps/foo/nonexistent.py",
+             "--category", "suggest", "--severity", "minor"],
+            cwd=repo, env=env,
+        )
+        assert r.returncode == 0, r.stderr
+
+        result = _run(["review", "validate-comments", str(review_id)], cwd=repo, env=env)
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+
+        assert payload["dismissed_general"] == []
+        assert payload["general"] == 1
