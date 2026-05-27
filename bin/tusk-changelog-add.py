@@ -35,6 +35,7 @@ import tusk_loader  # loads tusk-db-lib.py
 _db_lib = tusk_loader.load("tusk-db-lib")
 get_connection = _db_lib.get_connection
 resolve_task_workspace = _db_lib.resolve_task_workspace
+maybe_advise_primary_no_task_id = _db_lib.maybe_advise_primary_no_task_id
 
 
 def fetch_summaries(conn: sqlite3.Connection, task_ids: list[str]) -> list[dict]:
@@ -124,6 +125,8 @@ def main() -> None:
     raw_args = list(parsed.args)
     if parsed.task_id is not None:
         repo_root = resolve_task_workspace(db_path, parsed.task_id)
+    else:
+        maybe_advise_primary_no_task_id(db_path, repo_root, command="tusk changelog-add")
     file_version = _read_version_file(repo_root)
 
     if parsed.from_version_file:
