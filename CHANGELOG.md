@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1018] - 2026-05-27
+
+- [TASK-499] Fix: task-worktree create's sparse-checkout fallback to full checkout
+
 ## [1017] - 2026-05-27
 
 - [TASK-498] Fix: schema-mismatch advisory recommends 'tusk upgrade' in source repo
