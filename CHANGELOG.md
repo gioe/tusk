@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1013] - 2026-05-26
+
+- [TASK-494] Fix: move sparse-checkout refusal into build_manifest() so all callers are protected
+
 ## [1012] - 2026-05-26
 
 - [TASK-480] Sparse-checkout overhaul: fix MANIFEST + Rule 18 + cone defaults
