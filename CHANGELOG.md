@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1020] - 2026-05-27
+
+- [TASK-501] Fix: pre-clean tusk-created symlinks before git worktree remove in merge/abandon
+
 ## [1019] - 2026-05-27
 
 - [TASK-500] Fix: gate Rule 19 + auto-MANIFEST-regen retry under sparse-checkout, widen source-repo cone
