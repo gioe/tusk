@@ -855,13 +855,13 @@ def _format_sync_main_failure_advisory(
     sync-main step ultimately raised.
 
     Issue #915: when neither the unmerged-paths case nor a routed
-    failure_step matches, ``sync_stderr`` is surfaced verbatim (indented two
-    spaces under a ``sync-main stderr:`` header) between the exit-code prefix
-    and the four-variant fallback advisory. The routed cases already include
-    focused diagnostic context, so the stderr injection is scoped to the
-    indeterminate fallback where stderr is the only diagnostic signal. Empty
-    or whitespace-only stderr falls through to the original wording with no
-    spurious blank lines.
+    failure_step matches, ``sync_stderr`` is surfaced verbatim (body lines
+    indented four spaces under a two-space ``sync-main stderr:`` header)
+    between the exit-code prefix and the four-variant fallback advisory. The
+    routed cases already include focused diagnostic context, so the stderr
+    injection is scoped to the indeterminate fallback where stderr is the
+    only diagnostic signal. Empty or whitespace-only stderr falls through to
+    the original wording with no spurious blank lines.
     """
     prefix = f"tusk: auto-sync failed (tusk sync-main exit {sync_returncode}) — "
 
