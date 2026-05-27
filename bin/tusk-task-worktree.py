@@ -822,7 +822,7 @@ def cmd_create(
         #   1. task_referenced_paths — extracted from the task description
         #      and criteria.
         #   2. scope.sparse_always_include — project-level "always materialize"
-        #      paths from tusk/config.json.
+        #      paths from tusk/config.json (file paths; dirname extracted).
         #   3. scope.always_allowed — auto-allowed files (VERSION, MANIFEST,
         #      etc.); cone derivation drops root-level entries.
         #   4. test_command's target paths — so `tusk commit`'s default test
@@ -832,6 +832,13 @@ def cmd_create(
         #   5. --cone <path> CLI flag — operator-declared extras for tasks
         #      that obviously touch skills/docs/hooks without describing
         #      every path up front (issue #896, criterion 2231).
+        #   6. scope.sparse_always_cone — project-level "always materialize"
+        #      cone directories from tusk/config.json (literal directory
+        #      entries; no dirname extraction). Right for source-repo
+        #      configs that want to force `.claude/`, `skills/`, `.github/`,
+        #      etc. into every task worktree so unit tests reading those
+        #      files don't FileNotFoundError under a narrow per-task cone
+        #      (issue #935).
         if not os.environ.get("TUSK_NO_SPARSE_WORKTREE"):
             referenced = task_referenced_paths(task_id, conn)
             if referenced:
@@ -839,6 +846,7 @@ def cmd_create(
                     config_path, "sparse_always_include"
                 )
                 always_allowed = _load_scope_list(config_path, "always_allowed")
+                always_cone = _load_scope_list(config_path, "sparse_always_cone")
                 test_cmd_paths = _test_command_cone_paths(config_path)
                 # File-path inputs go through _derive_sparse_cone, which drops
                 # root-level entries (cone mode auto-materializes top-level
@@ -853,6 +861,14 @@ def cmd_create(
                         ]
                     )
                 )
+                # sparse_always_cone entries are directory-shaped; pass them
+                # through _normalize_cone_entry without the dirname() step
+                # so `skills` lands as `skills` rather than being dropped as
+                # a single-segment entry (issue #935).
+                for raw in always_cone:
+                    d = _normalize_cone_entry(raw or "")
+                    if d:
+                        cone_set.add(d)
                 # --cone <path> entries are directory-shaped; pass them through
                 # without the dirname() step so `--cone docs` survives the
                 # single-segment drop and `--cone skills/tusk` lands as a

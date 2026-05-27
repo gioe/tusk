@@ -37,7 +37,8 @@
   },
   "scope": {
     "always_allowed": ["VERSION", "CHANGELOG.md", "MANIFEST", ".claude/tusk-manifest.json"],
-    "sparse_always_include": ["bin/tusk", "tests/conftest.py"]
+    "sparse_always_include": ["bin/tusk", "tests/conftest.py"],
+    "sparse_always_cone": []
   },
   "issue_scoring": {
     "factors": {

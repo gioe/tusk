@@ -19,6 +19,17 @@
   },
   "review_categories": ["must_fix", "suggest"],
   "review_severities": ["critical", "major", "minor"],
+  "scope": {
+    "sparse_always_cone": [
+      ".claude",
+      "skills",
+      "skills-internal",
+      ".github",
+      "hooks",
+      "docs",
+      "codex-prompts"
+    ]
+  },
   "issue_scoring": {
     "factors": {
       "test_present":   { "yes": 2, "no": -1, "unverifiable": 1 },
