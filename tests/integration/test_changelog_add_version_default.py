@@ -225,6 +225,28 @@ def test_explicit_version_plus_task_id_still_works(tmp_path):
     assert "- [TASK-473]" in changelog
 
 
+def test_retry_after_git_add_lock_does_not_duplicate_entry(tmp_path):
+    """A failed git add after writing CHANGELOG must not duplicate on retry."""
+    repo = _seed_repo(tmp_path, version="998")
+    env = _env_with_db(repo)
+    _init_db_with_task(repo, env, task_id=473)
+    index_lock = repo / ".git" / "index.lock"
+    index_lock.write_text("locked\n", encoding="utf-8")
+
+    first = _tusk(["changelog-add", "--from-version-file", "473"], cwd=repo, env=env)
+
+    assert first.returncode != 0
+    assert "index.lock" in first.stderr
+    index_lock.unlink()
+
+    second = _tusk(["changelog-add", "--from-version-file", "473"], cwd=repo, env=env)
+
+    assert second.returncode == 0, f"stderr: {second.stderr}\nstdout: {second.stdout}"
+    changelog = (repo / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert changelog.count("## [998] - ") == 1
+    assert changelog.count("- [TASK-473]") == 1
+
+
 def test_missing_version_file_with_no_args_errors(tmp_path):
     """No positional version and no VERSION file → clear error, no CHANGELOG mutation."""
     repo = tmp_path / "repo"

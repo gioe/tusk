@@ -217,7 +217,12 @@ def main() -> None:
     with open(changelog_path, "w") as f:
         f.write(new_content)
 
-    subprocess.run(["git", "-C", repo_root, "add", changelog_path], check=True)
+    try:
+        subprocess.run(["git", "-C", repo_root, "add", changelog_path], check=True)
+    except subprocess.CalledProcessError:
+        with open(changelog_path, "w") as f:
+            f.write(content)
+        raise
 
     print(entry_block, end="")
 
