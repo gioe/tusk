@@ -2282,6 +2282,20 @@ def main(argv: list[str]) -> int:
         )
         path_exists = os.path.exists(candidate_path)
         if branch_exists and has_task_commits:
+            if not path_exists:
+                print(
+                    f"Error: recorded task workspace path is missing: {candidate_path}\n"
+                    "This usually means the task worktree was manually removed "
+                    "with git worktree remove --force after an earlier merge "
+                    "cleanup failure. Refusing to checkout "
+                    f"{candidate_branch} in the primary checkout.\n"
+                    "To recover, clear the stale workspace registry row with:\n"
+                    "  tusk task-worktree prune\n"
+                    "Then re-run:\n"
+                    f"  tusk merge {task_id} --session {session_id}",
+                    file=sys.stderr,
+                )
+                return 2
             branch_name = candidate_branch
             err = None
             pre_merged = False

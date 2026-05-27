@@ -160,3 +160,58 @@ class TestMergeChdirsIntoRecordedWorkspace:
             "Expected NO chdir into the recorded workspace when CWD is already "
             f"on the default branch. chdir calls: {chdir_calls}"
         )
+
+    def test_missing_recorded_workspace_refuses_before_feature_checkout(
+        self, db_path, config_path, monkeypatch, tmp_path
+    ):
+        """Manual worktree removal leaves a stale row; retry must not switch primary to feature."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+            missing_workspace = tmp_path / "removed-workspace"
+            branch = f"feature/TASK-{task_id}-removed"
+            _insert_workspace(conn, task_id, branch, str(missing_workspace))
+        finally:
+            conn.close()
+
+        commands = []
+
+        def _mock_run(args, check=True):
+            commands.append(list(args))
+            if args[:2] == ["git", "show-ref"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if (
+                args[:2] == ["git", "log"]
+                and any(isinstance(a, str) and a.startswith("--grep=") for a in args)
+            ):
+                return subprocess.CompletedProcess(args, 0, stdout="deadbeef\n", stderr="")
+            if args[:3] == ["git", "rev-parse", "--abbrev-ref"]:
+                return subprocess.CompletedProcess(args, 0, stdout="main\n", stderr="")
+            if args[:2] == ["git", "checkout"] and args[2:3] == [branch]:
+                raise AssertionError(
+                    "merge retry must not checkout the task feature branch in primary"
+                )
+            return subprocess.CompletedProcess(args, 1, stdout="", stderr="(mocked failure)")
+
+        monkeypatch.setattr(tusk_merge, "run", _mock_run)
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+
+        stderr_buf = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(stderr_buf):
+            rc = tusk_merge.main(
+                [
+                    str(db_path),
+                    str(config_path),
+                    str(task_id),
+                    "--session",
+                    str(session_id),
+                    "--rebase",
+                ]
+            )
+
+        assert rc == 2
+        stderr = stderr_buf.getvalue()
+        assert "recorded task workspace path is missing" in stderr
+        assert "git worktree remove --force" in stderr
+        assert ["git", "checkout", branch] not in commands
