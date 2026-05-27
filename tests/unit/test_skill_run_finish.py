@@ -129,3 +129,40 @@ def test_finish_already_finished_row_warns_and_exits_zero(db_path, monkeypatch):
     assert exit_code == 0
     assert "already finished" in err
     assert "Skill run 1 (tusk) finished:" in out
+
+
+def test_list_task_id_shows_closed_task_runs(db_path, monkeypatch):
+    c = sqlite3.connect(str(db_path))
+    c.execute(
+        "INSERT INTO skill_runs"
+        " (skill_name, task_id, started_at, ended_at, cost_dollars, tokens_in, tokens_out, model, metadata)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "tusk",
+            2481,
+            "2026-05-01 10:00:00",
+            "2026-05-01 10:05:00",
+            0.12,
+            100,
+            20,
+            "claude-sonnet-4-6",
+            None,
+        ),
+    )
+    c.commit()
+    c.close()
+
+    exit_code, out, err = _run_main(db_path, monkeypatch, "list", "--task-id", "2481")
+
+    assert exit_code == 0
+    assert err == ""
+    assert "TASK-2481" in out
+    assert "No skill runs recorded yet" not in out
+
+
+def test_list_task_id_empty_names_filter(db_path, monkeypatch):
+    exit_code, out, err = _run_main(db_path, monkeypatch, "list", "--task-id", "2481")
+
+    assert exit_code == 0
+    assert err == ""
+    assert "No skill runs recorded for task_id 2481." in out

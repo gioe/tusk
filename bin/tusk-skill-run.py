@@ -79,7 +79,10 @@ def cmd_start(conn, skill_name: str, task_id: int | None = None) -> None:
 def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
     """Set ended_at, parse transcript, compute cost, update row, print summary."""
     row = conn.execute(
-        "SELECT id, skill_name, started_at, ended_at FROM skill_runs WHERE id = ?",
+        """SELECT id, skill_name, started_at, ended_at,
+                  cost_dollars, tokens_in, tokens_out, model, metadata,
+                  request_count
+           FROM skill_runs WHERE id = ?""",
         (run_id,),
     ).fetchone()
 
@@ -89,6 +92,15 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
 
     if row["ended_at"]:
         print(f"Warning: Run {run_id} is already finished (ended_at={row['ended_at']})", file=sys.stderr)
+        print(f"Skill run {run_id} ({row['skill_name']}) finished:")
+        print(f"  Model:         {row['model'] or '(unknown)'}")
+        print(f"  Requests:      {row['request_count'] or 0}")
+        print(f"  Tokens in:     {(row['tokens_in'] or 0):,}")
+        print(f"  Tokens out:    {(row['tokens_out'] or 0):,}")
+        print(f"  Est. cost:     ${(row['cost_dollars'] or 0.0):.4f}")
+        if row["metadata"]:
+            print(f"  Metadata:      {row['metadata']}")
+        return
 
     # Set ended_at
     conn.execute(
@@ -247,9 +259,20 @@ def _tokens_per_user_msg(user_prompt_tokens, user_prompt_count):
     return user_prompt_tokens // user_prompt_count
 
 
-def cmd_list(conn, skill_name: str | None, limit: int) -> None:
+def cmd_list(conn, skill_name: str | None, limit: int, task_id: int | None = None) -> None:
     """Print recent skill runs, optionally filtered by skill name."""
-    if skill_name:
+    if skill_name and task_id is not None:
+        rows = conn.execute(
+            """SELECT id, skill_name, started_at, ended_at,
+                      cost_dollars, tokens_in, tokens_out, model, metadata, task_id,
+                      user_prompt_tokens, user_prompt_count
+               FROM skill_runs
+               WHERE skill_name = ? AND task_id = ?
+               ORDER BY id DESC
+               LIMIT ?""",
+            (skill_name, task_id, limit),
+        ).fetchall()
+    elif skill_name:
         rows = conn.execute(
             """SELECT id, skill_name, started_at, ended_at,
                       cost_dollars, tokens_in, tokens_out, model, metadata, task_id,
@@ -259,6 +282,17 @@ def cmd_list(conn, skill_name: str | None, limit: int) -> None:
                ORDER BY id DESC
                LIMIT ?""",
             (skill_name, limit),
+        ).fetchall()
+    elif task_id is not None:
+        rows = conn.execute(
+            """SELECT id, skill_name, started_at, ended_at,
+                      cost_dollars, tokens_in, tokens_out, model, metadata, task_id,
+                      user_prompt_tokens, user_prompt_count
+               FROM skill_runs
+               WHERE task_id = ?
+               ORDER BY id DESC
+               LIMIT ?""",
+            (task_id, limit),
         ).fetchall()
     else:
         rows = conn.execute(
@@ -272,6 +306,9 @@ def cmd_list(conn, skill_name: str | None, limit: int) -> None:
         ).fetchall()
 
     if not rows:
+        if task_id is not None:
+            print(f"No skill runs recorded for task_id {task_id}.")
+            return
         print("No skill runs recorded yet.")
         return
 
@@ -419,18 +456,22 @@ def main():
 
         elif subcommand == "list":
             skill_filter = None
+            task_id = None
             limit = 20
             i = 1
             while i < len(args):
                 if args[i] == "--limit" and i + 1 < len(args):
                     limit = int(args[i + 1])
                     i += 2
+                elif args[i] == "--task-id" and i + 1 < len(args):
+                    task_id = int(args[i + 1])
+                    i += 2
                 elif not args[i].startswith("--"):
                     skill_filter = args[i]
                     i += 1
                 else:
                     i += 1
-            cmd_list(conn, skill_filter, limit)
+            cmd_list(conn, skill_filter, limit, task_id)
 
         else:
             print(f"Error: unknown subcommand '{subcommand}'. Use start, finish, cancel, or list.", file=sys.stderr)

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1027] - 2026-05-27
+
+- [TASK-511] Fix: make skill-run finish idempotent or diagnostic after merge
+
 ## [1026] - 2026-05-27
 
 - [TASK-509] Fix: split or validate auto-derived task scope path tokens
