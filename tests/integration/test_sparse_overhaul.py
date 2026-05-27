@@ -327,6 +327,222 @@ def test_rule18_still_fires_without_sparse_checkout(tmp_path, monkeypatch):
     )
 
 
+# ── Rule 19 sparse gate (issue #922) ────────────────────────────────
+
+
+def test_rule19_skipped_under_sparse_checkout(tmp_path, monkeypatch):
+    """Rule 19 returns [] when sparse-checkout is active.
+
+    Without the gate, Rule 19 reports `.claude/tusk-manifest.json file not
+    found` whenever the cone excludes `.claude/`, causing every commit to
+    fail with blocking exit 6 (issue #922). The gate mirrors Rule 18's
+    sparse short-circuit at bin/tusk-lint.py:1072.
+    """
+    repo, _db_path, _env = _repo_with_tusk(tmp_path, monkeypatch)
+    _seed_source_repo_layout(repo)
+    # Drop the .claude/tusk-manifest.json so Rule 19 would otherwise report
+    # 'file not found'; the sparse gate must suppress this.
+    _git(["sparse-checkout", "init", "--cone"], cwd=repo)
+    _git(["sparse-checkout", "set", "bin"], cwd=repo)
+
+    lint = _load_rule18(monkeypatch)
+    violations = lint.rule19_tusk_manifest_json_sync(str(repo))
+    assert violations == [], (
+        f"Rule 19 should return [] under sparse-checkout; got {violations}"
+    )
+
+
+def test_rule19_still_fires_without_sparse_checkout(tmp_path, monkeypatch):
+    """Rule 19 still reports drift when sparse-checkout is NOT active.
+
+    Pairs with the rule18 non-sparse test — confirms the gate is strictly
+    gated on the sparse signal and normal drift detection survives.
+    """
+    repo, _db_path, _env = _repo_with_tusk(tmp_path, monkeypatch)
+    _seed_source_repo_layout(repo)
+    # No sparse-checkout. .claude/tusk-manifest.json is missing → "file not
+    # found" violation should fire.
+    lint = _load_rule18(monkeypatch)
+    violations = lint.rule19_tusk_manifest_json_sync(str(repo))
+    assert violations, (
+        "Rule 19 should fire when sparse-checkout is off and "
+        ".claude/tusk-manifest.json is missing"
+    )
+    assert any("tusk-manifest.json" in v for v in violations), (
+        f"violations should mention tusk-manifest.json; got {violations}"
+    )
+
+
+# ── sparse_always_cone config key (issue #935) ──────────────────────
+
+
+def test_sparse_always_cone_widens_cone(tmp_path, monkeypatch):
+    """``scope.sparse_always_cone`` entries land in the cone verbatim
+    (no dirname extraction), so a source-repo config can force `.claude/`,
+    `skills/`, `.github/`, etc. into every task worktree without needing
+    a placeholder file path (issue #935).
+    """
+    repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+
+    # Add the new key to tusk/config.json's scope block.
+    config_path = repo / "tusk" / "config.json"
+    cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    scope_cfg = cfg.setdefault("scope", {})
+    scope_cfg["sparse_always_cone"] = [".claude", "skills", ".github"]
+    config_path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+
+    # Seed directory entries so cone-mode set has something concrete to
+    # materialize, then commit so they're present in HEAD.
+    (repo / ".claude").mkdir(exist_ok=True)
+    (repo / ".claude" / "marker.txt").write_text("c\n", encoding="utf-8")
+    (repo / "skills").mkdir(exist_ok=True)
+    (repo / "skills" / "marker.txt").write_text("s\n", encoding="utf-8")
+    (repo / ".github").mkdir(exist_ok=True)
+    (repo / ".github" / "marker.txt").write_text("g\n", encoding="utf-8")
+    _git(["add", "."], cwd=repo)
+    _git(["commit", "-m", "seed always_cone dirs"], cwd=repo)
+
+    # Insert a task that references at least one path (so sparse-checkout
+    # is applied at all) but doesn't reference the always_cone dirs.
+    import sqlite3 as _sqlite3
+
+    with _sqlite3.connect(str(db_path)) as conn:
+        cur = conn.execute(
+            "INSERT INTO tasks (summary, description, status, task_type, "
+            "priority, complexity, priority_score) VALUES "
+            "('cone test', ?, 'To Do', 'feature', 'High', 'M', 30)",
+            ("Update bin/marker.txt and verify",),
+        )
+        conn.commit()
+        task_id = cur.lastrowid
+
+    (repo / "bin" / "marker.txt").write_text("b\n", encoding="utf-8")
+    _git(["add", "."], cwd=repo)
+    _git(["commit", "-m", "bin marker"], cwd=repo)
+
+    workspace_root = tmp_path / "workspaces"
+    result = subprocess.run(
+        [
+            TUSK_BIN, "task-worktree", "create",
+            str(task_id), "conetest",
+            "--workspace-root", str(workspace_root),
+        ],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert result.returncode == 0, (
+        f"task-worktree create failed:\nSTDOUT: {result.stdout}\n"
+        f"STDERR: {result.stderr}"
+    )
+    payload = json.loads(result.stdout)
+    wt = payload["workspace_path"]
+
+    cone_result = subprocess.run(
+        ["git", "-C", wt, "sparse-checkout", "list"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    cone_entries = set(
+        line.strip() for line in cone_result.stdout.splitlines() if line.strip()
+    )
+
+    # All three always_cone entries must be in the cone verbatim.
+    for d in (".claude", "skills", ".github"):
+        assert d in cone_entries, (
+            f"sparse_always_cone entry {d!r} should land in cone; got {cone_entries}"
+        )
+
+    # And the directories must be materialized in the worktree.
+    for d in (".claude", "skills", ".github"):
+        assert os.path.isdir(os.path.join(wt, d)), (
+            f"{d}/ should be materialized; ls {wt}: {os.listdir(wt)}"
+        )
+        assert os.path.isfile(os.path.join(wt, d, "marker.txt")), (
+            f"{d}/marker.txt should be materialized"
+        )
+
+
+def test_sparse_always_cone_normalizes_unsafe_entries(tmp_path, monkeypatch):
+    """``sparse_always_cone`` entries with ``..`` or absolute paths are
+    filtered out by ``_normalize_cone_entry`` before reaching git, so a
+    malformed config can't trigger the issue #928 normalize failure
+    through this new code path.
+    """
+    repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+
+    config_path = repo / "tusk" / "config.json"
+    cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    scope_cfg = cfg.setdefault("scope", {})
+    scope_cfg["sparse_always_cone"] = ["../bad", "/abs/path", ".claude"]
+    config_path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+
+    (repo / ".claude").mkdir(exist_ok=True)
+    (repo / ".claude" / "marker.txt").write_text("c\n", encoding="utf-8")
+    _git(["add", "."], cwd=repo)
+    _git(["commit", "-m", "seed .claude"], cwd=repo)
+
+    import sqlite3 as _sqlite3
+
+    with _sqlite3.connect(str(db_path)) as conn:
+        cur = conn.execute(
+            "INSERT INTO tasks (summary, description, status, task_type, "
+            "priority, complexity, priority_score) VALUES "
+            "('cone test 2', ?, 'To Do', 'feature', 'High', 'M', 30)",
+            ("Update bin/marker.txt",),
+        )
+        conn.commit()
+        task_id = cur.lastrowid
+
+    (repo / "bin" / "marker.txt").write_text("b\n", encoding="utf-8")
+    _git(["add", "."], cwd=repo)
+    _git(["commit", "-m", "bin marker"], cwd=repo)
+
+    workspace_root = tmp_path / "workspaces"
+    result = subprocess.run(
+        [
+            TUSK_BIN, "task-worktree", "create",
+            str(task_id), "conesanitize",
+            "--workspace-root", str(workspace_root),
+        ],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    wt = payload["workspace_path"]
+
+    cone_result = subprocess.run(
+        ["git", "-C", wt, "sparse-checkout", "list"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    cone_entries = set(
+        line.strip() for line in cone_result.stdout.splitlines() if line.strip()
+    )
+
+    # Bad entries filtered, safe entry survived.
+    for bad in ("../bad", "/abs/path", "abs/path"):
+        assert bad not in cone_entries, (
+            f"unsafe entry {bad!r} should be filtered; got {cone_entries}"
+        )
+    assert ".claude" in cone_entries, (
+        f"safe entry .claude should survive; got {cone_entries}"
+    )
+    # No falls-back-to-full-checkout advisory: filtering happened before the
+    # set call so init/set both succeeded.
+    assert "falls back to a full checkout" not in result.stderr, (
+        f"filtering should prevent the failure; stderr was: {result.stderr}"
+    )
+
+
 # ── Criterion 2228 (issues #895 / #905) ─────────────────────────────
 
 
