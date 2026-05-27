@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1017] - 2026-05-27
+
+- [TASK-498] Fix: schema-mismatch advisory recommends 'tusk upgrade' in source repo
+
 ## [1016] - 2026-05-26
 
 - [TASK-497] Warn when version-bump / changelog-add invoked from primary on default branch without --task-id
