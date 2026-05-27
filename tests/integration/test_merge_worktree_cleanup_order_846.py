@@ -105,12 +105,13 @@ class TestCloseTaskRunsBeforeWorktreeCleanup:
 
         call_order: list[str] = []
 
-        def _spy_close(tusk_bin, tid, db, session_was_closed, merge_commit_sha=None):
+        def _spy_close(tusk_bin, tid, db, session_was_closed, **kwargs):
             call_order.append("close")
             return 0
 
         def _spy_cleanup(db, tid, br):
             call_order.append("cleanup")
+            return True
 
         monkeypatch.setattr(tusk_merge, "_close_completed_task", _spy_close)
         monkeypatch.setattr(
@@ -204,11 +205,12 @@ class TestCloseTaskRunsBeforeWorktreeCleanup:
 
         cleanup_called = []
 
-        def _failing_close(tusk_bin, tid, db, session_was_closed, merge_commit_sha=None):
+        def _failing_close(tusk_bin, tid, db, session_was_closed, **kwargs):
             return 2
 
         def _spy_cleanup(db, tid, br):
             cleanup_called.append(True)
+            return True
 
         monkeypatch.setattr(tusk_merge, "_close_completed_task", _failing_close)
         monkeypatch.setattr(

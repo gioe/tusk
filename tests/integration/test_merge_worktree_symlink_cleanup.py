@@ -227,10 +227,15 @@ def test_merge_preserves_unrelated_symlinks(tmp_path, monkeypatch):
         cwd=wt,
         env=env,
     )
-    # tusk merge exits 0 even when post-merge cleanup fails (the task is
-    # already Done and the branch pushed — losing exit-code visibility is
-    # acceptable since the user can see the stderr error). The regression
-    # signal is the stderr error from `git worktree remove`.
+    # TASK-504: tusk merge now exits 3 (not 0) when post-merge worktree
+    # cleanup fails, so automation can detect the leftover worktree /
+    # branch without grepping stderr. The task is still Done and the
+    # branch is pushed — only the local cleanup needs manual attention.
+    assert merge.returncode == 3, (
+        f"merge must exit 3 (cleanup-only failure) when an unrelated "
+        f"symlink blocks `git worktree remove`; got exit "
+        f"{merge.returncode}\nstdout={merge.stdout}\nstderr={merge.stderr}"
+    )
     assert "contains modified or untracked files" in merge.stderr or (
         "git worktree remove" in merge.stderr and "failed" in merge.stderr
     ), (

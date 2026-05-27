@@ -515,6 +515,19 @@ JSON blob and the `skill_run.run_id` you already captured.
     and you are NOT on the default branch, switch to the default branch first
     (`git checkout <default_branch>`), then retry `tusk merge <id> --session <session_id>`.
 
+    **Partial-cleanup exit code 3 (TASK-504):** If `tusk merge` exits
+    **3**, the no-checkout fast-forward push, session-close, and
+    task-done all succeeded — the task is Done and the work is on
+    `origin/<default>` — but the local worktree directory and/or
+    feature branch could not be removed (typically an untracked file
+    outside the auto-symlink set blocked `git worktree remove`). The
+    stderr message names the leftover artifact. Treat exit 3 like
+    exit 0 for workflow purposes: still run `tusk skill-run finish`,
+    `tusk task-summary`, and retro. Clean up the leftover worktree
+    manually (`git worktree remove --force <path>` and
+    `git branch -D <feature-branch>`) after the retro, or surface
+    it to the user.
+
     **PR mode:** If the project uses PR-based merges
     (`merge.mode = pr` in config, or when passing `--pr`), use:
     ```bash
