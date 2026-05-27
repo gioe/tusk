@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1014] - 2026-05-26
+
+- [TASK-495] Fix: tusk sync-main should detect unmerged paths up front and emit a clean diagnostic
+
 ## [1013] - 2026-05-26
 
 - [TASK-494] Fix: move sparse-checkout refusal into build_manifest() so all callers are protected
