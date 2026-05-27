@@ -73,6 +73,135 @@ def resolve_task_workspace(db_path: str, task_id: int) -> str:
     return workspace_path
 
 
+def _resolve_default_branch(repo_root: str) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "-C", repo_root, "symbolic-ref", "refs/remotes/origin/HEAD"],
+            capture_output=True,
+            encoding="utf-8",
+            check=False,
+        )
+    except OSError:
+        return "main"
+    if result.returncode == 0:
+        name = result.stdout.strip().rsplit("/", 1)[-1]
+        if name:
+            return name
+    return "main"
+
+
+def _current_branch(repo_root: str) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", repo_root, "symbolic-ref", "--short", "HEAD"],
+            capture_output=True,
+            encoding="utf-8",
+            check=False,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _is_recorded_worktree(db_path: str, repo_root: str) -> bool:
+    try:
+        target = os.path.realpath(repo_root)
+    except OSError:
+        return False
+    try:
+        conn = get_connection(db_path)
+    except sqlite3.Error:
+        return False
+    try:
+        rows = conn.execute("SELECT workspace_path FROM task_workspaces").fetchall()
+    except sqlite3.Error:
+        return False
+    finally:
+        conn.close()
+    for row in rows:
+        candidate = row["workspace_path"]
+        if not candidate:
+            continue
+        try:
+            if os.path.realpath(candidate) == target:
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def _active_worktree_tasks(db_path: str) -> list[dict]:
+    try:
+        conn = get_connection(db_path)
+    except sqlite3.Error:
+        return []
+    try:
+        rows = conn.execute(
+            "SELECT t.id AS task_id, t.summary, tw.workspace_path "
+            "FROM task_workspaces tw "
+            "JOIN tasks t ON t.id = tw.task_id "
+            "WHERE t.status = 'In Progress' "
+            "ORDER BY tw.created_at DESC"
+        ).fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        conn.close()
+    out = []
+    for row in rows:
+        path = row["workspace_path"]
+        if path and os.path.isdir(path):
+            out.append(
+                {
+                    "task_id": row["task_id"],
+                    "summary": row["summary"],
+                    "workspace_path": path,
+                }
+            )
+    return out
+
+
+def maybe_advise_primary_no_task_id(db_path: str, repo_root: str, *, command: str) -> None:
+    """Emit a stderr hint when ``command`` was invoked from the primary checkout
+    on the default branch with no ``--task-id`` while an active task worktree
+    exists (issue #923).
+
+    All three conditions must hold:
+      a) ``repo_root`` is NOT one of the recorded ``task_workspaces`` rows
+         (i.e. CWD walked up to the primary, not a worktree).
+      b) HEAD points to the repo's default branch.
+      c) At least one task_workspaces row exists whose owning task is
+         In Progress AND whose workspace_path exists on disk.
+
+    The advisory is informational — the caller proceeds with whatever
+    target it would otherwise write. Silenced by ``TUSK_QUIET=1``. The
+    fix is for an autonomous-agent foot-gun (Claude Code resets CWD
+    between Bash calls), so the TTY gate other tusk advisories use is
+    deliberately omitted here — the audience is agents, not humans.
+    """
+    if os.environ.get("TUSK_QUIET") == "1":
+        return
+    if _is_recorded_worktree(db_path, repo_root):
+        return
+    branch = _current_branch(repo_root)
+    if branch is None:
+        return
+    if branch != _resolve_default_branch(repo_root):
+        return
+    candidates = _active_worktree_tasks(db_path)
+    if not candidates:
+        return
+    ids = ", ".join(f"TASK-{c['task_id']}" for c in candidates)
+    print(
+        f"tusk: hint — invoked from primary on default branch; bumping primary "
+        f"target via {command}. Active task worktree(s): {ids}. To target one "
+        f"of those workspaces instead, re-run with --task-id <N>.",
+        file=sys.stderr,
+    )
+
+
 def load_config(config_path: str) -> dict:
     """Load and return the tusk config JSON."""
     with open(config_path) as f:
