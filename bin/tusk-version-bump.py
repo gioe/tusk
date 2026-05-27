@@ -33,6 +33,7 @@ import tusk_loader  # loads tusk-db-lib.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 resolve_task_workspace = _db_lib.resolve_task_workspace
+maybe_advise_primary_no_task_id = _db_lib.maybe_advise_primary_no_task_id
 
 
 def main() -> None:
@@ -75,6 +76,7 @@ def main() -> None:
             )
             sys.exit(1)
     else:
+        maybe_advise_primary_no_task_id(db_path, repo_root, command="tusk version-bump")
         target_root = repo_root
         candidates = [
             os.path.join(repo_root, "VERSION"),
