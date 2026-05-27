@@ -1557,13 +1557,20 @@ def _complete_no_checkout_fast_forward(
     # ".claude/bin/ may be stale, run dev-sync" line that the refresh has
     # already addressed.
     _maybe_advise_stale_deployed_bin(db_path, tusk_bin=tusk_bin, refresh_fired=refreshed)
-    _cleanup_no_checkout_workspace(db_path, task_id, branch_name)
+    cleanup_ok = _cleanup_no_checkout_workspace(db_path, task_id, branch_name)
+    # Distinguish "fully succeeded" from "succeeded but cleanup needs manual
+    # attention" so automation can detect a leftover worktree / branch
+    # without grepping stderr (TASK-504). Only promotes the partial-cleanup
+    # case — if rc is already non-zero (task-done failed, etc.), preserve
+    # that more severe signal.
+    if rc == 0 and not cleanup_ok:
+        return 3
     return rc
 
 
 def _cleanup_no_checkout_workspace(
     db_path: str, task_id: int, branch_name: str
-) -> None:
+) -> bool:
     """Remove the recorded task worktree and delete the local feature branch.
 
     Called only on the success path of the no-checkout fast-forward push,
@@ -1586,6 +1593,12 @@ def _cleanup_no_checkout_workspace(
     Any step that fails is surfaced as a Warning naming the remaining
     artifact and the reason, so the operator can resolve it manually
     rather than discovering a silent dangling state weeks later.
+
+    Returns ``True`` when every cleanup step that ran succeeded, ``False``
+    when ``git worktree remove`` failed, the local branch delete failed,
+    or chdir-to-repo-root failed. The caller maps False to a distinct
+    non-fatal exit code (``3``) so automation can detect a leftover
+    worktree / branch without grepping stderr (TASK-504).
     """
     recorded = _recorded_task_workspace(db_path, task_id)
     if recorded is None:
@@ -1598,7 +1611,8 @@ def _cleanup_no_checkout_workspace(
                 f"{result.stderr.strip()}",
                 file=sys.stderr,
             )
-        return
+            return False
+        return True
 
     workspace_path = recorded["workspace_path"]
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
@@ -1613,7 +1627,7 @@ def _cleanup_no_checkout_workspace(
             "manually.",
             file=sys.stderr,
         )
-        return
+        return False
 
     if not _remove_recorded_task_worktree(
         db_path, task_id, branch_name, workspace=recorded
@@ -1621,7 +1635,7 @@ def _cleanup_no_checkout_workspace(
         # _remove_recorded_task_worktree already printed the failure detail
         # (dirty worktree, etc.). Skip branch delete — git would refuse
         # anyway because the worktree still has the branch checked out.
-        return
+        return False
 
     result = run(["git", "branch", "-D", branch_name], check=False)
     if result.returncode != 0:
@@ -1633,6 +1647,8 @@ def _cleanup_no_checkout_workspace(
             f"git branch -D {branch_name}",
             file=sys.stderr,
         )
+        return False
+    return True
 
 
 def _recorded_task_workspace(db_path: str, task_id: int) -> sqlite3.Row | None:
