@@ -1204,6 +1204,28 @@ def _run_commit(argv: list[str], state: dict) -> int:
             blocking_rules = _blocking_lint_rules(lint.stdout)
             recovered = False
             if blocking_rules and blocking_rules <= _MANIFEST_LINT_RULES:
+                # Issue #922: refuse to auto-regen MANIFEST under sparse-
+                # checkout. TASK-494 added the gate to build_manifest itself
+                # for direct invocation, but the auto-retry path here would
+                # still call `tusk generate-manifest` and surface the gate's
+                # refusal as a confusing nested failure. Surface the same
+                # recommendation upfront — bypass lint with --skip-lint —
+                # since regenerating MANIFEST against the sparse view would
+                # silently destroy every out-of-cone entry.
+                if _sparse_checkout_active(repo_root):
+                    print(
+                        "Note: MANIFEST drift detected, but sparse-checkout "
+                        "is active in this worktree — auto-regen would drop "
+                        "out-of-cone entries and corrupt MANIFEST. Bypass "
+                        "with `--skip-lint`, or recover by running "
+                        "`tusk generate-manifest` from the primary checkout "
+                        "(or `git sparse-checkout disable` first).",
+                        file=sys.stderr,
+                    )
+                    sys.stderr.flush()
+                    sys.stdout.write(lint.stdout)
+                    sys.stdout.flush()
+                    return 6
                 print(
                     "Note: MANIFEST drift detected — running "
                     "`tusk generate-manifest` and retrying lint once."

@@ -1154,6 +1154,15 @@ def rule19_tusk_manifest_json_sync(root):
     if not os.path.isfile(os.path.join(root, "bin", "tusk")):
         return []
 
+    # Mirror Rule 18's sparse-checkout gate (issue #922). In a sparse
+    # worktree whose cone excludes .claude/, the tusk-manifest.json file is
+    # unmaterialized and "file not found" fires unconditionally, blocking
+    # every commit with exit 6 even though the file is fine on the primary
+    # checkout. Skip the drift check entirely — manifest sync can only be
+    # assessed reliably from a full checkout.
+    if _sparse_checkout_active(root):
+        return []
+
     manifest_path = os.path.join(root, "MANIFEST")
     tusk_manifest_path = os.path.join(root, ".claude", "tusk-manifest.json")
 
