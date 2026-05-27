@@ -10,6 +10,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1034] - 2026-05-27
+
+- [TASK-517] Extend validate-comments to dismiss general comments referencing out-of-diff paths
+
 ## [1033] - 2026-05-27
 
 - [TASK-518] Fix: make changelog-add idempotent after git add failures
