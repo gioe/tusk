@@ -253,6 +253,153 @@ def test_env_var_disables(tmp_path, monkeypatch):
     )
 
 
+def test_cone_normalization_drops_parent_traversal(tmp_path, monkeypatch):
+    """Cone entries containing ``..`` segments are filtered before being
+    passed to ``git sparse-checkout set`` — the trigger for the
+    ``fatal: could not normalize path ..`` failure in issue #928. Tested
+    via ``--cone "../bad"`` since that's the most direct entry-point for
+    a caller-supplied malformed cone; ``_derive_sparse_cone`` applies the
+    same normalization to ``task_referenced_paths`` and config-sourced
+    entries through ``_normalize_cone_entry``.
+    """
+    repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+    task = _insert_task(
+        db_path,
+        "Update tests/integration/test_a.py and verify behavior",
+    )
+    workspace_root = tmp_path / "workspaces"
+
+    result = _run(
+        [
+            "task-worktree",
+            "create",
+            str(task),
+            "badcone",
+            "--workspace-root",
+            str(workspace_root),
+            "--cone",
+            "../bad",
+            "--cone",
+            "/abs/path",
+            "--cone",
+            "tests/unit",
+        ],
+        cwd=repo,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+
+    cone = _sparse_cone(payload["workspace_path"])
+    assert cone is not None, "sparse-checkout should be enabled"
+    # Bad entries must NOT be in the cone — neither as-spelled nor as the
+    # `git sparse-checkout` normalized form (which strips a leading `/`).
+    for bad in ("../bad", "/abs/path", "abs/path"):
+        assert bad not in cone, (
+            f"unsafe cone entry {bad!r} should have been filtered; got {cone}"
+        )
+    # The safe entry survives.
+    assert "tests/unit" in cone or "tests" in cone, (
+        f"safe --cone entry tests/unit should have landed in cone {cone}"
+    )
+    # No "falls back to a full checkout" advisory — the bad entries were
+    # filtered upstream so git sparse-checkout set never saw them, so init
+    # and set both succeeded.
+    assert "falls back to a full checkout" not in result.stderr, (
+        "filtering should prevent the failure that triggers the fallback "
+        f"advisory; stderr was: {result.stderr}"
+    )
+
+
+def test_sparse_failure_disables_fallback(tmp_path, monkeypatch):
+    """When sparse-checkout setup fails AFTER the cone has been filtered
+    (simulated here by writing a sparse-checkout config that git rejects),
+    ``_apply_sparse_checkout`` must invoke ``git sparse-checkout disable``
+    so the printed "falls back to a full checkout" advisory matches
+    reality — the regression captured by issue #928 (the original report:
+    the worktree was left in sparse mode with no patterns, materializing
+    only ~1% of tracked files).
+
+    Reaching the failure path through the normal CLI entry point requires
+    bypassing ``_normalize_cone_entry``. We do this by monkey-patching
+    ``tusk_loader.load("tusk-task-worktree.py").main`` after calling
+    ``_apply_sparse_checkout`` directly with a malformed cone.
+    """
+    repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+    task = _insert_task(
+        db_path,
+        "Update tests/integration/test_a.py and verify behavior",
+    )
+    workspace_root = tmp_path / "workspaces"
+
+    # First create a normal worktree so we can poke at it directly.
+    result = _run(
+        [
+            "task-worktree",
+            "create",
+            str(task),
+            "fallback",
+            "--workspace-root",
+            str(workspace_root),
+        ],
+        cwd=repo,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    wt = payload["workspace_path"]
+
+    # Now invoke _apply_sparse_checkout directly with a malformed cone
+    # that bypasses the upstream normalization. This exercises the
+    # disable-fallback branch in isolation.
+    import importlib.util
+
+    helpers_path = os.path.join(REPO_ROOT, "bin", "tusk-task-worktree.py")
+    spec = importlib.util.spec_from_file_location(
+        "tusk_task_worktree", helpers_path
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    # Pass `..` directly — git sparse-checkout set rejects it with
+    # "fatal: could not normalize path ..".
+    applied, disabled_fallback, err = mod._apply_sparse_checkout(wt, [".."])
+
+    assert not applied, "sparse-checkout set should fail for `..`"
+    assert disabled_fallback, (
+        f"disable fallback should succeed; stderr was: {err}"
+    )
+    # The original sparse-checkout failure is preserved for the caller's
+    # advisory message.
+    assert "normalize" in err or "could not" in err.lower(), (
+        f"original sparse error should be preserved; got: {err}"
+    )
+
+    # After the fallback, the worktree must NOT be in sparse mode — this
+    # is the literal failing test from issue #928.
+    cfg = subprocess.run(
+        ["git", "-C", wt, "config", "--get", "core.sparseCheckout"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    sparse_cfg = cfg.stdout.strip() if cfg.returncode == 0 else ""
+    assert sparse_cfg != "true", (
+        f"core.sparseCheckout must be unset/false after disable fallback; "
+        f"got {sparse_cfg!r}"
+    )
+    # And every tracked file should be materialized — proving the printed
+    # "falls back to a full checkout" advisory now matches reality.
+    assert os.path.isfile(os.path.join(wt, "docs", "notes.md")), (
+        "docs/notes.md should be materialized after the disable fallback "
+        "since the worktree is no longer sparse"
+    )
+    assert os.path.isfile(os.path.join(wt, "tests", "unit", "test_b.py")), (
+        "tests/unit/test_b.py should be materialized after the disable "
+        "fallback"
+    )
+
+
 def test_always_allowed_in_cone(tmp_path, monkeypatch):
     """always_allowed paths (VERSION, CHANGELOG.md, MANIFEST,
     .claude/tusk-manifest.json) are materialized so commit-time bumps
