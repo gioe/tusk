@@ -370,6 +370,57 @@ def test_generate_manifest_runs_in_full_checkout(tmp_path, monkeypatch):
     )
 
 
+def _load_generate_manifest(monkeypatch):
+    """Import build_manifest from ``bin/tusk-generate-manifest.py`` by path."""
+    import importlib.util
+
+    bin_dir = os.path.join(REPO_ROOT, "bin")
+    monkeypatch.syspath_prepend(bin_dir)
+    spec = importlib.util.spec_from_file_location(
+        "_tusk_generate_manifest_for_test",
+        os.path.join(bin_dir, "tusk-generate-manifest.py"),
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_build_manifest_refuses_under_sparse_via_import(tmp_path, monkeypatch):
+    """build_manifest() refuses under sparse-checkout when called directly via
+    Python import — defense-in-depth against the issue #909 bypass class.
+
+    Before the fix, the sparse-checkout gate lived only in main(); any caller
+    that imported build_manifest directly walked the on-disk source tree
+    unprotected and returned a partial entry list, which a caller that then
+    wrote the result to MANIFEST would silently corrupt (issues #895 / #905).
+    """
+    import pytest
+
+    repo, _db_path, _env = _repo_with_tusk(tmp_path, monkeypatch)
+    _seed_source_repo_layout(repo)
+    _git(["sparse-checkout", "init", "--cone"], cwd=repo)
+    _git(["sparse-checkout", "set", "bin"], cwd=repo)
+
+    gen = _load_generate_manifest(monkeypatch)
+    with pytest.raises(SystemExit) as excinfo:
+        gen.build_manifest(str(repo))
+    assert excinfo.value.code == 1
+
+
+def test_build_manifest_runs_in_full_checkout_via_import(tmp_path, monkeypatch):
+    """build_manifest() returns its enumeration in a non-sparse worktree when
+    called via Python import — confirms the import-path gate is signal-gated
+    on sparse-checkout, not always-on."""
+    repo, _db_path, _env = _repo_with_tusk(tmp_path, monkeypatch)
+    _seed_source_repo_layout(repo)
+    # No sparse-checkout.
+    gen = _load_generate_manifest(monkeypatch)
+    entries = gen.build_manifest(str(repo))
+    assert isinstance(entries, list) and entries, (
+        "build_manifest should return a non-empty list in a full checkout"
+    )
+
+
 # ── Criterion 2229 (issue #906) ─────────────────────────────────────
 
 
