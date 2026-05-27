@@ -1772,6 +1772,12 @@ def _remove_recorded_task_worktree(
 
     workspace_path = workspace["workspace_path"]
     if os.path.exists(workspace_path):
+        # Pre-clean tusk-created auto-symlinks (.venv, node_modules, .env,
+        # .env.local, and anything else in worktree.symlink_files) so
+        # `git worktree remove` doesn't refuse the worktree as dirty when
+        # the only untracked content is symlinks tusk itself created at
+        # task-worktree-create time (issues #910/#916/#919/#927).
+        _clean_tusk_auto_symlinks(workspace_path, db_path)
         result = run(["git", "worktree", "remove", workspace_path], check=False)
         if result.returncode != 0:
             detail = result.stderr.strip() or result.stdout.strip()
@@ -1787,6 +1793,121 @@ def _remove_recorded_task_worktree(
 
     _forget_task_workspace(db_path, workspace["id"])
     return True
+
+
+# Canonical runtime artifacts auto-linked when `worktree.symlink_files` is
+# empty AND `TUSK_NO_AUTO_SYMLINK` is unset. Mirrors CANONICAL_RUNTIME_FILES
+# in bin/tusk-task-worktree.py (issue #854) — duplicated here so merge/
+# abandon cleanup doesn't have to import from the task-worktree module.
+_CANONICAL_RUNTIME_FILES = ("node_modules", ".venv", ".env", ".env.local")
+
+
+def _clean_tusk_auto_symlinks(workspace_path: str, db_path: str) -> int:
+    """Remove tusk-created auto-symlinks from ``workspace_path`` before
+    invoking ``git worktree remove``.
+
+    Discovery rule: a symlink at ``workspace_path/<rel>`` is "tusk-created"
+    when *both* of the following hold:
+
+    1. Its basename appears in ``worktree.symlink_files`` from the project
+       config (or in the canonical fallback set if that config is empty),
+       OR its full relative path matches a path-style entry from the config.
+    2. ``os.path.islink`` is True at the worktree location.
+
+    The target value itself is not checked — task-worktree create writes
+    absolute paths into the primary repo, but a worktree could conceivably
+    contain user-created relative symlinks of the same basename, and the
+    cleanup goal is "let the worktree be removable when its dirty state is
+    just tusk's own auto-symlinks." If the user has a real ``node_modules``
+    DIRECTORY (not a symlink) inside the worktree, it isn't touched —
+    ``os.path.islink`` is False on directories.
+
+    Returns the count of symlinks removed. Best-effort: individual unlink
+    failures are silently swallowed so worktree cleanup is never blocked
+    by a permission error on one entry.
+    """
+    if not os.path.isdir(workspace_path):
+        return 0
+    # db_path is `<repo>/tusk/tasks.db`; config lives at `<repo>/tusk/config.json`.
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+    config_path = os.path.join(repo_root, "tusk", "config.json")
+
+    names = _load_worktree_symlink_files(config_path)
+    if not names and not os.environ.get("TUSK_NO_AUTO_SYMLINK"):
+        # Mirror the canonical-fallback resolution in task-worktree create.
+        names = list(_CANONICAL_RUNTIME_FILES)
+    if not names:
+        return 0
+
+    basenames: set[str] = set()
+    path_entries: list[str] = []
+    for raw in names:
+        if not isinstance(raw, str) or not raw:
+            continue
+        if "/" not in raw:
+            basenames.add(raw)
+            continue
+        if raw.startswith("/"):
+            continue
+        parts = raw.split("/")
+        if any(p in ("", ".", "..") for p in parts):
+            continue
+        path_entries.append(raw)
+
+    removed = 0
+    # Path-style entries: one targeted check at workspace_path/<rel>.
+    for rel in path_entries:
+        candidate = os.path.join(workspace_path, rel)
+        if os.path.islink(candidate):
+            try:
+                os.unlink(candidate)
+                removed += 1
+            except OSError:
+                pass
+
+    # Bare basenames: walk the worktree looking for matching symlinks.
+    if basenames:
+        for root, dirs, files in os.walk(workspace_path, followlinks=False):
+            if ".git" in dirs:
+                dirs.remove(".git")
+            # Symlinked dirs show up in `dirs`; symlinked files in `files`.
+            matched = [n for n in (dirs + files) if n in basenames]
+            for n in matched:
+                p = os.path.join(root, n)
+                if os.path.islink(p):
+                    try:
+                        os.unlink(p)
+                        removed += 1
+                    except OSError:
+                        pass
+            # Drop matched dir names so os.walk doesn't try to descend into
+            # them (they've been unlinked).
+            for n in [d for d in dirs if d in basenames]:
+                dirs.remove(n)
+
+    return removed
+
+
+def _load_worktree_symlink_files(config_path: str) -> list[str]:
+    """Load ``worktree.symlink_files`` from the project config, returning []
+    on any error. Mirrors ``_load_symlink_files`` in bin/tusk-task-worktree.py.
+    """
+    if not config_path or not os.path.exists(config_path):
+        return []
+    try:
+        import json as _json
+
+        with open(config_path, encoding="utf-8") as f:
+            cfg = _json.load(f)
+    except (OSError, ValueError):
+        return []
+    worktree_cfg = cfg.get("worktree")
+    if not isinstance(worktree_cfg, dict):
+        return []
+    names = worktree_cfg.get("symlink_files")
+    if not isinstance(names, list):
+        return []
+    return [str(n) for n in names if isinstance(n, str) and n]
 
 
 def find_task_branch(task_id: int) -> tuple[str | None, str | None, bool]:
