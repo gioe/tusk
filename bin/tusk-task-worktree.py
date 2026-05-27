@@ -258,6 +258,58 @@ def _test_command_cone_paths(config_path: str) -> list[str]:
     return paths
 
 
+def _is_safe_cone_entry(entry: str) -> bool:
+    """Return True iff ``entry`` is safe to pass to ``git sparse-checkout set``.
+
+    Rejects entries that ``git sparse-checkout`` will refuse (and that produce
+    the ``fatal: could not normalize path ..`` failure observed in issue #928):
+
+    - Absolute paths (cone is repo-root-relative; an absolute entry gets
+      stripped of its leading ``/`` or rejected outright).
+    - Any segment equal to ``..`` (parent traversal) — this is the literal
+      ``could not normalize path ..`` trigger.
+    - Empty-string segments (e.g. ``foo//bar``) which normalize to ``foo/bar``
+      but signal a malformed input upstream.
+
+    Single-segment ``.`` entries are normalized to empty by ``os.path.normpath``
+    and rejected here as a no-op (cone mode auto-includes top-level files).
+    """
+    if not entry:
+        return False
+    if entry.startswith("/"):
+        return False
+    parts = entry.split("/")
+    for seg in parts:
+        if seg == "..":
+            return False
+        if seg == "" and entry != "/":
+            return False
+    return True
+
+
+def _normalize_cone_entry(entry: str) -> str:
+    """Return a normalized cone entry, or ``""`` if it must be dropped.
+
+    Strips whitespace, leading ``./``, trailing ``/``, then runs
+    ``os.path.normpath`` to collapse interior ``./`` segments. The result is
+    only returned when ``_is_safe_cone_entry`` passes; otherwise the empty
+    string signals "drop this entry".
+    """
+    if not entry:
+        return ""
+    s = entry.strip().rstrip("/")
+    while s.startswith("./"):
+        s = s[2:]
+    if not s or s == ".":
+        return ""
+    normalized = os.path.normpath(s)
+    if normalized in {".", ""}:
+        return ""
+    if not _is_safe_cone_entry(normalized):
+        return ""
+    return normalized
+
+
 def _derive_sparse_cone(paths: list[str]) -> list[str]:
     """Derive cone-mode sparse-checkout directory entries from a path list.
 
@@ -266,7 +318,9 @@ def _derive_sparse_cone(paths: list[str]) -> list[str]:
     cone mode rejects file paths anyway. Nested entries contribute their
     parent directory (e.g. ``.claude/tusk-manifest.json`` → ``.claude``,
     ``tests/integration/test_a.py`` → ``tests/integration``). Returns a
-    sorted unique list.
+    sorted unique list, with entries that ``git sparse-checkout`` would
+    reject (absolute paths, ``..`` segments) filtered out — they were the
+    trigger for the ``could not normalize path ..`` failure in issue #928.
     """
     cone: set[str] = set()
     for p in paths:
@@ -275,30 +329,70 @@ def _derive_sparse_cone(paths: list[str]) -> list[str]:
         p = p.strip().rstrip("/")
         if not p or "/" not in p:
             continue
-        cone.add(os.path.dirname(p))
+        candidate = _normalize_cone_entry(os.path.dirname(p))
+        if candidate:
+            cone.add(candidate)
     return sorted(cone)
 
 
-def _apply_sparse_checkout(worktree_path: str, cone: list[str]) -> tuple[bool, str]:
+def _apply_sparse_checkout(
+    worktree_path: str, cone: list[str]
+) -> tuple[bool, bool, str]:
     """Initialize cone-mode sparse-checkout on ``worktree_path`` and set the cone.
 
     Runs ``git sparse-checkout init --cone`` (which auto-enables
     ``extensions.worktreeConfig`` so the resulting state is per-worktree and
     does not affect the primary checkout) followed by
-    ``git sparse-checkout set <cone>`` when ``cone`` is non-empty. Returns
-    ``(ok, stderr)``; failures are surfaced to the caller but treated as
-    advisory — sparse-checkout is an optimization and never blocks worktree
-    creation.
+    ``git sparse-checkout set <cone>`` when ``cone`` is non-empty.
+
+    Returns ``(applied, disabled_fallback, stderr)``:
+
+    - ``applied=True, disabled_fallback=False`` — sparse-checkout is active
+      and the cone is set as requested.
+    - ``applied=False, disabled_fallback=True`` — init or set failed AND
+      ``git sparse-checkout disable`` succeeded as the fallback, so the
+      working tree is fully materialized (matching the "falls back to a
+      full checkout" advisory the caller prints). ``stderr`` carries the
+      original sparse-checkout failure reason.
+    - ``applied=False, disabled_fallback=False`` — both sparse-checkout
+      setup AND the disable fallback failed; the worktree is in an
+      indeterminate state and the caller must surface a clear error.
+      ``stderr`` carries both failure reasons joined by ``" || disable: "``.
+
+    Sparse-checkout is an optimization; the function never blocks worktree
+    creation, but it must also never leave the worktree in a partial-sparse
+    state that the caller has advertised as a full checkout (issue #928).
     """
     init = _run_git(worktree_path, ["sparse-checkout", "init", "--cone"])
     if init.returncode != 0:
-        return False, init.stderr.strip()
+        return _disable_fallback(worktree_path, init.stderr.strip())
     if not cone:
-        return True, ""
+        return True, False, ""
     set_result = _run_git(
         worktree_path, ["sparse-checkout", "set", *cone]
     )
-    return set_result.returncode == 0, set_result.stderr.strip()
+    if set_result.returncode != 0:
+        return _disable_fallback(worktree_path, set_result.stderr.strip())
+    return True, False, ""
+
+
+def _disable_fallback(
+    worktree_path: str, sparse_err: str
+) -> tuple[bool, bool, str]:
+    """Run ``git sparse-checkout disable`` to materialize a real full checkout.
+
+    Called from ``_apply_sparse_checkout`` after init or set fails — the
+    sparse-checkout state at this point is "enabled but empty / partial",
+    which leaves the worktree at ~1% of tracked files (issue #928). The
+    disable call un-sets ``core.sparseCheckout`` and re-materializes the
+    full tree. Returns the tri-state ``(applied, disabled_fallback, stderr)``
+    contract documented on ``_apply_sparse_checkout``.
+    """
+    disable = _run_git(worktree_path, ["sparse-checkout", "disable"])
+    if disable.returncode == 0:
+        return False, True, sparse_err
+    combined = f"{sparse_err} || disable: {disable.stderr.strip()}"
+    return False, False, combined
 
 
 def _primary_repo_root(repo_root: str) -> str:
@@ -760,18 +854,21 @@ def cmd_create(
                     )
                 )
                 # --cone <path> entries are directory-shaped; pass them through
-                # verbatim so `--cone docs` survives the single-segment drop
-                # and `--cone skills/tusk` lands as a targeted subtree entry
-                # rather than being widened to `skills` (issue #896).
+                # without the dirname() step so `--cone docs` survives the
+                # single-segment drop and `--cone skills/tusk` lands as a
+                # targeted subtree entry rather than being widened to `skills`
+                # (issue #896). They still go through _normalize_cone_entry so
+                # absolute paths and `..` segments get filtered out before
+                # reaching `git sparse-checkout set` (issue #928).
                 for raw in args.cone:
-                    d = (raw or "").strip().strip("/")
+                    d = _normalize_cone_entry(raw or "")
                     if d:
                         cone_set.add(d)
                 cone = sorted(cone_set)
-                sparse_ok, sparse_err = _apply_sparse_checkout(
-                    workspace_path, cone
+                sparse_applied, sparse_disabled, sparse_err = (
+                    _apply_sparse_checkout(workspace_path, cone)
                 )
-                if sparse_ok:
+                if sparse_applied:
                     cone_display = ", ".join(cone) if cone else "(root only)"
                     print(
                         f"Note: sparse-checkout applied (cone: {cone_display}). "
@@ -779,10 +876,21 @@ def cmd_create(
                         "`git sparse-checkout add <path>`.",
                         file=sys.stderr,
                     )
-                else:
+                elif sparse_disabled:
                     print(
                         "Note: sparse-checkout setup failed; worktree falls "
                         f"back to a full checkout. git stderr: {sparse_err}",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(
+                        "Warning: sparse-checkout setup failed AND the "
+                        "full-checkout fallback (git sparse-checkout disable) "
+                        "also failed; the worktree is in a partial-sparse "
+                        "state with an empty or unset cone. Run "
+                        "`git -C "
+                        f"{workspace_path} sparse-checkout disable` manually "
+                        f"to recover. git stderr: {sparse_err}",
                         file=sys.stderr,
                     )
 
