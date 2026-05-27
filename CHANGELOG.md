@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1016] - 2026-05-26
+
+- [TASK-497] Warn when version-bump / changelog-add invoked from primary on default branch without --task-id
+
 ## [1015] - 2026-05-26
 
 - [TASK-496] Surface sync-main stderr in auto-sync-main merge failure advisory
