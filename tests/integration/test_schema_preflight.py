@@ -53,7 +53,14 @@ def _run(args, db_path):
 
 def test_normal_subcmd_blocks_when_db_ahead(db_path):
     """tusk task-list against a DB stamped past SUPPORTED_SCHEMA_MAX exits
-    non-zero with the actionable mismatch message — not a raw sqlite error."""
+    non-zero with the actionable mismatch message — not a raw sqlite error.
+
+    The wording branches on whether bin/tusk's INSTALL_DIR is the canonical
+    tusk source repo (origin pointing at github.com/gioe/tusk). Since these
+    tests run FROM that source repo, the source-repo wording fires here.
+    test_schema_preflight_source_repo.py covers both branches end-to-end by
+    standing up tempdir installs with controlled origin URLs.
+    """
     supported = _supported_schema_max()
     _stamp_user_version(db_path, supported + 1)
 
@@ -63,7 +70,10 @@ def test_normal_subcmd_blocks_when_db_ahead(db_path):
     assert "Schema mismatch" in result.stderr
     assert f"v{supported + 1}" in result.stderr
     assert f"<=v{supported}" in result.stderr
-    assert "tusk upgrade" in result.stderr
+    # Source-repo branch: recommend git pull / tusk sync-main, NOT tusk upgrade.
+    assert "git pull" in result.stderr
+    assert "tusk sync-main" in result.stderr
+    assert "Run 'tusk upgrade'" not in result.stderr
     # Crucially, the raw sqlite failure mode this preflight replaces must
     # NOT surface to the user.
     assert "OperationalError" not in result.stderr
