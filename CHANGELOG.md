@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1019] - 2026-05-27
+
+- [TASK-500] Fix: gate Rule 19 + auto-MANIFEST-regen retry under sparse-checkout, widen source-repo cone
+
 ## [1018] - 2026-05-27
 
 - [TASK-499] Fix: task-worktree create's sparse-checkout fallback to full checkout
