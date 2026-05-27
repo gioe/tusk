@@ -18,14 +18,28 @@ from tusk_underscore_bin_files import get_underscore_bin_files  # noqa: E402
 
 
 def get_repo_root():
-    result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        capture_output=True, text=True, encoding="utf-8",
-    )
-    if result.returncode != 0:
-        print("Error: not inside a git repository", file=sys.stderr)
-        sys.exit(1)
-    return result.stdout.strip()
+    """Resolve the repo root by walking up from this script's own location.
+
+    Issue #882: the previous implementation invoked ``git rev-parse
+    --show-toplevel`` against ``$PWD``, which silently picks the wrong repo
+    when the script is invoked by absolute path from a sibling repo's CWD.
+    The failure mode is a stale MANIFEST that omits any new ``bin/tusk-*.py``
+    file added to the worktree the operator intended to enumerate — the
+    on-disk walk runs against primary's bin/ instead, and the user-facing
+    "Wrote MANIFEST ... (no changes)" output is indistinguishable from a
+    clean run.
+
+    ``__file__`` always resolves to this script's location on disk
+    regardless of the caller's CWD, so ``dirname(dirname(abspath(__file__)))``
+    is the repo root containing this script's own ``bin/`` directory — the
+    repo the operator intended to enumerate. Mirrors the pattern
+    ``bin/tusk-resolve-schema-bin.py`` uses for its own caller-relative
+    repo root derivation. The source-repo guard in ``main()`` (refusal when
+    ``bin/tusk`` is absent at the resolved root) still surfaces an
+    actionable error when the script is somehow invoked from outside a
+    source-repo layout.
+    """
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _sparse_checkout_active(root):
