@@ -10,17 +10,23 @@ have to remember it.
 Procedure:
   1. Resolve the default branch via `git symbolic-ref refs/remotes/origin/HEAD`
      (with a `tusk git-default-branch` fallback).
-  2. `git fetch origin <default>` so commit counts and ff-pull use fresh refs.
-  3. Count commits to be pulled: `git rev-list HEAD..origin/<default> --count`.
+  2. `git diff --name-only --diff-filter=U` — if any paths are unmerged, exit
+     early with a structured diagnostic naming the offending files. Every
+     state-mutating step that follows (fetch, stash, ff-merge, pop, migrate)
+     would otherwise hit the opaque `git stash push failed: could not write
+     index` failure mode (issue #914) — the user-actionable signal is "resolve
+     the conflict," not "stash failed."
+  3. `git fetch origin <default>` so commit counts and ff-pull use fresh refs.
+  4. Count commits to be pulled: `git rev-list HEAD..origin/<default> --count`.
      Zero means we are already up to date — skip pull but still run migrate
      (a previous fetch may have left pending schema changes).
-  4. If the working tree is dirty, push a uniquely-named stash entry and
+  5. If the working tree is dirty, push a uniquely-named stash entry and
      look up the ref by message — same pattern as tusk-test-precheck.py, so
      concurrent invocations do not collide and we never pop by stash position.
-  5. `git merge --ff-only origin/<default>` to fast-forward. If this fails,
+  6. `git merge --ff-only origin/<default>` to fast-forward. If this fails,
      leave the stash intact, surface the git error, and exit non-zero.
-  6. If we stashed, pop the entry by its looked-up ref.
-  7. Run `tusk migrate` to apply any schema migrations the new commits brought.
+  7. If we stashed, pop the entry by its looked-up ref.
+  8. Run `tusk migrate` to apply any schema migrations the new commits brought.
 
 Output: a single JSON object on stdout:
 
@@ -74,6 +80,18 @@ def _is_dirty(repo_root):
     return bool(result.stdout.strip())
 
 
+def _unmerged_paths(repo_root):
+    """Return list of paths with unresolved merge conflicts (git status UU/AA/...)."""
+    result = _run(
+        ["git", "diff", "--name-only", "--diff-filter=U"], cwd=repo_root
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"git diff --diff-filter=U failed: {result.stderr.strip()}"
+        )
+    return [line for line in result.stdout.splitlines() if line.strip()]
+
+
 def _find_stash_ref(repo_root, message):
     """Return stash ref whose subject contains *message*, or empty string.
 
@@ -103,6 +121,23 @@ def sync_main(repo_root, tusk_bin):
 
     default_branch = _resolve_default_branch(repo_root, tusk_bin)
     result["default_branch"] = default_branch
+
+    try:
+        unmerged = _unmerged_paths(repo_root)
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1, result
+    if unmerged:
+        if len(unmerged) <= 10:
+            display = ", ".join(unmerged)
+        else:
+            display = ", ".join(unmerged[:10]) + f", ... and {len(unmerged) - 10} more"
+        print(
+            f"Error: primary has {len(unmerged)} unmerged path(s) "
+            f"({display}) — resolve them before tusk sync-main.",
+            file=sys.stderr,
+        )
+        return 1, result
 
     fetch_res = _run(["git", "fetch", "origin", default_branch], cwd=repo_root)
     if fetch_res.returncode != 0:
