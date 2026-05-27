@@ -418,6 +418,73 @@ def _primary_repo_root(repo_root: str) -> str:
     return primary if os.path.isdir(primary) else repo_root
 
 
+def _maybe_advise_stale_primary(primary_root: str) -> None:
+    """Emit a one-line stderr advisory when primary is behind origin/<default>.
+
+    The hazard (issue #913): PATH-resolved ``tusk`` invocations from inside a
+    task worktree run primary's ``bin/tusk`` against the worktree CWD. When
+    primary itself is behind origin, those PATH-resolved calls execute stale
+    helper code against the worktree — the silent-MANIFEST-corruption vector
+    that closed during TASK-494 work. The /tusk Step 2 advice ("invoke
+    $workspace_path/bin/tusk, not tusk") exists for exactly this reason, but
+    it's a brittle convention that's easy to miss when the harness resets
+    CWD to primary between bash subshells. A one-line advisory at create
+    time names the hazard up front so the operator can run ``tusk sync-main``
+    in primary before starting work.
+
+    Best-effort: any git failure (no remote, no network, detached HEAD,
+    unreachable refs, missing ``origin``) leaves this silent. Never blocks
+    worktree creation — the advisory is supplementary to the task workflow,
+    not a precondition. ``TUSK_NO_STALE_PRIMARY_ADVISORY=1`` disables it.
+    """
+    if os.environ.get("TUSK_NO_STALE_PRIMARY_ADVISORY"):
+        return
+    if not primary_root or not os.path.isdir(primary_root):
+        return
+
+    # Resolve the default branch name as origin's symbolic-ref. Falls back
+    # to "main" when symbolic-ref isn't set (a freshly-cloned repo whose
+    # origin doesn't expose HEAD, or an offline checkout). Skip the
+    # advisory rather than guess when nothing resolves — false advisories
+    # are worse than missing ones for a best-effort hint.
+    head_result = _run_git(
+        primary_root,
+        ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+    )
+    if head_result.returncode != 0:
+        return
+    default_ref = head_result.stdout.strip()
+    if not default_ref or "/" not in default_ref:
+        return
+    default_branch = default_ref.split("/", 1)[1]
+
+    # Best-effort fetch; silently swallow failures (offline, auth, etc.).
+    _run_git(primary_root, ["fetch", "origin", default_branch])
+
+    count_result = _run_git(
+        primary_root,
+        ["rev-list", "--count", f"HEAD..origin/{default_branch}"],
+    )
+    if count_result.returncode != 0:
+        return
+    count_text = count_result.stdout.strip()
+    if not count_text.isdigit():
+        return
+    count = int(count_text)
+    if count <= 0:
+        return
+
+    print(
+        f"tusk: primary checkout is {count} commit(s) behind "
+        f"origin/{default_branch}; PATH-resolved tusk invocations from "
+        f"this worktree will run stale binaries against the worktree CWD "
+        f'and may corrupt MANIFEST under sparse-checkout. Run "tusk '
+        f'sync-main" in {primary_root} before invoking "tusk" from any '
+        "subshell here.",
+        file=sys.stderr,
+    )
+
+
 def _load_symlink_files(config_path: str) -> list[str]:
     """Load ``worktree.symlink_files`` from the project config, returning [] on any error."""
     if not config_path or not os.path.exists(config_path):
@@ -953,6 +1020,11 @@ def cmd_create(
                     "TUSK_NO_AUTO_SYMLINK=1 to disable this fallback.",
                     file=sys.stderr,
                 )
+        # Stale-primary advisory (issue #913). Fires after the worktree is
+        # recorded so a slow or hung fetch never blocks task-worktree
+        # create from returning the workspace JSON. Best-effort; silently
+        # no-ops on any git error or when TUSK_NO_STALE_PRIMARY_ADVISORY=1.
+        _maybe_advise_stale_primary(_primary_repo_root(repo_root))
         print(dumps(_workspace_payload(row, created=True)))
         return 0
     except sqlite3.IntegrityError as exc:
