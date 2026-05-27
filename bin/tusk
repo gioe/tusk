@@ -1677,6 +1677,26 @@ snapshot_db() {
 # proceeds normally. TUSK_NESTED_CALL is left unset so exactly one snapshot
 # is taken per operator invocation. Receives full argv via "$@" so the exec
 # below carries the original command intact.
+# Detect when bin/tusk is running from the tusk source repo. Origin must
+# resolve to canonical github.com/gioe/tusk (both ssh and https variants).
+# Forks and consumer installs (no .git, no origin, or origin pointing
+# elsewhere) fall through to false. Used by preflight_schema_version to
+# substitute advisory text — the recovery action in the source repo is
+# 'git pull' (or 'tusk sync-main'), NOT 'tusk upgrade' which would overwrite
+# the worktree from a remote tarball (issue #934).
+is_tusk_source_repo() {
+  git -C "$INSTALL_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
+  local origin
+  origin="$(git -C "$INSTALL_DIR" remote get-url origin 2>/dev/null)" || return 1
+  case "$origin" in
+    https://github.com/gioe/tusk|https://github.com/gioe/tusk.git|\
+    git@github.com:gioe/tusk|git@github.com:gioe/tusk.git|\
+    ssh://git@github.com/gioe/tusk|ssh://git@github.com/gioe/tusk.git)
+      return 0 ;;
+  esac
+  return 1
+}
+
 preflight_schema_version() {
   # No DB on disk → nothing to compare. The subcommand will either init a
   # fresh DB or fail with its own clearer message.
@@ -1715,7 +1735,11 @@ preflight_schema_version() {
     if [[ -n "$alt_bin" && -x "$alt_bin" ]]; then
       exec "$alt_bin" "$@"
     fi
-    echo "Schema mismatch: this database is at v${user_version}, but this tusk binary expects <=v${supported_max}. Run 'tusk upgrade' to update." >&2
+    if is_tusk_source_repo; then
+      echo "Schema mismatch: this database is at v${user_version}, but this tusk binary expects <=v${supported_max}. Run 'git pull' (or 'tusk sync-main' from inside the worktree) to update the local source bin/tusk." >&2
+    else
+      echo "Schema mismatch: this database is at v${user_version}, but this tusk binary expects <=v${supported_max}. Run 'tusk upgrade' to update." >&2
+    fi
     exit 1
   fi
 }
