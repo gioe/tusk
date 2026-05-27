@@ -147,6 +147,22 @@ def test_auto_extract_dedups_against_explicit_scope(db_path):
     assert by_source.get("creates") == {"bin/baz.py"}, rows
 
 
+def test_auto_extract_splits_bare_toplevel_files_joined_by_slash(db_path):
+    """Prose like ``VERSION/CHANGELOG.md`` names two top-level files, not a path."""
+    task_id = _insert(
+        str(db_path),
+        "version docs",
+        "tusk version-bump and tusk changelog-add update VERSION/CHANGELOG.md together.",
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+
+    assert "VERSION" in auto, rows
+    assert "CHANGELOG.md" in auto, rows
+    assert "VERSION/CHANGELOG.md" not in auto, rows
+
+
 # ── scope-hint creates suggestion (criterion 2201) ──────────────────────
 
 

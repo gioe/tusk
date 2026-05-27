@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1026] - 2026-05-27
+
+- [TASK-509] Fix: split or validate auto-derived task scope path tokens
+
 ## [1025] - 2026-05-27
 
 - [TASK-506] Fix: auto-resync version bump conflicts during rebase merge

@@ -403,6 +403,13 @@ def extract_paths(text: str) -> list:
         p = m.group(1).strip().rstrip('.,;:\'"`)')
         if not p or '://' in p:
             continue
+        if "/" in p:
+            first, rest = p.split("/", 1)
+            if first in _BARE_TOPLEVEL_WHITELIST and "/" not in rest:
+                paths.append(first)
+                if rest in _BARE_TOPLEVEL_WHITELIST or "." in os.path.basename(rest):
+                    paths.append(rest)
+                continue
         # Whitelisted bare top-level files bypass the extension check
         # (e.g. VERSION has no extension); everything else must have a dot
         # in the basename so we don't chase bare directory names.
