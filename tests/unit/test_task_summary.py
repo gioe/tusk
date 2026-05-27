@@ -565,6 +565,53 @@ class TestDiff:
         assert diff["lines_added"] == 1
         assert diff["lines_removed"] == 0
 
+    def test_criterion_hash_recovery_includes_ancestor_task_commits(self, tmp_path):
+        """Issue #917: a later skip-verify criterion may record only the tip
+        commit from a task branch. When that branch is no longer on any ref,
+        criterion-hash recovery must walk back through contiguous [TASK-N]
+        ancestors instead of reporting only the recorded tip commit.
+        """
+        repo = str(tmp_path / "repo")
+        os.makedirs(repo)
+        self._init_repo(repo)
+        self._commit(repo, "README.md", "seed\n", "initial")
+
+        subprocess.run(["git", "checkout", "-q", "-b", "manual-task"], cwd=repo, check=True)
+        self._commit(
+            repo,
+            "schema.prisma",
+            "model User { id String }\n",
+            "[TASK-2474] manual path-limited schema change",
+        )
+        tip_sha = self._commit(
+            repo,
+            "app/route.test.ts",
+            "test('route', () => {})\n",
+            "[TASK-2474] mark route behavior covered",
+        )
+        subprocess.run(["git", "checkout", "-q", "main"], cwd=repo, check=True)
+        subprocess.run(["git", "branch", "-D", "manual-task"], cwd=repo, check=True)
+
+        db_path, conn = _make_db(tmp_path)
+        conn.execute(
+            "INSERT INTO tasks (id, summary, status, started_at) VALUES (?, ?, ?, ?)",
+            (2474, "Fix route summary accounting", "Done", None),
+        )
+        conn.execute(
+            "INSERT INTO acceptance_criteria "
+            "(task_id, criterion, is_completed, commit_hash, skip_note) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (2474, "Route behavior verified manually", 1, tip_sha, "skip-verify"),
+        )
+        conn.commit()
+
+        diff = mod.fetch_diff(2474, repo, conn=conn)
+        assert diff["recovered_via"] == "criterion-hash"
+        assert diff["commits"] == 2
+        assert diff["files_changed"] == 2
+        assert diff["lines_added"] == 2
+        assert diff["lines_removed"] == 0
+
 
 class TestDiffPrefixCollisionHeuristic:
     """TASK-309 / issue #656: when a connection is provided and the task

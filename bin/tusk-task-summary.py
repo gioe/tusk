@@ -308,23 +308,79 @@ def _completed_criterion_commit_hashes(
     return [r["commit_hash"] for r in rows]
 
 
-def _criterion_hash_numstats(task_id: int, repo_root: str, conn: sqlite3.Connection) -> tuple[dict, dict]:
+def _task_chain_from_criterion_hash(
+    task_id: int,
+    repo_root: str,
+    sha: str,
+    since: str | None = None,
+) -> list[str]:
+    """Return the contiguous first-parent [TASK-N] chain ending at ``sha``.
+
+    A completed criterion may point only at a later skip-verify commit on a
+    task branch. If that branch is no longer referenced, ``git show <sha>``
+    undercounts earlier manual [TASK-N] commits and prevents the fsck fallback
+    from running. Walking first-parent ancestry from the recorded tip recovers
+    the whole task-local commit chain while stopping at the first non-task
+    parent so unrelated base history is not included.
+    """
+    cmd = ["git", "log", "--first-parent", "--format=%H%x00%s", sha]
+    if since:
+        cmd.append(f"--since={since} UTC")
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            cwd=repo_root,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if result.returncode != 0:
+        return []
+
+    needle = f"[TASK-{task_id}]"
+    chain: list[str] = []
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+        commit_sha, _sep, subject = line.partition("\x00")
+        if needle in subject:
+            chain.append(commit_sha)
+            continue
+        if chain:
+            break
+    return chain
+
+
+def _criterion_hash_numstats(
+    task_id: int,
+    repo_root: str,
+    conn: sqlite3.Connection,
+    since: str | None = None,
+) -> tuple[dict, dict]:
     """Recover numstat blocks from completed criteria commit hashes.
 
     This is a fallback for rebase/no-checkout merge paths where the rewritten
     task commit exists locally by SHA but is not visible to the summarizing
     checkout's ``git log --all`` ref scan. Missing stale hashes are skipped.
+    When a criterion hash points at the tip of an unreferenced task branch,
+    recover contiguous first-parent [TASK-N] ancestors as part of the same
+    task-local chain instead of reporting only the tip commit (issue #917).
     """
     commit_files: dict[str, list[tuple[str, str, str]]] = {}
     commit_parents: dict[str, list[str]] = {}
     for sha in _completed_criterion_commit_hashes(task_id, conn):
+        shas = _task_chain_from_criterion_hash(task_id, repo_root, sha, since=since)
+        if not shas:
+            shas = [sha]
         try:
             result = subprocess.run(
                 [
                     "git", "show",
                     "--numstat",
                     "--format=__COMMIT__ %H %P",
-                    sha,
+                    *shas,
                 ],
                 capture_output=True,
                 text=True,
@@ -706,7 +762,9 @@ def fetch_diff(
                 recovered_via = "refresh-fetch"
 
     if conn is not None and not commit_files:
-        commit_files, commit_parents = _criterion_hash_numstats(task_id, repo_root, conn)
+        commit_files, commit_parents = _criterion_hash_numstats(
+            task_id, repo_root, conn, since=since,
+        )
         if commit_files:
             recovered_via = "criterion-hash"
 

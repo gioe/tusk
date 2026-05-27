@@ -10,6 +10,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1030] - 2026-05-27
+
+- [TASK-514] Fix: count all task commits in task-summary recovery after manual commits
+
 ## [1029] - 2026-05-27
 
 - [TASK-513] Fix: preserve worktree for recovery when no-checkout merge auto-sync-main fails
