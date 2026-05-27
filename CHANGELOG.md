@@ -1,3 +1,7 @@
+## [1028] - 2026-05-27
+
+- [TASK-507] Fix: align raw-SQL CLI schema-version guard with subcommand behavior
+
 # Changelog
 
 All notable changes to tusk are documented in this file.
