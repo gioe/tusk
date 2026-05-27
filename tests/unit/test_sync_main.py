@@ -102,6 +102,10 @@ class TestSyncMainStashFlow:
         """No stash push, no stash list, no pop when working tree is clean."""
         plan = [
             (lambda c: c[:2] == ["git", "symbolic-ref"], _ok("origin/main\n")),
+            (
+                lambda c: c[:2] == ["git", "diff"] and "--diff-filter=U" in c,
+                _ok(""),
+            ),
             (lambda c: c[:2] == ["git", "fetch"], _ok("")),
             (lambda c: c[:2] == ["git", "rev-list"], _ok("2\n")),
             (lambda c: c[:2] == ["git", "status"], _ok("")),  # clean
@@ -122,6 +126,10 @@ class TestSyncMainStashFlow:
         """Dirty tree → stash push, find by message, ff-merge, find again, pop."""
         plan = [
             (lambda c: c[:2] == ["git", "symbolic-ref"], _ok("origin/main\n")),
+            (
+                lambda c: c[:2] == ["git", "diff"] and "--diff-filter=U" in c,
+                _ok(""),
+            ),
             (lambda c: c[:2] == ["git", "fetch"], _ok("")),
             (lambda c: c[:2] == ["git", "rev-list"], _ok("5\n")),
             (lambda c: c[:2] == ["git", "status"], _ok(" M file.py\n")),
@@ -153,10 +161,101 @@ class TestSyncMainStashFlow:
         pop_calls = [c for c in calls if c[:3] == ["git", "stash", "pop"]]
         assert pop_calls and pop_calls[0][3].startswith("stash@{")
 
+    def test_unmerged_paths_short_circuits_before_fetch(self):
+        """UU paths → exit 1 with diagnostic naming the file; never fetch/stash/migrate (issue #914)."""
+        plan = [
+            (lambda c: c[:2] == ["git", "symbolic-ref"], _ok("origin/main\n")),
+            (
+                lambda c: c[:2] == ["git", "diff"] and "--diff-filter=U" in c,
+                _ok("a.txt\n"),
+            ),
+        ]
+        fake_run, calls = self._scripted(plan)
+        with mock.patch.object(mod, "_run", side_effect=fake_run):
+            code, payload = mod.sync_main("/tmp/repo", "/tmp/bin/tusk")
+        assert code == 1
+        assert payload["success"] is False
+        assert payload["default_branch"] == "main"
+        assert payload["fetched_commits"] == 0
+        assert payload["stashed"] is False
+        assert payload["migrated"] is False
+        # State-mutating steps must NOT have run.
+        assert not any(c[:2] == ["git", "fetch"] for c in calls)
+        assert not any(c[:2] == ["git", "stash"] for c in calls)
+        assert not any(c[:3] == ["git", "merge", "--ff-only"] for c in calls)
+        assert not any(c[-1] == "migrate" for c in calls)
+
+    def test_unmerged_paths_diagnostic_names_every_file(self, capsys):
+        """Diagnostic surfaces every unmerged path, not just a count."""
+        plan = [
+            (lambda c: c[:2] == ["git", "symbolic-ref"], _ok("origin/main\n")),
+            (
+                lambda c: c[:2] == ["git", "diff"] and "--diff-filter=U" in c,
+                _ok("a.txt\nsubdir/b.md\nthird.json\n"),
+            ),
+        ]
+        fake_run, _ = self._scripted(plan)
+        with mock.patch.object(mod, "_run", side_effect=fake_run):
+            mod.sync_main("/tmp/repo", "/tmp/bin/tusk")
+        captured = capsys.readouterr()
+        assert "unmerged" in captured.err.lower()
+        assert "3 unmerged path(s)" in captured.err
+        for path in ("a.txt", "subdir/b.md", "third.json"):
+            assert path in captured.err
+        assert "resolve them before tusk sync-main" in captured.err
+
+    def test_unmerged_paths_diagnostic_caps_long_lists(self, capsys):
+        """When >10 unmerged paths, diagnostic shows the first 10 plus an overflow count."""
+        files = [f"f{i:02d}.txt" for i in range(15)]
+        plan = [
+            (lambda c: c[:2] == ["git", "symbolic-ref"], _ok("origin/main\n")),
+            (
+                lambda c: c[:2] == ["git", "diff"] and "--diff-filter=U" in c,
+                _ok("\n".join(files) + "\n"),
+            ),
+        ]
+        fake_run, _ = self._scripted(plan)
+        with mock.patch.object(mod, "_run", side_effect=fake_run):
+            mod.sync_main("/tmp/repo", "/tmp/bin/tusk")
+        captured = capsys.readouterr()
+        assert "15 unmerged path(s)" in captured.err
+        # First 10 named, last 5 collapsed into an overflow count.
+        for path in files[:10]:
+            assert path in captured.err
+        assert "and 5 more" in captured.err
+        for path in files[10:]:
+            assert path not in captured.err
+
+    def test_clean_tree_runs_diff_check_then_proceeds(self):
+        """Empty unmerged-paths list must NOT short-circuit the normal flow."""
+        plan = [
+            (lambda c: c[:2] == ["git", "symbolic-ref"], _ok("origin/main\n")),
+            (
+                lambda c: c[:2] == ["git", "diff"] and "--diff-filter=U" in c,
+                _ok(""),  # no unmerged paths
+            ),
+            (lambda c: c[:2] == ["git", "fetch"], _ok("")),
+            (lambda c: c[:2] == ["git", "rev-list"], _ok("0\n")),
+            (lambda c: c[:2] == ["git", "status"], _ok("")),
+            (lambda c: c[-1] == "migrate", _ok("")),
+        ]
+        fake_run, calls = self._scripted(plan)
+        with mock.patch.object(mod, "_run", side_effect=fake_run):
+            code, payload = mod.sync_main("/tmp/repo", "/tmp/bin/tusk")
+        assert code == 0
+        assert payload["success"] is True
+        # The fetch + migrate path was actually exercised.
+        assert any(c[:2] == ["git", "fetch"] for c in calls)
+        assert any(c[-1] == "migrate" for c in calls)
+
     def test_already_up_to_date_skips_merge_and_stash(self):
         """fetched_commits == 0 → skip ff-merge AND stash, but still migrate."""
         plan = [
             (lambda c: c[:2] == ["git", "symbolic-ref"], _ok("origin/main\n")),
+            (
+                lambda c: c[:2] == ["git", "diff"] and "--diff-filter=U" in c,
+                _ok(""),
+            ),
             (lambda c: c[:2] == ["git", "fetch"], _ok("")),
             (lambda c: c[:2] == ["git", "rev-list"], _ok("0\n")),
             (lambda c: c[:2] == ["git", "status"], _ok(" M file.py\n")),  # dirty
