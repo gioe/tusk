@@ -843,6 +843,7 @@ def _format_sync_main_failure_advisory(
     primary_root,
     default_branch: str,
     fallback_advisory: str,
+    sync_stderr: str = "",
 ) -> str:
     """Build the multi-line stderr block emitted after a sync-main failure.
 
@@ -852,6 +853,15 @@ def _format_sync_main_failure_advisory(
     pre-existing UU/AA/DD rows are the most common root cause and the
     actionable fix is always "resolve conflicts first," regardless of which
     sync-main step ultimately raised.
+
+    Issue #915: when neither the unmerged-paths case nor a routed
+    failure_step matches, ``sync_stderr`` is surfaced verbatim (indented two
+    spaces under a ``sync-main stderr:`` header) between the exit-code prefix
+    and the four-variant fallback advisory. The routed cases already include
+    focused diagnostic context, so the stderr injection is scoped to the
+    indeterminate fallback where stderr is the only diagnostic signal. Empty
+    or whitespace-only stderr falls through to the original wording with no
+    spurious blank lines.
     """
     prefix = f"tusk: auto-sync failed (tusk sync-main exit {sync_returncode}) — "
 
@@ -908,6 +918,15 @@ def _format_sync_main_failure_advisory(
             f"{primary_root} after resolving the migration error."
         )
 
+    stderr_text = (sync_stderr or "").strip()
+    if stderr_text:
+        indented = "\n".join(f"    {line}" for line in stderr_text.splitlines())
+        return (
+            f"{prefix}fall back to manual recovery below.\n"
+            f"  sync-main stderr:\n"
+            f"{indented}\n"
+            f"{fallback_advisory}"
+        )
     return f"{prefix}fall back to manual recovery below.\n{fallback_advisory}"
 
 
@@ -937,6 +956,13 @@ def _maybe_advise_stale_deployed_bin(
     first regardless of which sync-main step raised. Indeterminate failures
     (stderr signature not matched, no unmerged paths) fall through to the
     four-variant advisory wording established by issue #877.
+
+    Issue #915: in the indeterminate fallback only, ``sync_result.stderr`` is
+    surfaced verbatim (indented under a ``sync-main stderr:`` header) between
+    the exit-code prefix and the four-variant advisory body — the routed cases
+    already include focused diagnostic context, so the injection is scoped to
+    the one path where stderr is the only diagnostic signal. Empty or
+    whitespace-only stderr leaves the original wording unchanged.
 
     Gates carried over from the original advisory path (issue #865):
       * ``TUSK_NO_DEPLOYED_BIN_REFRESH=1`` — single off-switch shared with
@@ -1024,6 +1050,7 @@ def _maybe_advise_stale_deployed_bin(
         _format_sync_main_failure_advisory(
             sync_result.returncode, failure_step, unmerged_paths,
             primary_root, default_branch, advisory,
+            sync_stderr=sync_result.stderr or "",
         ),
         file=sys.stderr,
     )
