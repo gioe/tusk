@@ -81,6 +81,7 @@ require it).
 |------|---------------|-------|--------|
 | **tusk-review.py** | `tusk review start\|begin\|add-comment\|list\|resolve\|validate-comments\|approve\|request-changes\|status\|summary\|verdict\|pass-status\|backfill-cost [flags]` | `code_reviews`, `review_comments`, `tasks` | `code_reviews`, `review_comments` |
 | **tusk-call-breakdown.py** | `tusk call-breakdown --task\|--session\|--skill-run\|--criterion <id>` | Claude Code JSONL transcripts, `task_sessions`, `tool_call_events` | `tool_call_stats` (optional write); depends on `tusk-pricing-lib.py` |
+| **tusk-cost.py** | `tusk cost [--format json\|text]` | `task_sessions`, `skill_runs` | nothing; cumulative project-cost rollup with tusk skill-run shadow de-duplication |
 
 ### Config, Lint & Setup
 

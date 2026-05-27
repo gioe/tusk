@@ -10,6 +10,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1032] - 2026-05-27
+
+- [TASK-515] Add cumulative cost rollup with session/skill-run de-duplication
+
 ## [1031] - 2026-05-27
 
 - [TASK-516] Fix: tusk generate-manifest silently uses wrong repo root when invoked from sibling CWD
