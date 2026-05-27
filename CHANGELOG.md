@@ -10,6 +10,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1029] - 2026-05-27
+
+- [TASK-513] Fix: preserve worktree for recovery when no-checkout merge auto-sync-main fails
+
 ## [1027] - 2026-05-27
 
 - [TASK-511] Fix: make skill-run finish idempotent or diagnostic after merge
