@@ -242,8 +242,10 @@ def test_auto_sync_failure_falls_back_to_advisory(
 ):
     db_path = _source_repo_layout(tmp_path)
 
+    stderr_text = "fatal: refusing to merge unrelated histories\n"
+
     def fake_run_sync_main(tusk_bin, primary_root):
-        return _fake_completed(1, stderr="fatal: refusing to merge unrelated histories\n")
+        return _fake_completed(1, stderr=stderr_text)
 
     refresh_calls = []
     monkeypatch.setattr(tusk_merge_module, "_run_sync_main", fake_run_sync_main)
@@ -268,6 +270,66 @@ def test_auto_sync_failure_falls_back_to_advisory(
     assert "Run `tusk sync-main && tusk dev-sync`" in err
     assert refresh_calls == [], (
         "the deployed-bin refresh should not chain after a failed auto-sync"
+    )
+
+    # Issue #915: sync-main's stderr must be surfaced verbatim between the
+    # exit-code prefix and the four-variant advisory body so the operator
+    # has the diagnostic signal instead of having to re-run sync-main by hand.
+    stderr_payload = stderr_text.strip()
+    assert "sync-main stderr:" in err, (
+        "indeterminate-fallback advisory must label the captured stderr"
+    )
+    assert stderr_payload in err, (
+        "captured sync-main stderr must appear verbatim in the advisory"
+    )
+    prefix_pos = err.index("fall back to manual recovery below")
+    stderr_pos = err.index(stderr_payload)
+    advisory_pos = err.index(".claude/bin/ may be stale")
+    assert prefix_pos < stderr_pos < advisory_pos, (
+        "stderr must land between the exit-code prefix line and the "
+        "four-variant advisory body"
+    )
+
+
+def test_auto_sync_failure_empty_stderr_omits_label(
+    tmp_path, tusk_merge_module, capsys, monkeypatch,
+):
+    """Issue #915 graceful fallback: empty/whitespace-only stderr must not emit
+    the `sync-main stderr:` label or any blank-line filler between the exit-code
+    prefix and the four-variant advisory body."""
+    db_path = _source_repo_layout(tmp_path)
+
+    monkeypatch.setattr(
+        tusk_merge_module, "_run_sync_main",
+        lambda *a, **kw: _fake_completed(1, stderr="   \n\n  "),
+    )
+    monkeypatch.setattr(
+        tusk_merge_module, "_maybe_refresh_deployed_bin",
+        lambda *a, **kw: False,
+    )
+
+    tusk_merge_module._maybe_advise_stale_deployed_bin(
+        db_path, tusk_bin="/fake/tusk",
+    )
+
+    err = capsys.readouterr().err
+    assert "auto-sync failed (tusk sync-main exit 1)" in err
+    assert "sync-main stderr:" not in err, (
+        "whitespace-only stderr must not emit the stderr-block label"
+    )
+    # Exit-code line and four-variant advisory body must remain adjacent.
+    lines = err.splitlines()
+    prefix_idx = next(
+        i for i, line in enumerate(lines)
+        if "fall back to manual recovery below" in line
+    )
+    advisory_idx = next(
+        i for i, line in enumerate(lines)
+        if ".claude/bin/ may be stale" in line
+    )
+    assert advisory_idx == prefix_idx + 1, (
+        "whitespace-only stderr must collapse to the original wording — no "
+        "blank lines or extra header between the prefix and the advisory body"
     )
 
 
