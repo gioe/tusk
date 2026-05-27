@@ -253,14 +253,14 @@ fi
 
 ## Step 7: Process Findings
 
-After the reviewer agent completes, run the **diff-scope validation** before reading any comments. The reviewer agent occasionally confabulates findings that reference files, behavior, or migrations outside the actual diff — issue #783 caught one review where 3 of 5 findings (60%) named files that did not exist in the diff, the branch, or the project. `tusk review validate-comments` enforces an objective ground truth by re-deriving the diff range (with the same worktree-aware logic `tusk review begin` uses) and dismissing every pending comment whose non-null `file_path` is missing from `git diff --name-only`. Dismissed comments keep an explanatory `resolution_note` so the audit trail records the fabrication rather than silently hiding it.
+After the reviewer agent completes, run the **diff-scope validation** before reading any comments. The reviewer agent occasionally confabulates findings that reference files, behavior, or migrations outside the actual diff — issue #783 caught one review where 3 of 5 findings (60%) named files that did not exist in the diff, the branch, or the project. `tusk review validate-comments` enforces an objective ground truth by re-deriving the diff range (with the same worktree-aware logic `tusk review begin` uses) and dismissing every pending comment whose `file_path` is missing from `git diff --name-only`. Issue #912 extended the validator to also body-scan general comments (null `file_path`): a general comment that cites one or more file-path-shaped tokens — and whose cited paths are all absent from the diff — is dismissed under the same fabrication-guard rationale; general comments that cite at least one in-diff path or cite no path tokens at all are preserved. Dismissed comments keep an explanatory `resolution_note` so the audit trail records the fabrication rather than silently hiding it.
 
 ```bash
 VALIDATION_JSON=$(tusk review validate-comments $REVIEW_ID)
-DISMISSED_COUNT=$(printf '%s' "$VALIDATION_JSON" | jq '.dismissed | length')
+DISMISSED_COUNT=$(printf '%s' "$VALIDATION_JSON" | jq '(.dismissed | length) + (.dismissed_general | length)')
 ```
 
-If `$DISMISSED_COUNT > 0`, surface the dismissals to the user verbatim so they can see what the reviewer agent fabricated — do not silently drop them. Comments with a null `file_path` (general-scope findings) are left untouched at this step; if you encounter one without a diff-line quote during the per-comment loop below, downgrade it to `suggest` or dismiss it manually.
+If `$DISMISSED_COUNT > 0`, surface both `dismissed` (file_path-driven) and `dismissed_general` (body-scan-driven) entries to the user verbatim so they can see what the reviewer agent fabricated — do not silently drop them. General comments preserved by the body-scan (no path tokens, or at least one in-diff token) still surface in the per-comment loop below; if one lacks a diff-line quote, downgrade it to `suggest` or dismiss it manually.
 
 Then fetch the full review results:
 

@@ -287,21 +287,25 @@ Codex port the agent-monitoring step is folded into Step 5.)
 ## Step 7: Process Findings
 
 After recording the verdict, validate that every pending comment's
-`file_path` actually appears in the diff (issue #783 fabrication guard).
+`file_path` actually appears in the diff (issue #783 fabrication guard),
+and that general comments (null `file_path`) cite only in-diff paths if
+they cite paths at all (issue #912 fabrication guard).
 `tusk review validate-comments` re-derives the diff range and auto-dismisses
-any pending comment whose non-null `file_path` is missing from
-`git diff --name-only`. In the Codex inline path the orchestrator IS the
-reviewer, so fabrication is rare — but the validation also catches stale
-`file_path` values left over from earlier renames and so still earns its
-keep on the inline path:
+any pending comment whose `file_path` is missing from `git diff --name-only`.
+For general comments it body-scans for file-path-shaped tokens and dismisses
+the comment when every cited path is out-of-diff. In the Codex inline path
+the orchestrator IS the reviewer, so fabrication is rare — but the validation
+also catches stale `file_path` values left over from earlier renames and so
+still earns its keep on the inline path:
 
 ```bash
 VALIDATION_JSON=$(tusk review validate-comments $REVIEW_ID)
-DISMISSED_COUNT=$(printf '%s' "$VALIDATION_JSON" | jq '.dismissed | length')
+DISMISSED_COUNT=$(printf '%s' "$VALIDATION_JSON" | jq '(.dismissed | length) + (.dismissed_general | length)')
 ```
 
-If `$DISMISSED_COUNT > 0`, surface the dismissals verbatim so the user can
-see what was dropped. Then fetch the full review results:
+If `$DISMISSED_COUNT > 0`, surface both `dismissed` (file_path-driven) and
+`dismissed_general` (body-scan-driven) entries verbatim so the user can see
+what was dropped. Then fetch the full review results:
 
 ```bash
 tusk review list $TASK_ID

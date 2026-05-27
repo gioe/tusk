@@ -13,6 +13,7 @@ Arguments received from tusk:
 import argparse
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -451,8 +452,57 @@ def cmd_list(args: argparse.Namespace, db_path: str) -> int:
     return 0
 
 
+# Known file extensions surfaced in code review prose. Restricting to a
+# closed set keeps false positives down: word-shaped tokens like "e.g."
+# or version strings like "1.2.3" do not match.
+_PATH_TOKEN_EXTENSIONS = (
+    "py|md|js|ts|tsx|jsx|sh|html|css|scss|sass|less|yml|yaml|json|toml|"
+    "go|rs|java|kt|swift|rb|c|cpp|cc|h|hpp|cs|sql|txt|cfg|ini|xml|env|"
+    "hcl|tf|gradle|properties|lock|mjs|cjs|vue|svelte|php|pl|pm|lua|dart|"
+    "ex|exs|erl|hs|clj|cljs|fs|fsx|scala|m|mm|proto|graphql|gql|conf"
+)
+_PATH_TOKEN_RE = re.compile(
+    rf"(?<![\w/.])([\w./\-]+\.(?:{_PATH_TOKEN_EXTENSIONS}))(?![\w/])",
+    re.IGNORECASE,
+)
+
+
+def _extract_paths(text: str | None) -> list[str]:
+    """Extract file-path-shaped tokens from a comment body.
+
+    Only the closed extension set above is recognized. Tokens are
+    returned in order of first appearance with duplicates removed and
+    trailing punctuation stripped.
+    """
+    if not text:
+        return []
+    found: list[str] = []
+    seen: set[str] = set()
+    for m in _PATH_TOKEN_RE.finditer(text):
+        token = m.group(1).rstrip(".,;:!?)\"'")
+        if token and token not in seen:
+            seen.add(token)
+            found.append(token)
+    return found
+
+
+def _path_in_diff(token: str, diff_files: set[str]) -> bool:
+    """Decide whether *token* matches any entry in *diff_files*.
+
+    Multi-segment tokens (containing ``/``) must match a diff file by
+    full path equality — a confabulated ``apps/foo/bar.py`` is not
+    rescued by a same-basename file elsewhere in the diff. Bare
+    basenames match any diff file with that basename.
+    """
+    if token in diff_files:
+        return True
+    if "/" in token:
+        return False
+    return any(os.path.basename(f) == token for f in diff_files)
+
+
 def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
-    """Cross-check pending review comments against the actual diff (issue #783).
+    """Cross-check pending review comments against the actual diff (issues #783, #912).
 
     The reviewer agent occasionally confabulates findings that reference
     files outside the diff — paths, behavior, or migrations that never
@@ -464,19 +514,24 @@ def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
     ``dismissed`` with an explanatory ``resolution_note`` so the audit trail
     still records the fabrication.
 
-    Comments with a null ``file_path`` (general-scope findings) are left
-    untouched and surfaced in the return JSON so the orchestrator can
-    decide whether to require a diff-line quote.
+    General-scope comments (``file_path`` is null/empty) are body-scanned
+    for file-path-shaped tokens (issue #912). When the body cites one or
+    more path tokens AND none of them appear in the diff, the comment is
+    dismissed under the same fabrication-guard rationale as file_path
+    comments. General comments that cite at least one in-diff path, or
+    cite no path tokens at all, are preserved — the orchestrator's
+    diff-line-quote rule still handles the latter case.
 
     JSON output:
         {
             "review_id": int,
             "range": str,
-            "validated": int,           # pending comments inspected
+            "validated": int,                # pending comments inspected
             "dismissed": [{"comment_id", "file_path"}, ...],
-            "in_diff": int,             # file_path values matched
-            "general": int,             # null-file_path findings
-            "diff_files": [str, ...],   # the diff's --name-only set
+            "dismissed_general": [{"comment_id", "cited_paths"}, ...],
+            "in_diff": int,                  # file_path values matched
+            "general": int,                  # null-file_path comments preserved
+            "diff_files": [str, ...],        # the diff's --name-only set
         }
     """
     diff_range_mod = tusk_loader.load("tusk-review-diff-range")
@@ -545,12 +600,44 @@ def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
     diff_files = {p.strip() for p in name_only.stdout.splitlines() if p.strip()}
 
     dismissed = []
+    dismissed_general = []
     in_diff = 0
     general = 0
     for c in pending:
         fp = c["file_path"]
         if fp is None or fp == "":
-            general += 1
+            # Issue #912: scan the body for path-shaped tokens. A general
+            # comment that cites only out-of-diff paths is dismissed under
+            # the same fabrication-guard rationale; one that cites at
+            # least one in-diff path, or cites no path tokens at all, is
+            # preserved for the orchestrator's diff-line-quote rule.
+            cited_paths = _extract_paths(c["comment"])
+            if not cited_paths:
+                general += 1
+                continue
+            if any(_path_in_diff(p, diff_files) for p in cited_paths):
+                general += 1
+                continue
+            note = (
+                f"validation: general comment cites paths {cited_paths} "
+                f"— none present in diff range '{diff_range}' "
+                f"(issue #912 fabrication guard)"
+            )
+            conn = get_connection(db_path)
+            try:
+                conn.execute(
+                    "UPDATE review_comments SET resolution = 'dismissed',"
+                    " resolution_note = ?, updated_at = datetime('now')"
+                    " WHERE id = ?",
+                    (note, c["id"]),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+            dismissed_general.append({
+                "comment_id": c["id"],
+                "cited_paths": cited_paths,
+            })
             continue
         if fp in diff_files:
             in_diff += 1
@@ -578,6 +665,7 @@ def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
         "range": diff_range,
         "validated": len(pending),
         "dismissed": dismissed,
+        "dismissed_general": dismissed_general,
         "in_diff": in_diff,
         "general": general,
         "diff_files": sorted(diff_files),
