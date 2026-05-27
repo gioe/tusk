@@ -1447,11 +1447,18 @@ def _complete_no_checkout_fast_forward(
         print(
             f"Note: origin/{default_branch} already contains {branch_name}'s "
             "tip — skipping no-checkout fast-forward push; the work has already "
-            "shipped to origin (issue #774).",
+            f"shipped to origin (issue #774), continuing task finalization; "
+            f"if this retry is interrupted, rerun tusk merge {task_id} --session {session_id}.",
             file=sys.stderr,
         )
     else:
         pre_push_merge_base_sha = _resolve_merge_base(branch_name, default_branch)
+        print(
+            f"Pushing {branch_name} to origin/{default_branch} via no-checkout "
+            f"fast-forward; if interrupted after the push succeeds, rerun tusk "
+            f"merge {task_id} --session {session_id} to finish finalization.",
+            file=sys.stderr,
+        )
         result = run(["git", "push", "origin", f"{branch_name}:{default_branch}"], check=False)
         if result.returncode != 0:
             print(

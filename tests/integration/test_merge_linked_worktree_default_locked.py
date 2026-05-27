@@ -208,7 +208,10 @@ class TestLinkedWorktreeDefaultBranchLocked:
         assert [c for c in record if c[:3] == ["git", "branch", "-D"] and c[-1] == branch], (
             f"Expected git branch -D {branch} after no-checkout push success; got: {record}"
         )
-        assert "no-checkout fast-forward" in stderr_buf.getvalue()
+        stderr = stderr_buf.getvalue()
+        assert "no-checkout fast-forward" in stderr
+        assert f"Pushing {branch} to origin/main" in stderr
+        assert f"if interrupted after the push succeeds, rerun tusk merge {task_id}" in stderr
 
     def test_no_checkout_fetches_and_refuses_predictable_non_ff_before_push(
         self, db_path, config_path, monkeypatch

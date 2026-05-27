@@ -521,7 +521,10 @@ class TestEdge2NoCheckoutStampsNullWhenOriginAlreadyContains:
         )
         # Sanity: the no-checkout path was selected (no ff-only merge) and
         # the push was skipped because origin already contains the tip.
-        assert "already contains" in stderr_buf.getvalue()
+        stderr = stderr_buf.getvalue()
+        assert "already contains" in stderr
+        assert "continuing task finalization" in stderr
+        assert f"tusk merge {task_id} --session {session_id}" in stderr
         assert not [c for c in record if c[:3] == ["git", "merge", "--ff-only"]]
         assert ["git", "push", "origin", f"{branch}:main"] not in record
 
