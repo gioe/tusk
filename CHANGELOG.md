@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1015] - 2026-05-26
+
+- [TASK-496] Surface sync-main stderr in auto-sync-main merge failure advisory
+
 ## [1014] - 2026-05-26
 
 - [TASK-495] Fix: tusk sync-main should detect unmerged paths up front and emit a clean diagnostic
