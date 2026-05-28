@@ -569,6 +569,49 @@ def _drop_unpushed_commits(
     return False
 
 
+def _warn_no_checkout_unpushed_default(
+    commits: list[tuple[str, str]],
+    default_branch: str,
+    task_id: int,
+    session_id: int,
+) -> None:
+    """Loudly report local-``<default>`` commits a no-checkout push would strand.
+
+    The no-checkout fast-forward path ships ``<branch>:<default>`` — the feature
+    branch, which ``task-worktree create`` based on ``origin/<default>`` (issue
+    #949). Commits that live only on the LOCAL ``<default>`` ref were never on
+    the feature branch, so the push cannot carry them; without this guard they
+    were silently left behind while the merge reported success.
+
+    Unlike ``_confirm_proceed_with_unpushed`` (standard checkout path) there is
+    no safe interactive choice to offer here: a ``[y]`` "push as passengers"
+    cannot work because the feature-branch push fundamentally excludes these
+    commits, and a ``[d]`` ``git reset --hard`` would clobber the wrong branch
+    because the current checkout in the no-checkout flow is the feature worktree,
+    not ``<default>``. The caller therefore always aborts after this warning.
+    """
+    print(
+        f"\nAborting TASK-{task_id} merge: local '{default_branch}' has "
+        f"{len(commits)} commit(s) not on 'origin/{default_branch}' that the "
+        f"feature branch was not based on. This no-checkout fast-forward push "
+        f"ships only the feature branch, so they would be silently stranded on "
+        f"local '{default_branch}':",
+        file=sys.stderr,
+    )
+    for sha, subject in commits:
+        print(f"  {sha}  {subject}", file=sys.stderr)
+    print(
+        f"\nTo resolve, in the checkout where '{default_branch}' is checked out "
+        f"(usually the primary repo):\n"
+        f"  - Publish them: git pull --rebase origin {default_branch} && "
+        f"git push origin {default_branch}\n"
+        f"  - Or discard them: git fetch origin && "
+        f"git reset --hard origin/{default_branch}\n"
+        f"Then re-run: tusk merge {task_id} --session {session_id}",
+        file=sys.stderr,
+    )
+
+
 def _try_pop_stash(task_id: int) -> None:
     """Attempt to pop the auto-stash created before merging and report the outcome.
 
@@ -1627,6 +1670,23 @@ def _complete_no_checkout_fast_forward(
             file=sys.stderr,
         )
     else:
+        # Guard (issue #949): the standard checkout path runs this check at
+        # bin/tusk-merge.py's `git pull` site, but the no-checkout path
+        # historically skipped it and silently stranded commits that live only
+        # on the local <default> ref. The fetch above (rebase or freshness
+        # branch) refreshed origin/<default>, so the comparison is current. Only
+        # runs when we are actually about to push — the already-shipped
+        # short-circuit above leaves a pre-existing local-default divergence to
+        # the operator rather than blocking finalization of work that already
+        # reached origin.
+        unpushed_local = _local_default_unpushed_commits(default_branch)
+        if unpushed_local:
+            _warn_no_checkout_unpushed_default(
+                unpushed_local, default_branch, task_id, session_id
+            )
+            if did_stash:
+                _try_pop_stash(task_id)
+            return 2
         pre_push_merge_base_sha = _resolve_merge_base(branch_name, default_branch)
         print(
             f"Pushing {branch_name} to origin/{default_branch} via no-checkout "
