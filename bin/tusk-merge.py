@@ -1410,6 +1410,47 @@ def _close_completed_task(
                 )
             print(dumps(synthetic))
             return 0
+        if result.returncode == 2 and "is already done" in result.stderr.lower():
+            # Idempotent retry path (issue #943): a prior tusk merge attempt got
+            # as far as marking the task Done but failed during worktree cleanup
+            # (e.g. untracked files blocked `git worktree remove`). Rerunning
+            # tusk merge sees task-done refuse with "is already Done" — treat
+            # that as success when the row genuinely is Done with
+            # closed_reason='completed', so the rest of the merge sequence
+            # (refresh, advisory, cleanup) can finish the work the prior attempt
+            # left behind. Mirrors the session-close "already closed" branch in
+            # the no-checkout fast-forward path. Closed_reason gating keeps the
+            # safety net intact for genuine state mismatches (wont_do, expired,
+            # duplicate): only completed retries unlock idempotent recovery.
+            try:
+                conn = get_connection(db_path)
+                try:
+                    row = conn.execute(
+                        "SELECT status, closed_reason FROM tasks WHERE id = ?",
+                        (task_id,),
+                    ).fetchone()
+                finally:
+                    conn.close()
+            except sqlite3.Error:
+                row = None
+            if row and row["status"] == "Done" and row["closed_reason"] == "completed":
+                print(
+                    f"Warning: Task {task_id} was already closed by a prior merge "
+                    "attempt — continuing with cleanup.",
+                    file=sys.stderr,
+                )
+                synthetic = {
+                    "task": {
+                        "id": task_id,
+                        "status": "Done",
+                        "closed_reason": "completed",
+                    },
+                    "sessions_closed": 1 if session_was_closed else 0,
+                    "unblocked_tasks": [],
+                    "idempotent_retry": True,
+                }
+                print(dumps(synthetic))
+                return 0
         print(f"Error: task-done failed:\n{result.stderr.strip()}", file=sys.stderr)
         return 2
 
