@@ -247,6 +247,33 @@ maybe_warn_source_repo_stale() {
 }
 maybe_warn_source_repo_stale
 
+# Warn when bin/tusk is invoked via PATH from a CWD whose own bin/tusk is a
+# different file — the SCRIPT_DIR-relative Python-helper dispatch then loads
+# the invoked checkout's tusk-*.py modules, silently ignoring the CWD's
+# edited copies. The CLI exits 0 with stale-but-plausible output, which
+# masquerades as a passing live check during worktree self-dogfood
+# (issue #941, original incident TASK-517 where 'tusk review validate-comments
+# 435' from a worktree returned JSON missing the worktree-edited key).
+#
+# Same gating as the sibling drift/staleness warnings: TTY-only by default,
+# silenced by TUSK_QUIET=1 or TUSK_NO_WORKTREE_BIN_ADVISORY=1, restorable in
+# non-TTY contexts by TUSK_FORCE_WARN=1.
+maybe_warn_path_resolved_tusk_overrides_cwd() {
+  [[ -n "${TUSK_NO_WORKTREE_BIN_ADVISORY:-}" ]] && return 0
+  [[ -n "${TUSK_QUIET:-}" ]] && return 0
+  [[ -z "${TUSK_FORCE_WARN:-}" && ! -t 2 ]] && return 0
+  [[ ! -f "$PWD/bin/tusk" ]] && return 0
+  local invoked_path cwd_path
+  invoked_path="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
+  cwd_path="$(cd -P "$PWD/bin" 2>/dev/null && pwd)/tusk" || return 0
+  [[ "$invoked_path" = "$cwd_path" ]] && return 0
+  {
+    echo "tusk: warning — invoked $invoked_path from cwd $PWD"
+    echo "  $cwd_path also exists — use ./bin/tusk to test worktree-local edits. (TUSK_NO_WORKTREE_BIN_ADVISORY=1 to silence)"
+  } >&2
+}
+maybe_warn_path_resolved_tusk_overrides_cwd
+
 # Default config: check sibling (installed) then parent dir (source repo)
 if [[ -f "$SCRIPT_DIR/config.default.json" ]]; then
   DEFAULT_CONFIG="$SCRIPT_DIR/config.default.json"
