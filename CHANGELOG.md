@@ -10,6 +10,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1037] - 2026-05-27
+
+- [TASK-521] Make _close_completed_task idempotent on retry when task is already Done
+
 ## [1036] - 2026-05-27
 
 - [TASK-520] Fix: tusk scope-hint drops extensionless scripts under known prefixes
