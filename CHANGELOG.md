@@ -10,6 +10,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1040] - 2026-05-28
+
+- [TASK-525] Fix: tusk merge must not delete a task worktree with an active rebase in progress
+
 ## [1039] - 2026-05-28
 
 - [TASK-524] Fix: tusk task-worktree create idempotent on task_id — reuse or refuse, never duplicate under a new slug
