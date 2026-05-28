@@ -10,6 +10,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1036] - 2026-05-27
+
+- [TASK-520] Fix: tusk scope-hint drops extensionless scripts under known prefixes
+
 ## [1035] - 2026-05-27
 
 - [TASK-519] Warn when PATH-resolved tusk masks worktree-local bin edits

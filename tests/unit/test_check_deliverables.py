@@ -116,6 +116,18 @@ class TestExtractPaths:
         paths = _extract_paths(text)
         assert "bin/tusk-foo.py" in paths
 
+    def test_extracts_extensionless_scripts_under_known_prefixes(self):
+        text = (
+            "Fix bin/tusk, hooks/git/pre-commit, and scripts/bootstrap "
+            "without touching bin/ or hooks/git/ as directories."
+        )
+        paths = _extract_paths(text)
+        assert "bin/tusk" in paths
+        assert "hooks/git/pre-commit" in paths
+        assert "scripts/bootstrap" in paths
+        assert "bin/" not in paths
+        assert "hooks/git/" not in paths
+
     def test_ignores_bare_directory(self):
         text = "Put it in skills/foo/ with no filename"
         paths = _extract_paths(text)

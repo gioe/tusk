@@ -222,6 +222,25 @@ def test_creates_suggestion_skips_plain_mention(db_path):
     assert payload["creates"] == [], payload
 
 
+def test_scope_hint_includes_extensionless_bin_tusk_reproducer(db_path):
+    """Issue #942: explicitly named extensionless scripts must not be dropped."""
+    result = _run([
+        "scope-hint",
+        "--description",
+        (
+            "Mitigation: bin/tusk emits a one-line stderr advisory when invoked. "
+            "PATH-resolved tusk loaded bin/tusk-review.py."
+        ),
+        "--task-type",
+        "bug",
+    ])
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+
+    assert "bin/tusk" in payload["scope"], payload
+    assert "bin/tusk-review.py" in payload["scope"], payload
+
+
 # ── scope-hint unbounded suggestion (criterion 2202) ────────────────────
 
 
