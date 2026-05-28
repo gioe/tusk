@@ -111,6 +111,20 @@ class TestExtractPaths:
         paths = _extract_paths(text)
         assert ".claude/skills/bar/SKILL.md" in paths
 
+    def test_extracts_dot_directory_path(self):
+        text = "Set BUNNYCDN_CDN_HOST in .github/workflows/web-ci.yml"
+        paths = _extract_paths(text)
+        assert ".github/workflows/web-ci.yml" in paths
+
+    def test_extracts_dot_directory_path_with_trailing_punctuation(self):
+        text = (
+            "Update '.github/workflows/web-ci.yml', then verify "
+            "`.github/workflows/e2e-visual.yml`."
+        )
+        paths = _extract_paths(text)
+        assert ".github/workflows/web-ci.yml" in paths
+        assert ".github/workflows/e2e-visual.yml" in paths
+
     def test_extracts_bin_path(self):
         text = "New script at bin/tusk-foo.py"
         paths = _extract_paths(text)

@@ -67,6 +67,10 @@ def _repo_with_tusk(tmp_path, monkeypatch):
     (repo / "MANIFEST").write_text("manifest\n", encoding="utf-8")
     (repo / ".claude").mkdir()
     (repo / ".claude" / "tusk-manifest.json").write_text("{}\n", encoding="utf-8")
+    (repo / ".github" / "workflows").mkdir(parents=True)
+    (repo / ".github" / "workflows" / "web-ci.yml").write_text(
+        "name: Web CI\n", encoding="utf-8"
+    )
     (repo / "bin").mkdir()
     (repo / "bin" / "some-script").write_text("#!/bin/sh\n", encoding="utf-8")
     (repo / "tests" / "integration").mkdir(parents=True)
@@ -180,6 +184,44 @@ def test_sparse_cone_set(tmp_path, monkeypatch):
     # Out-of-cone directories must NOT be materialized in the worktree.
     assert not os.path.exists(os.path.join(wt, "docs")), (
         "docs/ is out-of-cone and should not be materialized"
+    )
+
+
+def test_sparse_cone_includes_referenced_dot_directory_path(tmp_path, monkeypatch):
+    """A task that names .github/workflows/web-ci.yml gets that cone from
+    extraction, even when .github is not in sparse_always_cone."""
+    repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+    config_path = repo / "tusk" / "config.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["scope"]["sparse_always_cone"] = ["bin"]
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    task = _insert_task(
+        db_path,
+        "provide BUNNYCDN_CDN_HOST to .github/workflows/web-ci.yml",
+    )
+    workspace_root = tmp_path / "workspaces"
+
+    result = _run(
+        [
+            "task-worktree",
+            "create",
+            str(task),
+            "dotdir",
+            "--workspace-root",
+            str(workspace_root),
+        ],
+        cwd=repo,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+
+    cone = _sparse_cone(payload["workspace_path"])
+    assert cone is not None, "sparse-checkout should be enabled"
+    assert ".github/workflows" in set(cone)
+    assert os.path.isfile(
+        os.path.join(payload["workspace_path"], ".github", "workflows", "web-ci.yml")
     )
 
 

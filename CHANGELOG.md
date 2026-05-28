@@ -10,6 +10,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1038] - 2026-05-28
+
+- [TASK-522] Fix: derive scope for dot-directory paths like .github/workflows/*.yml
+
 ## [1037] - 2026-05-27
 
 - [TASK-521] Make _close_completed_task idempotent on retry when task is already Done

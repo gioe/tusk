@@ -384,6 +384,7 @@ _PATH_RE = re.compile(
     r'(?:^|[\s\'"`(,])('
     r'(?:'
     r'(?:\./|\.\./|\.claude/|\.claude\\|bin/|skills[-_]?internal/|skills/|tests?/|docs?/|src/'
+    r'|\.[A-Za-z0-9][\w._-]*/'
     r'|(?!\w+://)\w[\w._-]*/'  # any directory prefix that is not a URL protocol
     r')'
     r'[\w./_-]+'

@@ -295,6 +295,24 @@ class TestTaskInsertScopeFlags:
             "bin/new_file.py", "tests/integration/test_new.py",
         }, by_source
 
+    def test_task_insert_auto_derives_dot_directory_paths(self, db_path):
+        result = _run([
+            "task-insert",
+            "workflow env",
+            "provide BUNNYCDN_CDN_HOST to .github/workflows/web-ci.yml",
+            "--complexity", "S",
+            "--criteria", "workflow file is scoped",
+        ])
+        assert result.returncode == 0, f"task-insert failed: {result.stderr}"
+
+        payload = json.loads(result.stdout)
+        rows = _scope_rows(str(db_path), payload["task_id"])
+        assert any(
+            r["pattern"] == ".github/workflows/web-ci.yml"
+            and r["source"] == "auto_derived"
+            for r in rows
+        ), rows
+
     def test_task_insert_unbounded_flag(self, db_path):
         """--unbounded inserts a single source='unbounded' row."""
         unbounded_id = self._insert_with_scope_flags(
