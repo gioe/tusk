@@ -10,6 +10,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1039] - 2026-05-28
+
+- [TASK-524] Fix: tusk task-worktree create idempotent on task_id — reuse or refuse, never duplicate under a new slug
+
 ## [1038] - 2026-05-28
 
 - [TASK-522] Fix: derive scope for dot-directory paths like .github/workflows/*.yml
