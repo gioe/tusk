@@ -2023,6 +2023,38 @@ def _delete_remote_feature_branch_if_tracking(branch_name: str) -> None:
         )
 
 
+def _worktree_has_active_rebase(workspace_path: str) -> bool:
+    """Return True iff a rebase is in progress in ``workspace_path`` (issue #940).
+
+    A paused / in-progress rebase leaves a ``rebase-merge`` (interactive and
+    merge backends) or ``rebase-apply`` (am backend) directory in the
+    worktree's per-worktree git dir. For a linked worktree that dir lives under
+    ``<main>/.git/worktrees/<name>/``, NOT ``<workspace>/.git/rebase-*`` — so
+    resolve the state path via ``git -C <workspace> rev-parse --git-path``
+    rather than assuming the layout. Best-effort: any git failure (not a repo,
+    detached state) is treated as "no rebase" so detection never blocks a
+    legitimate removal.
+    """
+    if not os.path.isdir(workspace_path):
+        return False
+    for state in ("rebase-merge", "rebase-apply"):
+        result = run(
+            ["git", "-C", workspace_path, "rev-parse", "--git-path", state],
+            check=False,
+        )
+        if result.returncode != 0:
+            continue
+        rel = result.stdout.strip()
+        if not rel:
+            continue
+        # `git -C <dir>` runs from <dir>, so a relative --git-path is relative
+        # to the worktree; absolute paths are returned verbatim by some gits.
+        path = rel if os.path.isabs(rel) else os.path.join(workspace_path, rel)
+        if os.path.exists(path):
+            return True
+    return False
+
+
 def _remove_recorded_task_worktree(
     db_path: str,
     task_id: int,
@@ -2053,6 +2085,24 @@ def _remove_recorded_task_worktree(
 
     workspace_path = workspace["workspace_path"]
     if os.path.exists(workspace_path):
+        # Refuse to remove a worktree with a rebase in progress (issue #940).
+        # A parallel session finalizing the same task would otherwise delete
+        # the worktree out from under an operator who is mid-rebase resolving
+        # a conflict, destroying the in-progress resolution. Detect it before
+        # touching anything so the worktree (and that work) survives.
+        if _worktree_has_active_rebase(workspace_path):
+            print(
+                f"Error: refusing to remove task worktree {workspace_path} — a "
+                f"rebase is in progress there. Another session may be mid-rebase "
+                f"finalizing TASK-{task_id}; removing the worktree now would "
+                f"destroy the in-progress conflict resolution.\n"
+                f"  Resolve or abort that rebase first:\n"
+                f"    cd {workspace_path} && git rebase --continue   # or --abort\n"
+                f"  then re-run:\n"
+                f"  {retry_command}",
+                file=sys.stderr,
+            )
+            return False
         # Pre-clean tusk-created auto-symlinks (.venv, node_modules, .env,
         # .env.local, and anything else in worktree.symlink_files) so
         # `git worktree remove` doesn't refuse the worktree as dirty when
