@@ -701,6 +701,26 @@ def _workspace_payload(row: sqlite3.Row, *, created: bool) -> dict:
     }
 
 
+def _select_existing_workspace(
+    repo_root: str, rows: list[sqlite3.Row]
+) -> sqlite3.Row:
+    """Pick the single workspace row to reuse for a task (issue #947).
+
+    A task owns at most one workspace, but a DB created before the idempotency
+    fix may already hold duplicates. Choose deterministically: prefer a row
+    whose path exists on disk (healthy reuse), else one whose branch still
+    resolves in git (stale-recover via re-attach), else the lowest-id row
+    (which then hits the fully-stale refusal path).
+    """
+    for row in rows:
+        if os.path.isdir(row["workspace_path"]):
+            return row
+    for row in rows:
+        if _branch_exists(repo_root, row["branch"]):
+            return row
+    return rows[0]
+
+
 def cmd_create(
     db_path: str, config_path: str, repo_root: str, argv: list[str]
 ) -> int:
@@ -797,15 +817,31 @@ def cmd_create(
         if not os.environ.get("TUSK_NO_AUTO_PRUNE"):
             _auto_prune_stale_workspaces(conn, repo_root, task_id)
 
-        existing = conn.execute(
+        # Idempotent on task_id (issue #947): a task owns at most one
+        # workspace. Match on task_id alone — NOT on the slug-derived branch —
+        # so a resuming agent that picks a different brief-description slug
+        # reuses the existing workspace instead of silently provisioning a
+        # second worktree + branch. The earlier `WHERE task_id = ? AND branch
+        # = ?` form missed whenever the slug differed and fell through to the
+        # create path, duplicating the workspace.
+        existing_rows = conn.execute(
             """
             SELECT id, task_id, branch, workspace_path
             FROM task_workspaces
-            WHERE task_id = ? AND branch = ?
+            WHERE task_id = ?
+            ORDER BY id
             """,
-            (task_id, branch),
-        ).fetchone()
-        if existing:
+            (task_id,),
+        ).fetchall()
+        if existing_rows:
+            existing = _select_existing_workspace(repo_root, existing_rows)
+            if existing["branch"] != branch:
+                print(
+                    f"Note: TASK-{task_id} already has a recorded workspace on "
+                    f"branch '{existing['branch']}'; reusing it and ignoring the "
+                    f"requested slug '{slug}'.",
+                    file=sys.stderr,
+                )
             # Healthy state: registry row + workspace_path present on disk.
             if os.path.isdir(existing["workspace_path"]):
                 print(dumps(_workspace_payload(existing, created=False)))
