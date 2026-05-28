@@ -370,6 +370,75 @@ class TestTaskWorktreeCreate:
         assert os.path.exists(os.path.join(payload["workspace_path"], "remote-only.txt"))
 
 
+class TestTaskWorktreeCreateIdempotentOnTaskId:
+    """Issue #947 — task-worktree create must be idempotent on task_id. When a
+    task already has a recorded workspace, a second create under a DIFFERENT
+    slug must reuse the existing workspace (created:false), not provision a
+    second worktree + branch. The lookup keyed on (task_id, branch) silently
+    duplicated whenever the resuming agent picked a new slug.
+    """
+
+    def test_different_slug_reuses_existing_workspace(self, tmp_path, monkeypatch):
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+
+        first = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "slug-a",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+        assert first.returncode == 0, first.stderr
+        first_payload = json.loads(first.stdout)
+        assert first_payload["created"] is True
+
+        # Second create under a DIFFERENT slug — must NOT create a second one.
+        second = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "slug-b-different",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+        assert second.returncode == 0, second.stderr
+        second_payload = json.loads(second.stdout)
+        # Reused the existing workspace rather than provisioning a new one.
+        assert second_payload["created"] is False
+        assert second_payload["workspace_id"] == first_payload["workspace_id"]
+        assert second_payload["workspace_path"] == first_payload["workspace_path"]
+        assert second_payload["branch"] == first_payload["branch"]
+        # The requested-but-ignored slug is surfaced on stderr.
+        assert "slug-b-different" in second.stderr
+
+        # Exactly one registry row for the task — no duplicate workspace.
+        with sqlite3.connect(db_path) as conn:
+            rows = conn.execute(
+                "SELECT id FROM task_workspaces WHERE task_id = ?",
+                (task_id,),
+            ).fetchall()
+        assert [row[0] for row in rows] == [first_payload["workspace_id"]]
+
+        # Exactly one task row in the live list view too.
+        listed = _run(["task-worktree", "list"], cwd=repo, env=env)
+        assert listed.returncode == 0, listed.stderr
+        task_rows = [
+            r for r in json.loads(listed.stdout) if r["task_id"] == task_id
+        ]
+        assert len(task_rows) == 1
+
+
 class TestTaskWorktreeCloseout:
     def test_merge_prefers_recorded_task_workspace_branch(self, tmp_path, monkeypatch):
         repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
