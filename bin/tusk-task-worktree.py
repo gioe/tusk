@@ -130,6 +130,19 @@ def _run_git(repo_root: str, args: list[str]) -> subprocess.CompletedProcess:
     )
 
 
+def _rev_count(repo_root: str, rev_range: str) -> int | None:
+    """Return the commit count for ``git rev-list --count <rev_range>``.
+
+    Returns ``None`` when the command fails or emits non-numeric output so
+    callers can treat an unresolvable range as "unknown" rather than zero.
+    """
+    result = _run_git(repo_root, ["rev-list", "--count", rev_range])
+    if result.returncode != 0:
+        return None
+    text = result.stdout.strip()
+    return int(text) if text.isdigit() else None
+
+
 def _detect_default_branch(repo_root: str) -> str:
     set_head = _run_git(repo_root, ["remote", "set-head", "origin", "--auto"])
     if set_head.returncode == 0:
@@ -461,21 +474,37 @@ def _maybe_advise_stale_primary(primary_root: str) -> None:
     # Best-effort fetch; silently swallow failures (offline, auth, etc.).
     _run_git(primary_root, ["fetch", "origin", default_branch])
 
-    count_result = _run_git(
-        primary_root,
-        ["rev-list", "--count", f"HEAD..origin/{default_branch}"],
-    )
-    if count_result.returncode != 0:
+    # Compute behind AND ahead so a divergence (local commits unpushed AND
+    # origin advanced) is reported as such instead of being mislabeled as a
+    # simple "behind" — the issue #949 fix. The behind side drives the
+    # stale-binary hazard, so an ahead-only primary stays silent (it has newer
+    # binaries, not stale ones, and the merge-time guard handles any unpushed
+    # commit it might otherwise strand).
+    behind = _rev_count(primary_root, f"HEAD..origin/{default_branch}")
+    if behind is None or behind <= 0:
         return
-    count_text = count_result.stdout.strip()
-    if not count_text.isdigit():
-        return
-    count = int(count_text)
-    if count <= 0:
+    ahead = _rev_count(primary_root, f"origin/{default_branch}..HEAD")
+
+    if ahead and ahead > 0:
+        # Diverged: "tusk sync-main" cannot recover this (its git merge
+        # --ff-only step refuses a non-fast-forward), so recommend a rebase
+        # pull instead.
+        print(
+            f"tusk: primary checkout has diverged from origin/{default_branch} "
+            f"({ahead} commit(s) ahead, {behind} behind); PATH-resolved tusk "
+            f"invocations from this worktree will run stale binaries against "
+            f"the worktree CWD and may corrupt MANIFEST under sparse-checkout. "
+            f'"tusk sync-main" cannot recover a diverged branch (its '
+            f"git merge --ff-only step refuses the non-fast-forward). Run "
+            f'"git pull --rebase origin {default_branch}" in {primary_root} to '
+            f'reconcile (then "git push"), before invoking "tusk" from any '
+            "subshell here.",
+            file=sys.stderr,
+        )
         return
 
     print(
-        f"tusk: primary checkout is {count} commit(s) behind "
+        f"tusk: primary checkout is {behind} commit(s) behind "
         f"origin/{default_branch}; PATH-resolved tusk invocations from "
         f"this worktree will run stale binaries against the worktree CWD "
         f'and may corrupt MANIFEST under sparse-checkout. Run "tusk '

@@ -82,6 +82,51 @@ def _seed_repo_with_origin(tmp_path, *, advance_origin: bool):
     return primary
 
 
+def _seed_repo_diverged(tmp_path):
+    """Build primary + origin where primary is 1 ahead AND 1 behind origin.
+
+    origin advances 1 commit through a second clone, then primary makes its own
+    unpushed local commit — leaving the two branches diverged (issue #949).
+    """
+    origin = tmp_path / "origin.git"
+    subprocess.run(
+        ["git", "init", "-b", "main", "--bare", str(origin)],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+    primary = tmp_path / "primary"
+    primary.mkdir()
+    _git(["init", "-b", "main"], cwd=primary)
+    _git(["config", "user.email", "tusk@example.test"], cwd=primary)
+    _git(["config", "user.name", "Tusk Tests"], cwd=primary)
+    _git(["remote", "add", "origin", str(origin)], cwd=primary)
+    (primary / "README.md").write_text("x\n", encoding="utf-8")
+    _git(["add", "."], cwd=primary)
+    _git(["commit", "-m", "initial"], cwd=primary)
+    _git(["push", "-u", "origin", "main"], cwd=primary)
+    _git(["remote", "set-head", "origin", "main"], cwd=primary)
+
+    # origin advances by 1 commit via a second clone.
+    advancer = tmp_path / "advancer"
+    _git(["clone", str(origin), str(advancer)], cwd=tmp_path)
+    _git(["config", "user.email", "tusk@example.test"], cwd=advancer)
+    _git(["config", "user.name", "Tusk Tests"], cwd=advancer)
+    (advancer / "advance.txt").write_text("y\n", encoding="utf-8")
+    _git(["add", "."], cwd=advancer)
+    _git(["commit", "-m", "advance origin"], cwd=advancer)
+    _git(["push", "origin", "main"], cwd=advancer)
+
+    # primary makes its own unpushed local commit — now 1 ahead + 1 behind.
+    (primary / "local.txt").write_text("z\n", encoding="utf-8")
+    _git(["add", "."], cwd=primary)
+    _git(["commit", "-m", "unpushed local commit"], cwd=primary)
+
+    return primary
+
+
 def _init_tusk(primary, monkeypatch):
     db_path = primary / "tusk" / "tasks.db"
     env = os.environ.copy()
@@ -217,4 +262,76 @@ def test_no_origin_remote_silent(tmp_path, monkeypatch):
     assert "behind origin" not in result.stderr.lower(), (
         f"no advisory should fire when origin remote is absent; got: "
         f"{result.stderr}"
+    )
+
+
+def test_diverged_primary_reports_ahead_behind_and_recommends_pull_rebase(
+    tmp_path, monkeypatch
+):
+    """When primary is BOTH ahead and behind origin/main (diverged), the
+    advisory must report explicit ahead/behind counts, label the state as
+    diverged rather than simply behind, and recommend ``git pull --rebase``
+    instead of ``tusk sync-main`` (whose ff-only step cannot reconcile a
+    divergence). This is the issue #949 Fix 2 acceptance test.
+    """
+    primary = _seed_repo_diverged(tmp_path)
+    db_path, env = _init_tusk(primary, monkeypatch)
+    task_id = _insert_task(db_path)
+
+    workspace_root = tmp_path / "workspaces"
+    result = _run(
+        [
+            "task-worktree", "create",
+            str(task_id), "diverged-test",
+            "--workspace-root", str(workspace_root),
+        ],
+        cwd=primary,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    stderr = result.stderr
+    # Labeled as a divergence, not a plain "behind".
+    assert "diverged" in stderr.lower(), (
+        f"diverged primary must be labeled as diverged; got: {stderr}"
+    )
+    # Explicit ahead AND behind counts (1 each in this fixture).
+    assert "1 commit(s) ahead" in stderr, f"missing ahead count; got: {stderr}"
+    assert "1 behind" in stderr, f"missing behind count; got: {stderr}"
+    # Recommends the rebase pull, which is what actually reconciles divergence.
+    assert "git pull --rebase origin main" in stderr, (
+        f"diverged advisory must recommend git pull --rebase; got: {stderr}"
+    )
+
+
+def test_diverged_primary_does_not_recommend_sync_main_as_the_fix(
+    tmp_path, monkeypatch
+):
+    """The diverged advisory may *mention* sync-main to explain why it won't
+    work, but the actionable recovery must be ``git pull --rebase`` — never a
+    bare ``Run "tusk sync-main"`` instruction like the pure-behind path emits.
+    """
+    primary = _seed_repo_diverged(tmp_path)
+    db_path, env = _init_tusk(primary, monkeypatch)
+    task_id = _insert_task(db_path)
+
+    workspace_root = tmp_path / "workspaces"
+    result = _run(
+        [
+            "task-worktree", "create",
+            str(task_id), "diverged-norecommend-test",
+            "--workspace-root", str(workspace_root),
+        ],
+        cwd=primary,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    stderr = result.stderr
+    # The pure-behind path's literal recommendation must not appear here.
+    assert 'Run "tusk sync-main" in' not in stderr, (
+        f"diverged advisory must not recommend running sync-main as the fix; "
+        f"got: {stderr}"
+    )
+    assert "cannot recover a diverged branch" in stderr, (
+        f"diverged advisory should explain why sync-main is wrong here; "
+        f"got: {stderr}"
     )
