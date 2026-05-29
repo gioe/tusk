@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1048] - 2026-05-29
+
+- [TASK-532] Fix: task-start deliverable_check_needed misses orphaned tasks with shipped commits but no criteria done
+
 ## [1047] - 2026-05-29
 
 - [TASK-530] Fix VERSION/CHANGELOG rebase-conflict resolver: CHANGELOG-only firing + corruption
