@@ -20,6 +20,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tusk_loader
@@ -1498,8 +1499,27 @@ def main():
         print("=== Lint Conventions Report ===")
         print()
 
+    # Per-rule timing breadcrumb (issue #952). `tusk commit` runs `tusk lint`
+    # as a subprocess with a hard timeout; on TimeoutExpired the subprocess is
+    # killed and its stdout is lost, so the abort message can't name the slow
+    # rule. When TUSK_LINT_TRACE_FILE is set, overwrite it with the name of the
+    # rule about to run *before* running it — sequential execution means the
+    # file always holds the in-flight rule, so after a SIGKILL the commit side
+    # reads it to name the rule that was running when the timeout fired.
+    trace_file = os.environ.get("TUSK_LINT_TRACE_FILE")
+
     for name, check_fn, advisory in RULES:
+        if trace_file:
+            try:
+                with open(trace_file, "w", encoding="utf-8") as _tf:
+                    _tf.write(name + "\n")
+                    _tf.flush()
+                    os.fsync(_tf.fileno())
+            except OSError:
+                pass
+        _t0 = time.perf_counter()
         violations = check_fn(root)
+        _elapsed = time.perf_counter() - _t0
         if violations:
             if not advisory:
                 total_violations += len(violations)
@@ -1508,13 +1528,19 @@ def main():
                 total_advisory_violations += len(violations)
             label = "WARN [ADVISORY]" if advisory else "WARN"
             print(name)
-            print(f"  {label} — {len(violations)} violation{'s' if len(violations) != 1 else ''}")
+            if verbose:
+                print(
+                    f"  {label} — {len(violations)} violation{'s' if len(violations) != 1 else ''} "
+                    f"({_elapsed * 1000:.0f}ms)"
+                )
+            else:
+                print(f"  {label} — {len(violations)} violation{'s' if len(violations) != 1 else ''}")
             for v in violations:
                 print(v)
             print()
         elif verbose:
             print(name)
-            print("  PASS — no violations")
+            print(f"  PASS — no violations ({_elapsed * 1000:.0f}ms)")
             print()
 
     if total_violations:

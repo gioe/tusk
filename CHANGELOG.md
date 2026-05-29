@@ -30,6 +30,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1046] - 2026-05-29
+
+- [TASK-529] Name the slow lint rule in the tusk lint timeout abort message
+
 ## [1044] - 2026-05-28
 
 - [TASK-528] Fix: silent-exit guard masks retryable scope and skill-run failures (add busy_timeout)

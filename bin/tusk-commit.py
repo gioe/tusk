@@ -65,6 +65,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -534,6 +535,58 @@ def load_lint_timeout(config_path: str) -> tuple[int, str]:
     except (OSError, ValueError, json.JSONDecodeError):
         pass
     return DEFAULT_LINT_TIMEOUT_SEC, "default"
+
+
+def _make_lint_trace_env():
+    """Create a per-rule breadcrumb file and the env that points `tusk lint` at
+    it (issue #952).
+
+    Returns ``(trace_path, env)``. ``tusk lint`` overwrites ``trace_path`` with
+    the name of each rule just before running it, so after the lint subprocess
+    is killed on timeout, ``_read_inflight_lint_rule`` can name the rule that
+    was executing. On any failure to create the file, ``trace_path`` is None and
+    env is the unmodified environment (the feature degrades to the old generic
+    message rather than aborting the commit).
+    """
+    try:
+        fd, trace_path = tempfile.mkstemp(prefix="tusk-lint-trace.")
+        os.close(fd)
+    except OSError:
+        return None, os.environ.copy()
+    env = os.environ.copy()
+    env["TUSK_LINT_TRACE_FILE"] = trace_path
+    return trace_path, env
+
+
+def _read_inflight_lint_rule(trace_path):
+    """Return the rule name recorded in the breadcrumb (the rule running when
+    the lint subprocess was killed), or None when unavailable."""
+    if not trace_path:
+        return None
+    try:
+        with open(trace_path, encoding="utf-8") as f:
+            name = f.read().strip()
+        return name or None
+    except OSError:
+        return None
+
+
+def _lint_timeout_hung_rule_line(trace_path):
+    """Format the abort-message line that names the slow lint rule when known,
+    falling back to the original generic wording otherwise (issue #952)."""
+    rule = _read_inflight_lint_rule(trace_path)
+    if rule:
+        return f"  Slowest rule (running when the timeout fired): {rule}.\n"
+    return "  A lint rule appears to be hung.\n"
+
+
+def _cleanup_lint_trace(trace_path):
+    if not trace_path:
+        return
+    try:
+        os.remove(trace_path)
+    except OSError:
+        pass
 
 
 def is_linked_worktree(repo_root: str) -> bool:
@@ -1255,12 +1308,14 @@ def _run_commit(argv: list[str], state: dict) -> int:
         # `--task <task_id>` narrows Rule 6 (Done with incomplete acceptance
         # criteria) to the current task so unrelated historical state cannot
         # block this commit (Issue #568). All other rules ignore the flag.
+        lint_trace_path, lint_env = _make_lint_trace_env()
         try:
             lint = subprocess.run(
                 [tusk_bin, "lint", "--quiet", "--task", str(task_id)],
                 capture_output=True,
                 text=True, encoding="utf-8",
                 timeout=lint_timeout_sec,
+                env=lint_env,
             )
         except subprocess.TimeoutExpired:
             source_hint = {
@@ -1274,11 +1329,13 @@ def _run_commit(argv: list[str], state: dict) -> int:
             _print_error(
                 f"\nError: tusk lint timed out after {lint_timeout_sec}s "
                 f"({source_hint}) — aborting commit.\n"
-                "  A lint rule appears to be hung. Bypass with --skip-lint "
-                "(lint only) or --skip-verify (lint, tests, and pre-commit hooks), "
-                "or raise the timeout."
+                f"{_lint_timeout_hung_rule_line(lint_trace_path)}"
+                "  Bypass with --skip-lint (lint only) or --skip-verify "
+                "(lint, tests, and pre-commit hooks), or raise the timeout."
             )
             return 8
+        finally:
+            _cleanup_lint_trace(lint_trace_path)
         if lint.returncode != 0:
             # Issue #674: when the only blocking violations are MANIFEST drift
             # (Rules 18/19), the fix is the canonical idempotent
@@ -1325,12 +1382,14 @@ def _run_commit(argv: list[str], state: dict) -> int:
                     if regen.stdout:
                         sys.stdout.write(regen.stdout)
                         sys.stdout.flush()
+                    retry_trace_path, retry_env = _make_lint_trace_env()
                     try:
                         lint = subprocess.run(
                             [tusk_bin, "lint", "--quiet", "--task", str(task_id)],
                             capture_output=True,
                             text=True, encoding="utf-8",
                             timeout=lint_timeout_sec,
+                            env=retry_env,
                         )
                     except subprocess.TimeoutExpired:
                         source_hint = {
@@ -1345,10 +1404,13 @@ def _run_commit(argv: list[str], state: dict) -> int:
                             f"\nError: tusk lint timed out after "
                             f"{lint_timeout_sec}s ({source_hint}) on the "
                             "MANIFEST-recovery retry — aborting commit.\n"
+                            f"{_lint_timeout_hung_rule_line(retry_trace_path)}"
                             "  Bypass with --skip-lint or --skip-verify, or "
                             "raise the timeout."
                         )
                         return 8
+                    finally:
+                        _cleanup_lint_trace(retry_trace_path)
                     if lint.returncode == 0:
                         for rel in ("MANIFEST", ".claude/tusk-manifest.json"):
                             abs_path = os.path.join(repo_root, rel)
