@@ -20,6 +20,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1043] - 2026-05-28
+
+- [TASK-527] Fix: merge should reconcile duplicate recorded task workspaces after finalization
+
 ## [1040] - 2026-05-28
 
 - [TASK-525] Fix: tusk merge must not delete a task worktree with an active rebase in progress

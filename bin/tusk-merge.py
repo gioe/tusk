@@ -1811,12 +1811,21 @@ def _complete_no_checkout_fast_forward(
             return 3
         return rc
     cleanup_ok = _cleanup_no_checkout_workspace(db_path, task_id, branch_name)
+    # Reconcile any *sibling* task_workspaces rows the single-row cleanup
+    # above could not see (issue #945): a task that ran `task-worktree create`
+    # more than once strands the un-selected rows after finalization. Safe
+    # siblings are removed; siblings holding unmerged work are surfaced with
+    # a remediation command rather than auto-deleted.
+    siblings_ok = _reconcile_duplicate_task_workspaces(
+        db_path, task_id, branch_name, default_branch
+    )
     # Distinguish "fully succeeded" from "succeeded but cleanup needs manual
     # attention" so automation can detect a leftover worktree / branch
     # without grepping stderr (TASK-504). Only promotes the partial-cleanup
     # case — if rc is already non-zero (task-done failed, etc.), preserve
-    # that more severe signal.
-    if rc == 0 and not cleanup_ok:
+    # that more severe signal. A leftover unreconciled sibling (#945) folds
+    # into the same exit-3 partial-cleanup signal.
+    if rc == 0 and not (cleanup_ok and siblings_ok):
         return 3
     return rc
 
@@ -1993,6 +2002,142 @@ def _forget_task_workspace(db_path: str, workspace_id: int) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def _all_task_workspaces(db_path: str, task_id: int) -> list[sqlite3.Row]:
+    """Return every recorded task_workspaces row for ``task_id`` (oldest first).
+
+    Companion to ``_recorded_task_workspace`` (which returns only the latest
+    row); the reconciliation pass below needs the full set so duplicate
+    sibling rows don't get stranded after finalization (issue #945).
+    """
+    conn = get_connection(db_path)
+    try:
+        return conn.execute(
+            "SELECT id, branch, workspace_path FROM task_workspaces "
+            "WHERE task_id = ? ORDER BY id",
+            (task_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+
+def _reconcile_duplicate_task_workspaces(
+    db_path: str, task_id: int, merged_branch: str, default_branch: str
+) -> bool:
+    """Reconcile sibling task_workspaces rows after the chosen workspace was
+    cleaned on the merge success path (issue #945).
+
+    ``_recorded_task_workspace`` / ``_cleanup_no_checkout_workspace`` operate
+    on a single workspace (``ORDER BY id DESC LIMIT 1``), so a task that
+    accumulated more than one ``task_workspaces`` row — e.g. two
+    ``task-worktree create`` calls with different slugs — strands the
+    un-selected sibling rows after finalization and the merge exits 3 with
+    duplicate recorded workspaces still present.
+
+    For each sibling row (same task, ``branch != merged_branch``):
+      * ``workspace_path`` missing on disk -> forget the stale registry row
+        (and delete its branch when fully merged into ``origin/<default>``;
+        a lingering unmerged branch is surfaced, not deleted).
+      * worktree present, branch fully contained in ``origin/<default>``,
+        tree clean -> ``git worktree remove`` + ``git branch -D`` + forget row.
+      * worktree present with unmerged commits or a dirty tree -> left
+        intact; a targeted remediation command is printed.
+
+    Returns ``True`` when no sibling remains unreconciled (or there were
+    none), ``False`` otherwise. The no-checkout caller folds a ``False``
+    return into the partial-cleanup (exit 3) signal so automation still
+    detects leftover state.
+    """
+    siblings = [
+        row
+        for row in _all_task_workspaces(db_path, task_id)
+        if row["branch"] != merged_branch
+    ]
+    if not siblings:
+        return True
+
+    # `git worktree remove` refuses to remove the worktree git is currently
+    # operating in. The no-checkout cleanup already chdir'd to repo root; do
+    # it defensively here too in case that early-returned before chdir.
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+    try:
+        os.chdir(repo_root)
+    except OSError:
+        pass
+
+    all_reconciled = True
+    for row in siblings:
+        branch = row["branch"]
+        workspace_path = row["workspace_path"]
+        branch_present = bool(branch) and _branch_exists(branch)
+        # "Merged" = no commits the destination ref does not already contain.
+        # A missing/empty branch is trivially merged (nothing to lose).
+        merged = (not branch_present) or _origin_already_contains(
+            branch, default_branch
+        )
+
+        if not os.path.exists(workspace_path):
+            # Stale registry row — the worktree directory is already gone.
+            _forget_task_workspace(db_path, row["id"])
+            if branch_present and merged:
+                run(["git", "branch", "-D", branch], check=False)
+                print(
+                    f"Note: reconciled stale sibling workspace for TASK-{task_id}: "
+                    f"forgot registry row and deleted merged branch {branch} "
+                    f"(worktree {workspace_path} was already gone).",
+                    file=sys.stderr,
+                )
+            elif branch_present:
+                print(
+                    f"Note: forgot stale sibling workspace registry row for "
+                    f"TASK-{task_id} (worktree {workspace_path} gone), but branch "
+                    f"{branch} still has commits not on origin/{default_branch} — "
+                    f"left intact. Delete it once handled: git branch -D {branch}.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"Note: forgot stale sibling workspace registry row for "
+                    f"TASK-{task_id} (worktree {workspace_path} no longer exists).",
+                    file=sys.stderr,
+                )
+            continue
+
+        # Worktree directory exists.
+        if branch_present and not merged:
+            # Unmerged work — never auto-delete. Surface targeted remediation.
+            all_reconciled = False
+            print(
+                f"Warning: sibling task worktree {workspace_path} (branch {branch}) "
+                f"for TASK-{task_id} has commits not on origin/{default_branch}; "
+                f"leaving it intact to avoid losing work. Reconcile manually:\n"
+                f"  cd {workspace_path} && git log origin/{default_branch}..{branch}\n"
+                f"  # then, once handled:\n"
+                f"  git worktree remove {workspace_path} && git branch -D {branch}",
+                file=sys.stderr,
+            )
+            continue
+
+        # Branch is merged / empty — safe to remove the worktree. The helper
+        # pre-cleans tusk auto-symlinks and lets `git worktree remove` (no
+        # --force) refuse a genuinely dirty tree, returning False.
+        if _remove_recorded_task_worktree(
+            db_path, task_id, branch, workspace=row
+        ):
+            if branch_present:
+                run(["git", "branch", "-D", branch], check=False)
+            print(
+                f"Note: reconciled duplicate sibling workspace for TASK-{task_id}: "
+                f"removed worktree {workspace_path}"
+                + (f" and branch {branch}." if branch_present else "."),
+                file=sys.stderr,
+            )
+        else:
+            # _remove_recorded_task_worktree already printed the failure detail
+            # (dirty tree, active rebase, branch mismatch, etc.).
+            all_reconciled = False
+    return all_reconciled
 
 
 def _branch_exists(branch_name: str) -> bool:
