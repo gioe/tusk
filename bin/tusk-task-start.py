@@ -400,7 +400,14 @@ def main(argv: list[str]) -> int:
         progress_list = [{key: row[key] for key in row.keys()} for row in progress_rows]
         criteria_list = [{key: row[key] for key in row.keys()} for row in criteria_rows]
 
-        # Warn if task references unfinished prerequisite tasks
+        # Warn if task references unfinished prerequisite tasks.
+        # The text scan picks up any TASK-N mention in this task's own
+        # description/summary, but a mention does not imply direction: the
+        # referenced task may be a downstream dependent (it depends_on THIS
+        # task), in which case THIS task is the prerequisite and warning about
+        # it is backwards (issue #956). Consult task_dependencies and drop any
+        # referenced task that depends_on the current task via 'blocks' so only
+        # genuine prerequisites (or un-formalized text references) are warned.
         text = (task["description"] or "") + " " + (task["summary"] or "")
         referenced_ids = list({
             int(m.group(1))
@@ -410,8 +417,13 @@ def main(argv: list[str]) -> int:
         if referenced_ids:
             placeholders = ",".join("?" * len(referenced_ids))
             warn_rows = conn.execute(
-                f"SELECT id, summary FROM tasks WHERE id IN ({placeholders}) AND status = 'To Do'",
-                referenced_ids,
+                f"SELECT id, summary FROM tasks "
+                f"WHERE id IN ({placeholders}) AND status = 'To Do' "
+                f"AND id NOT IN ("
+                f"  SELECT d.task_id FROM task_dependencies d "
+                f"  WHERE d.depends_on_id = ? AND d.relationship_type = 'blocks'"
+                f")",
+                referenced_ids + [task_id],
             ).fetchall()
             if warn_rows:
                 print("Warning: selected task references unfinished prerequisite tasks:", file=sys.stderr)

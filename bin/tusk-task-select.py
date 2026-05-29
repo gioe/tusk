@@ -76,6 +76,12 @@ def main(argv: list[str]) -> int:
 
         warn_rows: list = []
         if row is not None:
+            # A TASK-N mention in the selected task's own text does not imply
+            # direction: the referenced task may be a downstream dependent (it
+            # depends_on THIS task), making THIS task the prerequisite — warning
+            # about it is backwards (issue #956). Drop any referenced task that
+            # depends_on the current task via 'blocks' so only genuine
+            # prerequisites (or un-formalized text references) are warned.
             text = (row["description"] or "") + " " + (row["summary"] or "")
             referenced_ids = list({
                 int(m.group(1))
@@ -85,8 +91,13 @@ def main(argv: list[str]) -> int:
             if referenced_ids:
                 placeholders = ",".join("?" * len(referenced_ids))
                 warn_rows = conn.execute(
-                    f"SELECT id, summary FROM tasks WHERE id IN ({placeholders}) AND status = 'To Do'",
-                    referenced_ids,
+                    f"SELECT id, summary FROM tasks "
+                    f"WHERE id IN ({placeholders}) AND status = 'To Do' "
+                    f"AND id NOT IN ("
+                    f"  SELECT d.task_id FROM task_dependencies d "
+                    f"  WHERE d.depends_on_id = ? AND d.relationship_type = 'blocks'"
+                    f")",
+                    referenced_ids + [row["id"]],
                 ).fetchall()
     finally:
         conn.close()
