@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1049] - 2026-05-29
+
+- [TASK-533] Fix: tusk task-start prerequisite warning ignores dependency direction
+
 ## [1048] - 2026-05-29
 
 - [TASK-532] Fix: task-start deliverable_check_needed misses orphaned tasks with shipped commits but no criteria done
