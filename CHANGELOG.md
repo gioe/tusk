@@ -1,27 +1,3 @@
-## [1045] - 2026-05-27
-
-- [TASK-507] Fix: align raw-SQL CLI schema-version guard with subcommand behavior
-
-# Changelog
-
-All notable changes to tusk are documented in this file.
-
-Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for integer versioning.
-
-## [1042] - 2026-05-27
-
-- [TASK-507] Fix: align raw-SQL CLI schema-version guard with subcommand behavior
-
-# Changelog
-
-All notable changes to tusk are documented in this file.
-
-Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for integer versioning.
-
-## [1028] - 2026-05-27
-
-- [TASK-507] Fix: align raw-SQL CLI schema-version guard with subcommand behavior
-
 # Changelog
 
 All notable changes to tusk are documented in this file.
@@ -41,6 +17,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 ## [1043] - 2026-05-28
 
 - [TASK-527] Fix: merge should reconcile duplicate recorded task workspaces after finalization
+
+## [1042] - 2026-05-28
+
+- [TASK-523] Fix: guard no-checkout merge against stranding unpushed local-default commits (issue #949)
+
+## [1041] - 2026-05-29
+
+- [TASK-526] Fix: skip test_command gate when all staged files are non-code (issue #950)
 
 ## [1040] - 2026-05-28
 
@@ -89,6 +73,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 ## [1029] - 2026-05-27
 
 - [TASK-513] Fix: preserve worktree for recovery when no-checkout merge auto-sync-main fails
+
+## [1028] - 2026-05-27
+
+- [TASK-507] Fix: align raw-SQL CLI schema-version guard with subcommand behavior
 
 ## [1027] - 2026-05-27
 
