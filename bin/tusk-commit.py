@@ -796,6 +796,30 @@ def _resolve_non_code_allowlist(config_path: str) -> set[str]:
     return {v.replace(os.sep, "/") for v in vals}
 
 
+def _pending_commit_paths(repo_root: str, resolved_files) -> list[str]:
+    """Return the repo-root-relative paths this commit will actually contain.
+
+    ``tusk commit`` finalizes with a path-less ``git commit``, so the commit
+    captures more than the explicitly-resolved files: any already-staged index
+    changes (modifications, additions, ``git rm`` deletions) plus the unstaged
+    deletions of tracked files that Step 2.5 auto-sweeps in. The non-code
+    test-gate skip must reason over this full set so a pre-staged or
+    ``rm``-deleted code file never bypasses the gate (issue #950).
+    """
+    paths = {
+        os.path.relpath(f, repo_root) if os.path.isabs(f) else f
+        for f in resolved_files
+    }
+    for git_args in (
+        ["git", "diff", "--cached", "--name-only", "-z"],
+        ["git", "ls-files", "--deleted", "-z"],
+    ):
+        res = run(git_args, check=False, cwd=repo_root)
+        if res.returncode == 0 and res.stdout:
+            paths.update(p for p in res.stdout.split("\0") if p)
+    return list(paths)
+
+
 def _all_staged_files_non_code(rel_paths, allowlist: set[str]) -> bool:
     """Return True when every path in ``rel_paths`` is a non-code file that
     cannot change test outcomes — a Markdown/docs file (``*.md``) or a
@@ -1406,10 +1430,7 @@ def _run_commit(argv: list[str], state: dict) -> int:
     # Preserve always-run behavior whenever any code file is staged.
     noncode_skip_test = False
     if test_cmd and not skip_verify and not sparse_skip_test:
-        gate_rel_paths = [
-            os.path.relpath(f, repo_root) if os.path.isabs(f) else f
-            for f in resolved_files
-        ]
+        gate_rel_paths = _pending_commit_paths(repo_root, resolved_files)
         if _all_staged_files_non_code(
             gate_rel_paths, _resolve_non_code_allowlist(config_path)
         ):

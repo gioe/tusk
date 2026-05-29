@@ -157,6 +157,59 @@ def test_mixed_code_and_noncode_runs_gate(tmp_path):
     assert "skipping test gate" not in result.stdout
 
 
+def test_pre_staged_code_runs_gate(tmp_path):
+    """A code file staged before tusk commit rides along into the path-less
+    git commit, so the gate must run even when only VERSION is passed."""
+    repo = str(tmp_path / "repo")
+    _git_init(repo)
+    marker = tmp_path / "gate_ran"
+    config_path = _write_config(tmp_path, marker)
+
+    with open(os.path.join(repo, "VERSION"), "w", encoding="utf-8") as f:
+        f.write("2\n")
+    with open(os.path.join(repo, "code.py"), "w", encoding="utf-8") as f:
+        f.write("x = 1\n")
+    # Stage the code file out-of-band, then commit only VERSION via tusk.
+    subprocess.run(["git", "-C", repo, "add", "code.py"], check=True)
+
+    result = _run_commit(repo, config_path, "VERSION")
+
+    assert result.returncode == 0, (
+        f"expected success, got {result.returncode}.\n"
+        f"stdout={result.stdout}\nstderr={result.stderr}"
+    )
+    assert marker.exists(), "gate must run when pre-staged code rides along"
+    assert "skipping test gate" not in result.stdout
+
+
+def test_unstaged_deletion_of_code_runs_gate(tmp_path):
+    """An unstaged deletion of a tracked code file is auto-swept into the
+    commit by Step 2.5, so the gate must run even when only VERSION is passed."""
+    repo = str(tmp_path / "repo")
+    _git_init(repo)
+    marker = tmp_path / "gate_ran"
+    config_path = _write_config(tmp_path, marker)
+
+    # Track a code file in a prior commit, then delete it on disk (unstaged).
+    with open(os.path.join(repo, "mod.py"), "w", encoding="utf-8") as f:
+        f.write("y = 2\n")
+    subprocess.run(["git", "-C", repo, "add", "mod.py"], check=True)
+    subprocess.run(["git", "-C", repo, "commit", "-q", "-m", "add mod"], check=True)
+    os.remove(os.path.join(repo, "mod.py"))
+
+    with open(os.path.join(repo, "VERSION"), "w", encoding="utf-8") as f:
+        f.write("2\n")
+
+    result = _run_commit(repo, config_path, "VERSION")
+
+    assert result.returncode == 0, (
+        f"expected success, got {result.returncode}.\n"
+        f"stdout={result.stdout}\nstderr={result.stderr}"
+    )
+    assert marker.exists(), "gate must run when a swept-in code deletion is committed"
+    assert "skipping test gate" not in result.stdout
+
+
 def test_version_only_skips_gate_via_default_fallback(tmp_path):
     """A project config that predates scope.always_allowed (key absent) still
     recognizes VERSION as non-code via the canonical default fallback."""
