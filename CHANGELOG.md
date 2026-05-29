@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1047] - 2026-05-29
+
+- [TASK-530] Fix VERSION/CHANGELOG rebase-conflict resolver: CHANGELOG-only firing + corruption
+
 ## [1046] - 2026-05-29
 
 - [TASK-529] Name the slow lint rule in the tusk lint timeout abort message
