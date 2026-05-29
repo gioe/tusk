@@ -43,6 +43,30 @@ class TestGetConnection:
         assert result[0] == 1
         conn.close()
 
+    def test_busy_timeout_default_applied(self, tmp_path, monkeypatch):
+        # Issue #946: concurrent writers must wait on a lock rather than fail
+        # instantly with "database is locked".
+        monkeypatch.delenv("TUSK_BUSY_TIMEOUT_MS", raising=False)
+        conn = db_lib.get_connection(str(tmp_path / "test.db"))
+        result = conn.execute("PRAGMA busy_timeout").fetchone()
+        assert result[0] == db_lib.DEFAULT_BUSY_TIMEOUT_MS
+        assert db_lib.DEFAULT_BUSY_TIMEOUT_MS > 0
+        conn.close()
+
+    def test_busy_timeout_env_override(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("TUSK_BUSY_TIMEOUT_MS", "1234")
+        conn = db_lib.get_connection(str(tmp_path / "test.db"))
+        result = conn.execute("PRAGMA busy_timeout").fetchone()
+        assert result[0] == 1234
+        conn.close()
+
+    def test_busy_timeout_invalid_env_falls_back_to_default(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("TUSK_BUSY_TIMEOUT_MS", "not-a-number")
+        conn = db_lib.get_connection(str(tmp_path / "test.db"))
+        result = conn.execute("PRAGMA busy_timeout").fetchone()
+        assert result[0] == db_lib.DEFAULT_BUSY_TIMEOUT_MS
+        conn.close()
+
     def test_creates_db_file(self, tmp_path):
         db_file = tmp_path / "new.db"
         assert not db_file.exists()

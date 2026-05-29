@@ -198,15 +198,30 @@ def main(argv: list) -> int:
 
     args = parser.parse_args(argv[3:])
 
-    if args.cmd == "list":
-        return cmd_list(args, db_path)
-    if args.cmd == "add":
-        return cmd_add(args, db_path)
-    if args.cmd == "lock":
-        return cmd_lock(args, db_path)
+    # Catch-all so an uncaught exception (e.g. a transient "database is locked"
+    # OperationalError under concurrent access, despite the busy_timeout) leaves
+    # an actionable stderr message rather than a bare traceback or — worse — a
+    # nonzero exit the silent-exit guard at bin/tusk:73-95 masks with its generic
+    # "exited N with no diagnostic output" line (issue #946, mirroring the
+    # skill-run guard from issue #785). argparse raises SystemExit, which is not
+    # an Exception subclass, so usage errors still propagate unchanged.
+    try:
+        if args.cmd == "list":
+            return cmd_list(args, db_path)
+        if args.cmd == "add":
+            return cmd_add(args, db_path)
+        if args.cmd == "lock":
+            return cmd_lock(args, db_path)
 
-    parser.print_help(sys.stderr)
-    return 1
+        parser.print_help(sys.stderr)
+        return 1
+    except Exception as exc:
+        print(
+            f"Error: scope {args.cmd} crashed with "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return 1
 
 
 if __name__ == "__main__":

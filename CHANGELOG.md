@@ -20,6 +20,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1044] - 2026-05-28
+
+- [TASK-528] Fix: silent-exit guard masks retryable scope and skill-run failures (add busy_timeout)
+
 ## [1043] - 2026-05-28
 
 - [TASK-527] Fix: merge should reconcile duplicate recorded task workspaces after finalization

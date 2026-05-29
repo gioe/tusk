@@ -24,11 +24,40 @@ import sys
 import time
 
 
+# Default time (ms) a connection waits on a locked DB before raising
+# "database is locked". Without it, a second concurrent writer fails
+# *immediately* — the "retryable operation masked by the silent-exit guard"
+# failure mode from issue #946, where parallel worktrees / a retro firing
+# many tusk calls collide on the shared tasks.db and the operation only
+# succeeds when rerun. A short wait lets the in-flight writer's transaction
+# commit so the retry happens inside SQLite instead of bubbling up as a
+# spurious nonzero exit. Override with TUSK_BUSY_TIMEOUT_MS.
+DEFAULT_BUSY_TIMEOUT_MS = 5000
+
+
+def _busy_timeout_ms() -> int:
+    raw = os.environ.get("TUSK_BUSY_TIMEOUT_MS")
+    if raw is not None:
+        try:
+            val = int(raw)
+            if val >= 0:
+                return val
+        except ValueError:
+            pass
+    return DEFAULT_BUSY_TIMEOUT_MS
+
+
 def get_connection(db_path: str) -> sqlite3.Connection:
-    """Return a SQLite connection with row_factory and foreign keys enabled."""
+    """Return a SQLite connection with row_factory, foreign keys, and a
+    busy_timeout enabled.
+
+    The busy_timeout (issue #946) makes concurrent writers wait for a held
+    lock to clear instead of failing instantly with "database is locked".
+    """
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute(f"PRAGMA busy_timeout = {_busy_timeout_ms()}")
     return conn
 
 
