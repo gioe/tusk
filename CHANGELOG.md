@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1050] - 2026-05-29
+
+- [TASK-534] Fix auto-derived scope paths after cd-prefixed verification specs
+
 ## [1049] - 2026-05-29
 
 - [TASK-533] Fix: tusk task-start prerequisite warning ignores dependency direction

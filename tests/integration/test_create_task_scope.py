@@ -103,6 +103,50 @@ def test_auto_extract_from_criteria(db_path):
     )
 
 
+def test_auto_extract_prefixes_relative_paths_after_cd_and(db_path):
+    """A leading ``cd <dir> &&`` makes later spec paths relative to that dir."""
+    task_id = _insert(
+        str(db_path),
+        "cd spec path",
+        "no paths in description either",
+        typed_criteria=[
+            json.dumps({
+                "text": "Route test passes",
+                "type": "test",
+                "spec": "cd apps/web && npx vitest run app/api/health/route.test.ts",
+            }),
+        ],
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+
+    assert "apps/web/app/api/health/route.test.ts" in auto, rows
+    assert "app/api/health/route.test.ts" not in auto, rows
+
+
+def test_auto_extract_prefixes_relative_paths_after_cd_semicolon(db_path):
+    """The same path prefixing applies to ``cd <dir>;`` command sequences."""
+    task_id = _insert(
+        str(db_path),
+        "semicolon cd spec path",
+        "no paths in description either",
+        typed_criteria=[
+            json.dumps({
+                "text": "Route test passes",
+                "type": "test",
+                "spec": "cd apps/web; npx vitest run app/api/health/route.test.ts",
+            }),
+        ],
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+
+    assert "apps/web/app/api/health/route.test.ts" in auto, rows
+    assert "app/api/health/route.test.ts" not in auto, rows
+
+
 def test_auto_extract_skipped_when_unbounded(db_path):
     """``--unbounded`` opts the task out of path restriction entirely —
     no ``auto_derived`` rows should land even when the description names
@@ -145,6 +189,35 @@ def test_auto_extract_dedups_against_explicit_scope(db_path):
     assert "bin/bar.py" in by_source.get("auto_derived", set()), rows
     # bin/baz.py via --creates is a creates row, not auto_derived.
     assert by_source.get("creates") == {"bin/baz.py"}, rows
+
+
+def test_auto_extract_dedups_prefixed_spec_against_explicit_scope(db_path):
+    """A cd-relative spec path should not duplicate its declared root path."""
+    task_id = _insert(
+        str(db_path),
+        "explicit prefixed overlap",
+        "no paths in description either",
+        scope=["apps/web/app/api/health/route.test.ts"],
+        typed_criteria=[
+            json.dumps({
+                "text": "Route test passes",
+                "type": "test",
+                "spec": "cd apps/web && npx vitest run app/api/health/route.test.ts",
+            }),
+        ],
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    by_source = {}
+    for r in rows:
+        by_source.setdefault(r["source"], set()).add(r["pattern"])
+
+    assert by_source.get("operator_declared") == {
+        "apps/web/app/api/health/route.test.ts"
+    }, rows
+    assert "apps/web/app/api/health/route.test.ts" not in by_source.get(
+        "auto_derived", set()
+    )
 
 
 def test_auto_extract_splits_bare_toplevel_files_joined_by_slash(db_path):

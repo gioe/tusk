@@ -33,6 +33,7 @@ Loaded via tusk_loader:
 """
 
 import os
+import posixpath
 import re
 import sqlite3
 import subprocess
@@ -395,11 +396,38 @@ _PATH_RE = re.compile(
     re.MULTILINE,
 )
 
+_LEADING_CD_RE = re.compile(
+    r"^\s*cd\s+(?:'([^']+)'|\"([^\"]+)\"|([^\s;&|]+))\s*(?:&&|;)"
+)
+
+
+def _leading_cd_dir(text: str) -> str | None:
+    """Return a simple leading ``cd <dir> &&`` / ``cd <dir>;`` target."""
+    m = _LEADING_CD_RE.match(text or "")
+    if not m:
+        return None
+    cd_dir = next((g for g in m.groups() if g), "")
+    cd_dir = cd_dir.strip().strip("/")
+    if not cd_dir or cd_dir.startswith(("-", "/", "../")) or "/../" in cd_dir:
+        return None
+    return cd_dir
+
+
+def _prefix_cd_relative_path(path: str, cd_dir: str | None) -> str:
+    if not cd_dir or not path or path in _BARE_TOPLEVEL_WHITELIST:
+        return path
+    if path.startswith(("./", "../", "/")) or path == cd_dir or path.startswith(f"{cd_dir}/"):
+        return path
+    if "/" not in path:
+        return path
+    return posixpath.normpath(f"{cd_dir}/{path}")
+
 
 def extract_paths(text: str) -> list:
     """Extract candidate file paths from free-form text."""
     if not text:
         return []
+    cd_dir = _leading_cd_dir(text)
     paths = []
     for m in _PATH_RE.finditer(text):
         p = m.group(1).strip().rstrip('.,;:\'"`)')
@@ -424,7 +452,7 @@ def extract_paths(text: str) -> list:
             and any(p.startswith(prefix) for prefix in _EXTENSIONLESS_SCRIPT_PREFIXES)
         )
         if p in _BARE_TOPLEVEL_WHITELIST or "." in basename or is_extensionless_script:
-            paths.append(p)
+            paths.append(_prefix_cd_relative_path(p, cd_dir))
     return paths
 
 
