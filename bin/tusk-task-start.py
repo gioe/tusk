@@ -35,11 +35,12 @@ import sqlite3
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader  # loads tusk-db-lib.py, tusk-json-lib.py, tusk-rank-lib.py
+import tusk_loader  # loads tusk-db-lib.py, tusk-json-lib.py, tusk-rank-lib.py, tusk-git-helpers.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
 _rank_lib = tusk_loader.load("tusk-rank-lib")
+_git_helpers = tusk_loader.load("tusk-git-helpers")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 select_top_ready_task = _rank_lib.select_top_ready_task
@@ -158,6 +159,29 @@ def _register_active_project() -> None:
             f.write(canon + "\n")
     except OSError:
         pass
+
+
+def _task_commits_on_default(db_path: str, task_id: int) -> bool:
+    """Return True if [TASK-<id>] commits already exist on the default branch.
+
+    Widens task-start's deliverable_check_needed beyond the completed-criteria
+    proxy (issue #948): an orphaned task whose commits already shipped to
+    origin/<default> with zero criteria marked done must still trigger the
+    deliverable check. Scans the local default branch and origin/<default>
+    (a no-checkout fast-forward push leaves the local default behind origin).
+    Best-effort — any git failure yields False.
+    """
+    repo_root = os.environ.get("TUSK_REPO_ROOT") or os.path.dirname(
+        os.path.dirname(os.path.abspath(db_path))
+    )
+    try:
+        default = _git_helpers.default_branch(repo_root)
+    except Exception:
+        return False
+    for ref in (default, f"origin/{default}"):
+        if _git_helpers.find_task_commits(task_id, repo_root, refs=[ref]):
+            return True
+    return False
 
 
 def main(argv: list[str]) -> int:
@@ -413,6 +437,12 @@ def main(argv: list[str]) -> int:
             print(f"  next_steps: {preview}", file=sys.stderr)
 
         deliverable_check_needed = any(c["is_completed"] for c in criteria_list)
+        if not deliverable_check_needed:
+            # Orphaned-work signal (issue #948): a prior session may have committed
+            # and pushed [TASK-N] commits to the default branch without finalizing
+            # via tusk merge or marking any criterion done. The completed-criteria
+            # proxy misses that state, so scan the default branch for shipped commits.
+            deliverable_check_needed = _task_commits_on_default(db_path, task_id)
 
         # Optional fused skill-run start: collapses the common /tusk, /chain,
         # /review-commits, /retro pattern of calling `tusk skill-run start <name>
