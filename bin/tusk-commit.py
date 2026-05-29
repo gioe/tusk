@@ -22,7 +22,9 @@ Steps:
     0. Validate file paths — fail fast before lint/tests if any path is missing or escapes repo root
     1. Run tusk lint --quiet — aborts on any non-advisory violation (exit 6).
        Advisory-only rules warn but never block. Bypass with --skip-lint or --skip-verify.
-    2. Run test_command gate: use domain_test_commands[task.domain] if present, else test_command (hard-blocks on failure)
+    2. Run test_command gate: use domain_test_commands[task.domain] if present, else test_command (hard-blocks on failure).
+       Info-skipped when every staged file is non-code — a docs/markdown file (*.md) or a scope.always_allowed metadata file
+       (VERSION, CHANGELOG.md, MANIFEST, .claude/tusk-manifest.json) — since such commits cannot change test outcomes (issue #950).
     3. Stage files: git add for all files (handles additions, modifications, and deletions)
     4. git commit with [TASK-<id>] <message> format and Co-Authored-By trailer
     5. For each criterion ID passed via --criteria, call tusk criteria done <id> (captures HEAD automatically)
@@ -757,6 +759,65 @@ def _test_command_outside_sparse_cone(
     return True, targets[0]
 
 
+# Canonical non-code metadata files — mirrors scope.always_allowed in
+# config.default.json. Used as the fallback when a project's tusk/config.json
+# predates the scope.always_allowed key (or omits it), so VERSION / CHANGELOG /
+# MANIFEST commits are still recognized as non-code (issue #950).
+_DEFAULT_NON_CODE_FILES = (
+    "VERSION",
+    "CHANGELOG.md",
+    "MANIFEST",
+    ".claude/tusk-manifest.json",
+)
+
+
+def _resolve_non_code_allowlist(config_path: str) -> set[str]:
+    """Return the set of repo-root-relative paths treated as non-code metadata
+    files for the test-gate skip (issue #950).
+
+    A project's ``scope.always_allowed`` wins when defined and non-empty;
+    otherwise the canonical ``_DEFAULT_NON_CODE_FILES`` set is used so installs
+    predating that config key still recognize VERSION / CHANGELOG / MANIFEST.
+    """
+    vals: list[str] = []
+    if config_path and os.path.exists(config_path):
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                cfg = json.load(f)
+            scope_cfg = cfg.get("scope")
+            if isinstance(scope_cfg, dict):
+                raw = scope_cfg.get("always_allowed")
+                if isinstance(raw, list):
+                    vals = [str(v) for v in raw if isinstance(v, str) and v]
+        except (OSError, json.JSONDecodeError):
+            vals = []
+    if not vals:
+        vals = list(_DEFAULT_NON_CODE_FILES)
+    return {v.replace(os.sep, "/") for v in vals}
+
+
+def _all_staged_files_non_code(rel_paths, allowlist: set[str]) -> bool:
+    """Return True when every path in ``rel_paths`` is a non-code file that
+    cannot change test outcomes — a Markdown/docs file (``*.md``) or a
+    ``scope.always_allowed`` metadata entry (VERSION, MANIFEST, CHANGELOG.md,
+    .claude/tusk-manifest.json). Used to skip the test gate for docs-only /
+    version-bump commits (issue #950).
+
+    Empty input returns False: with nothing to reason about, the caller's
+    normal (gate-runs) path is the safe default.
+    """
+    if not rel_paths:
+        return False
+    for rel in rel_paths:
+        norm = str(rel).replace(os.sep, "/")
+        if norm in allowlist:
+            continue
+        if norm.lower().endswith(".md"):
+            continue
+        return False
+    return True
+
+
 def _print_test_command_failure(
     result: subprocess.CompletedProcess,
     test_cmd: str,
@@ -1335,7 +1396,34 @@ def _run_commit(argv: list[str], state: dict) -> int:
             )
             sys.stdout.flush()
             sparse_skip_test = True
+    # Non-code-only preflight (issue #950). When every staged file is a
+    # docs/markdown file or a scope.always_allowed metadata file (VERSION,
+    # CHANGELOG.md, MANIFEST, .claude/tusk-manifest.json), the commit cannot
+    # change test outcomes — running the full test gate is wasted wall-clock and
+    # needlessly exposes the (recommended) VERSION-bump-as-own-commit path to
+    # timeout flakes under load. Info-skip the gate; lint (Step 1) and
+    # pre-commit hooks (Step 3) still run since they are separate steps.
+    # Preserve always-run behavior whenever any code file is staged.
+    noncode_skip_test = False
     if test_cmd and not skip_verify and not sparse_skip_test:
+        gate_rel_paths = [
+            os.path.relpath(f, repo_root) if os.path.isabs(f) else f
+            for f in resolved_files
+        ]
+        if _all_staged_files_non_code(
+            gate_rel_paths, _resolve_non_code_allowlist(config_path)
+        ):
+            print(
+                "Note: every staged file is non-code (docs/markdown or a "
+                "scope.always_allowed metadata file) — skipping test gate "
+                "for this commit.\n"
+                f"  Staged: {', '.join(gate_rel_paths)}\n"
+                "  These files cannot change test outcomes; lint and "
+                "pre-commit hooks still run."
+            )
+            sys.stdout.flush()
+            noncode_skip_test = True
+    if test_cmd and not skip_verify and not sparse_skip_test and not noncode_skip_test:
         test_cmd, _ = _worktree_command.rewrite_linked_worktree_venv_command(
             test_cmd,
             repo_root,
