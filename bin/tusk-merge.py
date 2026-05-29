@@ -285,6 +285,28 @@ def _first_changelog_section(text: str) -> tuple[str, str] | None:
     return match.group("date"), match.group("body").rstrip() + "\n"
 
 
+def _insert_changelog_entry(content: str, entry: str) -> str:
+    """Insert a versioned entry block immediately below the ## [Unreleased] marker.
+
+    Mirrors tusk-changelog-add.py's insertion so the rebase-conflict resolver keeps
+    a single '# Changelog' title and never prepends a version block above it. The
+    old resolver wrote the new entry followed by the entire upstream changelog,
+    which placed the block above upstream's '# Changelog' title and accumulated
+    duplicate titles on every rebase-merge (issue #954).
+    """
+    marker = "## [Unreleased]"
+    idx = content.find(marker)
+    if idx != -1:
+        eol = content.find("\n", idx)
+        if eol == -1:
+            eol = len(content) - 1
+        return content[: eol + 1] + "\n" + entry + content[eol + 1 :]
+    vmatch = re.search(r"^## \[\d+\] - ", content, re.MULTILINE)
+    if vmatch:
+        return content[: vmatch.start()] + entry + "\n" + content[vmatch.start() :]
+    return content.rstrip("\n") + "\n\n" + entry
+
+
 def _recover_version_changelog_rebase_conflict(
     worktree_path: str,
     rebase_target: str,
@@ -297,17 +319,40 @@ def _recover_version_changelog_rebase_conflict(
     if unmerged.returncode != 0:
         return False
     paths = {line.strip() for line in unmerged.stdout.splitlines() if line.strip()}
-    if paths != {"VERSION", "CHANGELOG.md"}:
+    # Fire whenever the unmerged set is a non-empty subset of {VERSION, CHANGELOG.md}
+    # that includes CHANGELOG.md. The same-version parallel race auto-merges VERSION
+    # (byte-identical bumps) and leaves only CHANGELOG.md conflicted (issue #951).
+    if "CHANGELOG.md" not in paths or not paths.issubset({"VERSION", "CHANGELOG.md"}):
         return False
 
-    versions = [
-        _parse_version(_git_show_text(worktree_path, f"{rebase_target}:VERSION")),
-        _parse_version(_git_show_text(worktree_path, ":2:VERSION")),
-        _parse_version(_git_show_text(worktree_path, ":3:VERSION")),
-    ]
-    if any(version is None for version in versions):
+    known_versions = []
+    target_version = _parse_version(
+        _git_show_text(worktree_path, f"{rebase_target}:VERSION")
+    )
+    if target_version is not None:
+        known_versions.append(target_version)
+    if "VERSION" in paths:
+        for stage in (":2:VERSION", ":3:VERSION"):
+            staged = _parse_version(_git_show_text(worktree_path, stage))
+            if staged is not None:
+                known_versions.append(staged)
+    else:
+        # VERSION auto-merged (same-version race) — read the resolved value from the
+        # index, falling back to the worktree, since the :2/:3 stages do not exist.
+        resolved = _parse_version(_git_show_text(worktree_path, ":0:VERSION"))
+        if resolved is None:
+            try:
+                with open(
+                    os.path.join(worktree_path, "VERSION"), encoding="utf-8"
+                ) as handle:
+                    resolved = _parse_version(handle.read())
+            except OSError:
+                resolved = None
+        if resolved is not None:
+            known_versions.append(resolved)
+    if not known_versions:
         return False
-    next_version = max(version for version in versions if version is not None) + 1
+    next_version = max(known_versions) + 1
 
     upstream_changelog = _git_show_text(worktree_path, ":2:CHANGELOG.md")
     task_changelog = _git_show_text(worktree_path, ":3:CHANGELOG.md")
@@ -318,11 +363,13 @@ def _recover_version_changelog_rebase_conflict(
         return False
     section_date, section_body = task_section
 
+    new_entry = f"## [{next_version}] - {section_date}\n{section_body}"
+    merged_changelog = _insert_changelog_entry(upstream_changelog, new_entry)
+
     with open(os.path.join(worktree_path, "VERSION"), "w", encoding="utf-8") as handle:
         handle.write(f"{next_version}\n")
     with open(os.path.join(worktree_path, "CHANGELOG.md"), "w", encoding="utf-8") as handle:
-        handle.write(f"## [{next_version}] - {section_date}\n{section_body}\n")
-        handle.write(upstream_changelog)
+        handle.write(merged_changelog)
 
     add_result = run(
         ["git", "-C", worktree_path, "add", "VERSION", "CHANGELOG.md"],
