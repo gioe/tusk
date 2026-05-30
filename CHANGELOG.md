@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1056] - 2026-05-30
+
+- [TASK-542] Fix: route hard-blocked reviewer agents to inline review fallback
+
 ## [1055] - 2026-05-30
 
 - [TASK-540] Add a scope remove command for unintended task scope rows
