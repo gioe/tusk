@@ -1648,7 +1648,8 @@ is_readonly_subcmd() {
   # a snapshot. When in doubt, omit from this list — a redundant backup is
   # cheaper than a missed one.
   # `scope` is dispatched at the second positional: only `scope list` is
-  # read-only — `scope add` and `scope lock` mutate task_scope rows.
+  # read-only — `scope add`, `scope remove`, and `scope lock` mutate
+  # task_scope rows.
   if [[ "${1:-}" == "scope" ]]; then
     [[ "${2:-}" == "list" ]] && return 0
     return 1

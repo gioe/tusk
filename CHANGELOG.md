@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1055] - 2026-05-30
+
+- [TASK-540] Add a scope remove command for unintended task scope rows
+
 ## [1054] - 2026-05-29
 
 - [TASK-538] Fix: Refresh or warn on stale task worktree node_modules

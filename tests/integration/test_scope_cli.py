@@ -5,6 +5,8 @@ Covers:
 - ``scope add`` records the row with ``source='expanded_mid_task'`` and the
   reason text the operator passed (criterion 2183)
 - ``scope list`` emits a JSON array of every entry for the task
+- ``scope remove`` deletes one scope row by id and errors clearly for missing
+  rows
 - ``scope lock`` stamps ``locked_at`` and ``locked_by`` on previously
   unlocked rows and leaves already-locked rows alone
 - ``task-insert --scope/--creates/--unbounded`` populate ``task_scope``
@@ -52,6 +54,18 @@ def _scope_rows(db: str, task_id: int) -> list:
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
         "SELECT pattern, source, reason, locked_at, locked_by "
+        "FROM task_scope WHERE task_id = ? ORDER BY id",
+        (task_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def _scope_rows_with_ids(db: str, task_id: int) -> list:
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT id, pattern, source, reason, locked_at, locked_by "
         "FROM task_scope WHERE task_id = ? ORDER BY id",
         (task_id,),
     ).fetchall()
@@ -144,7 +158,7 @@ class TestScopeAdd:
 
 class TestScopeSnapshotRouting:
     """`scope list` is read-only and must not trigger `snapshot_db`;
-    `scope add` and `scope lock` mutate and must trigger it."""
+    mutating scope commands must trigger it."""
 
     @staticmethod
     def _backup_dir(db: str) -> str:
@@ -195,6 +209,21 @@ class TestScopeSnapshotRouting:
             f"narrowed readonly-routing too far"
         )
 
+    def test_scope_remove_still_snapshots(self, db_path):
+        """Sanity guard: `scope remove` mutates and must snapshot too."""
+        task_id = _seed_task(str(db_path))
+        _run(["scope", "add", str(task_id), "bin/foo.py"])
+        row_id = _scope_rows_with_ids(str(db_path), task_id)[0]["id"]
+        backup_dir = self._backup_dir(str(db_path))
+        before = self._count_snapshots(backup_dir)
+        result = _run(["scope", "remove", str(row_id)])
+        assert result.returncode == 0, result.stderr
+        after = self._count_snapshots(backup_dir)
+        assert after > before, (
+            f"`scope remove` did not snapshot ({before} -> {after}); the dispatcher "
+            f"narrowed readonly-routing too far"
+        )
+
 
 # ── scope list ───────────────────────────────────────────────────────────────
 
@@ -217,6 +246,42 @@ class TestScopeList:
         result = _run(["scope", "list", str(task_id)])
         assert result.returncode == 0
         assert json.loads(result.stdout) == []
+
+
+# ── scope remove ─────────────────────────────────────────────────────────────
+
+class TestScopeRemove:
+
+    def test_remove_deletes_one_scope_row(self, db_path):
+        task_id = _seed_task(str(db_path))
+        _run(["scope", "add", str(task_id), "bin/remove-me.py"])
+        _run(["scope", "add", str(task_id), "bin/keep-me.py"])
+        rows_before = _scope_rows_with_ids(str(db_path), task_id)
+        remove_id = next(r["id"] for r in rows_before if r["pattern"] == "bin/remove-me.py")
+
+        result = _run(["scope", "remove", str(remove_id)])
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload == {
+            "removed": True,
+            "id": remove_id,
+            "task_id": task_id,
+            "pattern": "bin/remove-me.py",
+            "source": "expanded_mid_task",
+        }
+
+        rows_after = _scope_rows(str(db_path), task_id)
+        assert [r["pattern"] for r in rows_after] == ["bin/keep-me.py"]
+
+    def test_remove_missing_row_errors_clearly(self, db_path):
+        result = _run(["scope", "remove", "999999"])
+        assert result.returncode == 1
+        assert "scope row 999999 not found" in result.stderr.lower()
+
+    def test_remove_is_documented_in_help(self, db_path):
+        result = _run(["scope", "--help"])
+        assert result.returncode == 0
+        assert "remove" in result.stdout
 
 
 # ── scope lock ───────────────────────────────────────────────────────────────

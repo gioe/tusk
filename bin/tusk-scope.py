@@ -5,6 +5,7 @@
 Called by the tusk wrapper:
     tusk scope list <task_id>
     tusk scope add <task_id> <pattern> [--reason TEXT] [--source S]
+    tusk scope remove <row_id>
     tusk scope lock <task_id> [--by NAME]
 
 Arguments received from tusk:
@@ -159,10 +160,39 @@ def cmd_lock(args: argparse.Namespace, db_path: str) -> int:
     return 0
 
 
+def cmd_remove(args: argparse.Namespace, db_path: str) -> int:
+    try:
+        row_id = int(str(args.row_id).strip())
+    except ValueError:
+        print(f"Error: invalid row_id: {args.row_id!r}", file=sys.stderr)
+        return 1
+
+    with get_connection(db_path) as conn:
+        row = conn.execute(
+            "SELECT id, task_id, pattern, source FROM task_scope WHERE id = ?",
+            (row_id,),
+        ).fetchone()
+        if row is None:
+            print(f"Error: scope row {row_id} not found", file=sys.stderr)
+            return 1
+
+        conn.execute("DELETE FROM task_scope WHERE id = ?", (row_id,))
+        conn.commit()
+
+    print(dumps({
+        "removed": True,
+        "id": row["id"],
+        "task_id": row["task_id"],
+        "pattern": row["pattern"],
+        "source": row["source"],
+    }))
+    return 0
+
+
 def main(argv: list) -> int:
     if len(argv) < 3:
         print(
-            "Usage: tusk-scope.py <db_path> <config_path> <list|add|lock> ...",
+            "Usage: tusk-scope.py <db_path> <config_path> <list|add|remove|lock> ...",
             file=sys.stderr,
         )
         return 1
@@ -196,6 +226,13 @@ def main(argv: list) -> int:
     p_lock.add_argument("task_id")
     p_lock.add_argument("--by", default=None, help="Lock attribution (defaults to $USER)")
 
+    p_remove = sub.add_parser(
+        "remove",
+        aliases=["rm"],
+        help="Remove one scope entry by row id",
+    )
+    p_remove.add_argument("row_id")
+
     args = parser.parse_args(argv[3:])
 
     # Catch-all so an uncaught exception (e.g. a transient "database is locked"
@@ -210,6 +247,8 @@ def main(argv: list) -> int:
             return cmd_list(args, db_path)
         if args.cmd == "add":
             return cmd_add(args, db_path)
+        if args.cmd in ("remove", "rm"):
+            return cmd_remove(args, db_path)
         if args.cmd == "lock":
             return cmd_lock(args, db_path)
 
