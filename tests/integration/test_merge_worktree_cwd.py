@@ -215,3 +215,50 @@ class TestMergeChdirsIntoRecordedWorkspace:
         assert "recorded task workspace path is missing" in stderr
         assert "git worktree remove --force" in stderr
         assert ["git", "checkout", branch] not in commands
+
+    def test_cleanup_relocates_before_removing_current_worktree(
+        self, db_path, monkeypatch, tmp_path
+    ):
+        """Deleting the invoking worktree must not leave later finalize calls without a CWD."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            branch = f"feature/TASK-{task_id}-cleanup"
+            workspace = tmp_path / "workspace"
+            nested = workspace / "nested"
+            nested.mkdir(parents=True)
+            _insert_workspace(conn, task_id, branch, str(workspace))
+        finally:
+            conn.close()
+
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(str(db_path))))
+        monkeypatch.chdir(nested)
+        monkeypatch.setattr(tusk_merge, "_clean_tusk_auto_symlinks", lambda *args: 0)
+
+        remove_seen = False
+
+        def _mock_run(args, check=True):
+            nonlocal remove_seen
+            if args[:3] == ["git", "-C", str(workspace)]:
+                return subprocess.CompletedProcess(args, 1, stdout="", stderr="")
+            if args == ["git", "worktree", "remove", str(workspace)]:
+                remove_seen = True
+                assert os.path.realpath(os.getcwd()) == os.path.realpath(repo_root)
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            raise AssertionError(f"unexpected run call: {args}")
+
+        monkeypatch.setattr(tusk_merge, "run", _mock_run)
+
+        assert tusk_merge._remove_recorded_task_worktree(
+            str(db_path), task_id, branch
+        )
+        assert remove_seen
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM task_workspaces WHERE task_id = ?", (task_id,)
+            ).fetchone()
+        finally:
+            conn.close()
+        assert row is None

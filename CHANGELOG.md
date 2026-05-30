@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1057] - 2026-05-30
+
+- [TASK-543] Fix: complete merge finalize after removing current task worktree
+
 ## [1056] - 2026-05-30
 
 - [TASK-542] Fix: route hard-blocked reviewer agents to inline review fallback

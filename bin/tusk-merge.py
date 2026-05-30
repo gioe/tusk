@@ -2337,6 +2337,30 @@ def _remove_recorded_task_worktree(
 
     workspace_path = workspace["workspace_path"]
     if os.path.exists(workspace_path):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+        try:
+            cwd_real = os.path.realpath(os.getcwd())
+        except OSError:
+            cwd_real = ""
+        workspace_real = os.path.realpath(workspace_path)
+        try:
+            cwd_inside_workspace = (
+                bool(cwd_real)
+                and os.path.commonpath([cwd_real, workspace_real]) == workspace_real
+            )
+        except ValueError:
+            cwd_inside_workspace = False
+        if cwd_inside_workspace:
+            try:
+                os.chdir(repo_root)
+            except OSError as exc:
+                print(
+                    f"Error: failed to chdir to repo root {repo_root} before "
+                    f"removing current task worktree {workspace_path}: {exc}.",
+                    file=sys.stderr,
+                )
+                return False
+
         # Refuse to remove a worktree with a rebase in progress (issue #940).
         # A parallel session finalizing the same task would otherwise delete
         # the worktree out from under an operator who is mid-rebase resolving
