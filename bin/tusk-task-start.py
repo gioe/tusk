@@ -2,12 +2,12 @@
 """Consolidate task-start setup into a single CLI command.
 
 Called by the tusk wrapper:
-    tusk task-start [<task_id>] [--force] [--force-deps] [--agent <name>] [--skill <name>]
+    tusk task-start [<task_id>] [--force] [--force-deps] [--force-session] [--agent <name>] [--skill <name>]
 
 Arguments received from tusk:
     sys.argv[1] — DB path
     sys.argv[2] — config path
-    sys.argv[3:] — [task_id] [--force] [--force-deps] [--agent <name>] [--skill <name>]
+    sys.argv[3:] — [task_id] [--force] [--force-deps] [--force-session] [--agent <name>] [--skill <name>]
 
 When task_id is omitted, the top WSJF-ranked ready task is picked from
 v_ready_tasks (same ranking logic tusk-task-select uses) and started in a
@@ -25,6 +25,7 @@ Performs all setup steps for beginning work on a task:
 
 --force: bypass the zero-criteria guard (emits a warning but proceeds)
 --force-deps: bypass the unmet-`blocks`-dependency guard (emits a warning but proceeds)
+--force-session: reuse an existing active session from outside the task workspace
 """
 
 import argparse
@@ -184,6 +185,27 @@ def _task_commits_on_default(db_path: str, task_id: int) -> bool:
     return False
 
 
+def _current_repo_root() -> str | None:
+    repo_root = os.environ.get("TUSK_REPO_ROOT")
+    if not repo_root:
+        return None
+    return os.path.realpath(repo_root)
+
+
+def _recorded_task_workspace(conn: sqlite3.Connection, task_id: int):
+    return conn.execute(
+        "SELECT workspace_path FROM task_workspaces WHERE task_id = ? "
+        "ORDER BY updated_at DESC, id DESC LIMIT 1",
+        (task_id,),
+    ).fetchone()
+
+
+def _same_path(left: str | None, right: str | None) -> bool:
+    if not left or not right:
+        return False
+    return os.path.realpath(left) == os.path.realpath(right)
+
+
 def main(argv: list[str]) -> int:
     db_path = argv[0]
     # argv[1] is config_path (unused but kept for dispatch consistency)
@@ -205,6 +227,12 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="Bypass unmet 'blocks' dependency guard (use sparingly)",
     )
+    parser.add_argument(
+        "--force-session",
+        dest="force_session",
+        action="store_true",
+        help="Reuse an existing active session from outside the recorded task workspace",
+    )
     parser.add_argument("--agent", dest="agent_name", metavar="NAME", help="Agent name")
     parser.add_argument(
         "--skill",
@@ -216,6 +244,7 @@ def main(argv: list[str]) -> int:
     task_id = args.task_id
     force = args.force
     force_deps = args.force_deps
+    force_session = args.force_session
     agent_name = args.agent_name
     skill_name = args.skill_name
 
@@ -327,6 +356,36 @@ def main(argv: list[str]) -> int:
 
         if open_session:
             session_id = open_session["id"]
+            workspace = _recorded_task_workspace(conn, task_id)
+            workspace_path = workspace["workspace_path"] if workspace else None
+            current_root = _current_repo_root()
+            if not _same_path(current_root, workspace_path):
+                if not force_session:
+                    lines = [
+                        f"Error: Task {task_id} already has an active session "
+                        f"(session {session_id})."
+                    ]
+                    if workspace_path:
+                        lines.append(f"Recorded task workspace: {workspace_path}")
+                        lines.append(
+                            "Run from that workspace to continue the task, or pass "
+                            "--force-session to explicitly reuse the active session."
+                        )
+                    else:
+                        lines.append("No recorded task workspace was found for this task.")
+                        lines.append(
+                            "Create/reuse one with `tusk task-worktree create`, or pass "
+                            "--force-session to explicitly reuse the active session."
+                        )
+                    if current_root:
+                        lines.append(f"Current checkout: {current_root}")
+                    print("\n".join(lines), file=sys.stderr)
+                    return 2
+                print(
+                    f"Warning: Task {task_id} already has an active session "
+                    f"(session {session_id}); reusing it due to --force-session.",
+                    file=sys.stderr,
+                )
             # Update agent_name on reused session if --agent was passed
             if agent_name is not None:
                 conn.execute(
@@ -498,6 +557,6 @@ def main(argv: list[str]) -> int:
 if __name__ == "__main__":
     if len(sys.argv) < 2 or not sys.argv[1].endswith(".db"):
         print("Error: This script must be invoked via the tusk wrapper.", file=sys.stderr)
-        print("Use: tusk task-start [<task_id>] [--force] [--force-deps] [--agent NAME] [--skill NAME]", file=sys.stderr)
+        print("Use: tusk task-start [<task_id>] [--force] [--force-deps] [--force-session] [--agent NAME] [--skill NAME]", file=sys.stderr)
         sys.exit(1)
     sys.exit(main(sys.argv[1:]))

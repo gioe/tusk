@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1051] - 2026-05-29
+
+- [TASK-535] Fix: guard task-start against concurrent active sessions
+
 ## [1050] - 2026-05-29
 
 - [TASK-534] Fix auto-derived scope paths after cd-prefixed verification specs
