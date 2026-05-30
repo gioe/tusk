@@ -546,7 +546,10 @@ JSON blob and the `skill_run.run_id` you already captured.
     - **`wont_do`** — an evaluation/spike whose answer is "don't do
       it".
     - **`duplicate`** — the task turns out to overlap an
-      already-tracked one.
+      already-tracked one. If the already-tracked task is an **In
+      Progress duplicate**, do not start a fresh `tusk.md` for that
+      task; route to `resume-task.md` or reuse its existing open
+      session and skill-run so the prior skill-run is not orphaned.
     - **`completed`** — *convergent-completion* (issue #580): the
       goal was met by separate work landing on the default branch
       between filing and pickup, so there is nothing left to ship.

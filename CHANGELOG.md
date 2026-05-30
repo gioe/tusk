@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1052] - 2026-05-29
+
+- [TASK-537] Fix: route In Progress duplicate issue handoffs to resume-task
+
 ## [1051] - 2026-05-29
 
 - [TASK-535] Fix: guard task-start against concurrent active sessions

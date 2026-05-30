@@ -464,7 +464,20 @@ if the command exits nonzero.
 and stop:
 
 > Skipped — duplicate of existing task #<id> (similarity <score>).
-> Run `tusk.md` for `<id>` to work on it instead.
+>
+> Then branch on the duplicate task's current status before handing
+> off:
+>
+> - **To Do duplicate** — follow `tusk.md` for `<id>` to start normal
+>   work on the existing task.
+> - **In Progress duplicate** — follow `resume-task.md` for `<id>`
+>   instead of `tusk.md`, or explicitly reuse the existing open
+>   session and open skill-run if you have already fetched them. Do
+>   not start a fresh `tusk.md` run for an In Progress duplicate:
+>   `tusk task-start <id> --force --skill tusk` opens a new skill-run
+>   row and can orphan the prior open skill-run.
+> - **Done duplicate** — do not create or resume work. Surface the
+>   completed task as the resolution path.
 
 **Exit code 2** — error. Report and stop.
 

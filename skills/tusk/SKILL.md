@@ -326,7 +326,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     ```
     Three reason values are accepted:
     - **`wont_do`** — an evaluation/spike whose answer is "don't do it".
-    - **`duplicate`** — the task turns out to overlap an already-tracked one.
+    - **`duplicate`** — the task turns out to overlap an already-tracked one. If the already-tracked task is an **In Progress duplicate**, do not start a fresh `/tusk <id>` on that task; route to `/resume-task <id>` or reuse its existing open session and skill-run so the prior skill-run is not orphaned.
     - **`completed`** — the goal was met but no `[TASK-N]` commits land on the default branch. Two sub-cases:
         - *convergent-completion* (issue #580): separate work landing on the default branch between filing and pickup already satisfied the goal, so there is nothing left to ship.
         - *DB-only deliverable* (issue #669): the deliverable is a SQLite row written via a tusk subcommand (`tusk conventions update`, `tusk conventions add`, `tusk lint-rule add`, `tusk glossary set-definition`, etc.) — the feature branch is intentionally empty because nothing in the working tree changes.

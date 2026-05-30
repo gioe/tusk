@@ -434,7 +434,13 @@ This criterion will be validated by running the spec as a shell command when `tu
 
 **Exit code 1** — heuristic duplicate found. Report the matched task and stop:
 
-> Skipped — duplicate of existing task #<id> (similarity <score>). Run `/tusk <id>` to work on it instead.
+> Skipped — duplicate of existing task #<id> (similarity <score>).
+
+Then branch on the duplicate task's current status before handing off:
+
+- **To Do duplicate** — run `/tusk <id>` to start normal work on the existing task.
+- **In Progress duplicate** — run `/resume-task <id>` instead of `/tusk <id>`, or explicitly reuse the existing open session and open skill-run if you have already fetched them. Do not start a fresh `/tusk <id>` run for an In Progress duplicate: `tusk task-start <id> --force --skill tusk` opens a new skill-run row and can orphan the prior open skill-run.
+- **Done duplicate** — do not create or resume work. Surface the completed task as the resolution path.
 
 **Exit code 2** — error. Report and stop.
 
