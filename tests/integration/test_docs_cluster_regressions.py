@@ -7,6 +7,7 @@ import subprocess
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TUSK = os.path.join(REPO_ROOT, "bin", "tusk")
 REVIEW_COMMITS_SKILL = os.path.join(REPO_ROOT, "skills", "review-commits", "SKILL.md")
+REVIEW_COMMITS_CODEX_PROMPT = os.path.join(REPO_ROOT, "codex-prompts", "review-commits.md")
 
 
 def _run_tusk(*args: str) -> subprocess.CompletedProcess[str]:
@@ -47,3 +48,20 @@ def test_review_commits_skill_warns_about_review_note_shell_quoting():
     assert "Avoid backticks and unescaped `$` in review notes and comments" in text
     assert "--note" in text
     assert "add-comment" in text
+
+
+def test_review_commits_hard_bash_block_falls_back_to_inline_review():
+    """Issue #961: a hard-blocked reviewer agent must not auto-approve empty."""
+    with open(REVIEW_COMMITS_SKILL, encoding="utf-8") as f:
+        text = f.read()
+
+    assert "hard tool-level Bash denial" in text
+    assert "do not auto-approve" in text
+    assert "fall back to inline review" in text
+    assert "The Codex inline path uses" not in text
+
+    with open(REVIEW_COMMITS_CODEX_PROMPT, encoding="utf-8") as f:
+        codex_text = f.read()
+
+    assert "Codex has no background agent path" in codex_text
+    assert "The Codex inline path uses" in codex_text
