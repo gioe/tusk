@@ -1184,6 +1184,23 @@ class TestTaskWorktreeCreateNodeModulesFreshness:
         assert "apps/web" in result.stderr
         assert "package install command" in result.stderr
 
+        reused = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "stale-reuse",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert reused.returncode == 0, reused.stderr
+        assert json.loads(reused.stdout)["created"] is False
+        assert "apps/web/node_modules may be stale" in reused.stderr
+
     def test_path_style_warning_names_only_the_configured_package_dir(
         self, tmp_path, monkeypatch
     ):

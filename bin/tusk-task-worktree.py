@@ -696,6 +696,11 @@ def _node_modules_freshness_warnings(worktree_path: str) -> list[str]:
     return warnings
 
 
+def _print_node_modules_freshness_warnings(worktree_path: str) -> None:
+    for warning in _node_modules_freshness_warnings(worktree_path):
+        print(warning, file=sys.stderr)
+
+
 def _attach_worktree(
     repo_root: str,
     worktree_path: str,
@@ -944,6 +949,7 @@ def cmd_create(
                 )
             # Healthy state: registry row + workspace_path present on disk.
             if os.path.isdir(existing["workspace_path"]):
+                _print_node_modules_freshness_warnings(existing["workspace_path"])
                 print(dumps(_workspace_payload(existing, created=False)))
                 return 0
             # Stale state (issue #803): registry row exists but workspace_path
@@ -969,6 +975,7 @@ def cmd_create(
                         file=sys.stderr,
                     )
                     return 2
+                _print_node_modules_freshness_warnings(existing["workspace_path"])
                 print(dumps(_workspace_payload(existing, created=True)))
                 return 0
             # Both row and disk and branch are gone — registry is fully stale.
@@ -1156,8 +1163,7 @@ def cmd_create(
                     "TUSK_NO_AUTO_SYMLINK=1 to disable this fallback.",
                     file=sys.stderr,
                 )
-        for warning in _node_modules_freshness_warnings(workspace_path):
-            print(warning, file=sys.stderr)
+        _print_node_modules_freshness_warnings(workspace_path)
         # Stale-primary advisory (issue #913). Fires after the worktree is
         # recorded so a slow or hung fetch never blocks task-worktree
         # create from returning the workspace JSON. Best-effort; silently
