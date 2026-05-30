@@ -123,9 +123,10 @@ JSON blob and the `skill_run.run_id` you already captured.
    >
    > **Pre-start exits don't need cancel.** If
    > `tusk task-start --force --skill tusk` exits 1 (empty backlog) or
-   > exits 2 (task not found, already Done, blocked, or missing
-   > criteria without `--force`), the skill-run row is never opened, so
-   > there is no `run_id` to cancel. Just stop.
+   > exits 2 (task not found, already Done, already has an active session
+   > without `--force-session`, blocked, or missing criteria without
+   > `--force`), the skill-run row is never opened, so there is no
+   > `run_id` to cancel. Just stop.
 
 1b. **Workflow routing** — If the task's `workflow` field (from the
    `task` object in Step 1) is non-null, the task uses a custom

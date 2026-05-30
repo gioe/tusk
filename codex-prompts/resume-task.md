@@ -21,11 +21,13 @@ tusk branch-parse
 ## Step 2: Start the Task (Idempotent)
 
 ```bash
-tusk task-start <TASK_ID> --force
+tusk task-start <TASK_ID> --force --force-session
 ```
 
 The `--force` flag ensures the workflow proceeds even if the task has no
-acceptance criteria (emits a warning rather than hard-failing).
+acceptance criteria (emits a warning rather than hard-failing). The
+`--force-session` flag explicitly reuses an active session when resuming from
+outside the recorded task workspace.
 
 Returns JSON with four keys:
 

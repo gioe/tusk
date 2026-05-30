@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1053] - 2026-05-30
+
+- [TASK-536] Document task-start active-session override in distributed prompts
+
 ## [1052] - 2026-05-29
 
 - [TASK-537] Fix: route In Progress duplicate issue handoffs to resume-task
