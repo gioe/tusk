@@ -85,24 +85,52 @@ class TestScopeAdd:
 
         result = _run([
             "scope", "add", str(task_id),
-            "bin/tusk-helper.py",
+            "bin/./tusk-scope.py",
             "--reason", reason,
         ])
         assert result.returncode == 0, result.stderr
 
         payload = json.loads(result.stdout)
         assert payload["task_id"] == task_id
-        assert payload["pattern"] == "bin/tusk-helper.py"
+        assert payload["pattern"] == "bin/tusk-scope.py"
         assert payload["source"] == "expanded_mid_task"
         assert payload["reason"] == reason
 
         rows = _scope_rows(str(db_path), task_id)
         assert any(
-            r["pattern"] == "bin/tusk-helper.py"
+            r["pattern"] == "bin/tusk-scope.py"
             and r["source"] == "expanded_mid_task"
             and r["reason"] == reason
             for r in rows
         ), f"reason missing from DB row: {rows}"
+
+    def test_scope_add_dedupes_normalized_equivalent_paths(self, db_path):
+        """Equivalent spellings of the same repo-root path should not create
+        duplicate scope rows that inflate later retro scope analysis."""
+        task_id = _seed_task(str(db_path))
+
+        first = _run(["scope", "add", str(task_id), "bin/./tusk-scope.py"])
+        second = _run(["scope", "add", str(task_id), "./bin/tusk-scope.py"])
+
+        assert first.returncode == 0, first.stderr
+        assert second.returncode == 0, second.stderr
+        assert json.loads(first.stdout)["pattern"] == "bin/tusk-scope.py"
+        assert json.loads(second.stdout)["pattern"] == "bin/tusk-scope.py"
+        rows = _scope_rows(str(db_path), task_id)
+        assert [r["pattern"] for r in rows] == ["bin/tusk-scope.py"]
+
+    def test_scope_add_rejects_nonexistent_path(self, db_path):
+        task_id = _seed_task(str(db_path))
+
+        result = _run([
+            "scope", "add", str(task_id),
+            "SplitScreenApp/SplitScreenTests.swift",
+            "--reason", "base confusion",
+        ])
+
+        assert result.returncode == 2, result.stderr
+        assert "does not exist" in result.stderr
+        assert _scope_rows(str(db_path), task_id) == []
 
     def test_scope_add_rejects_unbounded_source(self, db_path):
         """`scope add` only accepts the mid-task source vocabulary —
@@ -150,7 +178,7 @@ class TestScopeAdd:
         """Sanity guard: the validator must not reject legitimate
         repo-root-relative paths."""
         task_id = _seed_task(str(db_path))
-        result = _run(["scope", "add", str(task_id), "bin/tusk-foo.py"])
+        result = _run(["scope", "add", str(task_id), "bin/tusk-scope.py"])
         assert result.returncode == 0, result.stderr
 
 
@@ -187,7 +215,7 @@ class TestScopeSnapshotRouting:
         task_id = _seed_task(str(db_path))
         backup_dir = self._backup_dir(str(db_path))
         before = self._count_snapshots(backup_dir)
-        result = _run(["scope", "add", str(task_id), "bin/foo.py"])
+        result = _run(["scope", "add", str(task_id), "bin/tusk-scope.py"])
         assert result.returncode == 0, result.stderr
         after = self._count_snapshots(backup_dir)
         assert after > before, (
@@ -198,7 +226,7 @@ class TestScopeSnapshotRouting:
     def test_scope_lock_still_snapshots(self, db_path):
         """Sanity guard: `scope lock` mutates and must still snapshot."""
         task_id = _seed_task(str(db_path))
-        _run(["scope", "add", str(task_id), "bin/foo.py"])
+        _run(["scope", "add", str(task_id), "bin/tusk-scope.py"])
         backup_dir = self._backup_dir(str(db_path))
         before = self._count_snapshots(backup_dir)
         result = _run(["scope", "lock", str(task_id)])
@@ -212,7 +240,7 @@ class TestScopeSnapshotRouting:
     def test_scope_remove_still_snapshots(self, db_path):
         """Sanity guard: `scope remove` mutates and must snapshot too."""
         task_id = _seed_task(str(db_path))
-        _run(["scope", "add", str(task_id), "bin/foo.py"])
+        _run(["scope", "add", str(task_id), "bin/tusk-scope.py"])
         row_id = _scope_rows_with_ids(str(db_path), task_id)[0]["id"]
         backup_dir = self._backup_dir(str(db_path))
         before = self._count_snapshots(backup_dir)
@@ -231,15 +259,15 @@ class TestScopeList:
 
     def test_list_emits_json_array(self, db_path):
         task_id = _seed_task(str(db_path))
-        _run(["scope", "add", str(task_id), "bin/a.py"])
-        _run(["scope", "add", str(task_id), "bin/b.py"])
+        _run(["scope", "add", str(task_id), "bin/tusk-scope.py"])
+        _run(["scope", "add", str(task_id), "bin/tusk-scope-paths.py"])
 
         result = _run(["scope", "list", str(task_id)])
         assert result.returncode == 0
         rows = json.loads(result.stdout)
         assert isinstance(rows, list)
         patterns = sorted(r["pattern"] for r in rows)
-        assert patterns == ["bin/a.py", "bin/b.py"]
+        assert patterns == ["bin/tusk-scope-paths.py", "bin/tusk-scope.py"]
 
     def test_list_empty_for_task_without_scope(self, db_path):
         task_id = _seed_task(str(db_path))
@@ -254,10 +282,10 @@ class TestScopeRemove:
 
     def test_remove_deletes_one_scope_row(self, db_path):
         task_id = _seed_task(str(db_path))
-        _run(["scope", "add", str(task_id), "bin/remove-me.py"])
-        _run(["scope", "add", str(task_id), "bin/keep-me.py"])
+        _run(["scope", "add", str(task_id), "bin/tusk-scope.py"])
+        _run(["scope", "add", str(task_id), "bin/tusk-scope-paths.py"])
         rows_before = _scope_rows_with_ids(str(db_path), task_id)
-        remove_id = next(r["id"] for r in rows_before if r["pattern"] == "bin/remove-me.py")
+        remove_id = next(r["id"] for r in rows_before if r["pattern"] == "bin/tusk-scope.py")
 
         result = _run(["scope", "remove", str(remove_id)])
         assert result.returncode == 0, result.stderr
@@ -266,12 +294,12 @@ class TestScopeRemove:
             "removed": True,
             "id": remove_id,
             "task_id": task_id,
-            "pattern": "bin/remove-me.py",
+            "pattern": "bin/tusk-scope.py",
             "source": "expanded_mid_task",
         }
 
         rows_after = _scope_rows(str(db_path), task_id)
-        assert [r["pattern"] for r in rows_after] == ["bin/keep-me.py"]
+        assert [r["pattern"] for r in rows_after] == ["bin/tusk-scope-paths.py"]
 
     def test_remove_missing_row_errors_clearly(self, db_path):
         result = _run(["scope", "remove", "999999"])
@@ -290,8 +318,8 @@ class TestScopeLock:
 
     def test_lock_stamps_unlocked_rows(self, db_path):
         task_id = _seed_task(str(db_path))
-        _run(["scope", "add", str(task_id), "bin/a.py"])
-        _run(["scope", "add", str(task_id), "bin/b.py"])
+        _run(["scope", "add", str(task_id), "bin/tusk-scope.py"])
+        _run(["scope", "add", str(task_id), "bin/tusk-scope-paths.py"])
 
         result = _run(["scope", "lock", str(task_id), "--by", "tester"])
         assert result.returncode == 0, result.stderr
@@ -305,7 +333,7 @@ class TestScopeLock:
 
     def test_lock_is_idempotent_for_already_locked_rows(self, db_path):
         task_id = _seed_task(str(db_path))
-        _run(["scope", "add", str(task_id), "bin/a.py"])
+        _run(["scope", "add", str(task_id), "bin/tusk-scope.py"])
 
         first = _run(["scope", "lock", str(task_id), "--by", "first"])
         assert json.loads(first.stdout)["rows_locked"] == 1

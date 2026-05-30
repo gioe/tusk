@@ -32,6 +32,7 @@ import argparse
 import os
 import sqlite3
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tusk_loader  # loads tusk-db-lib.py and tusk-json-lib.py
@@ -43,6 +44,7 @@ dumps = _json_lib.dumps
 
 
 VALID_SOURCES_ADD = ("expanded_mid_task", "operator_declared", "creates")
+_GLOB_CHARS = frozenset("*?[")
 
 
 def _parse_task_id(raw: str) -> int:
@@ -82,6 +84,49 @@ def _validate_pattern(pattern: str) -> "str | None":
     return None
 
 
+def _repo_root(config_path: str) -> str:
+    env_root = os.environ.get("TUSK_REPO_ROOT")
+    if env_root:
+        return os.path.realpath(env_root)
+
+    cfg = os.path.realpath(config_path)
+    if os.path.basename(cfg) == "config.default.json":
+        return os.path.dirname(cfg)
+    if os.path.basename(cfg) == "config.json" and os.path.basename(os.path.dirname(cfg)) == "tusk":
+        return os.path.dirname(os.path.dirname(cfg))
+    return os.getcwd()
+
+
+def _is_pattern_like(pattern: str) -> bool:
+    return any(ch in pattern for ch in _GLOB_CHARS)
+
+
+def _normalize_pattern(pattern: str, repo_root: str, source: str) -> tuple[str, "str | None"]:
+    """Return a stable repo-root-relative path for plain scope paths.
+
+    ``task_scope`` can also hold pattern-like values, so leave those alone.
+    The normal mid-task flow should reference files that already exist; the
+    ``creates`` source intentionally names future paths and is exempt.
+    """
+    if _is_pattern_like(pattern):
+        return pattern, None
+
+    normalized = os.path.normpath(pattern)
+    if normalized == ".":
+        return normalized, "Error: pattern must name a file or directory; got '.'"
+    if normalized.startswith("../") or normalized == "..":
+        return normalized, f"Error: pattern must not escape the repo root; got {pattern!r}"
+
+    path = Path(repo_root, normalized)
+    if source != "creates" and not path.exists():
+        return normalized, (
+            f"Error: scope path does not exist at repo root: {normalized!r}. "
+            "Use --source creates for paths this task will create."
+        )
+
+    return normalized, None
+
+
 def cmd_list(args: argparse.Namespace, db_path: str) -> int:
     task_id = _parse_task_id(args.task_id)
     with get_connection(db_path) as conn:
@@ -95,7 +140,7 @@ def cmd_list(args: argparse.Namespace, db_path: str) -> int:
     return 0
 
 
-def cmd_add(args: argparse.Namespace, db_path: str) -> int:
+def cmd_add(args: argparse.Namespace, db_path: str, repo_root: str) -> int:
     task_id = _parse_task_id(args.task_id)
     source = args.source
     if source not in VALID_SOURCES_ADD:
@@ -113,9 +158,22 @@ def cmd_add(args: argparse.Namespace, db_path: str) -> int:
     if err is not None:
         print(err, file=sys.stderr)
         return 2
-
     with get_connection(db_path) as conn:
         _ensure_task_exists(conn, task_id)
+        pattern, err = _normalize_pattern(pattern, repo_root, source)
+        if err is not None:
+            print(err, file=sys.stderr)
+            return 2
+
+        existing = conn.execute(
+            "SELECT id, task_id, pattern, source, reason, locked_at, locked_by, created_at "
+            "FROM task_scope WHERE task_id = ? AND pattern = ? ORDER BY id LIMIT 1",
+            (task_id, pattern),
+        ).fetchone()
+        if existing is not None:
+            print(dumps(_row_to_dict(existing)))
+            return 0
+
         conn.execute(
             "INSERT INTO task_scope (task_id, pattern, source, reason) "
             "VALUES (?, ?, ?, ?)",
@@ -198,7 +256,8 @@ def main(argv: list) -> int:
         return 1
 
     db_path = argv[1]
-    # config_path = argv[2]  # accepted for dispatcher-arity parity, unused
+    config_path = argv[2]
+    repo_root = _repo_root(config_path)
 
     parser = argparse.ArgumentParser(prog="tusk scope", description="Manage task scope")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -246,7 +305,7 @@ def main(argv: list) -> int:
         if args.cmd == "list":
             return cmd_list(args, db_path)
         if args.cmd == "add":
-            return cmd_add(args, db_path)
+            return cmd_add(args, db_path, repo_root)
         if args.cmd in ("remove", "rm"):
             return cmd_remove(args, db_path)
         if args.cmd == "lock":
