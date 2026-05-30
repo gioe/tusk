@@ -28,6 +28,15 @@ task_referenced_paths = _git_helpers.task_referenced_paths
 # a stderr advisory pointing at /tusk-update so the implicit list can be made
 # explicit; `TUSK_NO_AUTO_SYMLINK=1` disables it.
 CANONICAL_RUNTIME_FILES = ["node_modules", ".venv", ".env", ".env.local"]
+PACKAGE_FRESHNESS_FILES = [
+    "package.json",
+    "package-lock.json",
+    "npm-shrinkwrap.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    "bun.lock",
+    "bun.lockb",
+]
 
 # Marker file written into a namespace subdir on first claim — names the
 # absolute primary-repo path that owns the subdir. Future create calls read
@@ -625,6 +634,68 @@ def _link_gitignored_files(
     return created
 
 
+def _node_modules_freshness_warnings(worktree_path: str) -> list[str]:
+    """Return warnings for worktree node_modules older than adjacent manifests.
+
+    The check runs after symlink seeding, so it covers both symlinked
+    node_modules from the primary checkout and any real node_modules directory
+    already present in the worktree. It intentionally warns instead of running
+    package-manager commands: dependency installs can need network, mutate
+    lockfiles, or take minutes, and create-time should stay predictable.
+    """
+    warnings: list[str] = []
+    if not os.path.isdir(worktree_path):
+        return warnings
+
+    for root, dirs, _files in os.walk(worktree_path, followlinks=False):
+        if ".git" in dirs:
+            dirs.remove(".git")
+        if "node_modules" not in dirs:
+            continue
+        node_modules = os.path.join(root, "node_modules")
+        if not os.path.exists(node_modules):
+            dirs.remove("node_modules")
+            continue
+
+        manifest_paths = [
+            os.path.join(root, name)
+            for name in PACKAGE_FRESHNESS_FILES
+            if os.path.isfile(os.path.join(root, name))
+        ]
+        if not manifest_paths:
+            dirs.remove("node_modules")
+            continue
+
+        try:
+            node_mtime = os.path.getmtime(node_modules)
+        except OSError:
+            dirs.remove("node_modules")
+            continue
+
+        stale_against: list[str] = []
+        for path in manifest_paths:
+            try:
+                if os.path.getmtime(path) > node_mtime:
+                    stale_against.append(os.path.basename(path))
+            except OSError:
+                continue
+        if stale_against:
+            rel = os.path.relpath(node_modules, worktree_path)
+            package_dir = os.path.dirname(rel) or "."
+            warnings.append(
+                "Warning: "
+                f"{rel} may be stale; "
+                + ", ".join(stale_against)
+                + " in "
+                + package_dir
+                + " is newer than node_modules. Run the package install "
+                "command for that directory before running JS/TS tests."
+            )
+        dirs.remove("node_modules")
+
+    return warnings
+
+
 def _attach_worktree(
     repo_root: str,
     worktree_path: str,
@@ -1085,6 +1156,8 @@ def cmd_create(
                     "TUSK_NO_AUTO_SYMLINK=1 to disable this fallback.",
                     file=sys.stderr,
                 )
+        for warning in _node_modules_freshness_warnings(workspace_path):
+            print(warning, file=sys.stderr)
         # Stale-primary advisory (issue #913). Fires after the worktree is
         # recorded so a slow or hung fetch never blocks task-worktree
         # create from returning the workspace JSON. Best-effort; silently

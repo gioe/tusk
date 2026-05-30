@@ -1122,6 +1122,141 @@ class TestTaskWorktreeCreatePathStyleSymlinks:
         )
 
 
+class TestTaskWorktreeCreateNodeModulesFreshness:
+    """Issue #960 — create should warn when a materialized node_modules is
+    older than the adjacent package manifest or lockfile.
+    """
+
+    def _set_symlink_files(self, repo, names):
+        cfg_path = os.path.join(str(repo), "tusk", "config.json")
+        with open(cfg_path, encoding="utf-8") as f:
+            cfg = json.load(f)
+        cfg.setdefault("worktree", {})["symlink_files"] = list(names)
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+
+    def _plant_files(self, repo, paths_and_content):
+        for rel, content in paths_and_content:
+            full = os.path.join(str(repo), rel)
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            with open(full, "w", encoding="utf-8") as f:
+                f.write(content)
+
+    def _commit_package_files(self, repo, *paths):
+        _git(["add", *paths], cwd=repo)
+        _git(["commit", "-m", "add package manifests"], cwd=repo)
+
+    def _age_dir(self, path, timestamp=1_700_000_000):
+        os.utime(path, (timestamp, timestamp))
+
+    def test_fallback_warns_when_nested_node_modules_is_older_than_package_json(
+        self, tmp_path, monkeypatch
+    ):
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        self._plant_files(
+            repo,
+            [
+                ("apps/web/package.json", '{"dependencies":{"left-pad":"1.3.0"}}'),
+                ("apps/web/node_modules/left-pad/index.js", "module.exports = 1"),
+            ],
+        )
+        self._commit_package_files(repo, "apps/web/package.json")
+        self._age_dir(os.path.join(str(repo), "apps", "web", "node_modules"))
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+
+        result = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "stale-fallback",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "apps/web/node_modules may be stale" in result.stderr
+        assert "package.json" in result.stderr
+        assert "apps/web" in result.stderr
+        assert "package install command" in result.stderr
+
+    def test_path_style_warning_names_only_the_configured_package_dir(
+        self, tmp_path, monkeypatch
+    ):
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        self._set_symlink_files(repo, ["apps/web/node_modules"])
+        self._plant_files(
+            repo,
+            [
+                ("apps/web/package-lock.json", '{"lockfileVersion":3}'),
+                ("apps/web/node_modules/pkg/index.js", "web"),
+                ("apps/api/package-lock.json", '{"lockfileVersion":3}'),
+                ("apps/api/node_modules/pkg/index.js", "api"),
+            ],
+        )
+        self._commit_package_files(
+            repo, "apps/web/package-lock.json", "apps/api/package-lock.json"
+        )
+        self._age_dir(os.path.join(str(repo), "apps", "web", "node_modules"))
+        self._age_dir(os.path.join(str(repo), "apps", "api", "node_modules"))
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+
+        result = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "stale-path-style",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "apps/web/node_modules may be stale" in result.stderr
+        assert "package-lock.json" in result.stderr
+        assert "apps/api/node_modules may be stale" not in result.stderr
+
+    def test_no_warning_when_node_modules_is_newer_than_manifest(
+        self, tmp_path, monkeypatch
+    ):
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        self._plant_files(
+            repo,
+            [
+                ("apps/web/package.json", '{"dependencies":{"left-pad":"1.3.0"}}'),
+                ("apps/web/node_modules/left-pad/index.js", "module.exports = 1"),
+            ],
+        )
+        self._commit_package_files(repo, "apps/web/package.json")
+        self._age_dir(os.path.join(str(repo), "apps", "web", "node_modules"), 4_100_000_000)
+        task_id = _insert_task(db_path)
+        workspace_root = tmp_path / "workspaces"
+
+        result = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "fresh-fallback",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "may be stale" not in result.stderr
+
+
 class TestTaskWorktreeCreateStaleRow:
     """Issue #803 — when task_workspaces has a row but workspace_path is gone
     from disk, the old behavior returned `created:false` and the caller `cd`'d

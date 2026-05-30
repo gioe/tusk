@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1054] - 2026-05-29
+
+- [TASK-538] Fix: Refresh or warn on stale task worktree node_modules
+
 ## [1053] - 2026-05-30
 
 - [TASK-536] Document task-start active-session override in distributed prompts
