@@ -1,9 +1,8 @@
-"""Integration tests for the tusk-commit lint gate (TASK-54).
+"""Integration tests for tusk commit and standalone lint behavior.
 
 Covers:
-- Blocking path: a non-advisory lint violation aborts ``tusk commit`` with
-  the new exit code 6 and no commit is created.
-- Bypass path: ``--skip-lint`` and ``--skip-verify`` both bypass the gate.
+- Commit no longer runs lint; the required clean-lint gate lives in
+  ``tusk merge``.
 - Advisory-only rules still print their findings but do NOT block — regression
   guard for criterion 242.
 - Quiet output: ``tusk-lint.py --quiet`` omits passing rules and prints only
@@ -133,8 +132,8 @@ class TestLintQuietOutput:
 # ---------------------------------------------------------------------------
 
 
-class TestCommitLintGate:
-    def test_blocking_lint_aborts_with_exit_6(self, tmp_path):
+class TestCommitLintCompatibility:
+    def test_blocking_lint_no_longer_aborts_commit(self, tmp_path):
         repo = str(tmp_path / "repo")
         _git_init(repo)
         _plant_blocking_violation(repo)
@@ -146,20 +145,19 @@ class TestCommitLintGate:
 
         result = _run_commit(repo, target)
 
-        assert result.returncode == 6, (
-            f"expected exit 6, got {result.returncode}.\n"
+        assert result.returncode == 0, (
+            f"expected commit success because lint moved to merge, got {result.returncode}.\n"
             f"stdout={result.stdout}\nstderr={result.stderr}"
         )
-        assert "aborting commit" in (result.stdout + result.stderr)
 
-        # No commit was created — git log length unchanged at 1 (the seed).
+        # Commit was created; merge is now responsible for blocking dirty lint.
         log = subprocess.run(
             ["git", "-C", repo, "log", "--oneline"],
             capture_output=True, text=True, check=True,
         )
-        assert len(log.stdout.strip().splitlines()) == 1
+        assert len(log.stdout.strip().splitlines()) == 2
 
-    def test_skip_lint_bypasses_gate(self, tmp_path):
+    def test_skip_lint_is_accepted_for_compatibility(self, tmp_path):
         repo = str(tmp_path / "repo")
         _git_init(repo)
         _plant_blocking_violation(repo)
@@ -170,7 +168,7 @@ class TestCommitLintGate:
         result = _run_commit(repo, target, "--skip-lint")
 
         assert result.returncode == 0, (
-            f"expected success with --skip-lint, got {result.returncode}.\n"
+            f"expected success with compatibility --skip-lint, got {result.returncode}.\n"
             f"stdout={result.stdout}\nstderr={result.stderr}"
         )
         # Commit landed.

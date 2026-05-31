@@ -250,7 +250,7 @@ def rule5_done_without_closed_reason(root):
 # skipped so retroactively-added criteria on long-closed work don't swamp
 # the output — on backlogs with 100+ historical tasks from before criteria
 # enforcement, the unscoped query could produce enough output to hang
-# `tusk commit` in its lint phase for minutes at a time.
+# `tusk merge` in its lint phase for minutes at a time.
 RULE6_RECENT_DAYS = 30
 
 # When non-None, Rule 6 narrows its query to a single task ID instead of
@@ -1499,7 +1499,7 @@ def main():
         print("=== Lint Conventions Report ===")
         print()
 
-    # Per-rule timing breadcrumb (issue #952). `tusk commit` runs `tusk lint`
+    # Per-rule timing breadcrumb (issue #952). `tusk merge` runs `tusk lint`
     # as a subprocess with a hard timeout; on TimeoutExpired the subprocess is
     # killed and its stdout is lost, so the abort message can't name the slow
     # rule. When TUSK_LINT_TRACE_FILE is set, overwrite it with the name of the

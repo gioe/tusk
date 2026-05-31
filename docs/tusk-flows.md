@@ -171,9 +171,9 @@ USER / /loop
 ```
 COMMAND             CALLS INTERNALLY
 ──────────────────  ─────────────────────────────────────────────────────
-commit              test_command gate  ·  lint  ·  criteria done  (per --criteria flag)
+commit              test_command gate  ·  criteria done  (per --criteria flag)
                     exit codes: 2=test_command, 3=git add/commit, 4=criteria
-merge               preflight checks  ·  session-close  ·  task-done  (+ git ff-merge, push, branch delete)
+merge               preflight checks  ·  lint gate  ·  session-close  ·  task-done  (+ git ff-merge, push, branch delete)
 branch              compatibility path for branch-only workflows (git operations only)
 task-worktree       git worktree create/list + task_workspaces registry reconciliation
 task-insert         dupes check  ·  wsjf
@@ -203,7 +203,7 @@ LIFECYCLE
   wsjf                (recompute priority_score for all open tasks)
 
 WORK CAPTURE
-  commit              test_command gate + lint + stage + commit + criteria done (atomic)
+  commit              test_command gate + stage + commit + criteria done (atomic)
   criteria            add / list / done / skip / reset
   progress            append checkpoint to task_progress
   review              start / add-comment / resolve / approve / summary
@@ -237,7 +237,7 @@ CONFIG & SCHEMA
 UTILITY
   sql-quote           (safe string escaping for SQL interpolation)
   dupes               check / scan / similar
-  lint                (static rules 1–15 + DB-backed rules 16–17, advisory)
+  lint                (static rules 1–15 + DB-backed rules 16–17; blocking rules are enforced by merge)
   lint-rule           add / list / remove  (DB-backed grep rules; blocking=rule16, advisory=rule17)
   path                (print resolved DB path)
   shell               (interactive sqlite3)

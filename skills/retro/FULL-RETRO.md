@@ -6,16 +6,18 @@ Thorough retro for medium-to-large tasks. Includes subsumption analysis, depende
 
 **Check for custom focus areas first.** Attempt to read `<base_directory>/FOCUS.md`.
 - If the file exists: use the categories defined in it for Step 3 instead of the defaults.
-- If the file does not exist: use the default categories A–D defined in Step 3.
+- If the file does not exist: use the default categories A/B/C/D defined in Step 3.
 
 Analyze the full conversation context. Look for:
 
 - **Friction points** — confusing instructions, missing context, repeated mistakes
 - **Workarounds** — manual steps that could be automated or codified into skills
-- **Tangential issues** — test failures, tech debt, bugs discovered out of scope
-- **Incomplete work** — deferred decisions, TODOs, partial implementations
+- **Context-window tangents** — issues noticed in the context that was pulled into the session, but unrelated to the work just shipped
+- **Task-adjacent follow-up** — issues noticed in the context window that are related to the task or changed area, but were not part of what just shipped
 - **Failed approaches** — strategies that didn't work and why
-- **Lint Rules** — concrete, grep-detectable anti-patterns observed in this session (max 3). Only if an actual mistake occurred that a grep rule could prevent.
+- **Mechanical guard opportunities** — observed mistakes that can be mechanically prevented with a grep-detectable lint rule (max 3). First identify the underlying issue in another category; use this only when the proposed response is "add a lint rule."
+- **Debugging velocity** — if this was a bug or diagnosis task, ask what would have reduced time-to-root-cause, then classify the resulting finding into A, B, C, or F.
+- **Documentation drift** — project docs that should change because of what just shipped. Inspect whether changed commands, config keys, workflows, schemas, prompt/skill behavior, install behavior, user-facing output, or operational gotchas are reflected in the durable docs future task runs will read (`CLAUDE.md`/`AGENTS.md`, `README.md`, `docs/`, `.codex/prompts/`, and distributed `skills/` files).
 
 Review the entire session, not just the most recent messages.
 
@@ -33,7 +35,7 @@ tusk retro-signals $RETRO_TASK_ID
 
 Parse the JSON. The fields consumed by the steps below are:
 
-- **`review_themes`** — `(category, severity)` pairs with ≥ 2 occurrences across this task's review passes, plus a short sample comment. Each theme is a candidate Category A (conventions) or Category D (lint rules) finding. Seed Step 3 directly from this list — **do not** re-query `review_comments` with SQL.
+- **`review_themes`** — `(category, severity)` pairs with ≥ 2 occurrences across this task's review passes, plus a short sample comment. Each theme is a candidate finding for Category A, B, C, or D; if it also describes a concrete grep-detectable mistake, attach a lint-rule action. Seed Step 3 directly from this list — **do not** re-query `review_comments` with SQL.
 - **`reopen_count`** — integer count of `to_status='To Do'` transitions on this task. When > 0, render a `**Reopened N times**` line in Step 4's "Rework Context" section so the reviewer pauses on whether the close actually stuck.
 - **`rework_chain`** — `{fixes, fixed_by}`. `fixes` is the upstream task this one was filed to address (via `fixes_task_id`); `fixed_by` is the downstream follow-ups that were filed to fix *this* one. When either list is non-empty, render the entries in Step 4's "Rework Context" section and append the explicit "**Was the root cause addressed?**" prompt — recurring fix chains are the strongest signal that an earlier pass treated symptoms rather than the underlying issue.
 
@@ -95,20 +97,24 @@ If `<base_directory>/FOCUS.md` was found in Step 1, use those categories.
 
 Otherwise organize into the default four categories:
 
-- **A**: Process improvements — skill/CLAUDE.md/tooling friction, confusing instructions, missing conventions
-- **B**: Tangential issues — out-of-scope bugs, tech debt, architectural concerns
-- **C**: Follow-up work — incomplete items, deferred decisions, edge cases
-- **D**: Lint Rules — concrete, grep-detectable anti-patterns (max 3). Only if an actual mistake occurred that a grep rule could prevent. Applied inline when possible (step 5d); task creation is the fallback.
-- **E**: Debugging Velocity — only if the session involved fixing a bug or diagnosing unexpected behavior. Reflect on: (1) what information was missing that delayed diagnosis; what tool, log, or trace would have surfaced the root cause immediately; whether a test would have caught this before it became a bug. (2) Did fixing this bug change the conditions under which adjacent issues matter? (e.g., removing noise that was masking a separate signal, raising the quality bar in a way that exposes nearby gaps.) If so, those adjacent issues are in scope for this category even if they predate the session — "predated the session" is not sufficient grounds for dismissal when the fix elevated their relevance. If no bug was present, this category is empty. Findings must be concrete (tasks or skill/CLAUDE.md patches) — not generic advice like "add more logging."
+- **A**: Tusk workflow failures — failures, confusing behavior, missing safeguards, or broken handoffs in tusk itself that should be filed as tusk issues. This includes CLI, skill, prompt, hook, DB, install, review, merge, task lifecycle, or automation behavior that made the task harder or less reliable.
+- **B**: Context-window tangents — issues noticed in the context that was pulled into the session, but unrelated to the work just shipped. Use this for bugs, tech debt, architectural concerns, stale patterns, or suspicious nearby behavior worth addressing later. Do not use this for unfinished scoped work (Category C) or docs that need updating because of the shipped change (Category D).
+- **C**: Task-adjacent follow-up — issues noticed in the context window that are related to the task or changed area, but were not part of what just shipped. Use this for adjacent edge cases, parity work, secondary workflows, or deferred decisions that should be addressed later. Category B is for unrelated context-window issues.
+- **D**: Project Documentation Updates — project documentation that should change because of what just shipped. Inspect the task summary, commit list, and diff for changed commands, config keys, workflows, schemas, prompt/skill behavior, install behavior, user-facing output, or operational gotchas. Check whether the relevant durable docs were updated in the same task: `CLAUDE.md`/`AGENTS.md`, `README.md`, `docs/`, `.codex/prompts/`, and distributed `skills/` files. If the docs are stale or missing, create a concrete doc follow-up or propose an inline doc patch. If behavior changed and no docs need updates, explicitly mark this category empty with the reason.
 
-If a category has no findings, note that explicitly — an empty category is a positive signal.
+After categorizing findings, run two cross-cutting checks:
+
+- **Debugging velocity lens** — if the session involved fixing a bug or diagnosing unexpected behavior, ask what would have reduced time-to-root-cause: a test, log, trace, command, tusk safeguard, clearer handoff, or documentation. Classify any resulting finding into Category A, B, C, or D; do not create a separate debugging category.
+- **Mechanical guard action route** — if any finding describes an actual mistake that can be prevented by a concrete grep-detectable pattern, mark its proposed action as "add lint rule" and capture the pattern, file glob, and message. Do not use this for general advice or style preferences. Applied inline when possible (step 5d); task creation is the fallback.
+
+For each default category, explicitly record `none` or list the findings. An empty category is a positive signal.
 
 ### Seeding from `review_themes`
 
-For each entry in `review_themes` (from Step 2b), add one candidate finding to either Category A or Category D based on the theme's `category`/`severity` signal and its sample comment:
+For each entry in `review_themes` (from Step 2b), add one candidate finding to Category A, B, C, or D based on the theme's `category`/`severity` signal and its sample comment. If the same theme also points at a concrete grep-detectable mistake, add an "add lint rule" proposed action to that finding.
 
-- **Category A (conventions)** — the recurring comment describes a heuristic, preference, or convention the reviewer keeps repeating (e.g. "always pass `encoding='utf-8'` to `subprocess.run`", "prefer `pathlib.Path` over `os.path`"). Rule-like guidance that can be captured via `tusk conventions add` belongs here.
-- **Category D (lint rules)** — the recurring comment points at a concrete grep-detectable anti-pattern (e.g. "don't call `sqlite3` directly", "bare `except:` in *.py files"). Only promote to D if an actual mistake occurred that a grep rule would have caught — general advice stays in A.
+- **Category A (tusk workflow failure)** — the recurring comment describes a failure or missing safeguard in tusk itself. Heuristics or preferences that are not tusk failures should not be promoted to Category A; record them as Category C follow-up work or attach a lint-rule action only when they fit those definitions.
+- **Lint-rule action** — the recurring comment points at a concrete grep-detectable anti-pattern (e.g. "don't call `sqlite3` directly", "bare `except:` in *.py files"). Only attach this action if an actual mistake occurred that a grep rule would have caught.
 
 Use the `count` and `sample` fields to show the reviewer why this theme crossed the noise floor. Don't invent themes that aren't in `review_themes` — the aggregation already filtered to recurrence ≥ 2.
 
@@ -120,6 +126,8 @@ For each finding, determine whether it is a **tusk-issue** or a **project-issue*
 - **project-issue** — specific to the current project: its code, architecture, conventions, or processes
 
 Label each finding with its classification. This drives the routing in Step 5b.
+
+Category A findings are always **tusk-issues**. Category D findings are normally **project-issues** unless the missing documentation is in tusk's distributed docs/prompts/skills.
 
 ### 3b: Pre-filter Duplicates
 
@@ -199,7 +207,7 @@ Brief (2-3 sentence) overview of what the session accomplished.
 1. **<title>** — <description>
    → Proposed: <summary> | <priority> | <task_type> | <domain>
 
-(Repeat for each category. Use the resolved category names — from FOCUS.md if present, or defaults A/B/C/D/E. Omit empty categories.)
+(Repeat for each category. Use the resolved category names — from FOCUS.md if present, or defaults A/B/C/D. Omit empty categories, but only after explicitly checking and recording `none` during Step 3.)
 
 ### Duplicates Already Tracked (omit if none)
 | Finding | Matched Task | Similarity |
@@ -292,7 +300,7 @@ tusk task-insert "<finding title>" "<finding description> [Note: GitHub issue co
 ```
 Note in Step 6 that the issue was tracked as a local task rather than filed on GitHub.
 
-**project-issues** — **Category A and Category E findings:** Before inserting, follow step 5e to check for an inline skill patch. Only call `tusk task-insert` for a Category A or E finding here if step 5e was skipped, if no target file was identified, or if the user chose to defer (include the proposed diff in the description).
+**project-issues** — If the approved finding's proposed action is "add convention", or if it is a **Category D** documentation finding, follow step 5e before inserting. Only call `tusk task-insert` for a routed finding here if step 5e was skipped, if no target file was identified, or if the user chose to defer (include the proposed command or diff in the description).
 
 ```bash
 tusk task-insert "<summary>" "<description>" --priority "<priority>" --domain "<domain>" --task-type "<task_type>" --assignee "<assignee>" --complexity "<complexity>" \
@@ -314,13 +322,13 @@ Present a numbered table for approval:
 
 Then insert approved dependencies with `tusk deps add <task_id> <depends_on_id> [--type contingent]`.
 
-### 5d: Apply Lint Rules Inline (only if lint rule findings exist)
+### 5d: Apply Lint Rules Inline (only if lint-rule action candidates exist)
 
-Apply this step if there are lint rule findings — Category D when using defaults, or a "Lint Rules" section when using a custom FOCUS.md.
+Apply this step if any approved finding has a proposed "add lint rule" action. With custom FOCUS.md categories, also apply this step for entries in a "Lint Rules" section.
 
 The bar is high — only proceed if you observed an **actual mistake** that a grep rule would have caught. Do not apply lint rules for general advice.
 
-For each lint rule finding, attempt **inline application** first:
+For each lint-rule action candidate, attempt **inline application** first:
 
 1. **Present the proposed rule** — show the exact command and ask for approval:
 
@@ -347,17 +355,17 @@ For `<task_type>`: use the project's config `task_types` array (already fetched 
 
 Fill in `<pattern>` (grep regex), `<file_glob>` (e.g., `*.md` or `bin/tusk-*.py`), and `<message>` (human-readable warning) with the specific values from your finding.
 
-### 5e: Skill-Patch for Category A and Category E Findings (only if Category A or Category E findings exist)
+### 5e: Inline Convention/Doc Actions
 
-Before creating tasks for Category A (process improvement) or Category E (debugging velocity) findings, check if any can be applied as inline patches to an existing skill or CLAUDE.md. Run this step **before** 5b for Category A and Category E findings.
+Before creating tasks for routed project-issue findings, check whether the approved action can be applied inline as a convention or documentation patch. Run this step **before** 5b for findings whose proposed action is "add convention" or whose category is D.
 
 Initialize an empty list `$AUTO_APPLIED` for the Step 6 summary — auto-apply gate hits in step 3 below append one line per applied edit.
 
-For each approved Category A finding:
+For each approved project-issue finding routed here:
 
 1. **Classify the finding as rule-like or narrative:**
    - **Rule-like**: a single heuristic, invariant, or convention — e.g., "always quote file paths in zsh". These belong in the conventions DB.
-   - **Narrative/reference**: multi-step procedures, workflow descriptions, or anything requiring more than one sentence. These belong as a patch to a skill file or CLAUDE.md.
+   - **Narrative/reference**: multi-step procedures, workflow descriptions, or anything requiring more than one sentence. These belong as a patch to a skill file, agent doc, README, or file under `docs/`.
 
 2. **If the finding is rule-like** — propose adding a convention via `tusk conventions add`:
    a. Draft the exact convention text (one concise sentence) and a comma-separated list of relevant topic tags.
@@ -379,10 +387,12 @@ For each approved Category A finding:
 
 3. **If the finding is narrative/reference** — identify a target file:
    - A skill name matching a directory in `.claude/skills/` (list them with `ls .claude/skills/`)
-   - The string `CLAUDE.md`
+   - The string `CLAUDE.md` or `AGENTS.md`
+   - `README.md`
+   - A specific file under `docs/`
 
    **If a target file is identified**:
-   a. Read the file (`Read .claude/skills/<name>/SKILL.md` or `Read CLAUDE.md`)
+   a. Read the file (`Read .claude/skills/<name>/SKILL.md`, `Read CLAUDE.md`, `Read AGENTS.md`, `Read README.md`, or the specific `docs/<path>.md`)
    b. Produce a **concrete proposed edit** — the exact text to add, change, or remove. Show the specific diff, not a vague description.
 
    c. **Auto-apply gate (only for skill-frontmatter edits).** Before showing the three-option prompt, read the `retro` config once:
@@ -395,7 +405,7 @@ For each approved Category A finding:
 
       If `retro.auto_apply` is `true`, the proposed edit qualifies for auto-apply only when **ALL** of the following hold:
 
-      - **Frontmatter-only**: every changed line lies inside the YAML frontmatter block (between the opening `---` and closing `---` at the top of `.claude/skills/<name>/SKILL.md`), and each changed line is either a `description:` line or a `#`-prefixed comment line. Body changes (anything below the closing `---`), `name:` / `allowed-tools:` / other frontmatter fields, and `CLAUDE.md` edits never qualify.
+      - **Frontmatter-only**: every changed line lies inside the YAML frontmatter block (between the opening `---` and closing `---` at the top of `.claude/skills/<name>/SKILL.md`), and each changed line is either a `description:` line or a `#`-prefixed comment line. Body changes (anything below the closing `---`), `name:` / `allowed-tools:` / other frontmatter fields, and agent-doc/project-doc edits never qualify.
       - **Size budget**: the total character count of the diff (sum of `old_string` length + `new_string` length, or for additions just the `new_string` length) is strictly less than `retro.auto_apply_max_chars` (default 200).
       - **Additive or character-level**: either (a) the change is a pure addition — `new_string` extends `old_string` with appended content and contains no deletions — or (b) the change is character-level on a single line — exactly one frontmatter line is modified, and the modification only inserts or replaces characters within that line (no full-line removals, no multi-line removals).
 
@@ -405,8 +415,8 @@ For each approved Category A finding:
 
    d. Otherwise, present the patch with three options:
 
-      > **Skill Patch Proposal** — [finding title]
-      > File: `.claude/skills/<name>/SKILL.md`
+      > **Skill/Doc Patch Proposal** — [finding title]
+      > File: `<target file>`
       >
       > ```diff
       > - [existing text to replace]
@@ -467,7 +477,8 @@ tusk retro-finding add \
 - `issue:<url>` — a GitHub issue was filed via `tusk report-issue`
 - `lint:<id>` — a lint rule was added via `tusk lint-rule add`
 - `convention:<id>` — a convention was added via `tusk conventions add`
-- `skill-patch:<file>` — an inline edit was applied to a skill or CLAUDE.md
+- `skill-patch:<file>` — an inline edit was applied to a skill or agent doc
+- `doc-patch:<file>` — an inline edit was applied to README.md or a file under docs/
 - `subsumed:TASK-<id>` — folded into an existing task via 5a
 - `documented` — recorded without a concrete action (e.g. noted for context)
 

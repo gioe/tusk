@@ -110,25 +110,50 @@ dependency proposals.
 
 Use the default categories:
 
-- **Category A** — Process improvements: friction in prompts, agent
-  doc, tooling.
-- **Category B** — Tangential issues: bugs, tech debt, architectural
-  concerns discovered out of scope.
-- **Category C** — Follow-up work: incomplete items, deferred
-  decisions, edge cases.
-- **Category D** — Lint Rules: concrete, grep-detectable anti-patterns
-  observed in this session (max 3). Only include if an actual mistake
-  occurred that a grep rule could prevent.
-- **Category E** — Debugging Velocity: only if the session involved
-  fixing a bug or diagnosing unexpected behavior. Reflect on what
-  information was missing that delayed diagnosis, what tool/log/trace
-  would have surfaced the root cause immediately, and whether a test
-  would have caught the bug before it became one. If the fix elevated
-  the relevance of adjacent issues that predated the session, those
-  count too. Findings must be concrete (tasks or skill/doc patches) —
-  not generic advice like "add more logging."
+- **Category A** — Tusk workflow failures: failures, confusing
+  behavior, missing safeguards, or broken handoffs in tusk itself that
+  should be filed as tusk issues. This includes CLI, prompt, hook, DB,
+  install, review, merge, task lifecycle, or automation behavior that
+  made the task harder or less reliable.
+- **Category B** — Context-window tangents: issues noticed in the
+  context that was pulled into the session, but unrelated to the work
+  just shipped. Use this for bugs, tech debt, architectural concerns,
+  stale patterns, or suspicious nearby behavior worth addressing later.
+  Do not use this for unfinished scoped work (Category C) or docs that
+  need updating because of the shipped change (Category D).
+- **Category C** — Task-adjacent follow-up: issues noticed in the
+  context window that are related to the task or changed area, but were
+  not part of what just shipped. Use this for adjacent edge cases,
+  parity work, secondary workflows, or deferred decisions that should be
+  addressed later. Category B is for unrelated context-window issues.
+- **Category D** — Project Documentation Updates: project docs that
+  should change because of what just shipped. Inspect the task summary
+  and diff for changed commands, config keys, workflows, schemas,
+  prompt/skill behavior, install behavior, user-facing output, or
+  operational gotchas. Check whether the relevant durable docs were
+  updated in the same task: `CLAUDE.md`/`AGENTS.md`, `README.md`,
+  `docs/`, `.codex/prompts/`, and distributed `skills/` files. If docs
+  are stale or missing, create a concrete doc follow-up or propose an
+  inline doc patch. If behavior changed and no docs need updates,
+  explicitly mark this category empty with the reason.
 
-Analyze the full conversation context using these categories.
+Analyze the full conversation context using these categories. Also run
+these two cross-cutting checks after categorizing findings:
+
+- **Debugging velocity lens** — if the session involved fixing a bug or
+  diagnosing unexpected behavior, ask what would have reduced
+  time-to-root-cause: a test, log, trace, command, tusk safeguard,
+  clearer handoff, or documentation. Classify any resulting finding
+  into Category A, B, C, or D; do not create a separate debugging
+  category.
+- **Mechanical guard action route** — if any finding describes an actual
+  mistake that can be prevented by a concrete grep-detectable pattern,
+  mark its proposed action as "add lint rule" and capture the pattern,
+  file glob, and message. Do not use this for general advice or style
+  preferences.
+
+For each default category, explicitly record `none` or list the
+findings. This keeps the retro from silently skipping a bucket.
 
 If **all categories are empty**, run `tusk skill-run cancel <run_id>`,
 report "Clean session — no findings" and stop.
@@ -149,6 +174,10 @@ For each finding, determine whether it is a **tusk-issue** or a
 
 Label each finding with its classification. This drives the routing in
 LR-2.
+
+Category A findings are always **tusk-issues**. Category D findings are
+normally **project-issues** unless the missing documentation is in tusk's
+distributed docs/prompts/skills.
 
 ### LR-2: Create Tasks / File Issues (only if findings exist)
 
@@ -195,9 +224,10 @@ LR-2.
    Note in LR-3 that the issue was tracked as a local task rather than
    filed on GitHub.
 
-   **project-issues** — For **Category A and Category E** approved
-   findings, follow **LR-2a** below before inserting tasks. For all
-   other project-issue findings, insert tasks now:
+   **project-issues** — If the approved finding's proposed action is
+   "add convention", or if it is a **Category D** documentation finding,
+   follow **LR-2a** below before inserting tasks. For all other
+   project-issue findings, insert tasks now:
    ```bash
    tusk task-insert "<summary>" "<description>" \
      --priority "<priority>" --domain "<domain>" --task-type "<task_type>" \
@@ -209,13 +239,13 @@ LR-2.
    `--assignee` entirely if the value is NULL/empty. Exit code 1 means
    duplicate — skip.
 
-### LR-2a: Convention / Prompt-Patch for Category A and E Findings
+### LR-2a: Inline Convention / Prompt-Doc Actions
 
-Before creating tasks for Category A (process improvement) or Category
-E (debugging velocity) findings, check if any can be applied as inline
-fixes.
+Before creating tasks for routed project-issue findings, check whether
+the approved action can be applied inline as a convention or
+documentation patch.
 
-For each approved Category A finding:
+For each approved project-issue finding routed here:
 
 1. **Classify the finding as rule-like or narrative:**
    - **Rule-like** — a single heuristic, invariant, or convention about
@@ -223,8 +253,8 @@ For each approved Category A finding:
      DB via `tusk conventions add`.
    - **Narrative/reference** — multi-step procedures or explanatory
      context. These belong as a patch to a prompt file
-     (`.codex/prompts/<name>.md`) or to the project's agent doc
-     (`AGENTS.md` / `CLAUDE.md`).
+     (`.codex/prompts/<name>.md`), the project's agent doc
+     (`AGENTS.md` / `CLAUDE.md`), `README.md`, or a file under `docs/`.
 
 2. **If the finding is rule-like** — propose adding a convention via
    `tusk conventions add`:
@@ -236,14 +266,15 @@ For each approved Category A finding:
      task description; `skip` proceeds to normal task creation.
 
 3. **If the finding is narrative/reference** — identify a target file
-   (a prompt name in `.codex/prompts/` or the project agent doc),
-   produce a concrete proposed edit, and present it with the same three
-   options. `approve` applies the edit now; `defer` includes the diff
-   in the task description; `skip` proceeds to normal task creation.
+   (a prompt name in `.codex/prompts/`, the project agent doc,
+   `README.md`, or a specific file under `docs/`), produce a concrete
+   proposed edit, and present it with the same three options. `approve`
+   applies the edit now; `defer` includes the diff in the task
+   description; `skip` proceeds to normal task creation.
 
-### LR-2b: Apply Lint Rules Inline (only if Category D findings exist)
+### LR-2b: Apply Lint Rules Inline (only if lint-rule action candidates exist)
 
-For each lint rule finding:
+For each lint-rule action candidate:
 
 1. Present the proposed rule and command:
    ```bash
@@ -297,8 +328,9 @@ tusk -header -column "SELECT id, summary, priority, domain, task_type, status FR
 
 Before closing the skill run, write one `retro_findings` row per
 **approved** finding (task created, issue filed, lint rule added,
-convention added, or prompt-patched inline). Skipped/duplicate findings
-are **not** recorded — only actioned ones feed the cross-retro signal.
+convention added, prompt-patched inline, or doc-patched inline).
+Skipped/duplicate findings are **not** recorded — only actioned ones
+feed the cross-retro signal.
 For each approved finding:
 
 ```bash
@@ -317,6 +349,8 @@ tusk retro-finding add \
 - `convention:<id>` — convention added via `tusk conventions add`
 - `prompt-patch:<file>` — inline edit applied to a prompt file or
   agent doc
+- `doc-patch:<file>` — inline edit applied to README.md or a file under
+  docs/
 - `documented` — recorded without a concrete action
 
 **Omit** `--task-id` entirely when `RETRO_TASK_ID` is null.
@@ -352,9 +386,9 @@ Skim the diff range with `git diff <merge_base>..HEAD` if needed.
 
 ### FR-2: Review & Categorize (deeper)
 
-Use the same five categories as LR-1 (Process improvements, Tangential
-issues, Follow-up work, Lint Rules, Debugging Velocity), but expand
-analysis with:
+Use the same four categories as LR-1 (Tusk workflow failures,
+Context-window tangents, Task-adjacent follow-up, Project Documentation
+Updates), but expand analysis with:
 
 - **Subsumption** — Did this task quietly absorb work originally
   scoped to other open tasks? If so, list those tasks for closure as
@@ -363,6 +397,18 @@ analysis with:
 - **Reopen / rework signals** — If `signals.reopen_count > 0` or
   `rework_chain.fixes` is non-empty, treat the underlying root cause
   as a primary finding.
+- **Documentation drift** — Inspect the task summary, commit list, and
+  diff for behavior future task runs or users need to know. Verify the
+  durable project docs were updated in the same task
+  (`CLAUDE.md`/`AGENTS.md`, `README.md`, `docs/`, `.codex/prompts/`,
+  and distributed `skills/`). Missing or stale docs become Category D
+  findings with a concrete target file and acceptance criteria.
+- **Debugging velocity lens** — if this was a bug or diagnosis task,
+  ask what would have reduced time-to-root-cause and classify the
+  resulting finding into Category A, B, C, or D.
+- **Mechanical guard action route** — if any finding can be prevented by
+  a concrete grep-detectable pattern, attach an "add lint rule" proposed
+  action with the pattern, file glob, and message.
 
 When `themes` from Step 0a is non-empty, flag findings whose category
 matches a recurring theme.
@@ -371,8 +417,9 @@ matches a recurring theme.
 
 Apply the LR-1b classification (tusk-issue vs. project-issue) and the
 LR-2 routing rules (file GitHub issues for tusk-issues, insert tasks
-for project-issues, with LR-2a convention/prompt-patch logic for
-Category A/E and LR-2b inline lint rule application for Category D).
+for project-issues, with LR-2a convention/prompt-doc patch logic for
+convention actions and Category D findings, and LR-2b inline lint rule
+application for lint-rule action candidates).
 
 ### FR-4: Known Gaps at Close
 
@@ -426,7 +473,7 @@ directly with findings:
 **GitHub issues filed**: N — omit if zero
 **Lint rules**: K applied inline, M deferred as tasks
 **Conventions added**: P
-**Prompt patches applied**: Q
+**Prompt/doc patches applied**: Q
 **Dependencies added**: R — omit if zero
 ```
 

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1060] - 2026-05-31
+
+- Require clean lint during `tusk merge` instead of `tusk commit`
+
 ## [1059] - 2026-05-30
 
 - [TASK-545] Fix merge finalization when run inside removed worktree
@@ -17,6 +21,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 ## [1057] - 2026-05-30
 
 - [TASK-543] Fix: complete merge finalize after removing current task worktree
+- Tighten retro categories and add explicit documentation-update checks
 
 ## [1056] - 2026-05-30
 

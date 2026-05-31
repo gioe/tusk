@@ -85,4 +85,4 @@ Any guard can be skipped on a one-shot basis with the standard git escape hatch:
 - `git commit --no-verify` — bypasses `pre-commit` and `commit-msg`.
 - `git push --no-verify` — bypasses `pre-push`.
 
-`tusk commit --skip-verify` does the same for tusk-driven commits, and `tusk commit --skip-lint` skips only the lint step without bypassing the git hooks. Use sparingly — every guard exists because something hit production once.
+`tusk commit --skip-verify` does the same for tusk-driven commits. `tusk commit --skip-lint` is accepted only for compatibility; lint is enforced by `tusk merge` and cannot be skipped there.

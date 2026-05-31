@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Lint, stage, and commit in one atomic operation.
+"""Test, stage, and commit in one atomic operation.
 
 Called by the tusk wrapper (three equivalent forms):
     tusk commit <task_id> "<message>" <file1> [file2 ...] [--criteria <id>] ... [--skip-verify] [--skip-lint] [--allow-branch-mismatch] [--verbose]
@@ -20,14 +20,12 @@ Steps:
         the task's recorded workspace branch, or when no workspace is recorded and HEAD
         is the default branch (issue #794). Bypass with --allow-branch-mismatch.
     0. Validate file paths — fail fast before lint/tests if any path is missing or escapes repo root
-    1. Run tusk lint --quiet — aborts on any non-advisory violation (exit 6).
-       Advisory-only rules warn but never block. Bypass with --skip-lint or --skip-verify.
-    2. Run test_command gate: use domain_test_commands[task.domain] if present, else test_command (hard-blocks on failure).
+    1. Run test_command gate: use domain_test_commands[task.domain] if present, else test_command (hard-blocks on failure).
        Info-skipped when every staged file is non-code — a docs/markdown file (*.md) or a scope.always_allowed metadata file
        (VERSION, CHANGELOG.md, MANIFEST, .claude/tusk-manifest.json) — since such commits cannot change test outcomes (issue #950).
-    3. Stage files: git add for all files (handles additions, modifications, and deletions)
-    4. git commit with [TASK-<id>] <message> format and Co-Authored-By trailer
-    5. For each criterion ID passed via --criteria, call tusk criteria done <id> (captures HEAD automatically)
+    2. Stage files: git add for all files (handles additions, modifications, and deletions)
+    3. git commit with [TASK-<id>] <message> format and Co-Authored-By trailer
+    4. For each criterion ID passed via --criteria, call tusk criteria done <id> (captures HEAD automatically)
 
 Output contract (GitHub Issue #450):
     - test_command output is captured by default (not streamed) so background-task
@@ -36,9 +34,8 @@ Output contract (GitHub Issue #450):
     - On test failure or timeout in quiet mode, the captured stdout/stderr is dumped
       before the error message so the failure is diagnosable.
     - On test success in quiet mode, a one-line "tests passed (<elapsed>s)" marker is emitted.
-    - Lint output is run with --quiet: only rules with violations print. Passing rules
-      are suppressed entirely. A one-line advisory summary prints when only advisory
-      rules fired.
+    - Lint is enforced by `tusk merge`, not by `tusk commit`; --skip-lint is
+      accepted for compatibility and has no effect.
     - The last line of stdout is ALWAYS a single-line summary prefixed with
       "TUSK_COMMIT_RESULT: " followed by JSON: {status, exit_code, commit, task}.
       This line is findable via `tail -1` for every exit path.
@@ -50,11 +47,10 @@ Exit codes:
     3 — git add or git commit failed
     4 — one or more criteria could not be marked done (commit itself succeeded)
     5 — test_command exceeded its configured timeout (see test_command_timeout_sec)
-    6 — tusk lint reported a non-advisory violation (nothing was staged or committed).
-        Fix the violations, or bypass with --skip-lint / --skip-verify.
+    6 — reserved for the former commit-time lint gate.
     7 — current branch does not match the task's recorded workspace branch, or no workspace
         is recorded and HEAD is the default branch. Bypass with --allow-branch-mismatch.
-    8 — `tusk lint` exceeded its configured timeout (see lint_timeout_sec / TUSK_LINT_TIMEOUT).
+    8 — reserved for the former commit-time lint timeout gate.
 """
 
 import fnmatch
@@ -65,7 +61,6 @@ import re
 import sqlite3
 import subprocess
 import sys
-import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -85,34 +80,6 @@ TRAILER = "Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 # position is no longer guaranteed — `grep TUSK_COMMIT_RESULT` recovers it.
 # See GitHub Issue #450.
 SUMMARY_PREFIX = "TUSK_COMMIT_RESULT:"
-
-# Issue #674: blocking lint rules whose canonical fix is the idempotent
-# `tusk generate-manifest` command. When the captured `tusk lint --quiet`
-# output contains only blocking violations from this set, Step 1 auto-recovers
-# by regenerating the manifest, re-running lint, and appending the regenerated
-# manifest paths to the staging set.
-_MANIFEST_LINT_RULES = frozenset({18, 19})
-_LINT_RULE_HEADER_RE = re.compile(r"^Rule (\d+):")
-_LINT_BLOCKING_LABEL_RE = re.compile(r"^  WARN — \d+ violation")
-
-
-def _blocking_lint_rules(output: str) -> set[int]:
-    """Parse `tusk lint --quiet` stdout and return the set of blocking rule
-    numbers that fired. Advisory rules (labeled `WARN [ADVISORY]`) are
-    skipped — they never block and never count toward the auto-recovery
-    decision.
-    """
-    blocking: set[int] = set()
-    lines = output.splitlines()
-    for i, line in enumerate(lines):
-        match = _LINT_RULE_HEADER_RE.match(line)
-        if not match:
-            continue
-        next_line = lines[i + 1] if i + 1 < len(lines) else ""
-        if _LINT_BLOCKING_LABEL_RE.match(next_line):
-            blocking.add(int(match.group(1)))
-    return blocking
-
 
 def _emit_final_summary(exit_code: int, state: dict) -> None:
     """Emit a single-line JSON summary as the last line of stdout.
@@ -355,14 +322,6 @@ DEFAULT_TEST_COMMAND_TIMEOUT_SEC = 240
 AUTO_TIMEOUT_SAMPLE_COUNT = 20
 AUTO_TIMEOUT_MULTIPLIER = 2.0
 
-# Lint runs on every `tusk commit`; in tusk's own repo it finishes in well
-# under 5s. A 60s ceiling is generous against any single rule that genuinely
-# needs filesystem I/O while keeping the worst-case hang under the four
-# minutes operators were observing (issue #795). Override via the
-# TUSK_LINT_TIMEOUT env var or config key `lint_timeout_sec`.
-DEFAULT_LINT_TIMEOUT_SEC = 60
-
-
 def _resolve_db_path(repo_root: str) -> str:
     """Best-effort DB path lookup mirroring bin/tusk's resolution.
 
@@ -500,93 +459,6 @@ def load_test_command_timeout(
         if auto_val is not None:
             return auto_val, "auto"
     return DEFAULT_TEST_COMMAND_TIMEOUT_SEC, "default"
-
-
-def load_lint_timeout(config_path: str) -> tuple[int, str]:
-    """Return (timeout_seconds, source) for the `tusk lint --quiet` subprocess.
-
-    Resolution order mirrors load_test_command_timeout:
-      1. TUSK_LINT_TIMEOUT env var (must parse as a positive int)
-      2. config["lint_timeout_sec"] (must parse as a positive int)
-      3. DEFAULT_LINT_TIMEOUT_SEC (60)
-
-    source is one of: "env", "config", "default". Invalid values at any layer
-    fall through to the next layer — a bad config value should not abort
-    commits. Issue #795: this resolver lets `tusk commit` bound the lint
-    subprocess so a hung lint rule produces an actionable error instead of a
-    silent four-minute wait.
-    """
-    env_val = os.environ.get("TUSK_LINT_TIMEOUT")
-    if env_val is not None:
-        try:
-            n = int(env_val)
-            if n > 0:
-                return n, "env"
-        except ValueError:
-            pass
-    try:
-        with open(config_path, encoding="utf-8") as f:
-            config = json.load(f)
-        cfg_val = config.get("lint_timeout_sec")
-        if cfg_val is not None:
-            n = int(cfg_val)
-            if n > 0:
-                return n, "config"
-    except (OSError, ValueError, json.JSONDecodeError):
-        pass
-    return DEFAULT_LINT_TIMEOUT_SEC, "default"
-
-
-def _make_lint_trace_env():
-    """Create a per-rule breadcrumb file and the env that points `tusk lint` at
-    it (issue #952).
-
-    Returns ``(trace_path, env)``. ``tusk lint`` overwrites ``trace_path`` with
-    the name of each rule just before running it, so after the lint subprocess
-    is killed on timeout, ``_read_inflight_lint_rule`` can name the rule that
-    was executing. On any failure to create the file, ``trace_path`` is None and
-    env is the unmodified environment (the feature degrades to the old generic
-    message rather than aborting the commit).
-    """
-    try:
-        fd, trace_path = tempfile.mkstemp(prefix="tusk-lint-trace.")
-        os.close(fd)
-    except OSError:
-        return None, os.environ.copy()
-    env = os.environ.copy()
-    env["TUSK_LINT_TRACE_FILE"] = trace_path
-    return trace_path, env
-
-
-def _read_inflight_lint_rule(trace_path):
-    """Return the rule name recorded in the breadcrumb (the rule running when
-    the lint subprocess was killed), or None when unavailable."""
-    if not trace_path:
-        return None
-    try:
-        with open(trace_path, encoding="utf-8") as f:
-            name = f.read().strip()
-        return name or None
-    except OSError:
-        return None
-
-
-def _lint_timeout_hung_rule_line(trace_path):
-    """Format the abort-message line that names the slow lint rule when known,
-    falling back to the original generic wording otherwise (issue #952)."""
-    rule = _read_inflight_lint_rule(trace_path)
-    if rule:
-        return f"  Slowest rule (running when the timeout fired): {rule}.\n"
-    return "  A lint rule appears to be hung.\n"
-
-
-def _cleanup_lint_trace(trace_path):
-    if not trace_path:
-        return
-    try:
-        os.remove(trace_path)
-    except OSError:
-        pass
 
 
 def is_linked_worktree(repo_root: str) -> bool:
@@ -1107,7 +979,7 @@ def _run_commit(argv: list[str], state: dict) -> int:
         return 1
 
     # ── Announce status lines? ───────────────────────────────────────
-    # Status banners ("starting TASK-N", "=== Running tusk lint ===",
+    # Status banners ("starting TASK-N", "=== Running tests ===",
     # "=== Staging ===", "=== Creating commit ===", "=== Marking criterion ===")
     # are noise for skill callers (non-TTY stderr) that only parse the final
     # TUSK_COMMIT_RESULT line. Gate them on --verbose or an interactive stderr.
@@ -1124,12 +996,10 @@ def _run_commit(argv: list[str], state: dict) -> int:
     #                                          recorded task workspace; bypass
     #                                          with --allow-branch-mismatch)
     #   Step 0  (path validation)   → exit 3  (escapes root or path not found)
-    #   Step 1  (lint)              → exit 6  (non-advisory lint violation;
-    #                                          bypass with --skip-lint / --skip-verify)
-    #   Step 2  (test_command gate) → exit 2  (test_command failed)
-    #   Step 3  (git add)           → exit 3  (git add failed)
-    #   Step 4  (git commit)        → exit 3  (git commit failed)
-    #   Step 5  (criteria done)     → exit 4  (one or more criteria failed)
+    #   Step 1  (test_command gate) → exit 2  (test_command failed)
+    #   Step 2  (git add)           → exit 3  (git add failed)
+    #   Step 3  (git commit)        → exit 3  (git commit failed)
+    #   Step 4  (criteria done)     → exit 4  (one or more criteria failed)
     #   Argument / validation errors before Step 0 → exit 1
 
     # ── Step 0a: Validate current branch matches the task's recorded workspace ─
@@ -1283,166 +1153,12 @@ def _run_commit(argv: list[str], state: dict) -> int:
                 )
         return 3
 
-    # ── Step 1: Run lint (blocks on non-advisory violations) ─────────
-    # `tusk lint --quiet` prints ONLY rules with violations — passing rules
-    # are suppressed so a clean repo produces no lint output at all during
-    # commit.  Non-advisory violations exit 1; we translate that to exit 6
-    # to give the aborted-by-lint case its own distinct code, separate from
-    # tests (2), git (3), criteria (4), and timeout (5).
-    # Advisory-only warnings (Rules 13, 14, 15, 17, 20, 22, 23) print their
-    # findings but leave lint's exit status at 0, so they never block here.
     tusk_bin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
-    if skip_verify or skip_lint:
-        if announce_status:
-            reason = "--skip-lint" if skip_lint else "--skip-verify"
-            print(f"=== Skipping tusk lint ({reason}) ===")
-            sys.stdout.flush()
-    else:
-        # Issue #795: bound the lint subprocess so a hung rule produces an
-        # actionable error instead of a silent four-minute wait. Resolved once
-        # and reused for the auto-recovery retry below.
-        lint_timeout_sec, lint_timeout_source = load_lint_timeout(config_path)
-        if announce_status:
-            print(f"=== Running tusk lint (timeout {lint_timeout_sec}s) ===")
-            sys.stdout.flush()
-        # `--task <task_id>` narrows Rule 6 (Done with incomplete acceptance
-        # criteria) to the current task so unrelated historical state cannot
-        # block this commit (Issue #568). All other rules ignore the flag.
-        lint_trace_path, lint_env = _make_lint_trace_env()
-        try:
-            lint = subprocess.run(
-                [tusk_bin, "lint", "--quiet", "--task", str(task_id)],
-                capture_output=True,
-                text=True, encoding="utf-8",
-                timeout=lint_timeout_sec,
-                env=lint_env,
-            )
-        except subprocess.TimeoutExpired:
-            source_hint = {
-                "env": 'env var "TUSK_LINT_TIMEOUT"',
-                "config": 'config key "lint_timeout_sec"',
-                "default": (
-                    'default (override with "lint_timeout_sec" in tusk/config.json '
-                    'or TUSK_LINT_TIMEOUT env var)'
-                ),
-            }[lint_timeout_source]
-            _print_error(
-                f"\nError: tusk lint timed out after {lint_timeout_sec}s "
-                f"({source_hint}) — aborting commit.\n"
-                f"{_lint_timeout_hung_rule_line(lint_trace_path)}"
-                "  Bypass with --skip-lint (lint only) or --skip-verify "
-                "(lint, tests, and pre-commit hooks), or raise the timeout."
-            )
-            return 8
-        finally:
-            _cleanup_lint_trace(lint_trace_path)
-        if lint.returncode != 0:
-            # Issue #674: when the only blocking violations are MANIFEST drift
-            # (Rules 18/19), the fix is the canonical idempotent
-            # `tusk generate-manifest` — auto-recover once, re-run lint, and
-            # append the regenerated manifest paths so they ride along with
-            # the user's original file list. Mirrors the formatter retry at
-            # Step 4 (issue #477).
-            blocking_rules = _blocking_lint_rules(lint.stdout)
-            recovered = False
-            if blocking_rules and blocking_rules <= _MANIFEST_LINT_RULES:
-                # Issue #922: refuse to auto-regen MANIFEST under sparse-
-                # checkout. TASK-494 added the gate to build_manifest itself
-                # for direct invocation, but the auto-retry path here would
-                # still call `tusk generate-manifest` and surface the gate's
-                # refusal as a confusing nested failure. Surface the same
-                # recommendation upfront — bypass lint with --skip-lint —
-                # since regenerating MANIFEST against the sparse view would
-                # silently destroy every out-of-cone entry.
-                if _sparse_checkout_active(repo_root):
-                    print(
-                        "Note: MANIFEST drift detected, but sparse-checkout "
-                        "is active in this worktree — auto-regen would drop "
-                        "out-of-cone entries and corrupt MANIFEST. Bypass "
-                        "with `--skip-lint`, or recover by running "
-                        "`tusk generate-manifest` from the primary checkout "
-                        "(or `git sparse-checkout disable` first).",
-                        file=sys.stderr,
-                    )
-                    sys.stderr.flush()
-                    sys.stdout.write(lint.stdout)
-                    sys.stdout.flush()
-                    return 6
-                print(
-                    "Note: MANIFEST drift detected — running "
-                    "`tusk generate-manifest` and retrying lint once."
-                )
-                sys.stdout.flush()
-                regen = subprocess.run(
-                    [tusk_bin, "generate-manifest"],
-                    capture_output=True,
-                    text=True, encoding="utf-8",
-                )
-                if regen.returncode == 0:
-                    if regen.stdout:
-                        sys.stdout.write(regen.stdout)
-                        sys.stdout.flush()
-                    retry_trace_path, retry_env = _make_lint_trace_env()
-                    try:
-                        lint = subprocess.run(
-                            [tusk_bin, "lint", "--quiet", "--task", str(task_id)],
-                            capture_output=True,
-                            text=True, encoding="utf-8",
-                            timeout=lint_timeout_sec,
-                            env=retry_env,
-                        )
-                    except subprocess.TimeoutExpired:
-                        source_hint = {
-                            "env": 'env var "TUSK_LINT_TIMEOUT"',
-                            "config": 'config key "lint_timeout_sec"',
-                            "default": (
-                                'default (override with "lint_timeout_sec" in '
-                                'tusk/config.json or TUSK_LINT_TIMEOUT env var)'
-                            ),
-                        }[lint_timeout_source]
-                        _print_error(
-                            f"\nError: tusk lint timed out after "
-                            f"{lint_timeout_sec}s ({source_hint}) on the "
-                            "MANIFEST-recovery retry — aborting commit.\n"
-                            f"{_lint_timeout_hung_rule_line(retry_trace_path)}"
-                            "  Bypass with --skip-lint or --skip-verify, or "
-                            "raise the timeout."
-                        )
-                        return 8
-                    finally:
-                        _cleanup_lint_trace(retry_trace_path)
-                    if lint.returncode == 0:
-                        for rel in ("MANIFEST", ".claude/tusk-manifest.json"):
-                            abs_path = os.path.join(repo_root, rel)
-                            if abs_path not in resolved_files:
-                                resolved_files.append(abs_path)
-                        recovered = True
-            if not recovered:
-                if lint.stdout:
-                    sys.stdout.write(lint.stdout)
-                    sys.stdout.flush()
-                if lint.stderr:
-                    sys.stderr.write(lint.stderr)
-                    sys.stderr.flush()
-                _print_error(
-                    "\nError: tusk lint reported non-advisory violations — aborting commit.\n"
-                    "  Fix the violations above, or bypass with --skip-lint "
-                    "(lint only) or --skip-verify (lint, tests, and pre-commit hooks)."
-                )
-                return 6
-        # Surface any lint output (e.g. the advisory-summary one-liner emitted
-        # by `tusk lint --quiet` when only advisory rules fire) on the clean
-        # path. The capture-then-replay shape is required by the auto-recovery
-        # block above, but we must not silently swallow advisory warnings the
-        # original streaming path would have shown the user.
-        if lint.stdout:
-            sys.stdout.write(lint.stdout)
-            sys.stdout.flush()
-        if announce_status:
-            print()
-        sys.stdout.flush()
 
-    # ── Step 2: Run test_command gate (hard-blocks on failure) ───────
+    if skip_lint and announce_status:
+        print("Note: --skip-lint is ignored by tusk commit; lint runs at merge time.")
+
+    # ── Step 1: Run test_command gate (hard-blocks on failure) ───────
     # Only query the task's domain when domain_test_commands is configured —
     # avoids a DB round-trip for the common case where domain routing is unused.
     # resolved_files is passed through so path_test_commands (insertion-order
@@ -1465,7 +1181,7 @@ def _run_commit(argv: list[str], state: dict) -> int:
     # command would fail with "file or directory not found" — that's an
     # environment problem, not a regression. Info-skip the gate instead of
     # hard-failing (which previously forced every commit in the session to
-    # use --skip-verify, bypassing lint AND tests AND pre-commit hooks).
+    # use --skip-verify, bypassing tests and pre-commit hooks).
     sparse_skip_test = False
     if test_cmd and not skip_verify and _sparse_checkout_active(repo_root):
         outside, missing_target = _test_command_outside_sparse_cone(

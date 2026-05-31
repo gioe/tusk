@@ -1,6 +1,6 @@
 """Unit tests for the per-rule timing breadcrumb in tusk-lint.py (issue #952).
 
-`tusk commit` runs `tusk lint` as a subprocess with a hard timeout; on
+`tusk merge` runs `tusk lint` as a subprocess with a hard timeout; on
 TimeoutExpired the subprocess is killed (SIGKILL) and its stdout is lost, so
 the abort message historically could not name the slow rule. When
 TUSK_LINT_TRACE_FILE is set, lint overwrites it with the name of each rule

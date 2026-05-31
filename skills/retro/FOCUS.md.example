@@ -4,27 +4,44 @@ Copy this file to `FOCUS.md` in the same directory to customize retro analysis c
 Edit the sections below to reflect your team's priorities. Add or remove categories as needed.
 
 If a **Lint Rules** section is present, the retro will generate lint-rule tasks for
-concrete, grep-detectable anti-patterns (max 3, actual mistakes only).
+concrete, grep-detectable anti-patterns (max 3, actual mistakes only). Lint rules
+are an action route, not a discovery category; first identify the underlying issue
+in a category below.
 
 ---
 
-## Category A: Process Improvements
+## Category A: Tusk Workflow Failures
 
-Friction in skills, CLAUDE.md, tooling, or instructions. Confusing steps that led to
-repeated mistakes or unnecessary backtracking.
+Failures, confusing behavior, missing safeguards, or broken handoffs in tusk itself
+that should be filed as tusk issues.
 
-## Category B: Tangential Issues
+## Category B: Context-Window Tangents
 
-Bugs, tech debt, or architectural concerns discovered out of scope. Things that should
-be fixed but weren't the focus of this session.
+Issues noticed in the context that was pulled into the session, but unrelated to
+the work just shipped. Bugs, tech debt, stale patterns, or architectural concerns
+that should be addressed later.
 
-## Category C: Follow-up Work
+## Category C: Task-Adjacent Follow-Up
 
-Incomplete items, deferred decisions, or edge cases not addressed. Work that should
-continue in a future session.
+Issues noticed in the context window that are related to the task or changed area,
+but were not part of what just shipped. Adjacent edge cases, parity work,
+secondary workflows, or deferred decisions that should be addressed later.
 
-## Category D: Lint Rules
+## Action Route: Lint Rules
 
 Concrete, grep-detectable anti-patterns observed in this session (max 3).
 Only include if an actual mistake occurred that a grep rule would catch.
 Do NOT include general advice or style preferences.
+
+## Analysis Lens: Debugging Velocity
+
+If this was a bug or diagnosis task, ask what would have made it faster:
+missing tests, logs, traces, commands, tusk safeguards, clearer handoffs, or docs.
+Classify any resulting finding into Category A, B, C, or D.
+
+## Category D: Project Documentation Updates
+
+Project docs that should change because of what just shipped. Check whether changed
+commands, config keys, workflows, schemas, prompt/skill behavior, install
+behavior, user-facing output, or operational gotchas are reflected in
+CLAUDE.md/AGENTS.md, README.md, docs/, .codex/prompts/, or distributed skills/.

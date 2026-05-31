@@ -9,6 +9,7 @@ __pycache__/
 # and should not be committed here. In target (installed) projects, .claude/skills/
 # is NOT gitignored so that skill file edits can be committed — see update_gitignore().
 .claude/skills/
+.tusk/
 config.default.json.bak
 
 # tusk install files
