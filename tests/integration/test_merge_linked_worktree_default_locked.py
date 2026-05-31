@@ -423,6 +423,9 @@ class TestLinkedWorktreeDefaultBranchLocked:
         assert rc == 2
         stderr = stderr_buf.getvalue()
         assert "no git remote 'origin'" in stderr
+        assert "No session was closed and no branch state was changed." in stderr
+        assert "cd /tmp/repo-main" in stderr
+        assert f"tusk merge {task_id} --session {session_id}" in stderr
         assert not [c for c in record if "session-close" in c]
         assert not [c for c in record if "task-done" in c]
 
@@ -455,6 +458,7 @@ class TestLinkedWorktreeDefaultBranchLocked:
         stderr = stderr_buf.getvalue()
         assert "/tmp/repo-main" in stderr
         assert "no git remote 'origin'" in stderr
+        assert "run the merge from the worktree" in stderr
         assert not [c for c in record if c[:3] == ["git", "stash", "push"]]
         assert not [c for c in record if "session-close" in c]
         assert not [c for c in record if "task-done" in c]

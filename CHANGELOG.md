@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1063] - 2026-05-31
+
+- [TASK-546] Make tusk merge --rebase retry ff races
+
 ## [1062] - 2026-05-31
 
 - [TASK-548] Fix: surface retro silent-exit diagnostics when guard is enabled

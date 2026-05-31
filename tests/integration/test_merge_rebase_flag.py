@@ -43,6 +43,7 @@ def _make_base_run(
     push_rc: int = 0,
     task_id: int = 1,
     has_origin: bool = True,
+    merge_rc_sequence: list[int] | None = None,
     record_calls: list | None = None,
 ):
     """Return a mock run() for the local-merge path with optional --rebase support.
@@ -51,6 +52,7 @@ def _make_base_run(
     record_calls: if provided, every args list is appended to this list.
     """
     calls = record_calls if record_calls is not None else []
+    merge_results = list(merge_rc_sequence or [])
 
     def _run(args, check=True):
         calls.append(list(args))
@@ -88,7 +90,13 @@ def _make_base_run(
         if args[:3] == ["git", "rebase", "--abort"]:
             return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
         if args[:3] == ["git", "merge", "--ff-only"]:
-            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            rc = merge_results.pop(0) if merge_results else 0
+            return subprocess.CompletedProcess(
+                args,
+                rc,
+                stdout="",
+                stderr="fatal: Not possible to fast-forward" if rc else "",
+            )
         if args[:2] == ["git", "push"]:
             return subprocess.CompletedProcess(
                 args,
@@ -343,6 +351,55 @@ class TestRebaseSuccess:
         assert ["git", "rebase", "origin/main"] in record
         assert "after --rebase" in stderr
         assert "git fetch origin && git rebase origin/main" in stderr
+
+    def test_rebase_retries_when_ff_merge_loses_race(
+        self, db_path, config_path, monkeypatch
+    ):
+        """If main advances after --rebase, rebase again and retry ff-only merge."""
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+        finally:
+            conn.close()
+
+        branch = f"feature/TASK-{task_id}-my-branch"
+        record = []
+
+        monkeypatch.setattr(tusk_merge, "find_task_branch", lambda tid: (branch, None, False))
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        mock_run, _ = _make_base_run(
+            branch,
+            has_origin=False,
+            merge_rc_sequence=[1, 0],
+            task_id=task_id,
+            record_calls=record,
+        )
+        monkeypatch.setattr(tusk_merge, "run", mock_run)
+
+        stderr_buf = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(stderr_buf):
+            rc = tusk_merge.main(
+                [
+                    str(db_path),
+                    str(config_path),
+                    str(task_id),
+                    "--session",
+                    str(session_id),
+                    "--rebase",
+                ]
+            )
+
+        assert rc == 0, f"Expected retry to recover\nstderr: {stderr_buf.getvalue()}"
+        rebase_calls = [
+            c for c in record
+            if c == ["git", "rebase", "main"]
+        ]
+        ff_calls = [c for c in record if c[:3] == ["git", "merge", "--ff-only"]]
+        assert len(rebase_calls) == 2
+        assert len(ff_calls) == 2
+        assert "rebasing again and retrying" in stderr_buf.getvalue()
 
 
 class TestRebaseFailure:
