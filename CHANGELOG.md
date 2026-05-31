@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1061] - 2026-05-31
+
+- [TASK-547] Document sibling-worktree merge fallback in /tusk Step 12
+
 ## [1060] - 2026-05-31
 
 - Require clean lint during `tusk merge` instead of `tusk commit`

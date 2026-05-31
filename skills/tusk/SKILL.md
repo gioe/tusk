@@ -306,6 +306,15 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
     **Not-on-default fallback:** If `tusk merge` exits non-zero with `No branch found matching feature/TASK-<id>-* or worktree-TASK-<id>-*` and you are NOT on the default branch, switch to the default branch first (`git checkout <default_branch>`), then retry `tusk merge <id> --session <session_id>`.
 
+    **Sibling-worktree + no-origin fallback:** If task work happened in a sibling worktree, the default branch is checked out in the primary checkout, and no `origin` remote exists, `tusk merge` from the sibling worktree cannot perform the no-checkout fast-forward. Run the merge from the primary checkout instead:
+    ```bash
+    tusk merge <id> --session $SESSION_ID
+    ```
+    If that fails with a fast-forward error because the feature branch diverged while sibling tasks were merged, retry from the primary checkout with `--rebase`:
+    ```bash
+    tusk merge <id> --session $SESSION_ID --rebase
+    ```
+
     **Partial-cleanup exit code 3 (TASK-504):** If `tusk merge` exits **3**, the no-checkout fast-forward push, session-close, and task-done all succeeded — the task is Done and the work is on `origin/<default>` — but the local worktree directory and/or feature branch could not be removed (typically an untracked file outside the auto-symlink set blocked `git worktree remove`). The stderr message names the leftover artifact. Treat exit 3 like exit 0 for workflow purposes: still run `tusk skill-run finish`, `tusk task-summary`, and `/retro`. Clean up the leftover worktree manually (`git worktree remove --force <path>` and `git branch -D <feature-branch>`) after the retro, or surface it to the user.
 
     **Sibling-worktree DB fallback:** If the default branch is checked out in a sibling worktree and the primary checkout is unusable, run the merge from the sibling worktree while pinning tusk to the primary repo's DB:
