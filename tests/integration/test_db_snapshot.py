@@ -95,6 +95,30 @@ def test_readonly_command_does_not_snapshot(tmp_path):
     )
 
 
+def test_retro_command_does_not_snapshot(tmp_path):
+    repo = _make_repo(tmp_path)
+    env = _env_for(repo, tmp_path)
+    _init_db(repo, env)
+    r = subprocess.run(
+        [TUSK_BIN, "task-insert", "Seed", "D", "--complexity", "S", "--criteria", "C"],
+        cwd=str(repo), env=env, capture_output=True, text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    task_id = "1"
+    before = _list_backups(repo)
+
+    r = subprocess.run(
+        [TUSK_BIN, "retro", task_id, "--window-days", "30", "--min-recurrence", "3"],
+        cwd=str(repo), env=env, capture_output=True, text=True,
+    )
+    assert r.returncode == 0, r.stderr
+
+    after = _list_backups(repo)
+    assert after == before, (
+        f"retro is read-only and must not snapshot: before={before} after={after}"
+    )
+
+
 def test_retention_rotates_oldest(tmp_path):
     repo = _make_repo(tmp_path)
     env = _env_for(repo, tmp_path, TUSK_BACKUP_RETENTION="2")

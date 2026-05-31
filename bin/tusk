@@ -1659,7 +1659,7 @@ is_readonly_subcmd() {
     git-default-branch|branch-parse|report-issue|\
     sync-skills|reconcile-skills|generate-manifest|pricing-update|dev-sync|token-audit|\
     task-get|task-get-multi|task-list|task-select|task-summary|setup|cost|\
-    backlog-scan|blockers|check-deliverables|scope-paths|scope-hint|test-detect|test-precheck|review-check-perms|review-diff-range|review-final-summary|review-agent-cost|jots|retro-patches|insights|\
+    backlog-scan|blockers|check-deliverables|scope-paths|scope-hint|test-detect|test-precheck|review-check-perms|review-diff-range|review-final-summary|review-agent-cost|jots|retro|retro-signals|retro-themes|retro-patches|insights|\
     init-fetch-bootstrap|init-scan-codebase|init-scan-todos)
       return 0 ;;
     *) return 1 ;;
