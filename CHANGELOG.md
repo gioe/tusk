@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1059] - 2026-05-30
+
+- [TASK-545] Fix merge finalization when run inside removed worktree
+
 ## [1058] - 2026-05-30
 
 - [TASK-544] Fix: Normalize tusk scope add paths before insertion

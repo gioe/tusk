@@ -559,6 +559,68 @@ class TestTaskWorktreeCloseout:
         )
         assert os.path.exists(repo / "feature.txt")
 
+    def test_merge_from_inside_worktree_without_origin_closes_before_cleanup(
+        self, tmp_path, monkeypatch
+    ):
+        """Issue #967: task-done must not run from a removed task worktree CWD."""
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        task_id = _insert_task(db_path)
+        session_id = _insert_session(db_path, task_id)
+        workspace_root = tmp_path / "workspaces"
+
+        created = _run(
+            [
+                "task-worktree",
+                "create",
+                str(task_id),
+                "inside-merge",
+                "--workspace-root",
+                str(workspace_root),
+            ],
+            cwd=repo,
+            env=env,
+        )
+        assert created.returncode == 0, created.stderr
+        payload = json.loads(created.stdout)
+        workspace = payload["workspace_path"]
+
+        feature_file = os.path.join(workspace, "inside.txt")
+        with open(feature_file, "w", encoding="utf-8") as handle:
+            handle.write("merged from inside worktree\n")
+        _git(["add", "inside.txt"], cwd=workspace)
+        _git(["commit", "-m", f"[TASK-{task_id}] add inside merge file"], cwd=workspace)
+
+        # Leave main free to be checked out inside the task worktree. This
+        # models the no-origin local-merge path that previously removed the
+        # invoking CWD before task-done ran.
+        _git(["switch", "-c", "scratch"], cwd=repo)
+
+        result = _run(
+            ["merge", str(task_id), "--session", str(session_id)],
+            cwd=workspace,
+            env=env,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "getcwd" not in result.stderr
+        assert "unable to open database file" not in result.stderr
+        assert not os.path.exists(workspace)
+        assert (
+            _git(["show", "main:inside.txt"], cwd=repo).stdout
+            == "merged from inside worktree\n"
+        )
+        assert _git(["branch", "--list", payload["branch"]], cwd=repo).stdout.strip() == ""
+        with sqlite3.connect(db_path) as conn:
+            status = conn.execute(
+                "SELECT status FROM tasks WHERE id = ?", (task_id,)
+            ).fetchone()[0]
+            closed_session = conn.execute(
+                "SELECT ended_at IS NOT NULL FROM task_sessions WHERE id = ?",
+                (session_id,),
+            ).fetchone()[0]
+        assert status == "Done"
+        assert closed_session == 1
+
     def test_abandon_dirty_task_worktree_refuses_cleanup_after_closing(
         self, tmp_path, monkeypatch
     ):

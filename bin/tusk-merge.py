@@ -3654,24 +3654,6 @@ def main(argv: list[str]) -> int:
         if has_origin:
             _delete_remote_feature_branch_if_tracking(branch_name)
 
-        # Step 6: Delete feature branch
-        if not _remove_recorded_task_worktree(
-            _db_path, task_id, branch_name, workspace=recorded_workspace
-        ):
-            if did_stash:
-                _try_pop_stash(task_id)
-            return 2
-
-        # Use -D (force) when the branch was not merged via git merge (task_on_default path).
-        branch_delete_flag = "-D" if task_on_default else "-d"
-        result = run(["git", "branch", branch_delete_flag, branch_name], check=False)
-        if result.returncode != 0:
-            # Non-fatal: branch is already gone or merge state mismatch, warn and continue
-            print(
-                f"Warning: git branch {branch_delete_flag} {branch_name} failed:\n{result.stderr.strip()}",
-                file=sys.stderr,
-            )
-
         if did_stash:
             _try_pop_stash(task_id)
 
@@ -3688,6 +3670,32 @@ def main(argv: list[str]) -> int:
     )
     if rc == 0:
         _maybe_refresh_deployed_bin(_db_path, tusk_bin)
+    if not use_pr:
+        cleanup_ok = True
+        # Step 6: Delete feature branch after task-done. This mirrors the
+        # no-checkout path: once the merge has succeeded, worktree/branch
+        # cleanup leftovers are partial finalization issues, not reasons to
+        # leave the task open. It also keeps task-done away from a CWD that
+        # may be invalidated by removing the invoking task worktree (issue #967).
+        if not _remove_recorded_task_worktree(
+            _db_path, task_id, branch_name, workspace=recorded_workspace
+        ):
+            cleanup_ok = False
+        else:
+            # The merge has already succeeded or the task was proven to have
+            # no new branch-side work. Use -D because cleanup may have chdir'd
+            # to a sibling checkout whose HEAD is not the default branch, so
+            # `git branch -d` can reject a branch that is merged into default.
+            branch_delete_flag = "-D"
+            result = run(["git", "branch", branch_delete_flag, branch_name], check=False)
+            if result.returncode != 0:
+                cleanup_ok = False
+                print(
+                    f"Warning: git branch {branch_delete_flag} {branch_name} failed:\n{result.stderr.strip()}",
+                    file=sys.stderr,
+                )
+        if rc == 0 and not cleanup_ok:
+            return 3
     return rc
 
 
