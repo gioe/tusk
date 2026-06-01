@@ -67,6 +67,86 @@ def _insert(db_path, summary, description, **kw):
     return json.loads(result.stdout)["task_id"]
 
 
+# ── task-insert missing-path warnings (TASK-554) ────────────────────────
+
+
+def test_task_insert_warns_for_missing_scope_path(db_path):
+    """A missing non-glob ``--scope`` path warns without blocking insert."""
+    result = _run([
+        "task-insert",
+        "missing scope warning",
+        "body",
+        "--scope",
+        "this/path/does/not/exist,bin/tusk-task-insert.py",
+        "--criteria",
+        "marker",
+    ])
+
+    assert result.returncode == 0, result.stderr
+    assert "Warning:" in result.stderr
+    assert "this/path/does/not/exist" in result.stderr
+
+    task_id = json.loads(result.stdout)["task_id"]
+    rows = _scope_rows(str(db_path), task_id)
+    declared = {r["pattern"] for r in rows if r["source"] == "operator_declared"}
+    assert "this/path/does/not/exist" in declared
+    assert "bin/tusk-task-insert.py" in declared
+
+
+def test_task_insert_does_not_warn_for_existing_scope_path(db_path):
+    result = _run([
+        "task-insert",
+        "existing scope path",
+        "body",
+        "--scope",
+        "bin/tusk-task-insert.py",
+        "--criteria",
+        "marker",
+    ])
+
+    assert result.returncode == 0, result.stderr
+    assert "Warning:" not in result.stderr
+
+
+def test_task_insert_does_not_warn_for_glob_scope_pattern(db_path):
+    result = _run([
+        "task-insert",
+        "glob scope path",
+        "body",
+        "--scope",
+        "tests/integration/*.missing",
+        "--criteria",
+        "marker",
+    ])
+
+    assert result.returncode == 0, result.stderr
+    assert "Warning:" not in result.stderr
+
+
+def test_task_insert_warns_for_missing_verification_spec_path(db_path):
+    result = _run([
+        "task-insert",
+        "missing spec path",
+        "body",
+        "--criteria",
+        "marker",
+        "--typed-criteria",
+        json.dumps({
+            "text": "Spec path check",
+            "type": "test",
+            "spec": (
+                "grep -R needle apps/web/ui/pages/show 2>/dev/null || "
+                "python3 -m pytest tests/integration/test_create_task_scope.py -q"
+            ),
+        }),
+    ])
+
+    assert result.returncode == 0, result.stderr
+    assert "Warning:" in result.stderr
+    assert "apps/web/ui/pages/show" in result.stderr
+    assert "tests/integration/test_create_task_scope.py" not in result.stderr
+
+
 # ── task-insert auto-extraction (criterion 2200) ────────────────────────
 
 

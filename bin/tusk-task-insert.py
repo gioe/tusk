@@ -43,9 +43,17 @@ load_config = _db_lib.load_config
 validate_enum = _db_lib.validate_enum
 extract_paths = _git_helpers.extract_paths
 is_prose_identifier_path = _git_helpers.is_prose_identifier_path
+path_exists_in_repo = _git_helpers.path_exists_in_repo
 
 
 _RELATIVE_NOT_BEFORE_RE = re.compile(r"^\+(\d+)([mhdw])$")
+_GLOB_METACHARS = set("*?[")
+_OBVIOUS_REPO_PATH_RE = re.compile(
+    r'(?:^|[\s\'"`(,])'
+    r'((?:apps|app|src|test|tests|bin|docs|doc|skills|skills-internal|hooks)/'
+    r'[\w./_-]+)',
+    re.MULTILINE,
+)
 
 
 def _format_utc(value: datetime) -> str:
@@ -123,6 +131,67 @@ def _repo_root(config_path: str) -> str | None:
     return config_dir
 
 
+def _has_glob_metachar(path: str) -> bool:
+    return any(ch in path for ch in _GLOB_METACHARS)
+
+
+def _expand_scope_patterns(patterns: list[str]) -> list[str]:
+    expanded = []
+    for pattern in patterns:
+        for entry in str(pattern or "").split(","):
+            entry = entry.strip()
+            if entry:
+                expanded.append(entry)
+    return expanded
+
+
+def _obvious_spec_paths(spec: str) -> list[str]:
+    paths = []
+    seen = set()
+    for path in extract_paths(spec):
+        if path not in seen:
+            seen.add(path)
+            paths.append(path)
+    for match in _OBVIOUS_REPO_PATH_RE.finditer(spec or ""):
+        path = match.group(1).strip().rstrip('.,;:\'"`)')
+        if path and path not in seen:
+            seen.add(path)
+            paths.append(path)
+    return paths
+
+
+def _warn_missing_path(path: str, source: str) -> None:
+    print(
+        f"Warning: task-insert {source} path does not exist at repo root: {path}",
+        file=sys.stderr,
+    )
+
+
+def _warn_for_missing_declared_paths(
+    repo_root: str | None,
+    scope_patterns: list[str],
+    typed_criteria: list[dict],
+) -> None:
+    if not repo_root:
+        return
+
+    for pattern in scope_patterns:
+        if _has_glob_metachar(pattern):
+            continue
+        if not path_exists_in_repo(repo_root, pattern):
+            _warn_missing_path(pattern, "--scope")
+
+    warned_specs: set[str] = set()
+    for tc in typed_criteria:
+        spec = tc.get("spec") or ""
+        for path in _obvious_spec_paths(spec):
+            if _has_glob_metachar(path) or path in warned_specs:
+                continue
+            warned_specs.add(path)
+            if not path_exists_in_repo(repo_root, path):
+                _warn_missing_path(path, "verification_spec")
+
+
 def main(argv: list[str]) -> int:
     db_path = argv[0]
     config_path = argv[1]
@@ -172,7 +241,7 @@ def main(argv: list[str]) -> int:
     expires_in_days = args.expires_in_days
     not_before = args.not_before
     fixes_task_id = args.fixes_task_id
-    scope_patterns: list[str] = args.scope
+    scope_patterns: list[str] = _expand_scope_patterns(args.scope)
     creates_paths: list[str] = args.creates
     unbounded: bool = args.unbounded
 
@@ -228,6 +297,9 @@ def main(argv: list[str]) -> int:
         for e in errors:
             print(f"Error: {e}", file=sys.stderr)
         return 2
+
+    repo_root = _repo_root(config_path)
+    _warn_for_missing_declared_paths(repo_root, scope_patterns, typed_criteria)
 
     # Run duplicate check
     dupe = run_dupe_check(summary, domain)
@@ -339,7 +411,6 @@ def main(argv: list[str]) -> int:
                 text_blocks.append(tc.get("text") or "")
                 text_blocks.append(tc.get("spec") or "")
             seen_auto: set = set()
-            repo_root = _repo_root(config_path)
             for text in text_blocks:
                 for p in extract_paths(text):
                     if is_prose_identifier_path(p, repo_root):

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1069] - 2026-06-01
+
+- [TASK-554] Warn when declared task paths do not exist at creation time
+
 ## [1068] - 2026-06-01
 
 - [TASK-553] Add /tusk task identity readback before Step 1b
