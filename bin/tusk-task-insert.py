@@ -192,6 +192,48 @@ def _warn_for_missing_declared_paths(
                 _warn_missing_path(path, "verification_spec")
 
 
+def _path_file_portion(path: str) -> str:
+    """Return the file path portion of a pytest nodeid-like token."""
+    return (path or "").split("::", 1)[0].strip()
+
+
+def _tracked_repo_files(repo_root: str | None) -> list[str]:
+    if not repo_root:
+        return []
+    result = subprocess.run(
+        ["git", "-C", repo_root, "ls-files", "-z"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    if result.returncode != 0:
+        return []
+    return [p for p in result.stdout.split("\0") if p]
+
+
+def _resolve_auto_derived_scope_pattern(repo_root: str | None, pattern: str) -> str:
+    """Resolve a non-existing auto-derived path by unique repo suffix.
+
+    Exact paths win. Missing paths are fuzzy-matched only when exactly one
+    tracked file ends with the extracted pattern, so ambiguous prose keeps the
+    literal value for the operator to expand later.
+    """
+    raw = (pattern or "").strip()
+    file_part = _path_file_portion(raw)
+    if not file_part or _has_glob_metachar(file_part):
+        return raw
+    if path_exists_in_repo(repo_root, file_part):
+        return file_part
+
+    matches = [
+        path for path in _tracked_repo_files(repo_root)
+        if path.endswith(f"/{file_part}")
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    return raw
+
+
 def main(argv: list[str]) -> int:
     db_path = argv[0]
     config_path = argv[1]
@@ -415,13 +457,14 @@ def main(argv: list[str]) -> int:
                 for p in extract_paths(text):
                     if is_prose_identifier_path(p, repo_root):
                         continue
-                    if p in explicit_patterns or p in seen_auto:
+                    resolved = _resolve_auto_derived_scope_pattern(repo_root, p)
+                    if resolved in explicit_patterns or resolved in seen_auto:
                         continue
-                    seen_auto.add(p)
+                    seen_auto.add(resolved)
                     conn.execute(
                         "INSERT INTO task_scope (task_id, pattern, source) "
                         "VALUES (?, ?, 'auto_derived')",
-                        (task_id, p),
+                        (task_id, resolved),
                     )
 
         conn.commit()

@@ -300,6 +300,53 @@ def test_auto_extract_dedups_prefixed_spec_against_explicit_scope(db_path):
     )
 
 
+def test_auto_extract_resolves_unique_suffix_match(db_path):
+    """A project-relative path resolves when exactly one tracked file has that suffix."""
+    task_id = _insert(
+        str(db_path),
+        "suffix scope",
+        "Touch integration/test_create_task_scope.py during the fix.",
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+
+    assert "tests/integration/test_create_task_scope.py" in auto, rows
+    assert "integration/test_create_task_scope.py" not in auto, rows
+
+
+def test_auto_extract_keeps_missing_suffix_literal(db_path):
+    """A missing path with no suffix match keeps the extracted literal."""
+    task_id = _insert(
+        str(db_path),
+        "missing suffix scope",
+        "Touch tests/no/such_scope_suffix_file.py during the fix.",
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+
+    assert "tests/no/such_scope_suffix_file.py" in auto, rows
+
+
+def test_auto_extract_resolves_pytest_nodeid_to_file_path(db_path):
+    """Pytest nodeids resolve by their file portion and store the file path."""
+    task_id = _insert(
+        str(db_path),
+        "nodeid suffix scope",
+        (
+            "Run integration/test_create_task_scope.py::"
+            "test_auto_extract_from_criteria after the fix."
+        ),
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+
+    assert "tests/integration/test_create_task_scope.py" in auto, rows
+    assert not any("::" in p for p in auto), rows
+
+
 def test_auto_extract_splits_bare_toplevel_files_joined_by_slash(db_path):
     """Prose like ``VERSION/CHANGELOG.md`` names two top-level files, not a path."""
     task_id = _insert(

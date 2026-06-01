@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1070] - 2026-06-01
+
+- [TASK-555] Resolve auto-derived scope paths by unique repo suffix
+
 ## [1069] - 2026-06-01
 
 - [TASK-554] Warn when declared task paths do not exist at creation time
