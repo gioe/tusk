@@ -456,6 +456,59 @@ def extract_paths(text: str) -> list:
     return paths
 
 
+def path_exists_in_repo(repo_root: str | None, path: str | None) -> bool:
+    """Return True when ``path`` resolves to a real repo-root entry.
+
+    The free-form path extractor intentionally accepts broad path-shaped
+    tokens. Scope declarations and sparse-checkout cones need a stricter
+    filter so prose such as ``console.error/console.log`` is not treated as a
+    repository path.
+    """
+    if not repo_root or not path:
+        return False
+    raw = path.strip()
+    if (
+        not raw
+        or raw.startswith(("./", "../", "/"))
+    ):
+        return False
+    candidate = raw.strip("/")
+    if not candidate:
+        return False
+    parts = candidate.split("/")
+    if any(seg in {"", ".."} for seg in parts):
+        return False
+
+    on_disk = os.path.join(repo_root, candidate)
+    if os.path.exists(on_disk):
+        return True
+
+    result = subprocess.run(
+        ["git", "-C", repo_root, "ls-tree", "--name-only", "HEAD", "--", candidate],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    if result.returncode != 0:
+        return False
+    return any(
+        line.strip().rstrip("/") == candidate
+        for line in result.stdout.splitlines()
+    )
+
+
+def is_prose_identifier_path(path: str | None, repo_root: str | None = None) -> bool:
+    """Return True for slash-joined code identifiers masquerading as paths."""
+    if not path or "/" not in path:
+        return False
+    first = path.strip().split("/", 1)[0]
+    if first.startswith(".") or "." not in first:
+        return False
+    if path_exists_in_repo(repo_root, path):
+        return False
+    return True
+
+
 # Regex to extract bare-basename file-like tokens (basename with multi-char
 # extension) that did NOT match _PATH_RE — i.e. no directory prefix and not
 # in the whitelist. The extension must be at least 2 chars to exclude

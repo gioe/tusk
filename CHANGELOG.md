@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1064] - 2026-05-31
+
+- [TASK-549] Fix auto scope path token filtering
+
 ## [1063] - 2026-05-31
 
 - [TASK-546] Make tusk merge --rebase retry ff races

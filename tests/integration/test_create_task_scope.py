@@ -236,6 +236,21 @@ def test_auto_extract_splits_bare_toplevel_files_joined_by_slash(db_path):
     assert "VERSION/CHANGELOG.md" not in auto, rows
 
 
+def test_auto_extract_rejects_prose_identifier_tokens(db_path):
+    """Method-call prose such as ``console.error/console.log`` is not a path."""
+    task_id = _insert(
+        str(db_path),
+        "logging cleanup",
+        "Investigate console.error/console.log usage in the failing Vitest run.",
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+
+    assert "console.error/console.log" not in auto, rows
+    assert "console.error" not in auto, rows
+
+
 # ── scope-hint creates suggestion (criterion 2201) ──────────────────────
 
 

@@ -225,6 +225,35 @@ def test_sparse_cone_includes_referenced_dot_directory_path(tmp_path, monkeypatc
     )
 
 
+def test_sparse_cone_rejects_prose_identifier_tokens(tmp_path, monkeypatch):
+    """A dotted identifier pair in prose must not become a bogus cone entry."""
+    repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+    task = _insert_task(
+        db_path,
+        "Update tests/integration/test_a.py while investigating console.error/console.log",
+    )
+    workspace_root = tmp_path / "workspaces"
+
+    result = _run(
+        [
+            "task-worktree",
+            "create",
+            str(task),
+            "identifier",
+            "--workspace-root",
+            str(workspace_root),
+        ],
+        cwd=repo,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+
+    cone = _sparse_cone(payload["workspace_path"])
+    assert cone is not None, "sparse-checkout should be enabled"
+    assert "console.error" not in set(cone), cone
+
+
 def test_full_checkout_fallback(tmp_path, monkeypatch):
     """When the task references zero paths, sparse-checkout is not enabled
     and the worktree gets a full checkout (the pre-TASK-470 behavior)."""

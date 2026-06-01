@@ -20,6 +20,7 @@ dumps = _json.dumps
 
 _git_helpers = tusk_loader.load("tusk-git-helpers")
 task_referenced_paths = _git_helpers.task_referenced_paths
+is_prose_identifier_path = _git_helpers.is_prose_identifier_path
 
 # Canonical runtime artifacts auto-linked when `worktree.symlink_files` is
 # empty (issue #854). install.sh-only installs never run the project_type
@@ -1050,7 +1051,10 @@ def cmd_create(
         #      files don't FileNotFoundError under a narrow per-task cone
         #      (issue #935).
         if not os.environ.get("TUSK_NO_SPARSE_WORKTREE"):
-            referenced = task_referenced_paths(task_id, conn)
+            referenced = [
+                p for p in task_referenced_paths(task_id, conn)
+                if not is_prose_identifier_path(p, repo_root)
+            ]
             if referenced:
                 always_include = _load_scope_list(
                     config_path, "sparse_always_include"

@@ -40,6 +40,7 @@ get_connection = _db_lib.get_connection
 load_config = _db_lib.load_config
 validate_enum = _db_lib.validate_enum
 extract_paths = _git_helpers.extract_paths
+is_prose_identifier_path = _git_helpers.is_prose_identifier_path
 
 
 def _typed_criterion_type(value: str) -> dict:
@@ -70,6 +71,18 @@ def run_dupe_check(summary: str, domain: str | None) -> dict | None:
             pass
         return {"id": "unknown", "similarity": 0}
     return None
+
+
+def _repo_root(config_path: str) -> str | None:
+    env_root = os.environ.get("TUSK_REPO_ROOT") or os.environ.get("TUSK_PROJECT")
+    if env_root:
+        return env_root
+    if not config_path:
+        return None
+    config_dir = os.path.dirname(os.path.abspath(config_path))
+    if os.path.basename(config_dir) == "tusk":
+        return os.path.dirname(config_dir)
+    return config_dir
 
 
 def main(argv: list[str]) -> int:
@@ -284,8 +297,11 @@ def main(argv: list[str]) -> int:
                 text_blocks.append(tc.get("text") or "")
                 text_blocks.append(tc.get("spec") or "")
             seen_auto: set = set()
+            repo_root = _repo_root(config_path)
             for text in text_blocks:
                 for p in extract_paths(text):
+                    if is_prose_identifier_path(p, repo_root):
+                        continue
                     if p in explicit_patterns or p in seen_auto:
                         continue
                     seen_auto.add(p)
