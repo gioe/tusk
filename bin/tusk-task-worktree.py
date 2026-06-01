@@ -442,18 +442,20 @@ def _primary_repo_root(repo_root: str) -> str:
 
 
 def _maybe_advise_stale_primary(primary_root: str) -> None:
-    """Emit a one-line stderr advisory when primary is behind origin/<default>.
+    """Emit a one-line stderr advisory when primary diverges from origin.
 
     The hazard (issue #913): PATH-resolved ``tusk`` invocations from inside a
     task worktree run primary's ``bin/tusk`` against the worktree CWD. When
     primary itself is behind origin, those PATH-resolved calls execute stale
     helper code against the worktree — the silent-MANIFEST-corruption vector
-    that closed during TASK-494 work. The /tusk Step 2 advice ("invoke
-    $workspace_path/bin/tusk, not tusk") exists for exactly this reason, but
-    it's a brittle convention that's easy to miss when the harness resets
-    CWD to primary between bash subshells. A one-line advisory at create
-    time names the hazard up front so the operator can run ``tusk sync-main``
-    in primary before starting work.
+    that closed during TASK-494 work. When primary is ahead of origin, the
+    future no-checkout merge can fail because the feature branch was based on
+    origin/<default> without the unpushed local commits. The /tusk Step 2 advice
+    ("invoke $workspace_path/bin/tusk, not tusk") exists for exactly this
+    reason, but it's a brittle convention that's easy to miss when the harness
+    resets CWD to primary between bash subshells. A one-line advisory at create
+    time names the hazard up front so the operator can reconcile primary before
+    starting work.
 
     Best-effort: any git failure (no remote, no network, detached HEAD,
     unreachable refs, missing ``origin``) leaves this silent. Never blocks
@@ -486,16 +488,27 @@ def _maybe_advise_stale_primary(primary_root: str) -> None:
 
     # Compute behind AND ahead so a divergence (local commits unpushed AND
     # origin advanced) is reported as such instead of being mislabeled as a
-    # simple "behind" — the issue #949 fix. The behind side drives the
-    # stale-binary hazard, so an ahead-only primary stays silent (it has newer
-    # binaries, not stale ones, and the merge-time guard handles any unpushed
-    # commit it might otherwise strand).
+    # simple "behind" — the issue #949 fix. Ahead-only primary commits are not
+    # stale binaries, but they can still strand the later no-checkout merge
+    # because the feature branch starts from origin/<default> (issue #972).
     behind = _rev_count(primary_root, f"HEAD..origin/{default_branch}")
-    if behind is None or behind <= 0:
-        return
     ahead = _rev_count(primary_root, f"origin/{default_branch}..HEAD")
+    if behind is None or ahead is None:
+        return
 
     if ahead and ahead > 0:
+        if behind <= 0:
+            print(
+                f"tusk: primary checkout is {ahead} commit(s) ahead of "
+                f"origin/{default_branch}; task worktrees are based on "
+                f"origin/{default_branch}, so a later tusk merge may refuse "
+                f"the no-checkout fast-forward push because those local "
+                f"commit(s) are not reachable from the feature branch. Push "
+                f"or discard the unpushed commit(s) in {primary_root} before "
+                "starting task work.",
+                file=sys.stderr,
+            )
+            return
         # Diverged: "tusk sync-main" cannot recover this (its git merge
         # --ff-only step refuses a non-fast-forward), so recommend a rebase
         # pull instead.
@@ -511,6 +524,9 @@ def _maybe_advise_stale_primary(primary_root: str) -> None:
             "subshell here.",
             file=sys.stderr,
         )
+        return
+
+    if behind <= 0:
         return
 
     print(

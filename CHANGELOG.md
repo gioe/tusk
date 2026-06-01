@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1065] - 2026-06-01
+
+- [TASK-550] Warn when task-worktree create sees unpushed primary commits
+
 ## [1064] - 2026-05-31
 
 - [TASK-549] Fix auto scope path token filtering

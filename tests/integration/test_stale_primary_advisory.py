@@ -82,6 +82,15 @@ def _seed_repo_with_origin(tmp_path, *, advance_origin: bool):
     return primary
 
 
+def _seed_repo_ahead(tmp_path):
+    """Build primary + origin where primary is 1 commit ahead of origin."""
+    primary = _seed_repo_with_origin(tmp_path, advance_origin=False)
+    (primary / "local.txt").write_text("local\n", encoding="utf-8")
+    _git(["add", "."], cwd=primary)
+    _git(["commit", "-m", "unpushed local commit"], cwd=primary)
+    return primary
+
+
 def _seed_repo_diverged(tmp_path):
     """Build primary + origin where primary is 1 ahead AND 1 behind origin.
 
@@ -203,6 +212,44 @@ def test_uptodate_primary_no_advisory(tmp_path, monkeypatch):
     assert "behind origin" not in result.stderr.lower(), (
         f"no advisory should fire when primary is up-to-date; got: "
         f"{result.stderr}"
+    )
+    assert "ahead of origin" not in result.stderr.lower(), (
+        f"no advisory should fire when primary is up-to-date; got: "
+        f"{result.stderr}"
+    )
+
+
+def test_ahead_primary_warns_before_task_work_begins(tmp_path, monkeypatch):
+    """When primary has unpushed commits, task-worktree create warns before
+    work starts so the later no-checkout merge does not fail at finalization.
+    """
+    primary = _seed_repo_ahead(tmp_path)
+    db_path, env = _init_tusk(primary, monkeypatch)
+    task_id = _insert_task(db_path)
+
+    workspace_root = tmp_path / "workspaces"
+    result = _run(
+        [
+            "task-worktree", "create",
+            str(task_id), "ahead-primary-test",
+            "--workspace-root", str(workspace_root),
+        ],
+        cwd=primary,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    stderr = result.stderr
+    assert "ahead of origin/main" in stderr.lower(), (
+        f"stderr should contain ahead-of-origin advisory; got: {stderr}"
+    )
+    assert "1 commit(s) ahead" in stderr, (
+        f"stderr should include the ahead count; got: {stderr}"
+    )
+    assert "Push or discard the unpushed commit(s)" in stderr, (
+        f"stderr should include publish-or-discard guidance; got: {stderr}"
+    )
+    assert "later tusk merge may refuse" in stderr, (
+        f"stderr should name the merge-time failure mode; got: {stderr}"
     )
 
 
