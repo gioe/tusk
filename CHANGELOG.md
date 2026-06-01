@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1068] - 2026-06-01
+
+- [TASK-553] Add /tusk task identity readback before Step 1b
+
 ## [1067] - 2026-06-01
 
 - [TASK-552] Fix: Add not_before support for time-gated tasks

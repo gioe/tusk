@@ -46,6 +46,8 @@ Do **not** suggest `/groom-backlog` or `/retro` when there are no ready tasks �
 
 On success, the JSON blob's `task.id` is the task you just started and `skill_run.run_id` is the open skill-run row. **Immediately proceed to step 1b of the "Begin Work on a Task" workflow** — do not wait for additional user confirmation.
 
+Before proceeding to Step 1b, state the resolved task identity verbatim: `Working on TASK-<id>: <summary>`. Treat the JSON blob's `task.id` as the single source of truth; never type a task ID that did not come from this output. This gives the operator one chance to correct a misread or hallucinated ID before any downstream command runs.
+
 ### Begin Work on a Task (with task ID argument)
 
 When called with a task ID (e.g., `/tusk 6`), begin the full development workflow. When called with no argument, the "Get Next Task" step above has already run `tusk task-start --force --skill tusk` for you — **skip Step 1 entirely and pick up at Step 1b (Workflow routing)**, using the JSON blob and the `skill_run.run_id` you already captured.
@@ -62,6 +64,8 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
    - `criteria` — array of acceptance criteria objects (id, criterion, source, is_completed, criterion_type, verification_spec). These are the implementation checklist. Work through them in order during implementation. Mark each criterion done (`tusk criteria done <cid>`) as you complete it — do not defer this to the end. Non-manual criteria (type: code, test, file) run automated verification on `done`; use `--skip-verify` if needed. If the array is empty, proceed normally using the description as scope.
    - `session_id` — the session ID to use for the duration of the workflow (reuses an open session if one exists, otherwise creates a new one)
    - `skill_run` — `{run_id, skill_name, started_at, task_id}` for the skill-run row opened by `--skill`. Capture `skill_run.run_id` — it's referenced by every exit path below.
+
+   Before proceeding to Step 1b, state the resolved task identity verbatim: `Working on TASK-<id>: <summary>`. Treat the JSON blob's `task.id` as the single source of truth; never type a task ID that did not come from this output. This gives the operator one chance to correct a misread or hallucinated ID before any downstream command runs.
 
    Hold onto `session_id` from the JSON — it will be passed to `tusk merge` in step 12 to close the session. **Do not pass it to `tusk task-done`; use `tusk merge` for the full finalization sequence.**
 
