@@ -358,6 +358,46 @@ def _derive_sparse_cone(paths: list[str]) -> list[str]:
     return sorted(cone)
 
 
+CI_WORKFLOW_PHRASES = (
+    "github actions",
+    "ci workflow",
+    "workflow_dispatch",
+)
+
+
+def _task_mentions_ci_workflow(conn: sqlite3.Connection, task_id: int) -> bool:
+    """Return True when task text or declared scope clearly targets CI workflows."""
+    row = conn.execute(
+        "SELECT summary, description FROM tasks WHERE id = ?", (task_id,)
+    ).fetchone()
+    if row is None:
+        return False
+
+    criteria_rows = conn.execute(
+        "SELECT criterion, verification_spec FROM acceptance_criteria WHERE task_id = ?",
+        (task_id,),
+    ).fetchall()
+    scope_rows = conn.execute(
+        "SELECT pattern FROM task_scope WHERE task_id = ?",
+        (task_id,),
+    ).fetchall()
+
+    texts = [row["summary"] or "", row["description"] or ""]
+    for cr in criteria_rows:
+        texts.append(cr["criterion"] or "")
+        texts.append(cr["verification_spec"] or "")
+    for sr in scope_rows:
+        pattern = sr["pattern"] or ""
+        texts.append(pattern)
+        if pattern.startswith(".github/workflows/") or pattern == ".github/workflows":
+            return True
+
+    combined = "\n".join(texts).lower()
+    if any(phrase in combined for phrase in CI_WORKFLOW_PHRASES):
+        return True
+    return "gha" in {token.strip(".,:;()[]{}<>\"'").lower() for token in combined.split()}
+
+
 def _apply_sparse_checkout(
     worktree_path: str, cone: list[str]
 ) -> tuple[bool, bool, str]:
@@ -1066,6 +1106,9 @@ def cmd_create(
         #      etc. into every task worktree so unit tests reading those
         #      files don't FileNotFoundError under a narrow per-task cone
         #      (issue #935).
+        #   7. CI workflow prose/scope hints — tasks that ask for GitHub
+        #      Actions or workflow_dispatch work need sibling workflows even
+        #      when they never spell out `.github/workflows/...` (issue #978).
         if not os.environ.get("TUSK_NO_SPARSE_WORKTREE"):
             referenced = [
                 p for p in task_referenced_paths(task_id, conn)
@@ -1099,6 +1142,8 @@ def cmd_create(
                     d = _normalize_cone_entry(raw or "")
                     if d:
                         cone_set.add(d)
+                if _task_mentions_ci_workflow(conn, task_id):
+                    cone_set.add(".github")
                 # --cone <path> entries are directory-shaped; pass them through
                 # without the dirname() step so `--cone docs` survives the
                 # single-segment drop and `--cone skills/tusk` lands as a

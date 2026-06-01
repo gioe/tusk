@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1073] - 2026-06-01
+
+- [TASK-558] Auto-include .github cone for CI workflow task prose
+
 ## [1072] - 2026-06-01
 
 - [TASK-557] Fix: Prevent User-Agent strings from becoming auto-derived scope paths

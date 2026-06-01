@@ -16,6 +16,8 @@ import os
 import sqlite3
 import subprocess
 
+import pytest
+
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TUSK_BIN = os.path.join(REPO_ROOT, "bin", "tusk")
@@ -112,6 +114,13 @@ def _insert_task(db_path, description):
         return cur.lastrowid
 
 
+def _set_sparse_always_cone(repo, entries):
+    config_path = repo / "tusk" / "config.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["scope"]["sparse_always_cone"] = entries
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+
 def _sparse_cone(worktree):
     """Return the cone entries set on ``worktree``, or None if sparse-checkout
     is disabled. Reads ``core.sparseCheckout`` first so a worktree with no
@@ -191,10 +200,7 @@ def test_sparse_cone_includes_referenced_dot_directory_path(tmp_path, monkeypatc
     """A task that names .github/workflows/web-ci.yml gets that cone from
     extraction, even when .github is not in sparse_always_cone."""
     repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
-    config_path = repo / "tusk" / "config.json"
-    config = json.loads(config_path.read_text(encoding="utf-8"))
-    config["scope"]["sparse_always_cone"] = ["bin"]
-    config_path.write_text(json.dumps(config), encoding="utf-8")
+    _set_sparse_always_cone(repo, ["bin"])
 
     task = _insert_task(
         db_path,
@@ -223,6 +229,80 @@ def test_sparse_cone_includes_referenced_dot_directory_path(tmp_path, monkeypatc
     assert os.path.isfile(
         os.path.join(payload["workspace_path"], ".github", "workflows", "web-ci.yml")
     )
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "Update tests/integration/test_a.py and add a GitHub Actions job",
+        "Update tests/integration/test_a.py and add a CI workflow",
+        "Update tests/integration/test_a.py and add GHA coverage",
+        "Update tests/integration/test_a.py and wire workflow_dispatch",
+    ],
+)
+def test_sparse_cone_includes_github_for_ci_workflow_prose(
+    tmp_path, monkeypatch, description
+):
+    """CI workflow prose materializes sibling workflows without explicit paths."""
+    repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+    _set_sparse_always_cone(repo, ["bin"])
+    task = _insert_task(db_path, description)
+    workspace_root = tmp_path / "workspaces"
+
+    result = _run(
+        [
+            "task-worktree",
+            "create",
+            str(task),
+            "ci-prose",
+            "--workspace-root",
+            str(workspace_root),
+        ],
+        cwd=repo,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+
+    cone = _sparse_cone(payload["workspace_path"])
+    assert cone is not None, "sparse-checkout should be enabled"
+    assert ".github" in set(cone)
+    assert os.path.isfile(
+        os.path.join(payload["workspace_path"], ".github", "workflows", "web-ci.yml")
+    )
+
+
+def test_sparse_cone_does_not_include_github_for_unrelated_prose(
+    tmp_path, monkeypatch
+):
+    """Unrelated task prose should not widen the sparse cone to .github."""
+    repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+    _set_sparse_always_cone(repo, ["bin"])
+    task = _insert_task(
+        db_path,
+        "Update tests/integration/test_a.py and document workflow notes",
+    )
+    workspace_root = tmp_path / "workspaces"
+
+    result = _run(
+        [
+            "task-worktree",
+            "create",
+            str(task),
+            "no-ci-prose",
+            "--workspace-root",
+            str(workspace_root),
+        ],
+        cwd=repo,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+
+    cone = _sparse_cone(payload["workspace_path"])
+    assert cone is not None, "sparse-checkout should be enabled"
+    assert ".github" not in set(cone)
+    assert not os.path.exists(os.path.join(payload["workspace_path"], ".github"))
 
 
 def test_sparse_cone_rejects_prose_identifier_tokens(tmp_path, monkeypatch):
