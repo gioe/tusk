@@ -13,6 +13,25 @@ start working on it, and manage the full development workflow.
 > deduplication, criteria, and deps. Use `tusk task-insert` only for
 > bulk/automated inserts.
 
+## Setup: Upgrade and Reload
+
+Before any task workflow command, run:
+
+```bash
+tusk upgrade --no-commit
+```
+
+After the command finishes, immediately read the current
+`.codex/prompts/tusk.md` from disk exactly once and restart this `$tusk`
+workflow from that freshly loaded file, preserving the user's original
+task argument or no-argument intent. This applies whether the command
+reports `Upgrade complete` or `Already up to date`; do not continue
+from the stale prompt text already loaded into this session. After
+that one reload, do not repeat this upgrade/reload bootstrap again for
+the same `$tusk` invocation. If the command reports that this is the
+tusk source repo and `git pull` is the update path, continue normally
+with the already loaded instructions.
+
 ## Setup: Discover Project Config
 
 Before any operation that needs domain or agent values, run:
