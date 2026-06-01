@@ -501,12 +501,14 @@ def is_prose_identifier_path(path: str | None, repo_root: str | None = None) -> 
     """Return True for slash-joined code identifiers masquerading as paths."""
     if not path or "/" not in path:
         return False
+    raw = path.strip()
+    if path_exists_in_repo(repo_root, raw):
+        return False
+    parts = raw.split("/")
     first = path.strip().split("/", 1)[0]
-    if first.startswith(".") or "." not in first:
-        return False
-    if path_exists_in_repo(repo_root, path):
-        return False
-    return True
+    if not first.startswith(".") and "." in first:
+        return True
+    return any(re.fullmatch(r"\d+(?:\.\d+)+", part) for part in parts[1:])
 
 
 # Regex to extract bare-basename file-like tokens (basename with multi-char

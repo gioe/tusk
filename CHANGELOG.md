@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1072] - 2026-06-01
+
+- [TASK-557] Fix: Prevent User-Agent strings from becoming auto-derived scope paths
+
 ## [1071] - 2026-06-01
 
 - [TASK-556] Support post-merge verification criteria in tusk merge workflow
