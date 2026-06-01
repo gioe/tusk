@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1071] - 2026-06-01
+
+- [TASK-556] Support post-merge verification criteria in tusk merge workflow
+
 ## [1070] - 2026-06-01
 
 - [TASK-555] Resolve auto-derived scope paths by unique repo suffix

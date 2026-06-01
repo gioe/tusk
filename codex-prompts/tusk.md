@@ -470,6 +470,18 @@ JSON blob and the `skill_run.run_id` you already captured.
    If any criteria are still incomplete, address them now. If a
    criterion was intentionally skipped, note why in the PR description.
 
+   **Post-merge verification criteria:** If a criterion can only be
+   verified after the change lands on the default branch (for example,
+   a `workflow_dispatch` run, production deploy check, or external
+   system callback), do not leave it open for `tusk merge` to close
+   implicitly. Defer it explicitly before Step 12:
+   ```bash
+   tusk criteria skip <criterion_id> --reason "post-merge verification: <what will be checked after TASK-<id> lands>"
+   ```
+   Capture the exact post-merge check in the reason. `tusk merge`
+   refuses ordinary open, non-deferred criteria so a task is not marked
+   Done just because finalization used `task-done --force`.
+
 10. **Run convention lint (advisory).** `tusk commit` already runs lint
     before each commit. If you need to check lint independently before
     pushing:
@@ -506,6 +518,11 @@ JSON blob and the `skill_run.run_id` you already captured.
     the default branch, pushes, deletes the feature branch, and marks
     the task Done. It returns JSON including an `unblocked_tasks`
     array. If there are newly unblocked tasks, note them in the retro.
+
+    `tusk merge` refuses to proceed while ordinary non-deferred
+    criteria are still open. Complete them, or use Step 9's explicit
+    post-merge verification deferral pattern when the check is
+    impossible before merge.
 
     **Already-merged path:** If the feature branch was previously
     merged and deleted, `tusk merge` detects this automatically when

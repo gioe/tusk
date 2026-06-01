@@ -35,6 +35,25 @@ def _load(name: str):
 tusk_merge = _load("tusk-merge")
 
 
+def _insert_criterion(
+    conn: sqlite3.Connection,
+    task_id: int,
+    text: str = "verify after merge",
+    *,
+    is_completed: int = 0,
+    is_deferred: int = 0,
+    deferred_reason: str | None = None,
+) -> int:
+    cur = conn.execute(
+        "INSERT INTO acceptance_criteria "
+        "(task_id, criterion, is_completed, is_deferred, deferred_reason) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (task_id, text, is_completed, is_deferred, deferred_reason),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
 # ---------------------------------------------------------------------------
 # find_task_branch pre-merged detection
 # ---------------------------------------------------------------------------
@@ -457,3 +476,154 @@ class TestMergeNormalPathNoErrorContradiction:
             f"Expected task-done's 'Warning:' diagnostic to be surfaced in "
             f"stderr:\n{stderr_out}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Issue #976 — merge must not force-close ordinary open criteria
+# ---------------------------------------------------------------------------
+
+
+class TestMergeOpenCriteriaGuard:
+    """Regression coverage for open criteria hidden by task-done --force."""
+
+    def test_normal_merge_refuses_open_criteria_before_task_done(
+        self, db_path, config_path, monkeypatch
+    ):
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+            cid = _insert_criterion(
+                conn,
+                task_id,
+                "Confirm the workflow_dispatch run succeeds on main",
+            )
+        finally:
+            conn.close()
+
+        branch_name = f"feature/TASK-{task_id}-post-merge-check"
+        monkeypatch.setattr(
+            tusk_merge,
+            "find_task_branch",
+            lambda tid: (branch_name, None, False),
+        )
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        monkeypatch.setattr(tusk_merge, "_has_remote", lambda name="origin": False)
+
+        calls = []
+
+        def _mock_run(args, check=True):
+            calls.append(list(args))
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(tusk_merge, "run", _mock_run)
+
+        err_buf = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(err_buf):
+            exit_code = tusk_merge.main(
+                [
+                    str(db_path),
+                    str(config_path),
+                    str(task_id),
+                    "--session",
+                    str(session_id),
+                ]
+            )
+
+        stderr = err_buf.getvalue()
+        assert exit_code == 2
+        assert "open acceptance criterion" in stderr
+        assert f"[{cid}]" in stderr
+        assert "post-merge verification" in stderr
+        assert not any("task-done" in c for c in calls), calls
+        assert not any(c[:3] == ["git", "merge", "--ff-only"] for c in calls), calls
+
+    def test_deferred_post_merge_criterion_does_not_block_normal_merge(
+        self, db_path, config_path, monkeypatch
+    ):
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+            _insert_criterion(
+                conn,
+                task_id,
+                "Confirm the workflow_dispatch run succeeds on main",
+                is_deferred=1,
+                deferred_reason=(
+                    "post-merge verification: dispatch the workflow after "
+                    "TASK lands"
+                ),
+            )
+        finally:
+            conn.close()
+
+        branch_name = f"feature/TASK-{task_id}-post-merge-check"
+        monkeypatch.setattr(
+            tusk_merge,
+            "find_task_branch",
+            lambda tid: (branch_name, None, False),
+        )
+        monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        monkeypatch.setattr(tusk_merge, "_has_remote", lambda name="origin": False)
+
+        task_done_invocations = []
+
+        def _mock_run(args, check=True):
+            if "session-close" in args:
+                return subprocess.CompletedProcess(args, 0, stdout="{}", stderr="")
+            if "task-done" in args:
+                task_done_invocations.append(list(args))
+                result_json = json.dumps({
+                    "task": {
+                        "id": task_id,
+                        "status": "Done",
+                        "closed_reason": "completed",
+                    },
+                    "sessions_closed": 0,
+                    "unblocked_tasks": [],
+                })
+                return subprocess.CompletedProcess(args, 0, stdout=result_json, stderr="")
+            if args[:3] == ["git", "diff", "--name-only"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:3] == ["git", "diff", "--cached"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:2] == ["git", "checkout"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:3] == ["git", "rev-list", "--count"]:
+                return subprocess.CompletedProcess(args, 0, stdout="1\n", stderr="")
+            if args[:2] == ["git", "log"]:
+                return subprocess.CompletedProcess(
+                    args, 0, stdout="abc1234 [TASK-N] feature commit\n", stderr=""
+                )
+            if args[:2] == ["git", "cherry"]:
+                return subprocess.CompletedProcess(
+                    args, 0, stdout="+ abc1234 feature commit\n", stderr=""
+                )
+            if args[:3] == ["git", "merge", "--ff-only"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:2] == ["git", "branch"]:
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(tusk_merge, "run", _mock_run)
+
+        out_buf = io.StringIO()
+        err_buf = io.StringIO()
+        with redirect_stdout(out_buf), redirect_stderr(err_buf):
+            exit_code = tusk_merge.main(
+                [
+                    str(db_path),
+                    str(config_path),
+                    str(task_id),
+                    "--session",
+                    str(session_id),
+                ]
+            )
+
+        assert exit_code == 0, err_buf.getvalue()
+        assert task_done_invocations
+        payload = json.loads(out_buf.getvalue())
+        assert payload["task"]["status"] == "Done"

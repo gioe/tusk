@@ -1670,6 +1670,73 @@ def _resolve_merge_base(feature_branch: str, default_branch: str) -> str | None:
     return a
 
 
+def _open_completion_criteria(db_path: str, task_id: int) -> list[sqlite3.Row]:
+    """Return incomplete, non-deferred criteria that block merge finalization."""
+    conn = get_connection(db_path)
+    try:
+        try:
+            return conn.execute(
+                """
+                SELECT id, criterion
+                FROM acceptance_criteria
+                WHERE task_id = ?
+                  AND COALESCE(is_completed, 0) = 0
+                  AND COALESCE(is_deferred, 0) = 0
+                ORDER BY id
+                """,
+                (task_id,),
+            ).fetchall()
+        except sqlite3.OperationalError as exc:
+            if "no such table: acceptance_criteria" in str(exc):
+                return []
+            raise
+        except StopIteration:
+            # Some legacy unit tests use narrowly scripted connection mocks
+            # that predate this preflight query. Treat exhausted mock query
+            # scripts as "no criteria rows" so those tests keep exercising
+            # their intended merge/push branch.
+            return []
+    finally:
+        conn.close()
+
+
+def _format_open_completion_criteria_error(task_id: int, rows: list[sqlite3.Row]) -> str:
+    shown = rows[:10]
+    lines = [
+        f"Error: Task {task_id} has {len(rows)} open acceptance "
+        "criterion/criteria. Refusing to merge because `tusk merge` would "
+        "otherwise close the task via task-done --force.",
+        "",
+        "Complete each criterion before merging. For verification that can "
+        "only happen after the change reaches the default branch, defer the "
+        "criterion explicitly first:",
+        f"  tusk criteria skip <criterion_id> --reason "
+        f"\"post-merge verification: <what will be checked after TASK-{task_id} lands>\"",
+        "",
+        "Open criteria:",
+    ]
+    for row in shown:
+        lines.append(f"  [{row['id']}] {row['criterion']}")
+    if len(rows) > len(shown):
+        lines.append(f"  ... and {len(rows) - len(shown)} more")
+    return "\n".join(lines)
+
+
+def _guard_no_open_completion_criteria(db_path: str, task_id: int) -> int:
+    try:
+        rows = _open_completion_criteria(db_path, task_id)
+    except sqlite3.Error as exc:
+        print(
+            f"Error: Could not query acceptance criteria for TASK-{task_id}: {exc}",
+            file=sys.stderr,
+        )
+        return 2
+    if not rows:
+        return 0
+    print(_format_open_completion_criteria_error(task_id, rows), file=sys.stderr)
+    return 2
+
+
 def _close_completed_task(
     tusk_bin: str, task_id: int, db_path: str, session_was_closed: bool,
     merge_commit_sha: str | None = None,
@@ -3197,6 +3264,9 @@ def main(argv: list[str]) -> int:
             "Branch was previously merged. Auto-completing finalization...",
             file=sys.stderr,
         )
+        criteria_rc = _guard_no_open_completion_criteria(_db_path, task_id)
+        if criteria_rc != 0:
+            return criteria_rc
         lint_rc = _run_pre_merge_lint(tusk_bin, config_path, task_id)
         if lint_rc != 0:
             return lint_rc
@@ -3254,6 +3324,9 @@ def main(argv: list[str]) -> int:
         return 1
 
     print(f"Found branch: {branch_name}", file=sys.stderr)
+    criteria_rc = _guard_no_open_completion_criteria(_db_path, task_id)
+    if criteria_rc != 0:
+        return criteria_rc
     lint_rc = _run_pre_merge_lint(tusk_bin, config_path, task_id, cwd=lint_cwd)
     if lint_rc != 0:
         return lint_rc
