@@ -82,6 +82,7 @@ CREATE TABLE tasks (
     task_type TEXT,
     priority_score INTEGER DEFAULT 0,
     expires_at TEXT,
+    not_before TEXT,
     closed_reason TEXT,
     complexity TEXT,
     workflow TEXT,

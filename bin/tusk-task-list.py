@@ -39,7 +39,7 @@ def print_text_table(rows: list[dict]) -> None:
         print("No tasks found.")
         return
 
-    columns = ["id", "status", "priority", "complexity", "domain", "assignee", "summary"]
+    columns = ["id", "status", "priority", "complexity", "not_before", "domain", "assignee", "summary"]
     # Compute column widths
     widths = {col: len(col) for col in columns}
     for row in rows:
@@ -136,7 +136,7 @@ def main(argv: list[str]) -> int:
 
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     sql = f"""
-SELECT id, summary, status, priority, priority_score, domain, assignee, complexity, task_type, created_at
+SELECT id, summary, status, priority, priority_score, domain, assignee, complexity, task_type, not_before, created_at
 FROM tasks
 {where_clause}
 ORDER BY priority_score DESC, id

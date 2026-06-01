@@ -2,12 +2,12 @@
 """Consolidate task-start setup into a single CLI command.
 
 Called by the tusk wrapper:
-    tusk task-start [<task_id>] [--force] [--force-deps] [--force-session] [--agent <name>] [--skill <name>]
+    tusk task-start [<task_id>] [--force] [--force-deps] [--force-not-before] [--force-session] [--agent <name>] [--skill <name>]
 
 Arguments received from tusk:
     sys.argv[1] — DB path
     sys.argv[2] — config path
-    sys.argv[3:] — [task_id] [--force] [--force-deps] [--force-session] [--agent <name>] [--skill <name>]
+    sys.argv[3:] — [task_id] [--force] [--force-deps] [--force-not-before] [--force-session] [--agent <name>] [--skill <name>]
 
 When task_id is omitted, the top WSJF-ranked ready task is picked from
 v_ready_tasks (same ranking logic tusk-task-select uses) and started in a
@@ -25,6 +25,7 @@ Performs all setup steps for beginning work on a task:
 
 --force: bypass the zero-criteria guard (emits a warning but proceeds)
 --force-deps: bypass the unmet-`blocks`-dependency guard (emits a warning but proceeds)
+--force-not-before: bypass a future not_before timestamp (emits a warning but proceeds)
 --force-session: reuse an existing active session from outside the task workspace
 """
 
@@ -228,6 +229,12 @@ def main(argv: list[str]) -> int:
         help="Bypass unmet 'blocks' dependency guard (use sparingly)",
     )
     parser.add_argument(
+        "--force-not-before",
+        dest="force_not_before",
+        action="store_true",
+        help="Bypass a future not_before timestamp (use sparingly)",
+    )
+    parser.add_argument(
         "--force-session",
         dest="force_session",
         action="store_true",
@@ -244,6 +251,7 @@ def main(argv: list[str]) -> int:
     task_id = args.task_id
     force = args.force
     force_deps = args.force_deps
+    force_not_before = args.force_not_before
     force_session = args.force_session
     agent_name = args.agent_name
     skill_name = args.skill_name
@@ -270,6 +278,29 @@ def main(argv: list[str]) -> int:
         if task["status"] == "Done":
             print(f"Error: Task {task_id} is already Done", file=sys.stderr)
             return 2
+
+        # 1a. Guard: task must not be time-gated into the future.
+        # Mirrors v_ready_tasks: future not_before rows are not ready unless
+        # the caller explicitly overrides the wall-clock gate.
+        not_before = task["not_before"] if "not_before" in task.keys() else None
+        if not_before:
+            is_future = conn.execute(
+                "SELECT datetime(?) > datetime('now')", (not_before,)
+            ).fetchone()[0]
+            if is_future:
+                if not force_not_before:
+                    print(
+                        f"Error: Task {task_id} is deferred until {not_before}. "
+                        "Start it after that time, or bypass with --force-not-before "
+                        "(use sparingly).",
+                        file=sys.stderr,
+                    )
+                    return 2
+                print(
+                    f"Warning: Task {task_id} is deferred until {not_before}. "
+                    "Proceeding anyway due to --force-not-before.",
+                    file=sys.stderr,
+                )
 
         # 1b. Guard: task must have at least one acceptance criterion
         criteria_count = conn.execute(
@@ -557,6 +588,6 @@ def main(argv: list[str]) -> int:
 if __name__ == "__main__":
     if len(sys.argv) < 2 or not sys.argv[1].endswith(".db"):
         print("Error: This script must be invoked via the tusk wrapper.", file=sys.stderr)
-        print("Use: tusk task-start [<task_id>] [--force] [--force-deps] [--force-session] [--agent NAME] [--skill NAME]", file=sys.stderr)
+        print("Use: tusk task-start [<task_id>] [--force] [--force-deps] [--force-not-before] [--force-session] [--agent NAME] [--skill NAME]", file=sys.stderr)
         sys.exit(1)
     sys.exit(main(sys.argv[1:]))

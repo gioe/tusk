@@ -21,8 +21,10 @@ Exit codes:
 """
 
 import argparse
+from datetime import datetime, timedelta, timezone
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -41,6 +43,42 @@ load_config = _db_lib.load_config
 validate_enum = _db_lib.validate_enum
 extract_paths = _git_helpers.extract_paths
 is_prose_identifier_path = _git_helpers.is_prose_identifier_path
+
+
+_RELATIVE_NOT_BEFORE_RE = re.compile(r"^\+(\d+)([mhdw])$")
+
+
+def _format_utc(value: datetime) -> str:
+    """Return a SQLite-friendly UTC timestamp."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _parse_not_before(value: str) -> str:
+    """Parse --not-before as UTC, accepting ISO datetimes or +Nm/+Nh/+Nd/+Nw."""
+    raw = (value or "").strip()
+    match = _RELATIVE_NOT_BEFORE_RE.match(raw)
+    if match:
+        amount = int(match.group(1))
+        unit = match.group(2)
+        delta = {
+            "m": timedelta(minutes=amount),
+            "h": timedelta(hours=amount),
+            "d": timedelta(days=amount),
+            "w": timedelta(weeks=amount),
+        }[unit]
+        return _format_utc(datetime.now(timezone.utc) + delta)
+
+    normalized = raw.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "--not-before must be an ISO datetime (for example "
+            "2026-06-01T06:00:00Z) or a relative offset like +4h"
+        ) from exc
+    return _format_utc(parsed)
 
 
 def _typed_criterion_type(value: str) -> dict:
@@ -107,6 +145,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--workflow", default=None, help="Workflow (validated against config)")
     parser.add_argument("--expires-in", type=int, default=None, dest="expires_in_days", metavar="DAYS",
                         help="Set expires_at to +N days")
+    parser.add_argument("--not-before", type=_parse_not_before, default=None, dest="not_before",
+                        metavar="TIMESTAMP",
+                        help="Do not surface/start the task before this UTC time; accepts ISO or +Nm/+Nh/+Nd/+Nw")
     parser.add_argument("--fixes-task-id", type=int, default=None, dest="fixes_task_id", metavar="ID",
                         help="Link this task as a follow-up/rework of the given task id")
     parser.add_argument("--scope", action="append", default=[], metavar="PATTERN",
@@ -129,6 +170,7 @@ def main(argv: list[str]) -> int:
     criteria: list[str] = args.criteria
     typed_criteria: list[dict] = args.typed_criteria
     expires_in_days = args.expires_in_days
+    not_before = args.not_before
     fixes_task_id = args.fixes_task_id
     scope_patterns: list[str] = args.scope
     creates_paths: list[str] = args.creates
@@ -222,20 +264,20 @@ def main(argv: list[str]) -> int:
             conn.execute(
                 "INSERT INTO tasks (summary, description, status, priority, domain, "
                 "task_type, assignee, complexity, workflow, fixes_task_id, "
-                "expires_at, created_at, updated_at) "
+                "expires_at, not_before, created_at, updated_at) "
                 "VALUES (?, ?, 'To Do', ?, ?, ?, ?, ?, ?, ?, datetime('now', ?), "
-                "datetime('now'), datetime('now'))",
+                "?, datetime('now'), datetime('now'))",
                 (summary, description, priority, domain, task_type, assignee,
-                 complexity, workflow, fixes_task_id, expires_at_expr),
+                 complexity, workflow, fixes_task_id, expires_at_expr, not_before),
             )
         else:
             conn.execute(
                 "INSERT INTO tasks (summary, description, status, priority, domain, "
                 "task_type, assignee, complexity, workflow, fixes_task_id, "
-                "created_at, updated_at) "
-                "VALUES (?, ?, 'To Do', ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+                "not_before, created_at, updated_at) "
+                "VALUES (?, ?, 'To Do', ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
                 (summary, description, priority, domain, task_type, assignee,
-                 complexity, workflow, fixes_task_id),
+                 complexity, workflow, fixes_task_id, not_before),
             )
 
         task_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]

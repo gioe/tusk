@@ -618,6 +618,9 @@ CREATE TABLE tasks (
     task_type TEXT,
     priority_score INTEGER DEFAULT 0,
     expires_at TEXT,
+    -- not_before: UTC timestamp. Future values keep tasks out of ready-task
+    -- selection until the wall-clock precondition has passed.
+    not_before TEXT,
     closed_reason TEXT,
     complexity TEXT,
     workflow TEXT,
@@ -787,6 +790,7 @@ SELECT t.*
 FROM tasks t
 WHERE t.status = 'To Do'
   AND t.bakeoff_shadow = 0
+  AND (t.not_before IS NULL OR datetime(t.not_before) <= datetime('now'))
   AND NOT EXISTS (
     SELECT 1 FROM task_dependencies d
     JOIN tasks blocker ON d.depends_on_id = blocker.id
@@ -803,6 +807,7 @@ SELECT t.*
 FROM tasks t
 WHERE t.status <> 'Done'
   AND t.bakeoff_shadow = 0
+  AND (t.not_before IS NULL OR datetime(t.not_before) <= datetime('now'))
   AND EXISTS (
     SELECT 1 FROM task_dependencies d
     JOIN tasks downstream ON d.task_id = downstream.id
@@ -1176,7 +1181,7 @@ TEST_RUNS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 74;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 75;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."

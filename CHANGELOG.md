@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1067] - 2026-06-01
+
+- [TASK-552] Fix: Add not_before support for time-gated tasks
+
 ## [1066] - 2026-06-01
 
 - [TASK-551] Clarify /tusk Step 12 sequential finalization wording
