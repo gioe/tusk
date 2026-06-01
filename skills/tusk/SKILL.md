@@ -290,7 +290,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
       After `/review-commits` completes with verdict **APPROVED**, proceed to step 12. If verdict is **CHANGES REMAINING**, run `tusk skill-run cancel <run_id>`, surface the unresolved items to the user, and stop.
 
-12. **Finalize — merge, push, and run retro.** Execute as a single uninterrupted sequence — do NOT pause for user confirmation between steps:
+12. **Finalize — merge, push, and run retro.** Execute as a sequence — run each command in its own tool call and read its result before issuing the next, but do NOT pause for user confirmation between steps:
     ```bash
     tusk merge <id> --session $SESSION_ID
     ```
@@ -344,7 +344,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
     `tusk abandon` switches off the feature branch, deletes it (force), closes the session, and marks the task Done with the given `closed_reason` in one call. **Refuses** if the feature branch has commits not on the default branch — in that case use `tusk merge` to ship the work, or delete the branch manually if you really want to discard it. The optional `--note` records the decision rationale on `task_progress` so the audit trail survives. After `tusk abandon` exits 0, run `/retro` exactly as you would after `tusk merge`.
 
-    After `tusk merge` (or `tusk abandon`) exits 0, close out the /tusk skill-run so its cost is captured before `/retro` starts its own run:
+    Only after `tusk merge` (or `tusk abandon`) exits 0, close out the /tusk skill-run so its cost is captured before `/retro` starts its own run. Do not run this command after a failed merge or abandon attempt:
     ```bash
     tusk skill-run finish <run_id>
     ```

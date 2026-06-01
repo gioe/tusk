@@ -480,8 +480,9 @@ JSON blob and the `skill_run.run_id` you already captured.
       `tusk skill-run cancel <run_id>`, surface the unresolved items
       to the user, and stop.
 
-12. **Finalize — merge, push, and run retro.** Execute as a single
-    uninterrupted sequence — do NOT pause for user confirmation
+12. **Finalize — merge, push, and run retro.** Execute as a sequence
+    — run each command in its own tool call and read its result
+    before issuing the next, but do NOT pause for user confirmation
     between steps:
 
     ```bash
@@ -586,9 +587,10 @@ JSON blob and the `skill_run.run_id` you already captured.
     survives. After `tusk abandon` exits 0, run `retro.md` exactly as
     you would after `tusk merge`.
 
-    After `tusk merge` (or `tusk abandon`) exits 0, close out the
-    tusk skill-run so its cost is captured before retro starts its
-    own run:
+    Only after `tusk merge` (or `tusk abandon`) exits 0, close out
+    the tusk skill-run so its cost is captured before retro starts
+    its own run. Do not run this command after a failed merge or
+    abandon attempt:
     ```bash
     tusk skill-run finish <run_id>
     ```
