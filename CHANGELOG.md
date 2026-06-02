@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1075] - 2026-06-01
+
+- [TASK-559] Fix: improve task-insert description and priority handling
+
 ## [1074] - 2026-06-01
 
 - Make the Claude and Codex `/tusk` workflows upgrade and reload themselves before starting work

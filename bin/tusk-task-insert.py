@@ -234,6 +234,19 @@ def _resolve_auto_derived_scope_pattern(repo_root: str | None, pattern: str) -> 
     return raw
 
 
+def _canonical_enum_value(value: str, valid_values: list[str]) -> str:
+    """Return the configured enum spelling for a case-insensitive match."""
+    if not valid_values:
+        return value
+    if value in valid_values:
+        return value
+    lowered = value.lower()
+    for valid in valid_values:
+        if valid.lower() == lowered:
+            return valid
+    return value
+
+
 def main(argv: list[str]) -> int:
     db_path = argv[0]
     config_path = argv[1]
@@ -242,7 +255,9 @@ def main(argv: list[str]) -> int:
         description="Insert a new task with criteria in one atomic operation",
     )
     parser.add_argument("summary", help="Task summary")
-    parser.add_argument("description", help="Task description")
+    parser.add_argument("description", nargs="?", help="Task description")
+    parser.add_argument("--description", dest="description_flag",
+                        help="Task description (alias for the second positional argument)")
     parser.add_argument("--priority", default="Medium", help="Priority (default: Medium)")
     parser.add_argument("--domain", default=None, help="Domain")
     parser.add_argument("--task-type", default="feature", dest="task_type", help="Task type (default: feature)")
@@ -271,7 +286,11 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv[2:])
 
     summary = args.summary
-    description = args.description
+    if args.description is not None and args.description_flag is not None:
+        parser.error("description was provided both positionally and via --description; use one form")
+    description = args.description if args.description is not None else args.description_flag
+    if description is None:
+        parser.error("description is required; pass it as the second positional argument or with --description")
     priority = args.priority
     domain = args.domain
     task_type = args.task_type
@@ -295,6 +314,7 @@ def main(argv: list[str]) -> int:
 
     # Load and validate against config
     config = load_config(config_path)
+    priority = _canonical_enum_value(priority, config.get("priorities", []))
 
     errors = []
     err = validate_enum(priority, config.get("priorities", []), "priority")
