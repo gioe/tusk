@@ -232,6 +232,66 @@ class TestStaleProgressWarning:
         assert "may be stale" not in stderr
 
 
+class TestDeferTriggerWarning:
+    def test_task_start_json_includes_defer_trigger_warning(self, db_path, config_path):
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            task_id = _insert_task(
+                conn,
+                summary="Refactor scraper helper",
+                description=(
+                    "Do the refactor later.\n\n"
+                    "> Defer trigger: wait until five scrapers share the pattern."
+                ),
+            )
+            _insert_criterion(conn, task_id)
+        finally:
+            conn.close()
+
+        rc, result, stderr = _call_start(db_path, config_path, str(task_id), "--force")
+
+        assert rc == 0
+        assert result is not None
+        assert result["warnings"]["defer_trigger"] == {
+            "type": "defer_trigger",
+            "line": "Defer trigger: wait until five scrapers share the pattern.",
+            "message": (
+                "task description contains an explicit defer trigger; "
+                "confirm it is satisfied before investigating"
+            ),
+        }
+        assert "contains defer trigger" in stderr
+
+    def test_task_start_without_defer_trigger_has_no_warning_key(self, db_path, config_path):
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            task_id = _insert_task(
+                conn,
+                summary="Refactor scraper helper",
+                description="Do the refactor now that the prerequisite is met.",
+            )
+            _insert_criterion(conn, task_id)
+        finally:
+            conn.close()
+
+        rc, result, stderr = _call_start(db_path, config_path, str(task_id), "--force")
+
+        assert rc == 0
+        assert result is not None
+        assert "warnings" not in result
+        assert "defer trigger" not in stderr.lower()
+
+    def test_defer_trigger_detection_is_case_insensitive(self):
+        assert (
+            tusk_task_start._find_defer_trigger(
+                "intro\n- dEfEr TrIgGeR: once the fifth caller exists"
+            )
+            == "dEfEr TrIgGeR: once the fifth caller exists"
+        )
+
+
 class TestStaleProgressHelpers:
     def test_short_next_steps_is_not_flagged(self):
         """next_steps shorter than _STALE_PROGRESS_MIN_TOKENS must return False

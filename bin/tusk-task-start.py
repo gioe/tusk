@@ -69,6 +69,11 @@ _STALE_PROGRESS_STOPWORDS = frozenset({
     "who", "why", "will", "with", "you", "your",
 })
 
+_DEFER_TRIGGER_RE = re.compile(
+    r"^(?:defer\s+trigger\s*:|defer\s*:|defer\s+until\b|wait\s+for\b)",
+    re.IGNORECASE,
+)
+
 
 def _stem_token(word: str) -> str:
     """Crude suffix stripping so "cache"/"caching" and "typo"/"typos" collide.
@@ -131,6 +136,28 @@ def _find_stale_progress_row(progress_rows: list, current_text: str):
         if _progress_next_steps_is_stale(next_steps, current_text):
             return row
         return None
+    return None
+
+
+def _strip_marker_prefixes(line: str) -> str:
+    stripped = line.strip()
+    while True:
+        updated = re.sub(r"^(?:>\s*|[-*]\s+|\d+[.)]\s+)", "", stripped).strip()
+        if updated == stripped:
+            return stripped
+        stripped = updated
+
+
+def _find_defer_trigger(text: str) -> str | None:
+    """Return the first explicit defer-trigger line in task text, if any."""
+    if not text:
+        return None
+    for raw_line in text.splitlines():
+        line = _strip_marker_prefixes(raw_line)
+        if not line:
+            continue
+        if _DEFER_TRIGGER_RE.search(line):
+            return line
     return None
 
 
@@ -556,7 +583,7 @@ def main(argv: list[str]) -> int:
         # it is backwards (issue #956). Consult task_dependencies and drop any
         # referenced task that depends_on the current task via 'blocks' so only
         # genuine prerequisites (or un-formalized text references) are warned.
-        text = (task["description"] or "") + " " + (task["summary"] or "")
+        text = (task["description"] or "") + "\n" + (task["summary"] or "")
         referenced_ids = list({
             int(m.group(1))
             for m in re.finditer(r'\bTASK-(\d+)\b', text, re.IGNORECASE)
@@ -595,6 +622,8 @@ def main(argv: list[str]) -> int:
                 file=sys.stderr,
             )
             print(f"  next_steps: {preview}", file=sys.stderr)
+
+        defer_trigger = _find_defer_trigger(text)
 
         deliverable_check_needed = any(c["is_completed"] for c in criteria_list)
         if not deliverable_check_needed:
@@ -635,6 +664,19 @@ def main(argv: list[str]) -> int:
             "skill_run": skill_run_info,
         }
         warnings = {}
+        if defer_trigger is not None:
+            warnings["defer_trigger"] = {
+                "type": "defer_trigger",
+                "line": defer_trigger,
+                "message": (
+                    "task description contains an explicit defer trigger; "
+                    "confirm it is satisfied before investigating"
+                ),
+            }
+            print(
+                f"Warning: task description contains defer trigger: {defer_trigger}",
+                file=sys.stderr,
+            )
         stale_default_warning = _default_branch_staleness_warning(_current_repo_root())
         if stale_default_warning is not None:
             warnings["stale_default_branch"] = stale_default_warning
