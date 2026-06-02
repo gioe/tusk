@@ -34,6 +34,7 @@ import json
 import os
 import re
 import sqlite3
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -184,6 +185,63 @@ def _task_commits_on_default(db_path: str, task_id: int) -> bool:
         if _git_helpers.find_task_commits(task_id, repo_root, refs=[ref]):
             return True
     return False
+
+
+def _default_branch_staleness_warning(repo_root: str | None) -> dict | None:
+    """Return a non-blocking warning when local default is behind origin.
+
+    Best-effort by design: task-start must not block just because a repo has no
+    origin, fetch is unavailable, or the local checkout is offline.
+    """
+    if not repo_root:
+        return None
+    try:
+        default = _git_helpers.default_branch(repo_root)
+    except Exception:
+        return None
+
+    try:
+        fetch_res = subprocess.run(
+            ["git", "-C", repo_root, "fetch", "origin", default, "--quiet"],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=5,
+        )
+        count_res = subprocess.run(
+            [
+                "git", "-C", repo_root,
+                "rev-list", "--count", f"{default}..origin/{default}",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+    if fetch_res.returncode != 0:
+        return None
+    if count_res.returncode != 0:
+        return None
+    try:
+        behind_count = int(count_res.stdout.strip() or "0")
+    except ValueError:
+        return None
+    if behind_count <= 0:
+        return None
+    return {
+        "type": "stale_default_branch",
+        "default_branch": default,
+        "behind_count": behind_count,
+        "message": (
+            f"local {default} is {behind_count} commit(s) behind "
+            f"origin/{default}; consider syncing before investigating"
+        ),
+    }
 
 
 def _current_repo_root() -> str | None:
@@ -576,6 +634,16 @@ def main(argv: list[str]) -> int:
             "deliverable_check_needed": deliverable_check_needed,
             "skill_run": skill_run_info,
         }
+        warnings = {}
+        stale_default_warning = _default_branch_staleness_warning(_current_repo_root())
+        if stale_default_warning is not None:
+            warnings["stale_default_branch"] = stale_default_warning
+            print(
+                f"Warning: {stale_default_warning['message']}.",
+                file=sys.stderr,
+            )
+        if warnings:
+            result["warnings"] = warnings
 
         _register_active_project()
 

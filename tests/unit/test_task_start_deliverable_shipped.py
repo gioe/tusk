@@ -10,6 +10,7 @@ stronger orphaned-work signal so check-deliverables still runs.
 import importlib.util
 import os
 import subprocess
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -111,3 +112,70 @@ def test_commit_only_on_origin_default_detected(tmp_path, monkeypatch):
 
     # Local main no longer carries the commit, but origin/main does.
     assert mod._task_commits_on_default(_db_path(repo), 77) is True
+
+
+def _completed(returncode=0, stdout="", stderr=""):
+    r = MagicMock(spec=subprocess.CompletedProcess)
+    r.returncode = returncode
+    r.stdout = stdout
+    r.stderr = stderr
+    return r
+
+
+def test_default_branch_staleness_warning_when_local_default_behind(monkeypatch):
+    calls = []
+    monkeypatch.setattr(mod._git_helpers, "default_branch", lambda repo: "main")
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        if args[:4] == ["git", "-C", "/repo", "fetch"]:
+            return _completed()
+        if args[:4] == ["git", "-C", "/repo", "rev-list"]:
+            return _completed(stdout="3\n")
+        return _completed(returncode=1, stderr="unexpected")
+
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+    warning = mod._default_branch_staleness_warning("/repo")
+
+    assert warning == {
+        "type": "stale_default_branch",
+        "default_branch": "main",
+        "behind_count": 3,
+        "message": (
+            "local main is 3 commit(s) behind origin/main; "
+            "consider syncing before investigating"
+        ),
+    }
+    assert calls == [
+        ["git", "-C", "/repo", "fetch", "origin", "main", "--quiet"],
+        ["git", "-C", "/repo", "rev-list", "--count", "main..origin/main"],
+    ]
+
+
+def test_default_branch_staleness_warning_silent_when_current(monkeypatch):
+    monkeypatch.setattr(mod._git_helpers, "default_branch", lambda repo: "main")
+
+    def fake_run(args, **kwargs):
+        if args[:4] == ["git", "-C", "/repo", "rev-list"]:
+            return _completed(stdout="0\n")
+        return _completed()
+
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+    assert mod._default_branch_staleness_warning("/repo") is None
+
+
+def test_default_branch_staleness_warning_silent_on_fetch_failure(monkeypatch):
+    monkeypatch.setattr(mod._git_helpers, "default_branch", lambda repo: "main")
+
+    def fake_run(args, **kwargs):
+        if args[:4] == ["git", "-C", "/repo", "fetch"]:
+            return _completed(returncode=128, stderr="network unavailable")
+        if args[:4] == ["git", "-C", "/repo", "rev-list"]:
+            return _completed(returncode=128, stderr="bad ref")
+        return _completed()
+
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+    assert mod._default_branch_staleness_warning("/repo") is None
