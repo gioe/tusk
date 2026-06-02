@@ -96,6 +96,17 @@ def _insert_committed_criterion(db: str, task_id: int) -> None:
     conn.close()
 
 
+def _insert_unbounded_scope(db: str, task_id: int) -> None:
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "INSERT INTO task_scope (task_id, pattern, source, reason) "
+        "VALUES (?, '**', 'unbounded', 'test unbounded')",
+        (task_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
 # ── scope add ────────────────────────────────────────────────────────────────
 
 class TestScopeAdd:
@@ -187,6 +198,51 @@ class TestScopeAdd:
         assert result.returncode == 2, result.stderr
         assert "does not exist" in result.stderr
         assert _scope_rows(str(db_path), task_id) == []
+
+    def test_scope_add_noops_when_task_scope_is_unbounded(self, db_path):
+        task_id = _seed_task(str(db_path))
+        _insert_unbounded_scope(str(db_path), task_id)
+
+        result = _run([
+            "scope", "add", str(task_id),
+            "tmp/nonexistent.md",
+            "--reason", "pre-auth",
+        ])
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload == {
+            "task_id": task_id,
+            "pattern": "tmp/nonexistent.md",
+            "source": "unbounded",
+            "unbounded": True,
+            "note": "task scope is unbounded; no further authorization needed",
+        }
+        assert _scope_rows(str(db_path), task_id) == [
+            {
+                "pattern": "**",
+                "source": "unbounded",
+                "reason": "test unbounded",
+                "locked_at": None,
+                "locked_by": None,
+            }
+        ]
+
+    def test_scope_add_unbounded_noop_ignores_explicit_creates_source(self, db_path):
+        task_id = _seed_task(str(db_path))
+        _insert_unbounded_scope(str(db_path), task_id)
+
+        result = _run([
+            "scope", "add", str(task_id),
+            "tmp/nonexistent.md",
+            "--source", "creates",
+        ])
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["source"] == "unbounded"
+        rows = _scope_rows(str(db_path), task_id)
+        assert len(rows) == 1
 
     def test_scope_add_rejects_unbounded_source(self, db_path):
         """`scope add` only accepts the mid-task source vocabulary —

@@ -156,6 +156,15 @@ def _resolve_add_source(
     return "operator_declared"
 
 
+def _task_has_unbounded_scope(conn: sqlite3.Connection, task_id: int) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM task_scope "
+        "WHERE task_id = ? AND pattern = '**' AND source = 'unbounded' LIMIT 1",
+        (task_id,),
+    ).fetchone()
+    return row is not None
+
+
 def cmd_list(args: argparse.Namespace, db_path: str) -> int:
     task_id = _parse_task_id(args.task_id)
     with get_connection(db_path) as conn:
@@ -188,6 +197,17 @@ def cmd_add(args: argparse.Namespace, db_path: str, repo_root: str) -> int:
         return 2
     with get_connection(db_path) as conn:
         _ensure_task_exists(conn, task_id)
+        if _task_has_unbounded_scope(conn, task_id):
+            print(dumps({
+                "task_id": task_id,
+                "pattern": pattern,
+                "source": "unbounded",
+                "unbounded": True,
+                "note": (
+                    "task scope is unbounded; no further authorization needed"
+                ),
+            }))
+            return 0
         source = _resolve_add_source(conn, task_id, args.source)
         pattern, err = _normalize_pattern(pattern, repo_root, source)
         if err is not None:
