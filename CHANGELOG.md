@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1077] - 2026-06-02
+
+- [TASK-561] Fix: prevent skill-run finish from silently recording zero cost when transcripts exist but discovery misses
+
 ## [1076] - 2026-06-02
 
 - [TASK-560] Fix: derive scope for sibling filename shortforms

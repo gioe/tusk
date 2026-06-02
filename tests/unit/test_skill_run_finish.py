@@ -42,6 +42,9 @@ CREATE TABLE skill_runs (
     cost_dollars REAL,
     tokens_in INTEGER,
     tokens_out INTEGER,
+    cache_read_tokens_in INTEGER,
+    cache_write_tokens_in INTEGER,
+    uncached_tokens_in INTEGER,
     model TEXT,
     metadata TEXT,
     request_count INTEGER,
@@ -129,6 +132,40 @@ def test_finish_already_finished_row_warns_and_exits_zero(db_path, monkeypatch):
     assert exit_code == 0
     assert "already finished" in err
     assert "Skill run 1 (tusk) finished:" in out
+
+
+def test_finish_without_transcript_records_missing_transcript_sentinel(db_path, monkeypatch):
+    c = sqlite3.connect(str(db_path))
+    c.execute(
+        "INSERT INTO skill_runs (skill_name, started_at) VALUES (?, ?)",
+        ("retro", "2026-05-01 10:00:00"),
+    )
+    c.commit()
+    c.close()
+
+    monkeypatch.setattr(skill_run.lib, "load_pricing", lambda: None)
+    monkeypatch.setattr(skill_run.lib, "find_transcript", lambda: None)
+    monkeypatch.setattr(
+        skill_run.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+
+    exit_code, out, err = _run_main(db_path, monkeypatch, "finish", "1")
+
+    c = sqlite3.connect(str(db_path))
+    c.row_factory = sqlite3.Row
+    row = c.execute(
+        "SELECT cost_dollars, request_count, model FROM skill_runs WHERE id = 1"
+    ).fetchone()
+    c.close()
+
+    assert exit_code == 0
+    assert "No transcript found" in err
+    assert "Model:         (transcript missing)" in out
+    assert row["cost_dollars"] == 0
+    assert row["request_count"] == 0
+    assert row["model"] == "(transcript missing)"
 
 
 def test_list_task_id_shows_closed_task_runs(db_path, monkeypatch):

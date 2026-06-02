@@ -140,8 +140,9 @@ def _jsonl_files_for_hash(project_hash: str) -> list[Path]:
 def _candidate_dirs(start: str) -> list[str]:
     """Return candidate directories to try for transcript discovery.
 
-    Order: cwd, git root (if different), then each parent up to filesystem root.
-    Deduplicates while preserving order.
+    Order: cwd, git root (if different), the primary checkout that owns a git
+    worktree's common dir, then each parent up to filesystem root. Deduplicates
+    while preserving order.
     """
     seen: set[str] = set()
     candidates: list[str] = []
@@ -167,6 +168,29 @@ def _candidate_dirs(start: str) -> list[str]:
     except Exception:
         pass
 
+    # Task-owned worktrees are often under ~/.tusk/worktrees/<repo>/TASK-...
+    # while Claude records transcripts against the primary checkout path. Git's
+    # common dir points back at that checkout, so include it before broad parent
+    # fallbacks.
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            capture_output=True,
+            text=True, encoding="utf-8",
+            cwd=start,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            common_dir_text = result.stdout.strip()
+            if common_dir_text:
+                common_dir = Path(common_dir_text)
+                if not common_dir.is_absolute():
+                    common_dir = Path(start) / common_dir
+                if common_dir.name == ".git":
+                    add(str(common_dir.parent))
+    except Exception:
+        pass
+
     # Walk up parent directories
     p = Path(start).parent
     while str(p) != str(p.parent):
@@ -176,24 +200,8 @@ def _candidate_dirs(start: str) -> list[str]:
     return candidates
 
 
-def find_transcript(project_dir: str | None = None) -> str | None:
-    """Find the most recently modified JSONL in the Claude projects dir.
-
-    If *project_dir* is not given, tries multiple candidate directories:
-    1. os.getcwd()
-    2. git root (via git rev-parse --show-toplevel)
-    3. Each parent directory walking up to the filesystem root
-
-    Returns the most recently modified JSONL found, or None if nothing found.
-    """
-    if project_dir is not None:
-        # Caller supplied an explicit hash — use it directly (legacy behaviour).
-        files = _jsonl_files_for_hash(project_dir)
-        if not files:
-            return None
-        return str(max(files, key=lambda p: p.stat().st_mtime))
-
-    for candidate in _candidate_dirs(os.getcwd()):
+def _find_transcript_for_candidates(candidates: list[str]) -> str | None:
+    for candidate in candidates:
         project_hash = derive_project_hash(candidate)
         files = _jsonl_files_for_hash(project_hash)
         if files:
@@ -203,6 +211,29 @@ def find_transcript(project_dir: str | None = None) -> str | None:
 
     log.debug("No JSONL transcripts found after trying all candidate directories")
     return None
+
+
+def find_transcript(project_dir: str | None = None) -> str | None:
+    """Find the most recently modified JSONL in the Claude projects dir.
+
+    If *project_dir* is not given, tries multiple candidate directories:
+    1. os.getcwd()
+    2. git root (via git rev-parse --show-toplevel)
+    3. primary checkout root for task worktrees (via git common dir)
+    4. Each parent directory walking up to the filesystem root
+
+    Returns the most recently modified JSONL found, or None if nothing found.
+    """
+    if project_dir is not None:
+        if os.path.isdir(project_dir):
+            return _find_transcript_for_candidates(_candidate_dirs(project_dir))
+        # Caller supplied an explicit hash — use it directly (legacy behaviour).
+        files = _jsonl_files_for_hash(project_dir)
+        if not files:
+            return None
+        return str(max(files, key=lambda p: p.stat().st_mtime))
+
+    return _find_transcript_for_candidates(_candidate_dirs(os.getcwd()))
 
 
 def find_all_transcripts_with_fallback(start_dir: str | None = None) -> list[str]:

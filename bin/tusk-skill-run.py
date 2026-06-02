@@ -152,6 +152,7 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
         user_prompt_tokens = totals.get("user_prompt_tokens", 0)
         user_prompt_count = totals.get("user_prompt_count", 0)
     else:
+        model = "(transcript missing)"
         print(
             "Warning: No transcript found — cost will be $0.00.",
             file=sys.stderr,

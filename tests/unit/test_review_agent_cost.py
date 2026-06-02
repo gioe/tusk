@@ -35,6 +35,9 @@ class _StubLib:
     def derive_project_hash(self, project_dir: str) -> str:
         return self._hash
 
+    def find_all_transcripts_with_fallback(self, start_dir: str | None = None) -> list[str]:
+        return []
+
     def aggregate_session(self, jsonl_path: str, started_at: datetime, _end):
         self.aggregate_calls.append((jsonl_path, started_at))
         return self.totals_by_path.get(jsonl_path, {"request_count": 0})
@@ -201,6 +204,46 @@ class TestEmptyResults:
         assert result["transcripts"] == []
 
 
+class TestProjectDirFallback:
+    def test_uses_fallback_transcript_dir_when_direct_project_hash_is_missing(self, fake_home, monkeypatch):
+        direct_hash = "worktree_hash_without_transcripts"
+        primary_hash = "primary_checkout_hash"
+        _claude_dir_for(fake_home, direct_hash)
+        claude_dir = _claude_dir_for(fake_home, primary_hash)
+        spawn_time = time.time() - 60
+        orch = _seed_jsonl(claude_dir, "orchestrator", mtime=spawn_time + 10)
+        agent = _seed_jsonl(claude_dir, "agent", mtime=spawn_time + 20)
+
+        class _FallbackStub(_StubLib):
+            def find_all_transcripts_with_fallback(self, start_dir: str | None = None) -> list[str]:
+                return [str(orch)]
+
+        stub = _FallbackStub(
+            direct_hash,
+            {
+                str(agent): {
+                    "request_count": 4,
+                    "cost_dollars": 0.33,
+                    "tokens_in": 400,
+                    "output_tokens": 40,
+                },
+            },
+        )
+        monkeypatch.setattr(agent_cost, "_load_pricing_lib", lambda: stub)
+
+        result = agent_cost.aggregate_agent_cost(
+            since_epoch=spawn_time,
+            exclude_jsonl=str(orch),
+            project_dir="/fake/worktree",
+        )
+
+        assert result["request_count"] == 4
+        assert result["cost_dollars"] == 0.33
+        assert result["tokens_in"] == 400
+        assert result["tokens_out"] == 40
+        assert result["transcripts"] == [str(agent)]
+
+
 class TestMainEntrypoint:
     def test_main_exits_0_when_aggregation_succeeds(self, fake_home, monkeypatch, capsys):
         project_hash = "fake_main_hash"
@@ -258,7 +301,8 @@ class TestMainEntrypoint:
 class TestPrintOrchestratorJsonl:
     def test_prints_path_and_exits_zero(self, fake_home, monkeypatch, capsys):
         class _DiscoveryStub:
-            def find_transcript(self):
+            def find_transcript(self, project_dir=None):
+                assert project_dir == str(fake_home)
                 return "/fake/.claude/projects/abc/orchestrator.jsonl"
 
         monkeypatch.setattr(agent_cost, "_load_pricing_lib", lambda: _DiscoveryStub())
@@ -272,7 +316,8 @@ class TestPrintOrchestratorJsonl:
 
     def test_exits_2_when_no_transcript_found(self, fake_home, monkeypatch, capsys):
         class _NoneStub:
-            def find_transcript(self):
+            def find_transcript(self, project_dir=None):
+                assert project_dir == str(fake_home)
                 return None
 
         monkeypatch.setattr(agent_cost, "_load_pricing_lib", lambda: _NoneStub())

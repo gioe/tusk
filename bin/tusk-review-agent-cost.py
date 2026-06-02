@@ -75,6 +75,19 @@ def _candidate_jsonls(claude_dir: Path, since_epoch: float, exclude_realpath: st
     return out
 
 
+def _claude_dir_for_project(lib, project_dir: str) -> Path | None:
+    project_hash = lib.derive_project_hash(project_dir)
+    direct = Path.home() / ".claude" / "projects" / project_hash
+    if list(direct.glob("*.jsonl")):
+        return direct
+
+    transcripts = lib.find_all_transcripts_with_fallback(project_dir)
+    if transcripts:
+        return Path(transcripts[0]).parent
+
+    return direct
+
+
 def aggregate_agent_cost(
     since_epoch: float,
     exclude_jsonl: str | None,
@@ -90,8 +103,7 @@ def aggregate_agent_cost(
     """
     lib = _load_pricing_lib()
     project_dir = project_dir or os.getcwd()
-    project_hash = lib.derive_project_hash(project_dir)
-    claude_dir = Path.home() / ".claude" / "projects" / project_hash
+    claude_dir = _claude_dir_for_project(lib, project_dir)
 
     aggregated = {
         "cost_dollars": 0.0,
@@ -100,7 +112,7 @@ def aggregate_agent_cost(
         "request_count": 0,
         "transcripts": [],
     }
-    if not claude_dir.exists():
+    if claude_dir is None or not claude_dir.exists():
         return aggregated
 
     exclude_real = os.path.realpath(exclude_jsonl) if exclude_jsonl else None
@@ -165,7 +177,7 @@ def main(argv: list[str]) -> int:
 
     if args.print_orchestrator_jsonl:
         lib = _load_pricing_lib()
-        path = lib.find_transcript()
+        path = lib.find_transcript(project_dir)
         if not path:
             print("Error: no transcript found for current project", file=sys.stderr)
             return 2
