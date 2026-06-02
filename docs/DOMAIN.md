@@ -208,17 +208,18 @@ Authoritative declaration of which paths a task is allowed to touch. The commit-
 
 **Sources:**
 - `auto_derived` — backfilled from `task_referenced_paths` during migration 73, or inserted by a future auto-extraction pass during task creation.
-- `operator_declared` — set via `tusk task-insert --scope <pattern>` (repeatable). The operator named these paths up-front.
+- `operator_declared` — set via `tusk task-insert --scope <pattern>` (repeatable), or by `tusk scope add` when no durable task work has landed yet. The operator named these paths up-front.
 - `creates` — set via `tusk task-insert --creates <path>` (repeatable). Distinguished from `operator_declared` so the guard could in future verify the paths don't yet exist on the default branch.
-- `expanded_mid_task` — added by `tusk scope add <task_id> <pattern> [--reason ...]` after the task is already in progress. The reason is the audit trail for "why did scope grow mid-flight" retro questions.
-- `unbounded` — set via `tusk task-insert --unbounded`. The pattern is a sentinel (`**`); `scope-paths` short-circuits and emits nothing when any row has this source, so the commit-time guard silently passes. Used for refactors that legitimately span the repo.
+- `expanded_mid_task` — added by implicit `tusk scope add <task_id> <pattern> [--reason ...]` after the task has progress checkpoints or committed criteria. The reason is the audit trail for "why did scope grow mid-flight" retro questions. Passing `--source expanded_mid_task` remains an explicit override.
+- `unbounded` — set via `tusk task-insert --unbounded`. The pattern is a sentinel (`**`); `scope-paths` short-circuits and emits nothing when any row has this source, so the commit-time guard silently passes. Used for refactors that legitimately span the repo. When a task already has this sentinel, redundant `tusk scope add` calls exit 0 with a note and do not insert rows.
 
 **Backfill (migration 73).** For each existing task with at least one referenced path, one `auto_derived` row was inserted per path. Tasks with no scope signal (no paths in description / criteria / verification specs) got no rows — the guard's "empty scope → silent pass" contract is preserved unchanged.
 
 **Lifecycle.** Tasks start `loose` (no `locked_at`). The intended hardening path is:
 1. `tusk task-insert --scope/--creates` declares initial scope.
-2. Exploration may surface paths the operator didn't anticipate; `tusk scope add ... --reason "..."` records each expansion as an `expanded_mid_task` row.
-3. `tusk scope lock` stamps `locked_at` on every entry once the operator is confident the scope is complete.
+2. Before the first progress checkpoint or committed criterion, `tusk scope add ... --reason "..."` records additional up-front declarations as `operator_declared`.
+3. Exploration may later surface paths the operator didn't anticipate; implicit `tusk scope add ... --reason "..."` records each expansion as an `expanded_mid_task` row once task work has landed.
+4. `tusk scope lock` stamps `locked_at` on every entry once the operator is confident the scope is complete.
 
 The lock column is informational today — the guard does not yet refuse `tusk scope add` against locked tasks — but the audit data is captured for retro analysis.
 

@@ -6,6 +6,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1085] - 2026-06-02
+
+- [TASK-572] Fix scope add upfront default source
+- [TASK-573] No-op redundant scope add for unbounded tasks
+- [TASK-574] Warn on stale default branch at task start
+- [TASK-575] Surface defer triggers at task start
+
 ## [1084] - 2026-06-02
 
 - [TASK-570] Fix: require scope declaration for issue-derived tasks before commit
