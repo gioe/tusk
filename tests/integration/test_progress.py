@@ -61,7 +61,7 @@ def _latest_progress(db_path, task_id: int) -> sqlite3.Row:
     conn.row_factory = sqlite3.Row
     try:
         return conn.execute(
-            "SELECT commit_hash, commit_message, files_changed, next_steps "
+            "SELECT commit_hash, commit_message, files_changed, note, next_steps "
             "FROM task_progress WHERE task_id = ? ORDER BY id DESC LIMIT 1",
             (task_id,),
         ).fetchone()
@@ -89,6 +89,7 @@ def test_progress_leaves_commit_metadata_null_when_head_does_not_belong_to_task(
     assert row["commit_hash"] is None
     assert row["commit_message"] is None
     assert row["files_changed"] is None
+    assert row["note"] is None
     assert row["next_steps"] == "verification only"
 
 
@@ -118,4 +119,33 @@ def test_progress_records_commit_metadata_when_head_belongs_to_task(db_path, tmp
     assert row["commit_hash"] == commit_hash
     assert row["commit_message"] == f"[TASK-{task_id}] implement progress metadata"
     assert row["files_changed"] == "feature.txt"
+    assert row["note"] is None
     assert row["next_steps"] == "ready for review"
+
+
+def test_progress_records_note_separately_from_next_steps(db_path, tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    task_id = _insert_task(db_path)
+    _commit(repo, "feature.txt", "implemented\n", f"[TASK-{task_id}] implement progress note")
+
+    result = _run(
+        [
+            TUSK_BIN,
+            "progress",
+            str(task_id),
+            "--note",
+            "Why we chose X",
+            "--next-steps",
+            "Implement X",
+        ],
+        cwd=repo,
+    )
+
+    payload = json.loads(result.stdout)
+    assert payload["note"] == "Why we chose X"
+    assert payload["next_steps"] == "Implement X"
+    row = _latest_progress(db_path, task_id)
+    assert row["note"] == "Why we chose X"
+    assert row["next_steps"] == "Implement X"

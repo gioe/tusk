@@ -49,6 +49,7 @@ CREATE TABLE task_progress (
     commit_hash TEXT,
     commit_message TEXT,
     files_changed TEXT,
+    note TEXT,
     next_steps TEXT,
     created_at TEXT DEFAULT (datetime('now'))
 );

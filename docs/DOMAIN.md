@@ -311,10 +311,11 @@ An append-only log entry written after each commit, capturing enough context for
 | `commit_hash` | TEXT | nullable | SHA of the commit triggering this checkpoint |
 | `commit_message` | TEXT | nullable | Commit message |
 | `files_changed` | TEXT | nullable | Newline-separated list of changed files |
+| `note` | TEXT | nullable | Free-form rationale or historical context |
 | `next_steps` | TEXT | nullable | Free-text brief for the next agent |
 | `created_at` | TEXT | default now | |
 
-Written by `tusk progress <task_id> --next-steps "..."`. Read back by `tusk task-start` and the `/resume-task` skill.
+Written by `tusk progress <task_id> --note "..." --next-steps "..."`. `next_steps` is read back by `tusk task-start`, `retro-signals`, and the `/resume-task` skill as forward-looking handoff text; `note` preserves rationale separately.
 
 ---
 

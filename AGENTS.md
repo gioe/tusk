@@ -40,7 +40,7 @@ bin/tusk commit <task_id> "<file1>" ["<file2>" ...] -m "<message>" [--criteria <
 # Note: bare -- separators are silently ignored (AI callers sometimes insert them)
 # Note: always quote file paths — zsh expands unquoted [brackets] as glob patterns before tusk receives them
 bin/tusk merge <task_id> [--session <session_id>] [--pr --pr-number <N>]
-bin/tusk progress <task_id> [--next-steps "..."]
+bin/tusk progress <task_id> [--note "..."] [--next-steps "..."]
 bin/tusk jot <category> "<note>" [--file <path>] [--skill <name>]   # capture mid-task friction at the source — keyed to active skill_run; consumed by /retro
 bin/tusk jots [--skill-run-id <id>] [--task-id <id>] [--limit N]    # list jots filtered by skill_run_id and/or task_id (newest-first JSON array)
 bin/tusk bakeoff <task_id> --models m1,m2[,mN] [--workspace-root <path>] [--claude-bin <path>] [--dry-run]  # run the same task under N models in parallel worktrees and emit a side-by-side report

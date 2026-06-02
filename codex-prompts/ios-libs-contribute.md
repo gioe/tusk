@@ -64,7 +64,7 @@ Pass the PR body via stdin. Include summary, verification, `Originating tusk tas
 When `gh pr create` returns a URL, record it on the originating task:
 
 ```bash
-tusk progress "$TASK_ID" --next-steps "Opened upstream PR against $LIB_REPO: $PR_URL"
+tusk progress "$TASK_ID" --note "Opened upstream PR against $LIB_REPO: $PR_URL"
 ```
 
 Report:

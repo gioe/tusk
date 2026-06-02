@@ -2,7 +2,7 @@
 """Log a progress checkpoint for a task from the latest git commit.
 
 Called by the tusk wrapper:
-    tusk progress <task_id> [--next-steps "..."]
+    tusk progress <task_id> [--note "..."] [--next-steps "..."]
 
 Arguments received from tusk:
     sys.argv[1] — DB path
@@ -45,8 +45,9 @@ def commit_message_belongs_to_task(commit_message: str, task_id: int) -> bool:
 
 
 def main(argv: list[str]) -> int:
+    usage = 'Usage: tusk progress <task_id> [--note "..."] [--next-steps "..."]'
     if len(argv) < 3:
-        print("Usage: tusk progress <task_id> [--next-steps \"...\"]", file=sys.stderr)
+        print(usage, file=sys.stderr)
         return 1
 
     db_path = argv[0]
@@ -55,11 +56,18 @@ def main(argv: list[str]) -> int:
 
     # Parse arguments
     task_id_str = None
+    note = None
     next_steps = None
 
     i = 0
     while i < len(remaining):
-        if remaining[i] == "--next-steps":
+        if remaining[i] == "--note":
+            if i + 1 >= len(remaining):
+                print("Error: --note requires a value", file=sys.stderr)
+                return 1
+            note = remaining[i + 1]
+            i += 2
+        elif remaining[i] == "--next-steps":
             if i + 1 >= len(remaining):
                 print("Error: --next-steps requires a value", file=sys.stderr)
                 return 1
@@ -73,7 +81,7 @@ def main(argv: list[str]) -> int:
             return 1
 
     if task_id_str is None:
-        print("Usage: tusk progress <task_id> [--next-steps \"...\"]", file=sys.stderr)
+        print(usage, file=sys.stderr)
         return 1
 
     try:
@@ -110,9 +118,9 @@ def main(argv: list[str]) -> int:
 
         # Insert progress checkpoint
         conn.execute(
-            "INSERT INTO task_progress (task_id, commit_hash, commit_message, files_changed, next_steps) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (task_id, commit_hash, commit_message, files_changed, next_steps),
+            "INSERT INTO task_progress (task_id, commit_hash, commit_message, files_changed, note, next_steps) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (task_id, commit_hash, commit_message, files_changed, note, next_steps),
         )
         conn.commit()
 
@@ -122,6 +130,7 @@ def main(argv: list[str]) -> int:
             "commit_hash": commit_hash,
             "commit_message": commit_message,
             "files_changed": files_changed,
+            "note": note,
             "next_steps": next_steps,
         }
         print(dumps(result))
@@ -133,6 +142,6 @@ def main(argv: list[str]) -> int:
 if __name__ == "__main__":
     if len(sys.argv) < 2 or not sys.argv[1].endswith(".db"):
         print("Error: This script must be invoked via the tusk wrapper.", file=sys.stderr)
-        print("Use: tusk progress <task_id> [--next-steps \"...\"]", file=sys.stderr)
+        print('Use: tusk progress <task_id> [--note "..."] [--next-steps "..."]', file=sys.stderr)
         sys.exit(1)
     sys.exit(main(sys.argv[1:]))

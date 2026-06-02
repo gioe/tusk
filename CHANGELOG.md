@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1083] - 2026-06-02
+
+- [TASK-569] Fix: add tusk progress --note separate from next steps
+
 ## [1082] - 2026-06-02
 
 - [TASK-568] Fix: improve tusk commit sparse-checkout recovery for out-of-cone paths

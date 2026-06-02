@@ -60,6 +60,7 @@ CREATE TABLE task_progress (
     commit_hash TEXT,
     commit_message TEXT,
     files_changed TEXT,
+    note TEXT,
     next_steps TEXT,
     created_at TEXT DEFAULT (datetime('now'))
 );
@@ -630,6 +631,16 @@ class TestUnconsumedNextSteps:
         out = mod.fetch_unconsumed_next_steps(conn, 1)
         assert [r["next_steps"] for r in out] == ["first step", "second step"]
         assert out[0]["created_at"] < out[1]["created_at"]
+
+    def test_ignores_notes_without_next_steps(self, tmp_path):
+        db_path, conn = _make_db(tmp_path, task_id=1)
+        conn.execute(
+            "INSERT INTO task_progress (task_id, note, next_steps) VALUES (1, 'why X', NULL)"
+        )
+        conn.commit()
+        conn.row_factory = sqlite3.Row
+
+        assert mod.fetch_unconsumed_next_steps(conn, 1) == []
 
 
 # ── main: subprocess-level shape + errors ─────────────────────────────

@@ -27,7 +27,7 @@
 #   tusk criteria skip <cid> --reason <reason>  Close criterion without commit attribution (not applicable, chain-deferred, etc.)
 #   tusk criteria reset <cid>    Reset a criterion to incomplete (clears deferred flag too)
 #   tusk criteria finish-deferred --reason <r> <id...>  Mark all deferred criteria with given reason as completed
-#   tusk progress <id> [--next-steps "..."]  Log a progress checkpoint from HEAD
+#   tusk progress <id> [--note "..."] [--next-steps "..."]  Log a progress checkpoint from HEAD
 #   tusk lint [--verbose|--quiet] Run convention checks; default: one-line OK summary on pass
 #   tusk dag [--all]           Generate and open an HTML dependency DAG
 #   tusk dashboard             Generate and open an HTML dashboard
@@ -708,6 +708,7 @@ CREATE TABLE task_progress (
     commit_hash TEXT,
     commit_message TEXT,
     files_changed TEXT,
+    note TEXT,
     next_steps TEXT,
     created_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
@@ -1181,7 +1182,7 @@ TEST_RUNS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 75;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 76;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."

@@ -187,10 +187,10 @@ Then stop — do not record progress.
 If Step 2 found `$TASK_ID`, log the URL as a progress checkpoint so it shows up in the local task history:
 
 ```bash
-tusk progress "$TASK_ID" --next-steps "Filed tusk-issue: $ISSUE_URL"
+tusk progress "$TASK_ID" --note "Filed tusk-issue: $ISSUE_URL"
 ```
 
-`tusk progress`'s `--next-steps` is the free-form checkpoint field — it does not have to be a literal "next step" — so it doubles as the structured slot for tracking external follow-up.
+Use `--note` for the external issue URL so it stays out of `next_steps`, which is reserved for forward-looking handoff work.
 
 If Step 2 found no task, skip this step.
 

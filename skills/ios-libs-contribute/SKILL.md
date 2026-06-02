@@ -146,7 +146,7 @@ If `gh pr create` fails due to authentication or repository access, surface the 
 When the PR URL is available, record it on the originating local task:
 
 ```bash
-tusk progress "$TASK_ID" --next-steps "Opened upstream PR against $LIB_REPO: $PR_URL"
+tusk progress "$TASK_ID" --note "Opened upstream PR against $LIB_REPO: $PR_URL"
 ```
 
 This keeps the external contribution visible in local task history.

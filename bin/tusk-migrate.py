@@ -3324,6 +3324,24 @@ def migrate_75(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 75: added tasks.not_before and filtered future-gated ready views")
 
 
+def migrate_76(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add task_progress.note for rationale separate from next_steps.
+
+    ``next_steps`` is consumed as forward-looking handoff text by resume and
+    retro-signal flows. ``note`` preserves checkpoint rationale without making
+    that text look like unfinished work.
+    """
+    if get_version(db_path) >= 76:
+        _progress("  Migration 76: added task_progress.note")
+        return
+
+    if not has_column(db_path, "task_progress", "note"):
+        run_script(db_path, "ALTER TABLE task_progress ADD COLUMN note TEXT;")
+
+    set_version(db_path, 76)
+    _progress("  Migration 76: added task_progress.note")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -3402,6 +3420,7 @@ MIGRATIONS = [
     (73, migrate_73),
     (74, migrate_74),
     (75, migrate_75),
+    (76, migrate_76),
 ]
 
 
