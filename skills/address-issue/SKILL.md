@@ -379,10 +379,24 @@ Check for semantic duplicates against the backlog from Step 3. If a likely dupli
 
 > Possible duplicate: existing task #<id> — "<summary>". Proceed anyway?
 
-If confirmed (or no duplicate found), insert with:
+If confirmed (or no duplicate found), write the full task description to a
+temporary UTF-8 file first, then insert with `--description-file`. The issue
+body is untrusted text from GitHub and may contain shell metacharacters such as
+`$0`, `$SHELL`, backticks, or `$(...)`; do not pass it as an interpolated shell
+argument. Use the Write tool or another non-interpolating file write so the
+file contents are exactly:
+
+```text
+GitHub Issue #<N>: <url>
+
+<body>
+```
+
+Then run:
 
 ```bash
-tusk task-insert "<summary>" "<description>" \
+tusk task-insert "<summary>" \
+  --description-file "<description_file>" \
   --priority "<priority>" \
   --domain "<domain>" \
   --task-type "<task_type>" \

@@ -382,6 +382,74 @@ class TestTriggerGeneration:
 # ── Insert tests ──────────────────────────────────────────────────────────────
 
 class TestTaskInsertWorkflow:
+    def test_insert_reads_description_from_file_literally(self, tmp_path):
+        """task-insert --description-file preserves shell metacharacter text."""
+        db_path = _make_db_with_workflow(tmp_path)
+        config_path = _write_config(str(tmp_path / "config.json"))
+        description_path = tmp_path / "issue-body.md"
+        description = "Cost should stay $0 and shell should stay $SHELL, not expand.\n"
+        description_path.write_text(description, encoding="utf-8")
+
+        out = StringIO()
+        with redirect_stdout(out), redirect_stderr(StringIO()), \
+             patch.object(insert_mod, "run_dupe_check", return_value=None), \
+             patch("subprocess.run"):
+            result = insert_mod.main([
+                db_path, config_path,
+                "Test task",
+                "--description-file", str(description_path),
+                "--criteria", "Some criterion",
+            ])
+
+        assert result == 0
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT description FROM tasks WHERE id = 1").fetchone()
+        assert row["description"] == description
+        conn.close()
+
+    def test_insert_still_accepts_positional_description(self, tmp_path):
+        """The legacy positional description form remains compatible."""
+        db_path = _make_db_with_workflow(tmp_path)
+        config_path = _write_config(str(tmp_path / "config.json"))
+
+        out = StringIO()
+        with redirect_stdout(out), redirect_stderr(StringIO()), \
+             patch.object(insert_mod, "run_dupe_check", return_value=None), \
+             patch("subprocess.run"):
+            result = insert_mod.main([
+                db_path, config_path,
+                "Test task", "Description",
+                "--criteria", "Some criterion",
+            ])
+
+        assert result == 0
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT description FROM tasks WHERE id = 1").fetchone()
+        assert row["description"] == "Description"
+        conn.close()
+
+    def test_insert_rejects_multiple_description_sources(self, tmp_path):
+        """Description may not be supplied both positionally and by file."""
+        db_path = _make_db_with_workflow(tmp_path)
+        config_path = _write_config(str(tmp_path / "config.json"))
+        description_path = tmp_path / "issue-body.md"
+        description_path.write_text("Description", encoding="utf-8")
+
+        err = StringIO()
+        with redirect_stdout(StringIO()), redirect_stderr(err):
+            with pytest.raises(SystemExit) as excinfo:
+                insert_mod.main([
+                    db_path, config_path,
+                    "Test task", "Description",
+                    "--description-file", str(description_path),
+                    "--criteria", "Some criterion",
+                ])
+
+        assert excinfo.value.code == 2
+        assert "description was provided multiple ways" in err.getvalue()
+
     def test_insert_with_workflow(self, tmp_path):
         """task-insert --workflow sets the workflow column."""
         db_path = _make_db_with_workflow(tmp_path)

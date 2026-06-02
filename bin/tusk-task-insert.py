@@ -3,11 +3,12 @@
 
 Called by the tusk wrapper:
     tusk task-insert "<summary>" "<description>" [flags...]
+    tusk task-insert "<summary>" --description-file /path/to/body [flags...]
 
 Arguments received from tusk:
     sys.argv[1] — DB path
     sys.argv[2] — config path
-    sys.argv[3:] — summary, description, and optional flags
+    sys.argv[3:] — summary, description or --description-file, and optional flags
 
 Run 'tusk task-insert --help' for the full flag reference.
 
@@ -110,6 +111,19 @@ def _typed_criterion_type(value: str) -> dict:
     if not isinstance(tc, dict) or "text" not in tc:
         raise argparse.ArgumentTypeError('--typed-criteria must have at least a "text" key')
     return tc
+
+
+def _read_text_file_argument(path: str, *, arg_name: str) -> str:
+    """Read a UTF-8 text argument from a file path, or stdin when path is '-'."""
+    if path == "-":
+        return sys.stdin.read()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    except OSError as exc:
+        raise argparse.ArgumentTypeError(
+            f"{arg_name}: could not read {path!r}: {exc.strerror}"
+        ) from exc
 
 
 def run_dupe_check(summary: str, domain: str | None) -> dict | None:
@@ -354,6 +368,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("description", nargs="?", help="Task description")
     parser.add_argument("--description", dest="description_flag",
                         help="Task description (alias for the second positional argument)")
+    parser.add_argument("--description-file", dest="description_file",
+                        help="Read task description from a UTF-8 file, or '-' for stdin")
     parser.add_argument("--priority", default="Medium", help="Priority (default: Medium)")
     parser.add_argument("--domain", default=None, help="Domain")
     parser.add_argument("--task-type", default="feature", dest="task_type", help="Task type (default: feature)")
@@ -382,11 +398,27 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv[2:])
 
     summary = args.summary
-    if args.description is not None and args.description_flag is not None:
-        parser.error("description was provided both positionally and via --description; use one form")
-    description = args.description if args.description is not None else args.description_flag
+    description_sources = [
+        args.description is not None,
+        args.description_flag is not None,
+        args.description_file is not None,
+    ]
+    if sum(description_sources) > 1:
+        parser.error(
+            "description was provided multiple ways; use only one of positional "
+            "description, --description, or --description-file"
+        )
+    if args.description_file is not None:
+        description = _read_text_file_argument(
+            args.description_file, arg_name="--description-file"
+        )
+    else:
+        description = args.description if args.description is not None else args.description_flag
     if description is None:
-        parser.error("description is required; pass it as the second positional argument or with --description")
+        parser.error(
+            "description is required; pass it as the second positional argument, "
+            "with --description, or with --description-file"
+        )
     priority = args.priority
     domain = args.domain
     task_type = args.task_type

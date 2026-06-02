@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1078] - 2026-06-02
+
+- [TASK-563] Fix: make address-issue insert issue-derived descriptions without shell expansion
+
 ## [1077] - 2026-06-02
 
 - [TASK-561] Fix: prevent skill-run finish from silently recording zero cost when transcripts exist but discovery misses
