@@ -729,15 +729,15 @@ class TestDotDirectoryPathsRegression:
         assert ".gitignore:1:.github/" in combined
         assert "git add -f" in combined
 
-    def test_sparse_checkout_error_shows_hint(self, tmp_path, capsys):
-        """When git add fails due to sparse-checkout, an actionable hint is shown."""
+    def test_sparse_checkout_error_shows_exact_recovery_command(self, tmp_path, capsys):
+        """When git add fails due to sparse-checkout, the recovery command names the cone."""
         mod = _load_module()
 
-        workflow_file = tmp_path / ".github" / "workflows" / "ci.yml"
-        workflow_file.parent.mkdir(parents=True)
-        workflow_file.write_text("name: CI")
+        doc_file = tmp_path / "docs" / "design" / "foo.md"
+        doc_file.parent.mkdir(parents=True)
+        doc_file.write_text("design")
 
-        argv = _argv(tmp_path, files=[".github/workflows/ci.yml"])
+        argv = _argv(tmp_path, files=["docs/design/foo.md"])
 
         def fake_run(args, **kwargs):
             if args[:2] == ["git", "add"]:
@@ -745,10 +745,10 @@ class TestDotDirectoryPathsRegression:
                     1,
                     stderr=(
                         "error: the following pathspecs are outside the sparse-checkout "
-                        "definition:\n  .github/workflows/ci.yml"
+                        "definition:\n  docs/design/foo.md"
                     ),
                 )
-            if args[:3] == ["git", "check-ignore", "-v"]:
+            if args[:4] == ["git", "check-ignore", "--no-index", "-v"]:
                 return _make_completed(1)  # not gitignored
             return _make_completed(0)
 
@@ -759,7 +759,11 @@ class TestDotDirectoryPathsRegression:
         assert rc == 3
         captured = capsys.readouterr()
         assert "sparse-checkout" in captured.err
-        assert "git sparse-checkout add" in captured.err
+        assert (
+            "Run: git sparse-checkout add docs && "
+            "tusk commit 42 'my message' docs/design/foo.md"
+        ) in captured.err
+        assert "<directory>" not in captured.err
 
 
 class TestDotDotPreflightRejection:

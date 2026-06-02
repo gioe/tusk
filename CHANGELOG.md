@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1082] - 2026-06-02
+
+- [TASK-568] Fix: improve tusk commit sparse-checkout recovery for out-of-cone paths
+
 ## [1081] - 2026-06-02
 
 - [TASK-567] Fix: preserve real out-of-diff review comments instead of treating them as fabricated

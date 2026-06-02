@@ -58,6 +58,7 @@ import json
 import math
 import os
 import re
+import shlex
 import sqlite3
 import subprocess
 import sys
@@ -693,6 +694,84 @@ def _test_command_outside_sparse_cone(
         if os.path.exists(os.path.join(repo_root, tok.rstrip("/"))):
             return False, ""
     return True, targets[0]
+
+
+def _sparse_checkout_recovery_cone(paths: list[str], repo_root: str) -> list[str]:
+    """Infer cone entries to add for paths rejected by sparse-checkout."""
+    cones: list[str] = []
+    seen: set[str] = set()
+    for path in paths:
+        rel = os.path.relpath(path, repo_root) if os.path.isabs(path) else path
+        rel = os.path.normpath(rel)
+        if rel.startswith(f".{os.sep}"):
+            rel = rel[2:]
+        if not rel or rel == "." or rel.startswith("../"):
+            continue
+        cone = rel.split(os.sep, 1)[0]
+        if cone not in seen:
+            cones.append(cone)
+            seen.add(cone)
+    return cones
+
+
+def _render_tusk_commit_retry(
+    task_id: int,
+    message: str,
+    files: list[str],
+    criteria_ids: list[str],
+    *,
+    skip_verify: bool,
+    skip_lint: bool,
+    allow_branch_mismatch: bool,
+    verbose: bool,
+) -> str:
+    """Render the equivalent tusk commit command using parsed arguments."""
+    args = ["tusk", "commit", str(task_id), message, *files]
+    if criteria_ids:
+        args.append("--criteria")
+        args.extend(criteria_ids)
+    if skip_verify:
+        args.append("--skip-verify")
+    if skip_lint:
+        args.append("--skip-lint")
+    if allow_branch_mismatch:
+        args.append("--allow-branch-mismatch")
+    if verbose:
+        args.append("--verbose")
+    return " ".join(shlex.quote(arg) for arg in args)
+
+
+def _render_sparse_checkout_recovery(
+    paths: list[str],
+    repo_root: str,
+    task_id: int,
+    message: str,
+    files: list[str],
+    criteria_ids: list[str],
+    *,
+    skip_verify: bool,
+    skip_lint: bool,
+    allow_branch_mismatch: bool,
+    verbose: bool,
+) -> str | None:
+    """Return an actionable recovery command for sparse-checkout git-add errors."""
+    cones = _sparse_checkout_recovery_cone(paths, repo_root)
+    if not cones:
+        return None
+    add_cmd = " ".join(
+        ["git", "sparse-checkout", "add", *[shlex.quote(cone) for cone in cones]]
+    )
+    retry_cmd = _render_tusk_commit_retry(
+        task_id,
+        message,
+        files,
+        criteria_ids,
+        skip_verify=skip_verify,
+        skip_lint=skip_lint,
+        allow_branch_mismatch=allow_branch_mismatch,
+        verbose=verbose,
+    )
+    return f"{add_cmd} && {retry_cmd}"
 
 
 # Canonical non-code metadata files — mirrors scope.always_allowed in
@@ -1522,10 +1601,30 @@ def _run_commit(argv: list[str], state: dict) -> int:
                         "use `git add -f <file>` to force-add, then commit manually."
                     )
                 elif "sparse-checkout" in stderr_text:
-                    _print_error(
-                        "  Hint: one or more files are outside the git sparse-checkout cone — "
-                        "run `git sparse-checkout add <directory>` to include them."
+                    recovery = _render_sparse_checkout_recovery(
+                        to_add,
+                        repo_root,
+                        task_id,
+                        message,
+                        files,
+                        criteria_ids,
+                        skip_verify=skip_verify,
+                        skip_lint=skip_lint,
+                        allow_branch_mismatch=allow_branch_mismatch,
+                        verbose=verbose,
                     )
+                    if recovery:
+                        _print_error(
+                            "  Hint: one or more files are outside the git "
+                            "sparse-checkout cone."
+                        )
+                        _print_error(f"  Run: {recovery}")
+                    else:
+                        _print_error(
+                            "  Hint: one or more files are outside the git "
+                            "sparse-checkout cone — run `git sparse-checkout add "
+                            "<directory>` to include them."
+                        )
 
         if stderr_text is not None:
             return 3
