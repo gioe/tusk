@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1080] - 2026-06-02
+
+- [TASK-566] Fix: prevent auto-derived scope from inferring nonexistent nested sibling paths
+
 ## [1079] - 2026-06-02
 
 - [TASK-565] Fix: Isolate tusk routing env vars in commit test gate

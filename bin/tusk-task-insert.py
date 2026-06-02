@@ -52,7 +52,7 @@ _RELATIVE_NOT_BEFORE_RE = re.compile(r"^\+(\d+)([mhdw])$")
 _GLOB_METACHARS = set("*?[")
 _BARE_FILENAME_RE = r"[A-Za-z0-9][\w.-]*\.[A-Za-z0-9][\w.-]*"
 _SIBLING_ITEM_RE = re.compile(
-    rf"(?:\s*(?:,|\band\b|\bor\b|/)\s*)"
+    rf"(?:\s*(?:,|\band\b|\bor\b)\s*|\s+/\s*|/\s+)"
     rf"(?P<item>\{{[A-Za-z0-9_.-]+(?:,[A-Za-z0-9_.-]+)+\}}\.[A-Za-z0-9][\w.-]*|"
     rf"{_BARE_FILENAME_RE}(?:/{_BARE_FILENAME_RE})*)"
 )

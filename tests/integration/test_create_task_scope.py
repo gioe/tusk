@@ -366,6 +366,25 @@ def test_auto_extract_infers_sibling_filename_after_explicit_path(db_path):
     assert "test_scope_cli.py" not in auto, rows
 
 
+def test_auto_extract_does_not_nest_separate_explicit_path_mentions(db_path):
+    """A later explicit path must not be treated as a sibling shortform."""
+    task_id = _insert(
+        str(db_path),
+        "separate explicit path scope",
+        (
+            "Update skills/address-issue/SKILL.md and "
+            "codex-prompts/address-issue.md together."
+        ),
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+
+    assert "skills/address-issue/SKILL.md" in auto, rows
+    assert "codex-prompts/address-issue.md" in auto, rows
+    assert "skills/address-issue/address-issue.md" not in auto, rows
+
+
 def test_auto_extract_infers_braced_sibling_filenames(db_path):
     """Brace shortforms inherit the nearby explicit path directory."""
     task_id = _insert(
