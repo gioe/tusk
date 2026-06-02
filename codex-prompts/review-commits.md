@@ -289,23 +289,31 @@ Codex port the agent-monitoring step is folded into Step 5.)
 After recording the verdict, validate that every pending comment's
 `file_path` actually appears in the diff (issue #783 fabrication guard),
 and that general comments (null `file_path`) cite only in-diff paths if
-they cite paths at all (issue #912 fabrication guard).
+they cite paths at all unless those cited paths exist in the repo (issue
+#912 fabrication guard plus issue #985 out-of-diff-real routing).
 `tusk review validate-comments` re-derives the diff range and auto-dismisses
 any pending comment whose `file_path` is missing from `git diff --name-only`.
 For general comments it body-scans for file-path-shaped tokens and dismisses
-the comment when every cited path is out-of-diff. In the Codex inline path
-the orchestrator IS the reviewer, so fabrication is rare — but the validation
-also catches stale `file_path` values left over from earlier renames and so
-still earns its keep on the inline path:
+the comment when every cited path is out-of-diff and none of those paths
+resolve to real repo files. If at least one cited out-of-diff path exists,
+the comment is preserved and returned under `out_of_diff_real` for follow-up
+task routing. In the Codex inline path the orchestrator IS the reviewer, so
+fabrication is rare — but the validation also catches stale `file_path` values
+left over from earlier renames and so still earns its keep on the inline path:
 
 ```bash
 VALIDATION_JSON=$(tusk review validate-comments $REVIEW_ID)
 DISMISSED_COUNT=$(printf '%s' "$VALIDATION_JSON" | jq '(.dismissed | length) + (.dismissed_general | length)')
+OUT_OF_DIFF_REAL_COUNT=$(printf '%s' "$VALIDATION_JSON" | jq '(.out_of_diff_real // [] | length)')
 ```
 
 If `$DISMISSED_COUNT > 0`, surface both `dismissed` (file_path-driven) and
 `dismissed_general` (body-scan-driven) entries verbatim so the user can see
-what was dropped. Then fetch the full review results:
+what was dropped. If `$OUT_OF_DIFF_REAL_COUNT > 0`, surface those entries
+separately as scope-adjacent findings: the cited files exist in the repo but
+are not part of this diff. Do not fix those files in the current review unless
+the task scope already allows it; create or recommend a focused follow-up task
+when the substance is valid. Then fetch the full review results:
 
 ```bash
 tusk review list $TASK_ID

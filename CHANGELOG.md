@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1081] - 2026-06-02
+
+- [TASK-567] Fix: preserve real out-of-diff review comments instead of treating them as fabricated
+
 ## [1080] - 2026-06-02
 
 - [TASK-566] Fix: prevent auto-derived scope from inferring nonexistent nested sibling paths

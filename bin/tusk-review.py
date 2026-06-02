@@ -501,6 +501,23 @@ def _path_in_diff(token: str, diff_files: set[str]) -> bool:
     return any(os.path.basename(f) == token for f in diff_files)
 
 
+def _existing_repo_paths(token: str, repo_root: str, repo_files: set[str]) -> list[str]:
+    """Return tracked/on-disk repo paths matching *token*.
+
+    Multi-segment tokens must match their exact repo-relative path. Bare
+    basenames may match any tracked file with that basename, mirroring
+    ``_path_in_diff`` while still avoiding a full filesystem walk.
+    """
+    if "/" in token:
+        if token in repo_files or os.path.exists(os.path.join(repo_root, token)):
+            return [token]
+        return []
+    matches = sorted(p for p in repo_files if os.path.basename(p) == token)
+    if os.path.exists(os.path.join(repo_root, token)) and token not in matches:
+        matches.insert(0, token)
+    return matches
+
+
 def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
     """Cross-check pending review comments against the actual diff (issues #783, #912).
 
@@ -516,11 +533,11 @@ def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
 
     General-scope comments (``file_path`` is null/empty) are body-scanned
     for file-path-shaped tokens (issue #912). When the body cites one or
-    more path tokens AND none of them appear in the diff, the comment is
-    dismissed under the same fabrication-guard rationale as file_path
-    comments. General comments that cite at least one in-diff path, or
-    cite no path tokens at all, are preserved — the orchestrator's
-    diff-line-quote rule still handles the latter case.
+    more path tokens AND none of them appear in the diff, tokens that do
+    not resolve to real repo files are dismissed under the fabrication
+    guard. Tokens that resolve to real repo files are preserved and
+    returned separately as out-of-diff real paths so the orchestrator can
+    spin them off as follow-up work instead of treating them as noise.
 
     JSON output:
         {
@@ -529,6 +546,7 @@ def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
             "validated": int,                # pending comments inspected
             "dismissed": [{"comment_id", "file_path"}, ...],
             "dismissed_general": [{"comment_id", "cited_paths"}, ...],
+            "out_of_diff_real": [{"comment_id", "cited_paths", "existing_paths"}, ...],
             "in_diff": int,                  # file_path values matched
             "general": int,                  # null-file_path comments preserved
             "diff_files": [str, ...],        # the diff's --name-only set
@@ -598,9 +616,21 @@ def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
         )
         return 1
     diff_files = {p.strip() for p in name_only.stdout.splitlines() if p.strip()}
+    ls_files = subprocess.run(
+        ["git", "ls-files", "-z"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=diff_cwd,
+    )
+    if ls_files.returncode != 0:
+        print(f"git ls-files failed: {ls_files.stderr}", file=sys.stderr)
+        return 1
+    repo_files = {p for p in ls_files.stdout.split("\0") if p}
 
     dismissed = []
     dismissed_general = []
+    out_of_diff_real = []
     in_diff = 0
     general = 0
     for c in pending:
@@ -617,6 +647,20 @@ def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
                 continue
             if any(_path_in_diff(p, diff_files) for p in cited_paths):
                 general += 1
+                continue
+            existing_paths = []
+            for path in cited_paths:
+                existing_paths.extend(
+                    p for p in _existing_repo_paths(path, diff_cwd, repo_files)
+                    if p not in existing_paths
+                )
+            if existing_paths:
+                general += 1
+                out_of_diff_real.append({
+                    "comment_id": c["id"],
+                    "cited_paths": cited_paths,
+                    "existing_paths": existing_paths,
+                })
                 continue
             note = (
                 f"validation: general comment cites paths {cited_paths} "
@@ -666,6 +710,7 @@ def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
         "validated": len(pending),
         "dismissed": dismissed,
         "dismissed_general": dismissed_general,
+        "out_of_diff_real": out_of_diff_real,
         "in_diff": in_diff,
         "general": general,
         "diff_files": sorted(diff_files),

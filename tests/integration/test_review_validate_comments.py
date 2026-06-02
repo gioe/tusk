@@ -535,6 +535,7 @@ class TestValidateCommentsGeneralBodyScan:
         payload = json.loads(result.stdout)
 
         assert payload["dismissed"] == []
+        assert payload["out_of_diff_real"] == []
         assert payload["general"] == 0, (
             "the general comment got dismissed, not preserved"
         )
@@ -552,6 +553,54 @@ class TestValidateCommentsGeneralBodyScan:
         assert row["resolution"] == "dismissed"
         assert "apps/foo/nonexistent.py" in (row["resolution_note"] or "")
         assert "issue #912" in (row["resolution_note"] or "")
+
+    def test_general_comment_citing_real_out_of_diff_path_is_preserved(
+        self, tmp_path, monkeypatch
+    ):
+        """Issue #985: a general comment can cite a real repo file that is
+        outside the diff because the reviewed change invalidated adjacent
+        docs. That is scope-adjacent follow-up work, not fabrication."""
+        repo, db_path, env, _task_id, review_id = self._setup_real_branch(
+            tmp_path, monkeypatch
+        )
+        docs = repo / "docs"
+        docs.mkdir()
+        (docs / "operator.md").write_text(
+            "legacy flag: --stale-days\n",
+            encoding="utf-8",
+        )
+        _git(["add", "docs/operator.md"], cwd=repo, env=env)
+        _git(["commit", "-m", "add existing docs"], cwd=repo, env=env)
+
+        r = _run(
+            ["review", "add-comment", str(review_id),
+             "The code change also invalidates docs/operator.md, which still "
+             "mentions the old flag.",
+             "--category", "suggest", "--severity", "minor"],
+            cwd=repo, env=env,
+        )
+        assert r.returncode == 0, r.stderr
+
+        result = _run(["review", "validate-comments", str(review_id)], cwd=repo, env=env)
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+
+        assert payload["dismissed_general"] == []
+        assert len(payload["out_of_diff_real"]) == 1
+        entry = payload["out_of_diff_real"][0]
+        assert entry["cited_paths"] == ["docs/operator.md"]
+        assert entry["existing_paths"] == ["docs/operator.md"]
+        assert payload["general"] == 1
+
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT resolution, resolution_note FROM review_comments"
+                " WHERE id = ?",
+                (entry["comment_id"],),
+            ).fetchone()
+        assert row["resolution"] is None
+        assert row["resolution_note"] is None
 
     def test_general_comment_citing_in_diff_path_is_preserved(
         self, tmp_path, monkeypatch
@@ -574,6 +623,7 @@ class TestValidateCommentsGeneralBodyScan:
         assert payload["dismissed_general"] == [], (
             "general comment citing an in-diff path must NOT be dismissed"
         )
+        assert payload["out_of_diff_real"] == []
         assert payload["general"] == 1
 
         with sqlite3.connect(db_path) as conn:
@@ -606,6 +656,7 @@ class TestValidateCommentsGeneralBodyScan:
         payload = json.loads(result.stdout)
 
         assert payload["dismissed_general"] == []
+        assert payload["out_of_diff_real"] == []
         assert payload["general"] == 1
 
         with sqlite3.connect(db_path) as conn:
@@ -638,4 +689,5 @@ class TestValidateCommentsGeneralBodyScan:
         payload = json.loads(result.stdout)
 
         assert payload["dismissed_general"] == []
+        assert payload["out_of_diff_real"] == []
         assert payload["general"] == 1
