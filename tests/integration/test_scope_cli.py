@@ -2,7 +2,7 @@
 ``tusk task-insert --scope/--creates/--unbounded`` flags.
 
 Covers:
-- ``scope add`` records the row with ``source='expanded_mid_task'`` and the
+- ``scope add`` records the row with the correct implicit source and the
   reason text the operator passed (criterion 2183)
 - ``scope list`` emits a JSON array of every entry for the task
 - ``scope remove`` deletes one scope row by id and errors clearly for missing
@@ -73,13 +73,36 @@ def _scope_rows_with_ids(db: str, task_id: int) -> list:
     return [dict(r) for r in rows]
 
 
+def _insert_progress(db: str, task_id: int) -> None:
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "INSERT INTO task_progress (task_id, commit_hash, commit_message) "
+        "VALUES (?, 'abc1234', 'checkpoint')",
+        (task_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _insert_committed_criterion(db: str, task_id: int) -> None:
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "INSERT INTO acceptance_criteria "
+        "(task_id, criterion, is_completed, commit_hash) "
+        "VALUES (?, 'done work', 1, 'def5678')",
+        (task_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
 # ── scope add ────────────────────────────────────────────────────────────────
 
 class TestScopeAdd:
 
     def test_scope_add_logs_reason(self, db_path):
-        """`tusk scope add` records the pattern with source='expanded_mid_task'
-        and stamps the --reason text into the DB row (criterion 2183)."""
+        """`tusk scope add` records the pattern with the implicit upfront
+        source and stamps the --reason text into the DB row (criterion 2183)."""
         task_id = _seed_task(str(db_path), description="add a helper to bin/")
         reason = "exploration revealed a missing helper not named in description"
 
@@ -93,16 +116,49 @@ class TestScopeAdd:
         payload = json.loads(result.stdout)
         assert payload["task_id"] == task_id
         assert payload["pattern"] == "bin/tusk-scope.py"
-        assert payload["source"] == "expanded_mid_task"
+        assert payload["source"] == "operator_declared"
         assert payload["reason"] == reason
 
         rows = _scope_rows(str(db_path), task_id)
         assert any(
             r["pattern"] == "bin/tusk-scope.py"
-            and r["source"] == "expanded_mid_task"
+            and r["source"] == "operator_declared"
             and r["reason"] == reason
             for r in rows
         ), f"reason missing from DB row: {rows}"
+
+    def test_scope_add_explicit_mid_task_source_is_preserved(self, db_path):
+        task_id = _seed_task(str(db_path))
+
+        result = _run([
+            "scope", "add", str(task_id),
+            "bin/tusk-scope.py",
+            "--source", "expanded_mid_task",
+        ])
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["source"] == "expanded_mid_task"
+
+    def test_scope_add_defaults_to_mid_task_after_progress(self, db_path):
+        task_id = _seed_task(str(db_path))
+        _insert_progress(str(db_path), task_id)
+
+        result = _run(["scope", "add", str(task_id), "bin/tusk-scope.py"])
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["source"] == "expanded_mid_task"
+
+    def test_scope_add_defaults_to_mid_task_after_commit_hash(self, db_path):
+        task_id = _seed_task(str(db_path))
+        _insert_committed_criterion(str(db_path), task_id)
+
+        result = _run(["scope", "add", str(task_id), "bin/tusk-scope.py"])
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["source"] == "expanded_mid_task"
 
     def test_scope_add_dedupes_normalized_equivalent_paths(self, db_path):
         """Equivalent spellings of the same repo-root path should not create
@@ -295,7 +351,7 @@ class TestScopeRemove:
             "id": remove_id,
             "task_id": task_id,
             "pattern": "bin/tusk-scope.py",
-            "source": "expanded_mid_task",
+            "source": "operator_declared",
         }
 
         rows_after = _scope_rows(str(db_path), task_id)
