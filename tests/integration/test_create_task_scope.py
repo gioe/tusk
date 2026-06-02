@@ -347,6 +347,63 @@ def test_auto_extract_resolves_pytest_nodeid_to_file_path(db_path):
     assert not any("::" in p for p in auto), rows
 
 
+def test_auto_extract_infers_sibling_filename_after_explicit_path(db_path):
+    """A full path can establish directory context for a sibling filename."""
+    task_id = _insert(
+        str(db_path),
+        "sibling shortform scope",
+        (
+            "Update tests/integration/test_create_task_scope.py and "
+            "test_scope_cli.py together."
+        ),
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+
+    assert "tests/integration/test_create_task_scope.py" in auto, rows
+    assert "tests/integration/test_scope_cli.py" in auto, rows
+    assert "test_scope_cli.py" not in auto, rows
+
+
+def test_auto_extract_infers_braced_sibling_filenames(db_path):
+    """Brace shortforms inherit the nearby explicit path directory."""
+    task_id = _insert(
+        str(db_path),
+        "braced sibling shortform scope",
+        (
+            "Update tests/integration/test_create_task_scope.py and "
+            "{test_scope_cli,test_migrate_scope}.py together."
+        ),
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+
+    assert "tests/integration/test_scope_cli.py" in auto, rows
+    assert "tests/integration/test_migrate_scope.py" in auto, rows
+    assert "{test_scope_cli,test_migrate_scope}.py" not in auto, rows
+
+
+def test_auto_extract_infers_slash_separated_sibling_filenames(db_path):
+    """Slash alternation applies to bare sibling filenames, not directories."""
+    task_id = _insert(
+        str(db_path),
+        "slash sibling shortform scope",
+        (
+            "Update tests/integration/test_create_task_scope.py and "
+            "test_scope_cli.py/test_migrate_scope.py together."
+        ),
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+
+    assert "tests/integration/test_scope_cli.py" in auto, rows
+    assert "tests/integration/test_migrate_scope.py" in auto, rows
+    assert "test_scope_cli.py/test_migrate_scope.py" not in auto, rows
+
+
 def test_auto_extract_splits_bare_toplevel_files_joined_by_slash(db_path):
     """Prose like ``VERSION/CHANGELOG.md`` names two top-level files, not a path."""
     task_id = _insert(

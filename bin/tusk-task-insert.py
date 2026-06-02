@@ -24,6 +24,7 @@ import argparse
 from datetime import datetime, timedelta, timezone
 import json
 import os
+import posixpath
 import re
 import sqlite3
 import subprocess
@@ -48,6 +49,17 @@ path_exists_in_repo = _git_helpers.path_exists_in_repo
 
 _RELATIVE_NOT_BEFORE_RE = re.compile(r"^\+(\d+)([mhdw])$")
 _GLOB_METACHARS = set("*?[")
+_BARE_FILENAME_RE = r"[A-Za-z0-9][\w.-]*\.[A-Za-z0-9][\w.-]*"
+_SIBLING_ITEM_RE = re.compile(
+    rf"(?:\s*(?:,|\band\b|\bor\b|/)\s*)"
+    rf"(?P<item>\{{[A-Za-z0-9_.-]+(?:,[A-Za-z0-9_.-]+)+\}}\.[A-Za-z0-9][\w.-]*|"
+    rf"{_BARE_FILENAME_RE}(?:/{_BARE_FILENAME_RE})*)"
+)
+_BRACED_PATH_RE = re.compile(
+    r"(?P<dir>(?:[\w._-]+/)+)"
+    r"\{(?P<names>[A-Za-z0-9_.-]+(?:,[A-Za-z0-9_.-]+)+)\}"
+    r"(?P<ext>\.[A-Za-z0-9][\w.-]*)"
+)
 _OBVIOUS_REPO_PATH_RE = re.compile(
     r'(?:^|[\s\'"`(,])'
     r'((?:apps|app|src|test|tests|bin|docs|doc|skills|skills-internal|hooks)/'
@@ -232,6 +244,90 @@ def _resolve_auto_derived_scope_pattern(repo_root: str | None, pattern: str) -> 
     if len(matches) == 1:
         return matches[0]
     return raw
+
+
+def _expand_sibling_shortform_item(base_dir: str, item: str) -> list[str]:
+    """Expand one sibling shortform token under ``base_dir``."""
+    raw = (item or "").strip().strip('.,;:\'"`)')
+    if not raw:
+        return []
+    brace = re.fullmatch(
+        r"\{(?P<names>[A-Za-z0-9_.-]+(?:,[A-Za-z0-9_.-]+)+)\}"
+        r"(?P<ext>\.[A-Za-z0-9][\w.-]*)",
+        raw,
+    )
+    if brace:
+        ext = brace.group("ext")
+        return [
+            posixpath.normpath(f"{base_dir}/{name.strip()}{ext}")
+            for name in brace.group("names").split(",")
+            if name.strip()
+        ]
+    if "/" in raw:
+        parts = raw.split("/")
+        if all(
+            part and "/" not in part and re.fullmatch(_BARE_FILENAME_RE, part)
+            for part in parts
+        ):
+            return [posixpath.normpath(f"{base_dir}/{part}") for part in parts]
+        return []
+    if re.fullmatch(_BARE_FILENAME_RE, raw):
+        return [posixpath.normpath(f"{base_dir}/{raw}")]
+    return []
+
+
+def _sibling_shortform_scope_paths(text: str, extracted_paths: list[str]) -> list[str]:
+    """Infer nearby sibling filenames from an explicit path's directory.
+
+    This covers prose such as ``dir/Alpha.swift and Beta.swift`` and
+    ``dir/Alpha.swift and {Beta,Gamma}.swift`` without changing the generic
+    extractor's broader path-token contract.
+    """
+    if not text:
+        return []
+
+    candidates: list[str] = []
+    for match in _BRACED_PATH_RE.finditer(text):
+        base_dir = match.group("dir").rstrip("/")
+        ext = match.group("ext")
+        for name in match.group("names").split(","):
+            name = name.strip()
+            if name:
+                candidates.append(posixpath.normpath(f"{base_dir}/{name}{ext}"))
+
+    for base_path in extracted_paths:
+        base = _path_file_portion(base_path)
+        if "/" not in base or _has_glob_metachar(base):
+            continue
+        base_dir = posixpath.dirname(base)
+        if not base_dir:
+            continue
+        search_start = 0
+        while True:
+            index = text.find(base_path, search_start)
+            if index == -1:
+                break
+            tail = text[index + len(base_path):]
+            tail = tail.split("\n", 1)[0][:200]
+            for item_match in _SIBLING_ITEM_RE.finditer(tail):
+                candidates.extend(
+                    _expand_sibling_shortform_item(base_dir, item_match.group("item"))
+                )
+            search_start = index + len(base_path)
+
+    seen: set[str] = set()
+    unique: list[str] = []
+    for path in candidates:
+        if path not in seen:
+            seen.add(path)
+            unique.append(path)
+    return unique
+
+
+def _auto_scope_candidates(text: str) -> list[str]:
+    """Return explicit and inferred auto-scope candidates for one text block."""
+    explicit = extract_paths(text)
+    return [*explicit, *_sibling_shortform_scope_paths(text, explicit)]
 
 
 def _canonical_enum_value(value: str, valid_values: list[str]) -> str:
@@ -474,7 +570,7 @@ def main(argv: list[str]) -> int:
                 text_blocks.append(tc.get("spec") or "")
             seen_auto: set = set()
             for text in text_blocks:
-                for p in extract_paths(text):
+                for p in _auto_scope_candidates(text):
                     if is_prose_identifier_path(p, repo_root):
                         continue
                     resolved = _resolve_auto_derived_scope_pattern(repo_root, p)
