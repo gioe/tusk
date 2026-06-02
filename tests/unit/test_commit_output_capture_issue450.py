@@ -208,6 +208,22 @@ class TestSummaryLineEmission:
 class TestCapturedOutputBehavior:
     """Quiet-by-default capture: streams only on --verbose; dumps on failure."""
 
+    def test_test_command_env_scrubs_tusk_routing_pins(self, monkeypatch):
+        mod = _load_module()
+        env = mod._test_command_env({
+            "PATH": "/usr/bin:/bin",
+            "TUSK_DB": "/live/tasks.db",
+            "TUSK_PROJECT": "/primary/project",
+            "TUSK_REPO_ROOT": "/primary/project",
+            "TUSK_TEST_COMMAND_TIMEOUT": "600",
+        })
+
+        assert env["PATH"] == "/usr/bin:/bin"
+        assert env["TUSK_TEST_COMMAND_TIMEOUT"] == "600"
+        assert "TUSK_DB" not in env
+        assert "TUSK_PROJECT" not in env
+        assert "TUSK_REPO_ROOT" not in env
+
     def test_test_command_captured_by_default(self, tmp_path, monkeypatch, capsys):
         """Without --verbose, subprocess.run for test_command must pass capture_output=True."""
         mod = _load_module()
@@ -216,12 +232,16 @@ class TestCapturedOutputBehavior:
 
         observed = {}
         real_run = subprocess.run
+        monkeypatch.setenv("TUSK_DB", "/live/tasks.db")
+        monkeypatch.setenv("TUSK_PROJECT", "/primary/project")
+        monkeypatch.setenv("TUSK_REPO_ROOT", "/primary/project")
 
         def fake_run(args, *a, **kw):
             if isinstance(args, list) and args and "lint" in args:
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
             if kw.get("shell") and args == "echo noise":
                 observed["capture_output"] = kw.get("capture_output")
+                observed["env"] = kw.get("env")
                 return subprocess.CompletedProcess(args, 0, stdout="noise\n", stderr="")
             return real_run(args, *a, **kw)
 
@@ -235,6 +255,9 @@ class TestCapturedOutputBehavior:
         assert observed["capture_output"] is True, (
             "Default mode must capture test output to keep stdout short"
         )
+        assert "TUSK_DB" not in observed["env"]
+        assert "TUSK_PROJECT" not in observed["env"]
+        assert "TUSK_REPO_ROOT" not in observed["env"]
 
     def test_verbose_flag_streams_output(self, tmp_path, monkeypatch, capsys):
         """With --verbose, subprocess.run for test_command must pass capture_output=False."""

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1079] - 2026-06-02
+
+- [TASK-565] Fix: Isolate tusk routing env vars in commit test gate
+
 ## [1078] - 2026-06-02
 
 - [TASK-563] Fix: make address-issue insert issue-derived descriptions without shell expansion

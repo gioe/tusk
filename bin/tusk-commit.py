@@ -410,6 +410,17 @@ def _record_test_run(
         pass
 
 
+_TEST_COMMAND_ROUTING_ENV_KEYS = ("TUSK_DB", "TUSK_PROJECT", "TUSK_REPO_ROOT")
+
+
+def _test_command_env(base_env: dict[str, str] | None = None) -> dict[str, str]:
+    """Return an env for test_command subprocesses without tusk routing pins."""
+    env = dict(os.environ if base_env is None else base_env)
+    for key in _TEST_COMMAND_ROUTING_ENV_KEYS:
+        env.pop(key, None)
+    return env
+
+
 def load_test_command_timeout(
     config_path: str,
     db_path: str | None = None,
@@ -1246,6 +1257,7 @@ def _run_commit(argv: list[str], state: dict) -> int:
                 capture_output=not verbose,
                 text=True, encoding="utf-8",
                 cwd=repo_root,
+                env=_test_command_env(),
                 timeout=timeout_sec,
             )
         except subprocess.TimeoutExpired as exc:
