@@ -7,7 +7,7 @@
 #   - TUSK_NO_SCOPE_GUARD=1            (kill-switch)
 #   - tusk is not on $PATH             (degrade gracefully)
 #   - current branch does not parse to a task ID via `tusk branch-parse`
-#   - the task has no scope signal (no referenced paths)
+#   - the legacy task has no scope signal (scope_enforced=0, no referenced paths)
 #
 # Bypass when:
 #   - TUSK_SCOPE_GUARD_BYPASS=1        (explicit override; logged to stderr)
@@ -50,8 +50,25 @@ if [ -z "$task_id" ]; then
   exit 0
 fi
 
-# Pull the inferred scope. Empty output = no scope signal -> silent pass.
-scope="$(tusk scope-paths "$task_id" 2>/dev/null)"
+# Pull the inferred scope. Empty output = explicit unbounded or legacy no scope
+# signal -> silent pass. Exit 3 means an enforced task has no authoritative
+# scope rows, which is a declaration gap and must block the commit.
+scope="$(tusk scope-paths "$task_id" 2>&1)"
+scope_rc=$?
+if [ "$scope_rc" = "3" ]; then
+  echo "ERROR: scope-guard rejected commit — TASK-$task_id has no declared scope." >&2
+  if [ -n "$scope" ]; then
+    printf '%s\n' "$scope" | sed 's/^/  /' >&2
+  fi
+  echo "" >&2
+  echo "Declare the touched paths first, or recreate the task with an explicit unbounded scope." >&2
+  echo "  tusk scope add $task_id <path> --reason \"why this path is in scope\"" >&2
+  echo "  tusk task-insert ... --unbounded" >&2
+  exit 2
+fi
+if [ "$scope_rc" != "0" ]; then
+  exit 0
+fi
 if [ -z "$scope" ]; then
   exit 0
 fi

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1084] - 2026-06-02
+
+- [TASK-570] Fix: require scope declaration for issue-derived tasks before commit
+
 ## [1083] - 2026-06-02
 
 - [TASK-569] Fix: add tusk progress --note separate from next steps

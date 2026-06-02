@@ -22,8 +22,9 @@ so new-script tasks don't need ``TUSK_SCOPE_GUARD_BYPASS=1`` for the
 dispatcher + manifest commit (issue #891).
 
 Exit codes:
-    0 — success (always, even when no paths)
+    0 — success (including legacy no-scope and explicit unbounded tasks)
     1 — error (bad arguments, task not found, DB issue)
+    3 — enforced task has no authoritative task_scope rows
 """
 
 import fnmatch
@@ -116,7 +117,9 @@ def main(argv: list) -> int:
     task_id = _parse_task_id(argv[3])
 
     with get_connection(db_path) as conn:
-        row = conn.execute("SELECT id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        row = conn.execute(
+            "SELECT id, scope_enforced FROM tasks WHERE id = ?", (task_id,)
+        ).fetchone()
         if row is None:
             print(f"Error: task {task_id} not found", file=sys.stderr)
             return 1
@@ -125,10 +128,9 @@ def main(argv: list) -> int:
         # nothing so the commit-time scope guard silently passes (the task
         # has been explicitly opted out of path restriction). Fall back to
         # the legacy task_referenced_paths hint cache only when task_scope
-        # has no rows for this task — preserves behavior for tasks created
-        # before migration 73 (scope_enforced=0) until an operator declares
-        # scope explicitly via `tusk scope add` or recreates the task with
-        # `tusk task-insert --scope/--creates/--unbounded`.
+        # has no rows for this task AND the task is legacy
+        # (scope_enforced=0). Fresh/enforced tasks with no rows are a scope
+        # declaration gap, not a vacuous pass.
         scope_rows = conn.execute(
             "SELECT pattern, source FROM task_scope WHERE task_id = ? ORDER BY id",
             (task_id,),
@@ -144,6 +146,14 @@ def main(argv: list) -> int:
                     seen_set.add(pattern)
                     seen.append(pattern)
             paths = seen
+        elif row["scope_enforced"]:
+            print(
+                f"Error: task {task_id} has scope_enforced=1 but no task_scope rows. "
+                "Declare scope with `tusk scope add <task_id> <path> --reason ...` "
+                "or mark it explicitly unbounded at task creation.",
+                file=sys.stderr,
+            )
+            return 3
         else:
             paths = list(task_referenced_paths(task_id, conn))
 

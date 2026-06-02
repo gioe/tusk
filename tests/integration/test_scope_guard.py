@@ -8,6 +8,7 @@ install.sh writes, so the wiring is part of the assertion.
 """
 
 import os
+import sqlite3
 import subprocess
 
 import pytest
@@ -71,6 +72,32 @@ def _seed_task(sandbox, summary, description):
     import json as _json
     payload = _json.loads(result.stdout)
     return int(payload["task_id"])
+
+
+def _set_scope_enforced(sandbox, task_id, value):
+    db_path = sandbox / "tusk" / "tasks.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            "UPDATE tasks SET scope_enforced = ? WHERE id = ?",
+            (value, task_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _delete_scope_source(sandbox, task_id, source):
+    db_path = sandbox / "tusk" / "tasks.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            "DELETE FROM task_scope WHERE task_id = ? AND source = ?",
+            (task_id, source),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _invoke_pre_commit(sandbox, env=None):
@@ -208,16 +235,17 @@ def test_kill_switch_silent_pass(codex_sandbox):
     assert "scope-guard" not in result.stderr
 
 
-# ── no scope signal (empty task_referenced_paths) -> silent pass ────────
+# ── legacy no scope signal (empty task_referenced_paths) -> silent pass ─
 
 
-def test_no_scope_signal_silent_pass(codex_sandbox):
-    """A task with no referenced paths is unenforced (vacuous scope)."""
+def test_legacy_no_scope_signal_silent_pass(codex_sandbox):
+    """A legacy task with no referenced paths is unenforced (vacuous scope)."""
     task_id = _seed_task(
         codex_sandbox,
         "Vague task with no paths in description",
         "Make the thing work somehow.",
     )
+    _set_scope_enforced(codex_sandbox, task_id, 0)
     _git(["checkout", "-b", f"feature/TASK-{task_id}-x"], codex_sandbox)
 
     (codex_sandbox / "anything.txt").write_text("anything\n")
@@ -229,6 +257,30 @@ def test_no_scope_signal_silent_pass(codex_sandbox):
         f"stderr={result.stderr!r}"
     )
     assert "scope-guard rejected" not in result.stderr
+
+
+def test_enforced_empty_scope_rejects(codex_sandbox):
+    """Fresh scope_enforced=1 tasks must not silently pass with no scope rows."""
+    task_id = _seed_task(
+        codex_sandbox,
+        "Vague issue-derived task with no paths",
+        "GitHub Issue #994: no concrete repo paths were declared.",
+    )
+    env = _sandbox_env(codex_sandbox)
+
+    sp = _run(["tusk", "scope-paths", str(task_id)], codex_sandbox, check=False, env=env)
+    assert sp.returncode == 3
+    assert "scope_enforced=1" in sp.stderr
+    assert "no task_scope rows" in sp.stderr
+
+    _git(["checkout", "-b", f"feature/TASK-{task_id}-x"], codex_sandbox)
+    (codex_sandbox / "anything.txt").write_text("anything\n")
+    _git(["add", "anything.txt"], codex_sandbox)
+
+    result = _invoke_pre_commit(codex_sandbox, env=env)
+    assert result.returncode != 0
+    assert "has no declared scope" in result.stderr
+    assert "tusk scope add" in result.stderr
 
 
 # ── TASK-471: scope-paths prefers task_scope over task_referenced_paths ────
@@ -262,6 +314,10 @@ def test_prefers_authoritative_scope(codex_sandbox):
     )
     import json as _json
     task_id = int(_json.loads(result.stdout)["task_id"])
+    # task-insert now also stores auto_derived rows from the description.
+    # Remove those rows so this test stays focused on authoritative declared
+    # scope overriding the legacy dynamic hint fallback.
+    _delete_scope_source(codex_sandbox, task_id, "auto_derived")
 
     # Verify scope-paths emits ONLY the declared pattern, not the legacy hint.
     sp = _run(["tusk", "scope-paths", str(task_id)], codex_sandbox, env=env)
