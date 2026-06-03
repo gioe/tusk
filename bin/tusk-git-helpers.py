@@ -506,6 +506,8 @@ def is_prose_identifier_path(path: str | None, repo_root: str | None = None) -> 
         return False
     parts = raw.split("/")
     first = path.strip().split("/", 1)[0]
+    if first.startswith("."):
+        return True
     if not first.startswith(".") and "." in first:
         return True
     return any(re.fullmatch(r"\d+(?:\.\d+)+", part) for part in parts[1:])

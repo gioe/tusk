@@ -502,6 +502,21 @@ def test_auto_extract_rejects_prose_identifier_tokens(db_path):
     assert "console.error" not in auto, rows
 
 
+def test_auto_extract_rejects_dot_prefixed_prose_identifier_tokens(db_path):
+    """SwiftUI modifier prose such as ``.sheet/.alert`` is not a path."""
+    task_id = _insert(
+        str(db_path),
+        "swiftui modifiers",
+        "This task description references the .sheet/.alert SwiftUI modifiers.",
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+
+    assert ".sheet/.alert" not in auto, rows
+    assert ".sheet" not in auto, rows
+
+
 def test_auto_extract_rejects_user_agent_version_tokens(db_path):
     """User-Agent strings such as ``Mozilla/5.0`` are not repo paths."""
     task_id = _insert(
