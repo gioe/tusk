@@ -159,6 +159,107 @@ def test_criteria_done_emits_json_success_and_already_completed(tmp_path):
     assert obj2.get("already_completed") is True
 
 
+def test_criteria_update_clears_verification_spec(tmp_path):
+    repo = tmp_path / "repo"
+    _git_init(repo)
+    env = {**os.environ, "TUSK_QUIET": "1"}
+    env.pop("TUSK_PROJECT", None)
+    env.pop("TUSK_DB", None)
+    _run([TUSK_BIN, "init", "--yes"], cwd=repo, env=env)
+    task_id = _insert_task(repo, env)
+    cid = json.loads(_run(
+        [TUSK_BIN, "criteria", "add", str(task_id), "clear spec", "--type", "code", "--spec", "true"],
+        cwd=repo, env=env,
+    ).stdout)["id"]
+
+    updated = _run(
+        [
+            TUSK_BIN, "criteria", "update", str(cid),
+            "--criterion-type", "manual",
+            "--verification-spec", "NULL",
+        ],
+        cwd=repo,
+        env=env,
+    )
+
+    obj = json.loads(updated.stdout)
+    assert obj["id"] == cid
+    assert obj["criterion_type"] == "manual"
+    assert obj["verification_spec"] is None
+
+    rows = _run(
+        [
+            TUSK_BIN, "-json",
+            "SELECT criterion_type, verification_spec FROM acceptance_criteria WHERE id = %d" % cid,
+        ],
+        cwd=repo,
+        env=env,
+    )
+    data = json.loads(rows.stdout)[0]
+    assert data["criterion_type"] == "manual"
+    assert data["verification_spec"] is None
+
+
+def test_criteria_update_changes_type_and_spec(tmp_path):
+    repo = tmp_path / "repo"
+    _git_init(repo)
+    env = {**os.environ, "TUSK_QUIET": "1"}
+    env.pop("TUSK_PROJECT", None)
+    env.pop("TUSK_DB", None)
+    _run([TUSK_BIN, "init", "--yes"], cwd=repo, env=env)
+    task_id = _insert_task(repo, env)
+    cid = json.loads(_run(
+        [TUSK_BIN, "criteria", "add", str(task_id), "make automated", "--type", "manual"],
+        cwd=repo, env=env,
+    ).stdout)["id"]
+
+    updated = _run(
+        [
+            TUSK_BIN, "criteria", "update", str(cid),
+            "--criterion-type", "test",
+            "--verification-spec", "python3 -m pytest tests/unit/ -q",
+        ],
+        cwd=repo,
+        env=env,
+    )
+
+    obj = json.loads(updated.stdout)
+    assert obj["criterion_type"] == "test"
+    assert obj["verification_spec"] == "python3 -m pytest tests/unit/ -q"
+
+
+def test_criteria_update_rejects_invalid_type_and_manual_spec(tmp_path):
+    repo = tmp_path / "repo"
+    _git_init(repo)
+    env = {**os.environ, "TUSK_QUIET": "1"}
+    env.pop("TUSK_PROJECT", None)
+    env.pop("TUSK_DB", None)
+    _run([TUSK_BIN, "init", "--yes"], cwd=repo, env=env)
+    task_id = _insert_task(repo, env)
+    cid = json.loads(_run(
+        [TUSK_BIN, "criteria", "add", str(task_id), "invalid update", "--type", "manual"],
+        cwd=repo, env=env,
+    ).stdout)["id"]
+
+    bad_type = _run(
+        [TUSK_BIN, "criteria", "update", str(cid), "--criterion-type", "nonsense"],
+        cwd=repo,
+        env=env,
+        check=False,
+    )
+    assert bad_type.returncode == 2
+    assert "Invalid criterion type" in bad_type.stderr
+
+    manual_spec = _run(
+        [TUSK_BIN, "criteria", "update", str(cid), "--verification-spec", "true"],
+        cwd=repo,
+        env=env,
+        check=False,
+    )
+    assert manual_spec.returncode == 2
+    assert "manual criteria cannot have verification_spec" in manual_spec.stderr
+
+
 def test_criteria_skip_emits_json_success_already_completed_and_already_deferred(tmp_path):
     repo = tmp_path / "repo"
     _git_init(repo)

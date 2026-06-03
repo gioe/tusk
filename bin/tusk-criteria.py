@@ -484,6 +484,79 @@ def cmd_list(args: argparse.Namespace, db_path: str, config: dict) -> int:
     return 0
 
 
+def _normalize_update_spec(raw: str | None) -> tuple[bool, str | None]:
+    if raw is None:
+        return False, None
+    if raw == "NULL":
+        return True, None
+    return True, raw
+
+
+def cmd_update(args: argparse.Namespace, db_path: str, config: dict) -> int:
+    changed_spec, requested_spec = _normalize_update_spec(args.verification_spec)
+    if args.criterion_type is None and not changed_spec:
+        print(
+            "Error: provide --criterion-type and/or --verification-spec",
+            file=sys.stderr,
+        )
+        return 1
+
+    criterion_types = config.get("criterion_types", [])
+    if args.criterion_type is not None and criterion_types and args.criterion_type not in criterion_types:
+        joined = ", ".join(criterion_types)
+        print(
+            f"Error: Invalid criterion type '{args.criterion_type}'. Valid: {joined}",
+            file=sys.stderr,
+        )
+        return 2
+
+    conn = get_connection(db_path)
+    try:
+        row = conn.execute(
+            "SELECT id, task_id, criterion, criterion_type, verification_spec "
+            "FROM acceptance_criteria WHERE id = ?",
+            (args.criterion_id,),
+        ).fetchone()
+        if not row:
+            print(f"Error: Criterion {args.criterion_id} not found", file=sys.stderr)
+            return 2
+
+        new_type = args.criterion_type or row["criterion_type"] or "manual"
+        new_spec = requested_spec if changed_spec else row["verification_spec"]
+
+        if new_type in SPEC_REQUIRED_TYPES and not new_spec:
+            print(
+                f"Error: --verification-spec is required for criterion type '{new_type}'",
+                file=sys.stderr,
+            )
+            return 2
+        if new_type == "manual" and new_spec:
+            print(
+                "Error: manual criteria cannot have verification_spec; "
+                "use --verification-spec NULL or choose a non-manual --criterion-type",
+                file=sys.stderr,
+            )
+            return 2
+
+        conn.execute(
+            "UPDATE acceptance_criteria "
+            "SET criterion_type = ?, verification_spec = ?, updated_at = datetime('now') "
+            "WHERE id = ?",
+            (new_type, new_spec, args.criterion_id),
+        )
+        conn.commit()
+        print(dumps({
+            "id": args.criterion_id,
+            "task_id": row["task_id"],
+            "criterion": row["criterion"],
+            "criterion_type": new_type,
+            "verification_spec": new_spec,
+        }))
+        return 0
+    finally:
+        conn.close()
+
+
 def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
                   suppress_shared_commit: bool, commit_hash: Optional[str],
                   committed_at: Optional[str], note: Optional[str] = None,
@@ -886,7 +959,7 @@ def cmd_finish_deferred(args: argparse.Namespace, db_path: str, config: dict) ->
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: tusk criteria {add|list|done|skip|reset|finish-deferred} ...", file=sys.stderr)
+        print("Usage: tusk criteria {add|list|update|done|skip|reset|finish-deferred} ...", file=sys.stderr)
         sys.exit(1)
 
     db_path = sys.argv[1]
@@ -920,6 +993,20 @@ def main():
     # list
     list_p = subparsers.add_parser("list", help="List criteria for a task")
     list_p.add_argument("task_id", type=int, help="Task ID")
+
+    # update
+    update_p = subparsers.add_parser("update", help="Update criterion type or verification spec")
+    update_p.add_argument("criterion_id", type=int, help="Criterion ID")
+    update_p.add_argument(
+        "--criterion-type",
+        "--type",
+        dest="criterion_type",
+        help="New criterion type",
+    )
+    update_p.add_argument(
+        "--verification-spec",
+        help="New verification spec, or literal NULL to clear it",
+    )
 
     # done
     done_p = subparsers.add_parser("done", help="Mark one or more criteria as completed")
@@ -982,6 +1069,7 @@ def main():
     try:
         handlers = {
             "add": cmd_add, "list": cmd_list, "done": cmd_done,
+            "update": cmd_update,
             "skip": cmd_skip, "reset": cmd_reset,
             "finish-deferred": cmd_finish_deferred,
         }

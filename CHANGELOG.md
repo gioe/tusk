@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1088] - 2026-06-02
+
+- [TASK-580] Add criteria update remediation for verification_spec/type mismatches
+
 ## [1087] - 2026-06-02
 
 - [TASK-579] Guard tusk abandon against incomplete non-deferred criteria
