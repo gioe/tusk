@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1089] - 2026-06-02
+
+- [TASK-581] Document sparse_always_cone in task-worktree cone help
+
 ## [1088] - 2026-06-02
 
 - [TASK-580] Add criteria update remediation for verification_spec/type mismatches

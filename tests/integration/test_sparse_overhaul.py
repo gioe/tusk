@@ -239,6 +239,10 @@ def test_cone_flag_help_text(tmp_path, monkeypatch):
     assert "--cone" in result.stdout, (
         f"--cone missing from help text; stdout was: {result.stdout}"
     )
+    assert "scope.sparse_always_cone" in result.stdout, (
+        "scope.sparse_always_cone missing from --cone help text; stdout was: "
+        f"{result.stdout}"
+    )
 
 
 # ── Criterion 2227 (issue #904) ─────────────────────────────────────

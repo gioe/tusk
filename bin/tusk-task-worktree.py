@@ -918,9 +918,10 @@ def cmd_create(
         help=(
             "Pre-declare extra sparse-checkout cone paths (repeatable). "
             "Unioned with task_referenced_paths, scope.sparse_always_include, "
-            "scope.always_allowed, and the configured test_command's target "
-            "paths. Skipped entirely when sparse-checkout itself is disabled "
-            "(zero referenced paths or TUSK_NO_SPARSE_WORKTREE=1)."
+            "scope.sparse_always_cone, scope.always_allowed, and the "
+            "configured test_command's target paths. Skipped entirely when "
+            "sparse-checkout itself is disabled (zero referenced paths or "
+            "TUSK_NO_SPARSE_WORKTREE=1)."
         ),
     )
     args = parser.parse_args(argv)
