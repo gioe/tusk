@@ -336,6 +336,26 @@ class TestAbandonCompletedConvergent:
         finally:
             conn.close()
 
+
+class TestAbandonOpenCriteriaGuard:
+    """Abandon must not leave Done tasks with ordinary open criteria."""
+
+    def test_abandon_refuses_open_non_deferred_criteria_by_default(
+        self, db_path, config_path, monkeypatch
+    ):
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+            criterion_id = conn.execute(
+                "INSERT INTO acceptance_criteria (task_id, criterion, source) "
+                "VALUES (?, 'open criterion that should block close', 'original')",
+                (task_id,),
+            ).lastrowid
+            conn.commit()
+        finally:
+            conn.close()
+
         monkeypatch.setattr(
             tusk_abandon,
             "find_task_branch",
@@ -353,38 +373,89 @@ class TestAbandonCompletedConvergent:
             "--session",
             session_id,
             "--note",
-            "Goal met by TASK-1727, TASK-1730, TASK-1763 (convergent refactors).",
+            "should refuse",
         )
 
-        assert rc == 0, f"abandon --reason completed failed: {stderr}"
-        assert result is not None, f"expected JSON on stdout; stderr was:\n{stderr}"
-        assert result["task"]["status"] == "Done"
-        assert result["task"]["closed_reason"] == "completed", (
-            "convergent-completion must record closed_reason='completed' so the "
-            "DB reads the same as a normal `tusk merge` close"
-        )
-        assert result["sessions_closed"] == 1
+        assert rc == 2
+        assert result is None
+        assert f"#{criterion_id}" in stderr
+        assert "incomplete non-deferred acceptance criteria" in stderr
+        assert "tusk criteria skip" in stderr
+        assert "tusk criteria done" in stderr
 
         conn = sqlite3.connect(str(db_path))
         try:
-            session_row = conn.execute(
+            task = conn.execute(
+                "SELECT status, closed_reason FROM tasks WHERE id = ?", (task_id,)
+            ).fetchone()
+            criterion = conn.execute(
+                "SELECT is_completed, is_deferred, deferred_reason "
+                "FROM acceptance_criteria WHERE id = ?",
+                (criterion_id,),
+            ).fetchone()
+            session = conn.execute(
                 "SELECT ended_at FROM task_sessions WHERE id = ?", (session_id,)
             ).fetchone()
-            assert session_row[0] is not None, "session should be closed"
-
-            # The audit-trail signal: [abandon: completed] note distinguishes
-            # this case from a normal `tusk merge` close (which never writes a
-            # task_progress row with the [abandon: ...] prefix).
-            note_row = conn.execute(
-                "SELECT commit_message FROM task_progress WHERE task_id = ? "
-                "ORDER BY id DESC LIMIT 1",
-                (task_id,),
-            ).fetchone()
-            assert note_row is not None, "expected a task_progress row for the note"
-            assert "[abandon: completed]" in note_row[0]
-            assert "TASK-1727" in note_row[0]
         finally:
             conn.close()
+
+        assert task == ("In Progress", None)
+        assert criterion == (0, 0, None)
+        assert session[0] is None
+
+    def test_abandon_auto_defer_criteria_records_note_and_closes(
+        self, db_path, config_path, monkeypatch
+    ):
+        conn = sqlite3.connect(str(db_path))
+        try:
+            task_id = _insert_task(conn)
+            session_id = _insert_session(conn, task_id)
+            criterion_id = conn.execute(
+                "INSERT INTO acceptance_criteria (task_id, criterion, source) "
+                "VALUES (?, 'criterion to defer during abandon', 'original')",
+                (task_id,),
+            ).lastrowid
+            conn.commit()
+        finally:
+            conn.close()
+
+        monkeypatch.setattr(
+            tusk_abandon,
+            "find_task_branch",
+            lambda tid: (None, f"No branch found matching feature/TASK-{tid}-*", False),
+        )
+        monkeypatch.setattr(tusk_abandon, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_abandon, "checkpoint_wal", lambda db: None)
+
+        rc, result, stderr = _call(
+            db_path,
+            config_path,
+            task_id,
+            "--reason",
+            "completed",
+            "--session",
+            session_id,
+            "--note",
+            "Goal met elsewhere.",
+            "--auto-defer-criteria",
+        )
+
+        assert rc == 0, f"abandon failed: {stderr}"
+        assert result is not None
+        assert result["task"]["status"] == "Done"
+        assert result["task"]["closed_reason"] == "completed"
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            criterion = conn.execute(
+                "SELECT is_completed, is_deferred, deferred_reason "
+                "FROM acceptance_criteria WHERE id = ?",
+                (criterion_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+
+        assert criterion == (0, 1, "Goal met elsewhere.")
 
 
 class TestAbandonLinkedWorktree:

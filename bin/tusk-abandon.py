@@ -4,6 +4,7 @@
 Called by the tusk wrapper:
     tusk abandon <task_id> --reason wont_do|duplicate|completed
                            [--session <session_id>] [--note "..."]
+                           [--auto-defer-criteria]
 
 Arguments received from tusk:
     sys.argv[1] — DB path
@@ -22,9 +23,9 @@ Behavior — symmetric with `tusk merge` but without any code merge:
   4. If --note is provided, insert a task_progress row capturing the rationale
      before the task is closed.
   5. Close the open session via `tusk session-close <session_id>`.
-  6. Mark the task Done via `tusk task-done <id> --reason <reason> --force`.
-     (--force is required because abandoned tasks typically have open criteria
-     that the user has intentionally chosen not to complete.)
+  6. Refuse if ordinary open criteria remain, unless --auto-defer-criteria was
+     passed. In that explicit mode, defer those criteria with the abandon note.
+  7. Mark the task Done via `tusk task-done <id> --reason <reason> --force`.
   7. Print a JSON blob symmetric with `tusk merge` output:
        { "task": {...}, "sessions_closed": N, "unblocked_tasks": [...] }
 """
@@ -76,7 +77,7 @@ def run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
 def _print_usage() -> None:
     print(
         "Usage: tusk abandon <task_id> --reason wont_do|duplicate|completed "
-        "[--session <session_id>] [--note \"...\"]",
+        "[--session <session_id>] [--note \"...\"] [--auto-defer-criteria]",
         file=sys.stderr,
     )
 
@@ -172,6 +173,57 @@ def _insert_abandon_note(db_path: str, task_id: int, reason: str, note: str) -> 
         conn.close()
 
 
+def _open_non_deferred_criteria(
+    conn: sqlite3.Connection,
+    task_id: int,
+) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT id, criterion FROM acceptance_criteria "
+        "WHERE task_id = ? AND is_completed = 0 AND is_deferred = 0 "
+        "ORDER BY id",
+        (task_id,),
+    ).fetchall()
+
+
+def _criteria_defer_reason(reason: str, note: str | None) -> str:
+    if note:
+        return note
+    return f"auto-deferred by tusk abandon --reason {reason}"
+
+
+def _defer_open_criteria(
+    conn: sqlite3.Connection,
+    task_id: int,
+    reason: str,
+    note: str | None,
+) -> int:
+    defer_reason = _criteria_defer_reason(reason, note)
+    cur = conn.execute(
+        "UPDATE acceptance_criteria "
+        "SET is_deferred = 1, deferred_reason = ?, updated_at = datetime('now') "
+        "WHERE task_id = ? AND is_completed = 0 AND is_deferred = 0",
+        (defer_reason, task_id),
+    )
+    return cur.rowcount
+
+
+def _format_open_criteria_error(task_id: int, rows: list[sqlite3.Row]) -> str:
+    lines = [
+        f"Error: task {task_id} has incomplete non-deferred acceptance criteria.",
+        "Resolve them before abandoning, or rerun with --auto-defer-criteria "
+        "to defer them using the abandon note.",
+        "Open criteria:",
+    ]
+    for row in rows:
+        lines.append(f"  - #{row['id']}: {row['criterion']}")
+    lines.extend([
+        "Suggested remediation:",
+        "  tusk criteria skip <criterion_id> --reason \"...\"",
+        "  tusk criteria done <criterion_id> --skip-verify",
+    ])
+    return "\n".join(lines)
+
+
 def _synthesize_task_done_result(
     db_path: str, task_id: int, sessions_closed_external: int
 ) -> dict:
@@ -242,6 +294,7 @@ def main(argv: list[str]) -> int:
     reason: str | None = None
     session_id: int | None = None
     note: str | None = None
+    auto_defer_criteria = False
 
     i = 0
     while i < len(remaining):
@@ -267,6 +320,9 @@ def main(argv: list[str]) -> int:
                 return 1
             note = remaining[i + 1]
             i += 2
+        elif remaining[i] == "--auto-defer-criteria":
+            auto_defer_criteria = True
+            i += 1
         else:
             print(f"Error: Unknown argument: {remaining[i]}", file=sys.stderr)
             return 1
@@ -299,6 +355,22 @@ def main(argv: list[str]) -> int:
             f"({', '.join(valid_reasons)}).",
             file=sys.stderr,
         )
+        return 1
+
+    try:
+        conn = get_connection(db_path)
+        try:
+            open_criteria = _open_non_deferred_criteria(conn, task_id)
+            if open_criteria and not auto_defer_criteria:
+                print(
+                    _format_open_criteria_error(task_id, open_criteria),
+                    file=sys.stderr,
+                )
+                return 2
+        finally:
+            conn.close()
+    except sqlite3.Error as e:
+        print(f"Error: Could not query acceptance criteria: {e}", file=sys.stderr)
         return 1
 
     # Validate explicit session like merge does: warn + fall back to autodetect
@@ -418,6 +490,27 @@ def main(argv: list[str]) -> int:
     # to a pre-WAL snapshot otherwise.
     checkpoint_wal(db_path)
 
+    if auto_defer_criteria:
+        try:
+            conn = get_connection(db_path)
+            try:
+                deferred = _defer_open_criteria(conn, task_id, reason, note)
+                conn.commit()
+            finally:
+                conn.close()
+            if deferred:
+                print(
+                    f"Deferred {deferred} open acceptance criteria before "
+                    f"abandoning task {task_id}.",
+                    file=sys.stderr,
+                )
+        except sqlite3.Error as e:
+            print(
+                f"Error: Could not auto-defer acceptance criteria: {e}",
+                file=sys.stderr,
+            )
+            return 2
+
     # Persist the abandon rationale before we close anything so the audit
     # trail survives even if a downstream step fails partway.
     if note:
@@ -498,8 +591,8 @@ def main(argv: list[str]) -> int:
     else:
         session_was_closed = False
 
-    # Mark the task Done. Always pass --force because abandoned tasks
-    # typically have open criteria the user has decided not to complete.
+    # Mark the task Done. --force preserves the idempotent historical close
+    # path, but ordinary open criteria have already been refused or deferred.
     print(f"Closing task {task_id}...", file=sys.stderr)
     td = _run_tusk_subcommand(
         tusk_bin, ["task-done", str(task_id), "--reason", reason, "--force"]

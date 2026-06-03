@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1087] - 2026-06-02
+
+- [TASK-579] Guard tusk abandon against incomplete non-deferred criteria
+
 ## [1086] - 2026-06-02
 
 - [TASK-577] Improve scope auto-derivation for bare filenames and iOS test target references
