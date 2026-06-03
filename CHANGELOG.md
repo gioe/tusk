@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1094] - 2026-06-03
+
+- [TASK-586] Add merge skip-lint and skip-verify bypass flags
+
 ## [1093] - 2026-06-03
 
 - [TASK-585] Fix: make sparse task worktrees support configured tests and lint

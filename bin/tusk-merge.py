@@ -1000,9 +1000,17 @@ def _lint_timeout_hung_rule_line(trace_path):
 
 
 def _run_pre_merge_lint(
-    tusk_bin: str, config_path: str, task_id: int, cwd: str | None = None
+    tusk_bin: str,
+    config_path: str,
+    task_id: int,
+    cwd: str | None = None,
+    skip_lint: bool = False,
 ) -> int:
     """Run the required clean-lint gate before merge/session mutation."""
+    if skip_lint:
+        print("Skipping pre-merge lint (--skip-lint).", file=sys.stderr)
+        return 0
+
     lint_timeout_sec, lint_timeout_source = load_lint_timeout(config_path)
     print(
         f"Running tusk lint before merge (timeout {lint_timeout_sec}s)...",
@@ -3022,7 +3030,7 @@ def _autodetect_session(
 def main(argv: list[str]) -> int:
     if len(argv) < 3:
         print(
-            "Usage: tusk merge <task_id> [--session <session_id>] [--pr] [--pr-number N] [--rebase]",
+            "Usage: tusk merge <task_id> [--session <session_id>] [--pr] [--pr-number N] [--rebase] [--skip-lint] [--skip-verify]",
             file=sys.stderr,
         )
         return 1
@@ -3051,6 +3059,7 @@ def main(argv: list[str]) -> int:
     use_pr = False
     pr_number = None
     use_rebase = False
+    skip_lint = False
 
     i = 0
     while i < len(remaining):
@@ -3079,6 +3088,12 @@ def main(argv: list[str]) -> int:
             i += 2
         elif remaining[i] == "--rebase":
             use_rebase = True
+            i += 1
+        elif remaining[i] == "--skip-lint":
+            skip_lint = True
+            i += 1
+        elif remaining[i] == "--skip-verify":
+            skip_lint = True
             i += 1
         else:
             print(f"Error: Unknown argument: {remaining[i]}", file=sys.stderr)
@@ -3267,7 +3282,9 @@ def main(argv: list[str]) -> int:
         criteria_rc = _guard_no_open_completion_criteria(_db_path, task_id)
         if criteria_rc != 0:
             return criteria_rc
-        lint_rc = _run_pre_merge_lint(tusk_bin, config_path, task_id)
+        lint_rc = _run_pre_merge_lint(
+            tusk_bin, config_path, task_id, skip_lint=skip_lint
+        )
         if lint_rc != 0:
             return lint_rc
         checkpoint_wal(_db_path)
@@ -3327,7 +3344,9 @@ def main(argv: list[str]) -> int:
     criteria_rc = _guard_no_open_completion_criteria(_db_path, task_id)
     if criteria_rc != 0:
         return criteria_rc
-    lint_rc = _run_pre_merge_lint(tusk_bin, config_path, task_id, cwd=lint_cwd)
+    lint_rc = _run_pre_merge_lint(
+        tusk_bin, config_path, task_id, cwd=lint_cwd, skip_lint=skip_lint
+    )
     if lint_rc != 0:
         return lint_rc
 
