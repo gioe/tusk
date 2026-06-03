@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1093] - 2026-06-03
+
+- [TASK-585] Fix: make sparse task worktrees support configured tests and lint
+
 ## [1092] - 2026-06-03
 
 - [TASK-584] Document upstream-repo deliverables in /tusk no-commit closure guidance

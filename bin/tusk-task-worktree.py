@@ -281,6 +281,48 @@ def _test_command_cone_paths(config_path: str) -> list[str]:
     return paths
 
 
+def _test_command_helper_cone_paths(config_path: str, repo_root: str) -> list[str]:
+    """Return repo-helper paths needed by configured test commands.
+
+    Source-repo unit tests commonly import ``bin/tusk-*.py`` helpers by
+    repo-relative path. The configured test command only names ``tests/...``,
+    so path-token extraction alone materializes the tests but omits the helper
+    directory they import. When pytest is configured to run tracked tests and a
+    source-repo helper exists, include one helper path so cone derivation pulls
+    ``bin`` into the sparse worktree.
+    """
+    if not config_path or not os.path.exists(config_path):
+        return []
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return []
+    cmd = cfg.get("test_command") or ""
+    if not isinstance(cmd, str) or not cmd.strip():
+        return []
+
+    tokens = [tok.strip().strip('"').strip("'") for tok in cmd.split()]
+    if "pytest" not in tokens:
+        return []
+    if not any(tok == "tests" or tok.startswith("tests/") for tok in tokens):
+        return []
+
+    bin_dir = os.path.join(repo_root, "bin")
+    if not os.path.isdir(bin_dir):
+        return []
+    for name in ("tusk", "tusk-task-summary.py"):
+        if os.path.exists(os.path.join(bin_dir, name)):
+            return [f"bin/{name}"]
+    try:
+        for name in sorted(os.listdir(bin_dir)):
+            if name.startswith("tusk-") and name.endswith(".py"):
+                return [f"bin/{name}"]
+    except OSError:
+        return []
+    return []
+
+
 def _is_safe_cone_entry(entry: str) -> bool:
     """Return True iff ``entry`` is safe to pass to ``git sparse-checkout set``.
 
@@ -1121,7 +1163,10 @@ def cmd_create(
                 )
                 always_allowed = _load_scope_list(config_path, "always_allowed")
                 always_cone = _load_scope_list(config_path, "sparse_always_cone")
-                test_cmd_paths = _test_command_cone_paths(config_path)
+                test_cmd_paths = [
+                    *_test_command_cone_paths(config_path),
+                    *_test_command_helper_cone_paths(config_path, repo_root),
+                ]
                 # File-path inputs go through _derive_sparse_cone, which drops
                 # root-level entries (cone mode auto-materializes top-level
                 # files) and takes the parent dir of nested file paths.

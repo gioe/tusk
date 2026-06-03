@@ -189,6 +189,58 @@ def test_default_cone_unions_test_command_paths(tmp_path, monkeypatch):
     )
 
 
+def test_default_cone_unions_pytest_source_helpers(tmp_path, monkeypatch):
+    """Configured pytest targets also pull source-repo helper modules.
+
+    The test command only names ``tests/unit/``, but tusk's source-repo tests
+    import ``bin/tusk-*.py`` by path. A docs/skill-scoped task must therefore
+    materialize ``bin`` even when its own scope and sparse defaults do not.
+    """
+    repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+    config_path = repo / "tusk" / "config.json"
+    cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    cfg["test_command"] = "python3 -m pytest tests/unit/ -q"
+    scope_cfg = cfg.setdefault("scope", {})
+    scope_cfg["sparse_always_include"] = []
+    scope_cfg["sparse_always_cone"] = []
+    config_path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+
+    (repo / "bin" / "tusk-task-summary.py").write_text(
+        "VALUE = 1\n", encoding="utf-8"
+    )
+    _git(["add", "."], cwd=repo)
+    _git(["commit", "-m", "seed tusk helper"], cwd=repo)
+
+    task = _insert_task(db_path, "Update docs/notes.md and nothing else")
+    workspace_root = tmp_path / "workspaces"
+
+    result = _run(
+        [
+            "task-worktree",
+            "create",
+            str(task),
+            "pytesthelpers",
+            "--workspace-root",
+            str(workspace_root),
+        ],
+        cwd=repo,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    cone = _sparse_cone(payload["workspace_path"])
+    assert cone is not None, "sparse-checkout should be enabled"
+    assert "tests" in cone, (
+        f"test_command's tests/unit/ should pull tests into the cone; got {cone}"
+    )
+    assert "bin" in cone, (
+        f"pytest tests should pull source helpers into the cone; got {cone}"
+    )
+    assert os.path.isfile(
+        os.path.join(payload["workspace_path"], "bin", "tusk-task-summary.py")
+    )
+
+
 # ── Criterion 2231 (issue #896) ─────────────────────────────────────
 
 
@@ -375,6 +427,22 @@ def test_rule19_still_fires_without_sparse_checkout(tmp_path, monkeypatch):
     assert any("tusk-manifest.json" in v for v in violations), (
         f"violations should mention tusk-manifest.json; got {violations}"
     )
+
+
+def test_rule12_py_compile_does_not_write_repo_pycache(tmp_path, monkeypatch):
+    """Rule 12 syntax-checks bin helpers without writing ``bin/__pycache__``."""
+    repo, _db_path, _env = _repo_with_tusk(tmp_path, monkeypatch)
+    (repo / "bin" / "tusk-valid.py").write_text(
+        "def main():\n    return 0\n", encoding="utf-8"
+    )
+    pycache = repo / "bin" / "__pycache__"
+    assert not pycache.exists(), "fixture should start without repo bytecode"
+
+    lint = _load_rule18(monkeypatch)
+    violations = lint.rule12_python_syntax(str(repo))
+
+    assert violations == []
+    assert not pycache.exists(), "Rule 12 should not write bytecode into bin/"
 
 
 # ── sparse_always_cone config key (issue #935) ──────────────────────

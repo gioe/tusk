@@ -15,11 +15,13 @@ unrelated historical task state cannot block the active commit (Issue #568).
 import ast
 import json
 import os
+import py_compile
 import re
 import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -611,10 +613,6 @@ def rule12_python_syntax(root):
     """Python syntax check for all bin/tusk-*.py files via py_compile."""
     violations = []
 
-    # Guard: skip rule if python3 is not available (which python3)
-    if not shutil.which("python3"):
-        return []
-
     bin_dir = os.path.join(root, "bin")
     if not os.path.isdir(bin_dir):
         return []
@@ -630,21 +628,34 @@ def rule12_python_syntax(root):
     for script in scripts:
         full = os.path.join(bin_dir, script)
         rel = os.path.relpath(full, root)
+        fd = None
+        cfile = None
         try:
-            result = subprocess.run(
-                ["python3", "-m", "py_compile", full],
-                capture_output=True, text=True, encoding="utf-8", timeout=5,
-            )
-            if result.returncode != 0:
-                err = result.stderr.strip()
-                # Extract line number from "File ..., line N" in the traceback
-                line_match = re.search(r"line (\d+)", err)
-                line_info = f":{line_match.group(1)}" if line_match else ":(unknown line)"
-                # Surface the last (most informative) line of the error
-                last_line = err.splitlines()[-1] if err else "SyntaxError"
-                violations.append(f"  {rel}{line_info}: {last_line}")
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            pass  # Skip file if py_compile invocation fails
+            fd, cfile = tempfile.mkstemp(prefix="tusk-pycompile-", suffix=".pyc")
+            os.close(fd)
+            fd = None
+            py_compile.compile(full, cfile=cfile, doraise=True)
+        except py_compile.PyCompileError as exc:
+            err = (exc.msg or str(exc)).strip()
+            # Extract line number from "File ..., line N" in the traceback
+            line_match = re.search(r"line (\d+)", err)
+            line_info = f":{line_match.group(1)}" if line_match else ":(unknown line)"
+            # Surface the last (most informative) line of the error
+            last_line = err.splitlines()[-1] if err else "SyntaxError"
+            violations.append(f"  {rel}{line_info}: {last_line}")
+        except OSError:
+            pass  # Skip files when temp bytecode creation is unavailable.
+        finally:
+            if fd is not None:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            if cfile:
+                try:
+                    os.unlink(cfile)
+                except OSError:
+                    pass
 
     return violations
 
