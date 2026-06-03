@@ -63,6 +63,15 @@ _BRACED_PATH_RE = re.compile(
     r"(?P<ext>\.[A-Za-z0-9][\w.-]*)"
 )
 _TEST_TARGET_TOKEN_RE = re.compile(r"\b([A-Z][A-Za-z0-9]*(?:UI)?Tests)\b")
+_TASK_COMMIT_SHA_RE = re.compile(
+    r"(?:\[?TASK-[A-Za-z0-9_-]+\]?)\b.{0,120}?\bcommit\s+([0-9a-fA-F]{7,40})\b",
+    re.IGNORECASE | re.DOTALL,
+)
+_NUMBERED_FILE_SET_RE = re.compile(
+    r"\b(?:[2-9]\d*)\s+(?:[\w-]+\s+){0,4}"
+    r"(?:files?|paths?|scrapers?|venues?|modules?)\b",
+    re.IGNORECASE,
+)
 _OBVIOUS_REPO_PATH_RE = re.compile(
     r'(?:^|[\s\'"`(,])'
     r'((?:apps|app|src|test|tests|bin|docs|doc|skills|skills-internal|hooks)/'
@@ -314,6 +323,42 @@ def _test_target_scope_paths(repo_root: str | None, text: str) -> list[str]:
     return candidates
 
 
+def _commit_referenced_scope_paths(repo_root: str | None, text: str) -> list[str]:
+    """Infer scope from a referenced TASK commit and numbered file set.
+
+    Fleet-wide refactor follow-ups often cite a predecessor commit plus prose
+    such as "42 venue scrapers" while only enumerating a few examples. Treat
+    that pairing as a signal to hydrate the full changed-file list from git.
+    """
+    if not repo_root or not text or not _NUMBERED_FILE_SET_RE.search(text):
+        return []
+
+    candidates: list[str] = []
+    seen_paths: set[str] = set()
+    seen_shas: set[str] = set()
+    for match in _TASK_COMMIT_SHA_RE.finditer(text):
+        sha = match.group(1)
+        normalized_sha = sha.lower()
+        if normalized_sha in seen_shas:
+            continue
+        seen_shas.add(normalized_sha)
+        result = subprocess.run(
+            ["git", "-C", repo_root, "show", "--format=", "--name-only", sha],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        if result.returncode != 0:
+            continue
+        for path in result.stdout.splitlines():
+            path = path.strip()
+            if not path or path in seen_paths:
+                continue
+            seen_paths.add(path)
+            candidates.append(path)
+    return candidates
+
+
 def _expand_sibling_shortform_item(base_dir: str, item: str) -> list[str]:
     """Expand one sibling shortform token under ``base_dir``."""
     raw = (item or "").strip().strip('.,;:\'"`)')
@@ -415,6 +460,7 @@ def _auto_scope_candidates(
         *_sibling_shortform_scope_paths(text, explicit),
         *bare_paths,
         *target_paths,
+        *_commit_referenced_scope_paths(repo_root, text),
     ]
 
 

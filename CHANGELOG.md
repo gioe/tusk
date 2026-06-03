@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1095] - 2026-06-03
+
+- [TASK-588] Hydrate auto-derived scope from referenced commit file lists
+
 ## [1094] - 2026-06-03
 
 - [TASK-586] Add merge skip-lint and skip-verify bypass flags

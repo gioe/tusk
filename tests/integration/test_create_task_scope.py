@@ -50,6 +50,9 @@ def _scope_rows(db: str, task_id: int) -> list:
 def _insert(db_path, summary, description, **kw):
     """Run `tusk task-insert` and return the new task_id."""
     args = ["task-insert", summary, description, "--criteria", "marker"]
+    repo_root = kw.pop("repo_root", None)
+    if repo_root is not None:
+        args.extend(["--repo-root", str(repo_root)])
     for spec in kw.pop("typed_criteria", []):
         args.extend(["--typed-criteria", spec])
     for s in kw.pop("scope", []):
@@ -65,6 +68,20 @@ def _insert(db_path, summary, description, **kw):
         f"stdout={result.stdout}\nstderr={result.stderr}"
     )
     return json.loads(result.stdout)["task_id"]
+
+
+def _git(cwd, args):
+    result = subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert result.returncode == 0, (
+        f"git {' '.join(args)} failed\nstdout={result.stdout}\nstderr={result.stderr}"
+    )
+    return result
 
 
 # ── task-insert missing-path warnings (TASK-554) ────────────────────────
@@ -412,6 +429,74 @@ def test_auto_extract_infers_ios_test_target_shape(db_path):
 
     assert "tests/fixtures/ios/Tests/LaughTrackTests/FooTests.swift" in auto, rows
     assert "docs/example.md" not in auto, rows
+
+
+def test_auto_extract_hydrates_numbered_file_set_from_task_commit(db_path, tmp_path):
+    """A TASK commit reference plus numbered file-set prose hydrates git paths."""
+    repo = tmp_path / "subject"
+    repo.mkdir()
+    _git(repo, ["init"])
+    _git(repo, ["config", "user.email", "test@example.com"])
+    _git(repo, ["config", "user.name", "Test User"])
+    paths = [
+        "venues/alpha/scraper.py",
+        "venues/bravo/scraper.py",
+        "venues/charlie/scraper.py",
+        "venues/delta/scraper.py",
+    ]
+    for path in paths:
+        full_path = repo / path
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        full_path.write_text(f"# {path}\n", encoding="utf-8")
+    _git(repo, ["add", *paths])
+    _git(repo, ["commit", "-m", "[TASK-123] seed venue scrapers"])
+    sha = _git(repo, ["rev-parse", "--short=12", "HEAD"]).stdout.strip()
+
+    task_id = _insert(
+        str(db_path),
+        "commit scope",
+        (
+            f"Update 4 venue scrapers from [TASK-X] commit {sha}. "
+            "Particularly venues/alpha/scraper.py and venues/bravo/scraper.py."
+        ),
+        repo_root=repo,
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+
+    assert set(paths).issubset(auto), rows
+    assert sum(1 for r in rows if r["pattern"] == "venues/alpha/scraper.py") == 1
+    assert sum(1 for r in rows if r["pattern"] == "venues/bravo/scraper.py") == 1
+
+
+def test_auto_extract_ignores_missing_task_commit_sha(db_path, tmp_path):
+    """An invalid referenced SHA should not block insertion or add fake paths."""
+    repo = tmp_path / "subject"
+    repo.mkdir()
+    _git(repo, ["init"])
+    _git(repo, ["config", "user.email", "test@example.com"])
+    _git(repo, ["config", "user.name", "Test User"])
+    existing = repo / "venues/alpha/scraper.py"
+    existing.parent.mkdir(parents=True, exist_ok=True)
+    existing.write_text("# alpha\n", encoding="utf-8")
+    _git(repo, ["add", "venues/alpha/scraper.py"])
+    _git(repo, ["commit", "-m", "[TASK-1] seed one scraper"])
+
+    task_id = _insert(
+        str(db_path),
+        "missing commit scope",
+        (
+            "Update 4 venue scrapers from [TASK-999] commit deadbee. "
+            "Particularly venues/alpha/scraper.py."
+        ),
+        repo_root=repo,
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+
+    assert auto == {"venues/alpha/scraper.py"}, rows
 
 
 def test_auto_extract_does_not_nest_separate_explicit_path_mentions(db_path):
