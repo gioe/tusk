@@ -26,7 +26,7 @@ Behavior — symmetric with `tusk merge` but without any code merge:
   6. Refuse if ordinary open criteria remain, unless --auto-defer-criteria was
      passed. In that explicit mode, defer those criteria with the abandon note.
   7. Mark the task Done via `tusk task-done <id> --reason <reason> --force`.
-  7. Print a JSON blob symmetric with `tusk merge` output:
+  8. Print a JSON blob symmetric with `tusk merge` output:
        { "task": {...}, "sessions_closed": N, "unblocked_tasks": [...] }
 """
 

@@ -336,6 +336,56 @@ class TestAbandonCompletedConvergent:
         finally:
             conn.close()
 
+        monkeypatch.setattr(
+            tusk_abandon,
+            "find_task_branch",
+            lambda tid: (None, f"No branch found matching feature/TASK-{tid}-*", False),
+        )
+        monkeypatch.setattr(tusk_abandon, "detect_default_branch", lambda: "main")
+        monkeypatch.setattr(tusk_abandon, "checkpoint_wal", lambda db: None)
+
+        rc, result, stderr = _call(
+            db_path,
+            config_path,
+            task_id,
+            "--reason",
+            "completed",
+            "--session",
+            session_id,
+            "--note",
+            "Goal met by TASK-1727, TASK-1730, TASK-1763 (convergent refactors).",
+        )
+
+        assert rc == 0, f"abandon --reason completed failed: {stderr}"
+        assert result is not None, f"expected JSON on stdout; stderr was:\n{stderr}"
+        assert result["task"]["status"] == "Done"
+        assert result["task"]["closed_reason"] == "completed", (
+            "convergent-completion must record closed_reason='completed' so the "
+            "DB reads the same as a normal `tusk merge` close"
+        )
+        assert result["sessions_closed"] == 1
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            session_row = conn.execute(
+                "SELECT ended_at FROM task_sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+            assert session_row[0] is not None, "session should be closed"
+
+            # The audit-trail signal: [abandon: completed] note distinguishes
+            # this case from a normal `tusk merge` close (which never writes a
+            # task_progress row with the [abandon: ...] prefix).
+            note_row = conn.execute(
+                "SELECT commit_message FROM task_progress WHERE task_id = ? "
+                "ORDER BY id DESC LIMIT 1",
+                (task_id,),
+            ).fetchone()
+            assert note_row is not None, "expected a task_progress row for the note"
+            assert "[abandon: completed]" in note_row[0]
+            assert "TASK-1727" in note_row[0]
+        finally:
+            conn.close()
+
 
 class TestAbandonOpenCriteriaGuard:
     """Abandon must not leave Done tasks with ordinary open criteria."""
