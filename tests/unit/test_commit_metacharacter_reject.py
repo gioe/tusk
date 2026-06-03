@@ -73,7 +73,7 @@ class TestValidateMessageMetacharacters:
         assert ok is False
         assert expected_class in diagnostic
         assert "shell-substitution metacharacter" in diagnostic
-        assert "single-quoting" in diagnostic or "single quotes" in diagnostic
+        assert "rewrite the message without the metacharacter" in diagnostic
 
     def test_diagnostic_includes_offset(self):
         ok, diagnostic = self.mod._validate_message_metacharacters("abc`def")
@@ -85,6 +85,15 @@ class TestValidateMessageMetacharacters:
         ok, diagnostic = self.mod._validate_message_metacharacters(msg)
         assert ok is False
         assert repr(msg) in diagnostic
+
+    def test_bare_dollar_diagnostic_does_not_claim_single_quotes_bypass_validator(self):
+        ok, diagnostic = self.mod._validate_message_metacharacters(
+            "auth.$currentUser refactor"
+        )
+        assert ok is False
+        assert "$c variable substitution" in diagnostic
+        assert "single quotes" not in diagnostic
+        assert "single-quoting" not in diagnostic
 
 
 class TestRunCommitRejectsMetacharBeforeSubprocess:

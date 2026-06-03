@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1090] - 2026-06-03
+
+- [TASK-582] Fix: clarify bare dollar identifier commit-message diagnostic
+
 ## [1089] - 2026-06-02
 
 - [TASK-581] Document sparse_always_cone in task-worktree cone help

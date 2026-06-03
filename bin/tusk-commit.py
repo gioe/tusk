@@ -929,8 +929,9 @@ def _validate_message_metacharacters(message: str) -> tuple[bool, str]:
         f"double quotes. The corrupted message would land on origin and cannot "
         f"be amended.\n"
         f"Fix: rewrite the message without the metacharacter (use plain "
-        f"identifiers, not backticked code spans), or wrap the entire message "
-        f"in single quotes if the literal character must appear."
+        f"identifiers, not backticked code spans). If you need to describe "
+        f"literal shell syntax, write it in words instead of including the "
+        f"shell metacharacter."
     )
     return False, diagnostic
 
