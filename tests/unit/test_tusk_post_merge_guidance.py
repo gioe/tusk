@@ -27,3 +27,21 @@ def test_codex_tusk_prompt_documents_post_merge_verification_deferral():
     assert "tusk criteria skip <criterion_id>" in text
     assert "post-merge verification:" in text
     assert "refuses ordinary open, non-deferred criteria" in text
+
+
+def test_tusk_skill_documents_upstream_repo_no_commit_closure():
+    text = _read("skills/tusk/SKILL.md")
+
+    assert "Three sub-cases" in text
+    assert "*upstream-repo deliverable* (issue #999)" in text
+    assert "project_libs" in text
+    assert "upstream PR/issue URL and commit reference" in text
+
+
+def test_codex_tusk_prompt_documents_upstream_repo_no_commit_closure():
+    text = _read("codex-prompts/tusk.md")
+
+    assert "Three sub-cases" in text
+    assert "*upstream-repo deliverable* (issue #999)" in text
+    assert "project_libs" in text
+    assert "upstream PR/issue URL and commit reference" in text

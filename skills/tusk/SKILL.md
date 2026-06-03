@@ -368,11 +368,12 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     Three reason values are accepted:
     - **`wont_do`** — an evaluation/spike whose answer is "don't do it".
     - **`duplicate`** — the task turns out to overlap an already-tracked one. If the already-tracked task is an **In Progress duplicate**, do not start a fresh `/tusk <id>` on that task; route to `/resume-task <id>` or reuse its existing open session and skill-run so the prior skill-run is not orphaned.
-    - **`completed`** — the goal was met but no `[TASK-N]` commits land on the default branch. Two sub-cases:
+    - **`completed`** — the goal was met but no `[TASK-N]` commits land on the default branch. Three sub-cases:
         - *convergent-completion* (issue #580): separate work landing on the default branch between filing and pickup already satisfied the goal, so there is nothing left to ship.
         - *DB-only deliverable* (issue #669): the deliverable is a SQLite row written via a tusk subcommand (`tusk conventions update`, `tusk conventions add`, `tusk lint-rule add`, `tusk glossary set-definition`, etc.) — the feature branch is intentionally empty because nothing in the working tree changes.
+        - *upstream-repo deliverable* (issue #999): the fix lands in an external repo declared in `tusk config`'s `project_libs` (for example `gioe/ios-libs` or `gioe/python-libs`) or another repo this host depends on — no `[TASK-N]` commits land on the host repo's default branch.
 
-      Pass `--note "<rationale>"` in both cases and reference the converging task(s)/commit(s) or the DB write performed — `tusk abandon` records it on `task_progress` as `[abandon: completed] <note>`, which is the audit signal that distinguishes this case from a normal `tusk merge` close (no `[TASK-N]` commits will be on the default branch for this task either).
+      Pass `--note "<rationale>"` in all cases and reference the converging task(s)/commit(s), the DB write performed, or the upstream PR/issue URL and commit reference (for example `Upstream PR at gioe/ios-libs#5 (dfbb4c1)`) — `tusk abandon` records it on `task_progress` as `[abandon: completed] <note>`, which is the audit signal that distinguishes this case from a normal `tusk merge` close (no `[TASK-N]` commits will be on the default branch for this task either).
 
     `tusk abandon` switches off the feature branch, deletes it (force), closes the session, and marks the task Done with the given `closed_reason` in one call. **Refuses** if the feature branch has commits not on the default branch — in that case use `tusk merge` to ship the work, or delete the branch manually if you really want to discard it. The optional `--note` records the decision rationale on `task_progress` so the audit trail survives. After `tusk abandon` exits 0, run `/retro` exactly as you would after `tusk merge`.
 

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1092] - 2026-06-03
+
+- [TASK-584] Document upstream-repo deliverables in /tusk no-commit closure guidance
+
 ## [1091] - 2026-06-03
 
 - [TASK-583] Fix: reject prose dot-slash tokens in auto-scope derivation
