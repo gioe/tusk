@@ -366,6 +366,54 @@ def test_auto_extract_infers_sibling_filename_after_explicit_path(db_path):
     assert "test_scope_cli.py" not in auto, rows
 
 
+def test_auto_extract_resolves_unique_bare_filename_line_citation(db_path):
+    """Bare ``filename:line`` citations resolve when the basename is unique."""
+    task_id = _insert(
+        str(db_path),
+        "bare filename citation",
+        "Update test_create_task_scope.py:350 to cover this regression.",
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+
+    assert "tests/integration/test_create_task_scope.py" in auto, rows
+    assert "test_create_task_scope.py" not in auto, rows
+
+
+def test_auto_extract_skips_ambiguous_bare_filename_line_citation(db_path):
+    """Ambiguous bare basenames must not seed guessed task_scope rows."""
+    task_id = _insert(
+        str(db_path),
+        "ambiguous bare filename citation",
+        "Update conftest.py:50 after choosing the right test fixture.",
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+
+    assert "conftest.py" not in auto, rows
+    assert not any(path.endswith("/conftest.py") for path in auto), rows
+
+
+def test_auto_extract_infers_ios_test_target_shape(db_path):
+    """Target-shaped iOS test names can seed the matching tracked path."""
+    task_id = _insert(
+        str(db_path),
+        "ios target shape scope",
+        (
+            "Add a FooTests case under LaughTrackTests that drives the "
+            "FooBar flow. Use the existing pattern documented in docs/example.md."
+        ),
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+
+    assert "tests/fixtures/ios/Tests/LaughTrackTests/FooTests.swift" in auto, rows
+    assert "docs/example.md" not in auto, rows
+
+
 def test_auto_extract_does_not_nest_separate_explicit_path_mentions(db_path):
     """A later explicit path must not be treated as a sibling shortform."""
     task_id = _insert(

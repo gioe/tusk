@@ -1833,7 +1833,7 @@ case "${1:-}" in
   task-select) shift; exec python3 "$SCRIPT_DIR/tusk-task-select.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   task-start) shift; exec python3 "$SCRIPT_DIR/tusk-task-start.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   task-done) shift; exec python3 "$SCRIPT_DIR/tusk-task-done.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
-  task-insert) shift; exec python3 "$SCRIPT_DIR/tusk-task-insert.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  task-insert) shift; exec python3 "$SCRIPT_DIR/tusk-task-insert.py" "$DB_PATH" "$(resolve_config)" --repo-root "$REPO_ROOT" "$@" ;;
   task-update) shift; exec python3 "$SCRIPT_DIR/tusk-task-update.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   task-reopen) shift; exec python3 "$SCRIPT_DIR/tusk-task-reopen.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   task-unstart) shift; exec python3 "$SCRIPT_DIR/tusk-task-unstart.py" "$DB_PATH" "$(resolve_config)" "$@" ;;

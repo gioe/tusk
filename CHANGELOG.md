@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1086] - 2026-06-02
+
+- [TASK-577] Improve scope auto-derivation for bare filenames and iOS test target references
+
 ## [1085] - 2026-06-02
 
 - [TASK-572] Fix scope add upfront default source

@@ -44,6 +44,7 @@ get_connection = _db_lib.get_connection
 load_config = _db_lib.load_config
 validate_enum = _db_lib.validate_enum
 extract_paths = _git_helpers.extract_paths
+extract_referenced_basenames = _git_helpers.extract_referenced_basenames
 is_prose_identifier_path = _git_helpers.is_prose_identifier_path
 path_exists_in_repo = _git_helpers.path_exists_in_repo
 
@@ -61,6 +62,7 @@ _BRACED_PATH_RE = re.compile(
     r"\{(?P<names>[A-Za-z0-9_.-]+(?:,[A-Za-z0-9_.-]+)+)\}"
     r"(?P<ext>\.[A-Za-z0-9][\w.-]*)"
 )
+_TEST_TARGET_TOKEN_RE = re.compile(r"\b([A-Z][A-Za-z0-9]*(?:UI)?Tests)\b")
 _OBVIOUS_REPO_PATH_RE = re.compile(
     r'(?:^|[\s\'"`(,])'
     r'((?:apps|app|src|test|tests|bin|docs|doc|skills|skills-internal|hooks)/'
@@ -145,7 +147,9 @@ def run_dupe_check(summary: str, domain: str | None) -> dict | None:
     return None
 
 
-def _repo_root(config_path: str) -> str | None:
+def _repo_root(config_path: str, explicit_repo_root: str | None = None) -> str | None:
+    if explicit_repo_root:
+        return explicit_repo_root
     env_root = os.environ.get("TUSK_REPO_ROOT") or os.environ.get("TUSK_PROJECT")
     if env_root:
         return env_root
@@ -260,6 +264,56 @@ def _resolve_auto_derived_scope_pattern(repo_root: str | None, pattern: str) -> 
     return raw
 
 
+def _resolve_unique_repo_basename(repo_root: str | None, name: str) -> str | None:
+    """Resolve ``name`` to a unique tracked repo path by basename."""
+    raw = (name or "").strip().strip('.,;:\'"`)')
+    if not raw or "/" in raw or _has_glob_metachar(raw):
+        return None
+    matches = [
+        path for path in _tracked_repo_files(repo_root)
+        if posixpath.basename(path) == raw
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _test_target_scope_paths(repo_root: str | None, text: str) -> list[str]:
+    """Infer tracked files from target-shaped test identifiers.
+
+    iOS task reports often mention target or test-class shapes such as
+    ``LaughTrackTests`` or ``SoftPushPromptCoordinatorTests`` without naming
+    concrete files. Keep this intentionally narrow: only capitalized tokens
+    ending in ``Tests``/``UITests`` participate, and only tracked files whose
+    path component or filename stem exactly matches the token are returned.
+    """
+    if not repo_root or not text:
+        return []
+    tokens = []
+    seen_tokens: set[str] = set()
+    for match in _TEST_TARGET_TOKEN_RE.finditer(text):
+        token = match.group(1)
+        if token not in seen_tokens:
+            seen_tokens.add(token)
+            tokens.append(token)
+    if not tokens:
+        return []
+
+    candidates: list[str] = []
+    seen_paths: set[str] = set()
+    tracked = _tracked_repo_files(repo_root)
+    for token in tokens:
+        for path in tracked:
+            parts = path.split("/")
+            stem, _ext = posixpath.splitext(posixpath.basename(path))
+            if token not in parts and stem != token:
+                continue
+            if path not in seen_paths:
+                seen_paths.add(path)
+                candidates.append(path)
+    return candidates
+
+
 def _expand_sibling_shortform_item(base_dir: str, item: str) -> list[str]:
     """Expand one sibling shortform token under ``base_dir``."""
     raw = (item or "").strip().strip('.,;:\'"`)')
@@ -338,10 +392,30 @@ def _sibling_shortform_scope_paths(text: str, extracted_paths: list[str]) -> lis
     return unique
 
 
-def _auto_scope_candidates(text: str) -> list[str]:
+def _auto_scope_candidates(
+    text: str,
+    *,
+    repo_root: str | None = None,
+    task_type: str | None = None,
+) -> list[str]:
     """Return explicit and inferred auto-scope candidates for one text block."""
     explicit = extract_paths(text)
-    return [*explicit, *_sibling_shortform_scope_paths(text, explicit)]
+    target_paths = _test_target_scope_paths(repo_root, text)
+    if target_paths and (task_type or "").lower() != "docs":
+        explicit = [
+            p for p in explicit
+            if not p.lower().endswith((".md", ".markdown"))
+        ]
+    bare_paths = [
+        resolved for name in extract_referenced_basenames(text)
+        if (resolved := _resolve_unique_repo_basename(repo_root, name))
+    ]
+    return [
+        *explicit,
+        *_sibling_shortform_scope_paths(text, explicit),
+        *bare_paths,
+        *target_paths,
+    ]
 
 
 def _canonical_enum_value(value: str, valid_values: list[str]) -> str:
@@ -380,6 +454,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--typed-criteria", action="append", default=[], type=_typed_criterion_type,
                         dest="typed_criteria", metavar="JSON",
                         help='Typed criterion as JSON, e.g. \'{"text":"...","type":"...","spec":"..."}\' (repeatable)')
+    parser.add_argument("--repo-root", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--workflow", default=None, help="Workflow (validated against config)")
     parser.add_argument("--expires-in", type=int, default=None, dest="expires_in_days", metavar="DAYS",
                         help="Set expires_at to +N days")
@@ -488,7 +563,7 @@ def main(argv: list[str]) -> int:
             print(f"Error: {e}", file=sys.stderr)
         return 2
 
-    repo_root = _repo_root(config_path)
+    repo_root = _repo_root(config_path, args.repo_root)
     _warn_for_missing_declared_paths(repo_root, scope_patterns, typed_criteria)
 
     # Run duplicate check
@@ -602,7 +677,11 @@ def main(argv: list[str]) -> int:
                 text_blocks.append(tc.get("spec") or "")
             seen_auto: set = set()
             for text in text_blocks:
-                for p in _auto_scope_candidates(text):
+                for p in _auto_scope_candidates(
+                    text,
+                    repo_root=repo_root,
+                    task_type=task_type,
+                ):
                     if is_prose_identifier_path(p, repo_root):
                         continue
                     resolved = _resolve_auto_derived_scope_pattern(repo_root, p)
