@@ -305,6 +305,54 @@ def test_sparse_cone_does_not_include_github_for_unrelated_prose(
     assert not os.path.exists(os.path.join(payload["workspace_path"], ".github"))
 
 
+def test_scope_add_materializes_path_outside_sparse_cone(tmp_path, monkeypatch):
+    """Adding scope inside a sparse worktree should make that path editable."""
+    repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+    _set_sparse_always_cone(repo, ["bin"])
+    task = _insert_task(
+        db_path,
+        "Update tests/integration/test_a.py and document workflow notes",
+    )
+    workspace_root = tmp_path / "workspaces"
+
+    result = _run(
+        [
+            "task-worktree",
+            "create",
+            str(task),
+            "scope-add",
+            "--workspace-root",
+            str(workspace_root),
+        ],
+        cwd=repo,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    wt = payload["workspace_path"]
+
+    assert ".github" not in set(_sparse_cone(wt) or [])
+    target = os.path.join(wt, ".github", "workflows", "web-ci.yml")
+    assert not os.path.exists(target)
+
+    added = _run(
+        [
+            "scope",
+            "add",
+            str(task),
+            ".github/workflows/web-ci.yml",
+            "--reason",
+            "expanded during implementation",
+        ],
+        cwd=wt,
+        env=env,
+    )
+
+    assert added.returncode == 0, added.stderr
+    assert os.path.isfile(target)
+    assert ".github/workflows" in set(_sparse_cone(wt) or [])
+
+
 def test_sparse_cone_rejects_prose_identifier_tokens(tmp_path, monkeypatch):
     """A dotted identifier pair in prose must not become a bogus cone entry."""
     repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
