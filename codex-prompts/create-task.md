@@ -281,6 +281,13 @@ Valid types: `manual` (default), `code`, `test`, `file`. Non-manual types
 require a `spec`. Omit `--domain` or `--assignee` entirely when the value
 is NULL — do not pass empty strings.
 
+For pytest `test` specs, include the full node ID. If the test is defined
+inside a class, include the class segment:
+`tests/path/test_file.py::TestClassName::test_method_name`, not
+`tests/path/test_file.py::test_method_name`. The shorter form points pytest
+at a module-level function and fails with "not found" even when the
+class-contained test exists.
+
 ### Exit codes
 
 - **0** — success. Output JSON includes `task_id` and `criteria_ids`.

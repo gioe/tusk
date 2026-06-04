@@ -307,6 +307,8 @@ For each approved task, generate **2–5 acceptance criteria** — concrete, tes
 
 **Default to `criterion_type=test` with a proposed pytest node ID** (e.g. `tests/integration/test_foo.py::TestBar::test_baz`) for any criterion that names a behavior, output shape, edge case, or invariant. The test does not need to exist yet — pinning the node ID at planning time forces the author to enumerate input cases before any code is written, and the criterion's contract becomes executable rather than prose.
 
+When a pytest test lives inside a class, the node ID must include the class segment: `tests/path/test_file.py::TestClassName::test_method_name`, not just `tests/path/test_file.py::test_method_name`. Pytest treats the shorter form as a module-level function and returns "not found" even though the class-contained test exists. If the source text names only the method, inspect the test file or infer the class from the surrounding context before writing the verification spec.
+
 Prose criteria can be satisfied by partial implementations that match the wording but miss edge cases. Pinning a test name forecloses that gap: `/tusk` cannot mark the criterion done until the named pytest invocation exits 0, so the implementer either writes the test or amends the criterion deliberately. There is no quiet path from "looks plausible" to "marked done."
 
 The only criteria that should remain `manual` are genuine judgment calls: exploratory spikes, prose/UX/visual review, PR-description quality, design tradeoffs, and one-off manual operations. The **Manual fallback** subsection below enumerates these in detail.

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1100] - 2026-06-04
+
+- [TASK-593] Improve create-task pytest selectors for class-contained tests
+
 ## [1099] - 2026-06-04
 
 - [TASK-592] Validate review comment line references against named symbols
