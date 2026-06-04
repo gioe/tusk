@@ -64,3 +64,19 @@ def test_resolve_auto_scope_strips_nodeid_when_file_exists(monkeypatch):
         )
         == "tests/integration/test_create_task_scope.py"
     )
+
+
+def test_auto_scope_candidates_keep_bracketed_route_segments():
+    text = "\n".join(
+        [
+            "- apps/web/app/api/v1/favorites/route.test.ts:262-276",
+            "- apps/web/app/api/v1/comedians/[id]/route.test.ts:292-306",
+            "- apps/web/util/comedian/comedianUtil.test.ts:224-231",
+        ]
+    )
+
+    assert mod._auto_scope_candidates(text, repo_root="repo", task_type="refactor")[:3] == [
+        "apps/web/app/api/v1/favorites/route.test.ts",
+        "apps/web/app/api/v1/comedians/[id]/route.test.ts",
+        "apps/web/util/comedian/comedianUtil.test.ts",
+    ]
