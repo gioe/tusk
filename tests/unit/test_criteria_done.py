@@ -30,6 +30,18 @@ def _ids_already_completed(stdout):
     return {obj["id"] for obj in _parse_json_lines(stdout)
             if obj.get("already_completed")}
 
+
+class _NoCloseConn:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def close(self):
+        pass
+
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 _spec = importlib.util.spec_from_file_location(
@@ -493,6 +505,65 @@ class TestCmdDoneBulk:
         assert rc == 2  # Worst exit code
         assert "999 not found" in err.getvalue()
         assert _ids_marked_done(out.getvalue()) == {1, 2}
+
+
+class TestCmdDelete:
+    def _make_args(self, criterion_id, force=False):
+        return argparse.Namespace(criterion_id=criterion_id, force=force)
+
+    def test_deletes_incomplete_criterion(self):
+        conn = make_db()
+        out = io.StringIO()
+        with redirect_stdout(out), \
+             patch.object(criteria_mod, "get_connection", return_value=_NoCloseConn(conn)):
+            rc = criteria_mod.cmd_delete(self._make_args(1), ":memory:", {})
+
+        assert rc == 0
+        obj = json.loads(out.getvalue())
+        assert obj["deleted"] is True
+        assert obj["was_completed"] is False
+        row = conn.execute("SELECT id FROM acceptance_criteria WHERE id = 1").fetchone()
+        assert row is None
+
+    def test_refuses_completed_criterion_without_force(self):
+        conn = make_db(criteria_specs=[
+            {"criterion_type": "manual", "verification_spec": None, "is_completed": 1},
+        ])
+        err = io.StringIO()
+        with redirect_stderr(err), \
+             patch.object(criteria_mod, "get_connection", return_value=_NoCloseConn(conn)):
+            rc = criteria_mod.cmd_delete(self._make_args(1), ":memory:", {})
+
+        assert rc == 1
+        assert "pass --force" in err.getvalue()
+        row = conn.execute("SELECT id FROM acceptance_criteria WHERE id = 1").fetchone()
+        assert row is not None
+
+    def test_force_deletes_completed_criterion(self):
+        conn = make_db(criteria_specs=[
+            {"criterion_type": "manual", "verification_spec": None, "is_completed": 1},
+        ])
+        out = io.StringIO()
+        with redirect_stdout(out), \
+             patch.object(criteria_mod, "get_connection", return_value=_NoCloseConn(conn)):
+            rc = criteria_mod.cmd_delete(self._make_args(1, force=True), ":memory:", {})
+
+        assert rc == 0
+        obj = json.loads(out.getvalue())
+        assert obj["deleted"] is True
+        assert obj["was_completed"] is True
+        row = conn.execute("SELECT id FROM acceptance_criteria WHERE id = 1").fetchone()
+        assert row is None
+
+    def test_missing_criterion_returns_2(self):
+        conn = make_db()
+        err = io.StringIO()
+        with redirect_stderr(err), \
+             patch.object(criteria_mod, "get_connection", return_value=_NoCloseConn(conn)):
+            rc = criteria_mod.cmd_delete(self._make_args(999), ":memory:", {})
+
+        assert rc == 2
+        assert "not found" in err.getvalue()
 
 
 # ── Skip-note tests ──────────────────────────────────────────────────

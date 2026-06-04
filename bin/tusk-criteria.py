@@ -987,6 +987,43 @@ def cmd_reset(args: argparse.Namespace, db_path: str, config: dict) -> int:
         conn.close()
 
 
+def cmd_delete(args: argparse.Namespace, db_path: str, config: dict) -> int:
+    conn = get_connection(db_path)
+    try:
+        row = conn.execute(
+            "SELECT id, task_id, criterion, is_completed "
+            "FROM acceptance_criteria WHERE id = ?",
+            (args.criterion_id,),
+        ).fetchone()
+        if not row:
+            print(f"Error: Criterion {args.criterion_id} not found", file=sys.stderr)
+            return 2
+
+        if row["is_completed"] and not args.force:
+            print(
+                f"Error: Criterion {args.criterion_id} is completed; "
+                "pass --force to delete completed criteria.",
+                file=sys.stderr,
+            )
+            return 1
+
+        conn.execute(
+            "DELETE FROM acceptance_criteria WHERE id = ?",
+            (args.criterion_id,),
+        )
+        conn.commit()
+        print(dumps({
+            "id": args.criterion_id,
+            "task_id": row["task_id"],
+            "deleted": True,
+            "was_completed": bool(row["is_completed"]),
+            "criterion": row["criterion"],
+        }))
+        return 0
+    finally:
+        conn.close()
+
+
 def cmd_finish_deferred(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn = get_connection(db_path)
     try:
@@ -1019,7 +1056,7 @@ def cmd_finish_deferred(args: argparse.Namespace, db_path: str, config: dict) ->
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: tusk criteria {add|list|update|done|skip|reset|finish-deferred} ...", file=sys.stderr)
+        print("Usage: tusk criteria {add|list|update|done|skip|reset|delete|finish-deferred} ...", file=sys.stderr)
         sys.exit(1)
 
     db_path = sys.argv[1]
@@ -1109,6 +1146,14 @@ def main():
     reset_p = subparsers.add_parser("reset", help="Reset a criterion to incomplete (clears deferred flag too)")
     reset_p.add_argument("criterion_id", type=int, help="Criterion ID")
 
+    # delete
+    delete_p = subparsers.add_parser("delete", help="Delete a stale criterion")
+    delete_p.add_argument("criterion_id", type=int, help="Criterion ID")
+    delete_p.add_argument(
+        "--force", action="store_true",
+        help="Allow deleting a completed criterion",
+    )
+
     # finish-deferred
     fd_p = subparsers.add_parser(
         "finish-deferred",
@@ -1131,6 +1176,7 @@ def main():
             "add": cmd_add, "list": cmd_list, "done": cmd_done,
             "update": cmd_update,
             "skip": cmd_skip, "reset": cmd_reset,
+            "delete": cmd_delete,
             "finish-deferred": cmd_finish_deferred,
         }
         sys.exit(handlers[args.command](args, db_path, config))
