@@ -173,6 +173,73 @@ class TestValidateComments:
         assert payload["in_diff"] == 1
         assert payload["validated"] == 1
 
+    def test_dismisses_line_symbol_mismatch(self, tmp_path, monkeypatch):
+        """Issue #1012: cited line must match the symbol named in the comment."""
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        task_id = _insert_in_progress_task(db_path)
+
+        _git(["checkout", "-b", f"feature/TASK-{task_id}-schema"], cwd=repo)
+        schema = "\n".join([
+            "model ProductionCompany {",
+            "  visible Boolean @default(true)",
+            "}",
+            "",
+            "// clubs.visible is nullable in the clubs model below",
+            "model clubs {",
+            "  visible Boolean? @default(true)",
+            "}",
+            "",
+        ])
+        (repo / "schema.prisma").write_text(schema, encoding="utf-8")
+        _git(["add", "schema.prisma"], cwd=repo, env=env)
+        _git(["commit", "-m", f"[TASK-{task_id}] add schema"], cwd=repo, env=env)
+
+        begin = _run(["review", "begin", str(task_id)], cwd=repo, env=env)
+        assert begin.returncode == 0, begin.stderr
+        review_id = json.loads(begin.stdout)["review_id"]
+
+        r = _run(
+            [
+                "review", "add-comment", str(review_id),
+                "clubs.visible (schema.prisma line 2) is non-nullable Boolean",
+                "--file", "schema.prisma",
+                "--line-start", "2",
+                "--category", "suggest",
+                "--severity", "minor",
+            ],
+            cwd=repo,
+            env=env,
+        )
+        assert r.returncode == 0, r.stderr
+
+        result = _run(["review", "validate-comments", str(review_id)], cwd=repo, env=env)
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+
+        assert payload["dismissed"] == []
+        assert payload["dismissed_general"] == []
+        assert len(payload["dismissed_symbol_mismatch"]) == 1
+        mismatch = payload["dismissed_symbol_mismatch"][0]
+        assert mismatch["file_path"] == "schema.prisma"
+        assert mismatch["line_start"] == 2
+        assert mismatch["symbol"] == "clubs.visible"
+        assert payload["in_diff"] == 0
+
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT resolution, resolution_note FROM review_comments"
+                " WHERE review_id = ?",
+                (review_id,),
+            ).fetchone()
+
+        assert row["resolution"] == "dismissed"
+        note = row["resolution_note"] or ""
+        assert "line-symbol-mismatch" in note
+        assert "clubs.visible" in note
+        assert "line 2" in note
+        assert "ProductionCompany" not in note
+
     def test_unknown_review_id_exits_two(self, tmp_path, monkeypatch):
         repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
         result = _run(["review", "validate-comments", "99999"], cwd=repo, env=env)

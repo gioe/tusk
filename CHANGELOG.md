@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1099] - 2026-06-04
+
+- [TASK-592] Validate review comment line references against named symbols
+
 ## [1098] - 2026-06-04
 
 - [TASK-591] Fix scope auto-derivation for bracketed and enumerated path references

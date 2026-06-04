@@ -465,6 +465,7 @@ _PATH_TOKEN_RE = re.compile(
     rf"(?<![\w/.])([\w./\-]+\.(?:{_PATH_TOKEN_EXTENSIONS}))(?![\w/])",
     re.IGNORECASE,
 )
+_SYMBOL_TOKEN_RE = re.compile(r"\b([A-Za-z_][\w]*\.[A-Za-z_][\w]*)\b")
 
 
 def _extract_paths(text: str | None) -> list[str]:
@@ -484,6 +485,58 @@ def _extract_paths(text: str | None) -> list[str]:
             seen.add(token)
             found.append(token)
     return found
+
+
+def _extract_symbol_tokens(text: str | None) -> list[str]:
+    """Extract dotted code-symbol references from review prose."""
+    if not text:
+        return []
+    found: list[str] = []
+    seen: set[str] = set()
+    for m in _SYMBOL_TOKEN_RE.finditer(text):
+        token = m.group(1).rstrip(".,;:!?)\"'")
+        if token and token not in seen:
+            seen.add(token)
+            found.append(token)
+    return found
+
+
+def _read_repo_file_lines(repo_root: str, path: str) -> list[str]:
+    try:
+        with open(os.path.join(repo_root, path), "r", encoding="utf-8") as f:
+            return f.read().splitlines()
+    except OSError:
+        return []
+
+
+def _line_symbol_mismatch(
+    repo_root: str,
+    path: str,
+    line_start: int | None,
+    comment: str | None,
+) -> tuple[str, str] | None:
+    """Return (symbol, cited_line_text) when a comment cites the wrong line.
+
+    The guard is intentionally conservative: dismiss only when the exact
+    dotted symbol is absent from the cited line but present elsewhere in
+    the same file. If the symbol cannot be found literally elsewhere, the
+    validator leaves the finding open for the operator.
+    """
+    if not line_start:
+        return None
+    symbols = _extract_symbol_tokens(comment)
+    if not symbols:
+        return None
+    lines = _read_repo_file_lines(repo_root, path)
+    if not lines or line_start < 1 or line_start > len(lines):
+        return None
+    cited_line = lines[line_start - 1]
+    for symbol in symbols:
+        if symbol in cited_line:
+            continue
+        if any(symbol in line for i, line in enumerate(lines) if i != line_start - 1):
+            return symbol, cited_line.strip()
+    return None
 
 
 def _path_in_diff(token: str, diff_files: set[str]) -> bool:
@@ -546,6 +599,7 @@ def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
             "validated": int,                # pending comments inspected
             "dismissed": [{"comment_id", "file_path"}, ...],
             "dismissed_general": [{"comment_id", "cited_paths"}, ...],
+            "dismissed_symbol_mismatch": [{"comment_id", "file_path", "line_start", "symbol"}, ...],
             "out_of_diff_real": [{"comment_id", "cited_paths", "existing_paths"}, ...],
             "in_diff": int,                  # file_path values matched
             "general": int,                  # null-file_path comments preserved
@@ -567,7 +621,7 @@ def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
         stored_range = review["diff_range"]
 
         pending = conn.execute(
-            "SELECT id, file_path, comment, category FROM review_comments"
+            "SELECT id, file_path, line_start, comment, category FROM review_comments"
             " WHERE review_id = ? AND resolution IS NULL",
             (args.review_id,),
         ).fetchall()
@@ -630,6 +684,7 @@ def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
 
     dismissed = []
     dismissed_general = []
+    dismissed_symbol_mismatch = []
     out_of_diff_real = []
     in_diff = 0
     general = 0
@@ -684,6 +739,38 @@ def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
             })
             continue
         if fp in diff_files:
+            mismatch = _line_symbol_mismatch(
+                diff_cwd,
+                fp,
+                c["line_start"],
+                c["comment"],
+            )
+            if mismatch:
+                symbol, cited_line = mismatch
+                note = (
+                    f"validation: cited line {c['line_start']} in '{fp}' "
+                    f"does not contain referenced symbol '{symbol}' "
+                    f"(line text: {cited_line!r}); symbol appears elsewhere "
+                    f"in the same file (issue #1012 line-symbol-mismatch guard)"
+                )
+                conn = get_connection(db_path)
+                try:
+                    conn.execute(
+                        "UPDATE review_comments SET resolution = 'dismissed',"
+                        " resolution_note = ?, updated_at = datetime('now')"
+                        " WHERE id = ?",
+                        (note, c["id"]),
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+                dismissed_symbol_mismatch.append({
+                    "comment_id": c["id"],
+                    "file_path": fp,
+                    "line_start": c["line_start"],
+                    "symbol": symbol,
+                })
+                continue
             in_diff += 1
             continue
         # Path is non-null and not in the diff — fabrication. Dismiss.
@@ -710,6 +797,7 @@ def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
         "validated": len(pending),
         "dismissed": dismissed,
         "dismissed_general": dismissed_general,
+        "dismissed_symbol_mismatch": dismissed_symbol_mismatch,
         "out_of_diff_real": out_of_diff_real,
         "in_diff": in_diff,
         "general": general,
