@@ -187,6 +187,28 @@ class TestBlocksDepGuard:
         assert f"TASK-{upstream}" in stderr
         assert "--force-contingent" in stderr
 
+    def test_force_does_not_bypass_contingent_guard(self, db_path, config_path):
+        """The zero-criteria --force flag does not bypass contingent deps."""
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            upstream = _insert_task(conn, "contingent upstream")
+            _insert_criterion(conn, upstream, "c1")
+            downstream = _insert_task(conn, "contingent downstream")
+            _insert_criterion(conn, downstream, "c1")
+            _add_dep(conn, downstream, upstream, "contingent")
+        finally:
+            conn.close()
+
+        rc, result, stderr = _call_start(
+            db_path, config_path, str(downstream), "--force"
+        )
+
+        assert rc == 2
+        assert result is None
+        assert "open 'contingent' dependencies" in stderr
+        assert "--force-contingent" in stderr
+
     def test_force_contingent_bypasses_with_warning(self, db_path, config_path):
         """--force-contingent lets the start proceed but names the upstream."""
         conn = sqlite3.connect(str(db_path))
