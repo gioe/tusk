@@ -42,10 +42,75 @@ TUSK_BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
+_task_insert = tusk_loader.load("tusk-task-insert")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 load_config = _db_lib.load_config
 validate_enum = _db_lib.validate_enum
+
+
+def _rederive_auto_scope(
+    conn: sqlite3.Connection,
+    task_id: int,
+    config_path: str,
+) -> None:
+    if conn.execute(
+        "SELECT 1 FROM task_scope WHERE task_id = ? AND source = 'unbounded' LIMIT 1",
+        (task_id,),
+    ).fetchone():
+        conn.execute(
+            "DELETE FROM task_scope WHERE task_id = ? AND source = 'auto_derived'",
+            (task_id,),
+        )
+        return
+
+    task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if not task:
+        return
+
+    explicit_rows = conn.execute(
+        "SELECT pattern FROM task_scope WHERE task_id = ? AND source <> 'auto_derived'",
+        (task_id,),
+    ).fetchall()
+    explicit_patterns = {row["pattern"] for row in explicit_rows}
+
+    text_blocks = [task["summary"] or "", task["description"] or ""]
+    criteria = conn.execute(
+        "SELECT criterion, verification_spec FROM acceptance_criteria WHERE task_id = ?",
+        (task_id,),
+    ).fetchall()
+    for criterion in criteria:
+        text_blocks.append(criterion["criterion"] or "")
+        text_blocks.append(criterion["verification_spec"] or "")
+
+    repo_root = _task_insert._repo_root(config_path)
+    task_type = task["task_type"] if "task_type" in task.keys() else None
+    seen_auto: set[str] = set()
+    derived: list[str] = []
+    for text in text_blocks:
+        for path in _task_insert._auto_scope_candidates(
+            text,
+            repo_root=repo_root,
+            task_type=task_type,
+        ):
+            if _task_insert.is_prose_identifier_path(path, repo_root):
+                continue
+            resolved = _task_insert._resolve_auto_derived_scope_pattern(repo_root, path)
+            if resolved in explicit_patterns or resolved in seen_auto:
+                continue
+            seen_auto.add(resolved)
+            derived.append(resolved)
+
+    conn.execute(
+        "DELETE FROM task_scope WHERE task_id = ? AND source = 'auto_derived'",
+        (task_id,),
+    )
+    for pattern in derived:
+        conn.execute(
+            "INSERT INTO task_scope (task_id, pattern, source) "
+            "VALUES (?, ?, 'auto_derived')",
+            (task_id, pattern),
+        )
 
 
 def main(argv: list[str]) -> int:
@@ -145,6 +210,8 @@ def main(argv: list[str]) -> int:
 
         try:
             conn.execute(sql, params)
+            if "summary" in updates or "description" in updates:
+                _rederive_auto_scope(conn, task_id, config_path)
             conn.commit()
         except sqlite3.Error as e:
             conn.rollback()

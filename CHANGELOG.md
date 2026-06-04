@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1104] - 2026-06-04
+
+- [TASK-599] Re-derive task scope on summary or description updates
+
 ## [1103] - 2026-06-04
 
 - [TASK-598] Add tusk criteria delete for stale criteria

@@ -126,6 +126,18 @@ def _make_db_with_workflow(tmp_path):
             started_at TEXT, ended_at TEXT
         )
     """)
+    conn.execute("""
+        CREATE TABLE task_scope (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL,
+            pattern TEXT NOT NULL,
+            source TEXT NOT NULL CHECK (source IN ('auto_derived', 'operator_declared', 'expanded_mid_task', 'creates', 'unbounded')),
+            reason TEXT,
+            locked_at TEXT,
+            locked_by TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
     conn.commit()
     conn.close()
     return db_path
@@ -604,6 +616,115 @@ class TestTaskUpdateWorkflow:
         row = conn.execute("SELECT workflow FROM tasks WHERE id = 1").fetchone()
         assert row["workflow"] == "anything"
         conn.close()
+
+    def test_summary_or_description_update_rederives_auto_scope(self, tmp_path):
+        db_path = _make_db_with_workflow(tmp_path)
+        config_path = _write_config(str(tmp_path / "config.json"), workflows=[])
+        self._insert_task(db_path)
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT INTO task_scope (task_id, pattern, source) "
+            "VALUES (1, 'foo/old.py', 'auto_derived')"
+        )
+        conn.execute(
+            "INSERT INTO task_scope (task_id, pattern, source, reason) "
+            "VALUES (1, 'manual/keep.py', 'operator_declared', 'explicit')"
+        )
+        conn.commit()
+        conn.close()
+
+        with redirect_stdout(StringIO()), redirect_stderr(StringIO()), \
+             patch("subprocess.run"):
+            result = update_mod.main([
+                db_path,
+                config_path,
+                "1",
+                "--description",
+                "Update src/new_scope.py and tests/test_new_scope.py",
+            ])
+
+        assert result == 0
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT pattern, source FROM task_scope WHERE task_id = 1 ORDER BY id"
+        ).fetchall()
+        conn.close()
+        assert [(r["pattern"], r["source"]) for r in rows] == [
+            ("manual/keep.py", "operator_declared"),
+            ("src/new_scope.py", "auto_derived"),
+            ("tests/test_new_scope.py", "auto_derived"),
+        ]
+
+    def test_non_text_update_does_not_rederive_auto_scope(self, tmp_path):
+        db_path = _make_db_with_workflow(tmp_path)
+        config_path = _write_config(str(tmp_path / "config.json"), workflows=[])
+        self._insert_task(db_path)
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT INTO task_scope (task_id, pattern, source) "
+            "VALUES (1, 'foo/old.py', 'auto_derived')"
+        )
+        conn.commit()
+        conn.close()
+
+        with redirect_stdout(StringIO()), redirect_stderr(StringIO()), \
+             patch("subprocess.run"):
+            result = update_mod.main([
+                db_path,
+                config_path,
+                "1",
+                "--priority",
+                "High",
+            ])
+
+        assert result == 0
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT pattern, source FROM task_scope WHERE task_id = 1 ORDER BY id"
+        ).fetchall()
+        conn.close()
+        assert [(r["pattern"], r["source"]) for r in rows] == [
+            ("foo/old.py", "auto_derived"),
+        ]
+
+    def test_unbounded_scope_preserved_and_auto_scope_cleared(self, tmp_path):
+        db_path = _make_db_with_workflow(tmp_path)
+        config_path = _write_config(str(tmp_path / "config.json"), workflows=[])
+        self._insert_task(db_path)
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT INTO task_scope (task_id, pattern, source) "
+            "VALUES (1, 'foo/old.py', 'auto_derived')"
+        )
+        conn.execute(
+            "INSERT INTO task_scope (task_id, pattern, source) "
+            "VALUES (1, '**', 'unbounded')"
+        )
+        conn.commit()
+        conn.close()
+
+        with redirect_stdout(StringIO()), redirect_stderr(StringIO()), \
+             patch("subprocess.run"):
+            result = update_mod.main([
+                db_path,
+                config_path,
+                "1",
+                "--description",
+                "Update src/new_scope.py",
+            ])
+
+        assert result == 0
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT pattern, source FROM task_scope WHERE task_id = 1 ORDER BY id"
+        ).fetchall()
+        conn.close()
+        assert [(r["pattern"], r["source"]) for r in rows] == [
+            ("**", "unbounded"),
+        ]
 
 
 # ── Schema sync guard ─────────────────────────────────────────────────────────
