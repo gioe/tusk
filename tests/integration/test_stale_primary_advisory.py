@@ -162,10 +162,9 @@ def _insert_task(db_path, description="Update README.md"):
         return cur.lastrowid
 
 
-def test_stale_primary_triggers_advisory(tmp_path, monkeypatch):
+def test_stale_primary_refuses_before_creating_worktree(tmp_path, monkeypatch):
     """When primary is 1 commit behind origin/main, task-worktree create
-    must emit a stderr advisory naming the count and the recovery
-    command. This is the issue #913 acceptance test.
+    must refuse before creating the task branch or workspace.
     """
     primary = _seed_repo_with_origin(tmp_path, advance_origin=True)
     db_path, env = _init_tusk(primary, monkeypatch)
@@ -181,12 +180,53 @@ def test_stale_primary_triggers_advisory(tmp_path, monkeypatch):
         cwd=primary,
         env=env,
     )
-    assert result.returncode == 0, result.stderr
-    # Issue #913's literal grep:  echo "$WT_OUT" | grep -qi "behind origin"
-    assert "behind origin" in result.stderr.lower(), (
-        f"stderr should contain 'behind origin' advisory; got: {result.stderr}"
+    assert result.returncode == 2, result.stderr
+    assert "behind origin/main" in result.stderr.lower(), (
+        f"stderr should contain behind-origin refusal; got: {result.stderr}"
     )
-    # And the recovery command must be named.
+    assert "tusk sync-main" in result.stderr, (
+        f"stderr should name the recovery command; got: {result.stderr}"
+    )
+    assert "--force-stale" in result.stderr, (
+        f"stderr should name the explicit bypass; got: {result.stderr}"
+    )
+    branch = f"feature/TASK-{task_id}-stale-primary-test"
+    branch_result = subprocess.run(
+        ["git", "show-ref", "--verify", f"refs/heads/{branch}"],
+        cwd=primary,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert branch_result.returncode != 0, (
+        f"stale-primary refusal must not create branch {branch}"
+    )
+    assert not (workspace_root / "primary" / f"TASK-{task_id}-stale-primary-test").exists()
+
+
+def test_force_stale_primary_keeps_advisory_and_creates_worktree(tmp_path, monkeypatch):
+    """The explicit --force-stale bypass keeps the old advisory behavior for
+    operators who intentionally need to create a worktree from stale primary.
+    """
+    primary = _seed_repo_with_origin(tmp_path, advance_origin=True)
+    db_path, env = _init_tusk(primary, monkeypatch)
+    task_id = _insert_task(db_path)
+
+    workspace_root = tmp_path / "workspaces"
+    result = _run(
+        [
+            "task-worktree", "create",
+            str(task_id), "force-stale-test",
+            "--workspace-root", str(workspace_root),
+            "--force-stale",
+        ],
+        cwd=primary,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "behind origin" in result.stderr.lower(), (
+        f"force path should retain the stale-primary advisory; got: {result.stderr}"
+    )
     assert "tusk sync-main" in result.stderr, (
         f"stderr should name the recovery command; got: {result.stderr}"
     )
@@ -254,8 +294,9 @@ def test_ahead_primary_warns_before_task_work_begins(tmp_path, monkeypatch):
 
 
 def test_env_var_suppresses_advisory(tmp_path, monkeypatch):
-    """TUSK_NO_STALE_PRIMARY_ADVISORY=1 silences the advisory even when
-    primary is genuinely behind origin."""
+    """TUSK_NO_STALE_PRIMARY_ADVISORY=1 silences only the post-create
+    advisory on explicitly forced stale worktree creation.
+    """
     primary = _seed_repo_with_origin(tmp_path, advance_origin=True)
     db_path, env = _init_tusk(primary, monkeypatch)
     env["TUSK_NO_STALE_PRIMARY_ADVISORY"] = "1"
@@ -267,6 +308,7 @@ def test_env_var_suppresses_advisory(tmp_path, monkeypatch):
             "task-worktree", "create",
             str(task_id), "envoff-test",
             "--workspace-root", str(workspace_root),
+            "--force-stale",
         ],
         cwd=primary,
         env=env,
@@ -335,7 +377,7 @@ def test_diverged_primary_reports_ahead_behind_and_recommends_pull_rebase(
         cwd=primary,
         env=env,
     )
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 2, result.stderr
     stderr = result.stderr
     # Labeled as a divergence, not a plain "behind".
     assert "diverged" in stderr.lower(), (
@@ -347,6 +389,17 @@ def test_diverged_primary_reports_ahead_behind_and_recommends_pull_rebase(
     # Recommends the rebase pull, which is what actually reconciles divergence.
     assert "git pull --rebase origin main" in stderr, (
         f"diverged advisory must recommend git pull --rebase; got: {stderr}"
+    )
+    branch = f"feature/TASK-{task_id}-diverged-test"
+    branch_result = subprocess.run(
+        ["git", "show-ref", "--verify", f"refs/heads/{branch}"],
+        cwd=primary,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert branch_result.returncode != 0, (
+        f"diverged-primary refusal must not create branch {branch}"
     )
 
 
@@ -371,7 +424,7 @@ def test_diverged_primary_does_not_recommend_sync_main_as_the_fix(
         cwd=primary,
         env=env,
     )
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 2, result.stderr
     stderr = result.stderr
     # The pure-behind path's literal recommendation must not appear here.
     assert 'Run "tusk sync-main" in' not in stderr, (

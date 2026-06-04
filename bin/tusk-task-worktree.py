@@ -523,6 +523,65 @@ def _primary_repo_root(repo_root: str) -> str:
     return primary if os.path.isdir(primary) else repo_root
 
 
+def _primary_origin_state(primary_root: str) -> tuple[str, int, int] | None:
+    """Return ``(default_branch, ahead, behind)`` for primary vs origin.
+
+    Best-effort: any git failure (no remote, no network, detached HEAD,
+    unreachable refs, missing ``origin``) returns ``None`` so callers can stay
+    silent rather than blocking worktree creation on an unprovable state.
+    """
+    if not primary_root or not os.path.isdir(primary_root):
+        return None
+
+    head_result = _run_git(
+        primary_root,
+        ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+    )
+    if head_result.returncode != 0:
+        return None
+    default_ref = head_result.stdout.strip()
+    if not default_ref or "/" not in default_ref:
+        return None
+    default_branch = default_ref.split("/", 1)[1]
+
+    # Best-effort fetch; silently swallow failures (offline, auth, etc.).
+    _run_git(primary_root, ["fetch", "origin", default_branch])
+
+    behind = _rev_count(primary_root, f"HEAD..origin/{default_branch}")
+    ahead = _rev_count(primary_root, f"origin/{default_branch}..HEAD")
+    if behind is None or ahead is None:
+        return None
+    return default_branch, ahead, behind
+
+
+def _stale_primary_refusal(primary_root: str) -> str | None:
+    """Return a pre-create refusal message when primary is behind origin."""
+    state = _primary_origin_state(primary_root)
+    if state is None:
+        return None
+    default_branch, ahead, behind = state
+    if behind <= 0:
+        return None
+
+    if ahead > 0:
+        return (
+            f"primary checkout has diverged from origin/{default_branch} "
+            f"({ahead} commit(s) ahead, {behind} behind); task-worktree create "
+            "refuses to create a workspace from stale primary state. "
+            f'"tusk sync-main" cannot recover a diverged branch because its '
+            f"git merge --ff-only step refuses the non-fast-forward. Run "
+            f'"git pull --rebase origin {default_branch}" in {primary_root} to '
+            'reconcile, then retry. Pass --force-stale to bypass intentionally.'
+        )
+
+    return (
+        f"primary checkout is {behind} commit(s) behind origin/{default_branch}; "
+        "task-worktree create refuses before creating the task branch or "
+        f'workspace. Run "tusk sync-main" in {primary_root} first, or pass '
+        "--force-stale to bypass intentionally."
+    )
+
+
 def _maybe_advise_stale_primary(primary_root: str) -> None:
     """Emit a one-line stderr advisory when primary diverges from origin.
 
@@ -546,38 +605,16 @@ def _maybe_advise_stale_primary(primary_root: str) -> None:
     """
     if os.environ.get("TUSK_NO_STALE_PRIMARY_ADVISORY"):
         return
-    if not primary_root or not os.path.isdir(primary_root):
+    state = _primary_origin_state(primary_root)
+    if state is None:
         return
-
-    # Resolve the default branch name as origin's symbolic-ref. Falls back
-    # to "main" when symbolic-ref isn't set (a freshly-cloned repo whose
-    # origin doesn't expose HEAD, or an offline checkout). Skip the
-    # advisory rather than guess when nothing resolves — false advisories
-    # are worse than missing ones for a best-effort hint.
-    head_result = _run_git(
-        primary_root,
-        ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
-    )
-    if head_result.returncode != 0:
-        return
-    default_ref = head_result.stdout.strip()
-    if not default_ref or "/" not in default_ref:
-        return
-    default_branch = default_ref.split("/", 1)[1]
-
-    # Best-effort fetch; silently swallow failures (offline, auth, etc.).
-    _run_git(primary_root, ["fetch", "origin", default_branch])
+    default_branch, ahead, behind = state
 
     # Compute behind AND ahead so a divergence (local commits unpushed AND
     # origin advanced) is reported as such instead of being mislabeled as a
     # simple "behind" — the issue #949 fix. Ahead-only primary commits are not
     # stale binaries, but they can still strand the later no-checkout merge
     # because the feature branch starts from origin/<default> (issue #972).
-    behind = _rev_count(primary_root, f"HEAD..origin/{default_branch}")
-    ahead = _rev_count(primary_root, f"origin/{default_branch}..HEAD")
-    if behind is None or ahead is None:
-        return
-
     if ahead and ahead > 0:
         if behind <= 0:
             print(
@@ -966,6 +1003,15 @@ def cmd_create(
             "TUSK_NO_SPARSE_WORKTREE=1)."
         ),
     )
+    parser.add_argument(
+        "--force-stale",
+        action="store_true",
+        help=(
+            "Create the worktree even when the primary checkout is behind or "
+            "diverged from origin/<default>. Intended only for deliberate "
+            "stale-primary recovery/debugging."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if args.config is not None:
@@ -1098,6 +1144,13 @@ def cmd_create(
                 file=sys.stderr,
             )
             return 2
+
+        primary_root = _primary_repo_root(repo_root)
+        if not args.force_stale:
+            refusal = _stale_primary_refusal(primary_root)
+            if refusal is not None:
+                print(f"Error: {refusal}", file=sys.stderr)
+                return 2
 
         base_ok, base_branch, base_err = _resolve_worktree_base(repo_root)
         if not base_ok:
@@ -1260,7 +1313,6 @@ def cmd_create(
             symlink_names = list(CANONICAL_RUNTIME_FILES)
             is_fallback = True
         if symlink_names:
-            primary_root = _primary_repo_root(repo_root)
             created = _link_gitignored_files(
                 primary_root, workspace_path, symlink_names
             )
@@ -1279,7 +1331,7 @@ def cmd_create(
         # recorded so a slow or hung fetch never blocks task-worktree
         # create from returning the workspace JSON. Best-effort; silently
         # no-ops on any git error or when TUSK_NO_STALE_PRIMARY_ADVISORY=1.
-        _maybe_advise_stale_primary(_primary_repo_root(repo_root))
+        _maybe_advise_stale_primary(primary_root)
         print(dumps(_workspace_payload(row, created=True)))
         return 0
     except sqlite3.IntegrityError as exc:
@@ -1981,7 +2033,8 @@ def main(argv: list[str]) -> int:
         return cmd_relocate(db_path, config_path, repo_root, rest)
 
     print(
-        "Usage: tusk task-worktree create <task_id> <slug> [--workspace-root <path>]\n"
+        "Usage: tusk task-worktree create <task_id> <slug> "
+        "[--workspace-root <path>] [--force-stale]\n"
         "       tusk task-worktree list [--format json]\n"
         "       tusk task-worktree prune [--dry-run] [--format json]\n"
         "       tusk task-worktree reconcile [--dry-run] [--yes] [--format text|json]\n"

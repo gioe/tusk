@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1101] - 2026-06-04
+
+- [TASK-595] Fix: Sync or refuse stale primary before task-worktree create
+
 ## [1100] - 2026-06-04
 
 - [TASK-593] Improve create-task pytest selectors for class-contained tests
