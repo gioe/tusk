@@ -58,10 +58,12 @@ tusk task-start --force --skill tusk
 ```
 
 The `--force` flag ensures the workflow proceeds even if the task has
-no acceptance criteria (emits a warning rather than hard-failing). The
-`--skill tusk` flag opens a `skill_runs` row attributed to this task;
-`run_id` is returned under `skill_run.run_id` in the JSON — capture it
-for the cancel/finish calls later.
+no acceptance criteria (emits a warning rather than hard-failing). It
+does not bypass dependency guards: use `--force-deps` for unmet
+`blocks` dependencies and `--force-contingent` for open `contingent`
+dependencies. The `--skill tusk` flag opens a `skill_runs` row
+attributed to this task; `run_id` is returned under `skill_run.run_id`
+in the JSON — capture it for the cancel/finish calls later.
 
 **Empty backlog:** If the command exits with code 1, the backlog has no
 ready tasks. Check why:
@@ -110,6 +112,11 @@ JSON blob and the `skill_run.run_id` you already captured.
    ```bash
    tusk task-start <id> --force --skill tusk
    ```
+   The `--force` flag bypasses the zero-criteria guard only. It does
+   not bypass dependency guards: pass `--force-deps` for unmet
+   `blocks` dependencies or `--force-contingent` for open
+   `contingent` dependencies when intentionally picking up the task
+   anyway.
    This returns a JSON blob with these keys:
    - `task` — full task row (summary, description, priority, domain,
      assignee, etc.)

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1097] - 2026-06-04
+
+- [TASK-590] Fix: warn or gate task-start on open contingent dependencies
+
 ## [1096] - 2026-06-04
 
 - [TASK-589] Fix: make scope add materialize sparse-checkout paths

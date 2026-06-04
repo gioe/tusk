@@ -5,7 +5,9 @@ guarded against zero criteria and unresolved external blockers, which meant
 `--force` (documented as bypassing only the zero-criteria guard) silently
 appeared to bypass dep blocking too. The fix adds a `blocks`-type dep guard
 mirroring `v_ready_tasks` semantics, with a new `--force-deps` flag for the
-explicit bypass case. Contingent deps remain non-blocking per docs/GLOSSARY.md.
+explicit bypass case. Open contingent deps also require an explicit
+`--force-contingent` bypass so task-start does not hand up premature work
+silently.
 """
 
 import importlib.util
@@ -164,13 +166,8 @@ class TestBlocksDepGuard:
         assert result["task"]["id"] == blocked
         assert result["task"]["status"] == "In Progress"
 
-    def test_contingent_dep_does_not_block(self, db_path, config_path):
-        """Contingent deps are documented (docs/GLOSSARY.md) to NOT block start.
-
-        Locks the chosen scope: this fix only enforces `blocks`-type predicate
-        (matching v_ready_tasks). Changing contingent semantics is a separate
-        design question.
-        """
+    def test_open_contingent_dep_refuses_start(self, db_path, config_path):
+        """Open contingent deps require an explicit bypass before pickup."""
         conn = sqlite3.connect(str(db_path))
         conn.execute("PRAGMA foreign_keys = ON")
         try:
@@ -184,9 +181,55 @@ class TestBlocksDepGuard:
 
         rc, result, stderr = _call_start(db_path, config_path, str(downstream))
 
+        assert rc == 2
+        assert result is None
+        assert "open 'contingent' dependencies" in stderr
+        assert f"TASK-{upstream}" in stderr
+        assert "--force-contingent" in stderr
+
+    def test_force_contingent_bypasses_with_warning(self, db_path, config_path):
+        """--force-contingent lets the start proceed but names the upstream."""
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            upstream = _insert_task(conn, "contingent upstream")
+            _insert_criterion(conn, upstream, "c1")
+            downstream = _insert_task(conn, "contingent downstream")
+            _insert_criterion(conn, downstream, "c1")
+            _add_dep(conn, downstream, upstream, "contingent")
+        finally:
+            conn.close()
+
+        rc, result, stderr = _call_start(
+            db_path, config_path, str(downstream), "--force-contingent"
+        )
+
         assert rc == 0, stderr
         assert result is not None
         assert result["task"]["id"] == downstream
+        assert result["task"]["status"] == "In Progress"
+        assert "Proceeding anyway due to --force-contingent" in stderr
+        assert f"TASK-{upstream}" in stderr
+
+    def test_resolved_contingent_dep_does_not_block(self, db_path, config_path):
+        """Done contingent upstreams do not require a bypass."""
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            upstream = _insert_task(conn, "done contingent upstream", status="Done")
+            _insert_criterion(conn, upstream, "c1")
+            downstream = _insert_task(conn, "contingent downstream")
+            _insert_criterion(conn, downstream, "c1")
+            _add_dep(conn, downstream, upstream, "contingent")
+        finally:
+            conn.close()
+
+        rc, result, stderr = _call_start(db_path, config_path, str(downstream))
+
+        assert rc == 0, stderr
+        assert result is not None
+        assert result["task"]["id"] == downstream
+        assert result["task"]["status"] == "In Progress"
 
     def test_unblocked_task_starts_cleanly(self, db_path, config_path):
         """A task with no deps and met criteria starts without warnings."""
