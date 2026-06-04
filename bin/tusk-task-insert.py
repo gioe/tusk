@@ -62,6 +62,12 @@ _BRACED_PATH_RE = re.compile(
     r"\{(?P<names>[A-Za-z0-9_.-]+(?:,[A-Za-z0-9_.-]+)+)\}"
     r"(?P<ext>\.[A-Za-z0-9][\w.-]*)"
 )
+_DIRECTORY_LIST_RE = re.compile(
+    r"(?P<dir>(?:\.?[A-Za-z0-9][\w.-]*/)+)\s*:\s*(?P<tail>[^\n]{1,300})"
+)
+_ROUTE_SHORTFORM_RE = re.compile(
+    r"(?<![\w:/.-])/(?P<path>[A-Za-z0-9][\w./\[\]-]*\.[A-Za-z][\w]{1,9})"
+)
 _TEST_TARGET_TOKEN_RE = re.compile(r"\b([A-Z][A-Za-z0-9]*(?:UI)?Tests)\b")
 _TASK_COMMIT_SHA_RE = re.compile(
     r"(?:\[?TASK-[A-Za-z0-9_-]+\]?)\b.{0,120}?\bcommit\s+([0-9a-fA-F]{7,40})\b",
@@ -437,6 +443,49 @@ def _sibling_shortform_scope_paths(text: str, extracted_paths: list[str]) -> lis
     return unique
 
 
+def _directory_list_scope_paths(text: str) -> list[str]:
+    """Infer comma-separated bare filenames after an explicit directory."""
+    if not text:
+        return []
+
+    candidates: list[str] = []
+    for match in _DIRECTORY_LIST_RE.finditer(text):
+        base_dir = match.group("dir").rstrip("/")
+        tail = match.group("tail")
+        for item_match in re.finditer(_BARE_FILENAME_RE, tail):
+            item = item_match.group(0).strip().rstrip('.,;:\'"`)')
+            if not item:
+                continue
+            candidates.append(
+                posixpath.normpath(f"{base_dir}/{item}")
+            )
+
+    seen: set[str] = set()
+    unique: list[str] = []
+    for path in candidates:
+        if path not in seen:
+            seen.add(path)
+            unique.append(path)
+    return unique
+
+
+def _route_shortform_scope_paths(repo_root: str | None, text: str) -> list[str]:
+    """Resolve route-only path mentions by unique tracked suffix."""
+    if not text:
+        return []
+
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for match in _ROUTE_SHORTFORM_RE.finditer(text):
+        raw = match.group("path").strip()
+        if not raw or raw in seen:
+            continue
+        seen.add(raw)
+        resolved = _resolve_auto_derived_scope_pattern(repo_root, raw)
+        candidates.append(resolved)
+    return candidates
+
+
 def _auto_scope_candidates(
     text: str,
     *,
@@ -458,6 +507,8 @@ def _auto_scope_candidates(
     return [
         *explicit,
         *_sibling_shortform_scope_paths(text, explicit),
+        *_directory_list_scope_paths(text),
+        *_route_shortform_scope_paths(repo_root, text),
         *bare_paths,
         *target_paths,
         *_commit_referenced_scope_paths(repo_root, text),

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1098] - 2026-06-04
+
+- [TASK-591] Fix scope auto-derivation for bracketed and enumerated path references
+
 ## [1097] - 2026-06-04
 
 - [TASK-590] Fix: warn or gate task-start on open contingent dependencies

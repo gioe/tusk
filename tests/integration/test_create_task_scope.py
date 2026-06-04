@@ -364,6 +364,53 @@ def test_auto_extract_resolves_pytest_nodeid_to_file_path(db_path):
     assert not any("::" in p for p in auto), rows
 
 
+def test_auto_extract_keeps_bracketed_dynamic_route_path(db_path):
+    """Next.js dynamic route segments are valid path tokens."""
+    task_id = _insert(
+        str(db_path),
+        "dynamic route scope",
+        "Touch apps/web/app/admin/clubs/[id]/page.tsx during the fix.",
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+
+    assert "apps/web/app/admin/clubs/[id]/page.tsx" in auto, rows
+
+
+def test_auto_extract_resolves_route_only_unique_suffix(db_path, tmp_path):
+    """Route-only paths resolve when they uniquely name a tracked file suffix."""
+    repo = tmp_path / "next-app"
+    repo.mkdir()
+    _git(repo, ["init"])
+    _git(repo, ["config", "user.email", "test@example.com"])
+    _git(repo, ["config", "user.name", "Test User"])
+    paths = [
+        "apps/web/app/admin/page.tsx",
+        "apps/web/app/admin/overview/page.tsx",
+    ]
+    for path in paths:
+        full_path = repo / path
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        full_path.write_text(f"// {path}\n", encoding="utf-8")
+    _git(repo, ["add", *paths])
+    _git(repo, ["commit", "-m", "seed routes"])
+
+    task_id = _insert(
+        str(db_path),
+        "partial route scope",
+        "Touch /admin/page.tsx and /admin/overview/page.tsx during the fix.",
+        repo_root=repo,
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+
+    assert "apps/web/app/admin/page.tsx" in auto, rows
+    assert "apps/web/app/admin/overview/page.tsx" in auto, rows
+    assert "/admin/page.tsx" not in auto, rows
+
+
 def test_auto_extract_infers_sibling_filename_after_explicit_path(db_path):
     """A full path can establish directory context for a sibling filename."""
     task_id = _insert(
@@ -381,6 +428,43 @@ def test_auto_extract_infers_sibling_filename_after_explicit_path(db_path):
     assert "tests/integration/test_create_task_scope.py" in auto, rows
     assert "tests/integration/test_scope_cli.py" in auto, rows
     assert "test_scope_cli.py" not in auto, rows
+
+
+def test_auto_extract_infers_comma_separated_paths_after_directory(db_path, tmp_path):
+    """A nearby directory mention can scope a comma-separated filename list."""
+    repo = tmp_path / "workflow-repo"
+    repo.mkdir()
+    _git(repo, ["init"])
+    _git(repo, ["config", "user.email", "test@example.com"])
+    _git(repo, ["config", "user.name", "Test User"])
+    paths = [
+        ".github/workflows/scraper-schedule.yml",
+        ".github/workflows/scraper-verify.yml",
+        ".github/workflows/podcast-episode-sync.yml",
+    ]
+    for path in paths:
+        full_path = repo / path
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        full_path.write_text(f"# {path}\n", encoding="utf-8")
+    _git(repo, ["add", *paths])
+    _git(repo, ["commit", "-m", "seed workflows"])
+
+    task_id = _insert(
+        str(db_path),
+        "workflow list scope",
+        (
+            "The change is duplicated across .github/workflows/: "
+            "scraper-schedule.yml, scraper-verify.yml, podcast-episode-sync.yml."
+        ),
+        repo_root=repo,
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+
+    assert ".github/workflows/scraper-schedule.yml" in auto, rows
+    assert ".github/workflows/scraper-verify.yml" in auto, rows
+    assert ".github/workflows/podcast-episode-sync.yml" in auto, rows
 
 
 def test_auto_extract_resolves_unique_bare_filename_line_citation(db_path):
@@ -693,6 +777,48 @@ def test_scope_hint_includes_extensionless_bin_tusk_reproducer(db_path):
 
     assert "bin/tusk" in payload["scope"], payload
     assert "bin/tusk-review.py" in payload["scope"], payload
+
+
+def test_scope_hint_uses_auto_scope_path_heuristics(db_path, tmp_path):
+    """scope-hint mirrors task-insert auto-derived path extraction."""
+    repo = tmp_path / "scope-hint-repo"
+    repo.mkdir()
+    _git(repo, ["init"])
+    _git(repo, ["config", "user.email", "test@example.com"])
+    _git(repo, ["config", "user.name", "Test User"])
+    paths = [
+        "apps/web/app/admin/clubs/[id]/page.tsx",
+        "apps/web/app/admin/page.tsx",
+        ".github/workflows/scraper-schedule.yml",
+        ".github/workflows/scraper-verify.yml",
+    ]
+    for path in paths:
+        full_path = repo / path
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        full_path.write_text(f"# {path}\n", encoding="utf-8")
+    _git(repo, ["add", *paths])
+    _git(repo, ["commit", "-m", "seed scoped files"])
+
+    result = _run([
+        "scope-hint",
+        "--description",
+        (
+            "Touch apps/web/app/admin/clubs/[id]/page.tsx and /admin/page.tsx. "
+            "Duplicated across .github/workflows/: scraper-schedule.yml, "
+            "scraper-verify.yml."
+        ),
+        "--task-type",
+        "bug",
+        "--repo-root",
+        str(repo),
+    ])
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+
+    assert "apps/web/app/admin/clubs/[id]/page.tsx" in payload["scope"], payload
+    assert "apps/web/app/admin/page.tsx" in payload["scope"], payload
+    assert ".github/workflows/scraper-schedule.yml" in payload["scope"], payload
+    assert ".github/workflows/scraper-verify.yml" in payload["scope"], payload
 
 
 # ── scope-hint unbounded suggestion (criterion 2202) ────────────────────

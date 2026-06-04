@@ -388,7 +388,7 @@ _PATH_RE = re.compile(
     r'|\.[A-Za-z0-9][\w._-]*/'
     r'|(?!\w+://)\w[\w._-]*/'  # any directory prefix that is not a URL protocol
     r')'
-    r'[\w./_-]+'
+    r'[\w./_\-\[\]]+'
     r'|'
     r'(?:' + _BARE_TOPLEVEL_ALTERNATION + r')(?!\w)'
     r')'
