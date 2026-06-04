@@ -595,7 +595,9 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
     # Run verification for non-manual types (unless --skip-verify)
     verification_result = None
     if criterion_type != "manual" and spec and not skip_verify:
-        result = run_verification(criterion_type, spec)
+        result = _reuse_commit_gate_verification(criterion_type, spec, commit_hash)
+        if result is None:
+            result = run_verification(criterion_type, spec)
         verification_result = json.dumps(result)
 
         if not result["passed"]:
@@ -671,6 +673,64 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
         "skip_note": note,
     }))
     return 0
+
+
+def _shell_segments(command: str) -> list[str]:
+    return [
+        segment.strip()
+        for segment in re.split(r"\s*(?:&&|;)\s*", command or "")
+        if segment.strip()
+    ]
+
+
+def _verification_spec_covered_by_gate(spec: str, gate_command: str) -> bool:
+    """Return True when ``spec`` is covered by the just-passed gate command.
+
+    Exact substring matching covers simple cases. Segment matching covers the
+    common expanded-gate form where the criterion spec is ``cd dir && test`` and
+    the gate inserts setup between those two shell segments.
+    """
+    normalized_spec = " ".join((spec or "").split())
+    normalized_gate = " ".join((gate_command or "").split())
+    if not normalized_spec or not normalized_gate:
+        return False
+    if normalized_spec in normalized_gate:
+        return True
+
+    start = 0
+    for segment in _shell_segments(normalized_spec):
+        index = normalized_gate.find(segment, start)
+        if index == -1:
+            return False
+        start = index + len(segment)
+    return True
+
+
+def _reuse_commit_gate_verification(
+    criterion_type: str,
+    spec: Optional[str],
+    commit_hash: Optional[str],
+) -> Optional[dict]:
+    if criterion_type != "test" or not spec or not commit_hash:
+        return None
+
+    gate_command = os.environ.get("TUSK_COMMIT_GATE_COMMAND", "")
+    gate_sha = os.environ.get("TUSK_COMMIT_GATE_SHA", "")
+    if not gate_command or not gate_sha:
+        return None
+    if not (gate_sha.startswith(commit_hash) or commit_hash.startswith(gate_sha)):
+        return None
+    if not _verification_spec_covered_by_gate(spec, gate_command):
+        return None
+
+    return {
+        "passed": True,
+        "output": (
+            "reused passed tusk commit test_command gate for this commit: "
+            f"{gate_command}"
+        ),
+        "reused_commit_gate": True,
+    }
 
 
 def _head_task_id(cwd: Optional[str] = None) -> Optional[int]:

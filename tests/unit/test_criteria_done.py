@@ -179,6 +179,114 @@ class TestDoneSingle:
         assert row["is_completed"] == 1
         assert row["verification_result"] is None
 
+    def test_reuses_matching_commit_gate_verification(self, monkeypatch):
+        conn = make_db(criteria_specs=[
+            {
+                "criterion_type": "test",
+                "verification_spec": "cd apps/web && npm test",
+                "is_completed": 0,
+            },
+        ])
+        monkeypatch.setenv(
+            "TUSK_COMMIT_GATE_COMMAND",
+            "cd apps/web && { [ -e node_modules ] || ln -s ../../node_modules node_modules; } && npm test && npm run type-check",
+        )
+        monkeypatch.setenv("TUSK_COMMIT_GATE_SHA", "abc1234def56")
+        out = io.StringIO()
+        with redirect_stdout(out), \
+             patch.object(criteria_mod, "run_verification") as run_verification, \
+             patch.object(criteria_mod, "capture_criterion_cost"):
+            rc = criteria_mod._done_single(
+                conn,
+                1,
+                skip_verify=False,
+                suppress_shared_commit=True,
+                commit_hash="abc1234",
+                committed_at=None,
+                head_task_id=1,
+            )
+
+        assert rc == 0
+        run_verification.assert_not_called()
+        row = conn.execute(
+            "SELECT is_completed, verification_result FROM acceptance_criteria WHERE id = 1"
+        ).fetchone()
+        assert row["is_completed"] == 1
+        result = json.loads(row["verification_result"])
+        assert result["passed"] is True
+        assert result["reused_commit_gate"] is True
+        assert json.loads(out.getvalue())["verification"] == "passed"
+
+    def test_sha_mismatch_does_not_reuse_commit_gate(self, monkeypatch):
+        conn = make_db(criteria_specs=[
+            {
+                "criterion_type": "test",
+                "verification_spec": "cd apps/web && npm test",
+                "is_completed": 0,
+            },
+        ])
+        monkeypatch.setenv(
+            "TUSK_COMMIT_GATE_COMMAND",
+            "cd apps/web && npm test && npm run type-check",
+        )
+        monkeypatch.setenv("TUSK_COMMIT_GATE_SHA", "abc1234")
+        out = io.StringIO()
+        with redirect_stdout(out), \
+             patch.object(
+                 criteria_mod,
+                 "run_verification",
+                 return_value={"passed": True, "output": "ran spec"},
+             ) as run_verification, \
+             patch.object(criteria_mod, "capture_criterion_cost"):
+            rc = criteria_mod._done_single(
+                conn,
+                1,
+                skip_verify=False,
+                suppress_shared_commit=True,
+                commit_hash="def5678",
+                committed_at=None,
+                head_task_id=1,
+            )
+
+        assert rc == 0
+        run_verification.assert_called_once_with("test", "cd apps/web && npm test")
+        assert json.loads(out.getvalue())["verification"] == "passed"
+
+    def test_uncovered_spec_does_not_reuse_commit_gate(self, monkeypatch):
+        conn = make_db(criteria_specs=[
+            {
+                "criterion_type": "test",
+                "verification_spec": "cd apps/web && npm run lint",
+                "is_completed": 0,
+            },
+        ])
+        monkeypatch.setenv(
+            "TUSK_COMMIT_GATE_COMMAND",
+            "cd apps/web && npm test && npm run type-check",
+        )
+        monkeypatch.setenv("TUSK_COMMIT_GATE_SHA", "abc1234")
+        out = io.StringIO()
+        with redirect_stdout(out), \
+             patch.object(
+                 criteria_mod,
+                 "run_verification",
+                 return_value={"passed": True, "output": "ran spec"},
+             ) as run_verification, \
+             patch.object(criteria_mod, "capture_criterion_cost"):
+            rc = criteria_mod._done_single(
+                conn,
+                1,
+                skip_verify=False,
+                suppress_shared_commit=True,
+                commit_hash="abc1234",
+                committed_at=None,
+                head_task_id=1,
+            )
+
+        assert rc == 0
+        run_verification.assert_called_once_with("test", "cd apps/web && npm run lint")
+        assert json.loads(out.getvalue())["verification"] == "passed"
+
     def test_shared_commit_warning_when_not_suppressed(self):
         conn = make_db(criteria_specs=[
             {"criterion_type": "manual", "verification_spec": None, "is_completed": 1},

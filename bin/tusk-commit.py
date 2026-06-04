@@ -1732,7 +1732,16 @@ def _run_commit(argv: list[str], state: dict) -> int:
             cmd.append("--skip-verify")
         if idx > 0 and len(criteria_ids) > 1:
             cmd.append("--batch")
-        result = subprocess.run(cmd, capture_output=False, check=False)
+        criteria_env = os.environ.copy()
+        if test_cmd and not skip_verify and state.get("sha"):
+            criteria_env["TUSK_COMMIT_GATE_COMMAND"] = test_cmd
+            criteria_env["TUSK_COMMIT_GATE_SHA"] = state["sha"]
+        result = subprocess.run(
+            cmd,
+            capture_output=False,
+            check=False,
+            env=criteria_env,
+        )
         if result.returncode != 0:
             print(
                 f"Warning: Failed to mark criterion {cid} done",

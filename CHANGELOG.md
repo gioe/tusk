@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1102] - 2026-06-04
+
+- [TASK-597] Reuse commit-gate test results for matching criteria verification
+
 ## [1101] - 2026-06-04
 
 - [TASK-595] Fix: Sync or refuse stale primary before task-worktree create
