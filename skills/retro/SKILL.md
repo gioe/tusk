@@ -14,7 +14,7 @@ Reviews the current conversation history to capture process learnings, instructi
 
 `RETRO_TASK_ID` identifies the single just-closed task this retro is reviewing. Resolve it in this order (issue #805, original incident: with parallel worktrees finalizing tasks within seconds of each other, the most-recent-Done heuristic returns whichever sibling closed last — not the task `/tusk` just finalized):
 
-1. **Argv-supplied task id** — when the skill was invoked as `/retro <task_id>` (the normal handoff from `/tusk` Step 12 and `/address-issue` Step 10), use that id directly. Confirm with `tusk task-get <task_id>` and read its `complexity` field from the returned JSON. This is the authoritative path for handoffs.
+1. **Argv-supplied task id** — when the skill was invoked as `/retro <task_id>` (the normal handoff from `/tusk` Step 12 and `/address-issue` Step 10), use that id directly. Confirm with `tusk task-get <task_id>` and read its `complexity` field from the returned JSON at `.task.complexity` (for example: `tusk task-get <task_id> | jq -r .task.complexity`). This is the authoritative path for handoffs.
 2. **Most-recent-Done fallback** — only when no argv was passed (stand-alone `/retro` invocations typed by the user). Use the ORDER BY heuristic below.
 
 ```bash

@@ -24,7 +24,9 @@ finalized):
 1. **Argv-supplied task id** — when this prompt was invoked as
    `retro.md <task_id>` (the normal handoff from `tusk.md` Step 12 and
    `address-issue.md` Step 10), use that id directly. Confirm with
-   `tusk task-get <task_id>` and read its `complexity` field.
+   `tusk task-get <task_id>` and read its `complexity` field from
+   `.task.complexity`, for example:
+   `tusk task-get <task_id> | jq -r .task.complexity`.
 2. **Most-recent-Done fallback** — only when no argv was passed
    (stand-alone retro invocations typed by the user). Use the
    `ORDER BY` heuristic below.

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1105] - 2026-06-04
+
+- [TASK-602] Clarify /retro task-get complexity JSON path
+
 ## [1104] - 2026-06-04
 
 - [TASK-599] Re-derive task scope on summary or description updates
