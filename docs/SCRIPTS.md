@@ -43,7 +43,7 @@ require it).
 | **tusk-task-list.py** | `tusk task-list [--status] [--domain] [--assignee] [--format] [--all]` | `tasks` | nothing |
 | **tusk-task-select.py** | `tusk task-select [--max-complexity] [--exclude-ids]` | `v_ready_tasks`, config | nothing |
 | **tusk-task-start.py** | `tusk task-start <id> [--force] [--force-deps] [--force-contingent] [--force-not-before] [--force-session] [--agent]` | `tasks`, `task_progress`, `task_sessions`, `acceptance_criteria` | `tasks` (status), `task_sessions` (new session) |
-| **tusk-task-update.py** | `tusk task-update <id> [flags]` | `tasks`, config | `tasks` |
+| **tusk-task-update.py** | `tusk task-update <id> [flags]` | `tasks`, `acceptance_criteria`, `task_scope`, config | `tasks`, `task_scope` (`auto_derived` rows refreshed when summary/description changes) |
 | **tusk-task-done.py** | `tusk task-done <id> --reason <reason> [--force]` | `tasks`, `acceptance_criteria`, `task_sessions`, `task_dependencies` | `tasks`, `task_sessions`, `acceptance_criteria` |
 | **tusk-task-reopen.py** | `tusk task-reopen <id> --force` | `tasks` | `tasks` (status reset to To Do) |
 
@@ -55,7 +55,7 @@ require it).
 | **tusk-commit.py** | `tusk commit <id> "<msg>" <files…> [--criteria <id>…] [--skip-verify]` or `tusk commit <id> <files…> -m "<msg>" [--criteria <id>…] [--skip-verify]` | config (`test_command`), staged files | git (stages + commits), `acceptance_criteria` (via `tusk criteria done`) |
 | **tusk-merge.py** | `tusk merge <id> [--session <id>] [--pr] [--pr-number N] [--rebase] [--skip-lint] [--skip-verify]` | `tasks`, `task_sessions`, config (`merge.mode`, `lint_timeout_sec`) | `task_sessions` (close), `tasks` (Done), git (merge + push + branch delete) after clean `tusk lint` unless `--skip-lint` skips only the pre-merge lint gate or `--skip-verify` skips lint plus future pre-merge verification gates |
 | **tusk-progress.py** | `tusk progress <id> [--note "…"] [--next-steps "…"]` | git HEAD | `task_progress` |
-| **tusk-criteria.py** | `tusk criteria add\|list\|done\|skip\|reset <id> [flags]` | `acceptance_criteria`, git HEAD, Claude Code transcripts | `acceptance_criteria`; cost attribution via `tusk-pricing-lib.py` |
+| **tusk-criteria.py** | `tusk criteria add\|list\|done\|skip\|reset\|delete <id> [flags]` | `acceptance_criteria`, git HEAD, Claude Code transcripts | `acceptance_criteria`; cost attribution via `tusk-pricing-lib.py` |
 
 ### Dependencies
 

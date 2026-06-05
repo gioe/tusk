@@ -54,6 +54,7 @@ bin/tusk criteria list <task_id>
 bin/tusk criteria done <criterion_id> [--skip-verify]
 bin/tusk criteria skip <criterion_id> --reason <reason>
 bin/tusk criteria reset <criterion_id>
+bin/tusk criteria delete <criterion_id> [--force]  # --force allows deleting completed criteria
 
 # Dependencies
 bin/tusk deps add <task_id> <depends_on_id> [--type blocks|contingent]

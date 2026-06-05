@@ -207,7 +207,7 @@ Authoritative declaration of which paths a task is allowed to touch. The commit-
 **Indexes:** `idx_task_scope_task_id`.
 
 **Sources:**
-- `auto_derived` — backfilled from `task_referenced_paths` during migration 73, or inserted by a future auto-extraction pass during task creation.
+- `auto_derived` — backfilled from `task_referenced_paths` during migration 73, inserted by task creation auto-extraction, and refreshed by `tusk task-update` when a task's summary or description changes.
 - `operator_declared` — set via `tusk task-insert --scope <pattern>` (repeatable), or by `tusk scope add` when no durable task work has landed yet. The operator named these paths up-front.
 - `creates` — set via `tusk task-insert --creates <path>` (repeatable). Distinguished from `operator_declared` so the guard could in future verify the paths don't yet exist on the default branch.
 - `expanded_mid_task` — added by implicit `tusk scope add <task_id> <pattern> [--reason ...]` after the task has progress checkpoints or committed criteria. The reason is the audit trail for "why did scope grow mid-flight" retro questions. Passing `--source expanded_mid_task` remains an explicit override.
