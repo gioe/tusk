@@ -1171,6 +1171,9 @@ def main():
     if args.command == "done" and getattr(args, "note", None) and not args.skip_verify:
         done_p.error("--note requires --skip-verify")
 
+    # Catch-all so transient DB contention or another unexpected failure leaves
+    # command-specific stderr. Without this, the outer bin/tusk silent-exit guard
+    # can only report a generic "criteria: exited N with no diagnostic output".
     try:
         handlers = {
             "add": cmd_add, "list": cmd_list, "done": cmd_done,
@@ -1180,9 +1183,13 @@ def main():
             "finish-deferred": cmd_finish_deferred,
         }
         sys.exit(handlers[args.command](args, db_path, config))
-    except sqlite3.Error as e:
-        print(f"Database error: {e}", file=sys.stderr)
-        sys.exit(2)
+    except Exception as e:
+        print(
+            f"Error: criteria {args.command} crashed with "
+            f"{type(e).__name__}: {e}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":
