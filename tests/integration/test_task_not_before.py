@@ -78,6 +78,68 @@ def test_task_insert_accepts_relative_not_before(db_path):
     assert row[2] == 1
 
 
+def test_task_update_sets_not_before(db_path):
+    conn = sqlite3.connect(str(db_path))
+    try:
+        task_id = _insert_task(conn, "task to defer")
+    finally:
+        conn.close()
+
+    result = _run("task-update", str(task_id), "--not-before", "2026-09-01")
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["not_before"] == "2026-09-01 00:00:00"
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        row = conn.execute(
+            "SELECT not_before FROM tasks WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert row == ("2026-09-01 00:00:00",)
+
+
+def test_task_update_clears_not_before_with_empty_string(db_path):
+    conn = sqlite3.connect(str(db_path))
+    try:
+        task_id = _insert_task(
+            conn,
+            "task to undefer",
+            not_before="2999-01-01 00:00:00",
+        )
+    finally:
+        conn.close()
+
+    result = _run("task-update", str(task_id), "--not-before", "")
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["not_before"] is None
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        row = conn.execute(
+            "SELECT not_before FROM tasks WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert row == (None,)
+
+
+def test_task_update_help_documents_not_before(db_path):
+    result = _run("task-update", "--help")
+
+    assert result.returncode == 0
+    assert "--not-before" in result.stdout
+    assert "empty string to clear" in result.stdout
+
+
 def test_task_select_skips_future_not_before_task(db_path):
     conn = sqlite3.connect(str(db_path))
     try:
