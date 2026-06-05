@@ -502,6 +502,24 @@ Immediately follow `tusk.md` for the newly created task. Execute the
 `task_id` from Step 6. Do not wait for additional user confirmation
 — proceed directly into the development workflow.
 
+Before following `tusk.md`, capture a stable checkout and tusk binary
+for post-merge commands:
+
+```bash
+ADDRESS_ISSUE_PRIMARY_CWD=$(pwd)
+ADDRESS_ISSUE_TUSK_BIN="$ADDRESS_ISSUE_PRIMARY_CWD/bin/tusk"
+if [ ! -x "$ADDRESS_ISSUE_TUSK_BIN" ]; then
+  ADDRESS_ISSUE_TUSK_BIN=$(command -v tusk)
+fi
+```
+
+Use these values for the post-merge `skill-run finish` and
+`task-summary` calls in Step 10. `tusk merge` may remove the task
+worktree before those commands run; if the next tool call launches
+from that removed worktree, process creation can fail before tusk
+starts. The primary checkout remains usable after task-worktree
+cleanup.
+
 **IMPORTANT: Execute `tusk.md` Steps 1–11 only. Do NOT execute Step
 12 (merge/retro).** Stop after Step 11 (`review-commits.md` or the
 lint step) — this prompt owns merge, issue close, and retro as Steps
@@ -554,22 +572,34 @@ resolution note as a standalone comment and continues to Step 10.
 
 ### Step 10: Retro
 
-After `tusk merge` exits 0, close out the tusk skill-run opened in
-Step 7 (its `run_id` came from `tusk task-start` inside the tusk Step
-1 invocation — you captured it as `skill_run.run_id` in the returned
-JSON):
+After `tusk merge` exits 0, first switch back to the stable checkout
+captured in Step 7:
 
 ```bash
-tusk skill-run finish <run_id>
+cd "$ADDRESS_ISSUE_PRIMARY_CWD"
 ```
 
-Then emit the canonical end-of-run summary:
+Then close out the tusk skill-run opened in Step 7 (its `run_id` came
+from `tusk task-start` inside the tusk Step 1 invocation — you
+captured it as `skill_run.run_id` in the returned JSON) using the
+stable tusk binary:
 
 ```bash
-tusk task-summary <task_id> --format markdown
+"$ADDRESS_ISSUE_TUSK_BIN" skill-run finish <run_id>
+```
+
+Emit the canonical end-of-run summary from the same stable checkout:
+
+```bash
+"$ADDRESS_ISSUE_TUSK_BIN" task-summary <task_id> --format markdown
 ```
 
 Show it verbatim — do not re-render or summarize.
+
+Do not launch `skill-run finish` or `task-summary` from the task
+worktree after merge. `tusk merge` may remove that worktree as part of
+cleanup; if the caller's CWD has been removed, the shell or tool host
+can fail with "No such file or directory" before tusk receives control.
 
 Follow `retro.md` immediately with the just-finalized task id as
 the argument — do not ask "shall I run retro?". Pass the id

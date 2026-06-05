@@ -82,7 +82,15 @@ When invoked as `/address-issue --cluster worktree --batch`, do **not** treat th
 
    Apply Shared gh Failure Handling to every close/comment call.
 
-   **Run Step 10's per-group sub-steps inline.** After Step 9 closes the issue(s), close the /tusk skill-run with `tusk skill-run finish <run_id>` and print the per-task rollup with `tusk task-summary <task_id> --format markdown` so each task gets its identity/cost/duration/diff/criteria block before the next group starts. **Do NOT invoke `/retro <task_id>` per group** — retro is deferred to Step 7 below.
+   **Run Step 10's per-group sub-steps inline.** After Step 9 closes the issue(s), close the /tusk skill-run and print the per-task rollup from the stable checkout captured before task-worktree handoff:
+
+   ```bash
+   cd "$ADDRESS_ISSUE_PRIMARY_CWD"
+   "$ADDRESS_ISSUE_TUSK_BIN" skill-run finish <run_id>
+   "$ADDRESS_ISSUE_TUSK_BIN" task-summary <task_id> --format markdown
+   ```
+
+   This matters because `tusk merge` may remove the task worktree before the post-merge finalization commands run; launching those commands from the removed worktree can fail before tusk starts. The per-task rollup gives each task its identity/cost/duration/diff/criteria block before the next group starts. **Do NOT invoke `/retro <task_id>` per group** — retro is deferred to Step 7 below.
 
    Continue to the next root-cause group only after the per-group sub-steps above complete for the current group. Accumulate every merged task ID into a `BATCH_TASK_IDS` list as you go — Step 7 reads it.
 
@@ -462,6 +470,18 @@ Then branch on the duplicate task's current status before handing off:
 
 **Dirty checkout guard.** Before the `/tusk` handoff, preserve the current checkout exactly as-is. The development work must happen in the task-owned workspace that `/tusk` Step 2 creates with `tusk task-worktree create <id> <brief-description-slug>`; do not run `tusk branch` directly from the current checkout, and do not allow dirty unrelated files in the current checkout to be auto-stashed as part of address-issue startup. If task-worktree creation is unavailable or fails, stop and surface the failure instead of falling back to branch-first work. Only proceed once you are operating from the returned `workspace_path` or an already-recorded workspace for this task.
 
+Before invoking `/tusk`, capture a stable checkout and tusk binary for post-merge commands:
+
+```bash
+ADDRESS_ISSUE_PRIMARY_CWD=$(pwd)
+ADDRESS_ISSUE_TUSK_BIN="$ADDRESS_ISSUE_PRIMARY_CWD/bin/tusk"
+if [ ! -x "$ADDRESS_ISSUE_TUSK_BIN" ]; then
+  ADDRESS_ISSUE_TUSK_BIN=$(command -v tusk)
+fi
+```
+
+Use these values for the post-merge `skill-run finish` and `task-summary` calls in Step 10. `tusk merge` may remove the task worktree before those commands run; if the next tool call launches from that removed worktree, process creation can fail before tusk starts. The primary checkout remains usable after task-worktree cleanup.
+
 Immediately invoke the `/tusk` workflow for the newly created task. Follow the "Begin Work on a Task" instructions from the tusk skill:
 
 ```
@@ -545,19 +565,27 @@ Use the `commit_sha` from Step 8 (include the PR URL if available, else the bran
 
 ### Step 10: Retro
 
-After `tusk merge` exits 0, close out the `/tusk` skill-run opened in Step 7 (its `run_id` came from `tusk task-start` inside the `/tusk` Step 1 invocation — you captured it as `skill_run.run_id` in the returned JSON) so its cost is captured before `/retro` starts its own run:
+After `tusk merge` exits 0, first switch back to the stable checkout captured in Step 7:
 
 ```bash
-tusk skill-run finish <run_id>
+cd "$ADDRESS_ISSUE_PRIMARY_CWD"
 ```
 
-Then emit the canonical end-of-run summary so the user sees the identity/cost/duration/diff/criteria rollup before the retro findings:
+Then close out the `/tusk` skill-run opened in Step 7 (its `run_id` came from `tusk task-start` inside the `/tusk` Step 1 invocation — you captured it as `skill_run.run_id` in the returned JSON) using the stable tusk binary, so its cost is captured before `/retro` starts its own run:
 
 ```bash
-tusk task-summary <task_id> --format markdown
+"$ADDRESS_ISSUE_TUSK_BIN" skill-run finish <run_id>
+```
+
+Emit the canonical end-of-run summary from the same stable checkout:
+
+```bash
+"$ADDRESS_ISSUE_TUSK_BIN" task-summary <task_id> --format markdown
 ```
 
 Show it verbatim — do not re-render or summarize. `/retro` Step LR-3 assumes this block has already been printed and intentionally does not re-emit it.
+
+Do not launch `skill-run finish` or `task-summary` from the task worktree after merge. `tusk merge` may remove that worktree as part of cleanup; if the caller's CWD has been removed, the shell or tool host can fail with "No such file or directory" before tusk receives control.
 
 Invoke `/retro <task_id>` immediately — do not ask "shall I run retro?". Pass the task id explicitly so `/retro` attributes cost to the task you just finalized rather than picking up whichever sibling worktree closed last (issue #805). Read and follow:
 

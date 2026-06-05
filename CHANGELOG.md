@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1112] - 2026-06-05
+
+- [TASK-610] Fix: Make post-merge skill-run finish resilient after task worktree cleanup
+
 ## [1111] - 2026-06-05
 
 - [TASK-609] Fix scope auto-derive for bare .github subdirectory paths
