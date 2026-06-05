@@ -545,6 +545,13 @@ JSON blob and the `skill_run.run_id` you already captured.
     the task Done. It returns JSON including an `unblocked_tasks`
     array. If there are newly unblocked tasks, note them in the retro.
 
+    The merge path runs a pre-merge lint gate by default. If that gate
+    blocks on a known false positive or pre-existing issue, use
+    `--skip-lint` to skip only lint. Use `--skip-verify` only when you
+    need the broader bypass; for TASK-586 / GitHub issue #996 it
+    currently skips lint as well, and it is reserved to skip future
+    pre-merge verification gates as they are added.
+
     `tusk merge` refuses to proceed while ordinary non-deferred
     criteria are still open. Complete them, or use Step 9's explicit
     post-merge verification deferral pattern when the check is

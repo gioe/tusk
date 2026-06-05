@@ -311,7 +311,9 @@ tusk branch <id> <slug>
     │     none found → git checkout -b feature/TASK-<id>-<slug>
     └── pop stash (with conflict detection)
 
-tusk merge <id> --session <session_id>            ← Ship path (default)
+tusk merge <id> --session <session_id> [--skip-lint|--skip-verify]
+                                                  ← Ship path (default)
+    ├── pre-merge lint gate                        (unless --skip-lint or --skip-verify)
     ├── session-close <session_id>                 (captures diff stats before branch deleted)
     ├── remove recorded task worktree              (refuses if dirty; clean/stash or force-remove manually)
     ├── git merge --ff-only feature/TASK-<id>-* → default branch
@@ -328,6 +330,10 @@ tusk merge <id> --session <session_id> --pr       ← Ask path (CI / human revie
 MERGE PATH SELECTION (Ship / Show / Ask):
   Ship  →  tusk merge <id>        local ff-merge, no PR, instant
   Ask   →  tusk merge <id> --pr   open PR, merge via GitHub (CI, approvals, etc.)
+
+MERGE VERIFICATION BYPASSES (TASK-586 / issue #996):
+  --skip-lint    skips only the pre-merge lint gate
+  --skip-verify  skips lint plus any future pre-merge verification gates
 
 RECOVERY:
   - Stale recorded row or missing branch → run `tusk task-worktree list` to inspect live vs recorded state.

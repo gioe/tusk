@@ -53,7 +53,7 @@ require it).
 |------|---------------|-------|--------|
 | **tusk-branch.py** | `tusk branch <id> <slug>` | git remote/HEAD | git (creates feature branch) |
 | **tusk-commit.py** | `tusk commit <id> "<msg>" <files…> [--criteria <id>…] [--skip-verify]` or `tusk commit <id> <files…> -m "<msg>" [--criteria <id>…] [--skip-verify]` | config (`test_command`), staged files | git (stages + commits), `acceptance_criteria` (via `tusk criteria done`) |
-| **tusk-merge.py** | `tusk merge <id> [--session <id>] [--pr] [--pr-number N]` | `tasks`, `task_sessions`, config (`merge.mode`, `lint_timeout_sec`) | `task_sessions` (close), `tasks` (Done), git (merge + push + branch delete) after required clean `tusk lint` |
+| **tusk-merge.py** | `tusk merge <id> [--session <id>] [--pr] [--pr-number N] [--rebase] [--skip-lint] [--skip-verify]` | `tasks`, `task_sessions`, config (`merge.mode`, `lint_timeout_sec`) | `task_sessions` (close), `tasks` (Done), git (merge + push + branch delete) after clean `tusk lint` unless `--skip-lint` skips only the pre-merge lint gate or `--skip-verify` skips lint plus future pre-merge verification gates |
 | **tusk-progress.py** | `tusk progress <id> [--note "…"] [--next-steps "…"]` | git HEAD | `task_progress` |
 | **tusk-criteria.py** | `tusk criteria add\|list\|done\|skip\|reset <id> [flags]` | `acceptance_criteria`, git HEAD, Claude Code transcripts | `acceptance_criteria`; cost attribution via `tusk-pricing-lib.py` |
 

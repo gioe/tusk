@@ -40,7 +40,7 @@ bin/tusk commit <task_id> "<file1>" ["<file2>" ...] -m "<message>" [--criteria <
 # Note: tusk commit prepends [TASK-N] to <message> automatically; duplicate [TASK-N] prefixes are stripped
 # Note: bare -- separators are silently ignored (AI callers sometimes insert them)
 # Note: always quote file paths — zsh expands unquoted [brackets] as glob patterns before tusk receives them
-bin/tusk merge <task_id> [--session <session_id>] [--pr --pr-number <N>]
+bin/tusk merge <task_id> [--session <session_id>] [--pr --pr-number <N>] [--rebase] [--skip-lint] [--skip-verify]
 bin/tusk progress <task_id> [--note "..."] [--next-steps "..."]
 bin/tusk jot <category> "<note>" [--file <path>] [--skill <name>]   # capture mid-task friction at the source — keyed to active skill_run; consumed by /retro
 bin/tusk jots [--skill-run-id <id>] [--task-id <id>] [--limit N]    # list jots filtered by skill_run_id and/or task_id (newest-first JSON array)

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1108] - 2026-06-04
+
+- [TASK-587] Document tusk merge skip-lint and skip-verify flags
+
 ## [1107] - 2026-06-04
 
 - [TASK-571] Update scope docs for enforced empty-scope rejection

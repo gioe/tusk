@@ -327,6 +327,8 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     ```
     `tusk merge` closes the session, merges the feature branch into the default branch, pushes, deletes the feature branch, and marks the task Done. It returns JSON including an `unblocked_tasks` array. If there are newly unblocked tasks, note them in the retro.
 
+    The merge path runs a pre-merge lint gate by default. If that gate blocks on a known false positive or pre-existing issue, use `--skip-lint` to skip only lint. Use `--skip-verify` only when you need the broader bypass; for TASK-586 / GitHub issue #996 it currently skips lint as well, and it is reserved to skip future pre-merge verification gates as they are added.
+
     `tusk merge` refuses to proceed while ordinary non-deferred criteria are still open. Complete them, or use Step 9's explicit post-merge verification deferral pattern when the check is impossible before merge.
 
     **Already-merged path:** If the feature branch was previously merged and deleted (e.g. via a PR that was merged in another session), `tusk merge` detects this automatically when you are on the default branch — it prints `Note: TASK-<id> — no feature branch found; already on '<branch>'. Branch was previously merged.`, closes the session, pushes, and marks the task Done without re-merging. If `tusk merge` exits 0 in this scenario, proceed to `/retro` as normal.

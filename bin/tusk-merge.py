@@ -2,12 +2,12 @@
 """Finalize a task: close session, merge branch, push, clean up, and close task.
 
 Called by the tusk wrapper:
-    tusk merge <task_id> [--session <session_id>] [--pr] [--pr-number N] [--rebase]
+    tusk merge <task_id> [--session <session_id>] [--pr] [--pr-number N] [--rebase] [--skip-lint] [--skip-verify]
 
 Arguments received from tusk:
     sys.argv[1] — DB path
     sys.argv[2] — config path
-    sys.argv[3:] — task_id [--session <session_id>] [--pr] [--pr-number N] [--rebase]
+    sys.argv[3:] — task_id [--session <session_id>] [--pr] [--pr-number N] [--rebase] [--skip-lint] [--skip-verify]
 
 If --session is omitted, the open session for the task is auto-detected:
   - Exactly one open session → use it
@@ -4007,6 +4007,9 @@ def main(argv: list[str]) -> int:
 if __name__ == "__main__":
     if len(sys.argv) < 2 or not sys.argv[1].endswith(".db"):
         print("Error: This script must be invoked via the tusk wrapper.", file=sys.stderr)
-        print("Use: tusk merge <task_id> [--session <session_id>] [--pr --pr-number <N>] [--rebase]", file=sys.stderr)
+        print(
+            "Use: tusk merge <task_id> [--session <session_id>] [--pr --pr-number <N>] [--rebase] [--skip-lint] [--skip-verify]",
+            file=sys.stderr,
+        )
         sys.exit(1)
     sys.exit(main(sys.argv[1:]))
