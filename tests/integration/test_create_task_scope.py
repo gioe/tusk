@@ -167,6 +167,19 @@ def test_task_insert_warns_for_missing_verification_spec_path(db_path):
 # ── task-insert auto-extraction (criterion 2200) ────────────────────────
 
 
+def test_task_insert_auto_extracts_bare_github_subdirectories(db_path):
+    task_id = _insert(
+        str(db_path),
+        "bare github directory scope",
+        "Sweep .github/workflows/ and .github/actions/ for Node 24 support.",
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+    assert ".github/workflows/**" in auto
+    assert ".github/actions/**" in auto
+
+
 def test_auto_extract_from_criteria(db_path):
     """Paths inside typed-criteria ``spec`` text become ``auto_derived``
     rows on ``task_scope`` at insert time — without the operator having
@@ -819,6 +832,40 @@ def test_scope_hint_uses_auto_scope_path_heuristics(db_path, tmp_path):
     assert "apps/web/app/admin/page.tsx" in payload["scope"], payload
     assert ".github/workflows/scraper-schedule.yml" in payload["scope"], payload
     assert ".github/workflows/scraper-verify.yml" in payload["scope"], payload
+
+
+def test_scope_hint_extracts_bare_github_subdirectories(db_path, tmp_path):
+    """Bare .github/<subdir>/ mentions should produce scoped directory rows."""
+    repo = tmp_path / "scope-hint-github-dir-repo"
+    repo.mkdir()
+    _git(repo, ["init"])
+    _git(repo, ["config", "user.email", "test@example.com"])
+    _git(repo, ["config", "user.name", "Test User"])
+    paths = [
+        ".github/workflows/web-ci.yml",
+        ".github/actions/setup/action.yml",
+    ]
+    for path in paths:
+        full_path = repo / path
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        full_path.write_text(f"# {path}\n", encoding="utf-8")
+    _git(repo, ["add", *paths])
+    _git(repo, ["commit", "-m", "seed github scoped files"])
+
+    result = _run([
+        "scope-hint",
+        "--description",
+        "Sweep .github/workflows/ and .github/actions/ for Node 24 support.",
+        "--task-type",
+        "issue",
+        "--repo-root",
+        str(repo),
+    ])
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+
+    assert ".github/workflows/**" in payload["scope"], payload
+    assert ".github/actions/**" in payload["scope"], payload
 
 
 # ── scope-hint unbounded suggestion (criterion 2202) ────────────────────

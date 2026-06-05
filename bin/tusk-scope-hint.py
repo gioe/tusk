@@ -47,6 +47,7 @@ import tusk_loader  # loads tusk-task-insert.py, tusk-json-lib.py
 _task_insert = tusk_loader.load("tusk-task-insert")
 _json_lib = tusk_loader.load("tusk-json-lib")
 auto_scope_candidates = _task_insert._auto_scope_candidates
+resolve_auto_derived_scope_pattern = _task_insert._resolve_auto_derived_scope_pattern
 repo_root_for_config = _task_insert._repo_root
 dumps = _json_lib.dumps
 
@@ -124,6 +125,7 @@ def _extract_scope(
     out: list = []
     for text in blocks:
         for p in auto_scope_candidates(text, repo_root=repo_root, task_type=task_type):
+            p = resolve_auto_derived_scope_pattern(repo_root, p)
             if p not in seen:
                 seen.add(p)
                 out.append(p)

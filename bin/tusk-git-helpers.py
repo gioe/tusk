@@ -451,7 +451,17 @@ def extract_paths(text: str) -> list:
             and "." not in basename
             and any(p.startswith(prefix) for prefix in _EXTENSIONLESS_SCRIPT_PREFIXES)
         )
-        if p in _BARE_TOPLEVEL_WHITELIST or "." in basename or is_extensionless_script:
+        is_github_directory_scope = (
+            basename
+            and p.endswith("/")
+            and p.startswith(".github/")
+        )
+        if (
+            p in _BARE_TOPLEVEL_WHITELIST
+            or "." in basename
+            or is_extensionless_script
+            or is_github_directory_scope
+        ):
             paths.append(_prefix_cd_relative_path(p, cd_dir))
     return paths
 

@@ -267,6 +267,8 @@ def _resolve_auto_derived_scope_pattern(repo_root: str | None, pattern: str) -> 
     file_part = _path_file_portion(raw)
     if not file_part or _has_glob_metachar(file_part):
         return raw
+    if raw.endswith("/"):
+        return f"{file_part.rstrip('/')}/**"
     if path_exists_in_repo(repo_root, file_part):
         return file_part
 
@@ -779,9 +781,13 @@ def main(argv: list[str]) -> int:
                     repo_root=repo_root,
                     task_type=task_type,
                 ):
-                    if is_prose_identifier_path(p, repo_root):
-                        continue
                     resolved = _resolve_auto_derived_scope_pattern(repo_root, p)
+                    is_explicit_github_dir = p.endswith("/") and p.startswith(".github/")
+                    if (
+                        not is_explicit_github_dir
+                        and is_prose_identifier_path(p, repo_root)
+                    ):
+                        continue
                     if resolved in explicit_patterns or resolved in seen_auto:
                         continue
                     seen_auto.add(resolved)

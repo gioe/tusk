@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1111] - 2026-06-05
+
+- [TASK-609] Fix scope auto-derive for bare .github subdirectory paths
+
 ## [1110] - 2026-06-05
 
 - [TASK-606] Fix: Add not-before support to task-update
