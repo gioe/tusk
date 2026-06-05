@@ -103,6 +103,8 @@ require it).
 | **tusk-skill-run.py** | `tusk skill-run start\|finish\|cancel\|list [flags]` | `skill_runs`, Claude Code JSONL transcripts | `skill_runs`; depends on `tusk-pricing-lib.py` |
 | **tusk-token-audit.py** | `tusk token-audit [--summary\|--json]` | skill SKILL.md files in `skills/`, `skills-internal/`, `.claude/skills/` | nothing; advisory analysis only |
 
+Transcript discovery for session, review, criterion, call-breakdown, and skill-run cost attribution is centralized in `tusk-pricing-lib.py`. When called from a task-owned worktree, it tries the current directory, the Git toplevel, the primary checkout reached through `git rev-parse --git-common-dir`, then parent directories, deriving the matching `~/.claude/projects/<hash>/*.jsonl` directory for each candidate. This lets task worktrees under `~/.tusk/worktrees/...` still find transcripts recorded against the primary checkout. `tusk skill-run finish` records `model = '(transcript missing)'` when that search finds no JSONL at all; this is distinct from `'(unknown)'`, which means a transcript was found but no model-bearing request was attributable to the run window.
+
 ### Dashboard
 
 | File | CLI command(s) | Reads | Writes |
