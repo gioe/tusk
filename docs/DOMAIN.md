@@ -213,6 +213,18 @@ Authoritative declaration of which paths a task is allowed to touch. The commit-
 - `expanded_mid_task` — added by implicit `tusk scope add <task_id> <pattern> [--reason ...]` after the task has progress checkpoints or committed criteria. The reason is the audit trail for "why did scope grow mid-flight" retro questions. Passing `--source expanded_mid_task` remains an explicit override.
 - `unbounded` — set via `tusk task-insert --unbounded`. The pattern is a sentinel (`**`); `scope-paths` short-circuits and emits nothing when any row has this source, so the commit-time guard silently passes. Used for refactors that legitimately span the repo. When a task already has this sentinel, redundant `tusk scope add` calls exit 0 with a note and do not insert rows.
 
+**Task-insert auto-extraction.** Fresh `tusk task-insert` calls populate `auto_derived` rows from the task summary, description, criteria text, and typed verification specs unless the task is explicitly unbounded. Operator-declared `--scope` and `--creates` rows win first; auto-extraction adds only patterns not already declared.
+
+The extraction pass uses the same broad path parser as the legacy `task_referenced_paths` hint cache, then applies task-insert-specific inferences:
+- explicit repo-root-relative paths and known top-level filenames, including extensionless scripts under known executable-script prefixes;
+- sibling shortforms near an explicit path, such as `dir/Alpha.swift and Beta.swift`, `dir/Alpha.swift and {Beta,Gamma}.swift`, and directory-list prose such as `dir/: Alpha.swift, Beta.swift`;
+- route-style shortforms beginning with `/`, resolved by unique tracked suffix when possible;
+- bare filenames resolved only when exactly one tracked repo file has that basename;
+- target-shaped test identifiers such as `FeatureTests` or `FeatureUITests`, resolved to tracked files whose path component or filename stem matches the token. For non-docs tasks, matching test-target signals suppress markdown-only scope hints so implementation tasks do not get scoped just to cited docs;
+- referenced TASK commit SHAs, but only when the same text also contains a numbered file-set phrase such as "42 venue scrapers" or "3 files". In that paired signal, task-insert hydrates scope from the commit's changed-file list.
+
+Auto-derived candidates are normalized before insertion: pytest node ids are reduced to their file path, exact existing paths win, and missing paths are resolved by unique tracked suffix when there is exactly one match. Invalid or unreachable SHAs are ignored rather than blocking task insertion. Slash-joined prose identifiers that do not exist in the repo, such as dotted package names rendered with `/`, are filtered out.
+
 **Backfill (migration 73).** For each existing task with at least one referenced path, one `auto_derived` row was inserted per path. Tasks with no scope signal (no paths in description / criteria / verification specs) got no rows and were stamped `scope_enforced = 0`, preserving legacy "empty scope -> silent pass" behavior only for those rows. Fresh tasks default to `scope_enforced = 1`; if auto-extraction and operator declaration both produce no `task_scope` rows, the commit-time guard treats that as missing scope metadata and exits before allowing the commit.
 
 **Lifecycle.** Tasks start `loose` (no `locked_at`). The intended hardening path is:
