@@ -17,6 +17,7 @@ Flags:
     --task-type <t>       Update task_type
     --assignee <a>        Update assignee
     --complexity <c>      Update complexity
+    --not-before <ts>     Update not_before, or empty string to clear
 
 Only specified fields are updated; unspecified fields are left unchanged.
 Always sets updated_at = datetime('now').
@@ -129,6 +130,16 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--assignee", default=None, help="Update assignee")
     parser.add_argument("--complexity", default=None, help="Update complexity")
     parser.add_argument("--workflow", default=None, help="Update workflow (empty string clears to NULL)")
+    parser.add_argument(
+        "--not-before",
+        default=None,
+        dest="not_before",
+        metavar="TIMESTAMP",
+        help=(
+            "Update not_before; accepts ISO or +Nm/+Nh/+Nd/+Nw. "
+            "Pass an empty string to clear to NULL."
+        ),
+    )
     args = parser.parse_args(argv[2:])
 
     task_id = args.task_id
@@ -143,6 +154,18 @@ def main(argv: list[str]) -> int:
     # --workflow: empty string clears to NULL, non-empty sets the value
     if args.workflow is not None:
         updates["workflow"] = None if args.workflow == "" else args.workflow
+
+    # --not-before is explicit-only. Description phrase detection is deferred:
+    # task-update is non-interactive, so prose heuristics should not silently
+    # change scheduling without a dedicated warning/prompt surface.
+    if args.not_before is not None:
+        if args.not_before == "":
+            updates["not_before"] = None
+        else:
+            try:
+                updates["not_before"] = _task_insert._parse_not_before(args.not_before)
+            except argparse.ArgumentTypeError as exc:
+                parser.error(str(exc))
 
     if not updates:
         parser.error("at least one field flag is required")

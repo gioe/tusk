@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1110] - 2026-06-05
+
+- [TASK-606] Fix: Add not-before support to task-update
+
 ## [1109] - 2026-06-04
 
 - [TASK-605] Fix: Preflight git index writability before tusk commit test gate
