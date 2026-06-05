@@ -16,6 +16,7 @@ See GitHub issue #785 / cluster:silent-failures.
 from __future__ import annotations
 
 import os
+import sqlite3
 import stat
 import subprocess
 from pathlib import Path
@@ -194,4 +195,121 @@ class TestBinTuskSmoke:
         assert result.returncode == 0, f"tusk path failed: stderr={result.stderr}"
         assert result.stdout.strip().endswith(".db")
         # The guard must NOT have fired on a successful invocation.
+        assert "no diagnostic output" not in result.stderr
+
+
+def _git(args: list[str], *, cwd: Path, env: dict[str, str] | None = None) -> None:
+    result = subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert result.returncode == 0, (
+        f"git {' '.join(args)} failed\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+    )
+
+
+def _init_tusk_repo(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(["init", "-b", "main"], cwd=repo)
+    (repo / "README.md").write_text("test repo\n", encoding="utf-8")
+    _git(["add", "README.md"], cwd=repo)
+    _git(
+        [
+            "-c", "user.email=tusk@example.test",
+            "-c", "user.name=Tusk Tests",
+            "commit",
+            "-m",
+            "initial",
+        ],
+        cwd=repo,
+    )
+
+    home = tmp_path / "home"
+    home.mkdir()
+    db_path = repo / "tusk" / "tasks.db"
+    env = os.environ.copy()
+    env["HOME"] = str(home)
+    env["PATH"] = f"{_REPO_ROOT / 'bin'}{os.pathsep}{env.get('PATH', '')}"
+    env["TUSK_DB"] = str(db_path)
+    env["TUSK_QUIET"] = "1"
+    env.pop("TUSK_GUARD_ACTIVE", None)
+
+    result = subprocess.run(
+        [str(_BIN_TUSK), "init", "--force", "--skip-gitignore"],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert result.returncode == 0, (
+        f"tusk init failed\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+    )
+    return repo, db_path, env
+
+
+def _insert_skill_run(db_path: Path, skill_name: str = "tusk") -> int:
+    with sqlite3.connect(db_path) as conn:
+        cur = conn.execute(
+            "INSERT INTO skill_runs (skill_name, started_at) VALUES (?, datetime('now', '-1 minute'))",
+            (skill_name,),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+
+
+class TestCloseoutCommandsUnderGuard:
+    """Issue #1024 regressions for real closeout commands under the guard."""
+
+    def test_guarded_skill_run_finish_matches_guard_disabled_success(self, tmp_path: Path):
+        repo, db_path, env = _init_tusk_repo(tmp_path)
+
+        guarded_run_id = _insert_skill_run(db_path)
+        guarded = subprocess.run(
+            [str(_BIN_TUSK), "skill-run", "finish", str(guarded_run_id)],
+            cwd=repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        assert guarded.returncode == 0, guarded.stderr
+        assert "Skill run" in guarded.stdout
+        assert "Model:" in guarded.stdout
+        assert "no diagnostic output" not in guarded.stderr
+
+        unguarded_run_id = _insert_skill_run(db_path)
+        no_guard_env = {**env, "TUSK_SILENT_EXIT_GUARD": "0"}
+        unguarded = subprocess.run(
+            [str(_BIN_TUSK), "skill-run", "finish", str(unguarded_run_id)],
+            cwd=repo,
+            env=no_guard_env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        assert unguarded.returncode == 0, unguarded.stderr
+        assert "Skill run" in unguarded.stdout
+        assert "Model:" in unguarded.stdout
+        assert "no diagnostic output" not in unguarded.stderr
+
+    def test_guarded_skill_run_finish_missing_row_keeps_specific_error(self, tmp_path: Path):
+        repo, _db_path, env = _init_tusk_repo(tmp_path)
+
+        result = subprocess.run(
+            [str(_BIN_TUSK), "skill-run", "finish", "99999"],
+            cwd=repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+
+        assert result.returncode == 1
+        assert "No skill run found with id 99999" in result.stderr
         assert "no diagnostic output" not in result.stderr

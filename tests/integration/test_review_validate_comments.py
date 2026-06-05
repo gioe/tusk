@@ -173,6 +173,61 @@ class TestValidateComments:
         assert payload["in_diff"] == 1
         assert payload["validated"] == 1
 
+    def test_guarded_validate_comments_matches_guard_disabled_success(
+        self, tmp_path, monkeypatch
+    ):
+        """Issue #1024: the dispatcher guard must not perturb successful
+        review closeout commands.
+
+        The first invocation runs with the default non-TTY silent-exit guard.
+        The second disables the guard explicitly. Both should preserve the
+        successful exit code and useful JSON output.
+        """
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        task_id = _insert_in_progress_task(db_path)
+
+        _git(["checkout", "-b", f"feature/TASK-{task_id}-guarded"], cwd=repo)
+        (repo / "guarded.py").write_text("guarded = True\n", encoding="utf-8")
+        _git(["add", "guarded.py"], cwd=repo, env=env)
+        _git(["commit", "-m", f"[TASK-{task_id}] add guarded"], cwd=repo, env=env)
+
+        begin = _run(["review", "begin", str(task_id)], cwd=repo, env=env)
+        assert begin.returncode == 0, begin.stderr
+        review_id = json.loads(begin.stdout)["review_id"]
+
+        r = _run(
+            [
+                "review", "add-comment", str(review_id), "real",
+                "--file", "guarded.py",
+                "--line-start", "1",
+                "--category", "suggest",
+                "--severity", "minor",
+            ],
+            cwd=repo,
+            env=env,
+        )
+        assert r.returncode == 0, r.stderr
+
+        guarded = _run(["review", "validate-comments", str(review_id)], cwd=repo, env=env)
+        assert guarded.returncode == 0, guarded.stderr
+        assert "no diagnostic output" not in guarded.stderr
+        guarded_payload = json.loads(guarded.stdout)
+
+        no_guard_env = {**env, "TUSK_SILENT_EXIT_GUARD": "0"}
+        unguarded = _run(
+            ["review", "validate-comments", str(review_id)],
+            cwd=repo,
+            env=no_guard_env,
+        )
+        assert unguarded.returncode == 0, unguarded.stderr
+        unguarded_payload = json.loads(unguarded.stdout)
+
+        assert guarded_payload["review_id"] == unguarded_payload["review_id"]
+        assert guarded_payload["validated"] == unguarded_payload["validated"] == 1
+        assert guarded_payload["in_diff"] == unguarded_payload["in_diff"] == 1
+        assert guarded_payload["dismissed"] == unguarded_payload["dismissed"] == []
+        assert guarded_payload["dismissed_general"] == unguarded_payload["dismissed_general"] == []
+
     def test_dismisses_line_symbol_mismatch(self, tmp_path, monkeypatch):
         """Issue #1012: cited line must match the symbol named in the comment."""
         repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
@@ -245,6 +300,7 @@ class TestValidateComments:
         result = _run(["review", "validate-comments", "99999"], cwd=repo, env=env)
         assert result.returncode == 2
         assert "Review 99999 not found" in result.stderr
+        assert "no diagnostic output" not in result.stderr
 
     def test_primary_cwd_with_unpushed_main_does_not_dismiss_real_findings(
         self, tmp_path, monkeypatch
