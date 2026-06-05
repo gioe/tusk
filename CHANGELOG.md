@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1107] - 2026-06-04
+
+- [TASK-571] Update scope docs for enforced empty-scope rejection
+
 ## [1106] - 2026-06-04
 
 - [TASK-603] Fix: Preserve diagnostics for concurrent criteria done failures

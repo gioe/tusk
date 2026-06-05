@@ -191,7 +191,7 @@ A recorded git worktree owned by a normal task. Bakeoff attempts use shadow task
 
 ### Task Scope
 
-Authoritative declaration of which paths a task is allowed to touch. The commit-time scope guard (`hooks/git/scope-guard.sh` → `tusk scope-paths <id>`) reads `task_scope` when any rows exist for the current task and falls back to the legacy `task_referenced_paths` hint cache only when the table is empty (`tasks.scope_enforced = 0` legacy tasks, or new tasks that didn't declare scope explicitly).
+Authoritative declaration of which paths a task is allowed to touch. The commit-time scope guard (`hooks/git/scope-guard.sh` → `tusk scope-paths <id>`) reads `task_scope` when any rows exist for the current task. It falls back to the legacy `task_referenced_paths` hint cache only for legacy rows with `tasks.scope_enforced = 0`. For enforced tasks (`scope_enforced = 1`), an empty `task_scope` table is a declaration gap: the guard rejects the commit before path matching and tells the operator to add scope rows or create the task as explicitly unbounded.
 
 | Attribute | Type | Constraints | Description |
 |-----------|------|-------------|-------------|
@@ -213,7 +213,7 @@ Authoritative declaration of which paths a task is allowed to touch. The commit-
 - `expanded_mid_task` — added by implicit `tusk scope add <task_id> <pattern> [--reason ...]` after the task has progress checkpoints or committed criteria. The reason is the audit trail for "why did scope grow mid-flight" retro questions. Passing `--source expanded_mid_task` remains an explicit override.
 - `unbounded` — set via `tusk task-insert --unbounded`. The pattern is a sentinel (`**`); `scope-paths` short-circuits and emits nothing when any row has this source, so the commit-time guard silently passes. Used for refactors that legitimately span the repo. When a task already has this sentinel, redundant `tusk scope add` calls exit 0 with a note and do not insert rows.
 
-**Backfill (migration 73).** For each existing task with at least one referenced path, one `auto_derived` row was inserted per path. Tasks with no scope signal (no paths in description / criteria / verification specs) got no rows — the guard's "empty scope → silent pass" contract is preserved unchanged.
+**Backfill (migration 73).** For each existing task with at least one referenced path, one `auto_derived` row was inserted per path. Tasks with no scope signal (no paths in description / criteria / verification specs) got no rows and were stamped `scope_enforced = 0`, preserving legacy "empty scope -> silent pass" behavior only for those rows. Fresh tasks default to `scope_enforced = 1`; if auto-extraction and operator declaration both produce no `task_scope` rows, the commit-time guard treats that as missing scope metadata and exits before allowing the commit.
 
 **Lifecycle.** Tasks start `loose` (no `locked_at`). The intended hardening path is:
 1. `tusk task-insert --scope/--creates` declares initial scope.
