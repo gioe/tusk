@@ -20,7 +20,8 @@ Steps:
         the task's recorded workspace branch, or when no workspace is recorded and HEAD
         is the default branch (issue #794). Bypass with --allow-branch-mismatch.
     0. Validate file paths — fail fast before lint/tests if any path is missing or escapes repo root
-    1. Run test_command gate: use domain_test_commands[task.domain] if present, else test_command (hard-blocks on failure).
+    1. Preflight git index lock creation, then run test_command gate:
+       use domain_test_commands[task.domain] if present, else test_command (hard-blocks on failure).
        Info-skipped when every staged file is non-code — a docs/markdown file (*.md) or a scope.always_allowed metadata file
        (VERSION, CHANGELOG.md, MANIFEST, .claude/tusk-manifest.json) — since such commits cannot change test outcomes (issue #950).
     2. Stage files: git add for all files (handles additions, modifications, and deletions)
@@ -144,6 +145,66 @@ def _escapes_root(real_abs: str, real_repo_root: str) -> bool:
 
 def run(args: list[str], check: bool = True, cwd: str | None = None) -> subprocess.CompletedProcess:
     return subprocess.run(args, capture_output=True, text=True, encoding="utf-8", check=check, cwd=cwd)
+
+
+def _git_index_lock_path(repo_root: str) -> str:
+    """Return the actual index.lock path for normal and linked worktrees.
+
+    Avoid a git subprocess here because many commit-path unit tests mock
+    `git rev-parse` broadly for HEAD checks. The `.git` directory/file format
+    is enough for the lock path we need to preflight.
+    """
+    git_entry = os.path.join(repo_root, ".git")
+    if os.path.isdir(git_entry):
+        return os.path.join(git_entry, "index.lock")
+    if os.path.isfile(git_entry):
+        try:
+            content = open(git_entry, encoding="utf-8").read().strip()
+        except OSError:
+            return ""
+        prefix = "gitdir:"
+        if content.lower().startswith(prefix):
+            git_dir = content[len(prefix):].strip()
+            if not os.path.isabs(git_dir):
+                git_dir = os.path.normpath(os.path.join(repo_root, git_dir))
+            return os.path.join(git_dir, "index.lock")
+    return ""
+
+
+def _preflight_git_index_writable(repo_root: str) -> tuple[bool, str]:
+    """Verify that git can create the index lock before expensive gates run."""
+    lock_path = _git_index_lock_path(repo_root)
+    if not lock_path:
+        return True, ""
+    try:
+        fd = os.open(lock_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+    except FileExistsError:
+        return (
+            False,
+            "Error: git index lock is already present — aborting before test_command.\n"
+            f"  Lock path: {lock_path}\n"
+            "  Hint: another git process may be running, or a stale index.lock "
+            "may need to be removed after verifying no git process is active.",
+        )
+    except OSError as exc:
+        return (
+            False,
+            "Error: git index is not writable — aborting before test_command.\n"
+            f"  Lock path: {lock_path}\n"
+            f"  {exc.strerror or exc}",
+        )
+    else:
+        os.close(fd)
+        try:
+            os.unlink(lock_path)
+        except OSError as exc:
+            return (
+                False,
+                "Error: git index lock preflight could not clean up — aborting before test_command.\n"
+                f"  Lock path: {lock_path}\n"
+                f"  {exc.strerror or exc}",
+            )
+    return True, ""
 
 
 def _get_staged_deletions(repo_root: str) -> set[str]:
@@ -1087,7 +1148,8 @@ def _run_commit(argv: list[str], state: dict) -> int:
     #                                          recorded task workspace; bypass
     #                                          with --allow-branch-mismatch)
     #   Step 0  (path validation)   → exit 3  (escapes root or path not found)
-    #   Step 1  (test_command gate) → exit 2  (test_command failed)
+    #   Step 1a (index preflight)   → exit 3  (git index lock unavailable)
+    #   Step 1b (test_command gate) → exit 2  (test_command failed)
     #   Step 2  (git add)           → exit 3  (git add failed)
     #   Step 3  (git commit)        → exit 3  (git commit failed)
     #   Step 4  (criteria done)     → exit 4  (one or more criteria failed)
@@ -1249,7 +1311,13 @@ def _run_commit(argv: list[str], state: dict) -> int:
     if skip_lint and announce_status:
         print("Note: --skip-lint is ignored by tusk commit; lint runs at merge time.")
 
-    # ── Step 1: Run test_command gate (hard-blocks on failure) ───────
+    # ── Step 1a: Preflight git index writability before expensive gates ─
+    index_ok, index_diagnostic = _preflight_git_index_writable(repo_root)
+    if not index_ok:
+        _print_error(index_diagnostic)
+        return 3
+
+    # ── Step 1b: Run test_command gate (hard-blocks on failure) ──────
     # Only query the task's domain when domain_test_commands is configured —
     # avoids a DB round-trip for the common case where domain routing is unused.
     # resolved_files is passed through so path_test_commands (insertion-order

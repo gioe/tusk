@@ -150,6 +150,50 @@ class TestSummaryLineEmission:
         assert payload["exit_code"] == 5
         assert payload["commit"] is None
 
+    def test_index_lock_preflight_runs_before_test_command(self, tmp_path, monkeypatch, capsys):
+        mod = _load_module()
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        git_dir = tmp_path / "primary" / ".git" / "worktrees" / "TASK-605"
+        git_dir.mkdir(parents=True)
+        (repo / ".git").write_text(f"gitdir: {git_dir}\n")
+        target = repo / "file.txt"
+        target.write_text("change\n")
+        cfg = _write_config(tmp_path, {"test_command": "touch marker"})
+        lock_path = git_dir / "index.lock"
+        test_command_ran = False
+
+        real_run = subprocess.run
+        real_os_open = os.open
+
+        def fake_run(args, *a, **kw):
+            nonlocal test_command_ran
+            if kw.get("shell") and args == "touch marker":
+                test_command_ran = True
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            return real_run(args, *a, **kw)
+
+        def fake_open(path, flags, mode=0o777):
+            if path == str(lock_path):
+                raise PermissionError(1, "Operation not permitted", str(lock_path))
+            return real_os_open(path, flags, mode)
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+        monkeypatch.setattr(mod.os, "open", fake_open)
+
+        argv = [str(repo), cfg, "999", "msg", str(target)]
+        rc = mod.main(argv)
+        captured = capsys.readouterr()
+
+        assert rc == 3
+        assert not test_command_ran
+        assert "git index is not writable" in captured.err
+        assert str(lock_path) in captured.err
+        payload = _parse_summary(captured.out)
+        assert payload["status"] == "failure"
+        assert payload["exit_code"] == 3
+        assert payload["commit"] is None
+
     def test_summary_on_criterion_failure_includes_sha(self, tmp_path, monkeypatch, capsys):
         """Criterion-done failure (exit 4) still reports the commit SHA since the commit landed."""
         mod = _load_module()

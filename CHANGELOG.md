@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1109] - 2026-06-04
+
+- [TASK-605] Fix: Preflight git index writability before tusk commit test gate
+
 ## [1108] - 2026-06-04
 
 - [TASK-587] Document tusk merge skip-lint and skip-verify flags
