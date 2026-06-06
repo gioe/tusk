@@ -349,13 +349,33 @@ For each open `must_fix` comment:
 ### suggest comments
 
 These are optional improvements. For each `suggest` comment, **decide
-autonomously** between three branches — do not ask the user:
+autonomously** between four branches — do not ask the user:
 
 - **Fix**: implement the suggestion, append every file you modified to
   `REVIEW_FIX_FILES`, then run
   `tusk review resolve <comment_id> fixed`.
   Apply when the fix is small, clearly correct, and within the current
   task's scope.
+- **Preserve as a context atom**: create a task context atom, then
+  dismiss the comment with the context item ID in the dismissal trail.
+  Apply when the finding is useful future context but does not require
+  shippable work.
+  - Use `tusk context add $TASK_ID --source review --type decision --content "<durable design decision>"`
+    when the review resolves toward an intentional design choice.
+  - Use `tusk context add $TASK_ID --source review --type assumption --content "<assumption future agents should preserve>"`
+    when the dismissal depends on an assumption that may matter later.
+  - Use `tusk context add $TASK_ID --source review --type risk --content "<future risk and trigger condition>"`
+    when the finding names scoped risk that is real but not immediate
+    work.
+  - Use `tusk context add $TASK_ID --source review --type question --content "<open question and why it is not blocking now>"`
+    when the finding exposes an open question that should survive
+    handoff.
+  - Use `tusk context add $TASK_ID --source review --type memory --content "<durable implementation note>"`
+    for other durable facts that would help a future run.
+  - Do not write directly to `task_context_items`; use the first-class
+    context CLI.
+  - After creating the context atom, dismiss the comment with
+    `tusk review resolve <comment_id> dismissed --note "<rationale>; preserved as <type> context atom #<context_item_id>"`.
 - **Spin off into a follow-up task**: create a new task that captures
   the finding, then dismiss the comment with the new task ID in the
   dismissal trail. Apply when the suggestion is real and worth doing
@@ -391,10 +411,15 @@ autonomously** between three branches — do not ask the user:
   `tusk review resolve <comment_id> dismissed`.
   Apply when the suggestion is low-value, would require significant
   rework with no clear payoff, or is genuinely a non-issue.
+  If the dismissal rationale contains a durable design reason,
+  assumption, future risk, open question, or implementation memory,
+  first record the smallest useful context atom with
+  `tusk context add $TASK_ID --source review --type decision|assumption|risk|question|memory --content "<content>"`,
+  then include the context item ID in the dismissal note.
 
-Record every decision (fix, spin off, or dismiss) with a one-line
-rationale — these will be included in the final summary so the user can
-review them.
+Record every decision (fix, preserve as context atom, spin off, or
+dismiss) with a one-line rationale — these will be included in the final
+summary so the user can review them.
 
 After processing all findings, check the current verdict:
 
@@ -532,9 +557,14 @@ Pass:      <pass number of this review>
 
 must_fix:  <total_count> found, <fixed_count> fixed
 suggest:   <total_count> found, <fixed_count> fixed, <dismissed_count> dismissed
+context:   <review_source_count> atoms preserved from review
 
 Verdict: <APPROVED | CHANGES REMAINING>
 ```
+
+The context count comes from `task_context_items` rows for this task
+with `source='review'`; it is the audit cue for review decisions
+preserved outside the backlog.
 
 ## Step 11: Finish Cost Tracking
 

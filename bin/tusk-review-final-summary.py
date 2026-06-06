@@ -10,6 +10,7 @@ across all of that task's reviews (including superseded passes) to produce:
 
     must_fix:  <found> found, <fixed> fixed
     suggest:   <found> found, <fixed> fixed, <dismissed> dismissed
+    context:   <count> atoms preserved from review
 
     Verdict: <APPROVED | CHANGES REMAINING>
 
@@ -93,6 +94,17 @@ def _open_must_fix(conn: sqlite3.Connection, task_id: int) -> int:
     return row["cnt"] if row else 0
 
 
+def _review_context_count(conn: sqlite3.Connection, task_id: int) -> int:
+    """Count context atoms created from review resolution work."""
+    row = conn.execute(
+        "SELECT COUNT(*) as cnt"
+        " FROM task_context_items"
+        " WHERE task_id = ? AND source = 'review'",
+        (task_id,),
+    ).fetchone()
+    return row["cnt"] if row else 0
+
+
 def render_summary(review_id: int, db_path: str) -> int:
     conn = get_connection(db_path)
     try:
@@ -112,6 +124,7 @@ def render_summary(review_id: int, db_path: str) -> int:
 
         counts = _counts_for_task(conn, task_id)
         open_must_fix = _open_must_fix(conn, task_id)
+        review_context_count = _review_context_count(conn, task_id)
     finally:
         conn.close()
 
@@ -126,6 +139,7 @@ def render_summary(review_id: int, db_path: str) -> int:
     print()
     print(f"must_fix:  {mf['found']} found, {mf['fixed']} fixed")
     print(f"suggest:   {sg['found']} found, {sg['fixed']} fixed, {sg['dismissed']} dismissed")
+    print(f"context:   {review_context_count} atoms preserved from review")
     print()
     print(f"Verdict: {verdict_label}")
     return 0

@@ -50,6 +50,16 @@ CREATE TABLE review_comments (
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
 );
+CREATE TABLE task_context_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    item_type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    source TEXT NOT NULL DEFAULT 'manual',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
 """
 
 
@@ -110,6 +120,7 @@ class TestApprovedVerdict:
         assert "Pass:      1" in out
         assert "must_fix:  2 found, 2 fixed" in out
         assert "suggest:   3 found, 1 fixed, 1 dismissed" in out
+        assert "context:   0 atoms preserved from review" in out
         assert "defer:" not in out
         assert "Verdict: APPROVED" in out
         # The machine-ID form must not leak into the display label
@@ -126,8 +137,30 @@ class TestApprovedVerdict:
         assert "Pass:      2" in out
         assert "must_fix:  0 found, 0 fixed" in out
         assert "suggest:   0 found, 0 fixed, 0 dismissed" in out
+        assert "context:   0 atoms preserved from review" in out
         assert "defer:" not in out
         assert "Verdict: APPROVED" in out
+
+    def test_approved_summary_counts_review_context_atoms(self, tmp_path):
+        db_path, conn = _make_db(tmp_path)
+        _insert_review(conn, 1, status="approved", review_pass=1)
+        conn.execute(
+            "INSERT INTO task_context_items (task_id, item_type, content, source)"
+            " VALUES (42, 'decision', 'Keep review context durable.', 'review')"
+        )
+        conn.execute(
+            "INSERT INTO task_context_items (task_id, item_type, content, source)"
+            " VALUES (42, 'risk', 'Watch review noise.', 'review')"
+        )
+        conn.execute(
+            "INSERT INTO task_context_items (task_id, item_type, content, source)"
+            " VALUES (42, 'memory', 'Manual note.', 'manual')"
+        )
+        conn.commit()
+
+        code, out, err = _run_cli(db_path, 1)
+        assert code == 0, err
+        assert "context:   2 atoms preserved from review" in out
 
 
 class TestChangesRemainingVerdict:

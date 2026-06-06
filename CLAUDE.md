@@ -220,7 +220,7 @@ Two external library repos ship their own `tusk-bootstrap.json` and are pre-conf
 - **`/resume-task`** — Recover session from branch name + progress log
 - **`/chain`** — Parallel dependency sub-DAG execution (one or more head IDs)
 - **`/loop`** — Autonomous backlog loop; dispatches `/chain` or `/tusk` until empty
-- **`/review-commits`** — Parallel AI code review; fixes must_fix, dismisses or spins suggest findings into follow-up tasks
+- **`/review-commits`** — Parallel AI code review; fixes must_fix findings, and fixes, preserves as context, dismisses, or spins suggest findings into follow-up tasks
 - **`/address-issue`** — Fetch a GitHub issue, score it, create a tusk task, and work through it
 - **`/ios-libs-issue`** — File an issue against the configured iOS lib repo (`project_type=ios_app` only); auto-attaches originating tusk task
 - **`/ios-libs-contribute`** — Open a PR against the configured iOS lib repo (`project_type=ios_app` only); links the upstream PR back to the originating tusk task
