@@ -97,6 +97,57 @@
 
 ---
 
+## CONTEXT HANDOFF MODEL
+
+Tusk is a durable context snapshot system. It turns a freeform request into structured records that a later agent can read without depending on the original chat transcript.
+
+```
+WRITE FLOW: /create-task
+
+freeform request / investigation / retro finding
+    │
+    ├── identify objective
+    │      larger intent unit; may require more than one task
+    │
+    ├── slice into task
+    │      shippable unit with domain, type, priority, complexity, and dependencies
+    │
+    ├── attach criteria
+    │      completion units that define observable done-ness
+    │
+    ├── attach verification specs
+    │      proof units: commands, file checks, review gates, or manual checks
+    │
+    └── preserve context atoms
+           memory units embedded in descriptions, criteria, progress, jots,
+           review comments, and retro findings
+           │
+           ▼
+      task-insert / criteria add / deps add / progress / jot
+           │
+           ▼
+      SQLite durable context snapshot
+```
+
+```
+READ FLOW: /tusk
+
+SQLite durable context snapshot
+    │
+    ├── task-select or explicit task id
+    ├── task-get / criteria list / deps ready
+    ├── task-start opens a session
+    ├── task-worktree create materializes the work capture space
+    ├── implementation reads only the task-relevant context atoms
+    ├── commit binds changed files and commit hash to criteria
+    ├── verification proves criteria through tests, grep checks, review, or manual evidence
+    └── progress / session-close write the next handoff snapshot
+```
+
+The boundary matters. Objectives explain why work exists, tasks decide what ships, criteria define completion, verifications prove completion, and context atoms preserve memory without inflating the backlog. The write side must leave enough structured context for the read side to act; the read side should avoid loading unrelated backlog history just because it is available.
+
+---
+
 ## TASK DEVELOPMENT WORKFLOW (end-to-end)
 
 ```

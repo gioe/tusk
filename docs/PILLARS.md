@@ -4,6 +4,16 @@ This document defines the eight product pillars that guide tusk's design and dev
 
 **Source of truth.** This markdown file is the canonical definition of tusk's pillars. The `pillars` DB table (queried by `/investigate`, `/investigate-directory`, and `/address-issue`) is a normalized projection of the `## N. Name` + `**Core claim:**` pairs in this file — it exists so skills can filter on pillar name and claim without parsing markdown at query time. The table is seeded automatically on `tusk init` / `tusk migrate` when this file is present (migration 47). After editing names or core claims here, run `tusk pillars sync-from-md` to re-sync the DB; the richer fields (definition, maturity, representative features) stay markdown-only.
 
+**Context handoff model.** Tusk treats the database as a durable context snapshot for agent work, not just as a task list. The model is intentionally layered:
+
+- **Objectives** are larger intent units: the product or project outcome that may take several shippable changes to satisfy.
+- **Tasks** are shippable units: the smallest unit that should receive a branch, worktree, commit history, review, and merge decision.
+- **Criteria** are completion units: the observable promises that determine whether a task is done.
+- **Verifications** are proof units: test commands, grep checks, review decisions, or manual evidence that a criterion was actually satisfied.
+- **Context atoms** are memory units: compact facts captured in task descriptions, criteria, progress checkpoints, review comments, jots, and retro findings so future agents can resume without relying on conversation history.
+
+The tradeoff is deliberate. Collapsing everything into tasks makes intent too small and loses why the work matters. Collapsing everything into objectives makes execution too vague and hard to merge. Treating criteria as tasks creates bookkeeping noise, while treating verification as prose makes "done" unverifiable. Context atoms stay below the task level so tusk can preserve useful memory without turning every remembered detail into backlog work. The result is a read/write handoff contract: task-creation flows write durable context snapshots into structured records, and task-execution flows read only the slice needed to ship the next change.
+
 ---
 
 ## Maturity Summary
@@ -23,7 +33,7 @@ This document defines the eight product pillars that guide tusk's design and dev
 
 ## 1. Transparent
 
-**Definition:** Tusk makes all task state, cost, and decision history visible and auditable at any time. Every action that changes a task — status transitions, session opens and closes, criteria completions, PR links, progress checkpoints — is recorded in the database and queryable. Nothing important happens in memory only.
+**Definition:** Tusk makes all task state, cost, and decision history visible and auditable at any time. Every action that changes a task — status transitions, session opens and closes, criteria completions, PR links, progress checkpoints — is recorded in the database and queryable. Nothing important happens in memory only; each task becomes a durable context snapshot that can be read by a later agent.
 
 **Core claim:** You can always reconstruct what happened to any task, who worked on it, how much it cost, and what was decided — even weeks later with no conversation history.
 

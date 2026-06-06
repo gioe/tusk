@@ -8,6 +8,12 @@ tusker is a portable task management system for Claude Code projects. It provide
 
 When proposing, evaluating, or reviewing features, consult `docs/PILLARS.md` for design tradeoffs. The pillars define what tusk values and provide a shared vocabulary for resolving competing approaches.
 
+## Context Handoff Model
+
+Tusk is a durable context snapshot system. Treat objectives as larger intent units, tasks as shippable units, criteria as completion units, verifications as proof units, and context atoms as memory units captured in task descriptions, criteria, progress, review comments, jots, and retro findings.
+
+The write side (`/create-task`, `/retro`, `/investigate`, and direct `task-insert`/`criteria add` calls) should leave enough structured context for a future `/tusk` run to act without the original chat. The read side (`/tusk`, `/resume-task`, `/chain`) should start from `task-get`, criteria, dependencies, and progress, then load only the task-relevant context needed to ship the next change.
+
 ## Commands
 
 ```bash
