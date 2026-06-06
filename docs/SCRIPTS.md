@@ -57,6 +57,7 @@ require it).
 | **tusk-merge.py** | `tusk merge <id> [--session <id>] [--pr] [--pr-number N] [--rebase] [--skip-lint] [--skip-verify]` | `tasks`, `task_sessions`, config (`merge.mode`, `lint_timeout_sec`) | `task_sessions` (close), `tasks` (Done), git (merge + push + branch delete) after clean `tusk lint` unless `--skip-lint` skips only the pre-merge lint gate or `--skip-verify` skips lint plus future pre-merge verification gates |
 | **tusk-progress.py** | `tusk progress <id> [--note "…"] [--next-steps "…"]` | git HEAD | `task_progress` |
 | **tusk-criteria.py** | `tusk criteria add\|list\|done\|skip\|reset\|delete <id> [flags]` | `acceptance_criteria`, git HEAD, Claude Code transcripts | `acceptance_criteria`; cost attribution via `tusk-pricing-lib.py` |
+| **tusk-context.py** | `tusk context add\|list\|resolve\|supersede ...` | `tasks`, `objectives`, `task_context_items` | `task_context_items` (except `list`) |
 
 ### Dependencies
 

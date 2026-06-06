@@ -62,6 +62,12 @@ bin/tusk criteria skip <criterion_id> --reason <reason>
 bin/tusk criteria reset <criterion_id>
 bin/tusk criteria delete <criterion_id> [--force]  # --force allows deleting completed criteria
 
+# Context atoms
+bin/tusk context add <task_id> --type memory|assumption|question|risk|decision|entry_point --content "..." [--source manual|create_task|task_progress|review|retro|agent_handoff] [--objective-id ID]
+bin/tusk context list <task_id> [--type memory|assumption|question|risk|decision|entry_point] [--status active|resolved|superseded|all] [--format json|text]
+bin/tusk context resolve <context_item_id>
+bin/tusk context supersede <context_item_id>
+
 # Dependencies
 bin/tusk deps add <task_id> <depends_on_id> [--type blocks|contingent]
 bin/tusk deps remove <task_id> <depends_on_id>

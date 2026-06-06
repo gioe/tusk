@@ -15,6 +15,7 @@
   ".claude/bin/tusk-check-deliverables.py",
   ".claude/bin/tusk-commit.py",
   ".claude/bin/tusk-config-tools.py",
+  ".claude/bin/tusk-context.py",
   ".claude/bin/tusk-conventions.py",
   ".claude/bin/tusk-cost.py",
   ".claude/bin/tusk-criteria.py",

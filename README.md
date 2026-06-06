@@ -120,6 +120,8 @@ tusk version                 # Print installed version
 tusk migrate                 # Apply pending schema migrations
 tusk upgrade                 # Upgrade tusk from GitHub
 tusk task-brief <id>         # Compile a pickup brief for context hydration
+tusk context add <id> --type decision --content "..."  # Add a durable context atom
+tusk context list <id>       # List active context atoms for a task
 ```
 
 ## Skills

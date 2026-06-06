@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1116] - 2026-06-06
+
+- [TASK-617] Add first-class task context item CLI
+
 ## [1115] - 2026-06-06
 
 - [TASK-614] Hydrate task context at the start of the tusk workflow
