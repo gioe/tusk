@@ -3342,6 +3342,58 @@ def migrate_76(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 76: added task_progress.note")
 
 
+def migrate_77(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add objectives and task context items for durable handoff modeling."""
+    if get_version(db_path) >= 77:
+        _progress("  Migration 77: added objective and task context item tables")
+        return
+
+    script = """
+        CREATE TABLE IF NOT EXISTS objectives (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            summary TEXT NOT NULL,
+            description TEXT,
+            status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'completed', 'abandoned')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            closed_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS objective_tasks (
+            objective_id INTEGER NOT NULL,
+            task_id INTEGER NOT NULL,
+            relationship_type TEXT NOT NULL DEFAULT 'contributes_to' CHECK (relationship_type IN ('primary', 'contributes_to', 'follow_up')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (objective_id, task_id),
+            FOREIGN KEY (objective_id) REFERENCES objectives(id) ON DELETE CASCADE,
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_objective_tasks_task_id ON objective_tasks(task_id);
+
+        CREATE TABLE IF NOT EXISTS task_context_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL,
+            objective_id INTEGER,
+            item_type TEXT NOT NULL CHECK (item_type IN ('memory', 'assumption', 'question', 'risk', 'decision', 'entry_point')),
+            content TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'resolved', 'superseded')),
+            source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'create_task', 'task_progress', 'review', 'retro', 'agent_handoff')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            resolved_at TEXT,
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+            FOREIGN KEY (objective_id) REFERENCES objectives(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_task_context_items_task_id ON task_context_items(task_id);
+        CREATE INDEX IF NOT EXISTS idx_task_context_items_objective_id ON task_context_items(objective_id);
+        CREATE INDEX IF NOT EXISTS idx_task_context_items_type_status ON task_context_items(item_type, status);
+
+        PRAGMA user_version = 77;
+    """
+    run_script(db_path, script)
+    _progress("  Migration 77: added objective and task context item tables")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -3421,6 +3473,7 @@ MIGRATIONS = [
     (74, migrate_74),
     (75, migrate_75),
     (76, migrate_76),
+    (77, migrate_77),
 ]
 
 

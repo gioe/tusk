@@ -110,6 +110,62 @@ The core question when choosing a `task_type` is: **is this a deliverable, or a 
 
 ---
 
+### Objective
+
+A larger intent unit that can span multiple shippable tasks. Objectives are for initiative-level context: why a cluster of tasks exists, what outcome they serve, and when that larger intent is complete. They are deliberately separate from `tasks.description` so task rows can stay focused on the next shippable unit.
+
+| Attribute | Type | Constraints | Description |
+|-----------|------|-------------|-------------|
+| `id` | INTEGER | PK, autoincrement | Stable identifier |
+| `summary` | TEXT | NOT NULL | One-line objective |
+| `description` | TEXT | nullable | Durable context snapshot for the larger intent |
+| `status` | TEXT | CHECK IN (`active`, `completed`, `abandoned`); default `active` | Objective lifecycle state |
+| `created_at` | TEXT | NOT NULL; default now | Creation timestamp |
+| `updated_at` | TEXT | NOT NULL; default now | Last metadata update timestamp |
+| `closed_at` | TEXT | nullable | When the objective reached a terminal state |
+
+**Lifecycle expectations:** objectives start `active`, remain open while their linked tasks are still delivering the larger outcome, then move to `completed` when the outcome is satisfied or `abandoned` when the intent is no longer worth pursuing. Closing an objective does not automatically close tasks; tasks remain the shippable unit and carry their own status, criteria, sessions, and merge history.
+
+---
+
+### Objective Task
+
+A many-to-many link between objectives and tasks. A task may contribute to more than one objective, and an objective usually contains several tasks.
+
+| Attribute | Type | Constraints | Description |
+|-----------|------|-------------|-------------|
+| `objective_id` | INTEGER | FK -> objectives(id) CASCADE; part of PK | Owning objective |
+| `task_id` | INTEGER | FK -> tasks(id) CASCADE; part of PK | Linked shippable task |
+| `relationship_type` | TEXT | CHECK IN (`primary`, `contributes_to`, `follow_up`); default `contributes_to` | How the task relates to the larger intent |
+| `created_at` | TEXT | NOT NULL; default now | Link creation timestamp |
+
+**Relationship semantics:** use `primary` for the task that most directly carries the objective, `contributes_to` for supporting work, and `follow_up` for rework or continuation tasks that preserve objective continuity without overwriting the original task.
+
+---
+
+### Task Context Item
+
+A typed context atom attached to a task, optionally scoped to an objective. Context items capture durable context snapshots that are too granular for `tasks.description` and not path declarations like `task_scope`: assumptions, questions, risks, decisions, memory, and entry points for the next agent.
+
+| Attribute | Type | Constraints | Description |
+|-----------|------|-------------|-------------|
+| `id` | INTEGER | PK, autoincrement | Stable identifier |
+| `task_id` | INTEGER | FK -> tasks(id) CASCADE | Owning task |
+| `objective_id` | INTEGER | FK -> objectives(id) SET NULL | Optional larger intent this context supports |
+| `item_type` | TEXT | CHECK IN (`memory`, `assumption`, `question`, `risk`, `decision`, `entry_point`) | Kind of handoff atom |
+| `content` | TEXT | NOT NULL | The context payload |
+| `status` | TEXT | CHECK IN (`active`, `resolved`, `superseded`); default `active` | Whether the atom is still useful |
+| `source` | TEXT | CHECK IN (`manual`, `create_task`, `task_progress`, `review`, `retro`, `agent_handoff`); default `manual` | Where the atom came from |
+| `created_at` | TEXT | NOT NULL; default now | Creation timestamp |
+| `updated_at` | TEXT | NOT NULL; default now | Last metadata update timestamp |
+| `resolved_at` | TEXT | nullable | When the atom stopped being active |
+
+**Lifecycle expectations:** context items are append-friendly handoff records. Prefer creating a new `decision` or `memory` atom over rewriting history when the meaning changed. Mark questions, risks, or assumptions `resolved` when addressed; mark any atom `superseded` when newer context replaces it. This keeps the read path cheap: `/tusk` can load active context atoms for the current task and objective without rereading every progress note or overloading the task description.
+
+**Modeling boundary:** objectives are larger intent units, tasks are shippable work units, acceptance criteria are completion units, verification results are proof units, and task context items are memory units. Use the smallest unit that matches the job: a new requirement belongs in a task or criterion, while a fact that helps the next agent understand the work belongs in `task_context_items`.
+
+---
+
 ### Acceptance Criterion
 
 A verifiable condition that must be satisfied before a task is considered done. Tasks have zero or more criteria.

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1113] - 2026-06-06
+
+- [TASK-611] Add objective and context-item schema for task handoff modeling
+
 ## [1112] - 2026-06-05
 
 - [TASK-610] Fix: Make post-merge skill-run finish resilient after task worktree cleanup
