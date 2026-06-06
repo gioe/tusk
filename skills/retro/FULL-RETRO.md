@@ -71,6 +71,10 @@ Consume `tool_errors` from this same `tusk retro-signals` JSON — **do not** op
 
 This signal drives the full retro only — the lightweight retro path (XS/S in `SKILL.md`) is intentionally unchanged to keep it lean.
 
+- **`context_health`** — context-atom handoff health for the task. Shape: `{active_counts, active_items, missing_entry_points, inactive_items}`. `active_items` contains active risks/questions/assumptions; `missing_entry_points` mirrors task-brief's missing entry-point warning; `inactive_items` contains resolved/superseded atoms that may reveal stale or already-closed context. Drives Step 4's "Context Snapshot" section and Step 3's durable-unit routing. These rows are memory signals, not backlog tasks by default.
+
+Consume `context_health` from this same `tusk retro-signals` JSON — Do **not** issue separate SQL against `task_context_items`. Approved context updates must use `tusk context add`, `tusk context resolve`, or `tusk context supersede`.
+
 If the task has no review activity at all, `review_themes` will be an empty array. In that case, **omit** the "Review Theme Summary" section from Step 4 silently — do not add a "(none)" placeholder.
 
 ## Step 2c: Cross-retro Themes (from Step 0b output)
@@ -106,6 +110,7 @@ After categorizing findings, run two cross-cutting checks:
 
 - **Debugging velocity lens** — if the session involved fixing a bug or diagnosing unexpected behavior, ask what would have reduced time-to-root-cause: a test, log, trace, command, tusk safeguard, clearer handoff, or documentation. Classify any resulting finding into Category A, B, C, or D; do not create a separate debugging category.
 - **Mechanical guard action route** — if any finding describes an actual mistake that can be prevented by a concrete grep-detectable pattern, mark its proposed action as "add lint rule" and capture the pattern, file glob, and message. Do not use this for general advice or style preferences. Applied inline when possible (step 5d); task creation is the fallback.
+- **Context atom route** — for every finding, ask whether the smallest durable unit is a task, a criterion on an existing task, or a context atom. Use a context atom for durable memory that should help a future handoff but is not shippable backlog work: assumptions, questions, risks, decisions, entry points, or compact memory. Context atoms should reduce backlog noise, not create it.
 
 For each default category, explicitly record `none` or list the findings. An empty category is a positive signal.
 
@@ -120,12 +125,18 @@ Use the `count` and `sample` fields to show the reviewer why this theme crossed 
 
 ### 3a: Classify Each Finding
 
-For each finding, determine whether it is a **tusk-issue** or a **project-issue**:
+For each finding, record its **durable unit**:
+
+- **task** — shippable backlog work requiring its own branch/worktree/review.
+- **criterion** — an observable completion condition that belongs on an existing open task.
+- **context_atom** — durable handoff memory that should be written, resolved, or superseded through `tusk context`.
+
+For task findings, determine whether it is a **tusk-issue** or a **project-issue**:
 
 - **tusk-issue** — a bug, limitation, or improvement in tusk itself: the CLI, a skill, DB schema, or installed tooling (e.g., a skill instruction is confusing, a `tusk` command misbehaves, a missing feature in the tool)
 - **project-issue** — specific to the current project: its code, architecture, conventions, or processes
 
-Label each finding with its classification. This drives the routing in Step 5b.
+Label each finding with its durable unit and, for task findings, its classification. This drives the routing in Step 5b.
 
 Category A findings are always **tusk-issues**. Category D findings are normally **project-issues** unless the missing documentation is in tusk's distributed docs/prompts/skills.
 
@@ -203,9 +214,23 @@ Brief (2-3 sentence) overview of what the session accomplished.
 | Tool | Errors | Sample |
 |------|-------:|--------|
 
+### Context Snapshot (omit if no active_items, no inactive_items, and missing_entry_points is false)
+
+> **Durable memory** — these rows are context atoms, not backlog work. Promote to tasks only when the item requires a shippable change.
+
+- **Missing entry points**: yes/no
+
+**Active risks/questions/assumptions** (from `context_health.active_items` — omit table if empty)
+| ID | Type | Source | Content |
+|----|------|--------|---------|
+
+**Resolved/superseded context** (from `context_health.inactive_items` — omit table if empty)
+| ID | Type | Status | Content |
+|----|------|--------|---------|
+
 ### <Category name from Step 3> (N findings)
 1. **<title>** — <description>
-   → Proposed: <summary> | <priority> | <task_type> | <domain>
+   → Proposed: <durable unit> | <summary/action> | <priority> | <task_type> | <domain>
 
 (Repeat for each category. Use the resolved category names — from FOCUS.md if present, or defaults A/B/C/D. Omit empty categories, but only after explicitly checking and recording `none` during Step 3.)
 
@@ -254,6 +279,13 @@ Brief (2-3 sentence) overview of what the session accomplished.
 - The "Soft warning" callout is mandatory whenever the section is rendered — same rule as Session Shape: it's what flags this as context rather than a proposed action.
 - Never promote an Errors-encountered row into a Proposed Action, a subsumption, or a lint rule. One-off tool errors are frequently benign (a typo in a Bash command, a Read against a file that was already stale) — the reviewer is the one who decides whether a pattern warrants follow-up, and if so, they create the task manually via `/create-task`.
 
+**Context Snapshot rendering rules:**
+- If `context_health.active_items` is empty, `context_health.inactive_items` is empty, and `context_health.missing_entry_points` is false, omit the entire section silently.
+- Render this section before the category findings so the reviewer can decide whether a finding should update context instead of creating backlog work.
+- If `missing_entry_points` is true, include the section even when both tables are empty; propose an `entry_point` context atom only if the task produced a durable file/module starting point future agents should read.
+- Each active row renders `id`, `type`, `source`, and `content` verbatim from `context_health.active_items`. Each inactive row renders `id`, `type`, `status`, and `content` from `context_health.inactive_items`.
+- The durable-memory callout is mandatory whenever the section is rendered.
+
 Then ask the user to **confirm**, **remove** specific numbers, **edit** a task, **reject subsumption**, **add** a finding, or **skip**. Wait for explicit approval before inserting.
 
 ## Step 5: Apply Approved Changes
@@ -272,7 +304,23 @@ tusk "UPDATE tasks SET description = $(tusk sql-quote "$AMENDED_DESC"), updated_
 
 ### 5b: Insert New Tasks / File Issues
 
-Route each approved finding based on its classification from Step 3a:
+Route each approved finding based on its durable unit from Step 3a:
+
+**criteria** — add the finding to the best matching open task:
+```bash
+tusk criteria add <task_id> "<criterion>"
+```
+Do **not** create a new task for this finding.
+
+**context_atom** — write through the first-class context CLI:
+```bash
+tusk context add <task_id> --type risk --content "<finding summary>" --source retro
+tusk context resolve <context_item_id>
+tusk context supersede <context_item_id>
+```
+Choose `memory`, `assumption`, `question`, `risk`, `decision`, or `entry_point` as narrowly as possible. Use `resolve` when the finding closes an active question/risk/assumption; use `supersede` when the finding replaces stale context. Do **not** use direct SQL for context atoms.
+
+**task** — route based on its classification from Step 3a:
 
 **tusk-issues** — file a GitHub issue via:
 ```bash
@@ -441,6 +489,8 @@ The /tusk skill already printed the task summary block (`tusk task-summary <id> 
 **Session**: <what was accomplished>
 **Findings**: N findings by category (use resolved category names)
 **Created**: N tasks (#id, #id)
+**Criteria added**: N (omit line if zero)
+**Context atoms updated**: N added, R resolved, S superseded (omit line if all zero)
 **GitHub issues filed**: N (tusk-issues routed via tusk report-issue — omit line if zero)
 **Lint rules**: K applied inline, M deferred as tasks
 **Auto-applied**: P frontmatter edits — <one entry per item from $AUTO_APPLIED, format: `path/to/SKILL.md (brief description)`> (omit line if P == 0)
@@ -459,7 +509,7 @@ tusk -header -column "SELECT id, summary, priority, domain, task_type, status FR
 
 ### 6a: Record approved findings for cross-retro theme detection
 
-Before closing the skill run, write one `retro_findings` row per **approved** finding — every new task created in 5b, every GitHub issue filed, every lint rule applied in 5d, every convention or skill patch applied in 5e. Subsumptions (5a) are recorded as well, with `action_taken: subsumed:TASK-<id>` so the merge-into target is captured. Duplicates and user-rejected findings are **not** recorded — only approved, actioned findings feed the cross-retro signal.
+Before closing the skill run, write one `retro_findings` row per **approved** finding — every new task created in 5b, every criterion added, every context atom updated, every GitHub issue filed, every lint rule applied in 5d, every convention or skill patch applied in 5e. Subsumptions (5a) are recorded as well, with `action_taken: subsumed:TASK-<id>` so the merge-into target is captured. Duplicates and user-rejected findings are **not** recorded — only approved, actioned findings feed the cross-retro signal.
 
 For each approved finding, run:
 
@@ -474,6 +524,8 @@ tusk retro-finding add \
 
 `<action_taken>` vocabulary (pick whichever fits; omit `--action-taken` if none do):
 - `task:TASK-<id>` — a new task was created via `tusk task-insert`
+- `criterion:<id>` — an acceptance criterion was added via `tusk criteria add`
+- `context:<id>` — a context atom was added, resolved, or superseded via `tusk context`
 - `issue:<url>` — a GitHub issue was filed via `tusk report-issue`
 - `lint:<id>` — a lint rule was added via `tusk lint-rule add`
 - `convention:<id>` — a convention was added via `tusk conventions add`

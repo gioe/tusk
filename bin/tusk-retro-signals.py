@@ -27,6 +27,12 @@ Output JSON shape:
                                  "complexity": "..." | null}, ...],
         "tool_errors":         [{"tool_name": "...", "error_count": N,
                                  "sample": "..."}, ...],
+        "context_health":      {
+            "active_counts": {"memory": N, ...},
+            "active_items": [{"id": N, "type": "risk", "content": "...", ...}, ...],
+            "missing_entry_points": true|false,
+            "inactive_items": [{"id": N, "type": "...", "status": "resolved", ...}, ...]
+        },
         "unconsumed_next_steps": [{"created_at": "...", "next_steps": "..."}, ...]
     }
 
@@ -74,6 +80,9 @@ REVIEW_SAMPLE_MAX_CHARS = 80
 
 # Max chars of a representative tool-error message to include.
 TOOL_ERROR_SAMPLE_MAX_CHARS = 160
+
+# Max chars of a context atom to include in retro signal output.
+CONTEXT_ITEM_MAX_CHARS = 160
 
 
 def _resolve_task_id(raw: str) -> int:
@@ -330,6 +339,67 @@ def fetch_tool_errors(
     return rows
 
 
+def _context_item(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "type": row["item_type"],
+        "status": row["status"],
+        "source": row["source"],
+        "content": _compact(row["content"], CONTEXT_ITEM_MAX_CHARS),
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "resolved_at": row["resolved_at"],
+    }
+
+
+def fetch_context_health(conn: sqlite3.Connection, task_id: int) -> dict:
+    """Summarize durable task-context atoms for retro review.
+
+    This keeps /retro aware of handoff memory without making every remembered
+    fact look like backlog work. Active risks/questions/assumptions are the
+    highest-signal items, missing entry points mirror task-brief's context
+    health warning, and inactive atoms give the reviewer candidates to resolve
+    or supersede through the first-class context CLI.
+    """
+    rows = conn.execute(
+        "SELECT id, item_type, content, status, source, created_at, updated_at, resolved_at "
+        "  FROM task_context_items "
+        " WHERE task_id = ? "
+        " ORDER BY status, item_type, created_at, id",
+        (task_id,),
+    ).fetchall()
+
+    active_counts = {
+        "memory": 0,
+        "assumption": 0,
+        "question": 0,
+        "risk": 0,
+        "decision": 0,
+        "entry_point": 0,
+    }
+    active_items: list[dict] = []
+    inactive_items: list[dict] = []
+    has_active_entry_point = False
+
+    for row in rows:
+        item = _context_item(row)
+        if row["status"] == "active":
+            active_counts[row["item_type"]] = active_counts.get(row["item_type"], 0) + 1
+            if row["item_type"] == "entry_point":
+                has_active_entry_point = True
+            if row["item_type"] in {"assumption", "question", "risk"}:
+                active_items.append(item)
+        else:
+            inactive_items.append(item)
+
+    return {
+        "active_counts": active_counts,
+        "active_items": active_items,
+        "missing_entry_points": not has_active_entry_point,
+        "inactive_items": inactive_items,
+    }
+
+
 def fetch_unconsumed_next_steps(conn: sqlite3.Connection, task_id: int) -> list[dict]:
     """Non-empty next_steps handoff notes from task_progress, oldest first.
 
@@ -379,6 +449,7 @@ def build_signals(conn: sqlite3.Connection, task_id: int) -> dict:
         ("skipped_criteria", lambda: fetch_skipped_criteria(conn, task_id)),
         ("tool_call_outliers", lambda: fetch_tool_call_outliers(conn, task_id, complexity)),
         ("tool_errors", lambda: fetch_tool_errors(conn, task_id)),
+        ("context_health", lambda: fetch_context_health(conn, task_id)),
         ("unconsumed_next_steps", lambda: fetch_unconsumed_next_steps(conn, task_id)),
     )
     for key, fn in phases:

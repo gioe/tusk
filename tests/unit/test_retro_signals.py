@@ -94,6 +94,18 @@ CREATE TABLE tool_call_stats (
     call_count INTEGER NOT NULL DEFAULT 0,
     total_cost REAL NOT NULL DEFAULT 0.0
 );
+CREATE TABLE task_context_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    objective_id INTEGER,
+    item_type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    source TEXT NOT NULL DEFAULT 'manual',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    resolved_at TEXT
+);
 """
 
 
@@ -603,6 +615,103 @@ class TestFetchToolErrors:
         assert out[0]["sample"].endswith("…")
 
 
+# ── context_health ────────────────────────────────────────────────────
+
+
+class TestContextHealth:
+    def test_empty_context_marks_missing_entry_points(self, tmp_path):
+        db_path, conn = _make_db(tmp_path, task_id=1)
+        conn.close()
+        c = sqlite3.connect(db_path)
+        c.row_factory = sqlite3.Row
+
+        out = mod.fetch_context_health(c, 1)
+        assert out == {
+            "active_counts": {
+                "memory": 0,
+                "assumption": 0,
+                "question": 0,
+                "risk": 0,
+                "decision": 0,
+                "entry_point": 0,
+            },
+            "active_items": [],
+            "missing_entry_points": True,
+            "inactive_items": [],
+        }
+
+    def test_summarizes_active_and_inactive_context_atoms(self, tmp_path):
+        db_path, conn = _make_db(tmp_path, task_id=1)
+        long_risk = "risk " + ("x" * 300)
+        conn.executemany(
+            "INSERT INTO task_context_items "
+            "(task_id, item_type, content, status, source, created_at, updated_at, resolved_at) "
+            "VALUES (1, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    "entry_point",
+                    "Start at bin/tusk-retro-signals.py",
+                    "active",
+                    "create_task",
+                    "2026-01-01 00:00:00",
+                    "2026-01-01 00:00:00",
+                    None,
+                ),
+                (
+                    "risk",
+                    long_risk,
+                    "active",
+                    "review",
+                    "2026-01-02 00:00:00",
+                    "2026-01-02 00:00:00",
+                    None,
+                ),
+                (
+                    "question",
+                    "Should this become a task?",
+                    "active",
+                    "manual",
+                    "2026-01-03 00:00:00",
+                    "2026-01-03 00:00:00",
+                    None,
+                ),
+                (
+                    "memory",
+                    "Old implementation detail",
+                    "superseded",
+                    "retro",
+                    "2026-01-04 00:00:00",
+                    "2026-01-05 00:00:00",
+                    "2026-01-05 00:00:00",
+                ),
+            ],
+        )
+        conn.commit()
+        conn.row_factory = sqlite3.Row
+
+        out = mod.fetch_context_health(conn, 1)
+        assert out["missing_entry_points"] is False
+        assert out["active_counts"]["entry_point"] == 1
+        assert out["active_counts"]["risk"] == 1
+        assert out["active_counts"]["question"] == 1
+        assert [item["type"] for item in out["active_items"]] == ["question", "risk"]
+        risk_item = out["active_items"][1]
+        assert risk_item["content"].endswith("…")
+        assert len(risk_item["content"]) <= mod.CONTEXT_ITEM_MAX_CHARS
+        assert out["inactive_items"] == [
+            {
+                "id": 4,
+                "type": "memory",
+                "status": "superseded",
+                "source": "retro",
+                "content": "Old implementation detail",
+                "created_at": "2026-01-04 00:00:00",
+                "updated_at": "2026-01-05 00:00:00",
+                "resolved_at": "2026-01-05 00:00:00",
+            }
+        ]
+
+
 # ── unconsumed_next_steps ─────────────────────────────────────────────
 
 
@@ -656,7 +765,7 @@ class TestMainOutput:
         assert set(data.keys()) == {
             "task_id", "complexity", "reopen_count", "rework_chain",
             "review_themes",
-            "skipped_criteria", "tool_call_outliers", "tool_errors",
+            "skipped_criteria", "tool_call_outliers", "tool_errors", "context_health",
             "unconsumed_next_steps",
         }
         # Empty-state shape: zero counts and empty arrays.
@@ -666,6 +775,9 @@ class TestMainOutput:
         assert data["skipped_criteria"] == []
         assert data["tool_call_outliers"] == []
         assert data["tool_errors"] == []
+        assert data["context_health"]["missing_entry_points"] is True
+        assert data["context_health"]["active_items"] == []
+        assert data["context_health"]["inactive_items"] == []
         assert data["unconsumed_next_steps"] == []
 
     def test_accepts_task_prefix_form(self, tmp_path):

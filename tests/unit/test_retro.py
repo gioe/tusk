@@ -83,6 +83,18 @@ CREATE TABLE tool_call_stats (
     call_count INTEGER NOT NULL DEFAULT 0,
     total_cost REAL NOT NULL DEFAULT 0.0
 );
+CREATE TABLE task_context_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    objective_id INTEGER,
+    item_type TEXT NOT NULL,
+    content TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    source TEXT NOT NULL DEFAULT 'manual',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    resolved_at TEXT
+);
 CREATE TABLE skill_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     skill_name TEXT NOT NULL,
@@ -160,7 +172,8 @@ class TestCombinedShape:
         assert set(signals.keys()) == {
             "task_id", "complexity", "reopen_count", "rework_chain",
             "review_themes", "skipped_criteria",
-            "tool_call_outliers", "tool_errors", "unconsumed_next_steps",
+            "tool_call_outliers", "tool_errors", "context_health",
+            "unconsumed_next_steps",
         }
         assert signals["task_id"] == 1
         assert signals["complexity"] == "M"

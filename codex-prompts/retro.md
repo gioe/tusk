@@ -66,7 +66,8 @@ the prompt makes one subprocess call instead of two. Output keys:
 
 - `signals` — task-specific signals: `complexity`, `reopen_count`,
   `rework_chain` (`fixes` / `fixed_by`), `review_themes`,
-  `skipped_criteria`, `tool_call_outliers`, `unconsumed_next_steps`.
+  `skipped_criteria`, `tool_call_outliers`, `tool_errors`,
+  `context_health`, `unconsumed_next_steps`.
 - `themes` — array of `{theme, count}` tuples for findings recurring at
   least `--min-recurrence` times in the last `--window-days` days. Empty
   array when no themes meet the threshold.
@@ -166,7 +167,18 @@ seen N times in last 30 days" next to that finding in the report.
 
 ### LR-1b: Classify Each Finding
 
-For each finding, determine whether it is a **tusk-issue** or a
+For each finding, first choose the smallest durable unit that matches
+it:
+
+- **Task** — shippable backlog work that needs its own branch,
+  worktree, review, and merge.
+- **Criterion** — an observable completion condition that belongs on an
+  existing open task.
+- **Context atom** — durable memory that improves future handoff but is
+  not shippable work: an assumption, question, risk, decision, entry
+  point, or compact memory.
+
+For task findings, determine whether it is a **tusk-issue** or a
 **project-issue**:
 
 - **tusk-issue** — a bug, limitation, or improvement in tusk itself:
@@ -174,8 +186,8 @@ For each finding, determine whether it is a **tusk-issue** or a
 - **project-issue** — specific to the current project: its code,
   architecture, conventions, or processes.
 
-Label each finding with its classification. This drives the routing in
-LR-2.
+Label each finding with its durable unit and, for task findings, its
+classification. This drives the routing in LR-2.
 
 Category A findings are always **tusk-issues**. Category D findings are
 normally **project-issues** unless the missing documentation is in tusk's
@@ -192,10 +204,31 @@ distributed docs/prompts/skills.
    ```
 
 3. Present findings and proposed actions in a table (include the
-   classification from LR-1b). Wait for explicit user approval before
-   acting.
+   durable unit and, for task findings, the classification from LR-1b).
+   Wait for explicit user approval before acting.
 
-4. For each approved finding, route based on its LR-1b classification:
+4. For each approved finding, route based on its LR-1b durable unit:
+
+   **criteria** — add the finding to the best matching open task:
+   ```bash
+   tusk criteria add <task_id> "<criterion>"
+   ```
+   Do **not** create a new task for this finding.
+
+   **context atoms** — write through the first-class context CLI:
+   ```bash
+   tusk context add <task_id> --type risk --content "<finding summary>" --source retro
+   tusk context resolve <context_item_id>
+   tusk context supersede <context_item_id>
+   ```
+   Choose `memory`, `assumption`, `question`, `risk`, `decision`, or
+   `entry_point` as narrowly as possible. Use `resolve` when the
+   finding closes an active question/risk/assumption; use `supersede`
+   when the finding replaces stale context. Do **not** use direct SQL
+   for context atoms. Context atoms should preserve durable memory
+   without inflating the task backlog.
+
+   **tasks** — route based on LR-1b classification:
 
    **tusk-issues** — file a GitHub issue via:
    ```bash
@@ -312,6 +345,8 @@ findings:
 **Session**: <what was accomplished>
 **Findings**: X total (by category)
 **Created**: N tasks (#id, #id)
+**Criteria added**: N — omit if zero
+**Context atoms updated**: N added, R resolved, S superseded — omit if all zero
 **GitHub issues filed**: N (tusk-issues routed via tusk report-issue — omit line if zero)
 **Lint rules**: K applied inline, M deferred as tasks
 **Skipped**: M duplicates
@@ -330,7 +365,8 @@ tusk -header -column "SELECT id, summary, priority, domain, task_type, status FR
 
 Before closing the skill run, write one `retro_findings` row per
 **approved** finding (task created, issue filed, lint rule added,
-convention added, prompt-patched inline, or doc-patched inline).
+criterion added, context atom updated, convention added,
+prompt-patched inline, or doc-patched inline).
 Skipped/duplicate findings are **not** recorded — only actioned ones
 feed the cross-retro signal.
 For each approved finding:
@@ -346,6 +382,9 @@ tusk retro-finding add \
 
 `<action_taken>` vocabulary (omit `--action-taken` if none fit):
 - `task:TASK-<id>` — new task created via `tusk task-insert`
+- `criterion:<id>` — acceptance criterion added via `tusk criteria add`
+- `context:<id>` — context atom added, resolved, or superseded via
+  `tusk context`
 - `issue:<url>` — GitHub issue filed via `tusk report-issue`
 - `lint:<id>` — lint rule added via `tusk lint-rule add`
 - `convention:<id>` — convention added via `tusk conventions add`
@@ -376,7 +415,8 @@ known-gaps reporting, and dependency proposals.
 
 The session signals you need are already in `signals` from Step 0a —
 specifically `review_themes`, `skipped_criteria`, `tool_call_outliers`,
-`unconsumed_next_steps`, `reopen_count`, and `rework_chain`.
+`tool_errors`, `context_health`, `unconsumed_next_steps`,
+`reopen_count`, and `rework_chain`.
 
 For deeper code review of the just-closed task, run:
 
@@ -411,17 +451,28 @@ Updates), but expand analysis with:
 - **Mechanical guard action route** — if any finding can be prevented by
   a concrete grep-detectable pattern, attach an "add lint rule" proposed
   action with the pattern, file glob, and message.
+- **Context atom route** — for every finding, ask whether the smallest
+  durable unit is a task, a criterion on an existing task, or a context
+  atom. Use a context atom for durable memory that should help a future
+  handoff but is not shippable backlog work.
+- **Context snapshot health** — review `signals.context_health`.
+  Active risks/questions/assumptions, missing entry points, and
+  resolved/superseded candidates should become context updates by
+  default; promote them to tasks only when they require shippable work.
 
 When `themes` from Step 0a is non-empty, flag findings whose category
 matches a recurring theme.
 
 ### FR-3: Classify and Plan (LR-1b + LR-2 routing)
 
-Apply the LR-1b classification (tusk-issue vs. project-issue) and the
-LR-2 routing rules (file GitHub issues for tusk-issues, insert tasks
-for project-issues, with LR-2a convention/prompt-doc patch logic for
-convention actions and Category D findings, and LR-2b inline lint rule
-application for lint-rule action candidates).
+Apply the LR-1b durable-unit classification (task vs. criterion vs.
+context atom). For task findings, also classify tusk-issue vs.
+project-issue and apply the LR-2 routing rules (file GitHub issues for
+tusk-issues, insert tasks for project-issues, with LR-2a
+convention/prompt-doc patch logic for convention actions and Category D
+findings, and LR-2b inline lint rule application for lint-rule action
+candidates). For criterion and context-atom findings, use the LR-2
+commands directly and do not create tasks.
 
 ### FR-4: Known Gaps at Close
 
@@ -445,6 +496,27 @@ Prompt the user for a yes/no on any ambiguous next-step matches before
 including them.
 
 If both arrays are empty, omit this section entirely.
+
+### FR-4a: Context Snapshot
+
+Render this section only when `signals.context_health.active_items` is
+non-empty, `signals.context_health.inactive_items` is non-empty, or
+`signals.context_health.missing_entry_points` is true.
+
+```markdown
+### Context Snapshot
+> Durable memory — these rows are context atoms, not backlog work.
+> Promote to tasks only when the item requires a shippable change.
+
+**Missing entry points**: yes/no
+
+| ID | Type | Status/Source | Content |
+|----|------|---------------|---------|
+```
+
+Use `tusk context add`, `tusk context resolve`, or `tusk context
+supersede` for approved context updates. Do not query or update
+`task_context_items` directly.
 
 ### FR-5: Dependency Proposals
 
@@ -472,6 +544,8 @@ directly with findings:
 **Findings**: X total (by category)
 **Subsumed tasks closed**: N (#id, #id) — only if any were subsumed
 **Created**: N tasks (#id, #id)
+**Criteria added**: N — omit if zero
+**Context atoms updated**: N added, R resolved, S superseded — omit if all zero
 **GitHub issues filed**: N — omit if zero
 **Lint rules**: K applied inline, M deferred as tasks
 **Conventions added**: P
@@ -486,7 +560,9 @@ tusk -header -column "SELECT id, summary, priority, domain, task_type, status FR
 ```
 
 Record approved findings via `tusk retro-finding add` (same shape as
-LR-3a — one row per approved finding).
+LR-3a — one row per approved finding). Use `criterion:<id>` for
+criteria added through `tusk criteria add` and `context:<id>` for
+context atoms added, resolved, or superseded through `tusk context`.
 
 Finally, close the skill run:
 

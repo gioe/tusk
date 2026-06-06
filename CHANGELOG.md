@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1117] - 2026-06-06
+
+- [TASK-618] Teach retro to consume and update context atoms
+
 ## [1116] - 2026-06-06
 
 - [TASK-617] Add first-class task context item CLI
