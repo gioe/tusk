@@ -69,7 +69,7 @@ Before proceeding to Step 1b, state the resolved task identity verbatim: `Workin
 
 ### Begin Work on a Task (with task ID argument)
 
-When called with a task ID (e.g., `/tusk 6`), begin the full development workflow. When called with no argument, the "Get Next Task" step above has already run `tusk task-start --force --skill tusk` for you — **skip Step 1 entirely and pick up at Step 1b (Workflow routing)**, using the JSON blob and the `skill_run.run_id` you already captured.
+When called with a task ID (e.g., `/tusk 6`), begin the full development workflow. When called with no argument, the "Get Next Task" step above has already run `tusk task-start --force --skill tusk` for you — **skip Step 1 entirely and pick up at Step 1b (context hydration)**, using the JSON blob and the `skill_run.run_id` you already captured.
 
 **Follow these steps IN ORDER:**
 
@@ -92,7 +92,22 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
    >
    > **Pre-start exits don't need cancel.** If `tusk task-start --force --skill tusk` exits 1 (empty backlog — "No ready tasks found") or exits 2 (task not found, already Done, already has an active session without `--force-session`, has unmet `blocks`-deps without `--force-deps`, has open `contingent` deps without `--force-contingent`, has open external blockers, or missing criteria without `--force`), the skill-run row is never opened, so there is no `run_id` to cancel. Just stop.
 
-1b. **Workflow routing** — If the task's `workflow` field (from the `task` object in step 1) is non-null, the task uses a custom workflow instead of the default development cycle. Look up the corresponding skill:
+1b. **Hydrate task context before routing or exploring** — after `tusk task-start` succeeds, read the compiled brief before code exploration:
+   ```bash
+   tusk task-brief <id>
+   ```
+   Treat the compiled brief as the task's durable context packet. It contains the same task identity and criteria from `task-start`, plus scope, dependencies, objectives, task context items, verification specs, and `context_health_warnings`.
+
+   Use the brief to make these decisions before Step 1c or any code-reading pass:
+   - **Classify the task mode** — choose the operating mode from the task summary, description, type, criteria, and verification specs: bug fix, feature, test-only, docs-only, investigation/spike, DB-only/no-code, or workflow handoff. This classification controls whether Step 4's confirm-failure rule applies and how much exploration is needed.
+   - **Treat incomplete criteria as the execution plan** — filter the brief's acceptance criteria to incomplete, non-deferred rows. Those incomplete criteria are the execution plan. Work them in order unless a later criterion is a prerequisite for an earlier one; if you reorder them, state why. Do not invent a broader plan when the criteria already define the deliverable.
+   - **Treat scope as a contract** — scope is a contract: compare planned edits against the brief's `scope` rows before implementation. If a needed path is missing, add scope with a concrete reason before editing or committing. Do not treat mentioned background docs, adjacent helpers, or convenient cleanup as authorized scope unless they are in the scope table or you explicitly add them.
+   - **Validate context health** — read every `context_health_warnings` entry. Missing scope paths, stale verification specs, absent entry points, conflicting assumptions, or dependency warnings must be resolved, incorporated into the plan, or surfaced before implementation.
+   - **Gate on blocking open questions** — inspect `context.open_questions`, assumptions, risks, and decisions. Do not begin implementation while blocking open questions remain. A blocking question is one whose answer can change the files to edit, the acceptance criteria interpretation, the task mode, or whether the task should proceed at all. Ask the operator or log a progress checkpoint and stop rather than guessing.
+
+   If the compiled brief contradicts the `task-start` JSON, trust the compiled brief for planning and rerun `tusk task-get <id>` only to diagnose the mismatch. Keep `session_id` and `skill_run.run_id` from `task-start`; `task-brief` is read-only and does not replace them.
+
+1c. **Workflow routing** — If the task's `workflow` field (from the `task` object in step 1) is non-null, the task uses a custom workflow instead of the default development cycle. Look up the corresponding skill:
    ```
    Read file: .claude/skills/<workflow>/SKILL.md
    ```

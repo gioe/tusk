@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1115] - 2026-06-06
+
+- [TASK-614] Hydrate task context at the start of the tusk workflow
+
 ## [1114] - 2026-06-06
 
 - [TASK-613] Add task-brief command that compiles durable task context
