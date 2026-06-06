@@ -43,7 +43,7 @@ require it).
 | **tusk-task-insert.py** | `tusk task-insert "<summary>" "<description>" [flags]` | config, `tasks` (dupe check) | `tasks`, `acceptance_criteria` |
 | **tusk-task-list.py** | `tusk task-list [--status] [--domain] [--assignee] [--format] [--all]` | `tasks` | nothing |
 | **tusk-task-select.py** | `tusk task-select [--max-complexity] [--exclude-ids]` | `v_ready_tasks`, config | nothing |
-| **tusk-task-start.py** | `tusk task-start <id> [--force] [--force-deps] [--force-contingent] [--force-not-before] [--force-session] [--agent]` | `tasks`, `task_progress`, `task_sessions`, `acceptance_criteria` | `tasks` (status), `task_sessions` (new session) |
+| **tusk-task-start.py** | `tusk task-start <id> [--force] [--force-deps] [--force-contingent] [--force-not-before] [--force-session] [--agent NAME] [--skill NAME]` | `tasks`, `task_progress`, `task_sessions`, `acceptance_criteria` | `tasks` (status), `task_sessions` (new session), `skill_runs` (when `--skill` is supplied) |
 | **tusk-task-update.py** | `tusk task-update <id> [flags]` | `tasks`, `acceptance_criteria`, `task_scope`, config | `tasks`, `task_scope` (`auto_derived` rows refreshed when summary/description changes) |
 | **tusk-task-done.py** | `tusk task-done <id> --reason <reason> [--force]` | `tasks`, `acceptance_criteria`, `task_sessions`, `task_dependencies` | `tasks`, `task_sessions`, `acceptance_criteria` |
 | **tusk-task-reopen.py** | `tusk task-reopen <id> --force` | `tasks` | `tasks` (status reset to To Do) |

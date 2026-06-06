@@ -1,13 +1,14 @@
 # tusk
 
-A portable task management system for [Claude Code](https://claude.ai/claude-code) projects. Gives Claude a local SQLite database, CLI, and skills to track, prioritize, and work through tasks autonomously.
+A portable task and context handoff system for AI-assisted software projects. Tusk gives Claude Code and Codex a local SQLite database, CLI, skills/prompts, and durable task records so agents can track, prioritize, resume, and complete work without relying on the original chat transcript.
 
 ## What You Get
 
-- **`tusk` CLI** — single entry point for all task database operations
-- **Skills** — Claude Code skills for task workflows (`/tusk-init`, `/tusk`, `/groom-backlog`)
-- **Scripts** — Python utilities for duplicate detection and dependency management
-- **Config-driven schema** — define your project's domains, task types, and agents in JSON; validation triggers are generated automatically
+- **`tusk` CLI** — single entry point for task state, context hydration, criteria, dependencies, sessions, review, and merge operations
+- **Skills and prompts** — Claude Code skills and Codex prompt ports for task workflows (`/tusk-init`, `/tusk`, `/create-task`, `/groom-backlog`)
+- **Durable context snapshots** — objectives, tasks, criteria, progress, jots, reviews, and context atoms preserve enough handoff context for a future agent to act
+- **Scripts** — Python utilities for task briefs, duplicate detection, dependency management, summaries, dashboard data, and migrations
+- **Config-driven schema** — define your project's domains, task types, agents, and validation rules in JSON; validation triggers are generated automatically
 
 ## Quick Start
 
@@ -28,6 +29,12 @@ This will:
 Then start a new Claude Code session and run `/tusk-init` — it will scan your codebase, suggest domains and agents, write your config, and seed tasks from TODOs.
 
 You can also configure manually by editing `tusk/config.json` and running `tusk init --force`.
+
+## Context Handoff Model
+
+Tusk treats the database as a durable context snapshot, not just a backlog. Objectives capture larger intent, tasks stay scoped to shippable work, criteria define completion, verifications prove the work, and compact context atoms preserve decisions, risks, assumptions, and memory for the next agent.
+
+The write side of tusk (`/create-task`, `/retro`, `/investigate`, and direct task or criteria commands) records structured context as work is discovered. The read side (`/tusk`, `/resume-task`, `/chain`) starts from the task record, criteria, dependencies, progress, and `tusk task-brief <id>` so it can hydrate only the relevant context needed to ship the next change.
 
 ### Upgrading
 
@@ -112,6 +119,7 @@ tusk shell                   # Interactive sqlite3 shell
 tusk version                 # Print installed version
 tusk migrate                 # Apply pending schema migrations
 tusk upgrade                 # Upgrade tusk from GitHub
+tusk task-brief <id>         # Compile a pickup brief for context hydration
 ```
 
 ## Skills
@@ -145,30 +153,15 @@ Never hardcode the DB path — always go through `tusk`.
 
 ## Schema
 
-The database has three tables:
+The database schema is documented in detail in [`docs/DOMAIN.md`](docs/DOMAIN.md). At a high level, tusk stores:
 
-### tasks
-| Column | Type | Description |
-|--------|------|-------------|
-| id | INTEGER | Auto-incrementing primary key |
-| summary | TEXT | Brief task title (required) |
-| description | TEXT | Detailed description, acceptance criteria |
-| status | TEXT | `To Do`, `In Progress`, `Done` |
-| priority | TEXT | `Highest`, `High`, `Medium`, `Low`, `Lowest` |
-| domain | TEXT | Project area (validated if configured) |
-| assignee | TEXT | Agent name |
-| task_type | TEXT | `bug`, `feature`, `refactor`, etc. |
-| priority_score | INTEGER | Pre-computed score for task selection |
-| expires_at | TEXT | Optional auto-close date |
-| closed_reason | TEXT | `completed`, `expired`, `wont_do`, `duplicate` |
-| created_at | TEXT | Creation timestamp |
-| updated_at | TEXT | Last update timestamp |
+- **Objectives** for larger product or project intent
+- **Tasks** for shippable work units, with status, priority, scope, dependencies, and closeout metadata
+- **Acceptance criteria** for completion promises
+- **Task context items** for durable handoff atoms such as assumptions, risks, decisions, questions, memory, and entry points
+- **Progress, sessions, skill runs, and reviews** for auditability, cost tracking, resumability, and proof of completion
 
-### task_dependencies
-Tracks which tasks block other tasks. Enforces no self-dependencies and no circular dependencies (via the Python script).
-
-### task_sessions
-Optional metrics tracking for time, cost, and token usage per task.
+The schema is migration-backed and config-aware: enum-like fields are validated by SQLite triggers generated from `tusk/config.json`, while migrations preserve existing task history during upgrades.
 
 ## Pricing
 
