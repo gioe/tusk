@@ -38,6 +38,7 @@ require it).
 
 | File | CLI command(s) | Reads | Writes |
 |------|---------------|-------|--------|
+| **tusk-task-brief.py** | `tusk task-brief <id> [--format json\|markdown]` | `tasks`, `acceptance_criteria`, `task_scope`, `task_dependencies`, `task_progress`, `objectives`, `objective_tasks`, `task_context_items` | nothing |
 | **tusk-task-get.py** | `tusk task-get <id>` | `tasks`, `acceptance_criteria`, `task_progress` | nothing |
 | **tusk-task-insert.py** | `tusk task-insert "<summary>" "<description>" [flags]` | config, `tasks` (dupe check) | `tasks`, `acceptance_criteria` |
 | **tusk-task-list.py** | `tusk task-list [--status] [--domain] [--assignee] [--format] [--all]` | `tasks` | nothing |

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1114] - 2026-06-06
+
+- [TASK-613] Add task-brief command that compiles durable task context
+
 ## [1113] - 2026-06-06
 
 - [TASK-611] Add objective and context-item schema for task handoff modeling

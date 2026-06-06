@@ -74,6 +74,7 @@
   ".claude/bin/tusk-skill-run.py",
   ".claude/bin/tusk-sync-main.py",
   ".claude/bin/tusk-sync-skills.py",
+  ".claude/bin/tusk-task-brief.py",
   ".claude/bin/tusk-task-done.py",
   ".claude/bin/tusk-task-get-multi.py",
   ".claude/bin/tusk-task-get.py",
