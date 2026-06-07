@@ -69,7 +69,7 @@ Break the input into discrete, actionable tasks. For each task, determine:
 | Field | How to Determine |
 |-------|-----------------|
 | **summary** | Clear, imperative sentence describing the deliverable (e.g., "Add login endpoint with JWT authentication"). Aim for ~100 chars; hard cap **150 chars** (enforced in Step 3.7). |
-| **description** | Expanded context from the input — motivation, constraints, links to source material. Hard cap **1200 chars** (enforced in Step 3.7) — move acceptance criteria and step-by-step details out into the criteria list. |
+| **description** | Concise motivation and constraints from the input. Hard cap **1200 chars** (enforced in Step 3.7) — move acceptance criteria and step-by-step details out into the criteria list, and move durable handoff facts into context atoms. |
 | **priority** | Infer from language cues: "critical"/"urgent"/"blocking" → `Highest`/`High`; "nice to have"/"eventually" → `Low`/`Lowest`; default to `Medium`. Must be one of the configured priorities. |
 | **domain** | Match to a configured domain based on the task's subject area. Leave NULL if no domains are configured or none fit. |
 | **task_type** | Categorize as one of the configured task types (bug, feature, refactor, test, docs, infrastructure). Default to `feature` for new work, `bug` for fixes. For `test` and `docs`: use as `task_type` only when writing tests or docs **is the primary deliverable** — otherwise use acceptance criteria. See **Task Type Decision Guide** below. |
@@ -96,6 +96,34 @@ Each task carries three text fields with distinct intents — keep them sharp. B
 - **Avoid:** "See line 88 of bin/tusk-migrate.py for the migration logic"
 
 **Paths are scope hints (TASK-471 / TASK-475).** Any file path you name in the description or criteria is **interpreted as a scope hint** — the commit-time scope guard (and the `task-insert` auto-extractor that seeds `task_scope`) read those paths as "this task is authorized to touch them." Be deliberate: only name paths the task will actually edit. Cite an external design doc by title or by section anchor, not by repo-relative path, unless the task will also modify it. Padding the description with unrelated path citations widens the implicit scope and undermines the guard's ability to flag accidental sprawl mid-task.
+
+### Durable context atoms
+
+Some input is useful future memory but is neither the task deliverable nor a completion condition. Route that information to `tusk context add` after task insertion instead of stuffing it into the description or criteria.
+
+Use the smallest durable unit:
+
+| Information | Write as |
+|-------------|----------|
+| A requirement that must ship | Task summary/description, or a separate task if independently shippable |
+| A condition that proves completion | Acceptance criterion |
+| An assumption future agents must preserve | `--type assumption` |
+| A known risk or trigger condition | `--type risk` |
+| An unanswered non-blocking ambiguity | `--type question` |
+| A chosen design/product direction | `--type decision` |
+| A reusable handoff fact that is not a requirement | `--type memory` |
+| A stable starting point for pickup | `--type entry_point` |
+
+Collect candidate context atoms while decomposing, keyed to the task they belong to. Keep each atom compact and self-contained. Do **not** write directly to `task_context_items`; use the first-class CLI:
+
+```bash
+tusk context add <task_id> --source create_task --type assumption --content "<durable assumption>"
+tusk context add <task_id> --source create_task --type risk --content "<future risk and trigger condition>"
+tusk context add <task_id> --source create_task --type question --content "<open question and why it is not blocking now>"
+tusk context add <task_id> --source create_task --type decision --content "<durable decision>"
+tusk context add <task_id> --source create_task --type memory --content "<handoff fact>"
+tusk context add <task_id> --source create_task --type entry_point --content "<stable file/module/symbol to inspect first>"
+```
 
 ### Task Type Decision Guide
 
@@ -299,6 +327,8 @@ When the operator amends scope (e.g. *"remove tests/integration/test_signup.py f
 
 Wait for explicit user approval before proceeding. Do NOT insert anything until the user confirms.
 
+If the proposal has candidate context atoms, show them under the affected task as **Durable context** so the operator can confirm, edit, or remove them before insertion. Make clear that these will be written with `tusk context add --source create_task` after the task row exists, not embedded into the description.
+
 ## Step 5: Deduplicate, Insert, and Generate Criteria
 
 For each approved task, generate **2–5 acceptance criteria** — concrete, testable conditions that define "done."
@@ -486,6 +516,14 @@ Omit `--domain` or `--assignee` entirely if the value is NULL/empty — do not p
 ### Exit code 0 — Success
 
 The command prints JSON with `task_id` and `criteria_ids`. Use the `task_id` for dependency proposals in Step 7.
+
+After a successful insert, write any operator-approved durable context atoms for that task:
+
+```bash
+tusk context add <task_id> --source create_task --type memory --content "<content>"
+```
+
+Use the confirmed type for each atom (`memory`, `assumption`, `question`, `risk`, `decision`, or `entry_point`) and capture the returned context item IDs for the final summary. Skip this step when the proposal had no durable context atoms or the operator removed them.
 
 ### Exit code 1 — Duplicate found → Skip
 

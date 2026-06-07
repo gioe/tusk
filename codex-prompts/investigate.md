@@ -151,6 +151,13 @@ Detailed explanation. Include relevant code snippets inline.
 
 **<imperative summary>** (Priority · Domain · Type · Complexity)
 > What needs to be done and why. Include acceptance criteria ideas.
+> Durable context atoms to preserve after task creation, if any:
+> - `assumption`: <assumption future agents must preserve>
+> - `risk`: <future risk and trigger condition>
+> - `question`: <non-blocking open question>
+> - `decision`: <chosen direction>
+> - `memory`: <handoff fact>
+> - `entry_point`: <stable file/module/symbol to inspect first>
 
 **Convention redirect: <one-line description>**
 > `tusk conventions add --topic <topic> --text "<rule>" --source investigate`
@@ -181,6 +188,14 @@ If the user approved any Proposed Remediation items, follow
 `create-task.md` with the approved items as the payload. `create-task.md`
 handles decomposition review, acceptance criteria generation, duplicate
 detection, metadata assignment, and dependency proposals.
+
+Include each approved item's durable context atoms in the payload.
+`create-task.md` decides whether each item is a task field, criterion, or
+context atom, then writes confirmed assumptions, risks, open questions,
+decisions, memories, and entry points with
+`tusk context add --source create_task` after task creation. Do not encode
+those facts in the task description unless they are part of the shippable
+scope.
 
 Track the total number of tasks created — needed in Step 8.
 

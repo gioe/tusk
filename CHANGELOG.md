@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1119] - 2026-06-06
+
+- [TASK-620] Have task creation flows write durable context atoms
+
 ## [1118] - 2026-06-06
 
 - [TASK-619] Teach review workflow to preserve durable context decisions

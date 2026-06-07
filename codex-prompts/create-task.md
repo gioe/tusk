@@ -83,7 +83,7 @@ For each candidate task, fill these fields:
 | Field | How to determine |
 |-------|-----------------|
 | **summary** | Imperative sentence describing the deliverable (max ~100 chars). |
-| **description** | Expanded context from the input — acceptance hints, technical notes, relevant quotes. |
+| **description** | Concise motivation and constraints from the input. Keep acceptance hints in criteria, technical pickup facts in context atoms, and implementation plans out of the description. |
 | **priority** | Infer from language: "critical"/"urgent"/"blocking" → `Highest`/`High`; "nice to have"/"eventually" → `Low`/`Lowest`; default `Medium`. Must match a configured priority. |
 | **domain** | Map to a configured domain by subject area. Leave NULL if none fit or domains aren't configured. |
 | **task_type** | One of the configured types (typically bug, feature, refactor, test, docs, infrastructure). Default `feature` for new work, `bug` for fixes. See decision guide below. |
@@ -112,7 +112,8 @@ complete feature → criterion.
 
 - One task per deliverable; split features with multiple distinct pieces.
 - Each task should be completable in a single focused session.
-- Preserve context — include relevant quotes/notes in the description.
+- Preserve only shippable context in the description; route durable handoff
+  facts to context atoms.
 - Don't over-split. Trivial sub-steps that are part of a larger task stay
   in the same row. A good test: if a sub-task **cannot be tested or
   delivered independently** of the parent, it belongs in the same ticket.
@@ -120,6 +121,31 @@ complete feature → criterion.
 - Cross-check each proposal against the `backlog` from Step 2 — if an
   existing task covers the same intent with different wording, flag it as
   a duplicate rather than proposing a new task.
+
+### Durable Context Atoms
+
+Some source material should survive handoff but is not a requirement or a
+completion condition. Track these as candidate context atoms while drafting,
+then write them after `tusk task-insert` returns the created task ID.
+
+Use the smallest unit:
+
+| Information | Destination |
+|-------------|-------------|
+| Requirement that must ship | Task or criterion |
+| Condition proving completion | Criterion |
+| Assumption future agents must preserve | `tusk context add --type assumption` |
+| Risk or trigger condition | `tusk context add --type risk` |
+| Non-blocking open ambiguity | `tusk context add --type question` |
+| Chosen design/product direction | `tusk context add --type decision` |
+| Reusable handoff fact | `tusk context add --type memory` |
+| Stable pickup starting point | `tusk context add --type entry_point` |
+
+Do not write directly to `task_context_items`. Use:
+
+```bash
+tusk context add <task_id> --source create_task --type memory --content "<content>"
+```
 
 ## Step 3.5: Pre-Verify Bug Test Failures
 
@@ -218,6 +244,11 @@ missing task**.
 Wait for explicit user approval before inserting. Never insert without
 confirmation.
 
+If any task has candidate context atoms, show them under **Durable context**
+in the proposal and let the operator confirm, edit, or remove them. These
+atoms are written with `tusk context add --source create_task` after the task
+row exists, not embedded in the description.
+
 ## Step 5: Generate Criteria, Deduplicate, Insert
 
 For each approved task, generate **3–7 acceptance criteria** — concrete,
@@ -291,7 +322,14 @@ class-contained test exists.
 ### Exit codes
 
 - **0** — success. Output JSON includes `task_id` and `criteria_ids`.
-  Capture `task_id` for Step 7's dependency proposals.
+  Capture `task_id` for Step 7's dependency proposals. Then write any
+  operator-approved durable context atoms for that task:
+  ```bash
+  tusk context add <task_id> --source create_task --type risk --content "<content>"
+  ```
+  Use the confirmed type for each atom (`memory`, `assumption`, `question`,
+  `risk`, `decision`, or `entry_point`) and capture the returned context item
+  IDs for the final summary.
 - **1** — duplicate found. Output JSON includes `matched_task_id` and
   `similarity`. Report which existing task matched and skip:
   > Skipped "<summary>" — duplicate of existing task #N (similarity 0.87)

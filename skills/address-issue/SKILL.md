@@ -148,6 +148,8 @@ Using the issue `title`, `body`, and `labels`, determine:
 
 Generate **3–7 acceptance criteria** from the issue body — concrete, testable conditions. For bug issues, always include a criterion that the failure case is resolved and a regression test criterion.
 
+Keep issue-provided requirements in the task fields above, but route durable investigation findings that are not requirements through context atoms after insertion. Use `memory`, `assumption`, `question`, `risk`, `decision`, or `entry_point` as narrowly as possible. Examples: a non-blocking ambiguity from Step 4.5 is a `question`; a likely failure mode is a `risk`; a stable file/function to inspect first is an `entry_point`. Do **not** write directly to `task_context_items`.
+
 ### Failing Test Polarity Convention
 
 Every spec stored as a typed-criteria `test` (Step 4.1 → Step 6) must satisfy two invariants — Step 4.1 checks the first, Step 7.5 checks the second:
@@ -348,6 +350,9 @@ When `test_present` is `"unverifiable"`, suffix that contribution with the value
 1. <criterion 1>
 2. <criterion 2>
 ...
+
+**Durable Context:**
+- `<type>`: <handoff fact from issue analysis, if any>
 ```
 
 Then ask the user to choose, **bolding the option that matches the Model Recommendation**. For a Decline recommendation, replace "confirm" with "proceed anyway" in the prompt:
@@ -453,6 +458,14 @@ JSON=$(tusk typed-criteria-build --spec-file /tmp/spec)
 This criterion will be validated by running the spec as a shell command when `tusk criteria done <cid>` is called — it blocks closure if the command exits nonzero.
 
 **Exit code 0** — success. Note the `task_id` from the JSON output.
+
+After a successful insert, write any durable context atoms confirmed in Step 5:
+
+```bash
+tusk context add <task_id> --source create_task --type risk --content "<content>"
+```
+
+Use the confirmed type for each atom (`memory`, `assumption`, `question`, `risk`, `decision`, or `entry_point`) and note the returned context item IDs.
 
 **Exit code 1** — heuristic duplicate found. Report the matched task and stop:
 
