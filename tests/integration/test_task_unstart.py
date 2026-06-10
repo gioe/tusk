@@ -219,6 +219,19 @@ def test_guard_open_session_blocks(db_path, config_path, monkeypatch):
     assert rc == 2
     assert "open session" in err.lower()
     assert "session-close" in err.lower()
+    # issue #1043: the refusal must name the one-command path.
+    assert "--close-sessions" in err
+
+    # The flag-less refusal must not have touched the session.
+    conn = sqlite3.connect(str(db_path))
+    try:
+        open_count = conn.execute(
+            "SELECT COUNT(*) FROM task_sessions WHERE task_id = ? AND ended_at IS NULL",
+            (task_id,),
+        ).fetchone()[0]
+        assert open_count == 1
+    finally:
+        conn.close()
 
 
 def test_closed_session_does_not_block(db_path, config_path, monkeypatch):
@@ -234,6 +247,152 @@ def test_closed_session_does_not_block(db_path, config_path, monkeypatch):
     assert rc == 0, f"expected 0, got {rc}; stderr={err}"
     assert result["task"]["status"] == "To Do"
     assert result["task"]["started_at"] is None
+
+
+# ── --close-sessions one-command skip path (issue #1043) ──────────────
+
+
+def _open_session_count(db_path, task_id) -> int:
+    conn = sqlite3.connect(str(db_path))
+    try:
+        return conn.execute(
+            "SELECT COUNT(*) FROM task_sessions WHERE task_id = ? AND ended_at IS NULL",
+            (task_id,),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def test_close_sessions_closes_open_session_and_unstarts(db_path, config_path, monkeypatch):
+    """--force --close-sessions closes the open session and reverts in one call."""
+    conn = sqlite3.connect(str(db_path))
+    try:
+        task_id = _insert_task(conn, status="In Progress")
+        session_id = _insert_open_session(conn, task_id)
+    finally:
+        conn.close()
+
+    rc, result, err = _call(
+        db_path, config_path, task_id, "--force", "--close-sessions", monkeypatch=monkeypatch
+    )
+    assert rc == 0, f"expected 0, got {rc}; stderr={err}"
+    assert result["task"]["status"] == "To Do"
+    assert result["task"]["started_at"] is None
+    assert result["sessions_closed"] == 1
+    assert _open_session_count(db_path, task_id) == 0
+
+    # The closed session row must carry ended_at and a computed duration.
+    conn = sqlite3.connect(str(db_path))
+    try:
+        row = conn.execute(
+            "SELECT ended_at, duration_seconds FROM task_sessions WHERE id = ?",
+            (session_id,),
+        ).fetchone()
+        assert row[0] is not None
+        assert row[1] is not None
+    finally:
+        conn.close()
+
+
+def test_close_sessions_counts_only_open_sessions(db_path, config_path, monkeypatch):
+    """A pre-existing closed session is not re-closed or double-counted.
+
+    The schema's unique index allows at most one OPEN session per task, so
+    sessions_closed can only ever be 0 or 1 — this pins that the count
+    reflects the open session alone, not historical closed rows.
+    """
+    conn = sqlite3.connect(str(db_path))
+    try:
+        task_id = _insert_task(conn, status="In Progress")
+        closed_id = _insert_closed_session(conn, task_id)
+        prior_ended_at = conn.execute(
+            "SELECT ended_at FROM task_sessions WHERE id = ?", (closed_id,)
+        ).fetchone()[0]
+        _insert_open_session(conn, task_id)
+    finally:
+        conn.close()
+
+    rc, result, err = _call(
+        db_path, config_path, task_id, "--force", "--close-sessions", monkeypatch=monkeypatch
+    )
+    assert rc == 0, f"expected 0, got {rc}; stderr={err}"
+    assert result["sessions_closed"] == 1
+    assert _open_session_count(db_path, task_id) == 0
+
+    # The historical closed row is untouched.
+    conn = sqlite3.connect(str(db_path))
+    try:
+        row = conn.execute(
+            "SELECT ended_at FROM task_sessions WHERE id = ?", (closed_id,)
+        ).fetchone()
+        assert row[0] == prior_ended_at
+    finally:
+        conn.close()
+
+
+def test_close_sessions_noop_when_no_open_sessions(db_path, config_path, monkeypatch):
+    """The flag is harmless when there is nothing to close."""
+    conn = sqlite3.connect(str(db_path))
+    try:
+        task_id = _insert_task(conn, status="In Progress")
+        _insert_closed_session(conn, task_id)
+    finally:
+        conn.close()
+
+    rc, result, err = _call(
+        db_path, config_path, task_id, "--force", "--close-sessions", monkeypatch=monkeypatch
+    )
+    assert rc == 0, f"expected 0, got {rc}; stderr={err}"
+    assert result["task"]["status"] == "To Do"
+    assert result["sessions_closed"] == 0
+
+
+def test_close_sessions_does_not_bypass_progress_guard(db_path, config_path, monkeypatch):
+    """Progress checkpoints still refuse, and the open session is left untouched."""
+    conn = sqlite3.connect(str(db_path))
+    try:
+        task_id = _insert_task(conn, status="In Progress")
+        _insert_progress(conn, task_id)
+        _insert_open_session(conn, task_id)
+    finally:
+        conn.close()
+
+    rc, _, err = _call(
+        db_path, config_path, task_id, "--force", "--close-sessions", monkeypatch=monkeypatch
+    )
+    assert rc == 2
+    assert "progress checkpoint" in err.lower()
+    assert _open_session_count(db_path, task_id) == 1
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        row = conn.execute("SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        assert row[0] == "In Progress"
+    finally:
+        conn.close()
+
+
+def test_close_sessions_does_not_bypass_commit_guard(db_path, config_path, monkeypatch):
+    """[TASK-<id>] commits still refuse, and the open session is left untouched."""
+    conn = sqlite3.connect(str(db_path))
+    try:
+        task_id = _insert_task(conn, status="In Progress")
+        _insert_open_session(conn, task_id)
+    finally:
+        conn.close()
+
+    monkeypatch.setattr(
+        tusk_task_unstart,
+        "find_task_commits",
+        lambda *a, **kw: ["abc1234567890fedcba"],
+    )
+
+    rc, _, err = _call(
+        db_path, config_path, task_id, "--force", "--close-sessions", no_commits=False
+    )
+    assert rc == 2
+    assert "git commit" in err.lower()
+    assert _open_session_count(db_path, task_id) == 1
 
 
 # ── prefix-collision file-overlap heuristic (issue #627) ──────────────
