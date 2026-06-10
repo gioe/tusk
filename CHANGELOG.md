@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1124] - 2026-06-10
+
+- [TASK-626] Document the one-command skip path for declining a just-started task in the /tusk skill
+
 ## [1123] - 2026-06-10
 
 - [TASK-625] Fix: apply file-overlap heuristic to _task_commits_on_default prefix matches
