@@ -47,6 +47,7 @@ extract_paths = _git_helpers.extract_paths
 extract_referenced_basenames = _git_helpers.extract_referenced_basenames
 is_prose_identifier_path = _git_helpers.is_prose_identifier_path
 path_exists_in_repo = _git_helpers.path_exists_in_repo
+warn_file_spec_glob_metachars = _git_helpers.warn_file_spec_glob_metachars
 
 
 _RELATIVE_NOT_BEFORE_RE = re.compile(r"^\+(\d+)([mhdw])$")
@@ -217,6 +218,12 @@ def _warn_for_missing_declared_paths(
     scope_patterns: list[str],
     typed_criteria: list[dict],
 ) -> None:
+    # File-type specs are globbed at verification time, so metacharacters in
+    # them are ambiguous regardless of whether a repo root resolved (#1032).
+    for tc in typed_criteria:
+        if tc.get("type") == "file":
+            warn_file_spec_glob_metachars(tc.get("spec"), "task-insert")
+
     if not repo_root:
         return
 

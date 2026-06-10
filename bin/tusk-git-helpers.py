@@ -37,6 +37,7 @@ import posixpath
 import re
 import sqlite3
 import subprocess
+import sys
 
 
 _UNREACHABLE_REMOTE_PATTERNS = (
@@ -505,6 +506,44 @@ def path_exists_in_repo(repo_root: str | None, path: str | None) -> bool:
         line.strip().rstrip("/") == candidate
         for line in result.stdout.splitlines()
     )
+
+
+_FILE_SPEC_GLOB_METACHARS = "*?["
+
+
+def file_spec_glob_metachars(spec: str | None) -> list:
+    """Return the glob metacharacters present in a file-type verification spec.
+
+    File-type criteria are verified with glob.glob, so a bracket sequence
+    like ``[wght]`` is a character class, not literal text. Literal filenames
+    containing brackets are real (Google Fonts ships variable fonts named
+    ``Chivo[wght].ttf``), so callers warn rather than reject (issue #1032).
+    """
+    if not spec:
+        return []
+    return [ch for ch in _FILE_SPEC_GLOB_METACHARS if ch in spec]
+
+
+def warn_file_spec_glob_metachars(spec: str | None, source: str) -> bool:
+    """Warn on stderr when a file-type spec contains glob metacharacters.
+
+    Returns True when a warning was printed. Deliberately distinct from the
+    path-does-not-exist warning: that one is expected for file-type criteria
+    whose deliverable is created later, so it reads as benign; this one names
+    the offending metacharacters and the glob-vs-literal mismatch.
+    """
+    chars = file_spec_glob_metachars(spec)
+    if not chars:
+        return False
+    joined = " ".join(repr(ch) for ch in chars)
+    print(
+        f"Warning: {source} file-type verification_spec contains glob "
+        f"metacharacter(s) {joined} — the spec is matched as a glob at "
+        f"verification time, not as a literal path. Escape '[' as '[[]' "
+        f"if a literal filename is intended: {spec}",
+        file=sys.stderr,
+    )
+    return True
 
 
 def is_prose_identifier_path(path: str | None, repo_root: str | None = None) -> bool:
