@@ -9,6 +9,7 @@ stronger orphaned-work signal so check-deliverables still runs.
 
 import importlib.util
 import os
+import sqlite3
 import subprocess
 from unittest.mock import MagicMock
 
@@ -112,6 +113,107 @@ def test_commit_only_on_origin_default_detected(tmp_path, monkeypatch):
 
     # Local main no longer carries the commit, but origin/main does.
     assert mod._task_commits_on_default(_db_path(repo), 77) is True
+
+
+# ── Prefix-collision file-overlap heuristic (issue #1056) ─────────────
+#
+# A bare [TASK-<id>] message match from a prior task-numbering epoch must
+# not flip deliverable_check_needed when the task has a scope signal the
+# matched commits don't touch. Minimal-schema fixture: only the columns
+# task_referenced_paths / task_referenced_basenames query — intentionally
+# NOT a mirror of bin/tusk's full schema.
+
+
+def _scope_conn(task_id=42, summary="", description=""):
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute(
+        "CREATE TABLE tasks (id INTEGER PRIMARY KEY, summary TEXT, description TEXT)"
+    )
+    conn.execute(
+        "CREATE TABLE acceptance_criteria ("
+        "id INTEGER PRIMARY KEY, task_id INTEGER, criterion TEXT, verification_spec TEXT)"
+    )
+    conn.execute(
+        "INSERT INTO tasks (id, summary, description) VALUES (?, ?, ?)",
+        (task_id, summary, description),
+    )
+    conn.commit()
+    return conn
+
+
+def _commit_at(path, relname, content, message):
+    full = os.path.join(path, relname)
+    os.makedirs(os.path.dirname(full), exist_ok=True)
+    with open(full, "w", encoding="utf-8") as fh:
+        fh.write(content)
+    _git(path, "add", ".")
+    _git(path, "commit", "-qm", message)
+
+
+def test_prior_epoch_prefix_match_with_scope_signal_not_flagged(tmp_path, monkeypatch):
+    """Issue #1056: the prior-epoch commit touches only unrelated.txt while the
+    task's scope signal names bin/tusk-task-start.py — prefix-match false
+    positive, must not force deliverable_check_needed."""
+    repo = str(tmp_path / "repo")
+    _init_repo(repo)
+    _commit(repo, "unrelated.txt", "x", "[TASK-42] prior-epoch commit touching only unrelated.txt")
+    _git(repo, "branch", "-M", "main")
+    monkeypatch.setenv("TUSK_REPO_ROOT", repo)
+    conn = _scope_conn(description="Fix the helper in bin/tusk-task-start.py")
+
+    assert mod._task_commits_on_default(_db_path(repo), 42, conn) is False
+
+
+def test_prior_epoch_prefix_match_no_scope_signal_stays_true(tmp_path, monkeypatch):
+    """No referenced paths and no bare basenames = nothing to discriminate
+    with — keep the conservative True so genuine orphaned work isn't dropped."""
+    repo = str(tmp_path / "repo")
+    _init_repo(repo)
+    _commit(repo, "unrelated.txt", "x", "[TASK-42] prior-epoch commit touching only unrelated.txt")
+    _git(repo, "branch", "-M", "main")
+    monkeypatch.setenv("TUSK_REPO_ROOT", repo)
+    conn = _scope_conn(description="no path-shaped tokens here")
+
+    assert mod._task_commits_on_default(_db_path(repo), 42, conn) is True
+
+
+def test_genuine_overlap_full_path_still_flagged(tmp_path, monkeypatch):
+    """A matched commit touching a file the task references by full path is a
+    real orphaned-work signal — the heuristic must keep it."""
+    repo = str(tmp_path / "repo")
+    _init_repo(repo)
+    _commit_at(repo, "bin/helper.py", "x", "[TASK-42] ship the helper")
+    _git(repo, "branch", "-M", "main")
+    monkeypatch.setenv("TUSK_REPO_ROOT", repo)
+    conn = _scope_conn(description="Fix the logic in bin/helper.py")
+
+    assert mod._task_commits_on_default(_db_path(repo), 42, conn) is True
+
+
+def test_genuine_overlap_bare_basename_still_flagged(tmp_path, monkeypatch):
+    """A task that names a touched file by bare basename (no directory prefix)
+    still counts as overlap via the basename leg (issue #670)."""
+    repo = str(tmp_path / "repo")
+    _init_repo(repo)
+    _commit_at(repo, "skills/retro/FULL-RETRO.md", "x", "[TASK-42] update retro doc")
+    _git(repo, "branch", "-M", "main")
+    monkeypatch.setenv("TUSK_REPO_ROOT", repo)
+    conn = _scope_conn(description="Rewrite FULL-RETRO.md guidance")
+
+    assert mod._task_commits_on_default(_db_path(repo), 42, conn) is True
+
+
+def test_no_conn_keeps_conservative_true(tmp_path, monkeypatch):
+    """conn=None (legacy 2-arg call shape) cannot resolve a scope signal —
+    matched commits keep the conservative True."""
+    repo = str(tmp_path / "repo")
+    _init_repo(repo)
+    _commit(repo, "unrelated.txt", "x", "[TASK-42] prior-epoch commit")
+    _git(repo, "branch", "-M", "main")
+    monkeypatch.setenv("TUSK_REPO_ROOT", repo)
+
+    assert mod._task_commits_on_default(_db_path(repo), 42) is True
 
 
 def _completed(returncode=0, stdout="", stderr=""):
