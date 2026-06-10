@@ -192,7 +192,9 @@ def _register_active_project() -> None:
         pass
 
 
-def _task_commits_on_default(db_path: str, task_id: int) -> bool:
+def _task_commits_on_default(
+    db_path: str, task_id: int, conn: sqlite3.Connection | None = None
+) -> bool:
     """Return True if [TASK-<id>] commits already exist on the default branch.
 
     Widens task-start's deliverable_check_needed beyond the completed-criteria
@@ -201,6 +203,20 @@ def _task_commits_on_default(db_path: str, task_id: int) -> bool:
     deliverable check. Scans the local default branch and origin/<default>
     (a no-checkout fast-forward push leaves the local default behind origin).
     Best-effort — any git failure yields False.
+
+    Prefix-collision file-overlap heuristic (issue #1056): a bare [TASK-<id>]
+    message match from a prior task-numbering epoch must not flip the flag
+    when the task has a scope signal the matched commits don't touch. Matched
+    commits route through the shared block-level filter (issue #855) with
+    ``fallthrough=False``, mirroring tusk-task-unstart's gate semantics:
+    empty kept set = every block off-scope = prefix-match false positive →
+    False. No scope signal, ``conn=None``, or a heuristic failure keeps the
+    conservative True so genuine orphaned work is never silently dropped.
+
+    Deliberately does NOT mirror the TASK-472 scope_enforced bypass used by
+    check-deliverables and task-unstart: this scan has no ``since`` anchor,
+    so a prior-epoch commit's scope-guard pass binds to the OLD task that
+    owned the ID — trusting it here would reintroduce the false positive.
     """
     repo_root = os.environ.get("TUSK_REPO_ROOT") or os.path.dirname(
         os.path.dirname(os.path.abspath(db_path))
@@ -209,10 +225,22 @@ def _task_commits_on_default(db_path: str, task_id: int) -> bool:
         default = _git_helpers.default_branch(repo_root)
     except Exception:
         return False
+    commits: list = []
+    seen: set = set()
     for ref in (default, f"origin/{default}"):
-        if _git_helpers.find_task_commits(task_id, repo_root, refs=[ref]):
-            return True
-    return False
+        for sha in _git_helpers.find_task_commits(task_id, repo_root, refs=[ref]):
+            if sha not in seen:
+                seen.add(sha)
+                commits.append(sha)
+    if not commits:
+        return False
+    try:
+        kept = _git_helpers.filter_commits_by_block_overlap(
+            commits, task_id, repo_root, conn, fallthrough=False
+        )
+    except Exception:
+        return True
+    return bool(kept)
 
 
 def _count_criteria_already_passing(conn: sqlite3.Connection, task_id: int) -> int:
@@ -707,7 +735,7 @@ def main(argv: list[str]) -> int:
             # and pushed [TASK-N] commits to the default branch without finalizing
             # via tusk merge or marking any criterion done. The completed-criteria
             # proxy misses that state, so scan the default branch for shipped commits.
-            deliverable_check_needed = _task_commits_on_default(db_path, task_id)
+            deliverable_check_needed = _task_commits_on_default(db_path, task_id, conn)
 
         # Convergent-completion signal (issue #1051): sibling work may have
         # already shipped this task's deliverables, leaving automatable
