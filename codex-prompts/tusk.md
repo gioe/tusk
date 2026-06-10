@@ -138,6 +138,16 @@ JSON blob and the `skill_run.run_id` you already captured.
    - `session_id` — the session ID to use for the duration of the
      workflow (reuses an open session if one exists, otherwise creates
      a new one).
+   - `criteria_already_passing` — count of incomplete, non-deferred
+     code/file-type criteria whose verification specs already pass on
+     the current checkout (issue #1051). If > 0, print
+     `N/M criteria already pass — possible convergent completion`
+     (N = this count, M = incomplete criteria) **before any
+     implementation work begins** — sibling work may have already
+     shipped this task's deliverables. `deliverable_check_needed` is
+     forced `true` in this case, so Step 2's `tusk check-deliverables`
+     run will classify the disk state (`mark_done` /
+     `merged_not_closed` / etc.) before you write any code.
    - `skill_run` — `{run_id, skill_name, started_at, task_id}` for the
      skill-run row opened by `--skill`. Capture `skill_run.run_id` —
      it's referenced by every exit path below.
