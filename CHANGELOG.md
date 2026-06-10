@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1120] - 2026-06-10
+
+- [TASK-621] Warn on glob metacharacters in file-type criterion specs at task-insert
+
 ## [1119] - 2026-06-06
 
 - [TASK-620] Have task creation flows write durable context atoms
