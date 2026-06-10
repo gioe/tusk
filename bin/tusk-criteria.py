@@ -22,12 +22,15 @@ import time
 from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader  # loads tusk-pricing-lib.py, tusk-db-lib.py, tusk-json-lib.py, tusk-worktree-command.py
+import tusk_loader  # loads tusk-pricing-lib.py, tusk-db-lib.py, tusk-json-lib.py, tusk-git-helpers.py, tusk-worktree-command.py
 
 lib = tusk_loader.load("tusk-pricing-lib")
 _db_lib = tusk_loader.load("tusk-db-lib")
 get_connection = _db_lib.get_connection
 load_config = _db_lib.load_config
+
+_git_helpers = tusk_loader.load("tusk-git-helpers")
+warn_file_spec_glob_metachars = _git_helpers.warn_file_spec_glob_metachars
 
 _json_lib = tusk_loader.load("tusk-json-lib")
 dumps = _json_lib.dumps
@@ -378,6 +381,9 @@ def cmd_add(args: argparse.Namespace, db_path: str, config: dict) -> int:
         if args.type in SPEC_REQUIRED_TYPES and not args.spec:
             print(f"Error: --spec is required for criterion type '{args.type}'", file=sys.stderr)
             return 2
+
+        if args.type == "file":
+            warn_file_spec_glob_metachars(args.spec, "criteria add")
 
         superseded_ids = _find_superseded_criteria(
             conn,
