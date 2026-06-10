@@ -10,6 +10,13 @@ task is *cleanly orphaned*: no progress checkpoints, no commits referencing
 session. Partially-worked tasks stay forward-only and must close via
 task-done / merge / abandon.
 
+``--close-sessions`` (issue #1043) collapses the routine skip-a-just-started-
+task dance to one command: instead of refusing on open sessions, close them
+(mirroring ``tusk session-close --task-id``) and revert in the same
+transaction as the status UPDATE. It does NOT bypass the progress-checkpoint
+or [TASK-<id>] commit-overlap guards — those refuse before sessions are
+touched.
+
 Historical [TASK-<id>] commits whose diff has no overlap with the task's
 description / criteria paths are treated as prefix-match false positives
 (see issue #627) and ignored — the same heuristic tusk-check-deliverables.py
@@ -20,7 +27,8 @@ Exit codes:
   0  reverted; JSON printed on stdout
   1  --force missing (confirmation hint printed)
   2  task not found, wrong status, or a guard fired (task_progress rows,
-     [TASK-<id>] commits with task-scope overlap, or an open session)
+     [TASK-<id>] commits with task-scope overlap, or an open session
+     without --close-sessions)
 """
 
 import argparse
@@ -111,11 +119,12 @@ def main(argv: list[str]) -> int:
         prog="tusk task-unstart",
         description=(
             "Revert a cleanly-orphaned In Progress task back to To Do. "
-            "Refuses if the task has progress checkpoints, an open session, or "
-            "[TASK-<id>] commits whose diff overlaps with files referenced by "
-            "the task. Historical [TASK-<id>] commits whose diff has no overlap "
-            "with task scope (e.g. left over from a prior task numbering) are "
-            "treated as prefix-match false positives and ignored."
+            "Refuses if the task has progress checkpoints, an open session "
+            "(unless --close-sessions is passed), or [TASK-<id>] commits whose "
+            "diff overlaps with files referenced by the task. Historical "
+            "[TASK-<id>] commits whose diff has no overlap with task scope "
+            "(e.g. left over from a prior task numbering) are treated as "
+            "prefix-match false positives and ignored."
         ),
     )
     parser.add_argument("task_id", type=int, help="Task ID")
@@ -128,6 +137,18 @@ def main(argv: list[str]) -> int:
             "those still refuse when triggered."
         ),
     )
+    parser.add_argument(
+        "--close-sessions",
+        action="store_true",
+        help=(
+            "Close the task's open session(s) instead of refusing on them, so "
+            "skipping a just-started task is one command (issue #1043). The "
+            "sessions are closed in the same transaction as the status revert. "
+            "Does NOT bypass the progress-checkpoint or [TASK-<id>] "
+            "commit-overlap guards — those still refuse before any session is "
+            "touched."
+        ),
+    )
     args = parser.parse_args(argv[2:])
     task_id = args.task_id
     force = args.force
@@ -135,7 +156,8 @@ def main(argv: list[str]) -> int:
     if not force:
         print(
             f"This will revert task {task_id} from 'In Progress' back to 'To Do', clearing started_at.\n"
-            "Refuses if the task has any progress checkpoints, [TASK-<id>] commits, or an open session.\n"
+            "Refuses if the task has any progress checkpoints, [TASK-<id>] commits, or an open session\n"
+            "(pass --close-sessions to close open sessions instead of refusing).\n"
             "Re-run with --force to confirm:\n"
             f"  tusk task-unstart {task_id} --force",
             file=sys.stderr,
@@ -201,10 +223,12 @@ def main(argv: list[str]) -> int:
             "SELECT COUNT(*) FROM task_sessions WHERE task_id = ? AND ended_at IS NULL",
             (task_id,),
         ).fetchone()[0]
-        if open_sessions > 0:
+        if open_sessions > 0 and not args.close_sessions:
             print(
                 f"Error: Task {task_id} has {open_sessions} open session(s). "
-                "Run `tusk session-close <session_id>` first, then retry task-unstart.",
+                f"Re-run with --close-sessions to close them and revert in one call:\n"
+                f"  tusk task-unstart {task_id} --force --close-sessions\n"
+                "Or run `tusk session-close <session_id>` first, then retry task-unstart.",
                 file=sys.stderr,
             )
             return 2
@@ -213,7 +237,22 @@ def main(argv: list[str]) -> int:
         # the In Progress -> To Do transition isn't blocked. The helper
         # handles the snapshot/restore/regen-triggers choreography that was
         # duplicated in this script and tusk-task-reopen.py prior to #844.
+        # The --close-sessions UPDATE rides in the same BEGIN IMMEDIATE
+        # transaction so a failed status revert cannot leave sessions
+        # half-closed. The session UPDATE mirrors close_sessions() in
+        # tusk-autoclose.py.
+        sessions_closed = 0
         with status_transition_trigger_bypassed(conn):
+            if open_sessions > 0:
+                sessions_closed = conn.execute(
+                    "UPDATE task_sessions "
+                    "SET ended_at = datetime('now'), "
+                    "    duration_seconds = CAST((julianday(datetime('now')) - julianday(started_at)) * 86400 AS INTEGER), "
+                    "    lines_added = COALESCE(lines_added, 0), "
+                    "    lines_removed = COALESCE(lines_removed, 0) "
+                    "WHERE task_id = ? AND ended_at IS NULL",
+                    (task_id,),
+                ).rowcount
             conn.execute(
                 "UPDATE tasks SET status = 'To Do', started_at = NULL, "
                 "updated_at = datetime('now') WHERE id = ?",
@@ -224,6 +263,7 @@ def main(argv: list[str]) -> int:
         result = {
             "task": dict(updated),
             "prior_status": "In Progress",
+            "sessions_closed": sessions_closed,
         }
         print(dumps(result))
         return 0
