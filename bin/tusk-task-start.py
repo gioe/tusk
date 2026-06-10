@@ -39,7 +39,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader  # loads tusk-db-lib.py, tusk-json-lib.py, tusk-rank-lib.py, tusk-git-helpers.py
+import tusk_loader  # loads tusk-db-lib.py, tusk-json-lib.py, tusk-rank-lib.py, tusk-git-helpers.py, tusk-criteria.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
@@ -213,6 +213,38 @@ def _task_commits_on_default(db_path: str, task_id: int) -> bool:
         if _git_helpers.find_task_commits(task_id, repo_root, refs=[ref]):
             return True
     return False
+
+
+def _count_criteria_already_passing(conn: sqlite3.Connection, task_id: int) -> int:
+    """Count incomplete code/file criteria whose verification specs already pass.
+
+    Convergent-completion signal (issue #1051): a sibling task may have shipped
+    this task's deliverables before pickup, leaving the disk in a state where
+    automatable acceptance criteria pass before any work begins. Runs the same
+    specs `tusk criteria done` executes, via its runner (timeout-bounded,
+    exception-safe), read-only at start. test-type specs are excluded — full
+    suite runs are too slow for task-start latency. Best-effort by design: any
+    failure counts as not-passing and the whole scan degrades to 0 rather than
+    blocking task-start.
+    """
+    try:
+        rows = conn.execute(
+            "SELECT criterion_type, verification_spec FROM acceptance_criteria "
+            "WHERE task_id = ? AND is_completed = 0 AND is_deferred = 0 "
+            "AND criterion_type IN ('code', 'file') "
+            "AND verification_spec IS NOT NULL AND verification_spec != ''",
+            (task_id,),
+        ).fetchall()
+        if not rows:
+            return 0
+        run_verification = tusk_loader.load("tusk-criteria").run_verification
+        return sum(
+            1
+            for row in rows
+            if run_verification(row["criterion_type"], row["verification_spec"])["passed"]
+        )
+    except Exception:
+        return 0
 
 
 def _default_branch_staleness_warning(repo_root: str | None) -> dict | None:
@@ -677,6 +709,20 @@ def main(argv: list[str]) -> int:
             # proxy misses that state, so scan the default branch for shipped commits.
             deliverable_check_needed = _task_commits_on_default(db_path, task_id)
 
+        # Convergent-completion signal (issue #1051): sibling work may have
+        # already shipped this task's deliverables, leaving automatable
+        # criteria passing on disk before any work begins.
+        criteria_already_passing = _count_criteria_already_passing(conn, task_id)
+        if criteria_already_passing > 0:
+            deliverable_check_needed = True
+            incomplete_total = sum(1 for c in criteria_list if not c["is_completed"])
+            print(
+                f"Warning: {criteria_already_passing}/{incomplete_total} incomplete "
+                f"criteria verification spec(s) already pass — possible convergent "
+                f"completion; run tusk check-deliverables {task_id} before implementing",
+                file=sys.stderr,
+            )
+
         # Optional fused skill-run start: collapses the common /tusk, /chain,
         # /review-commits, /retro pattern of calling `tusk skill-run start <name>
         # --task-id <id>` immediately after task-start into a single CLI round-trip.
@@ -705,6 +751,7 @@ def main(argv: list[str]) -> int:
             "criteria": criteria_list,
             "session_id": session_id,
             "deliverable_check_needed": deliverable_check_needed,
+            "criteria_already_passing": criteria_already_passing,
             "skill_run": skill_run_info,
         }
         warnings = {}
