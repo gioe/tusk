@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1122] - 2026-06-10
+
+- [TASK-624] Fix: task-start gives no signal when code criteria already pass (convergent-completion blind spot)
+
 ## [1121] - 2026-06-10
 
 - [TASK-622] Add --close-sessions flag to task-unstart so skipping a just-started task is one command
