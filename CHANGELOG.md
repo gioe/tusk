@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1123] - 2026-06-10
+
+- [TASK-625] Fix: apply file-overlap heuristic to _task_commits_on_default prefix matches
+
 ## [1122] - 2026-06-10
 
 - [TASK-624] Fix: task-start gives no signal when code criteria already pass (convergent-completion blind spot)
