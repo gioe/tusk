@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1121] - 2026-06-10
+
+- [TASK-622] Add --close-sessions flag to task-unstart so skipping a just-started task is one command
+
 ## [1120] - 2026-06-10
 
 - [TASK-621] Warn on glob metacharacters in file-type criterion specs at task-insert
