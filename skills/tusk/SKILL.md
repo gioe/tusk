@@ -92,6 +92,13 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
    > **Early-exit cleanup:** If any step below causes the skill to stop before reaching the final `/retro` invocation in Step 12, first call `tusk skill-run cancel <run_id>` to close the open row, then stop. Otherwise the row lingers as `(open)` in `tusk skill-run list` forever. The explicit cancel calls below cover the known post-start early-exit paths; if you hit an unexpected bail-out, cancel before returning.
    >
    > **Pre-start exits don't need cancel.** If `tusk task-start --force --skill tusk` exits 1 (empty backlog — "No ready tasks found") or exits 2 (task not found, already Done, already has an active session without `--force-session`, has unmet `blocks`-deps without `--force-deps`, has open `contingent` deps without `--force-contingent`, has open external blockers, or missing criteria without `--force`), the skill-run row is never opened, so there is no `run_id` to cancel. Just stop.
+   >
+   > **Declining a just-started task (skip path):** If the task should not be worked after all (the operator declines the auto-surfaced task, or the premise turns out to be wrong) and no implementation work has landed yet — no progress checkpoints, no `[TASK-<id>]` commits — revert it to To Do instead of leaving it In Progress:
+   > ```bash
+   > tusk skill-run cancel <run_id>
+   > tusk task-unstart <id> --force --close-sessions
+   > ```
+   > `--close-sessions` closes the open session that `task-start` created instead of refusing on it (issue #1043). It does NOT bypass the progress-checkpoint or commit-overlap guards — if those refuse, the task has real work attached: finish it, or close it explicitly via `tusk abandon`.
 
 1b. **Hydrate task context before routing or exploring** — after `tusk task-start` succeeds, read the compiled brief before code exploration:
    ```bash
