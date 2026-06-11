@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1128] - 2026-06-11
+
+- [TASK-630] Derive sibling lockfile scope rows when package.json is auto-derived and a lockfile is named
+
 ## [1127] - 2026-06-10
 
 - [TASK-629] Warn at task-insert when a code/file criterion verification spec already passes
