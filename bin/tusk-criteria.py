@@ -305,17 +305,34 @@ def run_verification(criterion_type: str, spec: str) -> dict:
         # patterns are passed through untouched. Falls back to caller cwd
         # when not in a git repo (preserves prior behavior for non-repo
         # test fixtures).
+        #
+        # A leading "!" inverts the check (issue #1041): the criterion
+        # passes when the glob matches zero files, so absence assertions
+        # ("file X is no longer in the bundle") don't need a code-type
+        # shell spec with its inverted-polarity hazards.
+        pattern = spec
+        negated = pattern.startswith("!")
+        if negated:
+            pattern = pattern[1:].strip()
+            if not pattern:
+                return {"passed": False, "output": "Empty file pattern after '!'"}
         base = repo_root or os.getcwd()
-        if os.path.isabs(spec):
-            matches = globmod.glob(spec, recursive=True)
+        if os.path.isabs(pattern):
+            matches = globmod.glob(pattern, recursive=True)
             display = matches
         else:
-            matches = globmod.glob(os.path.join(base, spec), recursive=True)
+            matches = globmod.glob(os.path.join(base, pattern), recursive=True)
             display = [os.path.relpath(m, base) for m in matches]
+        file_list = ""
         if matches:
             file_list = ", ".join(display[:10])
             if len(display) > 10:
                 file_list += f" ... ({len(display)} total)"
+        if negated:
+            if matches:
+                return {"passed": False, "output": f"Expected no files matching {pattern}, found: {file_list}"}
+            return {"passed": True, "output": f"Absent as expected: {pattern}"}
+        if matches:
             return {"passed": True, "output": f"Found: {file_list}"}
         return {"passed": False, "output": f"No files matching: {spec}"}
 
@@ -1090,7 +1107,11 @@ def main():
     )
     add_p.add_argument(
         "--spec",
-        help="Verification spec (required for non-manual types)",
+        help=(
+            "Verification spec (required for non-manual types). For file-type "
+            "criteria the spec is a glob; a leading '!' inverts the check so "
+            "verification passes when no file matches (absence assertion)"
+        ),
     )
 
     # list
