@@ -142,7 +142,7 @@ def filter_manifest(files, skills_src, project_type):
 
 def _cli():
     import argparse
-    p = argparse.ArgumentParser(
+    p = argparse.ArgumentParser(allow_abbrev=False,
         description="Filter a skill by project_type. Exit 0 to install, 1 to skip."
     )
     p.add_argument("--skill", required=True, help="Path to skill directory containing SKILL.md")

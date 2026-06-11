@@ -117,7 +117,7 @@ def _rederive_auto_scope(
 def main(argv: list[str]) -> int:
     db_path = argv[0]
     config_path = argv[1]
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk task-update",
         description="Update task fields with config validation",
     )

@@ -36,7 +36,7 @@ def build(spec: str, text: str, ctype: str) -> str:
 
 
 def main(argv):
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk typed-criteria-build",
         description=(
             "Emit a properly-escaped --typed-criteria JSON string for an arbitrary spec. "

@@ -1237,14 +1237,14 @@ def main():
     db_path = sys.argv[1]
     config_path = sys.argv[2]
 
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk review",
         description="Manage code reviews for tasks",
     )
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     # start
-    start_p = subparsers.add_parser("start", help="Start a new code review for a task")
+    start_p = subparsers.add_parser("start", allow_abbrev=False, help="Start a new code review for a task")
     start_p.add_argument("task_id", type=int, help="Task ID")
     start_p.add_argument("--reviewer", default=None, help="Reviewer name (overrides config reviewers)")
     start_p.add_argument("--pass-num", type=int, default=1, help="Review pass number (default: 1)")
@@ -1253,7 +1253,7 @@ def main():
 
     # begin
     begin_p = subparsers.add_parser(
-        "begin",
+        "begin", allow_abbrev=False,
         help="Bundle review-diff-range and review start in one call (returns JSON)",
     )
     begin_p.add_argument("task_id", type=int, help="Task ID")
@@ -1262,7 +1262,7 @@ def main():
     begin_p.add_argument("--agent", default=None, help="Agent name that ran the review (e.g. from /chain)")
 
     # add-comment
-    add_comment_p = subparsers.add_parser("add-comment", help="Add a finding comment to a review")
+    add_comment_p = subparsers.add_parser("add-comment", allow_abbrev=False, help="Add a finding comment to a review")
     add_comment_p.add_argument("review_id", type=int, help="Review ID")
     add_comment_p.add_argument("comment", help="Comment text")
     add_comment_p.add_argument("--file", default=None, help="File path")
@@ -1272,11 +1272,11 @@ def main():
     add_comment_p.add_argument("--severity", default=None, help="Severity (e.g., critical, major, minor)")
 
     # list
-    list_p = subparsers.add_parser("list", help="List reviews and findings for a task")
+    list_p = subparsers.add_parser("list", allow_abbrev=False, help="List reviews and findings for a task")
     list_p.add_argument("task_id", type=int, help="Task ID")
 
     # resolve
-    resolve_p = subparsers.add_parser("resolve", help="Resolve a review comment")
+    resolve_p = subparsers.add_parser("resolve", allow_abbrev=False, help="Resolve a review comment")
     resolve_p.add_argument("comment_id", type=int, help="Comment ID")
     resolve_p.add_argument("resolution", choices=["fixed", "dismissed"], help="Resolution status")
     resolve_p.add_argument(
@@ -1286,7 +1286,7 @@ def main():
     )
 
     # approve
-    approve_p = subparsers.add_parser("approve", help="Approve a review")
+    approve_p = subparsers.add_parser("approve", allow_abbrev=False, help="Approve a review")
     approve_p.add_argument("review_id", type=int, help="Review ID")
     approve_p.add_argument(
         "--note",
@@ -1299,7 +1299,7 @@ def main():
     _add_cost_flags(approve_p)
 
     # request-changes
-    req_changes_p = subparsers.add_parser("request-changes", help="Request changes on a review")
+    req_changes_p = subparsers.add_parser("request-changes", allow_abbrev=False, help="Request changes on a review")
     req_changes_p.add_argument("review_id", type=int, help="Review ID")
     req_changes_p.add_argument(
         "--note",
@@ -1313,7 +1313,7 @@ def main():
 
     # backfill-cost
     backfill_cost_p = subparsers.add_parser(
-        "backfill-cost",
+        "backfill-cost", allow_abbrev=False,
         help="Recompute cost/tokens for an existing review row from its created_at window",
     )
     backfill_cost_p.add_argument("review_id", type=int, help="Review ID")
@@ -1345,26 +1345,26 @@ def main():
     )
 
     # status
-    status_p = subparsers.add_parser("status", help="Show current review status for a task (JSON)")
+    status_p = subparsers.add_parser("status", allow_abbrev=False, help="Show current review status for a task (JSON)")
     status_p.add_argument("task_id", type=int, help="Task ID")
 
     # summary
-    summary_p = subparsers.add_parser("summary", help="Print a human-readable summary of a review")
+    summary_p = subparsers.add_parser("summary", allow_abbrev=False, help="Print a human-readable summary of a review")
     summary_p.add_argument("review_id", type=int, help="Review ID")
 
     # validate-comments
     validate_p = subparsers.add_parser(
-        "validate-comments",
+        "validate-comments", allow_abbrev=False,
         help="Dismiss pending review comments whose file_path is not in the diff",
     )
     validate_p.add_argument("review_id", type=int, help="Review ID")
 
     # verdict
-    verdict_p = subparsers.add_parser("verdict", help="Return JSON verdict for a task (APPROVED or CHANGES_REMAINING)")
+    verdict_p = subparsers.add_parser("verdict", allow_abbrev=False, help="Return JSON verdict for a task (APPROVED or CHANGES_REMAINING)")
     verdict_p.add_argument("task_id", type=int, help="Task ID")
 
     # pass-status
-    pass_status_p = subparsers.add_parser("pass-status", help="Return JSON with current pass, max passes, can_retry, open_must_fix")
+    pass_status_p = subparsers.add_parser("pass-status", allow_abbrev=False, help="Return JSON with current pass, max passes, can_retry, open_must_fix")
     pass_status_p.add_argument("task_id", type=int, help="Task ID")
 
     args = parser.parse_args(sys.argv[3:])

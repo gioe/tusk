@@ -130,7 +130,7 @@ def main():
             exit_code=1,
         )
 
-    parser = argparse.ArgumentParser(add_help=False)
+    parser = argparse.ArgumentParser(allow_abbrev=False, add_help=False)
     spec_group = parser.add_mutually_exclusive_group(required=True)
     spec_group.add_argument("--spec")
     spec_group.add_argument("--spec-file", dest="spec_file")

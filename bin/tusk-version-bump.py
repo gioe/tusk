@@ -49,7 +49,7 @@ def main() -> None:
     install_dir = sys.argv[4]
     user_args = sys.argv[5:]
 
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk version-bump",
         description=(
             "Increment VERSION by 1, write, stage, and echo the new value. "

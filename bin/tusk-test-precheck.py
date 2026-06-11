@@ -368,7 +368,7 @@ def _remove_generated_pop_blockers(repo_root: str, stderr: str) -> list[str]:
 
 
 def main(argv):
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk test-precheck",
         description=(
             "Run the project's test command against HEAD (stashing and "

@@ -153,7 +153,7 @@ def main():
     db_path = sys.argv[1]
     # sys.argv[2] is config_path, unused
 
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk review-final-summary",
         description="Render the /review-commits Step 10 final summary block for a review",
     )

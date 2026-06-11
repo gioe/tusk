@@ -230,7 +230,7 @@ def _format_summary(result: dict) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="tusk reconcile-skills")
+    parser = argparse.ArgumentParser(allow_abbrev=False, prog="tusk reconcile-skills")
     parser.add_argument(
         "--source-dir",
         default=None,

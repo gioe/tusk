@@ -460,7 +460,7 @@ def main(argv: list) -> int:
     db_path = argv[0]
     # argv[1] is config_path — reserved for future use
 
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk review-diff-range",
         description="Compute the git diff range for /review-commits against a task's branch",
     )

@@ -94,7 +94,7 @@ def main() -> None:
     db_path = sys.argv[2]
     user_args = sys.argv[3:]
 
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk changelog-add",
         description=(
             "Prepend a versioned CHANGELOG entry with DB-fetched task bullet summaries. "

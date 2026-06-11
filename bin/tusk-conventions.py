@@ -244,39 +244,39 @@ def main():
     config_path = sys.argv[2]
     config = load_config(config_path)
 
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk conventions",
         description="Manage project conventions",
     )
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     # add
-    add_p = subparsers.add_parser("add", help="Add a convention")
+    add_p = subparsers.add_parser("add", allow_abbrev=False, help="Add a convention")
     add_p.add_argument("text", help="Convention text")
     add_p.add_argument("--skill", default=None, metavar="NAME", help="Source skill name (optional)")
     add_p.add_argument("--topics", default=None, metavar="TOPICS", help="Comma-separated topic tags (e.g. 'zsh,cli,git')")
 
     # list
-    list_p = subparsers.add_parser("list", help="List all conventions")
+    list_p = subparsers.add_parser("list", allow_abbrev=False, help="List all conventions")
     list_p.add_argument("--topic", default=None, metavar="TOPIC", help="Filter by topic tag")
 
     # search
-    search_p = subparsers.add_parser("search", help="Search conventions by term (matches text and topics)")
+    search_p = subparsers.add_parser("search", allow_abbrev=False, help="Search conventions by term (matches text and topics)")
     search_p.add_argument("term", help="Search term (case-insensitive)")
 
     # remove
-    remove_p = subparsers.add_parser("remove", help="Remove a convention by ID")
+    remove_p = subparsers.add_parser("remove", allow_abbrev=False, help="Remove a convention by ID")
     remove_p.add_argument("id", type=int, help="Convention ID")
 
     # update
-    update_p = subparsers.add_parser("update", help="Update an existing convention by ID")
+    update_p = subparsers.add_parser("update", allow_abbrev=False, help="Update an existing convention by ID")
     update_p.add_argument("id", type=int, help="Convention ID")
     update_p.add_argument("--text", default=None, metavar="TEXT", help="New convention text")
     update_p.add_argument("--topics", default=None, metavar="TOPICS", help="New comma-separated topic tags (replaces existing topics)")
 
     # inject
     inject_p = subparsers.add_parser(
-        "inject",
+        "inject", allow_abbrev=False,
         help="Print conventions relevant to a file path (derived from path heuristics)",
     )
     inject_p.add_argument("path", help="File path to derive topics from")

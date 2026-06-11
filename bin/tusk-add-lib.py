@@ -57,7 +57,7 @@ def main():
 
     config_path = sys.argv[2]
 
-    parser = argparse.ArgumentParser(add_help=False)
+    parser = argparse.ArgumentParser(allow_abbrev=False, add_help=False)
     parser.add_argument("--lib", default=None)
     parser.add_argument("--repo", default=None)
     parser.add_argument("--ref", default=None)

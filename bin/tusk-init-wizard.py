@@ -467,7 +467,7 @@ def main():
 
     config_path = sys.argv[2]
 
-    parser = argparse.ArgumentParser(add_help=False)
+    parser = argparse.ArgumentParser(allow_abbrev=False, add_help=False)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--interactive", action="store_true")
     mode.add_argument("--non-interactive", action="store_true")

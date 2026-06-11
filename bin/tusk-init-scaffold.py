@@ -153,7 +153,7 @@ def main():
             exit_code=1,
         )
 
-    parser = argparse.ArgumentParser(add_help=False)
+    parser = argparse.ArgumentParser(allow_abbrev=False, add_help=False)
     parser.add_argument("--spec", required=True)
     parser.add_argument("--mode", choices=["claude", "codex"], default=None)
     parser.add_argument("--repo-root", dest="repo_root", default=None)

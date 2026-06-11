@@ -356,7 +356,7 @@ def _same_path(left: str | None, right: str | None) -> bool:
 def main(argv: list[str]) -> int:
     db_path = argv[0]
     # argv[1] is config_path (unused but kept for dispatch consistency)
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk task-start",
         description="Begin work on a task (or pick the top ready task when no ID is given)",
     )

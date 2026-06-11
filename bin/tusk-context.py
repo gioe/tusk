@@ -175,29 +175,29 @@ def _update_status(
 def main(argv: list[str]) -> int:
     db_path = argv[0]
     # argv[1] is config_path — reserved
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk context",
         description="Manage typed task context items for durable handoff.",
     )
     sub = parser.add_subparsers(dest="mode", required=True)
 
-    add = sub.add_parser("add", help="Create one task context item.")
+    add = sub.add_parser("add", allow_abbrev=False, help="Create one task context item.")
     add.add_argument("task_id", help="Task ID, e.g. 42 or TASK-42.")
     add.add_argument("--type", dest="item_type", choices=ITEM_TYPES, required=True)
     add.add_argument("--content", required=True)
     add.add_argument("--source", choices=SOURCES, default="manual")
     add.add_argument("--objective-id", type=int, default=None)
 
-    ls = sub.add_parser("list", help="List context items for a task.")
+    ls = sub.add_parser("list", allow_abbrev=False, help="List context items for a task.")
     ls.add_argument("task_id", help="Task ID, e.g. 42 or TASK-42.")
     ls.add_argument("--type", dest="item_type", choices=ITEM_TYPES, default=None)
     ls.add_argument("--status", choices=(*STATUSES, "all"), default="active")
     ls.add_argument("--format", choices=("json", "text"), default="json")
 
-    resolve = sub.add_parser("resolve", help="Mark a context item resolved.")
+    resolve = sub.add_parser("resolve", allow_abbrev=False, help="Mark a context item resolved.")
     resolve.add_argument("context_item_id", type=int)
 
-    supersede = sub.add_parser("supersede", help="Mark a context item superseded.")
+    supersede = sub.add_parser("supersede", allow_abbrev=False, help="Mark a context item superseded.")
     supersede.add_argument("context_item_id", type=int)
 
     args = parser.parse_args(argv[2:])

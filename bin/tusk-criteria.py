@@ -1086,14 +1086,14 @@ def main():
     config_path = sys.argv[2]
     config = load_config(config_path)
 
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk criteria",
         description="Manage acceptance criteria for tasks",
     )
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     # add
-    add_p = subparsers.add_parser("add", help="Add a criterion to a task")
+    add_p = subparsers.add_parser("add", allow_abbrev=False, help="Add a criterion to a task")
     add_p.add_argument("task_id", type=int, help="Task ID")
     add_p.add_argument("text", help="Criterion text")
     add_p.add_argument(
@@ -1115,11 +1115,11 @@ def main():
     )
 
     # list
-    list_p = subparsers.add_parser("list", help="List criteria for a task")
+    list_p = subparsers.add_parser("list", allow_abbrev=False, help="List criteria for a task")
     list_p.add_argument("task_id", type=int, help="Task ID")
 
     # update
-    update_p = subparsers.add_parser("update", help="Update criterion type or verification spec")
+    update_p = subparsers.add_parser("update", allow_abbrev=False, help="Update criterion type or verification spec")
     update_p.add_argument("criterion_id", type=int, help="Criterion ID")
     update_p.add_argument(
         "--criterion-type",
@@ -1133,7 +1133,7 @@ def main():
     )
 
     # done
-    done_p = subparsers.add_parser("done", help="Mark one or more criteria as completed")
+    done_p = subparsers.add_parser("done", allow_abbrev=False, help="Mark one or more criteria as completed")
     done_p.add_argument("criterion_ids", type=int, nargs="+", help="One or more criterion IDs")
     done_p.add_argument(
         "--skip-verify", action="store_true",
@@ -1154,7 +1154,7 @@ def main():
 
     # skip
     skip_p = subparsers.add_parser(
-        "skip",
+        "skip", allow_abbrev=False,
         help="Close a criterion without commit attribution (not applicable, deferred to chain orchestrator, etc.)",
     )
     skip_p.add_argument("criterion_id", type=int, help="Criterion ID")
@@ -1170,11 +1170,11 @@ def main():
     )
 
     # reset
-    reset_p = subparsers.add_parser("reset", help="Reset a criterion to incomplete (clears deferred flag too)")
+    reset_p = subparsers.add_parser("reset", allow_abbrev=False, help="Reset a criterion to incomplete (clears deferred flag too)")
     reset_p.add_argument("criterion_id", type=int, help="Criterion ID")
 
     # delete
-    delete_p = subparsers.add_parser("delete", help="Delete a stale criterion")
+    delete_p = subparsers.add_parser("delete", allow_abbrev=False, help="Delete a stale criterion")
     delete_p.add_argument("criterion_id", type=int, help="Criterion ID")
     delete_p.add_argument(
         "--force", action="store_true",
@@ -1183,7 +1183,7 @@ def main():
 
     # finish-deferred
     fd_p = subparsers.add_parser(
-        "finish-deferred",
+        "finish-deferred", allow_abbrev=False,
         help="Mark all deferred criteria with a given reason as completed for specified tasks",
     )
     fd_p.add_argument("--reason", required=True, help="Deferred reason to match (e.g., 'chain')")

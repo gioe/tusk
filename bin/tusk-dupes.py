@@ -521,7 +521,7 @@ def main():
     config_path = sys.argv[2]
     load_config(config_path)
 
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk dupes",
         description="Fuzzy duplicate detection for tusk tasks",
     )
@@ -529,7 +529,7 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     # check
-    check_p = subparsers.add_parser("check", help="Check a summary against open tasks")
+    check_p = subparsers.add_parser("check", allow_abbrev=False, help="Check a summary against open tasks")
     check_p.add_argument("summary", help="Task summary to check")
     check_p.add_argument("--domain", help="Filter to a specific domain")
     check_p.add_argument(
@@ -556,7 +556,7 @@ def main():
     check_p.add_argument("--json", action="store_true", help="Output JSON")
 
     # scan
-    scan_p = subparsers.add_parser("scan", help="Find all duplicate pairs among open tasks")
+    scan_p = subparsers.add_parser("scan", allow_abbrev=False, help="Find all duplicate pairs among open tasks")
     scan_p.add_argument("--domain", help="Filter to a specific domain")
     scan_p.add_argument("--status", help="Filter to a specific status")
     scan_p.add_argument(
@@ -566,7 +566,7 @@ def main():
     scan_p.add_argument("--json", action="store_true", help="Output JSON")
 
     # similar
-    sim_p = subparsers.add_parser("similar", help="Find tasks similar to a given task ID")
+    sim_p = subparsers.add_parser("similar", allow_abbrev=False, help="Find tasks similar to a given task ID")
     sim_p.add_argument("id", type=int, help="Task ID")
     sim_p.add_argument("--domain", help="Filter to a specific domain")
     sim_p.add_argument(

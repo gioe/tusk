@@ -46,7 +46,7 @@ def main(argv):
     repo_root = Path(argv[0])
     rest = argv[1:]
 
-    ap = argparse.ArgumentParser(prog="tusk dev-sync")
+    ap = argparse.ArgumentParser(allow_abbrev=False, prog="tusk dev-sync")
     ap.add_argument(
         "--dry-run", action="store_true",
         help="List the files that would be copied without writing them.",

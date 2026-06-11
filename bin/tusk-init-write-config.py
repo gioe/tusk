@@ -57,7 +57,7 @@ def main():
 
     config_path = sys.argv[2]
 
-    parser = argparse.ArgumentParser(add_help=False)
+    parser = argparse.ArgumentParser(allow_abbrev=False, add_help=False)
     parser.add_argument("--domains", default=None)
     parser.add_argument("--agents", default=None)
     parser.add_argument("--task-types", default=None)

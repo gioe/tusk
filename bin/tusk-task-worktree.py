@@ -965,7 +965,7 @@ def _select_existing_workspace(
 def cmd_create(
     db_path: str, config_path: str, repo_root: str, argv: list[str]
 ) -> int:
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk task-worktree create",
         description="Create or reuse a task-owned git worktree.",
     )
@@ -1342,7 +1342,7 @@ def cmd_create(
 
 
 def cmd_list(db_path: str, repo_root: str, argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk task-worktree list",
         description="List recorded task-owned git worktrees.",
     )
@@ -1490,7 +1490,7 @@ def _perform_reconcile(
 
 
 def cmd_reconcile(db_path: str, repo_root: str, argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk task-worktree reconcile",
         description=(
             "Clean up worktrees whose tasks are Done and whose branches are "
@@ -1741,7 +1741,7 @@ def _classify_relocate_row(
 def cmd_relocate(
     db_path: str, config_path: str, repo_root: str, argv: list[str]
 ) -> int:
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk task-worktree relocate",
         description=(
             "Migrate existing flat-pool task worktrees into the per-repo "
@@ -1964,7 +1964,7 @@ def cmd_relocate(
 
 
 def cmd_prune(db_path: str, repo_root: str, argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk task-worktree prune",
         description="Remove stale task-owned worktree registry rows.",
     )

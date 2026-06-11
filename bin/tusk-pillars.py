@@ -192,27 +192,27 @@ def cmd_sync_from_md(args: argparse.Namespace, db_path: str, config: dict) -> in
 # ── Argument parsing ─────────────────────────────────────────────────
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk pillars",
         description="Manage project pillars",
     )
     sub = parser.add_subparsers(dest="subcommand", required=True)
 
-    sub.add_parser("list", help="List all pillars as JSON")
+    sub.add_parser("list", allow_abbrev=False, help="List all pillars as JSON")
 
-    p_add = sub.add_parser("add", help="Add a new pillar")
+    p_add = sub.add_parser("add", allow_abbrev=False, help="Add a new pillar")
     p_add.add_argument("--name", required=True, help="Pillar name")
     p_add.add_argument("--claim", required=True, help="Core claim (one-sentence description)")
 
-    p_remove = sub.add_parser("remove", help="Remove a pillar by name")
+    p_remove = sub.add_parser("remove", allow_abbrev=False, help="Remove a pillar by name")
     p_remove.add_argument("name", help="Pillar name to remove")
 
-    p_set = sub.add_parser("set-claim", help="Update the core claim of a pillar")
+    p_set = sub.add_parser("set-claim", allow_abbrev=False, help="Update the core claim of a pillar")
     p_set.add_argument("name", help="Pillar name")
     p_set.add_argument("claim", help="New core claim")
 
     p_sync = sub.add_parser(
-        "sync-from-md",
+        "sync-from-md", allow_abbrev=False,
         help="Upsert pillars from docs/PILLARS.md (idempotent)",
     )
     p_sync.add_argument(

@@ -21,7 +21,7 @@ status_transition_trigger_bypassed = _db_lib.status_transition_trigger_bypassed
 def main(argv: list[str]) -> int:
     db_path = argv[0]
     # argv[1] is config_path (unused but kept for dispatch consistency)
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk task-reopen",
         description="Reset a task back to To Do",
     )

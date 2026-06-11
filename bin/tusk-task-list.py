@@ -71,7 +71,7 @@ def main(argv: list[str]) -> int:
     db_path = argv[0]
     # argv[1] is config_path (accepted for dispatch consistency, unused)
 
-    parser = argparse.ArgumentParser(prog="tusk task-list", add_help=False)
+    parser = argparse.ArgumentParser(allow_abbrev=False, prog="tusk task-list", add_help=False)
     parser.add_argument("--status", default=None, help="Filter by status")
     parser.add_argument("--domain", default=None, help="Filter by domain")
     parser.add_argument("--assignee", default=None, help="Filter by assignee")

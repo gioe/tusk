@@ -140,7 +140,7 @@ def fetch_patches(
 def main(argv: list) -> int:
     db_path = argv[0]
     # argv[1] is config_path — reserved for future use
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk retro-patches",
         description=(
             "List retro_findings rows whose action_taken begins with "

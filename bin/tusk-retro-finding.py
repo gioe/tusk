@@ -96,7 +96,7 @@ def add_finding(
 def main(argv: list) -> int:
     db_path = argv[0]
     # argv[1] is config_path — reserved for future use
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk retro-finding",
         description=(
             "Record a retro_findings row — the write side of cross-retro "
@@ -107,7 +107,7 @@ def main(argv: list) -> int:
     )
     subparsers = parser.add_subparsers(dest="action", required=True)
     add_p = subparsers.add_parser(
-        "add",
+        "add", allow_abbrev=False,
         help="Insert one retro_findings row after validating FK references.",
     )
     add_p.add_argument("--skill-run-id", type=int, required=True)

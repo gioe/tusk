@@ -390,7 +390,7 @@ def _resolve_stderr(args) -> str | None:
 
 
 def cmd_classify_spec(argv) -> int:
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk address-issue classify-spec",
         description=(
             "Classify a Step 4.1 failing-test spec. Accepts the spec text plus "

@@ -129,14 +129,14 @@ def list_jots(
 def main(argv: list) -> int:
     db_path = argv[0]
     # argv[1] is config_path — reserved
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk jot",
         description="Mid-task friction notes consumed by /retro.",
     )
     sub = parser.add_subparsers(dest="mode", required=True)
 
     w = sub.add_parser(
-        "write",
+        "write", allow_abbrev=False,
         help="Insert one jot keyed to the currently-active skill_run.",
     )
     w.add_argument("category")
@@ -147,7 +147,7 @@ def main(argv: list) -> int:
                    help="Optional skill name the jot is about (pre-classify hint).")
 
     ls = sub.add_parser(
-        "list",
+        "list", allow_abbrev=False,
         help="List jots filtered by skill_run_id and/or task_id.",
     )
     ls.add_argument("--skill-run-id", type=int, default=None)

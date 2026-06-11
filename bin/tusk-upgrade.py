@@ -1098,7 +1098,7 @@ def stage_and_commit(repo_root: str, manifest_path: str, remote_version: int) ->
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Upgrade tusk from GitHub")
+    parser = argparse.ArgumentParser(allow_abbrev=False, description="Upgrade tusk from GitHub")
     parser.add_argument("repo_root", help="Absolute path to repo root")
     parser.add_argument("script_dir", help="Absolute path to script dir")
     parser.add_argument("--no-commit", action="store_true", help="Skip auto-commit")

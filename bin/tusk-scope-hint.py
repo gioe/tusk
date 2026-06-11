@@ -173,7 +173,7 @@ def main(argv: list) -> int:
     # hint is read-only over raw text and uses config_path only to resolve
     # the repo root for suffix-based path hints.
 
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk scope-hint",
         description="Emit scope/creates/unbounded suggestions for a draft task",
     )

@@ -114,7 +114,7 @@ def main(argv: list[str]) -> int:
     config_path = argv[1]
     valid_reasons = load_config(config_path).get("closed_reasons", [])
     reason_metavar = "|".join(valid_reasons) if valid_reasons else "completed|expired|wont_do|duplicate"
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk task-done",
         description="Close a task with a reason",
     )

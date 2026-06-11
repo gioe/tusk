@@ -382,34 +382,34 @@ def cmd_export(args: argparse.Namespace, db_path: str, config: dict) -> int:
 # ── Argument parsing ─────────────────────────────────────────────────
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk glossary",
         description="Manage project glossary entries",
     )
     sub = parser.add_subparsers(dest="subcommand", required=True)
 
-    sub.add_parser("list", help="List all glossary entries as JSON")
+    sub.add_parser("list", allow_abbrev=False, help="List all glossary entries as JSON")
 
-    p_get = sub.add_parser("get", help="Get a single glossary entry by term")
+    p_get = sub.add_parser("get", allow_abbrev=False, help="Get a single glossary entry by term")
     p_get.add_argument("term", help="Term to fetch")
 
     p_search = sub.add_parser(
-        "search",
+        "search", allow_abbrev=False,
         help="Search glossary by term, definition, or topic (substring match)",
     )
     p_search.add_argument("query", help="Search string")
 
-    p_add = sub.add_parser("add", help="Add a new glossary entry")
+    p_add = sub.add_parser("add", allow_abbrev=False, help="Add a new glossary entry")
     p_add.add_argument("term", help="Term name (must be unique)")
     p_add.add_argument("definition", help="Definition text")
     p_add.add_argument("--see-also", default=None, help="Optional see-also reference")
     p_add.add_argument("--topics", default=None, help="Comma-separated topic tags")
 
-    p_remove = sub.add_parser("remove", help="Remove a glossary entry by term")
+    p_remove = sub.add_parser("remove", allow_abbrev=False, help="Remove a glossary entry by term")
     p_remove.add_argument("term", help="Term to remove")
 
     p_set = sub.add_parser(
-        "set-definition",
+        "set-definition", allow_abbrev=False,
         help="Update an existing glossary entry's definition, see-also, or topics",
     )
     p_set.add_argument("term", help="Term to update")
@@ -418,7 +418,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_set.add_argument("--topics", default=None, help="New comma-separated topic tags")
 
     p_sync = sub.add_parser(
-        "sync-from-md",
+        "sync-from-md", allow_abbrev=False,
         help="Upsert glossary entries from docs/GLOSSARY.md (idempotent)",
     )
     p_sync.add_argument(
@@ -428,7 +428,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     p_export = sub.add_parser(
-        "export",
+        "export", allow_abbrev=False,
         help="Render the glossary table back to docs/GLOSSARY.md",
     )
     p_export.add_argument(

@@ -380,7 +380,7 @@ def main():
     db_path = sys.argv[1]
     # sys.argv[2] is config path (unused by this script, accepted for consistency)
 
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         description="Downstream sub-DAG operations scoped to one or more head tasks",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
@@ -403,29 +403,29 @@ Examples:
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     # scope command
-    scope_parser = subparsers.add_parser("scope", help="List all tasks in the downstream sub-DAG")
+    scope_parser = subparsers.add_parser("scope", allow_abbrev=False, help="List all tasks in the downstream sub-DAG")
     scope_parser.add_argument("head_task_ids", type=int, nargs="+", help="Head task ID(s)")
 
     # frontier command
-    frontier_parser = subparsers.add_parser("frontier", help="List ready tasks within scope")
+    frontier_parser = subparsers.add_parser("frontier", allow_abbrev=False, help="List ready tasks within scope")
     frontier_parser.add_argument("head_task_ids", type=int, nargs="+", help="Head task ID(s)")
 
     # frontier-check command
     frontier_check_parser = subparsers.add_parser(
-        "frontier-check",
+        "frontier-check", allow_abbrev=False,
         help="Return {status, frontier} JSON for loop-termination detection",
     )
     frontier_check_parser.add_argument("head_task_ids", type=int, nargs="+", help="Head task ID(s)")
 
     # validate-scope command
     validate_scope_parser = subparsers.add_parser(
-        "validate-scope",
+        "validate-scope", allow_abbrev=False,
         help="Return {scope_type, skip_head_execution} JSON for /chain Step 2 early-exit detection",
     )
     validate_scope_parser.add_argument("head_task_ids", type=int, nargs="+", help="Head task ID(s)")
 
     # status command
-    status_parser = subparsers.add_parser("status", help="Show progress summary")
+    status_parser = subparsers.add_parser("status", allow_abbrev=False, help="Show progress summary")
     status_parser.add_argument("head_task_ids", type=int, nargs="+", help="Head task ID(s)")
     status_parser.add_argument(
         "--format",

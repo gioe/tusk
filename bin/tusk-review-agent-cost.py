@@ -135,7 +135,7 @@ def aggregate_agent_cost(
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk review-agent-cost",
         description="Aggregate cost from spawned reviewer agent transcripts.",
     )

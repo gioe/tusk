@@ -730,7 +730,7 @@ def _delete_shadow_rows(conn: sqlite3.Connection, shadow_ids: list[int]) -> None
 
 def cmd_pick(db_path: str, config_path: str, argv: list[str]) -> int:
     """Merge a chosen shadow's branch into default, close the source task, prune siblings."""
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk bakeoff pick",
         description="Merge a chosen bakeoff shadow back into the source task's base branch.",
     )
@@ -909,7 +909,7 @@ def cmd_pick(db_path: str, config_path: str, argv: list[str]) -> int:
 
 def cmd_discard(db_path: str, config_path: str, argv: list[str]) -> int:
     """Throw every shadow of a bakeoff away; leave the source task untouched."""
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk bakeoff discard",
         description="Discard every shadow of a bakeoff — delete rows and workspaces.",
     )
@@ -1001,7 +1001,7 @@ def main(argv: list[str]) -> int:
         return cmd_discard(db_path, config_path, argv[3:])
     # argv[1] is config_path — unused here but accepted for dispatch consistency.
 
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk bakeoff",
         description="Run the same task under N models and emit a side-by-side report.",
     )

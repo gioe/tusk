@@ -282,7 +282,7 @@ def format_diff(
 
 
 def main():
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         description="Fetch and update pricing.json from Anthropic docs",
     )
     parser.add_argument(

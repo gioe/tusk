@@ -159,7 +159,7 @@ def render_text(report: dict) -> str:
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk insights",
         description=(
             "Worktree-pool health: reconcile-eligible rows, "

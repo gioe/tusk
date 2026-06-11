@@ -133,7 +133,7 @@ def _render_text(summary: dict) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk cost",
         usage="tusk cost [--format json|text]",
         description="Report cumulative project cost.",

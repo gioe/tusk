@@ -259,7 +259,7 @@ def main(argv):
     repo_root = argv[0]
     rest = argv[1:]
 
-    ap = argparse.ArgumentParser(prog="tusk sync-main")
+    ap = argparse.ArgumentParser(allow_abbrev=False, prog="tusk sync-main")
     ap.parse_args(rest)
 
     tusk_bin = os.path.join(os.path.dirname(os.path.realpath(__file__)), "tusk")

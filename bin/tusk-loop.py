@@ -100,7 +100,7 @@ def main() -> None:
     db_path = sys.argv[1]
     # sys.argv[2] is config path — accepted for CLI consistency, not used here
 
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         description="Autonomous task loop — works through the backlog until empty",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""

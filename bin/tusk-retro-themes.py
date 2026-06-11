@@ -169,7 +169,7 @@ def fetch_themes(
 def main(argv: list) -> int:
     db_path = argv[0]
     # argv[1] is config_path — reserved for future use
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk retro-themes",
         description=(
             "Aggregate retro_findings by category (the 'theme') across a "

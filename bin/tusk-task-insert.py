@@ -608,7 +608,7 @@ def _canonical_enum_value(value: str, valid_values: list[str]) -> str:
 def main(argv: list[str]) -> int:
     db_path = argv[0]
     config_path = argv[1]
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk task-insert",
         description="Insert a new task with criteria in one atomic operation",
     )

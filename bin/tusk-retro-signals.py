@@ -463,7 +463,7 @@ def build_signals(conn: sqlite3.Connection, task_id: int) -> dict:
 def main(argv: list) -> int:
     db_path = argv[0]
     # argv[1] is config_path — reserved for future use
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk retro-signals",
         description="Fetch pre-aggregated retro signals for a task as one JSON blob.",
     )

@@ -321,7 +321,7 @@ def main(argv: list[str]) -> int:
     # argv[1] is config_path (unused)
     repo_root = argv[2]
 
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk task-brief",
         description="Compile durable task context for a fresh session.",
         formatter_class=argparse.RawTextHelpFormatter,

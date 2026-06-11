@@ -143,7 +143,7 @@ def main(argv: list[str]) -> int:
     subcommand = argv[3] if len(argv) > 3 else ""
 
     if subcommand == "add":
-        parser = argparse.ArgumentParser(prog="tusk lint-rule add")
+        parser = argparse.ArgumentParser(allow_abbrev=False, prog="tusk lint-rule add")
         parser.add_argument("pattern", help="grep pattern to search for")
         parser.add_argument("file_glob",
                             help="file glob to search (e.g. '**/*.py'). Pass a comma-separated"
@@ -161,7 +161,7 @@ def main(argv: list[str]) -> int:
         return cmd_list(db_path)
 
     elif subcommand == "update":
-        parser = argparse.ArgumentParser(prog="tusk lint-rule update")
+        parser = argparse.ArgumentParser(allow_abbrev=False, prog="tusk lint-rule update")
         parser.add_argument("id", type=int, help="rule ID to update")
         parser.add_argument("--file-glob", dest="file_glob", default=None,
                             help="new file glob (comma-separated for multiple paths)")
@@ -182,7 +182,7 @@ def main(argv: list[str]) -> int:
         return cmd_update(args, db_path)
 
     elif subcommand == "remove":
-        parser = argparse.ArgumentParser(prog="tusk lint-rule remove")
+        parser = argparse.ArgumentParser(allow_abbrev=False, prog="tusk lint-rule remove")
         parser.add_argument("id", type=int, help="rule ID to remove")
         args = parser.parse_args(argv[4:])
         return cmd_remove(args, db_path)

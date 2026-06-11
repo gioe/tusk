@@ -138,7 +138,7 @@ def main(argv: list) -> int:
     db_path = argv[0]
     # argv[1] is config_path — reserved for future use
 
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk review-wait",
         description="Block until a code review reaches a terminal state or times out.",
     )

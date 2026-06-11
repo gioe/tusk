@@ -218,13 +218,13 @@ def main():
     config_path = sys.argv[2]
     config = load_config(config_path)
 
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk plans",
         description="Record flat subscription cost (the ROI denominator)",
     )
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
-    set_p = subparsers.add_parser("set", help="Record a new subscription period")
+    set_p = subparsers.add_parser("set", allow_abbrev=False, help="Record a new subscription period")
     set_p.add_argument("name", help="Plan name (e.g. 'claude_max_20x')")
     set_p.add_argument("monthly_cost", type=float, help="Monthly cost in USD")
     set_p.add_argument(
@@ -235,7 +235,7 @@ def main():
     )
     set_p.add_argument("--notes", default=None, help="Optional free-text notes")
 
-    list_p = subparsers.add_parser("list", help="List recorded plans")
+    list_p = subparsers.add_parser("list", allow_abbrev=False, help="List recorded plans")
     list_p.add_argument(
         "--format",
         choices=("text", "json"),
@@ -250,7 +250,7 @@ def main():
     )
     list_p.add_argument("--name", default=None, help="Filter to one plan name")
 
-    end_p = subparsers.add_parser("end", help="Close the open period for a plan")
+    end_p = subparsers.add_parser("end", allow_abbrev=False, help="Close the open period for a plan")
     end_p.add_argument("name", help="Plan name to close")
     end_p.add_argument(
         "--effective-to",

@@ -347,7 +347,7 @@ def main():
     db_path = sys.argv[1]
     # sys.argv[2] is config path (unused by this script, accepted for consistency)
 
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         description="Manage task dependencies in the SQLite database",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
@@ -367,7 +367,7 @@ Examples:
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     # add command
-    add_parser = subparsers.add_parser("add", help="Add a dependency")
+    add_parser = subparsers.add_parser("add", allow_abbrev=False, help="Add a dependency")
     add_parser.add_argument("task_id", type=int, help="Task that has the dependency")
     add_parser.add_argument("depends_on_id", type=int, help="Task that must be completed first")
     add_parser.add_argument("--type", dest="relationship_type", default="blocks",
@@ -375,30 +375,30 @@ Examples:
                             help="Relationship type: 'blocks' (default) or 'contingent'")
 
     # remove command
-    remove_parser = subparsers.add_parser("remove", help="Remove a dependency")
+    remove_parser = subparsers.add_parser("remove", allow_abbrev=False, help="Remove a dependency")
     remove_parser.add_argument("task_id", type=int, help="Task that has the dependency")
     remove_parser.add_argument("depends_on_id", type=int, help="Task to remove from dependencies")
 
     # list command (alias: show)
-    list_parser = subparsers.add_parser("list", aliases=["show"], help="List dependencies for a task")
+    list_parser = subparsers.add_parser("list", allow_abbrev=False, aliases=["show"], help="List dependencies for a task")
     list_parser.add_argument("task_id", type=int, help="Task to list dependencies for")
     list_parser.add_argument("--json", action="store_true", help="Output JSON")
 
     # dependents command
-    dependents_parser = subparsers.add_parser("dependents", help="List tasks that depend on a task")
+    dependents_parser = subparsers.add_parser("dependents", allow_abbrev=False, help="List tasks that depend on a task")
     dependents_parser.add_argument("task_id", type=int, help="Task to find dependents for")
     dependents_parser.add_argument("--json", action="store_true", help="Output JSON")
 
     # blocked command
-    blocked_parser = subparsers.add_parser("blocked", help="Show all blocked tasks")
+    blocked_parser = subparsers.add_parser("blocked", allow_abbrev=False, help="Show all blocked tasks")
     blocked_parser.add_argument("--json", action="store_true", help="Output JSON")
 
     # ready command
-    ready_parser = subparsers.add_parser("ready", help="Show tasks ready to start")
+    ready_parser = subparsers.add_parser("ready", allow_abbrev=False, help="Show tasks ready to start")
     ready_parser.add_argument("--json", action="store_true", help="Output JSON")
 
     # all command
-    all_parser = subparsers.add_parser("all", help="Show all dependencies")
+    all_parser = subparsers.add_parser("all", allow_abbrev=False, help="Show all dependencies")
     all_parser.add_argument("--json", action="store_true", help="Output JSON")
 
     args = parser.parse_args(sys.argv[3:])

@@ -379,14 +379,14 @@ def main(argv: list) -> int:
     config_path = argv[2]
     repo_root = _repo_root(config_path)
 
-    parser = argparse.ArgumentParser(prog="tusk scope", description="Manage task scope")
+    parser = argparse.ArgumentParser(allow_abbrev=False, prog="tusk scope", description="Manage task scope")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    p_list = sub.add_parser("list", help="List scope entries for a task")
+    p_list = sub.add_parser("list", allow_abbrev=False, help="List scope entries for a task")
     p_list.add_argument("task_id")
 
     p_add = sub.add_parser(
-        "add",
+        "add", allow_abbrev=False,
         help=(
             "Add a scope pattern to a task (default source: operator_declared "
             "before task work, expanded_mid_task afterward)"
@@ -402,14 +402,14 @@ def main(argv: list) -> int:
     )
 
     p_lock = sub.add_parser(
-        "lock",
+        "lock", allow_abbrev=False,
         help="Stamp locked_at on every scope entry for a task",
     )
     p_lock.add_argument("task_id")
     p_lock.add_argument("--by", default=None, help="Lock attribution (defaults to $USER)")
 
     p_remove = sub.add_parser(
-        "remove",
+        "remove", allow_abbrev=False,
         aliases=["rm"],
         help="Remove one scope entry by row id",
     )

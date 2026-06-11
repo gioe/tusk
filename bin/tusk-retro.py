@@ -54,7 +54,7 @@ DEFAULT_MIN_RECURRENCE = 3
 def main(argv: list) -> int:
     db_path = argv[0]
     # argv[1] is config_path — reserved for future use
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk retro",
         description=(
             "Orchestrate a session retrospective: emit retro-signals for the "

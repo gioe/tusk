@@ -40,7 +40,7 @@ def main(argv: list[str]) -> int:
     db_path = argv[0]
     # argv[1] is config_path (accepted for dispatch consistency, unused)
 
-    parser = argparse.ArgumentParser(prog="tusk task-select", add_help=False)
+    parser = argparse.ArgumentParser(allow_abbrev=False, prog="tusk task-select", add_help=False)
     parser.add_argument("--max-complexity", choices=COMPLEXITY_ORDER, default=None)
     parser.add_argument("--exclude-ids", default=None,
                         help="Comma-separated list of task IDs to exclude from results")

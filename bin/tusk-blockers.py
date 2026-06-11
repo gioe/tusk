@@ -209,14 +209,14 @@ def main():
     db_path = sys.argv[1]
     config_path = sys.argv[2]
 
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk blockers",
         description="Manage external blockers for tasks",
     )
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     # add
-    add_p = subparsers.add_parser("add", help="Add an external blocker to a task")
+    add_p = subparsers.add_parser("add", allow_abbrev=False, help="Add an external blocker to a task")
     add_p.add_argument("task_id", type=int, help="Task ID")
     add_p.add_argument("description", help="Blocker description")
     add_p.add_argument(
@@ -225,11 +225,11 @@ def main():
     )
 
     # list
-    list_p = subparsers.add_parser("list", help="List blockers for a task")
+    list_p = subparsers.add_parser("list", allow_abbrev=False, help="List blockers for a task")
     list_p.add_argument("task_id", type=int, help="Task ID")
 
     # resolve
-    resolve_p = subparsers.add_parser("resolve", help="Mark a blocker as resolved")
+    resolve_p = subparsers.add_parser("resolve", allow_abbrev=False, help="Mark a blocker as resolved")
     resolve_p.add_argument("blocker_id", type=int, help="Blocker ID")
     resolve_p.add_argument(
         "--note", default=None,
@@ -237,14 +237,14 @@ def main():
     )
 
     # remove
-    remove_p = subparsers.add_parser("remove", help="Delete a blocker")
+    remove_p = subparsers.add_parser("remove", allow_abbrev=False, help="Delete a blocker")
     remove_p.add_argument("blocker_id", type=int, help="Blocker ID")
 
     # blocked
-    subparsers.add_parser("blocked", help="List tasks with unresolved blockers")
+    subparsers.add_parser("blocked", allow_abbrev=False, help="List tasks with unresolved blockers")
 
     # all
-    subparsers.add_parser("all", help="List all blockers")
+    subparsers.add_parser("all", allow_abbrev=False, help="List all blockers")
 
     args = parser.parse_args(sys.argv[3:])
 

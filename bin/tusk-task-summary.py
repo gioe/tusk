@@ -1026,7 +1026,7 @@ def _load_baseline_threshold(config_path: str) -> int:
 def main(argv: list) -> int:
     db_path = argv[0]
     config_path = argv[1]
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk task-summary",
         description="Emit an end-of-run summary for a task (identity, cost, duration, diff, criteria).",
     )

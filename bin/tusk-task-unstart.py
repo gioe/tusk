@@ -115,7 +115,7 @@ def _commits_are_prefix_collision(
 def main(argv: list[str]) -> int:
     db_path = argv[0]
     # argv[1] is config_path (unused but kept for dispatch consistency)
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk task-unstart",
         description=(
             "Revert a cleanly-orphaned In Progress task back to To Do. "

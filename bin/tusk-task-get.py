@@ -42,7 +42,7 @@ def _task_id_type(value: str) -> int:
 def main(argv: list[str]) -> int:
     db_path = argv[0]
     # argv[1] is config_path (unused)
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(allow_abbrev=False,
         prog="tusk task-get",
         description="Fetch a single task bundle",
     )
