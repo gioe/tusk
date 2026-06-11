@@ -529,13 +529,76 @@ def _lockfile_sibling_scope_paths(text: str, candidates: list[str]) -> list[str]
     return siblings
 
 
+# Explicit unit-test requirement in a criterion or description (issue #1073).
+# Deliberately narrow: bare "tests pass" prose must not trigger sibling
+# derivation, only an explicit unit-test mention does.
+_UNIT_TEST_REQUIREMENT_RE = re.compile(r"\bunit[\s_-]?tests?\b", re.IGNORECASE)
+
+# Source extensions whose sibling test convention is <stem>.test.<ext> /
+# <stem>.spec.<ext> in the same directory.
+_TEST_SIBLING_JS_EXTS = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
+
+
+def _test_sibling_scope_paths(repo_root: str | None, candidates: list[str]) -> list[str]:
+    """Pair derived source rows with their on-disk sibling test files (issue #1073).
+
+    When a criterion explicitly requires unit tests, the conventional sibling
+    test file travels with the source edit the same way a lockfile travels
+    with package.json (issue #1052) — deriving one without the other forces a
+    mid-task scope expansion. Only siblings that actually exist on disk are
+    derived, so speculative conventions add no scope noise; the caller gates
+    on the unit-test requirement across all of the task's text blocks.
+    """
+    if not repo_root or not candidates:
+        return []
+    siblings: list[str] = []
+    seen: set[str] = set()
+    for cand in candidates:
+        base = _path_file_portion(cand)
+        if not base or _has_glob_metachar(base):
+            continue
+        directory = posixpath.dirname(base)
+        stem, ext = posixpath.splitext(posixpath.basename(base))
+        if not stem or not ext:
+            continue
+        lowered_stem = stem.lower()
+        names: list[str] = []
+        if ext.lower() in _TEST_SIBLING_JS_EXTS:
+            if lowered_stem.endswith((".test", ".spec")):
+                continue
+            names = [f"{stem}.test{ext}", f"{stem}.spec{ext}"]
+        elif ext.lower() == ".py":
+            if lowered_stem.startswith("test_") or lowered_stem.endswith("_test"):
+                continue
+            names = [f"test_{stem}.py", f"{stem}_test.py"]
+        elif ext.lower() == ".swift":
+            if stem.endswith("Tests"):
+                continue
+            names = [f"{stem}Tests.swift"]
+        for name in names:
+            rel = posixpath.join(directory, name) if directory else name
+            if rel in seen or rel in candidates:
+                continue
+            if os.path.isfile(os.path.join(repo_root, rel)):
+                seen.add(rel)
+                siblings.append(rel)
+    return siblings
+
+
 def _auto_scope_candidates(
     text: str,
     *,
     repo_root: str | None = None,
     task_type: str | None = None,
+    requires_unit_tests: bool | None = None,
 ) -> list[str]:
-    """Return explicit and inferred auto-scope candidates for one text block."""
+    """Return explicit and inferred auto-scope candidates for one text block.
+
+    ``requires_unit_tests`` gates the sibling-test derivation (issue #1073).
+    Pass the any-block answer when iterating multiple text blocks — the
+    unit-test requirement usually lives in a criterion while the source path
+    lives in the description. ``None`` (default) detects from this block only.
+    """
     explicit = extract_paths(text)
     target_paths = _test_target_scope_paths(repo_root, text)
     if target_paths and (task_type or "").lower() != "docs":
@@ -556,9 +619,17 @@ def _auto_scope_candidates(
         *target_paths,
         *_commit_referenced_scope_paths(repo_root, text),
     ]
+    if requires_unit_tests is None:
+        requires_unit_tests = bool(_UNIT_TEST_REQUIREMENT_RE.search(text or ""))
+    test_siblings = (
+        _test_sibling_scope_paths(repo_root, candidates)
+        if requires_unit_tests
+        else []
+    )
     return [
         *candidates,
         *_lockfile_sibling_scope_paths(text, candidates),
+        *test_siblings,
     ]
 
 
@@ -852,11 +923,16 @@ def main(argv: list[str]) -> int:
                 text_blocks.append(tc.get("text") or "")
                 text_blocks.append(tc.get("spec") or "")
             seen_auto: set = set()
+            requires_unit_tests = any(
+                _UNIT_TEST_REQUIREMENT_RE.search(block or "")
+                for block in text_blocks
+            )
             for text in text_blocks:
                 for p in _auto_scope_candidates(
                     text,
                     repo_root=repo_root,
                     task_type=task_type,
+                    requires_unit_tests=requires_unit_tests,
                 ):
                     resolved = _resolve_auto_derived_scope_pattern(repo_root, p)
                     is_explicit_github_dir = p.endswith("/") and p.startswith(".github/")
