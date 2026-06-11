@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1132] - 2026-06-11
+
+- [TASK-634] Fix: drop counterfactual path mentions from scope auto-derivation via a narrow negation window
+
 ## [1131] - 2026-06-11
 
 - [TASK-633] Fix: derive on-disk sibling test files into scope when criteria require unit tests
