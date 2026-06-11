@@ -196,7 +196,7 @@ A verifiable condition that must be satisfied before a task is considered done. 
 - `manual` — verified by human judgment; no automated check
 - `code` — verified by running a shell command; blocks completion on failure unless `--skip-verify`
 - `test` — same as code; distinguished for reporting
-- `file` — verified by checking a glob pattern exists on disk
+- `file` — verified by checking a glob pattern exists on disk; a leading `!` inverts the check so verification passes when the glob matches zero files (absence assertion, e.g. `!ios/Fonts/Chivo*.ttf` — added for issue #1041)
 
 **`code`/`test` auto-exclusions for grep.** Every `code`/`test` spec is prefixed with a POSIX shell function that redefines `grep` to add `--exclude-dir=__pycache__ --exclude-dir=.pytest_cache --exclude-dir=node_modules`. `grep -r` ignores `.gitignore`, so a spec like `! grep -rE "foo" skills/` would otherwise match `foo` inside compiled `.pyc` bytecode or cached dependency trees and fail the negation. The exclusions are a no-op for non-recursive grep and don't affect non-grep specs. If you need to grep *inside* one of those dirs, call `command grep` directly to bypass the wrapper.
 

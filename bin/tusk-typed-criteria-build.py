@@ -40,7 +40,9 @@ def main(argv):
         prog="tusk typed-criteria-build",
         description=(
             "Emit a properly-escaped --typed-criteria JSON string for an arbitrary spec. "
-            "Reads the spec from stdin by default, or from --spec-file <path>."
+            "Reads the spec from stdin by default, or from --spec-file <path>. "
+            "For file-type criteria the spec is a glob; a leading '!' inverts the "
+            "check so verification passes when no file matches (absence assertion)."
         ),
     )
     parser.add_argument(
