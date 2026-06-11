@@ -529,6 +529,69 @@ def _lockfile_sibling_scope_paths(text: str, candidates: list[str]) -> list[str]
     return siblings
 
 
+# Counterfactual path mentions (issue #1071). A path immediately followed by a
+# negation phrase — "(does not exist)", "(deleted)", "(removed in TASK-12)" —
+# or preceded by not/never inside the same clause describes a path the task
+# will NOT touch, so deriving it produces a misleading scope row. The windows
+# are deliberately narrow: trailing match must start right after the token
+# (optionally across "," / ":" / dashes and one open paren), and the leading
+# clause is cut at sentence/clause boundaries including parentheses, so
+# "(does not exist; real path is app/globals.css)" never poisons the real
+# path after the semicolon.
+_NEGATION_TRAILING_RE = re.compile(
+    r"^[\s,:—–-]*\(?\s*(?:which\s+|it\s+)?(?:was\s+|is\s+|are\s+|were\s+)?"
+    r"(?:does\s*n(?:o|')t\s+exist|did\s+not\s+exist|no\s+longer\s+exists?|"
+    r"never\s+existed|nonexistent\b|deleted\b|removed\b)",
+    re.IGNORECASE,
+)
+_NEGATION_CLAUSE_BOUNDARY_RE = re.compile(r"[.;:!?\n()]")
+_NEGATION_LEADING_RE = re.compile(r"\b(?:not|never)\b", re.IGNORECASE)
+_NEGATION_LEADING_WINDOW = 60
+
+
+def _is_negated_mention(text: str, start: int, end: int) -> bool:
+    """True when the text span at [start, end) sits in a negation window."""
+    if _NEGATION_TRAILING_RE.search(text[end:end + 60]):
+        return True
+    window = text[max(0, start - _NEGATION_LEADING_WINDOW):start]
+    clause = _NEGATION_CLAUSE_BOUNDARY_RE.split(window)[-1]
+    return bool(_NEGATION_LEADING_RE.search(clause))
+
+
+def _negated_path_mentions(text: str, candidates: list[str]) -> set[str]:
+    """Return the candidates whose every literal mention in ``text`` is negated.
+
+    Candidates that never appear literally (e.g. a bare basename resolved to a
+    repo path) fall back to their basename token. A candidate with at least
+    one non-negated mention is kept — only unanimously counterfactual
+    mentions drop.
+    """
+    if not text:
+        return set()
+    negated: set[str] = set()
+    for cand in dict.fromkeys(candidates):
+        token = cand
+        if token not in text:
+            token = posixpath.basename(_path_file_portion(cand) or "")
+            if not token or token not in text:
+                continue
+        found = False
+        all_negated = True
+        search_start = 0
+        while True:
+            index = text.find(token, search_start)
+            if index == -1:
+                break
+            found = True
+            if not _is_negated_mention(text, index, index + len(token)):
+                all_negated = False
+                break
+            search_start = index + len(token)
+        if found and all_negated:
+            negated.add(cand)
+    return negated
+
+
 # Explicit unit-test requirement in a criterion or description (issue #1073).
 # Deliberately narrow: bare "tests pass" prose must not trigger sibling
 # derivation, only an explicit unit-test mention does.
@@ -626,11 +689,15 @@ def _auto_scope_candidates(
         if requires_unit_tests
         else []
     )
-    return [
+    combined = [
         *candidates,
         *_lockfile_sibling_scope_paths(text, candidates),
         *test_siblings,
     ]
+    negated = _negated_path_mentions(text, combined)
+    if negated:
+        combined = [c for c in combined if c not in negated]
+    return combined
 
 
 def _warn_already_passing_criteria(typed_inserted: list) -> None:
