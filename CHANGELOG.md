@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1130] - 2026-06-11
+
+- [TASK-632] Fix: disable argparse abbreviation in tusk subparsers (--type misparsed as --typed-criteria)
+
 ## [1129] - 2026-06-11
 
 - [TASK-631] Fix scope auto-derivation: extract @-segment paths and bare filename:line citations
