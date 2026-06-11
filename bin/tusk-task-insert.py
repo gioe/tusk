@@ -32,7 +32,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader  # loads tusk-db-lib.py, tusk-git-helpers.py, tusk-json-lib.py
+import tusk_loader  # loads tusk-db-lib.py, tusk-git-helpers.py, tusk-json-lib.py, tusk-criteria.py
 
 TUSK_BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
 
@@ -524,6 +524,36 @@ def _auto_scope_candidates(
     ]
 
 
+def _warn_already_passing_criteria(typed_inserted: list) -> None:
+    """Warn when an inserted code/file criterion spec already passes (issue #1061).
+
+    Insert-time convergence signal mirroring task-start's
+    criteria_already_passing count (TASK-624 / issue #1051): runs the same
+    timeout-bounded run_verification runner, excludes test-type specs for
+    latency, and is best-effort by design — any failure degrades to silence
+    and never changes task-insert's exit code or JSON stdout.
+    """
+    try:
+        candidates = [
+            (cid, ctype, spec)
+            for cid, ctype, spec in typed_inserted
+            if ctype in ("code", "file") and spec
+        ]
+        if not candidates:
+            return
+        run_verification = tusk_loader.load("tusk-criteria").run_verification
+        for cid, ctype, spec in candidates:
+            if run_verification(ctype, spec)["passed"]:
+                print(
+                    f"Warning: criterion #{cid}'s verification spec already "
+                    f"passes ({ctype}: {spec}) — the work may already be done; "
+                    "check for convergent completion before starting this task.",
+                    file=sys.stderr,
+                )
+    except Exception:
+        pass
+
+
 def _canonical_enum_value(value: str, valid_values: list[str]) -> str:
     """Return the configured enum spelling for a case-insensitive match."""
     if not valid_values:
@@ -735,6 +765,7 @@ def main(argv: list[str]) -> int:
             cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
             criteria_ids.append(cid)
 
+        typed_inserted = []
         for tc in typed_criteria:
             conn.execute(
                 "INSERT INTO acceptance_criteria "
@@ -744,6 +775,7 @@ def main(argv: list[str]) -> int:
             )
             cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
             criteria_ids.append(cid)
+            typed_inserted.append((cid, tc.get("type", "manual"), tc.get("spec")))
 
         for pattern in scope_patterns:
             conn.execute(
@@ -811,6 +843,8 @@ def main(argv: list[str]) -> int:
         return 2
     finally:
         conn.close()
+
+    _warn_already_passing_criteria(typed_inserted)
 
     # Run WSJF scoring so the new task gets a priority_score immediately
     subprocess.run([TUSK_BIN, "wsjf"], capture_output=True)
