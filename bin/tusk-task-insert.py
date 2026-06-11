@@ -495,6 +495,36 @@ def _route_shortform_scope_paths(repo_root: str | None, text: str) -> list[str]:
     return candidates
 
 
+_LOCKFILE_SIBLINGS = ("package-lock.json", "yarn.lock", "pnpm-lock.yaml")
+
+
+def _lockfile_sibling_scope_paths(text: str, candidates: list[str]) -> list[str]:
+    """Pair package.json scope rows with their named sibling lockfiles (issue #1052).
+
+    A package.json edit and its lockfile regeneration always travel together,
+    so deriving one without the other guarantees either a commit-time guard
+    rejection or a hand-added expansion. Bare lockfile mentions rarely resolve
+    on their own — most repos contain several (root + per-app), so the
+    unique-basename resolver skips them; the already-derived package.json row
+    supplies the directory instead. Only lockfiles actually named in the text
+    are paired, so ordinary package.json edits gain no scope noise.
+    """
+    if not text:
+        return []
+    lowered = text.lower()
+    named = [name for name in _LOCKFILE_SIBLINGS if name in lowered]
+    if not named:
+        return []
+    siblings: list[str] = []
+    for cand in candidates:
+        if posixpath.basename(cand) != "package.json":
+            continue
+        directory = posixpath.dirname(cand)
+        for name in named:
+            siblings.append(posixpath.join(directory, name) if directory else name)
+    return siblings
+
+
 def _auto_scope_candidates(
     text: str,
     *,
@@ -513,7 +543,7 @@ def _auto_scope_candidates(
         resolved for name in extract_referenced_basenames(text)
         if (resolved := _resolve_unique_repo_basename(repo_root, name))
     ]
-    return [
+    candidates = [
         *explicit,
         *_sibling_shortform_scope_paths(text, explicit),
         *_directory_list_scope_paths(text),
@@ -521,6 +551,10 @@ def _auto_scope_candidates(
         *bare_paths,
         *target_paths,
         *_commit_referenced_scope_paths(repo_root, text),
+    ]
+    return [
+        *candidates,
+        *_lockfile_sibling_scope_paths(text, candidates),
     ]
 
 
