@@ -59,7 +59,9 @@ _SIBLING_ITEM_RE = re.compile(
     rf"{_BARE_FILENAME_RE}(?:/{_BARE_FILENAME_RE})*)"
 )
 _BRACED_PATH_RE = re.compile(
-    r"(?P<dir>(?:[\w._-]+/)+)"
+    # "@" in the dir segment keeps the full prefix of brace lists under a
+    # literal @ directory (apps/web/@/components/ui/{a,b}.tsx, issue #1047).
+    r"(?P<dir>(?:[\w.@_-]+/)+)"
     r"\{(?P<names>[A-Za-z0-9_.-]+(?:,[A-Za-z0-9_.-]+)+)\}"
     r"(?P<ext>\.[A-Za-z0-9][\w.-]*)"
 )
@@ -67,7 +69,9 @@ _DIRECTORY_LIST_RE = re.compile(
     r"(?P<dir>(?:\.?[A-Za-z0-9][\w.-]*/)+)\s*:\s*(?P<tail>[^\n]{1,300})"
 )
 _ROUTE_SHORTFORM_RE = re.compile(
-    r"(?<![\w:/.-])/(?P<path>[A-Za-z0-9][\w./\[\]-]*\.[A-Za-z][\w]{1,9})"
+    # "@" in the lookbehind stops the shortform from re-extracting the tail
+    # of an @-segment path that _PATH_RE now captures in full (issue #1047).
+    r"(?<![\w:/.@-])/(?P<path>[A-Za-z0-9][\w./\[\]-]*\.[A-Za-z][\w]{1,9})"
 )
 _TEST_TARGET_TOKEN_RE = re.compile(r"\b([A-Z][A-Za-z0-9]*(?:UI)?Tests)\b")
 _TASK_COMMIT_SHA_RE = re.compile(

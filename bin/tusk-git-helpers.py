@@ -389,7 +389,9 @@ _PATH_RE = re.compile(
     r'|\.[A-Za-z0-9][\w._-]*/'
     r'|(?!\w+://)\w[\w._-]*/'  # any directory prefix that is not a URL protocol
     r')'
-    r'[\w./_\-\[\]]+'
+    # "@" admits literal @ path segments (apps/web/@/components/..., issue
+    # #1047) alongside the bracket segments ([id]) from issue #1030.
+    r'[\w./_\-\[\]@]+'
     r'|'
     r'(?:' + _BARE_TOPLEVEL_ALTERNATION + r')(?!\w)'
     r')'
