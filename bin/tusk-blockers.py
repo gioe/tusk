@@ -62,7 +62,8 @@ def cmd_list(args: argparse.Namespace, db_path: str) -> int:
             return 2
 
         rows = conn.execute(
-            "SELECT id, description, blocker_type, is_resolved, resolved_at, created_at "
+            "SELECT id, description, blocker_type, is_resolved, resolved_at, created_at, "
+            "resolution_note "
             "FROM external_blockers WHERE task_id = ? ORDER BY id",
             (args.task_id,),
         ).fetchall()
@@ -80,6 +81,8 @@ def cmd_list(args: argparse.Namespace, db_path: str) -> int:
         marker = "[resolved]" if r["is_resolved"] else "[open]"
         btype = r["blocker_type"] or "-"
         print(f"{r['id']:<6} {marker:<10} {btype:<12} {r['description']}")
+        if r["resolution_note"]:
+            print(f"{'':<6} {'':<10} {'':<12} note: {r['resolution_note']}")
 
     resolved = sum(1 for r in rows if r["is_resolved"])
     print(f"\nResolved: {resolved}/{len(rows)}")
@@ -98,15 +101,21 @@ def cmd_resolve(args: argparse.Namespace, db_path: str) -> int:
             return 2
 
         if row["is_resolved"]:
-            print(f"Blocker #{args.blocker_id} is already resolved")
+            msg = f"Blocker #{args.blocker_id} is already resolved"
+            if args.note:
+                msg += " (--note ignored; resolve notes are recorded only at resolution time)"
+            print(msg)
             return 0
 
         conn.execute(
-            "UPDATE external_blockers SET is_resolved = 1, resolved_at = datetime('now') WHERE id = ?",
-            (args.blocker_id,),
+            "UPDATE external_blockers SET is_resolved = 1, resolved_at = datetime('now'), "
+            "resolution_note = ? WHERE id = ?",
+            (args.note, args.blocker_id),
         )
         conn.commit()
         print(f"Blocker #{args.blocker_id} resolved: {row['description']}")
+        if args.note:
+            print(f"  note: {args.note}")
         return 0
     finally:
         conn.close()
@@ -163,7 +172,8 @@ def cmd_all(db_path: str) -> int:
     try:
         rows = conn.execute("""
             SELECT eb.id, eb.task_id, t.summary as task_summary,
-                eb.description, eb.blocker_type, eb.is_resolved, eb.resolved_at, eb.created_at
+                eb.description, eb.blocker_type, eb.is_resolved, eb.resolved_at, eb.created_at,
+                eb.resolution_note
             FROM external_blockers eb
             JOIN tasks t ON eb.task_id = t.id
             ORDER BY eb.is_resolved, eb.task_id, eb.id
@@ -184,6 +194,8 @@ def cmd_all(db_path: str) -> int:
         desc = r["description"][:28] if len(r["description"]) > 28 else r["description"]
         summary = r["task_summary"][:30]
         print(f"{r['id']:<6} {r['task_id']:<6} {marker:<10} {btype:<12} {desc:<30} {summary}")
+        if r["resolution_note"]:
+            print(f"{'':<6} {'':<6} {'':<10} {'':<12} note: {r['resolution_note']}")
     return 0
 
 
@@ -219,6 +231,10 @@ def main():
     # resolve
     resolve_p = subparsers.add_parser("resolve", help="Mark a blocker as resolved")
     resolve_p.add_argument("blocker_id", type=int, help="Blocker ID")
+    resolve_p.add_argument(
+        "--note", default=None,
+        help="Resolution rationale stored on the blocker row (how/why it was cleared)",
+    )
 
     # remove
     remove_p = subparsers.add_parser("remove", help="Delete a blocker")
