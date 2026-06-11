@@ -3394,6 +3394,24 @@ def migrate_77(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 77: added objective and task context item tables")
 
 
+def migrate_78(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add external_blockers.resolution_note for `tusk blockers resolve --note`.
+
+    Records HOW a blocker was cleared (e.g. the CI run or approval that proved
+    it resolved) so a later audit can see the rationale on the row instead of
+    only in conversation history (issue #1046).
+    """
+    if get_version(db_path) >= 78:
+        _progress("  Migration 78: added external_blockers.resolution_note")
+        return
+
+    if not has_column(db_path, "external_blockers", "resolution_note"):
+        run_script(db_path, "ALTER TABLE external_blockers ADD COLUMN resolution_note TEXT;")
+
+    set_version(db_path, 78)
+    _progress("  Migration 78: added external_blockers.resolution_note")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -3474,6 +3492,7 @@ MIGRATIONS = [
     (75, migrate_75),
     (76, migrate_76),
     (77, migrate_77),
+    (78, migrate_78),
 ]
 
 

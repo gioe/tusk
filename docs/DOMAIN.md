@@ -306,6 +306,7 @@ An obstacle outside the task graph — waiting for data, approval, infrastructur
 | `is_resolved` | INTEGER | CHECK IN (0, 1); default 0 | Whether the blocker has been cleared |
 | `created_at` | TEXT | default now | |
 | `resolved_at` | TEXT | nullable | When `tusk blockers resolve` was called |
+| `resolution_note` | TEXT | nullable | How/why the blocker was cleared (`tusk blockers resolve --note`); added in migration 78 |
 
 **Blocker types:** `data`, `approval`, `infra`, `external`
 
