@@ -88,11 +88,16 @@ def _rederive_auto_scope(
     task_type = task["task_type"] if "task_type" in task.keys() else None
     seen_auto: set[str] = set()
     derived: list[str] = []
+    requires_unit_tests = any(
+        _task_insert._UNIT_TEST_REQUIREMENT_RE.search(block or "")
+        for block in text_blocks
+    )
     for text in text_blocks:
         for path in _task_insert._auto_scope_candidates(
             text,
             repo_root=repo_root,
             task_type=task_type,
+            requires_unit_tests=requires_unit_tests,
         ):
             if _task_insert.is_prose_identifier_path(path, repo_root):
                 continue

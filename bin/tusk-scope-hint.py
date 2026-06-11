@@ -123,8 +123,17 @@ def _extract_scope(
 ) -> list[str]:
     seen: set = set()
     out: list = []
+    requires_unit_tests = any(
+        _task_insert._UNIT_TEST_REQUIREMENT_RE.search(block or "")
+        for block in blocks
+    )
     for text in blocks:
-        for p in auto_scope_candidates(text, repo_root=repo_root, task_type=task_type):
+        for p in auto_scope_candidates(
+            text,
+            repo_root=repo_root,
+            task_type=task_type,
+            requires_unit_tests=requires_unit_tests,
+        ):
             p = resolve_auto_derived_scope_pattern(repo_root, p)
             if p not in seen:
                 seen.add(p)
