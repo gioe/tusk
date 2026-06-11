@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1131] - 2026-06-11
+
+- [TASK-633] Fix: derive on-disk sibling test files into scope when criteria require unit tests
+
 ## [1130] - 2026-06-11
 
 - [TASK-632] Fix: disable argparse abbreviation in tusk subparsers (--type misparsed as --typed-criteria)
