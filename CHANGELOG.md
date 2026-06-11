@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1126] - 2026-06-10
+
+- [TASK-628] Support absence-check semantics (leading !) for file-type criteria
+
 ## [1125] - 2026-06-10
 
 - [TASK-627] Add --note flag to tusk blockers resolve to record resolution rationale
