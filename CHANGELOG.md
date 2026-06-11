@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1125] - 2026-06-10
+
+- [TASK-627] Add --note flag to tusk blockers resolve to record resolution rationale
+
 ## [1124] - 2026-06-10
 
 - [TASK-626] Document the one-command skip path for declining a just-started task in the /tusk skill
