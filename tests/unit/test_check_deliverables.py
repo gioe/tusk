@@ -436,6 +436,8 @@ class TestMainRecommendations:
             "files",
             "default_branch_commits",
             "default_branch_commit_files",
+            "verifiable_spec_count",
+            "passing_spec_count",
             "recommendation",
         }
 
@@ -916,3 +918,119 @@ class TestCriteriaCompleteNoCommits:
         assert rc == 0
         data = json.loads(stdout)
         assert data["recommendation"] == "mark_done"
+
+
+class TestMarkDoneSpecGate:
+    """Issue #1068: file existence is noise when the deliverable is an EDIT.
+
+    Before recommending mark_done, the files_found branch runs the same
+    incomplete code/file verification specs task-start's
+    criteria_already_passing scan uses. When at least one verifiable spec
+    exists and zero pass, the deliverable hasn't shipped — the referenced
+    file merely predates the task — so the recommendation downgrades to
+    implement_fresh. Specs use absolute paths because run_verification
+    executes from its own resolved repo root, not the test tmp_path.
+    """
+
+    def _edit_task_db(self, tmp_path, task_id, spec):
+        present = tmp_path / "skills" / "editme"
+        present.mkdir(parents=True)
+        (present / "SKILL.md").write_text("# editme\nexisting content\n")
+        return _make_db(
+            tmp_path,
+            task_id=task_id,
+            summary="Document close-sessions in skills/editme/SKILL.md",
+            criteria=[
+                ("SKILL.md documents close-sessions", spec, 0, 0, "code"),
+            ],
+        ), str(present / "SKILL.md")
+
+    def test_edit_deliverable_downgrades_to_implement_fresh(self, tmp_path):
+        db_path, skill_md = self._edit_task_db(
+            tmp_path, 10681, spec=None
+        )
+        # Failing spec: the marker the edit would add is not in the file yet.
+        spec = f"grep -q close-sessions-marker {skill_md}"
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "UPDATE acceptance_criteria SET verification_spec = ? WHERE task_id = 10681",
+            (spec,),
+        )
+        conn.commit()
+        conn.close()
+        rc, stdout, _ = _run_main(db_path, 10681)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["files_found"] is True
+        assert data["recommendation"] == "implement_fresh"
+        assert data["verifiable_spec_count"] == 1
+        assert data["passing_spec_count"] == 0
+
+    def test_passing_spec_keeps_mark_done(self, tmp_path):
+        db_path, skill_md = self._edit_task_db(tmp_path, 10682, spec=None)
+        spec = f"grep -q existing {skill_md}"
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "UPDATE acceptance_criteria SET verification_spec = ? WHERE task_id = 10682",
+            (spec,),
+        )
+        conn.commit()
+        conn.close()
+        rc, stdout, _ = _run_main(db_path, 10682)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "mark_done"
+        assert data["verifiable_spec_count"] == 1
+        assert data["passing_spec_count"] == 1
+
+    def test_non_manual_without_spec_keeps_mark_done(self, tmp_path):
+        # Status quo: a code-type criterion with no runnable spec leaves no
+        # verifiable signal — file existence remains the deciding evidence.
+        db_path, _ = self._edit_task_db(tmp_path, 10683, spec=None)
+        rc, stdout, _ = _run_main(db_path, 10683)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "mark_done"
+        assert data["verifiable_spec_count"] == 0
+        assert data["passing_spec_count"] == 0
+
+    def test_mixed_passing_and_failing_specs_keep_mark_done(self, tmp_path):
+        # One passing spec is convergence evidence even when a sibling spec
+        # still fails — only the all-fail case downgrades.
+        db_path, skill_md = self._edit_task_db(tmp_path, 10684, spec=None)
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "UPDATE acceptance_criteria SET verification_spec = ? WHERE task_id = 10684",
+            (f"grep -q existing {skill_md}",),
+        )
+        conn.execute(
+            "INSERT INTO acceptance_criteria (task_id, criterion, verification_spec, "
+            "is_completed, is_deferred, criterion_type) VALUES (10684, ?, ?, 0, 0, 'code')",
+            ("marker added", f"grep -q close-sessions-marker {skill_md}"),
+        )
+        conn.commit()
+        conn.close()
+        rc, stdout, _ = _run_main(db_path, 10684)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "mark_done"
+        assert data["verifiable_spec_count"] == 2
+        assert data["passing_spec_count"] == 1
+
+    def test_completed_criteria_specs_do_not_count(self, tmp_path):
+        # A completed criterion's failing spec is irrelevant — the gate only
+        # scans incomplete, non-deferred rows (mirrors task-start's scan).
+        db_path, skill_md = self._edit_task_db(tmp_path, 10685, spec=None)
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "UPDATE acceptance_criteria SET verification_spec = ?, is_completed = 1 "
+            "WHERE task_id = 10685",
+            (f"grep -q close-sessions-marker {skill_md}",),
+        )
+        conn.commit()
+        conn.close()
+        rc, stdout, _ = _run_main(db_path, 10685)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "mark_done"
+        assert data["verifiable_spec_count"] == 0
