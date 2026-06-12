@@ -3432,6 +3432,31 @@ def migrate_79(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 79: added task_sessions.active_seconds")
 
 
+def migrate_80(db_path: str, config_path: str, script_dir: str) -> None:
+    """Null out blank acceptance_criteria.verification_spec rows.
+
+    Legacy write paths (criteria add --spec '', task-insert --typed-criteria
+    with a blank spec) stored '' instead of NULL, which lint Rule 10 read as
+    "has a spec" and flagged as a blocking type mismatch on unrelated tasks'
+    merges (issue #1045). The write boundaries now normalize blank specs to
+    NULL; this cleans up rows written before the fix. Plain TRIM only strips
+    spaces, so pass the full whitespace character set explicitly.
+    """
+    if get_version(db_path) >= 80:
+        _progress("  Migration 80: nulled blank verification_spec rows")
+        return
+
+    run_script(
+        db_path,
+        "UPDATE acceptance_criteria SET verification_spec = NULL"
+        " WHERE verification_spec IS NOT NULL"
+        " AND TRIM(verification_spec, ' ' || char(9) || char(10) || char(13)) = '';",
+    )
+
+    set_version(db_path, 80)
+    _progress("  Migration 80: nulled blank verification_spec rows")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -3514,6 +3539,7 @@ MIGRATIONS = [
     (77, migrate_77),
     (78, migrate_78),
     (79, migrate_79),
+    (80, migrate_80),
 ]
 
 
