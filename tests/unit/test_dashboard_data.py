@@ -66,6 +66,7 @@ CREATE TABLE task_sessions (
     started_at TEXT NOT NULL,
     ended_at TEXT,
     duration_seconds INTEGER,
+    active_seconds INTEGER,
     cost_dollars REAL,
     tokens_in INTEGER,
     tokens_out INTEGER,
