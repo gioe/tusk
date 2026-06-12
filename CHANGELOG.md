@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1145] - 2026-06-12
+
+- [TASK-647] Fix: linked-worktree test gate distinguishes real test failures from unavailable test_command
+
 ## [1144] - 2026-06-12
 
 - [TASK-646] Fix: tusk abandon cleans generated worktree symlinks before git worktree remove
