@@ -23,10 +23,10 @@ Recommendations:
     "commits_found"                       — commits referencing this task exist on a non-default branch — normal path
     "merged_not_closed"                   — commits already on the default branch and their diff overlaps with task scope (or there is no scope signal to compare) — skip implementation, go straight to finalize
     "merged_not_closed_low_confidence"    — commits exist on the default branch but their diff doesn't overlap with files referenced in the task or with files modified on any feature branch — likely a [TASK-N] prefix-match false positive — verify before acting
-    "mark_done"                           — no commits, but deliverable files found on disk AND at least one non-deferred criterion is non-manual — mark criteria done and merge
+    "mark_done"                           — no commits, but deliverable files found on disk AND at least one non-deferred criterion is non-manual AND the verification-spec gate passes (issue #1068: at least one incomplete code/file spec passes, or no runnable spec exists) — mark criteria done and merge
     "manual_pending"                      — no commits, deliverable files found on disk, BUT every non-deferred criterion is criterion_type='manual' (issue #806) — the file-existence signal is noise for manual criteria (a referenced gitignored file may exist regardless of whether the human performed the external work). Do NOT auto-close; proceed with implementation manually.
     "criteria_complete_no_commits"        — every non-deferred acceptance criterion is marked is_completed=1 but there are no [TASK-N] commits anywhere and no deliverable files on disk — salvage / converged-work / speculative-mark signal — investigate before re-implementing
-    "implement_fresh"                     — no commits, no files found, and at least one criterion is still incomplete (or the task has no criteria) — proceed with implementation
+    "implement_fresh"                     — no commits and either (a) no deliverable files found, or (b) files exist but every incomplete code/file verification spec still fails (issue #1068: the deliverable is an EDIT to an existing file, so file existence is noise — verifiable_spec_count/passing_spec_count in the output record the gate decision) — proceed with implementation
 
 Exit codes:
     0 — success (always, even if no commits/files)
@@ -173,6 +173,39 @@ def all_active_criteria_are_manual(task_id: int, conn: sqlite3.Connection) -> bo
     return active > 0 and active == manual_count
 
 
+def verifiable_spec_results(task_id: int, conn: sqlite3.Connection) -> tuple[int, int]:
+    """Return (verifiable_count, passing_count) over incomplete non-manual specs.
+
+    Issue #1068: file existence is noise when the deliverable is an EDIT to a
+    file that already exists — the referenced path is on disk before any work
+    happens, yet the code/file verification specs still fail. Mirrors
+    task-start's _count_criteria_already_passing scan (issue #1051): the same
+    incomplete, non-deferred code/file criteria with non-empty specs, run via
+    tusk-criteria's run_verification (timeout-bounded), test-type excluded for
+    latency. Best-effort by design: any failure returns (0, 0), which callers
+    treat as "no verifiable signal" and preserve the legacy mark_done path.
+    """
+    try:
+        rows = conn.execute(
+            "SELECT criterion_type, verification_spec FROM acceptance_criteria "
+            "WHERE task_id = ? AND is_completed = 0 AND COALESCE(is_deferred, 0) = 0 "
+            "AND criterion_type IN ('code', 'file') "
+            "AND verification_spec IS NOT NULL AND verification_spec != ''",
+            (task_id,),
+        ).fetchall()
+        if not rows:
+            return (0, 0)
+        run_verification = tusk_loader.load("tusk-criteria").run_verification
+        passing = sum(
+            1
+            for row in rows
+            if run_verification(row[0], row[1])["passed"]
+        )
+        return (len(rows), passing)
+    except Exception:
+        return (0, 0)
+
+
 def _task_scope_enforced(conn: sqlite3.Connection, task_id: int) -> bool:
     """Return True iff ``tasks.scope_enforced=1`` for ``task_id``.
 
@@ -310,6 +343,7 @@ def main(argv: list) -> int:
         else:
             files = find_existing_files(task_id, conn, repo_root)
             files_found = bool(files)
+            verifiable_specs, passing_specs = (0, 0)
             if files_found:
                 # Issue #806: when every non-deferred criterion is manual,
                 # file existence is noise — manual criteria don't leave
@@ -318,7 +352,19 @@ def main(argv: list) -> int:
                 if all_active_criteria_are_manual(task_id, conn):
                     recommendation = "manual_pending"
                 else:
-                    recommendation = "mark_done"
+                    # Issue #1068: file existence is also noise when the
+                    # deliverable is an EDIT to an existing file — run the
+                    # incomplete code/file verification specs (same scan as
+                    # task-start's criteria_already_passing) and downgrade
+                    # when every verifiable spec still fails. No verifiable
+                    # specs at all keeps the legacy mark_done behavior.
+                    verifiable_specs, passing_specs = verifiable_spec_results(
+                        task_id, conn
+                    )
+                    if verifiable_specs > 0 and passing_specs == 0:
+                        recommendation = "implement_fresh"
+                    else:
+                        recommendation = "mark_done"
             elif all_active_criteria_complete(task_id, conn):
                 recommendation = "criteria_complete_no_commits"
             else:
@@ -329,6 +375,8 @@ def main(argv: list) -> int:
                 "files": files,
                 "default_branch_commits": [],
                 "default_branch_commit_files": [],
+                "verifiable_spec_count": verifiable_specs,
+                "passing_spec_count": passing_specs,
                 "recommendation": recommendation,
             }
 
