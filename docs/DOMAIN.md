@@ -325,6 +325,7 @@ A bounded work session on a task, tracking cost and metrics. A task can have mul
 | `started_at` | TEXT | NOT NULL | When work began |
 | `ended_at` | TEXT | nullable | When the session was closed |
 | `duration_seconds` | INTEGER | nullable | Wall-clock time |
+| `active_seconds` | INTEGER | nullable | Idle-gap-discounted active time — sum of consecutive transcript-event deltas at or below `IDLE_GAP_THRESHOLD_SECONDS` (600s) within the session window, computed by `aggregate_session()` / `update_session_stats()` in `bin/tusk-pricing-lib.py` at session close. Added in migration 79 (issue #1069); NULL for sessions closed before migration — consumers fall back per-row to `duration_seconds`. |
 | `cost_dollars` | REAL | nullable | AI API cost |
 | `tokens_in` | INTEGER | nullable | Input tokens (collapsed sum of `cache_read_tokens_in + cache_write_tokens_in + uncached_tokens_in`; kept as the legacy aggregate column) |
 | `tokens_out` | INTEGER | nullable | Output tokens |

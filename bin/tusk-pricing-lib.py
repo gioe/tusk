@@ -301,6 +301,36 @@ def estimate_tokens_from_chars(chars: int) -> int:
     return chars // 4
 
 
+# Idle-gap threshold for active-duration computation (issue #1069). Gaps
+# between consecutive transcript events above this many seconds count as
+# idle (an overnight pause, a stepped-away operator) and contribute nothing
+# to active_seconds; gaps at or below it count in full.
+IDLE_GAP_THRESHOLD_SECONDS = 600
+
+
+def compute_active_seconds(
+    timestamps: list,
+    threshold: int = IDLE_GAP_THRESHOLD_SECONDS,
+) -> int:
+    """Sum consecutive-event deltas at or below *threshold* seconds.
+
+    The transcript's per-event timestamps (user prompts, assistant messages,
+    token_count events) approximate when work actually happened; idle gaps
+    above the threshold are discounted entirely so a session left open
+    overnight reports active time near the real working time (issue #1069).
+    Fewer than two events yields 0.
+    """
+    if len(timestamps) < 2:
+        return 0
+    ordered = sorted(timestamps)
+    active = 0.0
+    for prev, curr in zip(ordered, ordered[1:]):
+        delta = (curr - prev).total_seconds()
+        if 0 < delta <= threshold:
+            active += delta
+    return int(active)
+
+
 def aggregate_session(
     transcript_path: str,
     started_at: datetime,
@@ -311,7 +341,8 @@ def aggregate_session(
     Returns dict with keys: input_tokens, output_tokens,
     cache_creation_input_tokens, cache_creation_5m_tokens,
     cache_creation_1h_tokens, cache_read_input_tokens, model,
-    model_counts, request_count, user_prompt_tokens, user_prompt_count.
+    model_counts, request_count, user_prompt_tokens, user_prompt_count,
+    active_seconds (idle-gap-discounted, issue #1069).
     """
     log.debug("Aggregating session from %s", transcript_path)
     log.debug("Time window: %s .. %s", started_at.isoformat(),
@@ -335,6 +366,7 @@ def aggregate_session(
     codex_meta: dict | None = None
     user_prompt_tokens = 0
     user_prompt_count = 0
+    event_timestamps: list = []
 
     with open(transcript_path) as f:
         for line in f:
@@ -359,6 +391,7 @@ def aggregate_session(
                     continue
                 if ended_at and ts > ended_at:
                     continue
+                event_timestamps.append(ts)
 
                 info = entry.get("payload", {}).get("info", {})
                 usage = info.get("total_token_usage") or info.get("last_token_usage") or {}
@@ -395,6 +428,7 @@ def aggregate_session(
                             continue
                         if ended_at and ts > ended_at:
                             continue
+                        event_timestamps.append(ts)
                         text = _user_prompt_text(entry.get("message", {}))
                         chars = len(text)
                         if chars > 0:
@@ -419,6 +453,7 @@ def aggregate_session(
                 continue
             if ended_at and ts > ended_at:
                 continue
+            event_timestamps.append(ts)
 
             # Deduplicate by requestId (streaming produces multiple entries)
             request_id = entry.get("requestId")
@@ -496,6 +531,7 @@ def aggregate_session(
         "context_window": context_window or get_context_window(dominant_model),
         "user_prompt_tokens": user_prompt_tokens,
         "user_prompt_count": user_prompt_count,
+        "active_seconds": compute_active_seconds(event_timestamps),
     }
 
 
@@ -916,6 +952,19 @@ def update_session_stats(conn: sqlite3.Connection, session_id: int, totals: dict
         (tokens_in, tokens_out, cost, model, peak_context, first_context, last_context, context_window, request_count,
          cache_read_tokens_in, cache_write_tokens_in, uncached_tokens_in, session_id),
     )
+
+    # Idle-gap-discounted active duration (issue #1069, schema 79). Written
+    # separately and best-effort: new code may run against a pre-migration
+    # schema mid-upgrade, and active_seconds is advisory observability data.
+    active_seconds = totals.get("active_seconds")
+    if isinstance(active_seconds, int):
+        try:
+            conn.execute(
+                "UPDATE task_sessions SET active_seconds = ? WHERE id = ?",
+                (active_seconds, session_id),
+            )
+        except sqlite3.OperationalError:
+            pass
 
 
 def upsert_criterion_tool_stats(

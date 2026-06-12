@@ -3412,6 +3412,26 @@ def migrate_78(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 78: added external_blockers.resolution_note")
 
 
+def migrate_79(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add task_sessions.active_seconds for idle-gap-discounted duration.
+
+    duration_seconds is wall time (ended_at - started_at), so a session left
+    open overnight reports "active" identical to wall and the column carries
+    no signal (issue #1069). session-stats now computes active_seconds from
+    transcript event timestamps, discounting idle gaps above the threshold;
+    NULL on legacy rows — consumers fall back per-row to duration_seconds.
+    """
+    if get_version(db_path) >= 79:
+        _progress("  Migration 79: added task_sessions.active_seconds")
+        return
+
+    if not has_column(db_path, "task_sessions", "active_seconds"):
+        run_script(db_path, "ALTER TABLE task_sessions ADD COLUMN active_seconds INTEGER;")
+
+    set_version(db_path, 79)
+    _progress("  Migration 79: added task_sessions.active_seconds")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -3493,6 +3513,7 @@ MIGRATIONS = [
     (76, migrate_76),
     (77, migrate_77),
     (78, migrate_78),
+    (79, migrate_79),
 ]
 
 
