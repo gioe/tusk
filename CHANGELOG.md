@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1139] - 2026-06-12
+
+- [TASK-641] Add bounded auto-retry of fetch plus rebase plus push to tusk merge --rebase on push races
+
 ## [1138] - 2026-06-12
 
 - [TASK-640] Fix: tusk merge re-run on a fully-finalized task exits 0 with an already-finalized message
