@@ -378,4 +378,49 @@ class TestPopStashWithLockRetry:
         assert code == 1
         assert payload["success"] is False
         err = capsys.readouterr().err
-        assert "Your changes remain in the stash" in err
+        # Conflicted pops route to the structured recovery (issue #1063).
+        assert "hit a merge conflict and PARTIALLY applied" in err
+        assert "git reset" in err
+        assert "git stash drop" in err
+
+
+class TestFormatPopFailure:
+    """Conflicted-pop recovery guidance (issue #1063)."""
+
+    def _pop_res(self, stdout="", stderr=""):
+        return subprocess.CompletedProcess(
+            args=[], returncode=1, stdout=stdout, stderr=stderr
+        )
+
+    def test_conflict_names_unmerged_files(self):
+        res = self._pop_res(stdout="CONFLICT (content): Merge conflict in app/main.py\n")
+        with mock.patch.object(mod, "_unmerged_paths", return_value=["app/main.py"]):
+            msg = mod._format_pop_failure("/tmp/repo", "stash@{0}", "tusk-sync-main/1/ab", res)
+        assert "hit a merge conflict and PARTIALLY applied" in msg
+        assert "Conflicted file(s): app/main.py" in msg
+        assert "1. Resolve the conflict markers" in msg
+        assert "2. git reset" in msg
+        assert "3. git stash drop stash@{0}" in msg
+        assert "tusk-sync-main/1/ab" in msg
+
+    def test_conflict_in_stderr_also_detected(self):
+        res = self._pop_res(stderr="CONFLICT (content): Merge conflict in x\n")
+        with mock.patch.object(mod, "_unmerged_paths", return_value=[]):
+            msg = mod._format_pop_failure("/tmp/repo", "stash@{0}", "m", res)
+        assert "PARTIALLY applied" in msg
+        assert "see `git status` (UU entries)" in msg
+
+    def test_unmerged_paths_failure_falls_back_to_git_status_hint(self):
+        res = self._pop_res(stdout="CONFLICT (content): Merge conflict in x\n")
+        with mock.patch.object(
+            mod, "_unmerged_paths", side_effect=RuntimeError("boom")
+        ):
+            msg = mod._format_pop_failure("/tmp/repo", "stash@{0}", "m", res)
+        assert "see `git status` (UU entries)" in msg
+
+    def test_non_conflict_keeps_generic_message(self):
+        res = self._pop_res(stderr="error: could not write index")
+        msg = mod._format_pop_failure("/tmp/repo", "stash@{0}", "tusk-sync-main/1/ab", res)
+        assert "git stash pop stash@{0} failed" in msg
+        assert "Your changes remain in the stash list" in msg
+        assert "PARTIALLY applied" not in msg

@@ -95,6 +95,45 @@ def _pop_stash_with_lock_retry(repo_root, current_ref):
     return pop_res
 
 
+def _format_pop_failure(repo_root, current_ref, stash_message, pop_res):
+    """Build the stderr message for a failed stash pop.
+
+    A conflicted pop PARTIALLY applies: git stages every cleanly-merged file
+    (polluting the index with the operator's previously-unstaged WIP) and
+    leaves the conflicted file(s) in UU state, while keeping the stash entry
+    (issue #1063). That state needs explicit step-by-step recovery — the
+    operator's original state was unstaged WIP, and improvising the
+    index-restoration inside user-owned uncommitted work is risky. Conflict
+    lines land on stdout, so classification scans stdout+stderr.
+    """
+    combined = (pop_res.stdout or "") + (pop_res.stderr or "")
+    if "CONFLICT" not in combined:
+        return (
+            f"Error: git stash pop {current_ref} failed: "
+            f"{pop_res.stderr.strip()}\nYour changes remain in the stash "
+            f"list under message '{stash_message}'."
+        )
+    try:
+        unmerged = _unmerged_paths(repo_root)
+    except RuntimeError:
+        unmerged = []
+    if unmerged:
+        conflicted = "Conflicted file(s): " + ", ".join(unmerged)
+    else:
+        conflicted = "Conflicted file(s): see `git status` (UU entries)"
+    return (
+        f"Error: git stash pop {current_ref} hit a merge conflict and "
+        "PARTIALLY applied: git staged every cleanly-merged file (your "
+        "previously-unstaged changes are now in the index) and left the "
+        f"conflicted file(s) in UU state. {conflicted}.\n"
+        f"The stash entry is kept under message '{stash_message}'.\n"
+        "To restore your original unstaged-WIP state:\n"
+        "  1. Resolve the conflict markers in the UU file(s), then `git add` them\n"
+        "  2. git reset    # unstage everything the pop staged — your WIP was unstaged before sync-main\n"
+        f"  3. git stash drop {current_ref}    # the kept entry is now redundant"
+    )
+
+
 def _resolve_default_branch(repo_root, tusk_bin):
     result = _run(
         ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd=repo_root
@@ -265,9 +304,7 @@ def sync_main(repo_root, tusk_bin):
         pop_res = _pop_stash_with_lock_retry(repo_root, current_ref)
         if pop_res.returncode != 0:
             print(
-                f"Error: git stash pop {current_ref} failed: "
-                f"{pop_res.stderr.strip()}\nYour changes remain in the stash "
-                f"list under message '{stash_message}'.",
+                _format_pop_failure(repo_root, current_ref, stash_message, pop_res),
                 file=sys.stderr,
             )
             return 1, result
