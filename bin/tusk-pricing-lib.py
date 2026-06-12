@@ -28,6 +28,9 @@ MODEL_ALIASES: dict = {}
 
 # Context window sizes (in tokens) for known models.
 CONTEXT_WINDOW: dict[str, int] = {
+    "claude-fable-5": 1_000_000,
+    "claude-mythos-5": 1_000_000,
+    "claude-opus-4-8": 1_000_000,
     "claude-opus-4-7": 1_000_000,
     "claude-opus-4-6": 1_000_000,
     "claude-opus-4-5": 200_000,
@@ -535,6 +538,21 @@ def aggregate_session(
     }
 
 
+# Models already warned about this process — one stderr line per model, not per call.
+_WARNED_UNPRICED_MODELS: set = set()
+
+
+def _warn_unpriced_model(model: str) -> None:
+    if model in _WARNED_UNPRICED_MODELS:
+        return
+    _WARNED_UNPRICED_MODELS.add(model)
+    print(
+        f"Warning: unknown model {model!r} — no pricing.json entry; cost recorded as $0. "
+        "Add the model to pricing.json so cost analytics stop silently zeroing.",
+        file=sys.stderr,
+    )
+
+
 def compute_cost(totals: dict) -> float:
     """Compute cost in dollars from token totals and model.
 
@@ -543,7 +561,20 @@ def compute_cost(totals: dict) -> float:
     model = totals.get("model", "")
     rates = PRICING.get(model)
     if not rates:
-        log.debug("No pricing for model %r — cost = $0", model)
+        tokens = sum(
+            totals.get(field, 0) or 0
+            for field in (
+                "input_tokens",
+                "cache_creation_5m_tokens",
+                "cache_creation_1h_tokens",
+                "cache_read_input_tokens",
+                "output_tokens",
+            )
+        )
+        if tokens > 0:
+            _warn_unpriced_model(model)
+        else:
+            log.debug("No pricing for model %r — cost = $0", model)
         return 0.0
 
     mtok = 1_000_000
