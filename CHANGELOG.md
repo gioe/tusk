@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1143] - 2026-06-12
+
+- [TASK-645] Warn at merge time when main-side commits touch branch-modified files
+
 ## [1142] - 2026-06-12
 
 - [TASK-644] Record post-merge verification outcomes: criteria done clears deferral on Done tasks
