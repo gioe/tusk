@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1138] - 2026-06-12
+
+- [TASK-640] Fix: tusk merge re-run on a fully-finalized task exits 0 with an already-finalized message
+
 ## [1137] - 2026-06-12
 
 - [TASK-639] Fix: normalize empty-string verification_spec to NULL and treat blank specs as absent in lint Rule 10
