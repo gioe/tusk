@@ -716,15 +716,58 @@ def _validate_task_branch(
     return True, None
 
 
+# Test-runner summary signatures. When any of these appear in the captured
+# output, the suite demonstrably RAN — a nonzero exit is a genuine test
+# failure, not an unavailable command, no matter what substrings the test
+# output happens to contain (issue #1067: a failing vitest assertion about a
+# "not found" page was misrouted to the unavailable diagnostic, steering
+# agents toward --skip-verify with a real regression in play).
+_TEST_RUNNER_OUTPUT_RE = re.compile(
+    "|".join(
+        [
+            # pytest final summary / section banners
+            r"^=+ [^\n]*(?:passed|failed|error|no tests ran)[^\n]*=+\s*$",
+            r"^\s*Test Files\s+\d",          # vitest
+            r"^\s*Tests:?\s+\d",             # jest / vitest
+            r"\b\d+ passing\b",              # mocha
+            r"\b\d+ failing\b",              # mocha
+            r"^--- (?:FAIL|PASS|SKIP):",     # go test
+            r"^(?:FAIL|ok)\t",               # go test package line
+            r"^test result: (?:ok|FAILED)",  # cargo test
+            r"^(?:not )?ok \d+ ",            # TAP
+        ]
+    ),
+    re.MULTILINE,
+)
+
+# Line-anchored shell-execution-error signatures: the SHELL itself (or env)
+# reporting that a command could not be executed. Anchoring to a shell-name
+# prefix keeps arbitrary test/assertion output (which may legitimately
+# contain phrases like "not found") from matching.
+_SHELL_EXEC_ERROR_RE = re.compile(
+    r"^(?:/[\w./-]+/)?(?:sh|bash|zsh|dash|ksh)(?:\[\d+\])?:\s*"
+    r"(?:(?:line )?\d+:\s*)?[^\n]*(?:command not found|No such file or directory|not found)\s*$"
+    r"|^env:\s[^\n]*No such file or directory\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
 def _test_command_unavailable(result: subprocess.CompletedProcess) -> bool:
-    """Return True when the shell could not execute the configured command."""
-    stderr = (result.stderr or "").lower()
-    return (
-        result.returncode in (126, 127)
-        or "command not found" in stderr
-        or "no such file or directory" in stderr
-        or "not found" in stderr
-    )
+    """Return True when the shell could not execute the configured command.
+
+    Exit 126/127 is the shell's own cannot-exec signal and is authoritative.
+    For other nonzero exits, recognizable test-runner output proves the suite
+    ran (genuine test failure — return False), and only a line-anchored
+    shell-execution-error signature on stderr counts as unavailable. Bare
+    substring matches anywhere in captured test output do NOT qualify
+    (issue #1067).
+    """
+    if result.returncode in (126, 127):
+        return True
+    combined = f"{result.stdout or ''}\n{result.stderr or ''}"
+    if _TEST_RUNNER_OUTPUT_RE.search(combined):
+        return False
+    return bool(_SHELL_EXEC_ERROR_RE.search(result.stderr or ""))
 
 
 def _sparse_checkout_active(repo_root: str) -> bool:
