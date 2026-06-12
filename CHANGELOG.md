@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1142] - 2026-06-12
+
+- [TASK-644] Record post-merge verification outcomes: criteria done clears deferral on Done tasks
+
 ## [1141] - 2026-06-12
 
 - [TASK-643] Improve sync-main pop-conflict handling with staged-state recovery guidance
