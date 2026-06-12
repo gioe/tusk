@@ -593,6 +593,16 @@ JSON blob and the `skill_run.run_id` you already captured.
    refuses ordinary open, non-deferred criteria so a task is not marked
    Done just because finalization used `task-done --force`.
 
+   **Recording the outcome after close (issue #1058):** once the
+   deferred check is actually performed (e.g. the push-triggered CI run
+   on the default branch goes green), record it with
+   `tusk criteria done <criterion_id>` — this works even after the task
+   is Done, clears `is_deferred` while keeping `deferred_reason` for
+   history, and emits `deferral_cleared` in the JSON so the audit trail
+   distinguishes "verified post-merge" from "never performed". Do not
+   leave the criterion permanently deferred once the verification has
+   happened.
+
 10. **Run convention lint (advisory).** `tusk commit` already runs lint
     before each commit. If you need to check lint independently before
     pushing:
