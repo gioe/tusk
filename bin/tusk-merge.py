@@ -2978,9 +2978,35 @@ def _remove_recorded_task_worktree(
         _clean_tusk_auto_symlinks(workspace_path, db_path)
         result = run(["git", "worktree", "remove", workspace_path], check=False)
         if result.returncode != 0:
+            # The name-based pre-clean above only knows the configured /
+            # canonical symlink set. Symlinks into the primary checkout can
+            # also appear at unconfigured locations (e.g. the linked-worktree
+            # test gate's on-demand `ln -s` of node_modules inside a monorepo
+            # subdir, issue #1067) and block removal the same way (issue
+            # #1077). A symlink whose target resolves inside the primary is
+            # recoverable by definition — the target survives — so unlink
+            # those and retry once before giving up.
+            swept = _sweep_primary_targeted_symlinks(workspace_path, repo_root)
+            if swept:
+                print(
+                    f"Note: removed {swept} leftover symlink(s) targeting the "
+                    "primary checkout; retrying git worktree remove.",
+                    file=sys.stderr,
+                )
+                result = run(
+                    ["git", "worktree", "remove", workspace_path], check=False
+                )
+        if result.returncode != 0:
             detail = result.stderr.strip() or result.stdout.strip()
+            leftovers = _list_worktree_entries(workspace_path)
+            leftover_note = (
+                "Remaining entries: " + ", ".join(leftovers) + "\n"
+                if leftovers
+                else ""
+            )
             print(
                 f"Error: git worktree remove {workspace_path} failed:\n{detail}\n"
+                f"{leftover_note}"
                 "Clean or stash that task worktree, then re-run this command. "
                 "If you intentionally want to discard its local files, run:\n"
                 f"  git worktree remove --force {workspace_path}\n"
@@ -3084,6 +3110,76 @@ def _clean_tusk_auto_symlinks(workspace_path: str, db_path: str) -> int:
                 dirs.remove(n)
 
     return removed
+
+
+def _sweep_primary_targeted_symlinks(workspace_path: str, repo_root: str) -> int:
+    """Unlink every symlink under ``workspace_path`` whose resolved target
+    lies inside the primary checkout (``repo_root``).
+
+    Failure-path companion to ``_clean_tusk_auto_symlinks``: the name-based
+    pre-clean only knows the configured / canonical symlink set, but symlinks
+    into the primary can be created at unconfigured locations too (the
+    linked-worktree test gate's on-demand node_modules link, issue #1067; an
+    agent's ad-hoc ``ln -s`` during a task). Any symlink that resolves into
+    the primary is recoverable by definition — the target survives worktree
+    removal — so unlinking it can never lose data. Symlinks targeting
+    anywhere else are left untouched.
+
+    Returns the count of symlinks removed. Best-effort like the pre-clean:
+    individual failures are swallowed so cleanup is never blocked by one
+    entry.
+    """
+    if not os.path.isdir(workspace_path):
+        return 0
+    real_root = os.path.realpath(repo_root)
+    removed = 0
+    for root, dirs, files in os.walk(workspace_path, followlinks=False):
+        if ".git" in dirs:
+            dirs.remove(".git")
+        unlinked_dirs = []
+        for n in dirs + files:
+            p = os.path.join(root, n)
+            if not os.path.islink(p):
+                continue
+            try:
+                target = os.path.realpath(p)
+                inside = os.path.commonpath([target, real_root]) == real_root
+            except (OSError, ValueError):
+                continue
+            if not inside:
+                continue
+            try:
+                os.unlink(p)
+                removed += 1
+                if n in dirs:
+                    unlinked_dirs.append(n)
+            except OSError:
+                pass
+        # Don't descend into symlinked dirs we just removed.
+        for n in unlinked_dirs:
+            dirs.remove(n)
+    return removed
+
+
+def _list_worktree_entries(workspace_path: str, limit: int = 10) -> list[str]:
+    """Up to ``limit`` workspace-relative paths still present under
+    ``workspace_path`` (excluding ``.git``), for the post-failure diagnostic.
+    Directories are listed without descending so the listing names the
+    shallowest blocking entries rather than their full contents.
+    """
+    entries: list[str] = []
+    if not os.path.isdir(workspace_path):
+        return entries
+    try:
+        for name in sorted(os.listdir(workspace_path)):
+            if name == ".git":
+                continue
+            entries.append(name)
+            if len(entries) >= limit:
+                break
+    except OSError:
+        return entries
+    return entries
 
 
 def _load_worktree_symlink_files(config_path: str) -> list[str]:
