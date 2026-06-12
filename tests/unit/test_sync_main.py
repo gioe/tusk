@@ -272,3 +272,110 @@ class TestSyncMainStashFlow:
         # No stash push, no ff-merge.
         assert not any(c[:2] == ["git", "stash"] for c in calls)
         assert not any(c[:3] == ["git", "merge", "--ff-only"] for c in calls)
+
+
+class TestPopStashWithLockRetry:
+    """Transient index.lock contention retry on the pop (issue #1075)."""
+
+    LOCK_STDERR = "error: could not write index"
+    LOCK_STDERR_CREATE = (
+        "fatal: Unable to create '/repo/.git/index.lock': File exists."
+    )
+    CONFLICT_STDERR = (
+        "CONFLICT (content): Merge conflict in file.py\n"
+        "The stash entry is kept in case you need it again."
+    )
+
+    def test_retry_succeeds_after_transient_lock(self, capsys):
+        results = [_err(self.LOCK_STDERR), _ok("")]
+        calls = []
+
+        def fake_run(cmd, cwd, check=False):
+            calls.append(cmd)
+            return results.pop(0)
+
+        with mock.patch.object(mod, "_run", side_effect=fake_run), \
+                mock.patch.object(mod.time, "sleep") as sleep_mock:
+            res = mod._pop_stash_with_lock_retry("/tmp/repo", "stash@{0}")
+
+        assert res.returncode == 0
+        assert len(calls) == 2
+        assert all(c[:3] == ["git", "stash", "pop"] for c in calls)
+        sleep_mock.assert_called_once()
+        assert "transient .git/index.lock contention" in capsys.readouterr().err
+
+    def test_unable_to_create_lock_also_retried(self):
+        results = [_err(self.LOCK_STDERR_CREATE), _ok("")]
+        with mock.patch.object(mod, "_run", side_effect=lambda *a, **k: results.pop(0)), \
+                mock.patch.object(mod.time, "sleep"):
+            res = mod._pop_stash_with_lock_retry("/tmp/repo", "stash@{0}")
+        assert res.returncode == 0
+
+    def test_retries_exhausted_returns_last_failure(self, capsys):
+        attempts = 1 + len(mod._POP_LOCK_BACKOFF_SECONDS)
+        results = [_err(self.LOCK_STDERR) for _ in range(attempts)]
+        calls = []
+
+        def fake_run(cmd, cwd, check=False):
+            calls.append(cmd)
+            return results.pop(0)
+
+        with mock.patch.object(mod, "_run", side_effect=fake_run), \
+                mock.patch.object(mod.time, "sleep") as sleep_mock:
+            res = mod._pop_stash_with_lock_retry("/tmp/repo", "stash@{0}")
+
+        assert res.returncode == 1
+        assert len(calls) == attempts
+        assert sleep_mock.call_count == len(mod._POP_LOCK_BACKOFF_SECONDS)
+
+    def test_conflict_is_not_retried(self, capsys):
+        calls = []
+
+        def fake_run(cmd, cwd, check=False):
+            calls.append(cmd)
+            return _err(self.CONFLICT_STDERR)
+
+        with mock.patch.object(mod, "_run", side_effect=fake_run), \
+                mock.patch.object(mod.time, "sleep") as sleep_mock:
+            res = mod._pop_stash_with_lock_retry("/tmp/repo", "stash@{0}")
+
+        assert res.returncode == 1
+        assert len(calls) == 1
+        sleep_mock.assert_not_called()
+        assert "retrying" not in capsys.readouterr().err
+
+    def test_sync_main_pop_failure_keeps_recovery_message(self, capsys):
+        """End-to-end: a non-retryable pop failure still names the stash entry."""
+        pushed_message = {}
+
+        def fake_run(cmd, cwd, check=False):
+            if cmd[:2] == ["git", "symbolic-ref"]:
+                return _ok("refs/remotes/origin/main\n")
+            if cmd[:2] == ["git", "diff"]:
+                return _ok("")
+            if cmd[:2] == ["git", "fetch"]:
+                return _ok("")
+            if cmd[:2] == ["git", "rev-list"]:
+                return _ok("2\n")
+            if cmd[:2] == ["git", "status"]:
+                return _ok(" M file.py\n")
+            if cmd[:3] == ["git", "stash", "push"]:
+                pushed_message["msg"] = cmd[cmd.index("-m") + 1]
+                return _ok("")
+            if cmd[:3] == ["git", "stash", "list"]:
+                msg = pushed_message.get("msg", "")
+                return _ok(f"stash@{{0}}: On main: {msg}\n")
+            if cmd[:3] == ["git", "merge", "--ff-only"]:
+                return _ok("")
+            if cmd[:3] == ["git", "stash", "pop"]:
+                return _err(self.CONFLICT_STDERR)
+            return _ok("")
+
+        with mock.patch.object(mod, "_run", side_effect=fake_run), \
+                mock.patch.object(mod.time, "sleep"):
+            code, payload = mod.sync_main("/tmp/repo", "/tmp/bin/tusk")
+
+        assert code == 1
+        assert payload["success"] is False
+        err = capsys.readouterr().err
+        assert "Your changes remain in the stash" in err

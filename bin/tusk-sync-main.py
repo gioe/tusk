@@ -47,15 +47,52 @@ Exit codes:
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
+import time
 import uuid
+
+# Transient .git/index.lock contention signatures (issue #1075). "could not
+# write index" is what `git stash pop` emits when another process holds the
+# lock mid-write; the "Unable to create ... index.lock" wording is the same
+# class seen by tusk-merge's _run_with_index_lock_retry (issues #620, #640).
+# Real pop conflicts match neither, so they are never retried.
+_TRANSIENT_INDEX_LOCK_RE = re.compile(
+    r"could not write index|Unable to create '[^']*\.git/index\.lock'"
+)
+_POP_LOCK_BACKOFF_SECONDS = (0.5, 1.0)
 
 
 def _run(cmd, cwd, check=False):
     return subprocess.run(
         cmd, cwd=cwd, capture_output=True, text=True, encoding="utf-8", check=check
     )
+
+
+def _pop_stash_with_lock_retry(repo_root, current_ref):
+    """Pop the stash; retry briefly on transient index.lock contention.
+
+    A concurrent session's git process can hold .git/index.lock at the moment
+    of the pop (issue #1075) — the same pop succeeds seconds later with zero
+    conflicts. Retries len(_POP_LOCK_BACKOFF_SECONDS) times; any failure that
+    does not match the lock signature returns immediately.
+    """
+    pop_res = _run(["git", "stash", "pop", current_ref], cwd=repo_root)
+    total = len(_POP_LOCK_BACKOFF_SECONDS)
+    for attempt, delay in enumerate(_POP_LOCK_BACKOFF_SECONDS, start=1):
+        if pop_res.returncode == 0 or not _TRANSIENT_INDEX_LOCK_RE.search(
+            pop_res.stderr or ""
+        ):
+            return pop_res
+        print(
+            f"Note: git stash pop hit transient .git/index.lock contention; "
+            f"retrying ({attempt}/{total}) after {delay}s...",
+            file=sys.stderr,
+        )
+        time.sleep(delay)
+        pop_res = _run(["git", "stash", "pop", current_ref], cwd=repo_root)
+    return pop_res
 
 
 def _resolve_default_branch(repo_root, tusk_bin):
@@ -225,7 +262,7 @@ def sync_main(repo_root, tusk_bin):
                 file=sys.stderr,
             )
             return 1, result
-        pop_res = _run(["git", "stash", "pop", current_ref], cwd=repo_root)
+        pop_res = _pop_stash_with_lock_retry(repo_root, current_ref)
         if pop_res.returncode != 0:
             print(
                 f"Error: git stash pop {current_ref} failed: "
