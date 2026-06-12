@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1144] - 2026-06-12
+
+- [TASK-646] Fix: tusk abandon cleans generated worktree symlinks before git worktree remove
+
 ## [1143] - 2026-06-12
 
 - [TASK-645] Warn at merge time when main-side commits touch branch-modified files
