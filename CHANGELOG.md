@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1147] - 2026-06-12
+
+- [TASK-649] Fix: task-start prints actionable diagnostics instead of silent exit 14 on wrong-CWD invocations
+
 ## [1146] - 2026-06-12
 
 - [TASK-648] Fix: validate description-derived sparse cone entries against tracked paths with suffix resolution
