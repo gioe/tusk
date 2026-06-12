@@ -1802,8 +1802,29 @@ preflight_schema_version() {
       resolve-schema-bin)
       return 0 ;;
   esac
-  local user_version supported_max
-  user_version="$(sqlite3 "$DB_PATH" "PRAGMA user_version" 2>/dev/null)"
+  local user_version supported_max _uv_err _uv_rc=0
+  # Capture sqlite3's stderr and exit code instead of discarding them. The
+  # previous form — an unguarded assignment with 2>/dev/null under
+  # `set -euo pipefail` — killed the whole script with sqlite3's bare exit
+  # code and ZERO output when the DB could not be stepped (issue #1078:
+  # exit 14 / SQLITE_CANTOPEN from a corrupted or permission-blocked
+  # tasks.db-wal / tasks.db-shm sidecar looked like an internal tusk crash).
+  _uv_err="$(mktemp -t tusk-uv.XXXXXX 2>/dev/null || echo "/tmp/tusk-uv.$$")"
+  user_version="$(sqlite3 "$DB_PATH" "PRAGMA user_version" 2>"$_uv_err")" || _uv_rc=$?
+  if (( _uv_rc != 0 )); then
+    {
+      echo "Error: cannot read the schema version from the task database (sqlite3 exit ${_uv_rc})."
+      [[ -s "$_uv_err" ]] && sed 's/^/  sqlite3: /' "$_uv_err"
+      echo "  cwd:     $PWD"
+      echo "  binary:  ${BASH_SOURCE[0]}"
+      echo "  db path: $DB_PATH"
+      echo "  Likely causes: corrupted or permission-blocked WAL sidecars (tasks.db-wal / tasks.db-shm next to the db), a non-database file at the db path, or the db path resolving against the wrong directory."
+      echo "  Check: ls -la \"$(dirname "$DB_PATH")\" — the sidecars must be regular files readable by this user. If invoking tusk via a relative binary path from a subdirectory, run from the repo root or pin the project with TUSK_PROJECT=<repo-root>."
+    } >&2
+    rm -f "$_uv_err"
+    exit 1
+  fi
+  rm -f "$_uv_err"
   [[ -n "$user_version" ]] || return 0
   # SUPPORTED_SCHEMA_MAX = highest version in tusk-migrate.py's MIGRATIONS
   # registry. Single source of truth — no hardcoded duplicate. Parsing the
