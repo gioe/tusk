@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1137] - 2026-06-12
+
+- [TASK-639] Fix: normalize empty-string verification_spec to NULL and treat blank specs as absent in lint Rule 10
+
 ## [1136] - 2026-06-12
 
 - [TASK-638] Fix: cost estimation reports $0 for claude-fable-5 - add fable pricing and warn on unpriced models
