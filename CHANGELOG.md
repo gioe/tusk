@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1140] - 2026-06-12
+
+- [TASK-642] Fix: retry sync-main stash pop briefly on transient index.lock contention
+
 ## [1139] - 2026-06-12
 
 - [TASK-641] Add bounded auto-retry of fetch plus rebase plus push to tusk merge --rebase on push races
