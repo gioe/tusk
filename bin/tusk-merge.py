@@ -63,6 +63,26 @@ _GENERATED_LOCKFILES = _git_helpers.GENERATED_LOCKFILES
 
 DEFAULT_LINT_TIMEOUT_SEC = 60
 
+# Sentinel command key for pre-merge lint gate timing samples in the shared
+# test_runs table (issue #1070). A literal key — not the actual lint argv,
+# which embeds the task id — so every merge contributes to one history.
+LINT_GATE_SAMPLE_KEY = "__tusk_pre_merge_lint_gate__"
+
+
+def _commit_timing_lib():
+    """Lazy-load tusk-commit.py for the shared auto-timeout helpers.
+
+    The lint gate reuses the commit test gate's p95 auto-scale machinery
+    (issue #1070): _compute_auto_timeout and _record_test_run against the
+    test_runs table. Lazy + best-effort: any load failure returns None and
+    the gate falls back to its static default — timing is advisory
+    infrastructure and must never block a merge.
+    """
+    try:
+        return tusk_loader.load("tusk-commit")
+    except Exception:
+        return None
+
 _WORKSPACE_NOT_PROVIDED = object()
 _REBASE_FF_RETRY_LIMIT = 3
 
@@ -940,8 +960,16 @@ def load_merge_mode(config_path: str) -> str:
         return "local"
 
 
-def load_lint_timeout(config_path: str) -> tuple[int, str]:
-    """Return (timeout_seconds, source) for the pre-merge lint gate."""
+def load_lint_timeout(config_path: str, db_path: str | None = None) -> tuple[int, str]:
+    """Return (timeout_seconds, source) for the pre-merge lint gate.
+
+    Resolution order (issue #1070): TUSK_LINT_TIMEOUT env var > config key
+    lint_timeout_sec > auto-scale from p95 of recent successful lint-gate
+    runs (recorded under LINT_GATE_SAMPLE_KEY in test_runs, floored at the
+    static default) > 60s static default. The auto layer keeps overnight
+    batch runs from aborting when machine load stretches a normally-fast
+    lint pass beyond the static default.
+    """
     env_val = os.environ.get("TUSK_LINT_TIMEOUT")
     if env_val:
         try:
@@ -960,7 +988,48 @@ def load_lint_timeout(config_path: str) -> tuple[int, str]:
                 return parsed, "config"
     except (FileNotFoundError, json.JSONDecodeError, TypeError, ValueError):
         pass
+    if db_path:
+        commit_lib = _commit_timing_lib()
+        if commit_lib is not None:
+            # Strict isinstance check: the helper is loaded dynamically, so
+            # an unexpected return (or a test double standing in for the
+            # loader) must fall through to the static default rather than
+            # feed a non-int into subprocess.run's timeout.
+            try:
+                auto = commit_lib._compute_auto_timeout(
+                    db_path,
+                    LINT_GATE_SAMPLE_KEY,
+                    floor=DEFAULT_LINT_TIMEOUT_SEC,
+                )
+            except Exception:
+                auto = None
+            if isinstance(auto, int) and not isinstance(auto, bool) and auto > 0:
+                return auto, "auto"
     return DEFAULT_LINT_TIMEOUT_SEC, "default"
+
+
+def _record_lint_gate_sample(
+    db_path: str | None,
+    task_id: int,
+    elapsed_seconds: float,
+    succeeded: bool,
+) -> None:
+    """Best-effort persistence of one lint-gate timing sample (issue #1070)."""
+    if not db_path:
+        return
+    commit_lib = _commit_timing_lib()
+    if commit_lib is None:
+        return
+    try:
+        commit_lib._record_test_run(
+            db_path,
+            task_id,
+            LINT_GATE_SAMPLE_KEY,
+            elapsed_seconds,
+            succeeded=succeeded,
+        )
+    except Exception:
+        pass
 
 
 def _make_lint_trace_env():
@@ -1005,18 +1074,20 @@ def _run_pre_merge_lint(
     task_id: int,
     cwd: str | None = None,
     skip_lint: bool = False,
+    db_path: str | None = None,
 ) -> int:
     """Run the required clean-lint gate before merge/session mutation."""
     if skip_lint:
         print("Skipping pre-merge lint (--skip-lint).", file=sys.stderr)
         return 0
 
-    lint_timeout_sec, lint_timeout_source = load_lint_timeout(config_path)
+    lint_timeout_sec, lint_timeout_source = load_lint_timeout(config_path, db_path)
     print(
         f"Running tusk lint before merge (timeout {lint_timeout_sec}s)...",
         file=sys.stderr,
     )
     trace_path, lint_env = _make_lint_trace_env()
+    lint_started = time.monotonic()
     try:
         lint = subprocess.run(
             [tusk_bin, "lint", "--quiet", "--task", str(task_id)],
@@ -1031,6 +1102,11 @@ def _run_pre_merge_lint(
         source_hint = {
             "env": 'env var "TUSK_LINT_TIMEOUT"',
             "config": 'config key "lint_timeout_sec"',
+            "auto": (
+                'auto-scaled from p95 of recent successful lint-gate runs '
+                '(override with "lint_timeout_sec" in tusk/config.json '
+                'or TUSK_LINT_TIMEOUT env var)'
+            ),
             "default": (
                 'default (override with "lint_timeout_sec" in tusk/config.json '
                 'or TUSK_LINT_TIMEOUT env var)'
@@ -1048,6 +1124,12 @@ def _run_pre_merge_lint(
     finally:
         _cleanup_lint_trace(trace_path)
 
+    _record_lint_gate_sample(
+        db_path,
+        task_id,
+        time.monotonic() - lint_started,
+        succeeded=lint.returncode == 0,
+    )
     if lint.stdout:
         print(lint.stdout.rstrip(), file=sys.stderr)
     if lint.stderr:
@@ -3283,7 +3365,7 @@ def main(argv: list[str]) -> int:
         if criteria_rc != 0:
             return criteria_rc
         lint_rc = _run_pre_merge_lint(
-            tusk_bin, config_path, task_id, skip_lint=skip_lint
+            tusk_bin, config_path, task_id, skip_lint=skip_lint, db_path=_db_path
         )
         if lint_rc != 0:
             return lint_rc
@@ -3345,7 +3427,8 @@ def main(argv: list[str]) -> int:
     if criteria_rc != 0:
         return criteria_rc
     lint_rc = _run_pre_merge_lint(
-        tusk_bin, config_path, task_id, cwd=lint_cwd, skip_lint=skip_lint
+        tusk_bin, config_path, task_id, cwd=lint_cwd, skip_lint=skip_lint,
+        db_path=_db_path,
     )
     if lint_rc != 0:
         return lint_rc

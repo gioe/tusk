@@ -404,6 +404,7 @@ def _compute_auto_timeout(
     test_command: str,
     sample_count: int = AUTO_TIMEOUT_SAMPLE_COUNT,
     multiplier: float = AUTO_TIMEOUT_MULTIPLIER,
+    floor: int | None = None,
 ) -> int | None:
     """Return ceil(p95(last N successful elapsed times) * multiplier) or None.
 
@@ -412,6 +413,11 @@ def _compute_auto_timeout(
     falls through to the static default. Scoping by the literal command
     string keeps a `pytest` history from contaminating a later
     `pytest -n auto` config.
+
+    ``floor`` clamps the scaled value from below and defaults to the commit
+    test gate's static default; the pre-merge lint gate passes its own 60s
+    floor (issue #1070) so a fast lint history never produces a timeout
+    tighter than the static default.
 
     The caller decides what to do with the result: this helper never raises;
     a missing DB, missing table (pre-migration install), schema mismatch, or
@@ -438,7 +444,9 @@ def _compute_auto_timeout(
     # p95 of N samples: index = ceil(0.95 * N) - 1, clamped to a valid index.
     idx = max(0, math.ceil(0.95 * len(samples)) - 1)
     p95 = samples[idx]
-    return max(DEFAULT_TEST_COMMAND_TIMEOUT_SEC, math.ceil(p95 * multiplier))
+    if floor is None:
+        floor = DEFAULT_TEST_COMMAND_TIMEOUT_SEC
+    return max(floor, math.ceil(p95 * multiplier))
 
 
 def _record_test_run(
