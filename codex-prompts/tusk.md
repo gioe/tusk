@@ -308,9 +308,12 @@ JSON blob and the `skill_run.run_id` you already captured.
      entirely. Mark all criteria done with `--skip-verify`, then jump
      straight to Step 12 to close out the session.
    - **`"mark_done"`** — no commits, but deliverable files listed in
-     `files` already exist on disk. Mark all criteria done with
-     `--skip-verify` and proceed directly to Step 9 (commit + merge)
-     without reimplementing.
+     `files` already exist on disk AND the verification-spec gate
+     passed (issue #1068: at least one incomplete code/file spec
+     passes on the current checkout, or no runnable spec exists — see
+     `verifiable_spec_count` / `passing_spec_count` in the output).
+     Mark all criteria done with `--skip-verify` and proceed directly
+     to Step 9 (commit + merge) without reimplementing.
    - **`"criteria_complete_no_commits"`** — every non-deferred
      acceptance criterion is already marked `is_completed=1`, but
      there are no `[TASK-<id>]` commits anywhere AND no deliverable
@@ -337,10 +340,13 @@ JSON blob and the `skill_run.run_id` you already captured.
      or **abandon** (close via
      `tusk abandon <id> --reason wont_do --note "..."`). Do not pick
      the path unilaterally.
-   - **`"implement_fresh"`** — no commits, no deliverable files
-     found, and at least one non-deferred criterion is still
-     incomplete (or the task has no criteria at all). Proceed
-     normally and implement from scratch.
+   - **`"implement_fresh"`** — no commits and either no deliverable
+     files were found, or files exist but every incomplete code/file
+     verification spec still fails (issue #1068: the deliverable is
+     an EDIT to an existing referenced file, so file existence is
+     noise — `files_found` stays `true` and `verifiable_spec_count`
+     > 0 with `passing_spec_count` = 0 records the downgrade).
+     Proceed normally and implement from scratch.
 
 3. **Determine the best agent** (informational in Codex — there is no
    sub-agent dispatch primitive). Note the task's domain, assignee
