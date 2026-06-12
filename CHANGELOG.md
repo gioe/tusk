@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1134] - 2026-06-12
+
+- [TASK-636] Fix: compute task-summary active duration from transcript timestamps, discounting idle gaps
+
 ## [1133] - 2026-06-11
 
 - [TASK-635] Fix: auto-scale the pre-merge lint gate timeout from recent successful lint-gate runs
