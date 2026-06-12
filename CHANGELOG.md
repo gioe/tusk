@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1135] - 2026-06-12
+
+- [TASK-637] Fix: gate check-deliverables mark_done on verification specs still failing (edit-deliverable false positive)
+
 ## [1134] - 2026-06-12
 
 - [TASK-636] Fix: compute task-summary active duration from transcript timestamps, discounting idle gaps
