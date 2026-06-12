@@ -1997,6 +1997,73 @@ def _close_completed_task(
     return 0
 
 
+# Bounded retry budget for no-checkout pushes that lose the race to a
+# concurrent default-branch advance (issue #1072). Only applies in --rebase
+# mode, where the user has already authorized rebasing onto origin.
+_PUSH_RACE_MAX_RETRIES = 2
+
+
+def _is_push_race_rejection(stderr: str) -> bool:
+    """True when a push was rejected because origin advanced concurrently.
+
+    Covers the fetch-first rejection class: cannot-lock-ref ("is at X but
+    expected Y"), fetch-first, non-fast-forward, and stale-info wordings.
+    Auth failures, unreachable remotes, and hook rejections stay outside the
+    class so they surface immediately (issue #1072).
+    """
+    lowered = stderr.lower()
+    return (
+        "cannot lock ref" in lowered
+        or "fetch first" in lowered
+        or "non-fast-forward" in lowered
+        or "stale info" in lowered
+    )
+
+
+def _rebase_branch_onto_target(
+    branch_name: str, rebase_target: str, task_id: int, did_stash: bool
+) -> int:
+    """Rebase the checked-out feature branch onto rebase_target.
+
+    Returns 0 on success (including the VERSION/CHANGELOG auto-recovery
+    path), 2 on a conflict that needs manual resolution — conflict guidance
+    is printed and the rebase is left in progress for the operator.
+    """
+    rebase_result = run(["git", "rebase", rebase_target], check=False)
+    if rebase_result.returncode == 0:
+        return 0
+    if _recover_version_changelog_rebase_conflict(os.getcwd(), rebase_target):
+        print(
+            "Resolved VERSION/CHANGELOG.md rebase conflict by assigning "
+            "the next available version.",
+            file=sys.stderr,
+        )
+        return 0
+    if rebase_result.stderr.strip():
+        print(rebase_result.stderr.strip(), file=sys.stderr)
+    stash_note = ""
+    if did_stash:
+        stash_note = (
+            f"\nNote: your pre-merge working-tree changes are saved in stash "
+            f"entry 'tusk-merge: auto-stash for TASK-{task_id}'. "
+            "Restore them with `git stash list` + `git stash pop <ref>` "
+            "after the rebase completes."
+        )
+    print(
+        f"Error: git rebase {rebase_target} failed — conflicts must be resolved manually.\n"
+        f"You are on '{branch_name}' with the rebase in progress. To finish:\n"
+        "  1. Fix the conflicting files (git status lists them)\n"
+        "  2. git add <resolved files>\n"
+        "  3. git rebase --continue\n"
+        "  4. Repeat steps 1–3 until the rebase completes\n"
+        f"  5. Re-run: tusk merge {task_id}\n"
+        "To abort the rebase and return to the pre-rebase state:\n"
+        f"  git rebase --abort{stash_note}",
+        file=sys.stderr,
+    )
+    return 2
+
+
 def _complete_no_checkout_fast_forward(
     *,
     branch_name: str,
@@ -2046,38 +2113,11 @@ def _complete_no_checkout_fast_forward(
                 if did_stash:
                     _try_pop_stash(task_id)
                 return 2
-            rebase_result = run(["git", "rebase", rebase_target], check=False)
-            if rebase_result.returncode != 0:
-                if _recover_version_changelog_rebase_conflict(os.getcwd(), rebase_target):
-                    print(
-                        "Resolved VERSION/CHANGELOG.md rebase conflict by assigning "
-                        "the next available version.",
-                        file=sys.stderr,
-                    )
-                else:
-                    if rebase_result.stderr.strip():
-                        print(rebase_result.stderr.strip(), file=sys.stderr)
-                    stash_note = ""
-                    if did_stash:
-                        stash_note = (
-                            f"\nNote: your pre-merge working-tree changes are saved in stash "
-                            f"entry 'tusk-merge: auto-stash for TASK-{task_id}'. "
-                            "Restore them with `git stash list` + `git stash pop <ref>` "
-                            "after the rebase completes."
-                        )
-                    print(
-                        f"Error: git rebase {rebase_target} failed — conflicts must be resolved manually.\n"
-                        f"You are on '{branch_name}' with the rebase in progress. To finish:\n"
-                        "  1. Fix the conflicting files (git status lists them)\n"
-                        "  2. git add <resolved files>\n"
-                        "  3. git rebase --continue\n"
-                        "  4. Repeat steps 1–3 until the rebase completes\n"
-                        f"  5. Re-run: tusk merge {task_id}\n"
-                        "To abort the rebase and return to the pre-rebase state:\n"
-                        f"  git rebase --abort{stash_note}",
-                        file=sys.stderr,
-                    )
-                    return 2
+            rebase_rc = _rebase_branch_onto_target(
+                branch_name, rebase_target, task_id, did_stash
+            )
+            if rebase_rc != 0:
+                return rebase_rc
 
     else:
         fetch_result = run(["git", "fetch", "origin"], check=False)
@@ -2171,8 +2211,61 @@ def _complete_no_checkout_fast_forward(
             f"merge {task_id} --session {session_id} to finish finalization.",
             file=sys.stderr,
         )
-        result = run(["git", "push", "origin", f"{branch_name}:{default_branch}"], check=False)
-        if result.returncode != 0:
+        # Bounded push-race retry (issue #1072): under parallel-worktree
+        # workflows origin/<default> can advance between the rebase above and
+        # this push. The recovery (fetch + rebase + push again) is mechanical,
+        # so in --rebase mode re-run it up to _PUSH_RACE_MAX_RETRIES times
+        # before surfacing the error. Rebase conflicts surface immediately.
+        push_attempts = 1 + (_PUSH_RACE_MAX_RETRIES if use_rebase else 0)
+        for attempt in range(1, push_attempts + 1):
+            result = run(
+                ["git", "push", "origin", f"{branch_name}:{default_branch}"],
+                check=False,
+            )
+            if result.returncode == 0:
+                break
+            if (
+                use_rebase
+                and attempt < push_attempts
+                and _is_push_race_rejection(result.stderr)
+            ):
+                print(
+                    f"Note: push to origin/{default_branch} lost a race to a "
+                    f"concurrent advance (attempt {attempt}/{push_attempts}); "
+                    "refetching, rebasing, and retrying...",
+                    file=sys.stderr,
+                )
+                fetch_retry = run(["git", "fetch", "origin"], check=False)
+                if fetch_retry.returncode != 0:
+                    print(
+                        f"Error: git fetch origin failed during push retry:\n"
+                        f"{fetch_retry.stderr.strip()}",
+                        file=sys.stderr,
+                    )
+                    if did_stash:
+                        _try_pop_stash(task_id)
+                    return 2
+                co_retry = run(["git", "checkout", branch_name], check=False)
+                if co_retry.returncode != 0:
+                    print(
+                        f"Error: git checkout {branch_name} failed during push retry:\n"
+                        f"{co_retry.stderr.strip()}",
+                        file=sys.stderr,
+                    )
+                    if did_stash:
+                        _try_pop_stash(task_id)
+                    return 2
+                rebase_rc = _rebase_branch_onto_target(
+                    branch_name, f"origin/{default_branch}", task_id, did_stash
+                )
+                if rebase_rc != 0:
+                    return rebase_rc
+                # The rebase moved the branch tip; the pre-push merge-base
+                # stamp must track the new base (migration 72, TASK-452).
+                pre_push_merge_base_sha = _resolve_merge_base(
+                    branch_name, default_branch
+                )
+                continue
             print(
                 f"Error: no-checkout fast-forward push failed:\n{result.stderr.strip()}\n"
                 "The remote default branch was not updated. This usually means the "
