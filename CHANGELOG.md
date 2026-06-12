@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1136] - 2026-06-12
+
+- [TASK-638] Fix: cost estimation reports $0 for claude-fable-5 - add fable pricing and warn on unpriced models
+
 ## [1135] - 2026-06-12
 
 - [TASK-637] Fix: gate check-deliverables mark_done on verification specs still failing (edit-deliverable false positive)
