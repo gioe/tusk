@@ -340,10 +340,14 @@ def rule10_criteria_type_mismatch(root):
         conn = tusk_loader.load("tusk-db-lib").get_connection(db_path)
         try:
             rows = conn.execute(
-                "SELECT ac.id, ac.task_id, ac.criterion FROM acceptance_criteria ac"
+                "SELECT ac.id, ac.task_id, ac.criterion, ac.verification_spec"
+                " FROM acceptance_criteria ac"
                 " WHERE ac.verification_spec IS NOT NULL AND ac.criterion_type = 'manual'"
                 " ORDER BY ac.id"
             ).fetchall()
+            # Blank specs ('' or whitespace-only, issue #1045) are absent, not a
+            # mismatch; SQL TRIM only strips spaces, so filter here instead.
+            rows = [row for row in rows if (row[3] or "").strip()]
         except sqlite3.OperationalError:
             return []
         finally:

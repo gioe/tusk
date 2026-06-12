@@ -71,6 +71,26 @@ class TestRule10CriteriaTypeMismatch:
             with patch.object(lint, "_db_path_from_root", return_value=db_path):
                 assert lint.rule10_criteria_type_mismatch(tmp) == []
 
+    def test_manual_with_empty_string_spec_not_flagged(self):
+        # Issue #1045: legacy write paths stored '' instead of NULL; a
+        # zero-length spec is absent, not a type mismatch.
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = _make_criteria_db(
+                tmp,
+                criteria=[(5, 46, "Empty-string spec", "manual", "")],
+            )
+            with patch.object(lint, "_db_path_from_root", return_value=db_path):
+                assert lint.rule10_criteria_type_mismatch(tmp) == []
+
+    def test_manual_with_whitespace_only_spec_not_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = _make_criteria_db(
+                tmp,
+                criteria=[(6, 47, "Whitespace spec", "manual", "   \t")],
+            )
+            with patch.object(lint, "_db_path_from_root", return_value=db_path):
+                assert lint.rule10_criteria_type_mismatch(tmp) == []
+
     def test_db_unavailable_returns_empty(self):
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(lint, "_db_path_from_root", return_value=None):
