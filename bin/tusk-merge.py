@@ -1827,6 +1827,54 @@ def _guard_no_open_completion_criteria(db_path: str, task_id: int) -> int:
     return 2
 
 
+def _task_done_refused_already_done(result: subprocess.CompletedProcess) -> bool:
+    """True when task-done refused because the task is already Done."""
+    return result.returncode == 2 and "is already done" in result.stderr.lower()
+
+
+def _task_already_finalized(db_path: str, task_id: int) -> bool:
+    """True when the task row is Done with closed_reason='completed'.
+
+    Gating on closed_reason keeps the safety net intact for genuine state
+    mismatches (wont_do, expired, duplicate): only completed re-runs unlock
+    idempotent recovery (issues #943, #1066).
+    """
+    try:
+        conn = get_connection(db_path)
+        try:
+            row = conn.execute(
+                "SELECT status, closed_reason FROM tasks WHERE id = ?",
+                (task_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return False
+    return bool(row and row["status"] == "Done" and row["closed_reason"] == "completed")
+
+
+def _format_pre_merged_push_warning(default_branch: str, stderr: str) -> str:
+    """Explain a push failure on the pre-merged auto-complete path.
+
+    A non-fast-forward rejection here usually means the local default-branch
+    ref is stale while origin already contains the merged work — benign, but
+    the generic wording reads like data loss (issue #1066).
+    """
+    body = stderr.strip()
+    lowered = stderr.lower()
+    if "non-fast-forward" in lowered or "fetch first" in lowered or "[rejected]" in lowered:
+        return (
+            f"Note: git push origin {default_branch} was rejected (non-fast-forward) — "
+            f"local {default_branch} is behind origin/{default_branch}, which already "
+            "contains the merged work. Benign for an already-merged branch; run "
+            f"git pull --ff-only to sync the local {default_branch} ref.\n{body}"
+        )
+    return (
+        f"Warning: git push origin {default_branch} failed — "
+        f"branch may already be pushed:\n{body}"
+    )
+
+
 def _close_completed_task(
     tusk_bin: str, task_id: int, db_path: str, session_was_closed: bool,
     merge_commit_sha: str | None = None,
@@ -1893,7 +1941,7 @@ def _close_completed_task(
                 )
             print(dumps(synthetic))
             return 0
-        if result.returncode == 2 and "is already done" in result.stderr.lower():
+        if _task_done_refused_already_done(result):
             # Idempotent retry path (issue #943): a prior tusk merge attempt got
             # as far as marking the task Done but failed during worktree cleanup
             # (e.g. untracked files blocked `git worktree remove`). Rerunning
@@ -1905,18 +1953,7 @@ def _close_completed_task(
             # the no-checkout fast-forward path. Closed_reason gating keeps the
             # safety net intact for genuine state mismatches (wont_do, expired,
             # duplicate): only completed retries unlock idempotent recovery.
-            try:
-                conn = get_connection(db_path)
-                try:
-                    row = conn.execute(
-                        "SELECT status, closed_reason FROM tasks WHERE id = ?",
-                        (task_id,),
-                    ).fetchone()
-                finally:
-                    conn.close()
-            except sqlite3.Error:
-                row = None
-            if row and row["status"] == "Done" and row["closed_reason"] == "completed":
+            if _task_already_finalized(db_path, task_id):
                 print(
                     f"Warning: Task {task_id} was already closed by a prior merge "
                     "attempt — continuing with cleanup.",
@@ -2910,6 +2947,120 @@ def _load_worktree_symlink_files(config_path: str) -> list[str]:
     return [str(n) for n in names if isinstance(n, str) and n]
 
 
+def _auto_complete_pre_merged(
+    tusk_bin: str,
+    config_path: str,
+    db_path: str,
+    task_id: int,
+    session_id,
+    skip_lint: bool,
+) -> int:
+    """Finalize a task whose feature branch was already merged and deleted.
+
+    Fast-path taken when the caller is on the default branch and no
+    feature/TASK-N-* branch exists. Re-runs the finalization steps the prior
+    merge attempt may have left unfinished (session close, push, task-done).
+    A fully-finalized re-run reports success and exits 0 instead of tripping
+    over each already-complete step (issue #1066).
+    """
+    default_branch = detect_default_branch()
+    print(
+        f"Note: TASK-{task_id} — no feature branch found; already on '{default_branch}'.\n"
+        "Branch was previously merged. Auto-completing finalization...",
+        file=sys.stderr,
+    )
+
+    def _already_finalized_result(session_was_closed: bool) -> int:
+        print(
+            f"TASK-{task_id} already finalized — nothing to do.",
+            file=sys.stderr,
+        )
+        print(dumps({
+            "task": {"id": task_id, "status": "Done", "closed_reason": "completed"},
+            "sessions_closed": 1 if session_was_closed else 0,
+            "unblocked_tasks": [],
+            "already_finalized": True,
+        }))
+        return 0
+
+    if _task_already_finalized(db_path, task_id):
+        # The prior run pushed, closed the session, and marked the task Done.
+        # Skip the criteria guard, lint gate, and push entirely — re-running
+        # them produces benign-but-alarming noise (stale-main push rejection,
+        # already-closed session warning, already-Done exit 2). Still close
+        # the session in case it was left open out-of-band.
+        result = _run_tusk_subcommand(tusk_bin, ["session-close", str(session_id)])
+        session_was_closed = result.returncode == 0
+        if result.returncode != 0 and not (
+            "already closed" in result.stderr or "No session found" in result.stderr
+        ):
+            print(
+                f"Warning: session-close failed:\n{result.stderr.strip()}",
+                file=sys.stderr,
+            )
+        return _already_finalized_result(session_was_closed)
+
+    criteria_rc = _guard_no_open_completion_criteria(db_path, task_id)
+    if criteria_rc != 0:
+        return criteria_rc
+    lint_rc = _run_pre_merge_lint(
+        tusk_bin, config_path, task_id, skip_lint=skip_lint, db_path=db_path
+    )
+    if lint_rc != 0:
+        return lint_rc
+    checkpoint_wal(db_path)
+    print(f"Closing session {session_id}...", file=sys.stderr)
+    result = _run_tusk_subcommand(tusk_bin, ["session-close", str(session_id)])
+    session_was_closed = result.returncode == 0
+    if result.returncode != 0:
+        if "already closed" in result.stderr or "No session found" in result.stderr:
+            print(f"Warning: {result.stderr.strip()}", file=sys.stderr)
+        else:
+            print(f"Error: session-close failed:\n{result.stderr.strip()}", file=sys.stderr)
+            return 2
+    # Push the default branch — may already be up to date if merged via PR
+    if _has_remote():
+        push = run(["git", "push", "origin", default_branch], check=False)
+        if push.returncode != 0:
+            print(
+                _format_pre_merged_push_warning(default_branch, push.stderr),
+                file=sys.stderr,
+            )
+    else:
+        print(
+            "Warning: no git remote 'origin' configured — skipping push.",
+            file=sys.stderr,
+        )
+    print(f"Closing task {task_id}...", file=sys.stderr)
+    # Auto-complete path implicitly grants --force: the feature branch was
+    # previously merged so the criteria-without-commit-hash check, run
+    # without --force, would print a misleading "Error:" before the call
+    # site retried with --force. Pass --force up front so task-done emits
+    # "Warning:" instead — diagnostic preserved, no contradiction.
+    result = _run_tusk_subcommand(
+        tusk_bin, ["task-done", str(task_id), "--reason", "completed", "--force"]
+    )
+    if result.returncode != 0:
+        if _task_done_refused_already_done(result) and _task_already_finalized(db_path, task_id):
+            # Race twin of the early short-circuit: the task flipped to Done
+            # between the check above and task-done (issue #1066) — success.
+            return _already_finalized_result(session_was_closed)
+        print(f"Error: task-done failed:\n{result.stderr.strip()}", file=sys.stderr)
+        return 2
+    if result.stderr.strip():
+        print(result.stderr.strip(), file=sys.stderr)
+    try:
+        task_done_result = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        if result.stdout.strip():
+            print(result.stdout.strip())
+        return 0
+    if session_was_closed:
+        task_done_result["sessions_closed"] = 1
+    print(dumps(task_done_result))
+    return 0
+
+
 def find_task_branch(task_id: int) -> tuple[str | None, str | None, bool]:
     """Return (branch_name, error_message, pre_merged).
 
@@ -3355,68 +3506,9 @@ def main(argv: list[str]) -> int:
     if pre_merged:
         # Fast-path: feature branch was already merged and deleted; user is on
         # the default branch. Skip the normal merge and auto-complete finalization.
-        default_branch = detect_default_branch()
-        print(
-            f"Note: TASK-{task_id} — no feature branch found; already on '{default_branch}'.\n"
-            "Branch was previously merged. Auto-completing finalization...",
-            file=sys.stderr,
+        return _auto_complete_pre_merged(
+            tusk_bin, config_path, _db_path, task_id, session_id, skip_lint
         )
-        criteria_rc = _guard_no_open_completion_criteria(_db_path, task_id)
-        if criteria_rc != 0:
-            return criteria_rc
-        lint_rc = _run_pre_merge_lint(
-            tusk_bin, config_path, task_id, skip_lint=skip_lint, db_path=_db_path
-        )
-        if lint_rc != 0:
-            return lint_rc
-        checkpoint_wal(_db_path)
-        print(f"Closing session {session_id}...", file=sys.stderr)
-        result = _run_tusk_subcommand(tusk_bin, ["session-close", str(session_id)])
-        session_was_closed = result.returncode == 0
-        if result.returncode != 0:
-            if "already closed" in result.stderr or "No session found" in result.stderr:
-                print(f"Warning: {result.stderr.strip()}", file=sys.stderr)
-            else:
-                print(f"Error: session-close failed:\n{result.stderr.strip()}", file=sys.stderr)
-                return 2
-        # Push the default branch — may already be up to date if merged via PR
-        if _has_remote():
-            push = run(["git", "push", "origin", default_branch], check=False)
-            if push.returncode != 0:
-                print(
-                    f"Warning: git push origin {default_branch} failed — "
-                    f"branch may already be pushed:\n{push.stderr.strip()}",
-                    file=sys.stderr,
-                )
-        else:
-            print(
-                "Warning: no git remote 'origin' configured — skipping push.",
-                file=sys.stderr,
-            )
-        print(f"Closing task {task_id}...", file=sys.stderr)
-        # Auto-complete path implicitly grants --force: the feature branch was
-        # previously merged so the criteria-without-commit-hash check, run
-        # without --force, would print a misleading "Error:" before the call
-        # site retried with --force. Pass --force up front so task-done emits
-        # "Warning:" instead — diagnostic preserved, no contradiction.
-        result = _run_tusk_subcommand(
-            tusk_bin, ["task-done", str(task_id), "--reason", "completed", "--force"]
-        )
-        if result.returncode != 0:
-            print(f"Error: task-done failed:\n{result.stderr.strip()}", file=sys.stderr)
-            return 2
-        if result.stderr.strip():
-            print(result.stderr.strip(), file=sys.stderr)
-        try:
-            task_done_result = json.loads(result.stdout)
-        except json.JSONDecodeError:
-            if result.stdout.strip():
-                print(result.stdout.strip())
-            return 0
-        if session_was_closed:
-            task_done_result["sessions_closed"] = 1
-        print(dumps(task_done_result))
-        return 0
 
     if err:
         print(f"Error: {err}", file=sys.stderr)
