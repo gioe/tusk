@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1146] - 2026-06-12
+
+- [TASK-648] Fix: validate description-derived sparse cone entries against tracked paths with suffix resolution
+
 ## [1145] - 2026-06-12
 
 - [TASK-647] Fix: linked-worktree test gate distinguishes real test failures from unavailable test_command
