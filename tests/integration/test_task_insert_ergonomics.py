@@ -98,3 +98,35 @@ def test_task_insert_preserves_title_case_priority(db_path):
         "body text",
         "High",
     )
+
+
+def test_typed_criteria_blank_spec_stored_as_null(db_path):
+    # Issue #1045: a manual typed-criterion with spec '' must land as SQL NULL,
+    # not a zero-length string that lint Rule 10 reads as "has a spec".
+    result = _insert(
+        db_path,
+        "blank typed spec smoke",
+        "body text",
+        "--typed-criteria",
+        '{"text":"manual check","type":"manual","spec":""}',
+        "--typed-criteria",
+        '{"text":"whitespace check","type":"manual","spec":"   "}',
+    )
+
+    assert result.returncode == 0, result.stderr
+    task_id = json.loads(result.stdout)["task_id"]
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        rows = conn.execute(
+            "SELECT criterion, verification_spec FROM acceptance_criteria"
+            " WHERE task_id = ? ORDER BY id",
+            (task_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    assert [(r[0], r[1]) for r in rows] == [
+        ("manual check", None),
+        ("whitespace check", None),
+    ]

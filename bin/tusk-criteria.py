@@ -342,6 +342,13 @@ def run_verification(criterion_type: str, spec: str) -> dict:
 SPEC_REQUIRED_TYPES = {"code", "test", "file"}
 
 
+def _normalize_spec(spec: str | None) -> str | None:
+    """Collapse empty/whitespace-only specs to None so '' never reaches the DB (issue #1045)."""
+    if spec is None or not spec.strip():
+        return None
+    return spec
+
+
 # ── Subcommands ──────────────────────────────────────────────────────
 
 def _normalized_criterion_text(text: str) -> str:
@@ -379,6 +386,7 @@ def _find_superseded_criteria(
     return superseded
 
 def cmd_add(args: argparse.Namespace, db_path: str, config: dict) -> int:
+    spec = _normalize_spec(args.spec)
     conn = get_connection(db_path)
     try:
         # Verify task exists
@@ -395,25 +403,25 @@ def cmd_add(args: argparse.Namespace, db_path: str, config: dict) -> int:
             return 2
 
         # Validate spec: required for non-manual types
-        if args.type in SPEC_REQUIRED_TYPES and not args.spec:
+        if args.type in SPEC_REQUIRED_TYPES and not spec:
             print(f"Error: --spec is required for criterion type '{args.type}'", file=sys.stderr)
             return 2
 
         if args.type == "file":
-            warn_file_spec_glob_metachars(args.spec, "criteria add")
+            warn_file_spec_glob_metachars(spec, "criteria add")
 
         superseded_ids = _find_superseded_criteria(
             conn,
             task_id=args.task_id,
             text=args.text,
             ctype=args.type,
-            spec=args.spec,
+            spec=spec,
         )
 
         conn.execute(
             "INSERT INTO acceptance_criteria (task_id, criterion, source, criterion_type, verification_spec) "
             "VALUES (?, ?, ?, ?, ?)",
-            (args.task_id, args.text, args.source, args.type, args.spec),
+            (args.task_id, args.text, args.source, args.type, spec),
         )
         cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
@@ -512,7 +520,7 @@ def _normalize_update_spec(raw: str | None) -> tuple[bool, str | None]:
         return False, None
     if raw == "NULL":
         return True, None
-    return True, raw
+    return True, _normalize_spec(raw)
 
 
 def cmd_update(args: argparse.Namespace, db_path: str, config: dict) -> int:

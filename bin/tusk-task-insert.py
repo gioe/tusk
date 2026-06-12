@@ -864,6 +864,9 @@ def main(argv: list[str]) -> int:
     spec_required_types = {"code", "test", "file"}
     for i, tc in enumerate(typed_criteria):
         ct = tc.get("type", "manual")
+        spec = tc.get("spec")
+        if spec is not None and not spec.strip():
+            tc["spec"] = None  # blank specs must never reach the DB as '' (issue #1045)
         if criterion_types and ct not in criterion_types:
             joined = ", ".join(criterion_types)
             errors.append(f"--typed-criteria[{i}]: invalid type '{ct}'. Valid: {joined}")
