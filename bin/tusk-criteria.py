@@ -594,7 +594,8 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
                   head_task_id: Optional[int] = None) -> int:
     """Mark a single criterion as done. Returns 0 on success, 1 on verification failure, 2 on not-found."""
     row = conn.execute(
-        "SELECT id, task_id, criterion, is_completed, criterion_type, verification_spec "
+        "SELECT id, task_id, criterion, is_completed, criterion_type, verification_spec, "
+        "is_deferred, deferred_reason "
         "FROM acceptance_criteria WHERE id = ?",
         (criterion_id,),
     ).fetchone()
@@ -667,15 +668,31 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
                 file=sys.stderr,
             )
 
+    # Completing a deferred criterion clears the deferral (issue #1058): the
+    # sanctioned way to record a post-merge verification outcome after the
+    # task closed is to re-run `tusk criteria done <cid>` once the deferred
+    # check is performed. deferred_reason is kept for history; is_completed=1
+    # with completed_at is what distinguishes "verified later" from "never
+    # performed" in coverage views and audit queries.
+    deferral_cleared = bool(row["is_deferred"])
     conn.execute(
         "UPDATE acceptance_criteria SET is_completed = 1, "
         "completed_at = strftime('%Y-%m-%d %H:%M:%f', 'now'), "
         "commit_hash = ?, committed_at = ?, "
         "verification_result = ?, skip_note = ?, "
+        "is_deferred = 0, "
         "updated_at = datetime('now') WHERE id = ?",
         (commit_hash, committed_at, verification_result, note, criterion_id),
     )
     conn.commit()
+    if deferral_cleared:
+        reason = row["deferred_reason"] or "no reason recorded"
+        print(
+            f"Note: criterion #{criterion_id} was deferred ({reason}) — "
+            "completion clears the deferral; the verified outcome is now part "
+            "of the audit trail.",
+            file=sys.stderr,
+        )
 
     # Best-effort cost capture — pass completed_at to bound the transcript window
     crit_ts = conn.execute(
@@ -693,7 +710,7 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
     verification = None
     if criterion_type != "manual":
         verification = "skipped" if skip_verify else "passed"
-    print(dumps({
+    payload = {
         "id": criterion_id,
         "task_id": row["task_id"],
         "is_completed": True,
@@ -702,7 +719,11 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
         "commit_hash": commit_hash,
         "verification": verification,
         "skip_note": note,
-    }))
+    }
+    if deferral_cleared:
+        payload["deferral_cleared"] = True
+        payload["deferred_reason"] = row["deferred_reason"]
+    print(dumps(payload))
     return 0
 
 

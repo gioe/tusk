@@ -24,6 +24,8 @@ def _init_db(path):
             criterion_type TEXT DEFAULT 'manual',
             verification_spec TEXT,
             is_completed INTEGER DEFAULT 0,
+            is_deferred INTEGER DEFAULT 0,
+            deferred_reason TEXT,
             completed_at TEXT,
             verification_result TEXT,
             commit_hash TEXT,

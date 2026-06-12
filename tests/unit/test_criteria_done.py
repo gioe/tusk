@@ -646,3 +646,60 @@ class TestSkipNote:
         rows = json.loads(out.getvalue())
         first = next(r for r in rows if r["id"] == 1)
         assert first["skip_note"] == "legacy code path — refactor tracked in TASK-999"
+
+
+class TestDoneClearsDeferral:
+    """Completing a deferred criterion clears is_deferred (issue #1058).
+
+    This is the sanctioned post-merge recording path: a criterion skipped
+    pre-merge with `criteria skip --reason "post-merge verification: ..."`
+    is re-marked via `criteria done` once the deferred check is performed —
+    including after the task is Done.
+    """
+
+    def _defer(self, conn, cid, reason):
+        conn.execute(
+            "UPDATE acceptance_criteria SET is_deferred = 1, deferred_reason = ? "
+            "WHERE id = ?",
+            (reason, cid),
+        )
+        conn.commit()
+
+    def test_done_on_deferred_criterion_clears_deferral(self):
+        conn = make_db()
+        self._defer(conn, 1, "post-merge verification: CI on main")
+        conn.execute("UPDATE tasks SET status = 'Done' WHERE id = 1")
+        conn.commit()
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err), \
+             patch.object(criteria_mod, "capture_criterion_cost"):
+            rc = criteria_mod._done_single(conn, 1, skip_verify=False,
+                                           suppress_shared_commit=True,
+                                           commit_hash=None, committed_at=None)
+        assert rc == 0
+        row = conn.execute(
+            "SELECT is_completed, is_deferred, deferred_reason, completed_at "
+            "FROM acceptance_criteria WHERE id = 1"
+        ).fetchone()
+        assert row["is_completed"] == 1
+        assert row["is_deferred"] == 0
+        # The deferral history survives for the audit trail.
+        assert row["deferred_reason"] == "post-merge verification: CI on main"
+        assert row["completed_at"]
+        obj = json.loads(out.getvalue().strip())
+        assert obj["deferral_cleared"] is True
+        assert obj["deferred_reason"] == "post-merge verification: CI on main"
+        assert "completion clears the deferral" in err.getvalue()
+
+    def test_done_on_non_deferred_criterion_unchanged(self):
+        conn = make_db()
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err), \
+             patch.object(criteria_mod, "capture_criterion_cost"):
+            rc = criteria_mod._done_single(conn, 1, skip_verify=False,
+                                           suppress_shared_commit=True,
+                                           commit_hash=None, committed_at=None)
+        assert rc == 0
+        obj = json.loads(out.getvalue().strip())
+        assert "deferral_cleared" not in obj
+        assert "clears the deferral" not in err.getvalue()
