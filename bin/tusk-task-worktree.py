@@ -400,6 +400,65 @@ def _derive_sparse_cone(paths: list[str]) -> list[str]:
     return sorted(cone)
 
 
+def _tracked_dirs(repo_root: str) -> set | None:
+    """Every directory tracked at HEAD, or None when git fails (validation
+    is then skipped entirely rather than guessing)."""
+    result = _run_git(repo_root, ["ls-tree", "-r", "-d", "--name-only", "HEAD"])
+    if result.returncode != 0:
+        return None
+    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+
+def _validate_referenced_cone(
+    repo_root: str, entries: set
+) -> tuple[list, dict, list]:
+    """Validate description-derived cone candidates against tracked paths
+    (issue #1044).
+
+    Task descriptions routinely mention paths relative to a repo subdir
+    (e.g. ``ui/components/ui/button.tsx`` meaning
+    ``apps/web/ui/components/ui/button.tsx``); the derivation otherwise
+    treats them as root-relative cone entries that match nothing and, in a
+    repo without a masking sibling cone, silently fail to materialize the
+    intended files. Only description-derived entries go through this —
+    operator-declared cones (--cone, sparse_always_cone, config scope
+    lists) are trusted as-is.
+
+    Returns ``(kept, resolved, dropped)``:
+    - ``kept`` — entries that exist (tracked or on disk), or whose first
+      segment exists at the root (preserves tasks that create a brand-new
+      subdirectory under an existing tree).
+    - ``resolved`` — ``{original: fully_qualified}`` for entries that match
+      no root-relative path but uniquely suffix-resolve against tracked
+      directories.
+    - ``dropped`` — entries with zero or ambiguous suffix resolutions.
+
+    When ``git ls-tree`` fails, every entry is kept (no validation).
+    """
+    tracked = _tracked_dirs(repo_root)
+    kept: list = []
+    resolved: dict = {}
+    dropped: list = []
+    for entry in sorted(entries):
+        if tracked is None:
+            kept.append(entry)
+            continue
+        if entry in tracked or os.path.isdir(os.path.join(repo_root, entry)):
+            kept.append(entry)
+            continue
+        first = entry.split("/", 1)[0]
+        if first in tracked or os.path.isdir(os.path.join(repo_root, first)):
+            kept.append(entry)
+            continue
+        suffix = "/" + entry
+        matches = sorted(d for d in tracked if d.endswith(suffix))
+        if len(matches) == 1:
+            resolved[entry] = matches[0]
+        else:
+            dropped.append(entry)
+    return kept, resolved, dropped
+
+
 CI_WORKFLOW_PHRASES = (
     "github actions",
     "ci workflow",
@@ -1223,10 +1282,37 @@ def cmd_create(
                 # File-path inputs go through _derive_sparse_cone, which drops
                 # root-level entries (cone mode auto-materializes top-level
                 # files) and takes the parent dir of nested file paths.
-                cone_set = set(
+                # Description-derived entries are additionally validated
+                # against tracked paths (issue #1044): subdir-relative prose
+                # mentions (e.g. ui/components/ui/button.tsx meaning
+                # apps/web/...) otherwise become root-relative cone entries
+                # that match nothing. Config-sourced and operator-declared
+                # entries below are trusted as-is.
+                referenced_cone = set(_derive_sparse_cone(referenced))
+                kept, resolved, dropped = _validate_referenced_cone(
+                    repo_root, referenced_cone
+                )
+                if resolved or dropped:
+                    bits = []
+                    if resolved:
+                        resolved_display = ", ".join(
+                            f"{orig} -> {full}"
+                            for orig, full in sorted(resolved.items())
+                        )
+                        bits.append("resolved " + resolved_display)
+                    if dropped:
+                        bits.append("dropped " + ", ".join(sorted(dropped)))
+                    summary = "; ".join(bits)
+                    print(
+                        "Note: cone entries derived from the task description "
+                        f"were validated against tracked paths: {summary} "
+                        "(issue #1044). Use --cone <path> to force an entry.",
+                        file=sys.stderr,
+                    )
+                cone_set = set(kept) | set(resolved.values())
+                cone_set.update(
                     _derive_sparse_cone(
                         [
-                            *referenced,
                             *always_include,
                             *always_allowed,
                             *test_cmd_paths,
