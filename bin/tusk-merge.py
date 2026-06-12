@@ -2020,6 +2020,72 @@ def _is_push_race_rejection(stderr: str) -> bool:
     )
 
 
+def _main_side_overlap(branch_name: str, default_branch: str) -> tuple[list[str], list[str]]:
+    """Files changed on origin/<default> since merge-base that the branch also touched.
+
+    Returns (overlapping_files, main_side_commit_lines); both empty when there
+    is no overlap or any git query fails (the warning is best-effort and must
+    never block the merge). The overlap predicts rebase collisions — possibly
+    semantic, not just textual — before they surprise the operator (issue #1081).
+    """
+    base = run(["git", "merge-base", branch_name, f"origin/{default_branch}"], check=False)
+    if base.returncode != 0 or not base.stdout.strip():
+        return [], []
+    base_sha = base.stdout.strip()
+    main_diff = run(
+        ["git", "diff", "--name-only", f"{base_sha}..origin/{default_branch}"],
+        check=False,
+    )
+    branch_diff = run(
+        ["git", "diff", "--name-only", f"{base_sha}..{branch_name}"], check=False
+    )
+    if main_diff.returncode != 0 or branch_diff.returncode != 0:
+        return [], []
+    main_files = {ln.strip() for ln in main_diff.stdout.splitlines() if ln.strip()}
+    branch_files = {ln.strip() for ln in branch_diff.stdout.splitlines() if ln.strip()}
+    overlap = sorted(main_files & branch_files)
+    if not overlap:
+        return [], []
+    log = run(
+        ["git", "log", "--format=%h %s", f"{base_sha}..origin/{default_branch}", "--", *overlap],
+        check=False,
+    )
+    commits = (
+        [ln.strip() for ln in log.stdout.splitlines() if ln.strip()]
+        if log.returncode == 0
+        else []
+    )
+    return overlap, commits
+
+
+def _format_main_side_overlap_warning(
+    default_branch: str, overlap: list[str], commits: list[str]
+) -> str:
+    if len(overlap) <= 10:
+        files = ", ".join(overlap)
+    else:
+        files = ", ".join(overlap[:10]) + f", ... and {len(overlap) - 10} more"
+    lines = [
+        f"Warning: origin/{default_branch} has commits touching {len(overlap)} "
+        "file(s) this branch also modified — the collision may be semantic, not "
+        "just textual; read the main-side work before resolving (issue #1081).",
+        f"  files: {files}",
+    ]
+    if commits:
+        lines.append("  main-side commits:")
+        lines.extend(f"    {c}" for c in commits)
+    return "\n".join(lines)
+
+
+def _maybe_warn_main_side_overlap(branch_name: str, default_branch: str) -> None:
+    overlap, commits = _main_side_overlap(branch_name, default_branch)
+    if overlap:
+        print(
+            _format_main_side_overlap_warning(default_branch, overlap, commits),
+            file=sys.stderr,
+        )
+
+
 def _rebase_branch_onto_target(
     branch_name: str, rebase_target: str, task_id: int, did_stash: bool
 ) -> int:
@@ -2113,6 +2179,7 @@ def _complete_no_checkout_fast_forward(
                 if did_stash:
                     _try_pop_stash(task_id)
                 return 2
+            _maybe_warn_main_side_overlap(branch_name, default_branch)
             rebase_rc = _rebase_branch_onto_target(
                 branch_name, rebase_target, task_id, did_stash
             )
@@ -2133,6 +2200,7 @@ def _complete_no_checkout_fast_forward(
                 check=False,
             )
             if base_check.returncode != 0:
+                _maybe_warn_main_side_overlap(branch_name, default_branch)
                 print(
                     f"Error: origin/{default_branch} has commits not reachable from "
                     f"{branch_name}; refusing the no-checkout fast-forward push "
