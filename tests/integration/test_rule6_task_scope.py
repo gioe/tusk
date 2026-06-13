@@ -193,9 +193,15 @@ class TestCommitNotBlockedByUnrelatedDoneTask:
         target = repo / "payload.txt"
         target.write_text("hello\n")
 
+        # --allow-branch-mismatch: this throwaway repo is on the default
+        # branch with no recorded task workspace, which legitimately trips
+        # the issue #794 branch-naming guard (refuse commit on the default
+        # branch). That guard is unrelated to what this test exercises —
+        # Rule 6 must not block a TASK-A commit because of TASK-B's bad Done
+        # state — so we bypass it to isolate the Rule 6 behavior under test.
         r = subprocess.run(
             ["python3", TUSK_COMMIT_PY, str(repo), CONFIG_DEFAULT,
-             str(task_a_id), "msg", str(target)],
+             str(task_a_id), "msg", str(target), "--allow-branch-mismatch"],
             capture_output=True, text=True, encoding="utf-8", env=env,
             cwd=str(repo),
         )

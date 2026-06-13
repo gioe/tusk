@@ -31,6 +31,14 @@ GUARDED_ARMS = [
     "regen-triggers",
 ]
 
+# Arms whose extra-arg rejection comes from argparse rather than the
+# hand-rolled `$# > 0` guard. `version-bump` gained `--task-id` (issue #903)
+# and is now an argparse command, so it rejects a stray positional with
+# "unrecognized arguments" instead of the hand-rolled "takes no arguments"
+# message. It still exits non-zero, names the command, and writes only to
+# stderr, so it stays in GUARDED_ARMS for those assertions.
+ARGPARSE_ARMS = {"version-bump"}
+
 
 @pytest.mark.parametrize("arm", GUARDED_ARMS)
 def test_extra_arg_exits_nonzero(arm, db_path):
@@ -58,9 +66,15 @@ def test_extra_arg_error_names_command(arm, db_path):
         f"error message must name the offending command 'tusk {arm}'; "
         f"stderr={result.stderr!r}"
     )
-    assert "takes no arguments" in result.stderr, (
-        f"error message must say 'takes no arguments'; stderr={result.stderr!r}"
-    )
+    if arm in ARGPARSE_ARMS:
+        assert "unrecognized arguments" in result.stderr, (
+            f"argparse arm must reject the stray positional with "
+            f"'unrecognized arguments'; stderr={result.stderr!r}"
+        )
+    else:
+        assert "takes no arguments" in result.stderr, (
+            f"error message must say 'takes no arguments'; stderr={result.stderr!r}"
+        )
 
 
 @pytest.mark.parametrize("arm", GUARDED_ARMS)

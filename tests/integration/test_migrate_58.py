@@ -185,6 +185,19 @@ class TestMigrate58:
     def test_shadow_excluded_from_default_task_list(self, db_at_v57, config_path):
         tusk_migrate.migrate_58(db_at_v57, config_path, SCRIPT_DIR)
 
+        # task-list is a current-schema CLI: it selects `not_before` (added in
+        # migration 75). Advance the DB through all remaining migrations after
+        # the migration-58 step so the end-to-end CLI invocation below works.
+        # Migration 58's shadow-exclusion view changes persist through later
+        # migrations, so this still exercises that behavior (and would catch a
+        # later migration that broke it).
+        migrate_result = subprocess.run(
+            ["python3", os.path.join(SCRIPT_DIR, "tusk-migrate.py"),
+             db_at_v57, config_path],
+            capture_output=True, text=True, encoding="utf-8", check=True,
+        )
+        assert migrate_result.returncode == 0, migrate_result.stderr
+
         real_id = _insert_task(db_at_v57, bakeoff_shadow=0)
         shadow_id = _insert_task(db_at_v57, bakeoff_shadow=1)
 

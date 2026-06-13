@@ -154,6 +154,13 @@ class TestNoCheckoutUnpushedGuard:
         monkeypatch.setattr(
             tusk_merge, "_cleanup_no_checkout_workspace", lambda *a, **k: True
         )
+        # Stub the duplicate-workspace reconciliation (issue #945) added to
+        # the no-checkout path after this test was written — it queries the
+        # task_workspaces table, which this in-process test's throwaway DB
+        # does not create. Orthogonal to the unpushed-default guard under test.
+        monkeypatch.setattr(
+            tusk_merge, "_reconcile_duplicate_task_workspaces", lambda *a, **k: True
+        )
 
         stderr_buf = io.StringIO()
         with redirect_stdout(io.StringIO()), redirect_stderr(stderr_buf):

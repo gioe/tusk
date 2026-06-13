@@ -170,6 +170,11 @@ class TestCloseTaskRunsBeforeWorktreeCleanup:
                     str(task_id),
                     "--session",
                     str(session_id),
+                    # --skip-lint: this test fakes __file__ to a worktree-local
+                    # path so the pre-merge lint gate would exec a nonexistent
+                    # tusk binary. Lint is orthogonal to the close-before-cleanup
+                    # ordering under test.
+                    "--skip-lint",
                 ]
             )
 

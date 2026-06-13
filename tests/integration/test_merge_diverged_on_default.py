@@ -394,11 +394,16 @@ class TestNormalPathUnaffected:
                 [str(db_path), str(config_path), str(task_id), "--session", str(session_id)]
             )
 
-        safe_delete_calls = [c for c in record if c[:3] == ["git", "branch", "-d"]]
+        # TASK-545 (4fd80de) unified branch deletion to always use `git
+        # branch -D`. The local merge cleanup may chdir out of the repo root,
+        # after which `git branch -d`'s merged-into-HEAD safety check can
+        # spuriously reject an already-merged branch. Deletion is safe here
+        # because the ff-only merge above already landed the commits on the
+        # default branch.
         force_delete_calls = [c for c in record if c[:3] == ["git", "branch", "-D"]]
-        assert safe_delete_calls, "Expected git branch -d on normal merge path"
-        assert not force_delete_calls, (
-            f"Expected git branch -D NOT to be called on normal path, got: {force_delete_calls}"
+        assert force_delete_calls, (
+            "Expected git branch -D on the normal merge path (TASK-545 unified "
+            "the delete flag to -D)"
         )
 
 
@@ -834,9 +839,16 @@ class TestPrefixMatchFalsePositive:
             "commits must not be orphaned by the log-check's empty-branch inference"
         )
 
+        # The override proceeds with a real ff-merge (asserted above), then
+        # deletes the now-merged feature branch. TASK-545 (4fd80de) made that
+        # deletion always use `git branch -D` (cleanup may chdir away, breaking
+        # `-d`'s merged-into-HEAD safety check), so a -D call here is expected —
+        # the "no orphaned work" guarantee is carried by the ff_calls assertion
+        # above, not by the delete flag.
         force_delete_calls = [c for c in record if c[:3] == ["git", "branch", "-D"]]
-        assert not force_delete_calls, (
-            f"Expected NO force-delete on the false-positive path, got: {force_delete_calls}"
+        assert force_delete_calls, (
+            "Expected the merged feature branch to be deleted via git branch -D "
+            "after the false-positive override's ff-merge (TASK-545)"
         )
 
         assert "issue #656" in stderr_buf.getvalue(), (
@@ -891,9 +903,16 @@ class TestPrefixMatchFalsePositive:
             "on default must not trigger the skip+delete path"
         )
 
+        # The override proceeds with a real ff-merge (asserted above), then
+        # deletes the now-merged feature branch. TASK-545 (4fd80de) made that
+        # deletion always use `git branch -D` (cleanup may chdir away, breaking
+        # `-d`'s merged-into-HEAD safety check), so a -D call here is expected —
+        # the "no orphaned work" guarantee is carried by the ff_calls assertion
+        # above, not by the delete flag.
         force_delete_calls = [c for c in record if c[:3] == ["git", "branch", "-D"]]
-        assert not force_delete_calls, (
-            f"Expected NO force-delete on the false-positive path, got: {force_delete_calls}"
+        assert force_delete_calls, (
+            "Expected the merged feature branch to be deleted via git branch -D "
+            "after the false-positive override's ff-merge (TASK-545)"
         )
 
         assert "prefix-match false positive" in stderr_buf.getvalue(), (
@@ -1095,9 +1114,16 @@ class TestPrefixMatchBasenameOnlyScopeSignal:
             "prefix-match false positive"
         )
 
+        # The override proceeds with a real ff-merge (asserted above), then
+        # deletes the now-merged feature branch. TASK-545 (4fd80de) made that
+        # deletion always use `git branch -D` (cleanup may chdir away, breaking
+        # `-d`'s merged-into-HEAD safety check), so a -D call here is expected —
+        # the "no orphaned work" guarantee is carried by the ff_calls assertion
+        # above, not by the delete flag.
         force_delete_calls = [c for c in record if c[:3] == ["git", "branch", "-D"]]
-        assert not force_delete_calls, (
-            f"Expected NO force-delete on the false-positive path, got: {force_delete_calls}"
+        assert force_delete_calls, (
+            "Expected the merged feature branch to be deleted via git branch -D "
+            "after the false-positive override's ff-merge (TASK-545)"
         )
 
         assert "prefix-match false positive" in stderr_buf.getvalue(), (

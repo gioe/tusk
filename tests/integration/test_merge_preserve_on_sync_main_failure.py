@@ -335,6 +335,12 @@ class TestCleanupDeferredWhenSyncMainFails:
                 [
                     str(db_path), str(config_path), str(task_id),
                     "--session", str(session_id),
+                    # --skip-lint: these tests fake __file__ to drive the
+                    # worktree-fallback tusk_bin resolution, which makes the
+                    # orthogonal pre-merge lint gate exec a nonexistent
+                    # binary. Lint is unrelated to the issue #921 cleanup
+                    # behavior under test, so skip it.
+                    "--skip-lint",
                 ]
             )
 
@@ -405,6 +411,12 @@ class TestCleanupDeferredWhenSyncMainFails:
                 [
                     str(db_path), str(config_path), str(task_id),
                     "--session", str(session_id),
+                    # --skip-lint: these tests fake __file__ to drive the
+                    # worktree-fallback tusk_bin resolution, which makes the
+                    # orthogonal pre-merge lint gate exec a nonexistent
+                    # binary. Lint is unrelated to the issue #921 cleanup
+                    # behavior under test, so skip it.
+                    "--skip-lint",
                 ]
             )
 
@@ -468,6 +480,12 @@ class TestCleanupDeferredWhenSyncMainFails:
                 [
                     str(db_path), str(config_path), str(task_id),
                     "--session", str(session_id),
+                    # --skip-lint: these tests fake __file__ to drive the
+                    # worktree-fallback tusk_bin resolution, which makes the
+                    # orthogonal pre-merge lint gate exec a nonexistent
+                    # binary. Lint is unrelated to the issue #921 cleanup
+                    # behavior under test, so skip it.
+                    "--skip-lint",
                 ]
             )
 
