@@ -38,11 +38,12 @@ def test_report_issue_dry_run_accepts_explicit_cluster():
     assert "--label cluster:worktree" in result.stdout
 
 
-def test_report_issue_rejects_unknown_cluster_before_gh():
+def test_report_issue_dry_run_accepts_arbitrary_cluster():
+    """TASK-424 (issue #828) dropped the hardcoded cluster enum — any
+    cluster name is passed through so new GitHub labels work immediately
+    without a CLI edit. (Replaces the stale rejects-unknown-cluster test
+    that asserted the removed enum.)"""
     result = _run_report_issue("--cluster", "nonsense", "--dry-run")
 
-    assert result.returncode != 0
-    assert "Invalid --cluster 'nonsense'" in result.stderr
-    assert "worktree" in result.stderr
-    assert "triage-needed" in result.stderr
-    assert "gh issue create" not in result.stdout
+    assert result.returncode == 0, result.stderr
+    assert "--label cluster:nonsense" in result.stdout
