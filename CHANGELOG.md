@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1149] - 2026-06-12
+
+- [TASK-651] Scope auto-derive resolves code-symbol references to unique definition files
+
 ## [1148] - 2026-06-12
 
 - [TASK-650] Add filing-time dedupe and version-staleness warning to tusk report-issue
