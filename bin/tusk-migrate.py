@@ -2488,6 +2488,13 @@ def migrate_64(db_path: str, config_path: str, script_dir: str) -> None:
         md_path = os.path.join(repo_root, "docs", "GLOSSARY.md")
         if os.path.isfile(md_path):
             try:
+                # Pass the resolved md_path explicitly via --file. Without it,
+                # tusk-glossary.py sync-from-md re-resolves GLOSSARY.md via
+                # `git rev-parse --show-toplevel` from CWD, which can read a
+                # different checkout's doc than the one this migration gated on
+                # (db_path's repo root). In production the two coincide; the
+                # explicit path keeps the migration deterministic and seeds
+                # from exactly the file it verified (issue #1097).
                 subprocess.run(
                     [
                         "python3",
@@ -2495,6 +2502,8 @@ def migrate_64(db_path: str, config_path: str, script_dir: str) -> None:
                         db_path,
                         config_path,
                         "sync-from-md",
+                        "--file",
+                        md_path,
                     ],
                     check=True,
                     capture_output=True,
