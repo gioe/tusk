@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1150] - 2026-06-13
+
+- [TASK-652] Fix integration test isolation: order-dependent CWD and shared-state leakage across full-suite runs
+
 ## [1149] - 2026-06-12
 
 - [TASK-651] Scope auto-derive resolves code-symbol references to unique definition files
