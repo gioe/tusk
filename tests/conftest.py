@@ -40,6 +40,61 @@ def _clear_tusk_env(monkeypatch):
     monkeypatch.delenv("TUSK_TEST_COMMAND_TIMEOUT", raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _restore_cwd():
+    """Restore the process working directory after every test (issue #1084).
+
+    Several integration tests import ``bin/tusk-merge.py`` and call its
+    functions in-process. The merge cleanup path calls ``os.chdir`` to
+    relocate out of a worktree it is about to remove
+    (``_remove_recorded_task_worktree``), and the chdir-into-recorded-workspace
+    gate (issue #764) does the same. Those tests install an ``os.chdir`` spy
+    that calls the *real* ``os.chdir``, but ``monkeypatch.setattr`` only
+    restores the patched attribute — never the working directory. The pytest
+    process is therefore left inside a ``tmp_path`` workspace that pytest then
+    deletes during teardown, and every later test that resolves a repo root
+    from ``os.getcwd()`` (scope checks, ``task-insert`` spec validation, etc.)
+    fails with ``path does not exist at repo root`` — a deterministic,
+    order-dependent failure set of 34 tests in full runs.
+
+    Snapshotting the CWD before each test and restoring it afterward makes
+    that leak structurally impossible regardless of which test misbehaves.
+    ``monkeypatch.chdir`` callers already self-restore; this is the safety net
+    for the in-process production ``os.chdir`` that no fixture owns.
+    """
+    try:
+        original = os.getcwd()
+    except OSError:
+        original = REPO_ROOT
+    try:
+        yield
+    finally:
+        try:
+            os.chdir(original)
+        except OSError:
+            # The original directory was removed mid-test; fall back to the
+            # repo root so subsequent tests still resolve paths sanely.
+            os.chdir(REPO_ROOT)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_tusk_state_dir(tmp_path_factory, monkeypatch):
+    """Pin TUSK_STATE_DIR to a per-test temp dir (issue #1084).
+
+    ``bin/tusk`` keeps its cross-repo active-projects registry under
+    ``$TUSK_STATE_DIR`` (default ``$HOME/.tusk``). Integration tests that run
+    ``tusk task-start`` / ``session-close`` as subprocesses otherwise read and
+    write the developer's real ``~/.tusk/active-projects`` file — shared
+    mutable state that both pollutes the real environment and lets tests
+    observe each other's registrations across a full run. Each test gets its
+    own throwaway state dir; tests that need a specific value still override
+    via their own ``monkeypatch.setenv`` (which wins, since it runs after this
+    autouse fixture).
+    """
+    state_dir = tmp_path_factory.mktemp("tusk-state")
+    monkeypatch.setenv("TUSK_STATE_DIR", str(state_dir))
+
+
 @pytest.fixture()
 def config_path():
     """Return the path to config.default.json."""
