@@ -1094,9 +1094,19 @@ def main(argv: list[str]) -> int:
                     requires_unit_tests=requires_unit_tests,
                 ):
                     resolved = _resolve_auto_derived_scope_pattern(repo_root, p)
-                    is_explicit_github_dir = p.endswith("/") and p.startswith(".github/")
+                    # ``.github/`` is a real, ubiquitous repo directory, so any
+                    # path under it is a genuine reference — never a prose
+                    # identifier. The earlier carve-out only matched the
+                    # trailing-slash *directory* form (``.github/workflows/``)
+                    # and so dropped concrete *file* mentions like
+                    # ``.github/workflows/web-ci.yml`` whenever that file did
+                    # not yet exist on disk, because is_prose_identifier_path
+                    # classifies any non-existent dot-first-segment path as
+                    # prose (issue #1084 — co-discovered genuine regression
+                    # from the TASK-549 prose filter).
+                    is_explicit_github_path = p.startswith(".github/") and p != ".github/"
                     if (
-                        not is_explicit_github_dir
+                        not is_explicit_github_path
                         and is_prose_identifier_path(p, repo_root)
                     ):
                         continue
