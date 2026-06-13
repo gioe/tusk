@@ -95,8 +95,11 @@ def test_similar_title_appends_occurrence_comment_instead_of_filing(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
-    assert "Matched existing open issue #901" in result.stdout
-    assert "--force" in result.stdout
+    # Explanation goes to stderr; stdout carries only the matched issue's
+    # URL so ISSUE_URL=$(tusk report-issue ...) callers keep working.
+    assert "Matched existing open issue #901" in result.stderr
+    assert "--force" in result.stderr
+    assert result.stdout.strip() == "https://github.com/gioe/tusk/issues/901"
     lines = _log_lines(log)
     assert any(l.startswith("comment 901") or l.startswith("comment issue") or "comment" in l for l in lines), lines
     assert not any(l.startswith("create") for l in lines), (

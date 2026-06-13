@@ -104,7 +104,12 @@ The submission has three tiers — each kicks in only if the previous tier fails
 
 ### Tier 1 — `tusk report-issue`
 
-The primary path. `tusk report-issue` calls `gh issue create --repo gioe/tusk --label instance-feedback --label cluster:<cluster>` internally and exits with the issue URL on stdout:
+The primary path. `tusk report-issue` calls `gh issue create --repo gioe/tusk --label instance-feedback --label cluster:<cluster>` internally and exits with the issue URL on stdout.
+
+Two best-effort filing-time guards run first (issues #1087 / #1040); both tolerate gh/network failures silently and never block filing:
+
+- **Dedupe** — when an open instance-feedback issue has a high-similarity title, report-issue appends an occurrence comment to that issue instead of filing a duplicate. The matched issue's URL is printed on stdout (so the `ISSUE_URL=$(...)` capture below still works — it just points at the existing issue) and the match explanation goes to stderr. Pass `--force` to file a separate issue anyway.
+- **Version staleness** — when the local tusk VERSION is behind the latest on gioe/tusk, a stderr warning suggests `tusk upgrade` + re-verify, and the issue body's version line is annotated with both versions.
 
 ```bash
 if [[ -n "$EXPECTED" ]]; then

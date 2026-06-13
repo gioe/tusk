@@ -1466,8 +1466,11 @@ $context"
       exit 0
     fi
     if gh issue comment "$match_num" --repo "$TUSK_GITHUB_REPO" --body "$occurrence_body" >/dev/null 2>&1; then
-      echo "Matched existing open issue #$match_num (similarity $match_ratio): $match_title"
-      echo "Appended an occurrence comment instead of filing a duplicate. Use --force to file a separate issue."
+      # Explanation on stderr; URL alone on stdout so ISSUE_URL=$(tusk
+      # report-issue ...) callers (e.g. /report-tusk-issue) keep working —
+      # mirrors `gh issue create`, which prints only the URL on stdout.
+      echo "Matched existing open issue #$match_num (similarity $match_ratio): $match_title" >&2
+      echo "Appended an occurrence comment instead of filing a duplicate. Use --force to file a separate issue." >&2
       echo "https://github.com/$TUSK_GITHUB_REPO/issues/$match_num"
       exit 0
     fi
