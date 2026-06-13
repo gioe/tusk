@@ -648,6 +648,90 @@ def _test_sibling_scope_paths(repo_root: str | None, candidates: list[str]) -> l
     return siblings
 
 
+# Likely code-symbol tokens (issue #1080). SCREAMING_SNAKE requires at least
+# one underscore segment so plain acronyms ("JSON", "TASK") never match;
+# camelCase must start lowercase with an internal capital so prose-cased
+# words ("GitHub", "JavaScript") never match. Length floor filters short
+# prose-ish tokens like "macOS".
+_SCREAMING_SNAKE_RE = re.compile(r"\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b")
+_CAMEL_CASE_RE = re.compile(r"\b[a-z][a-z0-9]+(?:[A-Z][a-zA-Z0-9]*)+\b")
+_SYMBOL_MIN_LEN = 6
+_SYMBOL_SCAN_CAP = 8
+
+
+def _extract_symbol_tokens(text: str) -> list[str]:
+    """Likely code symbols mentioned in ``text``, capped and deduped."""
+    tokens: list[str] = []
+    seen: set[str] = set()
+    for rx in (_SCREAMING_SNAKE_RE, _CAMEL_CASE_RE):
+        for m in rx.finditer(text or ""):
+            tok = m.group(0)
+            if len(tok) < _SYMBOL_MIN_LEN or tok in seen:
+                continue
+            seen.add(tok)
+            tokens.append(tok)
+            if len(tokens) >= _SYMBOL_SCAN_CAP:
+                return tokens
+    return tokens
+
+
+def _symbol_definition_scope_paths(
+    repo_root: str | None, text: str, known_paths: list[str]
+) -> list[str]:
+    """Resolve bare code-symbol mentions to their unique definition files
+    (issue #1080).
+
+    Tasks routinely describe scope via symbols ("extend
+    LINEUP_COMEDIAN_SELECT and mapLineupItem ...") without naming the files
+    that define them; the path extractor cannot see those. For each likely
+    symbol token, ``git grep`` the repo for definition-shaped sites
+    (export/const/function/class/interface/type/enum in JS/TS, def/class in
+    Python, module-level assignment for constants). Exactly one matching
+    file -> auto-derived candidate; zero or multiple matches are skipped
+    silently so ambiguous symbols never add noise rows. Best-effort: any
+    git failure skips that symbol. Symbol tokens are guaranteed
+    ``[A-Za-z0-9_]+`` by the extraction regexes, so they embed safely in
+    the grep pattern without escaping.
+    """
+    if not repo_root or not text:
+        return []
+    symbols = _extract_symbol_tokens(text)
+    if not symbols:
+        return []
+    known = set(known_paths or [])
+    out: list[str] = []
+    seen: set[str] = set()
+    # Word-boundary tail spelled as a character class — git grep's ERE
+    # engine on macOS does not reliably support \b.
+    tail = "([^A-Za-z0-9_]|$)"
+    for sym in symbols:
+        pattern = (
+            "((export[[:space:]]+)?"
+            "(const|let|var|function|class|interface|type|enum)"
+            f"[[:space:]]+{sym}{tail})"
+            f"|(def[[:space:]]+{sym}{tail})"
+            f"|(^{sym}[[:space:]]*=)"
+        )
+        result = subprocess.run(
+            ["git", "-C", repo_root, "grep", "-lE", pattern],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        if result.returncode != 0:
+            # 1 = no definition site found; anything else = git error.
+            # Both skip silently — this derivation is best-effort.
+            continue
+        files = [f for f in result.stdout.splitlines() if f.strip()]
+        if len(files) != 1:
+            continue
+        path = files[0]
+        if path not in seen and path not in known:
+            seen.add(path)
+            out.append(path)
+    return out
+
+
 def _auto_scope_candidates(
     text: str,
     *,
@@ -682,6 +766,11 @@ def _auto_scope_candidates(
         *target_paths,
         *_commit_referenced_scope_paths(repo_root, text),
     ]
+    # Symbol-to-definition resolution (issue #1080) runs after the
+    # path-shaped derivations so its known-paths filter can skip files
+    # already covered, and before the sibling-test pass so resolved
+    # definition files pick up their test siblings too.
+    candidates += _symbol_definition_scope_paths(repo_root, text, candidates)
     if requires_unit_tests is None:
         requires_unit_tests = bool(_UNIT_TEST_REQUIREMENT_RE.search(text or ""))
     test_siblings = (
