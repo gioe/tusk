@@ -1371,8 +1371,8 @@ cmd_version() {
 cmd_report_issue() {
   local title="" context="" observed="" steps="" expected=""
   local cluster="triage-needed"
-  local dry_run=0
-  local usage="Usage: tusk report-issue --title <title> [--cluster <name>] [--context <text>] [--observed <text>] [--steps <text>] [--expected <text>] [--dry-run]"
+  local dry_run=0 force=0
+  local usage="Usage: tusk report-issue --title <title> [--cluster <name>] [--context <text>] [--observed <text>] [--steps <text>] [--expected <text>] [--force] [--dry-run]"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -1382,6 +1382,7 @@ cmd_report_issue() {
       --observed) observed="$2"; shift 2 ;;
       --steps)    steps="$2";    shift 2 ;;
       --expected) expected="$2"; shift 2 ;;
+      --force)    force=1;       shift ;;
       --dry-run)  dry_run=1;     shift ;;
       --help|-h)
         echo "$usage"
@@ -1403,11 +1404,82 @@ cmd_report_issue() {
 
   local cluster_label="cluster:$cluster"
 
+  # ── Filing-time guards (issues #1087 / #1040) ─────────────────────
+  # Both guards are best-effort: any gh/network/parse failure falls
+  # through to normal filing. They must never block a report.
+
+  # Version staleness (issue #1040): compare the local VERSION against the
+  # source repo's latest. When behind, warn the filer and annotate the
+  # issue body so triage can spot stale-version reports immediately.
+  local latest_version="" version_note=""
+  latest_version="$(gh api "repos/$TUSK_GITHUB_REPO/contents/VERSION" --jq .content 2>/dev/null | base64 -d 2>/dev/null | tr -cd '0-9')" || latest_version=""
+  if [[ "$latest_version" =~ ^[0-9]+$ && "$TUSK_VERSION" =~ ^[0-9]+$ ]] && (( TUSK_VERSION < latest_version )); then
+    echo "Warning: this installation is at tusk v$TUSK_VERSION but the latest is v$latest_version — run 'tusk upgrade' and re-verify the behavior before filing." >&2
+    version_note=" (latest: $latest_version — filer is behind; re-verify after upgrade)"
+  fi
+
+  # Dedupe (issue #1087): title-similarity match against open
+  # instance-feedback issues. On a likely match, append an occurrence
+  # comment to the existing issue instead of filing a duplicate — this
+  # preserves the occurrence-count signal without multiplying triage
+  # work. --force skips the guard and always files a new issue.
+  local dupe_match=""
+  if (( force == 0 )); then
+    local open_issues=""
+    open_issues="$(gh issue list --repo "$TUSK_GITHUB_REPO" --state open --label instance-feedback --limit 100 --json number,title 2>/dev/null)" || open_issues=""
+    if [[ -n "$open_issues" ]]; then
+      dupe_match="$(printf '%s' "$open_issues" | python3 -c "
+import difflib, json, re, sys
+title = sys.argv[1]
+norm = lambda s: re.sub(r'[^a-z0-9 ]+', ' ', s.lower()).strip()
+try:
+    issues = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+best_n, best_r, best_t = 0, 0.0, ''
+for it in issues:
+    r = difflib.SequenceMatcher(None, norm(title), norm(it.get('title') or '')).ratio()
+    if r > best_r:
+        best_n, best_r, best_t = it.get('number') or 0, r, it.get('title') or ''
+if best_r >= 0.8 and best_n:
+    print(str(best_n) + chr(9) + format(best_r, '.2f') + chr(9) + best_t)
+" "$title" 2>/dev/null)" || dupe_match=""
+    fi
+  fi
+
+  if [[ -n "$dupe_match" ]]; then
+    local match_num match_ratio match_title
+    IFS=$'\t' read -r match_num match_ratio match_title <<< "$dupe_match"
+    local occurrence_body
+    occurrence_body="Additional occurrence reported from tusk version ${TUSK_VERSION}${version_note}: ${title}"
+    if [[ -n "$context" ]]; then
+      occurrence_body="$occurrence_body
+
+$context"
+    fi
+    if [[ "$dry_run" == "1" ]]; then
+      printf 'Dedupe: would append an occurrence comment to existing open issue #%s (similarity %s): %s\n' \
+        "$match_num" "$match_ratio" "$match_title"
+      printf 'Command (would run):\ngh issue comment %q --repo %q --body %q\n' \
+        "$match_num" "$TUSK_GITHUB_REPO" "$occurrence_body"
+      printf 'Use --force to file a separate issue.\n'
+      exit 0
+    fi
+    if gh issue comment "$match_num" --repo "$TUSK_GITHUB_REPO" --body "$occurrence_body" >/dev/null 2>&1; then
+      echo "Matched existing open issue #$match_num (similarity $match_ratio): $match_title"
+      echo "Appended an occurrence comment instead of filing a duplicate. Use --force to file a separate issue."
+      echo "https://github.com/$TUSK_GITHUB_REPO/issues/$match_num"
+      exit 0
+    fi
+    # Comment failed (permissions, locked issue, network) — fall through
+    # and file normally rather than dropping the report.
+  fi
+
   local body
   body="$(cat <<BODY
 ## Tusk version
 
-tusk version $TUSK_VERSION
+tusk version ${TUSK_VERSION}${version_note}
 
 ## Project context
 
