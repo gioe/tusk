@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1151] - 2026-06-13
+
+- [TASK-653] Triage and fix the genuine integration-suite failures on main (#1097)
+
 ## [1150] - 2026-06-13
 
 - [TASK-652] Fix integration test isolation: order-dependent CWD and shared-state leakage across full-suite runs
