@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1152] - 2026-06-14
+
+- [TASK-654] Fix: validate auto-derived task_scope patterns against tracked paths before insert
+
 ## [1151] - 2026-06-13
 
 - [TASK-653] Triage and fix the genuine integration-suite failures on main (#1097)
