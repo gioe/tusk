@@ -23,6 +23,7 @@ Covers the six surfaces consolidated under TASK-480:
 
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 
@@ -620,15 +621,41 @@ def test_sparse_always_cone_normalizes_unsafe_entries(tmp_path, monkeypatch):
 # ── Criterion 2228 (issues #895 / #905) ─────────────────────────────
 
 
-@pytest.mark.xfail(
-    reason="Known product bug #1094: generate-manifest resolves its target "
-    "repo from the invoking script's location (__file__) rather than the "
-    "cwd it was run in, so it ignores the test's sparse tmp repo and "
-    "operates on the real source checkout. Same root cause as the #1094 "
-    "test_generate_manifest_runs_in_full_checkout failure. Tracked and fixed "
-    "separately; this xfail keeps the suite green without masking the bug.",
-    strict=False,
-)
+def _install_generate_manifest(repo):
+    """Copy the real generate-manifest script (and its only import dependency)
+    into ``repo``'s bin/ so it operates on the tmp repo under test.
+
+    generate-manifest's get_repo_root() resolves its target repo from the
+    script's own location (__file__), NOT the cwd it is run in (issue #882
+    deliberately made this change to stop sibling-repo misresolution). So
+    invoking the SUITE checkout's binary against a tmp repo enumerates the
+    suite checkout and ignores the tmp repo entirely — which made these
+    tests pass-by-accident from the primary full checkout and false-fail
+    from a sparse task worktree (issue #1094). Copying the script into the
+    tmp repo's bin/ makes __file__ resolve to the tmp repo so the tmp repo's
+    own sparse state drives the behavior, from any invoking checkout.
+    """
+    dest_bin = repo / "bin"
+    for name in ("tusk-generate-manifest.py", "tusk_underscore_bin_files.py"):
+        shutil.copy(
+            os.path.join(REPO_ROOT, "bin", name),
+            os.path.join(str(dest_bin), name),
+        )
+
+
+def _run_generate_manifest(repo, env):
+    """Invoke the tmp repo's own generate-manifest script directly so its
+    __file__-derived repo root is the tmp repo (see _install_generate_manifest)."""
+    return subprocess.run(
+        ["python3", os.path.join(str(repo / "bin"), "tusk-generate-manifest.py")],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+
 def test_generate_manifest_refuses_under_sparse(tmp_path, monkeypatch):
     """``tusk generate-manifest`` exits non-zero and leaves MANIFEST untouched
     when invoked under a sparse-checkout worktree.
@@ -638,11 +665,12 @@ def test_generate_manifest_refuses_under_sparse(tmp_path, monkeypatch):
     """
     repo, _db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
     _seed_source_repo_layout(repo)
+    _install_generate_manifest(repo)
     manifest_before = (repo / "MANIFEST").read_text(encoding="utf-8")
     _git(["sparse-checkout", "init", "--cone"], cwd=repo)
     _git(["sparse-checkout", "set", "bin"], cwd=repo)
 
-    result = _run(["generate-manifest"], cwd=repo, env=env)
+    result = _run_generate_manifest(repo, env)
     assert result.returncode != 0, (
         f"generate-manifest should refuse under sparse-checkout; "
         f"exit={result.returncode}\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
@@ -661,8 +689,9 @@ def test_generate_manifest_runs_in_full_checkout(tmp_path, monkeypatch):
     the sparse refusal is gated strictly on the sparse-checkout signal."""
     repo, _db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
     _seed_source_repo_layout(repo)
+    _install_generate_manifest(repo)
     # No sparse-checkout.
-    result = _run(["generate-manifest"], cwd=repo, env=env)
+    result = _run_generate_manifest(repo, env)
     assert result.returncode == 0, (
         f"generate-manifest should succeed in a full checkout;\n"
         f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}"
