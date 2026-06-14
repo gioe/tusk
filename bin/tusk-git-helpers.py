@@ -557,9 +557,20 @@ def is_prose_identifier_path(path: str | None, repo_root: str | None = None) -> 
         return False
     parts = raw.split("/")
     first = path.strip().split("/", 1)[0]
-    if first.startswith("."):
+    # A dot-prefixed segment ANYWHERE in the path signals a hidden/runtime
+    # directory crossing mid-path (e.g. ``node_modules/.venv``,
+    # ``foo/.git/bar``) — a strong prose-concatenation signal. The original
+    # rule only checked the first segment, so symmetric junk such as
+    # ``node_modules/.venv`` (first segment is a plain name, the ``.venv``
+    # is second) slipped through and landed as a bogus auto_derived scope
+    # row (issue #1093). Real source paths whose dot-prefixed segments
+    # actually exist are already returned above via path_exists_in_repo;
+    # callers that legitimately want non-existent ``.github/...`` paths
+    # (e.g. task-insert's explicit-github carve-out) gate this call
+    # accordingly.
+    if any(seg.startswith(".") for seg in parts):
         return True
-    if not first.startswith(".") and "." in first:
+    if "." in first:
         return True
     return any(re.fullmatch(r"\d+(?:\.\d+)+", part) for part in parts[1:])
 
