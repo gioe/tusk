@@ -714,6 +714,27 @@ def test_auto_extract_rejects_user_agent_version_tokens(db_path):
     assert "Mozilla" not in auto, rows
 
 
+def test_auto_extract_rejects_runtime_dir_concatenation(db_path):
+    """Runtime-dir prose such as ``node_modules/.venv`` is not a repo path.
+
+    The dot-prefixed segment may appear in any position — the first-segment
+    -only prose rule used to keep ``node_modules/.venv`` (issue #1093),
+    landing a bogus auto_derived scope row that tripped a missing_scope_path
+    context-health warning.
+    """
+    task_id = _insert(
+        str(db_path),
+        "worktree cleanup",
+        "requires manual deletion of node_modules/.venv in the worktree",
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+
+    assert "node_modules/.venv" not in auto, rows
+    assert ".venv/node_modules" not in auto, rows
+
+
 # ── scope-hint creates suggestion (criterion 2201) ──────────────────────
 
 
