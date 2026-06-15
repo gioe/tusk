@@ -460,6 +460,8 @@ class TestDirtyTreeFallback:
             "exit_code": 0,
             "test_command": "true",
             "stashed": False,
+            "diverged_from_default": False,
+            "diverged_paths": [],
         }
 
     def test_stash_push_index_failure_reports_fallback_setup_error(

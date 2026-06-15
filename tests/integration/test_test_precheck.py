@@ -99,6 +99,8 @@ class TestCleanTree:
             "exit_code": 0,
             "test_command": "true",
             "stashed": False,
+            "diverged_from_default": False,
+            "diverged_paths": [],
         }
 
     def test_failing_command_clean_tree_reports_pre_existing(self, tmp_path):
@@ -250,6 +252,8 @@ class TestDirtyTree:
             "exit_code": 1,
             "test_command": "false",
             "stashed": True,
+            "diverged_from_default": False,
+            "diverged_paths": [],
         }
 
 
