@@ -153,6 +153,28 @@ def _rev_count(repo_root: str, rev_range: str) -> int | None:
     return int(text) if text.isdigit() else None
 
 
+# When the primary tree is this dirty, the `tusk sync-main` the staleness
+# advisory recommends has to stash and pop this many entries across the
+# fast-forward — exactly when a stash-pop conflict is most likely (issue
+# #1095). The advisory calls that out so the operator can reduce the surface
+# before syncing.
+_HEAVY_DIRTY_THRESHOLD = 10
+
+
+def _primary_dirty_count(primary_root: str) -> int:
+    """Count modified/untracked entries in ``primary_root`` (porcelain lines).
+
+    Best-effort: returns 0 on any git failure so the caller stays silent
+    rather than guessing. Mirrors ``git status --porcelain`` one-line-per-entry
+    semantics, which counts tracked modifications and untracked files alike —
+    every one of which the sync-main stash round-trip has to carry.
+    """
+    result = _run_git(primary_root, ["status", "--porcelain"])
+    if result.returncode != 0:
+        return 0
+    return sum(1 for line in result.stdout.splitlines() if line.strip())
+
+
 def _detect_default_branch(repo_root: str) -> str:
     set_head = _run_git(repo_root, ["remote", "set-head", "origin", "--auto"])
     if set_head.returncode == 0:
@@ -707,15 +729,28 @@ def _maybe_advise_stale_primary(primary_root: str) -> None:
     if behind <= 0:
         return
 
-    print(
+    message = (
         f"tusk: primary checkout is {behind} commit(s) behind "
         f"origin/{default_branch}; PATH-resolved tusk invocations from "
         f"this worktree will run stale binaries against the worktree CWD "
         f'and may corrupt MANIFEST under sparse-checkout. Run "tusk '
         f'sync-main" in {primary_root} before invoking "tusk" from any '
-        "subshell here.",
-        file=sys.stderr,
+        "subshell here."
     )
+    # When primary is heavily dirty, the recommended sync-main has to stash and
+    # pop that many entries across the fast-forward — exactly when a stash-pop
+    # conflict is most likely (issue #1095). Flag it so the operator can shrink
+    # the surface (commit/stash/revert) before syncing.
+    dirty_count = _primary_dirty_count(primary_root)
+    if dirty_count >= _HEAVY_DIRTY_THRESHOLD:
+        message += (
+            f" Note: primary has {dirty_count} uncommitted/untracked file(s), "
+            "so that sync-main will stash and pop them across the "
+            "fast-forward — the round-trip is most likely to hit a stash-pop "
+            "conflict when the tree is this dirty. Commit, stash, or revert "
+            "what you can first."
+        )
+    print(message, file=sys.stderr)
 
 
 def _load_symlink_files(config_path: str) -> list[str]:

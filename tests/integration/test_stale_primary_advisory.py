@@ -230,6 +230,47 @@ def test_force_stale_primary_keeps_advisory_and_creates_worktree(tmp_path, monke
     assert "tusk sync-main" in result.stderr, (
         f"stderr should name the recovery command; got: {result.stderr}"
     )
+    # A non-heavily-dirty primary (only the untracked tusk/ dir) must NOT carry
+    # the heavy-dirty stash-round-trip warning (issue #1095).
+    assert "uncommitted/untracked" not in result.stderr, (
+        f"clean-ish primary should not warn about a dirty stash round-trip; "
+        f"got: {result.stderr}"
+    )
+
+
+def test_behind_and_heavily_dirty_primary_warns_about_stash_round_trip(
+    tmp_path, monkeypatch
+):
+    """When primary is behind origin AND heavily dirty, the behind-origin
+    advisory appends a warning that the recommended sync-main will stash and
+    pop a large surface across the fast-forward — exactly when a stash-pop
+    conflict is most likely (issue #1095)."""
+    primary = _seed_repo_with_origin(tmp_path, advance_origin=True)
+    db_path, env = _init_tusk(primary, monkeypatch)
+    task_id = _insert_task(db_path)
+
+    # Make primary heavily dirty: well above the _HEAVY_DIRTY_THRESHOLD of 10.
+    for i in range(15):
+        (primary / f"scratch_{i:02d}.txt").write_text("dirty\n", encoding="utf-8")
+
+    workspace_root = tmp_path / "workspaces"
+    result = _run(
+        [
+            "task-worktree", "create",
+            str(task_id), "dirty-stale-test",
+            "--workspace-root", str(workspace_root),
+            "--force-stale",
+        ],
+        cwd=primary,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "behind origin" in result.stderr.lower(), result.stderr
+    assert "uncommitted/untracked file(s)" in result.stderr, (
+        f"heavily-dirty behind primary should warn about the stash round-trip; "
+        f"got: {result.stderr}"
+    )
+    assert "stash-pop conflict" in result.stderr, result.stderr
 
 
 def test_uptodate_primary_no_advisory(tmp_path, monkeypatch):
