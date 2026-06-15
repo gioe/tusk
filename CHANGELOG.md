@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1153] - 2026-06-14
+
+- [TASK-656] sync-main pre-flight stash-conflict detection + dirty-primary warning on the task-worktree create hint
+
 ## [1152] - 2026-06-14
 
 - [TASK-654] Fix: validate auto-derived task_scope patterns against tracked paths before insert
