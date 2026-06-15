@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1155] - 2026-06-15
+
+- [TASK-658] Add diverged-from-default signal to test-precheck pre_existing verdict
+
 ## [1154] - 2026-06-15
 
 - [TASK-657] Reuse same-HEAD test-precheck verdict in tusk commit on pre-existing failures
