@@ -276,17 +276,30 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
     **If `tusk commit` hard-fails because tests fail** (exit code 2 — `test_command` is set and returned non-zero), **first verify the failure is not pre-existing** before entering the diagnosis loop:
 
-    **Pre-existing failure check** — run the tests against HEAD with any local changes safely set aside:
+    **Pre-existing failure check** — run the tests against HEAD with any local changes safely set aside. **Always pass `--flake-retries N`** (use `N=2`) on this post-gate-failure precheck so flake detection actually fires — without it `flaky_suspect` is never emitted and an intermittent test reads as a real regression:
     ```bash
-    tusk test-precheck
+    tusk test-precheck --flake-retries 2
     ```
     Or pass an explicit command when the config-resolved one isn't what you want to check against:
     ```bash
-    tusk test-precheck --command "<test_command>"
+    tusk test-precheck --command "<test_command>" --flake-retries 2
     ```
-    `tusk test-precheck` resolves the test command from `--command`, then `config.test_command`, then `tusk test-detect`. When the working tree is dirty it stashes local changes under a *uniquely-named* entry, runs the test against HEAD, and pops *that entry by reference* — never by top-of-stack. When the working tree is clean it runs the test directly without touching `git stash` at all. Output is JSON on stdout: `{pre_existing, exit_code, test_command, stashed}`; the test command's own output is redirected to stderr so programmatic callers can `json.loads(stdout)` directly. Do **not** fall back to the raw `git stash && … ; git stash pop` snippet — when the tree is clean, the empty `git stash` becomes a no-op and `git stash pop` will pop a stale foreign entry and silently trash unrelated state. If precheck exits non-zero, it prints a recovery message on stderr (always including the stash message, when one was created) so you can finish the pop manually; it never silently falls through with changes orphaned in the stash list.
+    `tusk test-precheck` resolves the test command from `--command`, then `config.test_command`, then `tusk test-detect`. When the working tree is dirty it stashes local changes under a *uniquely-named* entry, runs the test against HEAD, and pops *that entry by reference* — never by top-of-stack. When the working tree is clean it runs the test directly without touching `git stash` at all. Output is JSON on stdout: `{pre_existing, exit_code, test_command, stashed, diverged_from_default, diverged_paths}`, plus `{flake_runs_total, flake_failures, flaky_suspect}` when `--flake-retries N` (N>0) was passed; the test command's own output is redirected to stderr so programmatic callers can `json.loads(stdout)` directly. Do **not** fall back to the raw `git stash && … ; git stash pop` snippet — when the tree is clean, the empty `git stash` becomes a no-op and `git stash pop` will pop a stale foreign entry and silently trash unrelated state. If precheck exits non-zero, it prints a recovery message on stderr (always including the stash message, when one was created) so you can finish the pop manually; it never silently falls through with changes orphaned in the stash list.
 
-    - **If `pre_existing` is `true`** — the failure is pre-existing and unrelated to your changes. **Skip the diagnosis loop entirely.** Do not attempt to fix tests in files you did not modify during this session. Fall back immediately to:
+    Branch on the verdict **in this order** — `flaky_suspect` first, then divergence, then the `pre_existing` true/false split:
+
+    - **If `flaky_suspect` is `true`** — the N+1 HEAD runs disagreed on identical code, so the test is **flaky, not a regression you introduced** (issue #1076). Do **not** enter the diagnosis loop and do **not** conclude the failure is pre-existing. Simply **retry the same `tusk commit`** with the same arguments — the gate re-runs the test and a flake will usually pass on the next attempt. Retry up to 3 times; if it still fails *and* `flaky_suspect` stops appearing, fall through to the branches below. If it keeps flapping, log a progress note naming the flaky test and surface it to the user rather than force-committing.
+
+    - **If `pre_existing` is `true` AND `diverged_from_default` is `true`** — `origin/<default>` has commits HEAD lacks that touch the failing files (issue #1082), so the failure **may already be fixed upstream**; `diverged_paths` samples the overlapping files. Do **not** conclude pre-existing yet and do **not** file a follow-up for it. **Rebase onto the default branch first**, then re-run the precheck:
+      ```bash
+      tusk sync-main          # fetch + ff-only pull of origin/<default> + migrate (run from the primary checkout)
+      # then, from the task worktree, bring the feature branch up to the refreshed default:
+      git -C "<workspace_path>" rebase origin/<default>
+      tusk test-precheck --flake-retries 2
+      ```
+      If the refreshed precheck now reports `pre_existing: false` (or passes), the upstream commits carried the fix — re-run `tusk commit` against the rebased branch. Only if it *still* reports `pre_existing: true` with `diverged_from_default: false` should you treat the failure as genuinely pre-existing and fall through to the next branch.
+
+    - **If `pre_existing` is `true`** (and not flaky, and not still-divergent) — the failure is pre-existing and unrelated to your changes. **Skip the diagnosis loop entirely.** Do not attempt to fix tests in files you did not modify during this session. Fall back immediately to:
       ```bash
       git add -- "<file1>" ["<file2>" ...]
       git commit -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>" -o -- "<file1>" ["<file2>" ...]
