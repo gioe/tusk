@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1158] - 2026-06-15
+
+- [TASK-661] Add convergence-recency hint at task-start for commits touching description-named files
+
 ## [1157] - 2026-06-15
 
 - [TASK-660] Widen auto-scaled test timeout and auto-retry once on a progressing timeout
