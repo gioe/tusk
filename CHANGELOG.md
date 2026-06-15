@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1159] - 2026-06-15
+
+- [TASK-662] Wire test-precheck flake-retries and diverged-from-default signals into the skill layer
+
 ## [1158] - 2026-06-15
 
 - [TASK-661] Add convergence-recency hint at task-start for commits touching description-named files
