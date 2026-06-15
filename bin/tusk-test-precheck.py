@@ -39,6 +39,11 @@ Output JSON (stdout):
                                        #   upstream — rebase before concluding
         "diverged_paths": [str]        # sample of those differing paths (capped)
     }
+    With --flake-retries N (N > 0) the verdict additionally carries
+    "flake_runs_total" (int), "flake_failures" (int), and "flaky_suspect"
+    (bool — true when the N+1 HEAD runs disagree, signalling a flake rather
+    than a regression; issue #1076). These keys are omitted with the default
+    zero retries.
 
 Exit codes:
     0 — success (the CLI ran to completion; the test result is in the JSON)
@@ -395,13 +400,23 @@ def _compute_divergence(repo_root: str, script_dir: str, paths) -> tuple[bool, l
 
 
 def _emit_verdict(repo_root: str, script_dir: str, test_command: str,
-                  exit_code: int, stashed: bool, paths) -> int:
+                  exit_code: int, stashed: bool, paths,
+                  flake_exits: list | None = None) -> int:
     """Record the verdict, print the JSON payload, and return 0.
 
     Always emits ``diverged_from_default``/``diverged_paths``. The divergence
     check runs only when the failure is pre_existing (exit_code != 0); on a
     passing run both fields are reported false/empty without touching git
     remotes (issue #1082).
+
+    ``flake_exits`` is the list of exit codes from the repeated HEAD runs when
+    ``--flake-retries`` was used (the primary run is element 0). When it holds
+    more than one run, ``flake_runs_total``/``flake_failures``/``flaky_suspect``
+    are added: a flake is suspected when the runs disagree on identical HEAD —
+    at least one pass and at least one fail — which steers the caller to retry
+    the commit rather than diagnose a regression (issue #1076). With the
+    default zero retries the keys are omitted entirely, leaving the contract
+    unchanged.
     """
     pre_existing = exit_code != 0
     _record_precheck_verdict(
@@ -422,14 +437,31 @@ def _emit_verdict(repo_root: str, script_dir: str, test_command: str,
                 "follow-up.",
                 file=sys.stderr,
             )
-    print(dumps({
+    verdict = {
         "pre_existing": pre_existing,
         "exit_code": exit_code,
         "test_command": test_command,
         "stashed": stashed,
         "diverged_from_default": diverged,
         "diverged_paths": diverged_paths[:DIVERGED_PATHS_SAMPLE],
-    }))
+    }
+    if flake_exits and len(flake_exits) > 1:
+        total = len(flake_exits)
+        failures = sum(1 for e in flake_exits if e != 0)
+        passes = total - failures
+        flaky_suspect = failures > 0 and passes > 0
+        verdict["flake_runs_total"] = total
+        verdict["flake_failures"] = failures
+        verdict["flaky_suspect"] = flaky_suspect
+        if flaky_suspect:
+            print(
+                f"Note: test_command produced mixed results across {total} runs "
+                f"on identical HEAD ({passes} passed, {failures} failed) — "
+                "suspected flake, not a regression. Retry the commit rather "
+                "than diagnosing the failing test.",
+                file=sys.stderr,
+            )
+    print(dumps(verdict))
     return 0
 
 
@@ -605,7 +637,21 @@ def main(argv):
             "Falls through to the global test_command when unset or no entry matches."
         ),
     )
+    parser.add_argument(
+        "--flake-retries",
+        type=int,
+        default=0,
+        metavar="N",
+        help=(
+            "Re-run the resolved test_command N extra times against the same "
+            "stashed HEAD state to detect flakiness. When >0, the verdict adds "
+            "flake_runs_total/flake_failures/flaky_suspect; flaky_suspect is "
+            "true when the runs disagree on identical HEAD (issue #1076). "
+            "Default 0 leaves the output contract unchanged."
+        ),
+    )
     args = parser.parse_args(argv[2:])
+    flake_retries = max(0, args.flake_retries)
 
     repo_root = argv[0]
     config_path = argv[1]
@@ -687,8 +733,20 @@ def main(argv):
 
     exit_code = 1
     run_test_error: Exception | None = None
+    flake_exits: list | None = None
     try:
         exit_code = run_test(test_command, repo_root)
+        if flake_retries > 0:
+            # Re-run against the same stashed HEAD state to detect flakiness.
+            # The primary run is element 0; retries are best-effort — an
+            # exception in a retry counts as a failing run rather than aborting
+            # the precheck (and losing the stash, which the finally still pops).
+            flake_exits = [exit_code]
+            for _ in range(flake_retries):
+                try:
+                    flake_exits.append(run_test(test_command, repo_root))
+                except Exception:
+                    flake_exits.append(1)
     except Exception as e:
         # run_test raising (FileNotFoundError, OSError, etc.) must still
         # trigger the stash-pop cleanup path — the alternative is leaving
@@ -751,6 +809,7 @@ def main(argv):
 
     return _emit_verdict(
         repo_root, script_dir, test_command, exit_code, stashed, args.paths,
+        flake_exits=flake_exits,
     )
 
 
