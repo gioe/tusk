@@ -50,6 +50,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 
@@ -64,10 +65,93 @@ _TRANSIENT_INDEX_LOCK_RE = re.compile(
 _POP_LOCK_BACKOFF_SECONDS = (0.5, 1.0)
 
 
-def _run(cmd, cwd, check=False):
+def _run(cmd, cwd, check=False, env=None):
     return subprocess.run(
-        cmd, cwd=cwd, capture_output=True, text=True, encoding="utf-8", check=check
+        cmd, cwd=cwd, capture_output=True, text=True, encoding="utf-8",
+        check=check, env=env,
     )
+
+
+def _parse_merge_tree_conflicts(output):
+    """Extract conflicted paths from ``git merge-tree --write-tree`` output.
+
+    Layout (conflict case): line 0 is the toplevel tree OID; every subsequent
+    line up to the first blank line is a conflicted-file entry in
+    ``<mode> <oid> <stage>\\t<path>`` form. The informational ``CONFLICT (...)``
+    messages follow the blank line and are ignored here.
+    """
+    lines = output.splitlines()
+    paths = []
+    seen = set()
+    for line in lines[1:]:
+        if not line.strip():
+            break
+        if "\t" not in line:
+            continue
+        path = line.split("\t", 1)[1].strip()
+        if path and path not in seen:
+            seen.add(path)
+            paths.append(path)
+    return paths
+
+
+def _preflight_stash_conflict(repo_root, default_branch):
+    """Detect whether the dirty tree would conflict with the incoming
+    origin/<default> commits BEFORE stashing (issue #1095).
+
+    ``git stash pop`` runs after the fast-forward, so a conflict between the
+    local changes and the incoming commits surfaces only once the tree is
+    already half-rewritten — the partial-apply hybrid state TASK-643 could
+    only explain after the fact. This pre-flight performs the same 3-way
+    merge ahead of time: it builds a throwaway tree from a TEMP index
+    (``read-tree HEAD`` + ``add -A`` → HEAD plus every working change,
+    including untracked) and asks ``git merge-tree`` to merge
+    origin/<default> against it with HEAD as the base — exactly what the pop
+    will do. Only the object DB is written; the real index and working tree
+    are never touched, so an abort leaves the operator's state pristine.
+
+    Returns:
+      - ``list[str]`` of conflicted paths when a conflict is detected,
+      - ``[]`` when the merge is clean,
+      - ``None`` when the check could not be performed (any git step failed,
+        empty output, or a merge-tree too old to support ``--write-tree``) so
+        the caller falls through to the normal stash/pop path rather than
+        blocking on an unprovable state.
+    """
+    tmp_index = None
+    try:
+        fd, tmp_index = tempfile.mkstemp(prefix="tusk-sync-preflight-index-")
+        os.close(fd)
+        env = dict(os.environ, GIT_INDEX_FILE=tmp_index)
+        if _run(["git", "read-tree", "HEAD"], cwd=repo_root, env=env).returncode != 0:
+            return None
+        if _run(["git", "add", "-A"], cwd=repo_root, env=env).returncode != 0:
+            return None
+        tree_res = _run(["git", "write-tree"], cwd=repo_root, env=env)
+        local_tree = tree_res.stdout.strip()
+        if tree_res.returncode != 0 or not local_tree:
+            return None
+        commit_res = _run(
+            ["git", "commit-tree", local_tree, "-p", "HEAD",
+             "-m", "tusk-sync-main preflight"],
+            cwd=repo_root,
+        )
+        local_commit = commit_res.stdout.strip()
+        if commit_res.returncode != 0 or not local_commit:
+            return None
+        merge_res = _run(
+            ["git", "merge-tree", "--write-tree", "--merge-base=HEAD",
+             f"origin/{default_branch}", local_commit],
+            cwd=repo_root,
+        )
+        if merge_res.returncode == 0:
+            return []
+        if merge_res.returncode != 1:
+            return None  # indeterminate (e.g. merge-tree predates --write-tree)
+        return _parse_merge_tree_conflicts(merge_res.stdout)
+    finally:
+        if tmp_index and os.path.exists(tmp_index):
+            os.unlink(tmp_index)
 
 
 def _pop_stash_with_lock_retry(repo_root, current_ref):
@@ -235,6 +319,37 @@ def sync_main(repo_root, tusk_bin):
     except RuntimeError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1, result
+
+    # Pre-flight: refuse BEFORE stashing when the local changes would conflict
+    # with the incoming commits, so the working tree is left untouched instead
+    # of landing in the half-applied stash-pop state TASK-643 could only
+    # explain after the fact (issue #1095). Best-effort and signal-gated: an
+    # indeterminate result (None) falls through to the normal stash/pop path.
+    if (
+        result["fetched_commits"] > 0
+        and dirty
+        and not os.environ.get("TUSK_SYNC_MAIN_NO_PREFLIGHT")
+    ):
+        conflicts = _preflight_stash_conflict(repo_root, default_branch)
+        if conflicts:
+            if len(conflicts) <= 10:
+                display = ", ".join(conflicts)
+            else:
+                display = (
+                    ", ".join(conflicts[:10])
+                    + f", ... and {len(conflicts) - 10} more"
+                )
+            print(
+                f"Error: local changes would conflict with the "
+                f"{result['fetched_commits']} incoming commit(s) from "
+                f"origin/{default_branch} in {len(conflicts)} file(s) "
+                f"({display}). Aborting before stashing so your working tree is "
+                "left untouched. Commit or revert the conflicting change(s) and "
+                "retry, or sync manually and resolve the stash-pop conflict. "
+                "(Set TUSK_SYNC_MAIN_NO_PREFLIGHT=1 to skip this check.)",
+                file=sys.stderr,
+            )
+            return 1, result
 
     stash_message = ""
     if result["fetched_commits"] > 0 and dirty:
