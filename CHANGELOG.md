@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1156] - 2026-06-15
+
+- [TASK-659] Add flake-aware signal to test-precheck via repeated HEAD runs
+
 ## [1155] - 2026-06-15
 
 - [TASK-658] Add diverged-from-default signal to test-precheck pre_existing verdict
