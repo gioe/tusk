@@ -576,6 +576,25 @@ A single observed elapsed time for a `test_command` invocation. Populated by `tu
 
 ---
 
+### Precheck Verdict
+
+A recorded `tusk test-precheck` result keyed by the HEAD commit and the exact `test_command`. Populated by `tusk-test-precheck.py` on every run (against HEAD with local changes stashed). Read by `tusk-commit.py`'s test gate: when the gate's own test run fails, it looks up the most recent same-HEAD, same-command verdict and — when that verdict is `pre_existing = 1` and within the 24h reuse window — bypasses the exit-2 refusal, lands the commit through the normal staging/lint/criterion path, and stamps a `[test-precheck-bypass]` note into the commit message body (issue #1083). The HEAD sha pins the exact committed state, so a same-HEAD verdict stays valid as long as HEAD has not moved; the window only bounds how stale a verdict the gate will trust.
+
+| Attribute | Type | Constraints | Description |
+|-----------|------|-------------|-------------|
+| `id` | INTEGER | PK, autoincrement | |
+| `task_id` | INTEGER | nullable, FK → tasks(id) ON DELETE SET NULL | Best-effort active task resolved from the current feature branch; SET NULL on delete so verdict history outlives the task |
+| `session_id` | INTEGER | nullable, FK → task_sessions(id) ON DELETE SET NULL | Reserved for future session attribution; null today |
+| `head_sha` | TEXT | NOT NULL | `git rev-parse HEAD` at the time the precheck ran against HEAD — half of the reuse key |
+| `test_command` | TEXT | NOT NULL | Exact command string the precheck ran — the other half of the reuse key |
+| `pre_existing` | INTEGER | NOT NULL | 1 when the test_command failed against HEAD with no local changes; only `pre_existing = 1` verdicts are reused |
+| `exit_code` | INTEGER | NOT NULL | The precheck test_command exit code |
+| `created_at` | TEXT | NOT NULL, default now | When the verdict was recorded; drives the reuse-window staleness check |
+
+**Indexes:** `idx_precheck_verdicts_lookup ON precheck_verdicts(head_sha, test_command, id DESC)` — drives the `ORDER BY id DESC LIMIT 1` most-recent-verdict lookup in the commit gate.
+
+---
+
 ### Convention
 
 A generalizable heuristic or rule captured for the project. Managed via `tusk conventions add|list|search|remove`. Use `--topics` to tag conventions for filtering and search.

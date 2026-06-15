@@ -3466,6 +3466,50 @@ def migrate_80(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 80: nulled blank verification_spec rows")
 
 
+def migrate_81(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add precheck_verdicts table so tusk commit can reuse a same-HEAD verdict.
+
+    Issue #1083: when a pre-existing test failure exists at HEAD, every commit
+    re-runs the full test_command, exits 2, and forces a hand-rolled git
+    fallback that loses lint + criterion binding + the message guard. This
+    table lets `tusk test-precheck` record its verdict keyed by (head_sha,
+    test_command); `tusk commit`'s test gate then reuses a same-HEAD
+    pre_existing=true verdict instead of refusing. The DB is single-node and
+    per-repo, so no project_root column is needed.
+
+    Idempotent: guarded with has_table; re-running is a no-op after the table
+    exists.
+    """
+    if get_version(db_path) >= 81:
+        _progress("  Migration 81: added precheck_verdicts table")
+        return
+
+    ddl_stmts = []
+    if not has_table(db_path, "precheck_verdicts"):
+        ddl_stmts.append("""
+            CREATE TABLE precheck_verdicts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER,
+                session_id INTEGER,
+                head_sha TEXT NOT NULL,
+                test_command TEXT NOT NULL,
+                pre_existing INTEGER NOT NULL,
+                exit_code INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL,
+                FOREIGN KEY (session_id) REFERENCES task_sessions(id) ON DELETE SET NULL
+            );
+            CREATE INDEX idx_precheck_verdicts_lookup
+                ON precheck_verdicts(head_sha, test_command, id DESC);
+        """)
+
+    script = "\n".join(ddl_stmts) + """
+        PRAGMA user_version = 81;
+    """
+    run_script(db_path, script)
+    _progress("  Migration 81: added precheck_verdicts table")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -3549,6 +3593,7 @@ MIGRATIONS = [
     (78, migrate_78),
     (79, migrate_79),
     (80, migrate_80),
+    (81, migrate_81),
 ]
 
 

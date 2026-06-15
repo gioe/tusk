@@ -1207,6 +1207,25 @@ CREATE TABLE test_runs (
 CREATE INDEX idx_test_runs_command_succeeded_id ON test_runs(test_command, succeeded, id DESC);
 TEST_RUNS_SCHEMA
 
+  # Precheck verdicts (per-HEAD test-precheck results; read by tusk-commit.py
+  # to reuse a same-HEAD pre_existing verdict instead of refusing the commit —
+  # issue #1083)
+  sqlite3 "$DB_PATH" <<'PRECHECK_VERDICTS_SCHEMA'
+CREATE TABLE precheck_verdicts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER,
+    session_id INTEGER,
+    head_sha TEXT NOT NULL,
+    test_command TEXT NOT NULL,
+    pre_existing INTEGER NOT NULL,
+    exit_code INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL,
+    FOREIGN KEY (session_id) REFERENCES task_sessions(id) ON DELETE SET NULL
+);
+CREATE INDEX idx_precheck_verdicts_lookup ON precheck_verdicts(head_sha, test_command, id DESC);
+PRECHECK_VERDICTS_SCHEMA
+
   # Apply validation triggers from config (after all tables are created)
   local triggers
   triggers="$(generate_triggers)"
@@ -1227,7 +1246,7 @@ TEST_RUNS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 80;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 81;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."

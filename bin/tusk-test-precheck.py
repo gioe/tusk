@@ -44,6 +44,7 @@ import fnmatch
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -226,6 +227,82 @@ def _detect_active_task_domain(repo_root: str, script_dir: str) -> str:
     if not rows or not isinstance(rows, list):
         return ""
     return (rows[0] or {}).get("domain", "") or ""
+
+
+def _resolve_db_path(repo_root: str) -> str:
+    """Resolve the tusk DB path, honoring TUSK_DB / TUSK_REPO_ROOT routing.
+
+    Mirrors ``_resolve_db_path`` in ``tusk-commit.py`` so the verdict precheck
+    writes and the commit gate reads through the identical path resolution.
+    """
+    env_db = os.environ.get("TUSK_DB")
+    if env_db:
+        return env_db
+    project_root = os.environ.get("TUSK_REPO_ROOT") or repo_root
+    return os.path.join(project_root, "tusk", "tasks.db")
+
+
+def _current_head_sha(repo_root: str) -> str:
+    res = _run(["git", "rev-parse", "HEAD"], cwd=repo_root)
+    return res.stdout.strip() if res.returncode == 0 else ""
+
+
+def _detect_active_task_id(repo_root: str, script_dir: str):
+    """Best-effort task id from the current feature branch; None on any failure."""
+    tusk_bin = os.path.join(script_dir, "tusk")
+    if not (os.path.isfile(tusk_bin) and os.access(tusk_bin, os.X_OK)):
+        return None
+    try:
+        parse = subprocess.run(
+            [tusk_bin, "branch-parse"],
+            cwd=repo_root,
+            capture_output=True, text=True, encoding="utf-8", check=False,
+        )
+    except OSError:
+        return None
+    if parse.returncode != 0 or not parse.stdout.strip():
+        return None
+    try:
+        task_id = (json.loads(parse.stdout) or {}).get("task_id")
+    except json.JSONDecodeError:
+        return None
+    return task_id if isinstance(task_id, int) and task_id > 0 else None
+
+
+def _record_precheck_verdict(repo_root: str, script_dir: str,
+                             test_command: str, pre_existing: bool,
+                             exit_code: int) -> None:
+    """Best-effort persistence of one precheck verdict keyed by (head_sha,
+    test_command) so ``tusk commit`` can reuse a same-HEAD pre_existing verdict
+    instead of refusing the commit (issue #1083).
+
+    Silent on any error — the precheck's primary contract is the JSON verdict on
+    stdout; a failed write just means commit-reuse stays unavailable until the
+    next successful precheck. Honors TUSK_DB / TUSK_REPO_ROOT routing so the row
+    lands in the same DB the commit gate later reads.
+    """
+    db_path = _resolve_db_path(repo_root)
+    if not test_command or not os.path.exists(db_path):
+        return
+    head_sha = _current_head_sha(repo_root)
+    if not head_sha:
+        return
+    task_id = _detect_active_task_id(repo_root, script_dir)
+    try:
+        conn = sqlite3.connect(db_path, timeout=2.0)
+        try:
+            conn.execute(
+                "INSERT INTO precheck_verdicts "
+                "(task_id, head_sha, test_command, pre_existing, exit_code) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (task_id, head_sha, test_command,
+                 1 if pre_existing else 0, int(exit_code)),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        pass
 
 
 def resolve_test_command(explicit: str, config_path: str, repo_root: str,
@@ -449,6 +526,9 @@ def main(argv):
             except RuntimeError as e:
                 print(f"Error: {e}", file=sys.stderr)
                 return 1
+            _record_precheck_verdict(
+                repo_root, script_dir, test_command, exit_code != 0, exit_code,
+            )
             print(dumps({
                 "pre_existing": exit_code != 0,
                 "exit_code": exit_code,
@@ -548,6 +628,9 @@ def main(argv):
         )
         return 1
 
+    _record_precheck_verdict(
+        repo_root, script_dir, test_command, exit_code != 0, exit_code,
+    )
     print(dumps({
         "pre_existing": exit_code != 0,
         "exit_code": exit_code,

@@ -480,6 +480,68 @@ def _record_test_run(
         pass
 
 
+# Window within which a recorded test-precheck verdict is eligible for reuse by
+# the commit test gate. The HEAD sha already pins the exact committed state, so
+# a same-HEAD pre_existing verdict stays valid as long as HEAD has not moved;
+# the window only bounds how stale a verdict the gate will trust (issue #1083).
+PRECHECK_VERDICT_REUSE_WINDOW_SEC = 24 * 3600
+
+
+def _reuse_precheck_verdict(
+    db_path: str,
+    repo_root: str,
+    test_command: str,
+    exit_code: int,
+) -> str | None:
+    """Return a bypass note when a same-HEAD pre_existing verdict exists, else None.
+
+    Looks up the most recent ``precheck_verdicts`` row for the current HEAD sha
+    and this exact ``test_command``. The verdict is reused only when
+    ``pre_existing = 1`` and the row was written within
+    ``PRECHECK_VERDICT_REUSE_WINDOW_SEC``. On a match, returns the audit note
+    the caller stamps into the commit message body so the bypass is durable in
+    git history (issue #1083).
+
+    Best-effort and conservative: a missing DB, missing table (pre-migration
+    install), locked DB, unresolvable HEAD, no row, a pre_existing=0 verdict, or
+    a stale row all return None so the caller's exit-2 refusal stays intact.
+    Refusing to bypass is always the safe default.
+    """
+    if not test_command or not os.path.exists(db_path):
+        return None
+    head = run(["git", "rev-parse", "HEAD"], check=False, cwd=repo_root)
+    if head.returncode != 0 or not head.stdout.strip():
+        return None
+    head_sha = head.stdout.strip()
+    try:
+        conn = sqlite3.connect(db_path, timeout=2.0)
+        try:
+            row = conn.execute(
+                "SELECT pre_existing, "
+                "(julianday('now') - julianday(created_at)) * 86400 AS age_sec "
+                "FROM precheck_verdicts "
+                "WHERE head_sha = ? AND test_command = ? "
+                "ORDER BY id DESC LIMIT 1",
+                (head_sha, test_command),
+            ).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+    if not row:
+        return None
+    pre_existing, age_sec = row
+    if not pre_existing:
+        return None
+    if age_sec is None or age_sec > PRECHECK_VERDICT_REUSE_WINDOW_SEC:
+        return None
+    return (
+        f"[test-precheck-bypass] test_command exited {exit_code} but a same-HEAD "
+        f"test-precheck verdict (HEAD {head_sha[:12]}) proved these failures "
+        f"pre-existing; commit test gate bypassed."
+    )
+
+
 _TEST_COMMAND_ROUTING_ENV_KEYS = ("TUSK_DB", "TUSK_PROJECT", "TUSK_REPO_ROOT")
 
 
@@ -1432,6 +1494,10 @@ def _run_commit(argv: list[str], state: dict) -> int:
             )
             sys.stdout.flush()
             noncode_skip_test = True
+    # Set when the test gate fails but a same-HEAD test-precheck verdict proves
+    # the failures pre-existing — stamped into the commit message body so the
+    # bypass is durable in git history (issue #1083).
+    gate_bypass_note: str | None = None
     if test_cmd and not skip_verify and not sparse_skip_test and not noncode_skip_test:
         test_cmd, _ = _worktree_command.rewrite_linked_worktree_venv_command(
             test_cmd,
@@ -1507,11 +1573,23 @@ def _run_commit(argv: list[str], state: dict) -> int:
                 if test.stderr:
                     sys.stderr.write(test.stderr)
                     sys.stderr.flush()
-            _print_test_command_failure(test, test_cmd, elapsed, repo_root)
-            return 2
-        print(f"tests passed ({elapsed:.1f}s)")
-        sys.stdout.flush()
-        _record_test_run(db_path, task_id, test_cmd, elapsed, succeeded=True)
+            gate_bypass_note = _reuse_precheck_verdict(
+                db_path, repo_root, test_cmd, test.returncode,
+            )
+            if gate_bypass_note is None:
+                _print_test_command_failure(test, test_cmd, elapsed, repo_root)
+                return 2
+            print(
+                f"\nNote: test_command failed (exit {test.returncode}, "
+                f"{elapsed:.1f}s) but a same-HEAD test-precheck verdict proved "
+                "these failures pre-existing — proceeding with commit "
+                "(bypass recorded in the commit message).",
+            )
+            sys.stdout.flush()
+        else:
+            print(f"tests passed ({elapsed:.1f}s)")
+            sys.stdout.flush()
+            _record_test_run(db_path, task_id, test_cmd, elapsed, succeeded=True)
 
     # ── Step 2.5: Stage unstaged deletions of tracked files ─────────
     # GitHub Issue #474: when tracked files are removed via `rm`/`rm -rf`
@@ -1753,7 +1831,8 @@ def _run_commit(argv: list[str], state: dict) -> int:
     if announce_status:
         print("=== Creating commit ===")
         sys.stdout.flush()
-    full_message = f"[TASK-{task_id}] {message}\n\n{TRAILER}"
+    body_extra = f"\n\n{gate_bypass_note}" if gate_bypass_note else ""
+    full_message = f"[TASK-{task_id}] {message}{body_extra}\n\n{TRAILER}"
     # Capture HEAD before committing so we can verify whether the commit
     # landed even when a hook (e.g. husky + lint-staged) exits non-zero.
     pre = run(["git", "rev-parse", "HEAD"], check=False, cwd=repo_root)
