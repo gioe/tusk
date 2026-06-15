@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1157] - 2026-06-15
+
+- [TASK-660] Widen auto-scaled test timeout and auto-retry once on a progressing timeout
+
 ## [1156] - 2026-06-15
 
 - [TASK-659] Add flake-aware signal to test-precheck via repeated HEAD runs
