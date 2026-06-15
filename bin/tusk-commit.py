@@ -383,6 +383,15 @@ def load_test_command(config_path: str, domain: str = "", paths=None,
 DEFAULT_TEST_COMMAND_TIMEOUT_SEC = 240
 AUTO_TIMEOUT_SAMPLE_COUNT = 20
 AUTO_TIMEOUT_MULTIPLIER = 2.0
+# Bimodal/high-variance guard (issue #1062): the auto-scaled ceiling is also
+# floored at the slowest recent successful run times this grace factor, so a
+# history dominated by warm runs cannot yield a p95*multiplier ceiling that
+# sits below a legitimate cold/under-load run already observed to succeed.
+AUTO_TIMEOUT_MAX_RECENT_GRACE = 1.5
+# When an auto-scaled timeout is hit on a run that was still producing output
+# (progressing, not a silent hang), the gate retries the command once with the
+# ceiling widened by this factor before aborting (issue #1062).
+AUTO_TIMEOUT_RETRY_MULTIPLIER = 2.0
 
 def _resolve_db_path(repo_root: str) -> str:
     """Best-effort DB path lookup mirroring bin/tusk's resolution.
@@ -405,8 +414,16 @@ def _compute_auto_timeout(
     sample_count: int = AUTO_TIMEOUT_SAMPLE_COUNT,
     multiplier: float = AUTO_TIMEOUT_MULTIPLIER,
     floor: int | None = None,
+    max_recent_grace: float = AUTO_TIMEOUT_MAX_RECENT_GRACE,
 ) -> int | None:
-    """Return ceil(p95(last N successful elapsed times) * multiplier) or None.
+    """Return the auto-scaled timeout for ``test_command`` or None.
+
+    The ceiling is ``max(static_floor, ceil(p95 * multiplier), ceil(max_recent
+    * max_recent_grace))`` over the last N successful runs. The max-recent term
+    is the issue #1062 bimodal/high-variance guard: when a history dominated by
+    warm runs yields a low p95, ``p95 * multiplier`` can sit below a legitimate
+    cold/under-load run that already succeeded, so the ceiling is also floored
+    at the slowest recent success plus a grace margin.
 
     Cold start: returns None when fewer than ``sample_count`` successful runs
     of this exact ``test_command`` exist in the ``test_runs`` table — caller
@@ -446,7 +463,8 @@ def _compute_auto_timeout(
     p95 = samples[idx]
     if floor is None:
         floor = DEFAULT_TEST_COMMAND_TIMEOUT_SEC
-    return max(floor, math.ceil(p95 * multiplier))
+    max_recent_floor = math.ceil(samples[-1] * max_recent_grace)
+    return max(floor, math.ceil(p95 * multiplier), max_recent_floor)
 
 
 def _record_test_run(
@@ -1031,6 +1049,134 @@ def _all_staged_files_non_code(rel_paths, allowlist: set[str]) -> bool:
     return True
 
 
+def _dump_timeout_output(exc: subprocess.TimeoutExpired, verbose: bool) -> None:
+    """Dump partial stdout/stderr captured before a timed-out child was killed.
+
+    With ``capture_output=True`` the TimeoutExpired carries whatever was
+    collected before the kill; even with ``text=True`` the buffered payload can
+    come back as raw bytes when the timeout fires before decode, so handle both
+    shapes. No-op in verbose mode where output already streamed live.
+    """
+    if verbose:
+        return
+    if exc.stdout:
+        out = exc.stdout
+        if isinstance(out, bytes):
+            out = out.decode("utf-8", errors="replace")
+        sys.stdout.write(out)
+        sys.stdout.flush()
+    if exc.stderr:
+        err = exc.stderr
+        if isinstance(err, bytes):
+            err = err.decode("utf-8", errors="replace")
+        sys.stderr.write(err)
+        sys.stderr.flush()
+
+
+def _timeout_source_hint(timeout_source: str) -> str:
+    """Human-readable description of where the test_command timeout came from."""
+    return {
+        "env": "TUSK_TEST_COMMAND_TIMEOUT env var",
+        "config": 'config key "test_command_timeout_sec"',
+        "auto": 'auto-scaled from p95 of recent successful runs '
+                '(override with "test_command_timeout_sec" in tusk/config.json '
+                'or TUSK_TEST_COMMAND_TIMEOUT env var)',
+        "default": 'default (override with "test_command_timeout_sec" in tusk/config.json '
+                   'or TUSK_TEST_COMMAND_TIMEOUT env var)',
+    }[timeout_source]
+
+
+def _timeout_had_progress(exc: subprocess.TimeoutExpired) -> bool:
+    """True when the timed-out run produced any output.
+
+    A run that emitted test output before the kill was progressing (likely just
+    slow on a cold/under-load host), not hung waiting for input — the signal
+    that gates the issue #1062 auto-retry.
+    """
+    return bool(exc.stdout) or bool(exc.stderr)
+
+
+def _run_test_with_retry(
+    test_cmd: str,
+    repo_root: str,
+    timeout_sec: int,
+    timeout_source: str,
+    verbose: bool,
+) -> tuple[subprocess.CompletedProcess | None, float | None]:
+    """Run ``test_cmd`` once, auto-retrying a progressing auto-timeout once.
+
+    Returns ``(completed_process, elapsed_seconds)`` on completion (the
+    returncode may be nonzero — that's the caller's normal failure path), or
+    ``(None, None)`` when the command timed out terminally and the caller should
+    abort with exit 5 (the diagnostic has already been printed to stderr).
+
+    Issue #1062: an auto-scaled ceiling is only an estimate. When it is hit on a
+    run that was STILL PRODUCING OUTPUT (progressing, not a silent hang), the
+    estimate was likely too tight for a cold/under-load run, so the command is
+    retried once with the ceiling widened by AUTO_TIMEOUT_RETRY_MULTIPLIER. The
+    retry fires only for the ``auto`` source — explicit env/config/default
+    ceilings are intentional and respected as-is — and only on a progressing
+    timeout, so a genuine silent hang aborts after the first ceiling.
+    """
+    started = time.monotonic()
+    try:
+        test = subprocess.run(
+            test_cmd,
+            shell=True,
+            capture_output=not verbose,
+            text=True, encoding="utf-8",
+            cwd=repo_root,
+            env=_test_command_env(),
+            timeout=timeout_sec,
+        )
+        return test, time.monotonic() - started
+    except subprocess.TimeoutExpired as exc:
+        _dump_timeout_output(exc, verbose)
+        if timeout_source == "auto" and _timeout_had_progress(exc):
+            retry_timeout = math.ceil(timeout_sec * AUTO_TIMEOUT_RETRY_MULTIPLIER)
+            print(
+                f"\nNote: test_command hit the auto-scaled timeout "
+                f"({timeout_sec}s) while still producing output — retrying once "
+                f"with a widened ceiling ({retry_timeout}s) before aborting "
+                f"(issue #1062).",
+                file=sys.stderr,
+            )
+            sys.stderr.flush()
+            started = time.monotonic()
+            try:
+                test = subprocess.run(
+                    test_cmd,
+                    shell=True,
+                    capture_output=not verbose,
+                    text=True, encoding="utf-8",
+                    cwd=repo_root,
+                    env=_test_command_env(),
+                    timeout=retry_timeout,
+                )
+                return test, time.monotonic() - started
+            except subprocess.TimeoutExpired as exc2:
+                _dump_timeout_output(exc2, verbose)
+                _print_error(
+                    f"\nError: test_command timed out again after {retry_timeout}s "
+                    f"on the auto-retry — aborting commit\n"
+                    f"  Command: {test_cmd}\n"
+                    f"  Timeout source: {_timeout_source_hint(timeout_source)} "
+                    f"(retried once with a widened ceiling, issue #1062)\n"
+                    f"  Hint: if the command needs more time, raise the limit; "
+                    f"if it hangs waiting for input (e.g. interactive mode), "
+                    f"switch to a non-interactive form."
+                )
+                return None, None
+        _print_error(
+            f"\nError: test_command timed out after {timeout_sec}s — aborting commit\n"
+            f"  Command: {test_cmd}\n"
+            f"  Timeout source: {_timeout_source_hint(timeout_source)}\n"
+            f"  Hint: if the command needs more time, raise the limit; "
+            f"if it hangs waiting for input (e.g. interactive mode), switch to a non-interactive form."
+        )
+        return None, None
+
+
 def _print_test_command_failure(
     result: subprocess.CompletedProcess,
     test_cmd: str,
@@ -1514,54 +1660,13 @@ def _run_commit(argv: list[str], state: dict) -> int:
         if verbose:
             print(f"=== Running test_command: {test_cmd} (timeout {timeout_sec}s) ===")
             sys.stdout.flush()
-        started = time.monotonic()
-        try:
-            test = subprocess.run(
-                test_cmd,
-                shell=True,
-                capture_output=not verbose,
-                text=True, encoding="utf-8",
-                cwd=repo_root,
-                env=_test_command_env(),
-                timeout=timeout_sec,
-            )
-        except subprocess.TimeoutExpired as exc:
-            # When capture_output=True, TimeoutExpired carries whatever was
-            # collected on stdout/stderr before the child was killed — dump it
-            # first so the user can see which test hung.  Even with text=True,
-            # the buffered payload can come back as raw bytes when the timeout
-            # fires before subprocess decodes it, so handle both shapes.
-            if not verbose:
-                if exc.stdout:
-                    out = exc.stdout
-                    if isinstance(out, bytes):
-                        out = out.decode("utf-8", errors="replace")
-                    sys.stdout.write(out)
-                    sys.stdout.flush()
-                if exc.stderr:
-                    err = exc.stderr
-                    if isinstance(err, bytes):
-                        err = err.decode("utf-8", errors="replace")
-                    sys.stderr.write(err)
-                    sys.stderr.flush()
-            source_hint = {
-                "env": "TUSK_TEST_COMMAND_TIMEOUT env var",
-                "config": 'config key "test_command_timeout_sec"',
-                "auto": 'auto-scaled from p95 of recent successful runs '
-                        '(override with "test_command_timeout_sec" in tusk/config.json '
-                        'or TUSK_TEST_COMMAND_TIMEOUT env var)',
-                "default": 'default (override with "test_command_timeout_sec" in tusk/config.json '
-                           'or TUSK_TEST_COMMAND_TIMEOUT env var)',
-            }[timeout_source]
-            _print_error(
-                f"\nError: test_command timed out after {timeout_sec}s — aborting commit\n"
-                f"  Command: {test_cmd}\n"
-                f"  Timeout source: {source_hint}\n"
-                f"  Hint: if the command needs more time, raise the limit; "
-                f"if it hangs waiting for input (e.g. interactive mode), switch to a non-interactive form."
-            )
+        test, elapsed = _run_test_with_retry(
+            test_cmd, repo_root, timeout_sec, timeout_source, verbose,
+        )
+        if test is None:
+            # Terminal timeout (after the optional auto-retry); the diagnostic
+            # was already printed by _run_test_with_retry.
             return 5
-        elapsed = time.monotonic() - started
         if test.returncode != 0:
             # Dump the captured output so the failure is diagnosable even in
             # quiet mode.  In verbose mode the output already streamed live, so
