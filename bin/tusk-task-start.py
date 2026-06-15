@@ -275,6 +275,80 @@ def _count_criteria_already_passing(conn: sqlite3.Connection, task_id: int) -> i
         return 0
 
 
+def _convergence_recency_hint(
+    conn: sqlite3.Connection, task_id: int, repo_root: str | None
+) -> None:
+    """Print a possible-convergence hint when commits touching files named in
+    this task's description/criteria landed near its filing and reference
+    ANOTHER [TASK-N] (issue #1048).
+
+    The cheap signal the completed-criteria and convergent-spec checks miss: a
+    sibling task's fix for exactly these files may have shipped just before (or
+    after) this task was filed from a stale observation. One `git log` over the
+    cited paths/basenames, bounded to ~7 days before created_at through now,
+    surfaces any such commit so the agent can confirm before sinking a build.
+
+    Advisory only and fully best-effort: missing repo_root, no created_at, no
+    cited paths, no matching commits, or any git/DB error is a silent no-op —
+    it never gates task-start or touches the JSON stdout contract.
+    """
+    if not repo_root:
+        return
+    try:
+        row = conn.execute(
+            "SELECT created_at FROM tasks WHERE id = ?", (task_id,)
+        ).fetchone()
+        if not row or not row["created_at"]:
+            return
+        created_at = row["created_at"]
+        paths = _git_helpers.task_referenced_paths(task_id, conn)
+        basenames = _git_helpers.task_referenced_basenames(task_id, conn)
+    except sqlite3.Error:
+        return
+    # Full paths as-is; basenames as wildcard pathspecs that match the file at
+    # any depth (git pathspec `*` spans directory separators).
+    pathspecs = list(paths) + [f"*{b}" for b in basenames]
+    if not pathspecs:
+        return
+    try:
+        since = conn.execute(
+            "SELECT datetime(?, '-7 days')", (created_at,)
+        ).fetchone()[0]
+    except sqlite3.Error:
+        return
+    if not since:
+        return
+    result = subprocess.run(
+        ["git", "-C", repo_root, "log", f"--since={since}",
+         "--format=%h\t%cI\t%s", "--", *pathspecs],
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return
+    pat = re.compile(r"\[TASK-(\d+)\]")
+    hits = []
+    for line in result.stdout.splitlines():
+        parts = line.split("\t", 2)
+        if len(parts) < 3:
+            continue
+        sha, date, subject = parts
+        m = pat.search(subject)
+        if m and int(m.group(1)) != task_id:
+            hits.append((sha, date, subject))
+    if not hits:
+        return
+    print(
+        f"Warning: {len(hits)} commit(s) touching files named in task {task_id}'s "
+        f"description/criteria landed within ~7 days of its filing and reference "
+        f"another task — possible convergence (the work may already be shipped). "
+        f"Confirm the failure/gap still exists before implementing:",
+        file=sys.stderr,
+    )
+    for sha, date, subject in hits[:10]:
+        preview = subject if len(subject) <= 100 else subject[:97] + "..."
+        print(f"  {sha} {date} {preview}", file=sys.stderr)
+
+
 def _default_branch_staleness_warning(repo_root: str | None) -> dict | None:
     """Return a non-blocking warning when local default is behind origin.
 
@@ -750,6 +824,12 @@ def main(argv: list[str]) -> int:
                 f"completion; run tusk check-deliverables {task_id} before implementing",
                 file=sys.stderr,
             )
+
+        # Convergence-recency hint (issue #1048): surface commits touching files
+        # named in this task's description/criteria that landed near its filing
+        # and reference another [TASK-N] — the cheap signal that a sibling task
+        # already shipped this work, before a worktree + cold build is sunk.
+        _convergence_recency_hint(conn, task_id, _current_repo_root())
 
         # Optional fused skill-run start: collapses the common /tusk, /chain,
         # /review-commits, /retro pattern of calling `tusk skill-run start <name>
