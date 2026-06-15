@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1154] - 2026-06-15
+
+- [TASK-657] Reuse same-HEAD test-precheck verdict in tusk commit on pre-existing failures
+
 ## [1153] - 2026-06-14
 
 - [TASK-656] sync-main pre-flight stash-conflict detection + dirty-primary warning on the task-worktree create hint
