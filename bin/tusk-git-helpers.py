@@ -373,6 +373,19 @@ _BARE_TOPLEVEL_WHITELIST = frozenset({
     ".editorconfig",
 })
 
+# Universal bookkeeping files that nearly every task touches but almost no task
+# *targets*. They are deliberately kept in _BARE_TOPLEVEL_WHITELIST above so the
+# extractor still surfaces them (task-summary's file-overlap heuristic,
+# check-deliverables, and task-unstart legitimately need to attribute commits
+# whose only changed paths are these files). The denylist below is a
+# CONSUMER-SIDE filter: scope-derive (task-insert's auto_derived backfill) and
+# the convergence-recency hint (task-start, issue #1104) drop these names so a
+# description that merely *discusses* a release-bookkeeping file does not gain a
+# bogus auto_derived scope row or flood the convergence hint with version-bump
+# noise. Centralized here so both consumers — and any future one — inherit the
+# same set (issue #1105). Do NOT use this to filter the extractor itself.
+SCOPE_DERIVE_BOOKKEEPING_DENYLIST = frozenset({"VERSION", "CHANGELOG.md"})
+
 _BARE_TOPLEVEL_ALTERNATION = "|".join(re.escape(n) for n in _BARE_TOPLEVEL_WHITELIST)
 _EXTENSIONLESS_SCRIPT_PREFIXES = ("bin/", "hooks/git/", "scripts/")
 

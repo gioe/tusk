@@ -1110,6 +1110,14 @@ def main(argv: list[str]) -> int:
                         and is_prose_identifier_path(p, repo_root)
                     ):
                         continue
+                    # Universal bookkeeping files (VERSION, CHANGELOG.md) that a
+                    # description merely *discusses* must not become auto_derived
+                    # scope rows — same defect #1104 fixed for the convergence
+                    # hint, here at the scope-derive consumer (issue #1105). An
+                    # explicit --scope/--creates VERSION already landed above and
+                    # is preserved via the explicit_patterns short-circuit below.
+                    if resolved in _git_helpers.SCOPE_DERIVE_BOOKKEEPING_DENYLIST:
+                        continue
                     if resolved in explicit_patterns or resolved in seen_auto:
                         continue
                     seen_auto.add(resolved)

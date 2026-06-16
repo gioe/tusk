@@ -282,7 +282,9 @@ def _count_criteria_already_passing(conn: sqlite3.Connection, task_id: int) -> i
 # bin/tusk-test-precheck.py are NOT excluded, because two tasks editing the same
 # real deliverable is exactly the convergence we want to surface — their churn is
 # handled by the version-bump subject filter and the cap below instead.
-_CONVERGENCE_PATH_DENYLIST = frozenset({"VERSION", "CHANGELOG.md"})
+# Centralized in tusk-git-helpers so the scope-derive consumer inherits the same
+# set (issue #1105); aliased here to preserve the existing call sites.
+_CONVERGENCE_PATH_DENYLIST = _git_helpers.SCOPE_DERIVE_BOOKKEEPING_DENYLIST
 
 # Subjects of pure version-bump / changelog-only commits. These reference a
 # sibling [TASK-N] but are bookkeeping, not convergent work, so they are dropped

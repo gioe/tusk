@@ -301,6 +301,49 @@ def test_auto_extract_dedups_against_explicit_scope(db_path):
     assert by_source.get("creates") == {"bin/baz.py"}, rows
 
 
+def test_bookkeeping_files_not_auto_derived_when_merely_discussed(db_path):
+    """VERSION and CHANGELOG.md mentioned only as discussion in the description
+    must not become auto_derived scope rows (issue #1105). They are universal
+    bookkeeping files nearly every task touches but almost none *targets*; the
+    scope-derive consumer drops them via the centralized denylist, mirroring the
+    convergence-hint fix in #1104."""
+    task_id = _insert(
+        str(db_path),
+        "Fix something unrelated",
+        "The bug shows up when a commit touches VERSION and CHANGELOG.md "
+        "during a release.",
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
+    assert "VERSION" not in auto, rows
+    assert "CHANGELOG.md" not in auto, rows
+
+
+def test_bookkeeping_files_still_land_when_explicitly_declared(db_path):
+    """The denylist is consumer-side and only suppresses auto_derived rows — an
+    explicit --scope/--creates VERSION still lands as a non-auto_derived scope
+    row (issue #1105)."""
+    task_id = _insert(
+        str(db_path),
+        "Bump the release",
+        "Touches VERSION and CHANGELOG.md as the actual deliverables.",
+        scope=["VERSION"],
+        creates=["CHANGELOG.md"],
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    by_source = {}
+    for r in rows:
+        by_source.setdefault(r["source"], set()).add(r["pattern"])
+
+    assert "VERSION" in by_source.get("operator_declared", set()), rows
+    assert "CHANGELOG.md" in by_source.get("creates", set()), rows
+    # Neither appears as auto_derived despite being named in the description.
+    assert "VERSION" not in by_source.get("auto_derived", set()), rows
+    assert "CHANGELOG.md" not in by_source.get("auto_derived", set()), rows
+
+
 def test_auto_extract_dedups_prefixed_spec_against_explicit_scope(db_path):
     """A cd-relative spec path should not duplicate its declared root path."""
     task_id = _insert(
@@ -654,19 +697,24 @@ def test_auto_extract_infers_slash_separated_sibling_filenames(db_path):
 
 
 def test_auto_extract_splits_bare_toplevel_files_joined_by_slash(db_path):
-    """Prose like ``VERSION/CHANGELOG.md`` names two top-level files, not a path."""
+    """Prose like ``CLAUDE.md/AGENTS.md`` names two top-level files, not a path.
+
+    Uses a non-bookkeeping pair so the splitter remains observable through the
+    auto_derived rows; the VERSION/CHANGELOG.md case is denylisted at the
+    scope-derive consumer (issue #1105) and covered by
+    ``test_bookkeeping_files_not_auto_derived_when_merely_discussed``."""
     task_id = _insert(
         str(db_path),
-        "version docs",
-        "tusk version-bump and tusk changelog-add update VERSION/CHANGELOG.md together.",
+        "agent docs",
+        "Keep CLAUDE.md/AGENTS.md in sync when the skill list changes.",
     )
 
     rows = _scope_rows(str(db_path), task_id)
     auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
 
-    assert "VERSION" in auto, rows
-    assert "CHANGELOG.md" in auto, rows
-    assert "VERSION/CHANGELOG.md" not in auto, rows
+    assert "CLAUDE.md" in auto, rows
+    assert "AGENTS.md" in auto, rows
+    assert "CLAUDE.md/AGENTS.md" not in auto, rows
 
 
 def test_auto_extract_rejects_prose_identifier_tokens(db_path):

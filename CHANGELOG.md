@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1161] - 2026-06-16
+
+- [TASK-664] Fix: scope auto-derive over-extracts bookkeeping files (VERSION/CHANGELOG.md)
+
 ## [1160] - 2026-06-15
 
 - [TASK-663] Fix: exclude bookkeeping files and version-bump commits from task-start convergence hint
