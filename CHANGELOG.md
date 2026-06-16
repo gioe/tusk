@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1164] - 2026-06-16
+
+- (no tasks specified)
+
 ## [1163] - 2026-06-16
 
 - [TASK-667] Surface active_seconds in dashboard and session-stats output (issue #1086)

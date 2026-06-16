@@ -561,6 +561,68 @@ def warn_file_spec_glob_metachars(spec: str | None, source: str) -> bool:
     return True
 
 
+# Shell-substitution metacharacters that zsh/bash expand BEFORE tusk sees the
+# argv, even inside double quotes: backtick command substitution, $(...) command
+# substitution, ${...} braced variable substitution, and bare $<identifier>.
+# The bare-dollar branch deliberately excludes $<digit> so positional references
+# ($1) and prices ($5.99) pass unharmed (issue #881; extended to task text args
+# by issue #1106). Shared by tusk commit (commit message) and tusk
+# task-insert / task-update / criteria add (summary, description, criterion text)
+# so all four surfaces use one regex and one diagnostic shape.
+_METACHAR_RE = re.compile(r"`|\$\(|\$\{|\$[A-Za-z_]")
+
+_DEFAULT_METACHAR_REMEDY = (
+    "Fix: rewrite without the metacharacter (use plain identifiers, not "
+    "backticked code spans). To include literal shell syntax, describe it in "
+    "words instead of using the shell metacharacter."
+)
+
+
+def _metachar_class_name(metachar: str) -> str:
+    """Map a matched metacharacter to its human-readable class for diagnostics."""
+    if metachar == "`":
+        return "backtick"
+    if metachar == "$(":
+        return "$(...) command substitution"
+    if metachar == "${":
+        return "${...} variable substitution"
+    return f"{metachar} variable substitution"
+
+
+def reject_shell_metacharacters(
+    text: str, subject: str = "text", remedy: str | None = None
+) -> tuple[bool, str]:
+    """Return (True, "") when ``text`` is safe, else (False, diagnostic).
+
+    Boundary guard for any CLI surface that stores agent-provided text passed as
+    a shell argv. zsh and bash expand `, $(...), ${...}, and bare $<identifier>
+    BEFORE tusk sees the argv — even inside double quotes — so an unguarded
+    surface silently stores corrupted content (issue #881 for commit messages;
+    issue #1106 for task summary/description and criterion text). The guard
+    rejects rather than auto-escaping, because auto-escaping would silently
+    mutate the author's intent.
+
+    ``subject`` names the surface in the diagnostic (e.g. "commit message",
+    "task description", "criterion text"). ``remedy`` overrides the default fix
+    line — pass a surface-specific one (e.g. pointing at --description-file).
+    """
+    match = _METACHAR_RE.search(text)
+    if match is None:
+        return True, ""
+    name = _metachar_class_name(match.group(0))
+    if remedy is None:
+        remedy = _DEFAULT_METACHAR_REMEDY
+    diagnostic = (
+        f"Error: {subject} contains shell-substitution metacharacter "
+        f"({name}) at position {match.start()}:\n"
+        f"  {subject}: {text!r}\n"
+        f"zsh and bash expand this BEFORE tusk sees the argv, even inside "
+        f"double quotes, so the stored {subject} would be silently corrupted.\n"
+        f"{remedy}"
+    )
+    return False, diagnostic
+
+
 def is_prose_identifier_path(path: str | None, repo_root: str | None = None) -> bool:
     """Return True for slash-joined code identifiers masquerading as paths."""
     if not path or "/" not in path:

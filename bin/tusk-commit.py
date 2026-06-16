@@ -66,11 +66,12 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader  # loads tusk-json-lib.py and tusk-worktree-command.py
+import tusk_loader  # loads tusk-json-lib.py, tusk-worktree-command.py and tusk-git-helpers.py
 
 _json_lib = tusk_loader.load("tusk-json-lib")
 dumps = _json_lib.dumps
 _worktree_command = tusk_loader.load("tusk-worktree-command")
+_git_helpers = tusk_loader.load("tusk-git-helpers")
 
 
 TRAILER = "Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
@@ -1217,43 +1218,30 @@ def _print_test_command_failure(
 # substituted message never lands on origin (issue #881; original incident
 # TASK-464 shipped a JSON blob into commit 984ca1a/main when a literal
 # `tusk sync-main` inside a double-quoted message got executed by zsh).
-_METACHAR_RE = re.compile(r"`|\$\(|\$\{|\$[A-Za-z_]")
+# Commit-message-specific remedy line. The metacharacter regex and diagnostic
+# shape live in the shared reject_shell_metacharacters helper (tusk-git-helpers)
+# so tusk commit and the task-text surfaces (issue #1106) stay in lockstep; this
+# wrapper keeps the legacy name and the commit-message wording.
+_COMMIT_METACHAR_REMEDY = (
+    "Fix: rewrite the message without the metacharacter (use plain "
+    "identifiers, not backticked code spans). If you need to describe "
+    "literal shell syntax, write it in words instead of including the "
+    "shell metacharacter."
+)
 
 
 def _validate_message_metacharacters(message: str) -> tuple[bool, str]:
     """Return (True, "") when the message is safe, else (False, diagnostic).
 
-    Rejects any backtick (`), $(...) command substitution, ${...} braced
-    variable substitution, or bare $<identifier> substitution. The agent's
-    intended literal must be rewritten without metacharacters (plain
-    identifiers) — auto-escaping would silently mutate the message and is
-    deliberately not offered.
+    Thin wrapper over the shared guard: rejects any backtick (`), $(...) command
+    substitution, ${...} braced variable substitution, or bare $<identifier>
+    substitution. The agent's intended literal must be rewritten without
+    metacharacters (plain identifiers) — auto-escaping would silently mutate the
+    message and is deliberately not offered (issue #881).
     """
-    match = _METACHAR_RE.search(message)
-    if match is None:
-        return True, ""
-    metachar = match.group(0)
-    if metachar == "`":
-        name = "backtick"
-    elif metachar == "$(":
-        name = "$(...) command substitution"
-    elif metachar == "${":
-        name = "${...} variable substitution"
-    else:
-        name = f"{metachar} variable substitution"
-    diagnostic = (
-        f"Error: commit message contains shell-substitution metacharacter "
-        f"({name}) at position {match.start()}:\n"
-        f"  message: {message!r}\n"
-        f"zsh and bash expand this BEFORE tusk sees the argv, even inside "
-        f"double quotes. The corrupted message would land on origin and cannot "
-        f"be amended.\n"
-        f"Fix: rewrite the message without the metacharacter (use plain "
-        f"identifiers, not backticked code spans). If you need to describe "
-        f"literal shell syntax, write it in words instead of including the "
-        f"shell metacharacter."
+    return _git_helpers.reject_shell_metacharacters(
+        message, subject="commit message", remedy=_COMMIT_METACHAR_REMEDY
     )
-    return False, diagnostic
 
 
 def main(argv: list[str]) -> int:
