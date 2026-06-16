@@ -48,6 +48,7 @@ extract_referenced_basenames = _git_helpers.extract_referenced_basenames
 is_prose_identifier_path = _git_helpers.is_prose_identifier_path
 path_exists_in_repo = _git_helpers.path_exists_in_repo
 warn_file_spec_glob_metachars = _git_helpers.warn_file_spec_glob_metachars
+reject_shell_metacharacters = _git_helpers.reject_shell_metacharacters
 
 
 _RELATIVE_NOT_BEFORE_RE = re.compile(r"^\+(\d+)([mhdw])$")
@@ -915,6 +916,30 @@ def main(argv: list[str]) -> int:
             "at least one acceptance criterion is required. "
             "Use --criteria \"...\" or --typed-criteria '{\"text\":\"...\"}' to add one."
         )
+
+    # Reject shell-substitution metacharacters in agent-provided text args
+    # before any DB write (issue #1106 — extends the issue #881 commit-message
+    # guard). zsh/bash expand `, $(...), ${...}, and bare $IDENT before tusk sees
+    # the argv, even inside double quotes, silently corrupting stored content.
+    # --description-file reads the file directly and is immune, so a
+    # file-sourced description is exempt; criterion text and typed-criterion
+    # text flow into the same storage surface as `criteria add`, so they are
+    # guarded too. Typed-criterion specs are intentionally NOT checked — they
+    # are shell code by design (verified at criteria done time).
+    metachar_checks: list[tuple[str, str]] = [("task summary", summary)]
+    if args.description_file is None:
+        metachar_checks.append(("task description", description))
+    metachar_checks.extend(("criterion text", text) for text in criteria)
+    metachar_checks.extend(
+        ("criterion text", tc["text"])
+        for tc in typed_criteria
+        if tc.get("text") is not None
+    )
+    for subject, text in metachar_checks:
+        ok, diagnostic = reject_shell_metacharacters(text, subject=subject)
+        if not ok:
+            print(diagnostic, file=sys.stderr)
+            return 1
 
     # Load and validate against config
     config = load_config(config_path)

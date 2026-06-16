@@ -44,10 +44,12 @@ TUSK_BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
 _db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
 _task_insert = tusk_loader.load("tusk-task-insert")
+_git_helpers = tusk_loader.load("tusk-git-helpers")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 load_config = _db_lib.load_config
 validate_enum = _db_lib.validate_enum
+reject_shell_metacharacters = _git_helpers.reject_shell_metacharacters
 
 
 def _rederive_auto_scope(
@@ -174,6 +176,18 @@ def main(argv: list[str]) -> int:
 
     if not updates:
         parser.error("at least one field flag is required")
+
+    # Reject shell-substitution metacharacters in the text fields before any DB
+    # write (issue #1106 — extends the issue #881 commit-message guard). zsh/bash
+    # expand `, $(...), ${...}, and bare $IDENT before tusk sees the argv, even
+    # inside double quotes, silently corrupting stored content. task-update has
+    # no file-input escape hatch, so the only fix is to rewrite the value.
+    for field, subject in (("summary", "task summary"), ("description", "task description")):
+        if field in updates:
+            ok, diagnostic = reject_shell_metacharacters(updates[field], subject=subject)
+            if not ok:
+                print(diagnostic, file=sys.stderr)
+                return 1
 
     # Validate enum fields against config
     config = load_config(config_path)

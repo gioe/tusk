@@ -31,6 +31,7 @@ load_config = _db_lib.load_config
 
 _git_helpers = tusk_loader.load("tusk-git-helpers")
 warn_file_spec_glob_metachars = _git_helpers.warn_file_spec_glob_metachars
+reject_shell_metacharacters = _git_helpers.reject_shell_metacharacters
 
 _json_lib = tusk_loader.load("tusk-json-lib")
 dumps = _json_lib.dumps
@@ -406,6 +407,17 @@ def cmd_add(args: argparse.Namespace, db_path: str, config: dict) -> int:
         if args.type in SPEC_REQUIRED_TYPES and not spec:
             print(f"Error: --spec is required for criterion type '{args.type}'", file=sys.stderr)
             return 2
+
+        # Reject shell-substitution metacharacters in the criterion text before
+        # the insert (issue #1106 — extends the issue #881 commit-message guard).
+        # zsh/bash expand `, $(...), ${...}, and bare $IDENT before tusk sees the
+        # argv, even inside double quotes, silently corrupting stored content. The
+        # spec is intentionally NOT checked — it is shell code by design (run at
+        # criteria done time).
+        ok, diagnostic = reject_shell_metacharacters(args.text, subject="criterion text")
+        if not ok:
+            print(diagnostic, file=sys.stderr)
+            return 1
 
         if args.type == "file":
             warn_file_spec_glob_metachars(spec, "criteria add")
