@@ -133,6 +133,8 @@ python3 -m pytest tests/integration/ -v  # integration tests only (requires a wo
 
 Integration tests initialize their own temporary database automatically via a pytest fixture — no manual `tusk init` is needed.
 
+**CI gate (issue #1098):** local commits and `tusk merge` only run the unit suite (the configured `test_command` is `python3 -m pytest tests/unit/ -q`) — the integration suite is too slow (~18–25 min) to gate every commit. Instead, `.github/workflows/integration.yml` runs `python3 -m pytest tests/integration/` on pull requests to `main` and pushes to `main`, so the integration suite cannot silently rot. The suite is hermetic (it builds its own git repos and stubs `gh` via PATH), so no network or secrets are needed. One known-flaky test (`test_criteria_done_silent_exit_guard.py::test_parallel_criteria_done_locked_db_reports_actionable_errors`) is `--deselect`ed from the gate pending TASK-668; re-include it once that race is fixed.
+
 Dev dependencies (pytest) are listed in `requirements-dev.txt`. Install with:
 
 ```bash
