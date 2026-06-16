@@ -47,6 +47,7 @@ bin/tusk commit <task_id> "<file1>" ["<file2>" ...] -m "<message>" [--criteria <
 # Note: tusk commit prepends [TASK-N] to <message> automatically; duplicate [TASK-N] prefixes are stripped
 # Note: bare -- separators are silently ignored (AI callers sometimes insert them)
 # Note: always quote file paths — zsh expands unquoted [brackets] as glob patterns before tusk receives them
+# Note: tusk commit, task-insert, task-update, and criteria add all reject shell-substitution metacharacters (backtick, $(...), ${...}, bare $IDENT) in their text args via the shared reject_shell_metacharacters guard in bin/tusk-git-helpers.py (issue #881 for commit messages; issue #1106 extended it to task summary/description and criterion text). The guard rejects rather than auto-escapes because zsh/bash expand those patterns before tusk sees the argv, even inside double quotes. task-insert's --description-file is the immune path for untrusted text; typed-criteria/file specs are NOT checked (shell code by design).
 bin/tusk merge <task_id> [--session <session_id>] [--pr --pr-number <N>] [--rebase] [--skip-lint] [--skip-verify]
 bin/tusk progress <task_id> [--note "..."] [--next-steps "..."]
 bin/tusk jot <category> "<note>" [--file <path>] [--skill <name>]   # capture mid-task friction at the source — keyed to active skill_run; consumed by /retro

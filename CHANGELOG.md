@@ -8,7 +8,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [1164] - 2026-06-16
 
-- (no tasks specified)
+- [TASK-669] Extend the shell-substitution metacharacter guard to task-insert, task-update, and criteria add text args (issue #1106). The regex + diagnostic move into a shared reject_shell_metacharacters helper in bin/tusk-git-helpers.py reused by tusk commit; task summary/inline description/criterion text now reject backtick, $(...), ${...}, and bare $IDENT before any DB write. task-insert's --description-file stays the immune path for untrusted text; typed-criteria and file-type verification specs are exempt (shell code by design).
 
 ## [1163] - 2026-06-16
 
