@@ -275,6 +275,27 @@ def _count_criteria_already_passing(conn: sqlite3.Connection, task_id: int) -> i
         return 0
 
 
+# Universal bookkeeping files that nearly every task touches — they carry no
+# convergence signal, so matching them makes the hint degenerate into listing
+# recent history (issue #1104). Excluded from the convergence pathspec/basename
+# set. Deliberately narrow: high-churn deliverables like skills/tusk/SKILL.md or
+# bin/tusk-test-precheck.py are NOT excluded, because two tasks editing the same
+# real deliverable is exactly the convergence we want to surface — their churn is
+# handled by the version-bump subject filter and the cap below instead.
+_CONVERGENCE_PATH_DENYLIST = frozenset({"VERSION", "CHANGELOG.md"})
+
+# Subjects of pure version-bump / changelog-only commits. These reference a
+# sibling [TASK-N] but are bookkeeping, not convergent work, so they are dropped
+# from the surfaced hit list (issue #1104). The canonical subject produced by
+# `tusk version-bump` / `tusk changelog-add` is "Bump VERSION to N and update
+# CHANGELOG"; either token marks the commit as noise.
+_VERSION_BUMP_SUBJECT_RE = re.compile(r"Bump VERSION\b|update CHANGELOG\b", re.IGNORECASE)
+
+# Cap on how many convergence commits are surfaced, so a wide match never floods
+# stderr (issue #1104). The reported count reflects what is actually shown.
+_CONVERGENCE_HINT_CAP = 10
+
+
 def _convergence_recency_hint(
     conn: sqlite3.Connection, task_id: int, repo_root: str | None
 ) -> None:
@@ -305,6 +326,11 @@ def _convergence_recency_hint(
         basenames = _git_helpers.task_referenced_basenames(task_id, conn)
     except sqlite3.Error:
         return
+    # Drop universal bookkeeping files (VERSION, CHANGELOG.md) — every task
+    # touches them, so matching them floods the hint with version-bump noise
+    # rather than genuine convergence (issue #1104).
+    paths = [p for p in paths if p not in _CONVERGENCE_PATH_DENYLIST]
+    basenames = [b for b in basenames if b not in _CONVERGENCE_PATH_DENYLIST]
     # Full paths as-is; basenames as wildcard pathspecs that match the file at
     # any depth (git pathspec `*` spans directory separators).
     pathspecs = list(paths) + [f"*{b}" for b in basenames]
@@ -327,24 +353,38 @@ def _convergence_recency_hint(
         return
     pat = re.compile(r"\[TASK-(\d+)\]")
     hits = []
+    seen_shas: set = set()
     for line in result.stdout.splitlines():
         parts = line.split("\t", 2)
         if len(parts) < 3:
             continue
         sha, date, subject = parts
+        if sha in seen_shas:
+            continue
         m = pat.search(subject)
-        if m and int(m.group(1)) != task_id:
-            hits.append((sha, date, subject))
+        if not (m and int(m.group(1)) != task_id):
+            continue
+        # Pure version-bump / changelog-only commits reference a sibling task but
+        # are bookkeeping noise, not convergent work (issue #1104).
+        if _VERSION_BUMP_SUBJECT_RE.search(subject):
+            continue
+        seen_shas.add(sha)
+        hits.append((sha, date, subject))
     if not hits:
         return
+    shown = hits[:_CONVERGENCE_HINT_CAP]
+    if len(hits) > len(shown):
+        count_phrase = f"{len(shown)} of {len(hits)} commit(s)"
+    else:
+        count_phrase = f"{len(shown)} commit(s)"
     print(
-        f"Warning: {len(hits)} commit(s) touching files named in task {task_id}'s "
+        f"Warning: {count_phrase} touching files named in task {task_id}'s "
         f"description/criteria landed within ~7 days of its filing and reference "
         f"another task — possible convergence (the work may already be shipped). "
         f"Confirm the failure/gap still exists before implementing:",
         file=sys.stderr,
     )
-    for sha, date, subject in hits[:10]:
+    for sha, date, subject in shown:
         preview = subject if len(subject) <= 100 else subject[:97] + "..."
         print(f"  {sha} {date} {preview}", file=sys.stderr)
 
