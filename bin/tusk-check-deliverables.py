@@ -23,10 +23,10 @@ Recommendations:
     "commits_found"                       — commits referencing this task exist on a non-default branch — normal path
     "merged_not_closed"                   — commits already on the default branch and their diff overlaps with task scope (or there is no scope signal to compare) — skip implementation, go straight to finalize
     "merged_not_closed_low_confidence"    — commits exist on the default branch but their diff doesn't overlap with files referenced in the task or with files modified on any feature branch — likely a [TASK-N] prefix-match false positive — verify before acting
-    "mark_done"                           — no commits, but deliverable files found on disk AND at least one non-deferred criterion is non-manual AND the verification-spec gate passes (issue #1068: at least one incomplete code/file spec passes, or no runnable spec exists) — mark criteria done and merge
+    "mark_done"                           — no commits, but deliverable files found on disk AND at least one non-deferred criterion is non-manual AND the verification-spec gate passes (issue #1068: at least one incomplete code/file/test spec passes, or no runnable spec exists — test-type included per issue #1103) — mark criteria done and merge
     "manual_pending"                      — no commits, deliverable files found on disk, BUT every non-deferred criterion is criterion_type='manual' (issue #806) — the file-existence signal is noise for manual criteria (a referenced gitignored file may exist regardless of whether the human performed the external work). Do NOT auto-close; proceed with implementation manually.
     "criteria_complete_no_commits"        — every non-deferred acceptance criterion is marked is_completed=1 but there are no [TASK-N] commits anywhere and no deliverable files on disk — salvage / converged-work / speculative-mark signal — investigate before re-implementing
-    "implement_fresh"                     — no commits and either (a) no deliverable files found, or (b) files exist but every incomplete code/file verification spec still fails (issue #1068: the deliverable is an EDIT to an existing file, so file existence is noise — verifiable_spec_count/passing_spec_count in the output record the gate decision) — proceed with implementation
+    "implement_fresh"                     — no commits and either (a) no deliverable files found, or (b) files exist but every incomplete code/file/test verification spec still fails (issue #1068: the deliverable is an EDIT to an existing file, so file existence is noise — verifiable_spec_count/passing_spec_count in the output record the gate decision; test-type specs included per issue #1103) — proceed with implementation
 
 Exit codes:
     0 — success (always, even if no commits/files)
@@ -178,18 +178,28 @@ def verifiable_spec_results(task_id: int, conn: sqlite3.Connection) -> tuple[int
 
     Issue #1068: file existence is noise when the deliverable is an EDIT to a
     file that already exists — the referenced path is on disk before any work
-    happens, yet the code/file verification specs still fail. Mirrors
-    task-start's _count_criteria_already_passing scan (issue #1051): the same
-    incomplete, non-deferred code/file criteria with non-empty specs, run via
-    tusk-criteria's run_verification (timeout-bounded), test-type excluded for
-    latency. Best-effort by design: any failure returns (0, 0), which callers
+    happens, yet the verification specs still fail. Mirrors task-start's
+    _count_criteria_already_passing scan (issue #1051): incomplete, non-deferred
+    criteria with non-empty specs, run via tusk-criteria's run_verification
+    (timeout-bounded).
+
+    Issue #1103: test-type criteria are now included alongside code/file.
+    Excluding them produced a false mark_done for edit-to-existing-file tasks
+    whose ONLY verification spec is a failing test-type reproducer (concrete
+    incident: TASK-662) — verifiable_spec_count came back 0, so the gate took
+    the no-runnable-spec branch and recommended mark_done purely on file
+    existence. run_verification is already timeout-bounded, so running the
+    test-type spec once for the gate decision is the same cost tusk criteria
+    done pays at merge.
+
+    Best-effort by design: any failure returns (0, 0), which callers
     treat as "no verifiable signal" and preserve the legacy mark_done path.
     """
     try:
         rows = conn.execute(
             "SELECT criterion_type, verification_spec FROM acceptance_criteria "
             "WHERE task_id = ? AND is_completed = 0 AND COALESCE(is_deferred, 0) = 0 "
-            "AND criterion_type IN ('code', 'file') "
+            "AND criterion_type IN ('code', 'file', 'test') "
             "AND verification_spec IS NOT NULL AND verification_spec != ''",
             (task_id,),
         ).fetchall()

@@ -1034,3 +1034,58 @@ class TestMarkDoneSpecGate:
         data = json.loads(stdout)
         assert data["recommendation"] == "mark_done"
         assert data["verifiable_spec_count"] == 0
+
+    def test_failing_test_type_spec_downgrades_to_implement_fresh(self, tmp_path):
+        # Issue #1103: the only incomplete spec is criterion_type='test' and it
+        # FAILS. Before #1103 the gate excluded test-type specs, so
+        # verifiable_spec_count came back 0 and the no-runnable-spec branch
+        # recommended mark_done purely on file existence (concrete incident:
+        # TASK-662). Now the failing test-type spec is counted and run, so the
+        # recommendation downgrades to implement_fresh.
+        db_path, skill_md = self._make_test_type_task(tmp_path, 10686)
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "UPDATE acceptance_criteria SET verification_spec = ? WHERE task_id = 10686",
+            (f"grep -q close-sessions-marker {skill_md}",),
+        )
+        conn.commit()
+        conn.close()
+        rc, stdout, _ = _run_main(db_path, 10686)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["files_found"] is True
+        assert data["recommendation"] == "implement_fresh"
+        assert data["verifiable_spec_count"] == 1
+        assert data["passing_spec_count"] == 0
+
+    def test_passing_test_type_spec_keeps_mark_done(self, tmp_path):
+        # A passing test-type spec is convergence evidence — file existence plus
+        # a passing spec keeps mark_done (issue #1103).
+        db_path, skill_md = self._make_test_type_task(tmp_path, 10687)
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "UPDATE acceptance_criteria SET verification_spec = ? WHERE task_id = 10687",
+            (f"grep -q existing {skill_md}",),
+        )
+        conn.commit()
+        conn.close()
+        rc, stdout, _ = _run_main(db_path, 10687)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "mark_done"
+        assert data["verifiable_spec_count"] == 1
+        assert data["passing_spec_count"] == 1
+
+    def _make_test_type_task(self, tmp_path, task_id):
+        """An edit task whose only criterion is criterion_type='test'."""
+        present = tmp_path / "skills" / "editme"
+        present.mkdir(parents=True)
+        (present / "SKILL.md").write_text("# editme\nexisting content\n")
+        return _make_db(
+            tmp_path,
+            task_id=task_id,
+            summary="Document close-sessions in skills/editme/SKILL.md",
+            criteria=[
+                ("Failing test passes", None, 0, 0, "test"),
+            ],
+        ), str(present / "SKILL.md")

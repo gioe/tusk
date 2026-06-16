@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1162] - 2026-06-16
+
+- [TASK-665] Fix: check-deliverables ignores failing test-type specs on edit-to-existing-file tasks
+
 ## [1161] - 2026-06-16
 
 - [TASK-664] Fix: scope auto-derive over-extracts bookkeeping files (VERSION/CHANGELOG.md)
