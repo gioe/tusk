@@ -133,3 +133,41 @@ def test_task_metrics_exposes_total_request_count(db_path, transcript_with_dupli
 
     assert row is not None
     assert row[0] == 3
+
+
+def test_session_stats_prints_active_time_line(db_path, transcript_with_duplicate):
+    """tusk session-stats stdout includes an Active time line (issue #1086).
+
+    The fixture transcript's four events span 12:00:00 → 12:00:20 (deltas 10s,
+    1s, 9s — all under the idle threshold), so the idle-discounted active figure
+    is 20s. The regression is the presence of the labelled line; the exact value
+    is asserted loosely so transcript tweaks don't make it brittle."""
+    conn = sqlite3.connect(str(db_path))
+    try:
+        cur = conn.execute(
+            "INSERT INTO tasks (summary, status, task_type, priority, complexity, priority_score)"
+            " VALUES ('active line test', 'In Progress', 'feature', 'Medium', 'S', 50)"
+        )
+        task_id = cur.lastrowid
+        cur = conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, ended_at)"
+            " VALUES (?, '2026-04-18 11:59:00', '2026-04-18 12:01:00')",
+            (task_id,),
+        )
+        session_id = cur.lastrowid
+        conn.commit()
+    finally:
+        conn.close()
+
+    result = subprocess.run(
+        [TUSK_BIN, "session-stats", str(session_id), transcript_with_duplicate],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "TUSK_DB": str(db_path)},
+    )
+    assert result.returncode == 0, (
+        f"session-stats failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+    )
+    assert "Active time:" in result.stdout, result.stdout
+    # 20s of in-window deltas → sub-minute active figure.
+    assert "Active time:  20s" in result.stdout, result.stdout

@@ -28,6 +28,20 @@ _db_lib = tusk_loader.load("tusk-db-lib")
 get_connection = _db_lib.get_connection
 
 
+def _format_duration(seconds) -> str:
+    """Human-readable duration; mirrors tusk-task-summary's formatter."""
+    if seconds is None:
+        return "—"
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds}s"
+    mins, secs = divmod(seconds, 60)
+    if mins < 60:
+        return f"{mins}m {secs}s" if secs else f"{mins}m"
+    hours, mins = divmod(mins, 60)
+    return f"{hours}h {mins}m" if mins else f"{hours}h"
+
+
 def main():
     # Extract --debug before manual positional parsing
     argv = sys.argv[1:]
@@ -119,6 +133,15 @@ def main():
         lib.update_session_stats(conn, session_id, totals)
         conn.commit()
 
+        # Active time = idle-gap-discounted active_seconds (issue #1069),
+        # falling back to wall (ended - started) for the rare case where the
+        # transcript yielded no usable timestamps — the same COALESCE(
+        # active_seconds, duration_seconds) fallback task-summary applies so
+        # legacy/empty rows render a sensible value rather than "—" (issue #1086).
+        active_seconds = totals.get("active_seconds")
+        if active_seconds is None and ended_at is not None:
+            active_seconds = max(0, int((ended_at - started_at).total_seconds()))
+
         # Print summary
         print(f"Session {session_id} token stats updated:")
         print(f"  Model:        {model}")
@@ -129,6 +152,7 @@ def main():
               f"cache read: {totals['cache_read_input_tokens']:,})")
         print(f"  Output tokens: {tokens_out:,}")
         print(f"  Est. cost:    ${cost:.4f}")
+        print(f"  Active time:  {_format_duration(active_seconds)}")
     finally:
         conn.close()
 

@@ -43,6 +43,13 @@ def fetch_task_metrics(conn: sqlite3.Connection) -> list[dict]:
                   tm.domain,
                   tm.task_type,
                   COALESCE(tm.total_duration_seconds, 0) as total_duration_seconds,
+                  -- Active time = idle-gap-discounted active_seconds (issue
+                  -- #1069), per-row COALESCE fallback to wall duration_seconds
+                  -- so legacy rows closed before migration 79 render unchanged
+                  -- (issue #1086 — same semantics task-summary uses).
+                  (SELECT COALESCE(SUM(COALESCE(s7.active_seconds, s7.duration_seconds)), 0)
+                   FROM task_sessions s7
+                   WHERE s7.task_id = tm.id) as total_active_seconds,
                   COALESCE(tm.total_lines_added, 0) as total_lines_added,
                   COALESCE(tm.total_lines_removed, 0) as total_lines_removed,
                   tm.updated_at,

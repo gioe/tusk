@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1163] - 2026-06-16
+
+- [TASK-667] Surface active_seconds in dashboard and session-stats output (issue #1086)
+
 ## [1162] - 2026-06-16
 
 - [TASK-665] Fix: check-deliverables ignores failing test-type specs on edit-to-existing-file tasks

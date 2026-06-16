@@ -378,6 +378,67 @@ class TestTotalDurationSeconds:
 
 
 # ---------------------------------------------------------------------------
+# total_active_seconds aggregation (issue #1086)
+# ---------------------------------------------------------------------------
+
+
+class TestTotalActiveSeconds:
+    def test_active_sums_session_active_seconds(self):
+        """total_active_seconds = SUM of session.active_seconds when present."""
+        conn = _make_conn()
+        conn.execute("INSERT INTO tasks (id, summary) VALUES (?, ?)", (1, "task"))
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, duration_seconds, active_seconds) "
+            "VALUES (?, ?, ?, ?)",
+            (1, "2026-01-01 00:00:00", 3600, 1200),
+        )
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, duration_seconds, active_seconds) "
+            "VALUES (?, ?, ?, ?)",
+            (1, "2026-01-02 00:00:00", 1800, 600),
+        )
+        conn.commit()
+
+        rows = dashboard_data.fetch_task_metrics(conn)
+        # active (1200 + 600) is the idle-discounted figure, well below the
+        # wall total (3600 + 1800).
+        assert rows[0]["total_active_seconds"] == 1800
+        assert rows[0]["total_duration_seconds"] == 5400
+
+    def test_active_falls_back_to_duration_for_legacy_null_rows(self):
+        """A legacy row with NULL active_seconds falls back per-row to
+        duration_seconds (COALESCE semantics matching task-summary)."""
+        conn = _make_conn()
+        conn.execute("INSERT INTO tasks (id, summary) VALUES (?, ?)", (1, "task"))
+        # Legacy row: active_seconds NULL → counts its duration_seconds.
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, duration_seconds, active_seconds) "
+            "VALUES (?, ?, ?, ?)",
+            (1, "2026-01-01 00:00:00", 3600, None),
+        )
+        # Migration-79 row: active_seconds present → counts active, not wall.
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, duration_seconds, active_seconds) "
+            "VALUES (?, ?, ?, ?)",
+            (1, "2026-01-02 00:00:00", 1800, 600),
+        )
+        conn.commit()
+
+        rows = dashboard_data.fetch_task_metrics(conn)
+        # 3600 (legacy fallback) + 600 (active) = 4200.
+        assert rows[0]["total_active_seconds"] == 4200
+
+    def test_active_zero_when_no_sessions(self):
+        """total_active_seconds COALESCE'd to 0 when task has no sessions."""
+        conn = _make_conn()
+        conn.execute("INSERT INTO tasks (id, summary) VALUES (?, ?)", (1, "no sessions"))
+        conn.commit()
+
+        rows = dashboard_data.fetch_task_metrics(conn)
+        assert rows[0]["total_active_seconds"] == 0
+
+
+# ---------------------------------------------------------------------------
 # fetch_kpi_data()
 # ---------------------------------------------------------------------------
 

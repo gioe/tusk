@@ -1514,6 +1514,7 @@ def generate_task_row(t: dict, criteria_list: list[dict], task_deps: dict, summa
     session_count = t.get('session_count') or 0
     models_raw = t.get('models') or ''
     duration_seconds = t.get('total_duration_seconds') or 0
+    active_seconds = t.get('total_active_seconds') or 0
     status_duration_seconds = t.get('duration_in_status_seconds') or 0
     lines_added = t.get('total_lines_added') or 0
     lines_removed = t.get('total_lines_removed') or 0
@@ -1534,7 +1535,7 @@ def generate_task_row(t: dict, criteria_list: list[dict], task_deps: dict, summa
   <td class="col-complexity" data-sort="{complexity_sort}">{f'<span class="complexity-badge">{complexity_val}</span>' if complexity_val else ''}</td>
   <td class="col-wsjf" data-sort="{priority_score}">{priority_score}</td>
   <td class="col-model" data-sort="{esc(models_raw)}" title="{esc(models_raw)}">{esc(models_raw) if models_raw else '<span class="text-muted-dash">&mdash;</span>'}</td>
-  <td class="col-duration" data-sort="{duration_seconds}">{format_duration(duration_seconds) if duration_seconds else '<span class="text-muted-dash">&mdash;</span>'}</td>
+  <td class="col-duration" data-sort="{duration_seconds}" title="wall: {format_duration(duration_seconds)} · active (idle-discounted): {format_duration(active_seconds)}">{format_duration(duration_seconds) if duration_seconds else '<span class="text-muted-dash">&mdash;</span>'}</td>
   <td class="col-lines" data-sort="{total_lines}" data-lines-added="{int(lines_added)}" data-lines-removed="{int(lines_removed)}">{format_lines_html(lines_added, lines_removed)}</td>
   <td class="col-tokens-in" data-sort="{t['total_tokens_in']}">{format_tokens_compact(t['total_tokens_in'])}</td>
   <td class="col-tokens-out" data-sort="{t['total_tokens_out']}">{format_tokens_compact(t['total_tokens_out'])}</td>
