@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1160] - 2026-06-15
+
+- [TASK-663] Fix: exclude bookkeeping files and version-bump commits from task-start convergence hint
+
 ## [1159] - 2026-06-15
 
 - [TASK-662] Wire test-precheck flake-retries and diverged-from-default signals into the skill layer
