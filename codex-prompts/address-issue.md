@@ -580,9 +580,12 @@ fallback) are shell arguments, so zsh and bash expand backticks and
 around identifiers (write `_resolve_stable_tusk_bin` and
 `bin/tusk-merge.py` as plain text, not in backticks) and avoid literal
 dollar signs unless every metacharacter is escaped deliberately.
-Mirrors the same hazard documented for `tusk commit` messages (tusk
-Step 7) and `tusk review add-comment` values (review-commits Step
-5.1).
+`tusk commit` and every other tusk text-arg surface (task-insert/update,
+criteria add, progress, context add, jot, review) now reject this
+class via the shared `reject_shell_metacharacters` guard (issues #881,
+#1106, #1107); `gh` is the lone exception, since it is an external tool
+tusk does not wrap, so the hazard on its `--comment`/`--body` values
+stays manual to avoid here.
 
 Use the `commit_sha` from Step 8 (include the PR URL if available,
 else the branch name). On failure, apply **Shared gh Failure
