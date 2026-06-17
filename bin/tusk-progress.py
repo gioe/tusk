@@ -20,12 +20,14 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader
+import tusk_loader  # loads tusk-db-lib.py, tusk-json-lib.py, tusk-git-helpers.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
+_git_helpers = tusk_loader.load("tusk-git-helpers")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
+reject_shell_metacharacters = _git_helpers.reject_shell_metacharacters
 
 
 def git(args: list[str]) -> str:
@@ -89,6 +91,17 @@ def main(argv: list[str]) -> int:
     except ValueError:
         print(f"Error: Invalid task ID: {task_id_str}", file=sys.stderr)
         return 1
+
+    # Reject shell-substitution metacharacters in the free-text fields before any
+    # DB write (issue #1107 — extends the issue #881/#1106 guard). zsh/bash expand
+    # `, $(...), ${...}, and bare $IDENT before tusk sees the argv, even inside
+    # double quotes, silently corrupting the stored note/next_steps.
+    for value, subject in ((note, "progress note"), (next_steps, "progress next-steps")):
+        if value is not None:
+            ok, diagnostic = reject_shell_metacharacters(value, subject=subject)
+            if not ok:
+                print(diagnostic, file=sys.stderr)
+                return 1
 
     conn = get_connection(db_path)
     try:
