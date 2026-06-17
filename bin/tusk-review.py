@@ -19,14 +19,27 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader  # loads tusk-db-lib.py, tusk-json-lib.py, tusk-review-diff-range.py, tusk-pricing-lib.py
+import tusk_loader  # loads tusk-db-lib.py, tusk-json-lib.py, tusk-review-diff-range.py, tusk-pricing-lib.py, tusk-git-helpers.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
+_git_helpers = tusk_loader.load("tusk-git-helpers")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
+reject_shell_metacharacters = _git_helpers.reject_shell_metacharacters
 
 _pricing_lib = None  # populated lazily by _load_pricing_lib()
+
+
+def _reject_review_note(note: str | None) -> str | None:
+    """Return a diagnostic if ``note`` carries shell-substitution metacharacters,
+    else None. Shared by resolve/approve/request-changes (issue #1107 — extends
+    the issue #881/#1106 guard). An empty string (the "clear note" sentinel) and
+    None both pass — neither carries a metacharacter to expand."""
+    if not note:
+        return None
+    ok, diagnostic = reject_shell_metacharacters(note, subject="review note")
+    return None if ok else diagnostic
 
 
 def _load_pricing_lib():
@@ -290,6 +303,16 @@ def cmd_begin(args: argparse.Namespace, db_path: str, config_path: str) -> int:
 
 def cmd_add_comment(args: argparse.Namespace, db_path: str, config_path: str) -> int:
     """Insert a review_comments row."""
+    # Reject shell-substitution metacharacters in the comment text before any DB
+    # write (issue #1107 — extends the issue #881/#1106 guard). zsh/bash expand
+    # `, $(...), ${...}, and bare $IDENT before tusk sees the argv, even inside
+    # double quotes, silently corrupting the stored comment.
+    if args.comment:
+        ok, diagnostic = reject_shell_metacharacters(args.comment, subject="review comment")
+        if not ok:
+            print(diagnostic, file=sys.stderr)
+            return 1
+
     conn = get_connection(db_path)
     try:
         review = conn.execute(
@@ -817,6 +840,11 @@ def cmd_resolve(args: argparse.Namespace, db_path: str) -> int:
         )
         return 2
 
+    diag = _reject_review_note(args.note)
+    if diag is not None:
+        print(diag, file=sys.stderr)
+        return 1
+
     conn = get_connection(db_path)
     try:
         comment = conn.execute(
@@ -848,6 +876,11 @@ def cmd_resolve(args: argparse.Namespace, db_path: str) -> int:
 
 def cmd_approve(args: argparse.Namespace, db_path: str) -> int:
     """Set code_reviews.status = 'approved' and review_pass = 1."""
+    diag = _reject_review_note(args.note)
+    if diag is not None:
+        print(diag, file=sys.stderr)
+        return 1
+
     conn = get_connection(db_path)
     try:
         review = conn.execute(
@@ -899,6 +932,11 @@ def cmd_approve(args: argparse.Namespace, db_path: str) -> int:
 
 def cmd_request_changes(args: argparse.Namespace, db_path: str) -> int:
     """Set code_reviews.status = 'changes_requested' and review_pass = 0."""
+    diag = _reject_review_note(args.note)
+    if diag is not None:
+        print(diag, file=sys.stderr)
+        return 1
+
     conn = get_connection(db_path)
     try:
         review = conn.execute(
