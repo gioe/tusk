@@ -24,12 +24,14 @@ import sqlite3
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader  # loads tusk-db-lib.py and tusk-json-lib.py
+import tusk_loader  # loads tusk-db-lib.py, tusk-json-lib.py, tusk-git-helpers.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
+_git_helpers = tusk_loader.load("tusk-git-helpers")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
+reject_shell_metacharacters = _git_helpers.reject_shell_metacharacters
 
 
 ITEM_TYPES = ("memory", "assumption", "question", "risk", "decision", "entry_point")
@@ -201,6 +203,18 @@ def main(argv: list[str]) -> int:
     supersede.add_argument("context_item_id", type=int)
 
     args = parser.parse_args(argv[2:])
+
+    # Reject shell-substitution metacharacters in --content before any DB write
+    # (issue #1107 — extends the issue #881/#1106 guard). zsh/bash expand `,
+    # $(...), ${...}, and bare $IDENT before tusk sees the argv, even inside
+    # double quotes, silently corrupting the stored context content. Checked here
+    # rather than in cmd_add so the diagnostic (which is already "Error:"-prefixed)
+    # is not double-prefixed by cmd_add's ValueError handler below.
+    if args.mode == "add" and args.content is not None:
+        ok, diagnostic = reject_shell_metacharacters(args.content, subject="context content")
+        if not ok:
+            print(diagnostic, file=sys.stderr)
+            return 1
 
     conn = get_connection(db_path)
     try:
