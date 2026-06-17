@@ -1830,9 +1830,21 @@ snapshot_db() {
   sqlite3 "$DB_PATH" "VACUUM INTO '$out'" 2>/dev/null || return 0
   retention="${TUSK_BACKUP_RETENTION:-$TUSK_BACKUP_RETENTION_DEFAULT}"
   # Keep newest N; drop the rest. `ls -1t` is sorted newest-first.
+  #
+  # The trailing `|| true` is load-bearing, not decorative. Under concurrent
+  # invocations (e.g. several `tusk criteria done` processes writing backups
+  # into the same dir), the glob expands to a snapshot of filenames, but a
+  # sibling's retention sweep can `rm` one of them before this process's
+  # `ls -1t` stats it. `ls` then exits non-zero, and `set -o pipefail` would
+  # propagate that into `set -e` and abort the WHOLE bin/tusk invocation here —
+  # before the subcommand ever dispatches to its Python helper. That produced
+  # the TASK-668 flake: `criteria done` died inside snapshot_db with empty
+  # stderr, so the #1022 OperationalError diagnostic never ran and the #785
+  # silent-exit guard fired with "no diagnostic output" instead. Backups are
+  # best-effort; swallow the race exactly like the line-241 precedent.
   # shellcheck disable=SC2012
-  ls -1t "$BACKUP_DIR"/tasks.db.* 2>/dev/null | tail -n +$((retention + 1)) \
-    | while IFS= read -r old; do rm -f "$old"; done
+  { ls -1t "$BACKUP_DIR"/tasks.db.* 2>/dev/null | tail -n +$((retention + 1)) \
+    | while IFS= read -r old; do rm -f "$old"; done; } || true
   return 0
 }
 
