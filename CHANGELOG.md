@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1167] - 2026-06-17
+
+- [TASK-668] Fix the flaky `test_parallel_criteria_done_locked_db_reports_actionable_errors` integration test and re-include it in the CI gate (issue #1098 follow-up). Root cause was not in the criteria-done error path: `snapshot_db`'s backup-retention sweep (`ls -1t <glob> | tail | while rm`) raced across the parallel processes — a sibling `rm`'d a backup file between this process's glob expansion and its `ls -1t`, so `ls` exited non-zero, and under `set -euo pipefail` that aborted the whole `tusk` invocation *before* it dispatched to the Python helper. The subcommand died inside `snapshot_db` with empty stderr, so the issue-#1022 OperationalError diagnostic never ran and the issue-#785 silent-exit guard reported "no diagnostic output" instead. The retention pipeline now swallows the benign concurrent-rm race with a trailing `|| true` (same idiom as the existing `maybe_warn_source_repo_stale` precedent), making the diagnostic deterministic; the test is verified 20/20 and the `--deselect` is removed from `.github/workflows/integration.yml`.
+
 ## [1166] - 2026-06-17
 
 - [TASK-671] Guard the `tusk jot` category positional and close the shell-substitution metacharacter audit (issue #1108). The note arg was guarded in #1107; the adjacent category positional — the clearest remaining agent-relayed sibling gap — now routes through the same shared reject_shell_metacharacters helper, rejecting backtick, $(...), ${...}, and bare $IDENT before any DB write. The operator-authored DB-write surfaces (`tusk conventions add`/`update`, `glossary set-definition`/`add`, `lint-rule add`/`update` message) are audited and left intentionally exempt — documented, not guarded — because they are operator-authored, low-frequency, legitimately carry literal shell-syntax examples, and have no agent-relay corruption vector. CLAUDE.md/AGENTS.md, the tusk skill prose, and the address-issue skill + codex-prompt are updated to record both decisions so the guard inventory does not drift.
