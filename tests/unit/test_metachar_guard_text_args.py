@@ -354,15 +354,27 @@ class TestContextAddMetacharGuard:
 
 
 class TestJotMetacharGuard:
-    """tusk jot rejects metachars in the note arg before the INSERT (issue
-    #1107). get_connection opens before the guard, so the relevant boundary is
-    write_jot (the actual DB write)."""
+    """tusk jot rejects metachars in the category positional and the note arg
+    before the INSERT (note: issue #1107; category: issue #1108). get_connection
+    opens before the guard, so the relevant boundary is write_jot (the actual DB
+    write)."""
 
     def setup_method(self):
         self.mod = _load("tusk-jot.py", "tusk_jot_mc")
 
     def _argv(self, tmp_path, args):
         return [str(tmp_path / "tasks.db"), str(tmp_path / "config.json")] + args
+
+    def test_metachar_category_blocked(self, tmp_path, capsys):
+        write_calls = []
+        argv = self._argv(tmp_path, ["write", "cat`id`", "plain note here"])
+        with patch.object(self.mod, "write_jot", side_effect=lambda *a, **k: write_calls.append(1)):
+            ret = self.mod.main(argv)
+        err = capsys.readouterr().err
+        assert ret == 1
+        assert write_calls == [], "guard did not short-circuit before write_jot"
+        assert "jot category" in err
+        assert "shell-substitution metacharacter" in err
 
     def test_metachar_note_blocked(self, tmp_path, capsys):
         write_calls = []
@@ -375,8 +387,10 @@ class TestJotMetacharGuard:
         assert "jot note" in err
         assert "shell-substitution metacharacter" in err
 
-    def test_safe_note_reaches_write_jot(self, tmp_path):
-        argv = self._argv(tmp_path, ["write", "friction", "plain note about $1"])
+    def test_safe_category_and_note_reach_write_jot(self, tmp_path):
+        # A plain label category (with safe punctuation) and a note carrying only
+        # a benign positional ($1) both pass the guard and reach write_jot.
+        argv = self._argv(tmp_path, ["write", "test-flake", "plain note about $1"])
         with patch.object(self.mod, "write_jot", side_effect=RuntimeError("reached write_jot")):
             with pytest.raises(RuntimeError, match="reached write_jot"):
                 self.mod.main(argv)

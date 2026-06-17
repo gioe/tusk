@@ -167,10 +167,17 @@ def main(argv: list) -> int:
             if not args.note.strip():
                 print("note must not be empty", file=sys.stderr)
                 return 1
-            # Reject shell-substitution metacharacters in the note before any DB
-            # write (issue #1107 — extends the issue #881/#1106 guard). zsh/bash
-            # expand `, $(...), ${...}, and bare $IDENT before tusk sees the argv,
-            # even inside double quotes, silently corrupting the stored jot.
+            # Reject shell-substitution metacharacters in the category and note
+            # before any DB write (issue #1107 wired the note; issue #1108 closed
+            # the sibling category gap). zsh/bash expand `, $(...), ${...}, and
+            # bare $IDENT before tusk sees the argv, even inside double quotes,
+            # silently corrupting the stored jot. The category is a short label
+            # that should never carry shell metacharacters, so it is guarded too.
+            ok, diagnostic = reject_shell_metacharacters(
+                args.category, subject="jot category")
+            if not ok:
+                print(diagnostic, file=sys.stderr)
+                return 1
             ok, diagnostic = reject_shell_metacharacters(args.note, subject="jot note")
             if not ok:
                 print(diagnostic, file=sys.stderr)
