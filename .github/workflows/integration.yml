@@ -62,14 +62,5 @@ jobs:
           git config --global init.defaultBranch main
 
       - name: Run integration suite
-        # One known-flaky test is deselected from the gate: it holds an
-        # EXCLUSIVE DB lock and spawns parallel `criteria done` processes with
-        # TUSK_BUSY_TIMEOUT_MS=0, then asserts each emits the issue-#1022
-        # OperationalError diagnostic. That diagnostic is intermittently
-        # replaced by bin/tusk's generic silent-exit guard (~1-in-3 locally) —
-        # a real but separate race in the criteria-done error path, NOT a
-        # breakage this gate should flag red. Tracked as a follow-up; deselected
-        # here so the gate stays a reliable signal. Everything else runs.
         run: |
-          python3 -m pytest tests/integration/ -q \
-            --deselect "tests/integration/test_criteria_done_silent_exit_guard.py::test_parallel_criteria_done_locked_db_reports_actionable_errors"
+          python3 -m pytest tests/integration/ -q
