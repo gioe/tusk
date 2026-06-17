@@ -275,3 +275,172 @@ class TestCriteriaAddMetacharGuard:
                                type="file", source="original", spec="bin/tusk")
         ret = self.mod.cmd_add(args, db_path, self._CONFIG)
         assert ret == 0
+
+
+# ─────────────────────────── progress ───────────────────────────
+
+
+class TestProgressMetacharGuard:
+    """tusk progress rejects metachars in --note and --next-steps before any DB
+    access (issue #1107)."""
+
+    def setup_method(self):
+        self.mod = _load("tusk-progress.py", "tusk_progress_mc")
+
+    def _argv(self, tmp_path, args):
+        return [str(tmp_path / "tasks.db"), str(tmp_path / "config.json")] + args
+
+    def _assert_blocked_before_db(self, tmp_path, capsys, args, subject):
+        """Guard must fire before get_connection (the first DB-bound step)."""
+        conn_calls = []
+        argv = self._argv(tmp_path, args)
+        with patch.object(self.mod, "get_connection", side_effect=lambda *a, **k: conn_calls.append(1)):
+            ret = self.mod.main(argv)
+        err = capsys.readouterr().err
+        assert ret == 1
+        assert conn_calls == [], "guard did not short-circuit before get_connection"
+        assert subject in err
+        assert "shell-substitution metacharacter" in err
+
+    def test_backtick_note_blocked(self, tmp_path, capsys):
+        self._assert_blocked_before_db(
+            tmp_path, capsys, ["5", "--note", "ran `id` here"], "progress note"
+        )
+
+    def test_dollar_var_next_steps_blocked(self, tmp_path, capsys):
+        self._assert_blocked_before_db(
+            tmp_path, capsys, ["5", "--next-steps", "deploy to $STAGE"], "progress next-steps"
+        )
+
+    def test_safe_note_and_next_steps_reach_get_connection(self, tmp_path):
+        argv = self._argv(tmp_path, ["5", "--note", "price $5.99 ref $1", "--next-steps", "ship it"])
+        with patch.object(self.mod, "get_connection", side_effect=RuntimeError("reached get_connection")):
+            with pytest.raises(RuntimeError, match="reached get_connection"):
+                self.mod.main(argv)
+
+
+# ─────────────────────────── context add ───────────────────────────
+
+
+class TestContextAddMetacharGuard:
+    """tusk context add rejects metachars in --content before any DB access
+    (issue #1107)."""
+
+    def setup_method(self):
+        self.mod = _load("tusk-context.py", "tusk_context_mc")
+
+    def _argv(self, tmp_path, args):
+        return [str(tmp_path / "tasks.db"), str(tmp_path / "config.json")] + args
+
+    def test_metachar_content_blocked(self, tmp_path, capsys):
+        conn_calls = []
+        argv = self._argv(tmp_path, ["add", "5", "--type", "memory", "--content", "value is $(whoami)"])
+        with patch.object(self.mod, "get_connection", side_effect=lambda *a, **k: conn_calls.append(1)):
+            ret = self.mod.main(argv)
+        err = capsys.readouterr().err
+        assert ret == 1
+        assert conn_calls == [], "guard did not short-circuit before get_connection"
+        assert "context content" in err
+        assert "shell-substitution metacharacter" in err
+
+    def test_safe_content_reaches_get_connection(self, tmp_path):
+        argv = self._argv(tmp_path, ["add", "5", "--type", "memory", "--content", "plain $1 note"])
+        with patch.object(self.mod, "get_connection", side_effect=RuntimeError("reached get_connection")):
+            with pytest.raises(RuntimeError, match="reached get_connection"):
+                self.mod.main(argv)
+
+
+# ─────────────────────────── jot ───────────────────────────
+
+
+class TestJotMetacharGuard:
+    """tusk jot rejects metachars in the note arg before the INSERT (issue
+    #1107). get_connection opens before the guard, so the relevant boundary is
+    write_jot (the actual DB write)."""
+
+    def setup_method(self):
+        self.mod = _load("tusk-jot.py", "tusk_jot_mc")
+
+    def _argv(self, tmp_path, args):
+        return [str(tmp_path / "tasks.db"), str(tmp_path / "config.json")] + args
+
+    def test_metachar_note_blocked(self, tmp_path, capsys):
+        write_calls = []
+        argv = self._argv(tmp_path, ["write", "friction", "broke on ${VAR}"])
+        with patch.object(self.mod, "write_jot", side_effect=lambda *a, **k: write_calls.append(1)):
+            ret = self.mod.main(argv)
+        err = capsys.readouterr().err
+        assert ret == 1
+        assert write_calls == [], "guard did not short-circuit before write_jot"
+        assert "jot note" in err
+        assert "shell-substitution metacharacter" in err
+
+    def test_safe_note_reaches_write_jot(self, tmp_path):
+        argv = self._argv(tmp_path, ["write", "friction", "plain note about $1"])
+        with patch.object(self.mod, "write_jot", side_effect=RuntimeError("reached write_jot")):
+            with pytest.raises(RuntimeError, match="reached write_jot"):
+                self.mod.main(argv)
+
+
+# ─────────────────────────── review ───────────────────────────
+
+
+class TestReviewMetacharGuard:
+    """tusk review add-comment / resolve / approve / request-changes reject
+    metachars in their text args before any DB access (issue #1107)."""
+
+    def setup_method(self):
+        self.mod = _load("tusk-review.py", "tusk_review_mc")
+
+    def _assert_blocked_before_db(self, capsys, call, subject):
+        conn_calls = []
+        with patch.object(self.mod, "get_connection", side_effect=lambda *a, **k: conn_calls.append(1)):
+            ret = call()
+        err = capsys.readouterr().err
+        assert ret == 1
+        assert conn_calls == [], "guard did not short-circuit before get_connection"
+        assert subject in err
+        assert "shell-substitution metacharacter" in err
+
+    def test_add_comment_metachar_blocked(self, tmp_path, capsys):
+        args = SimpleNamespace(review_id=1, comment="bad `code`", file=None,
+                               line_start=None, line_end=None, category=None, severity=None)
+        self._assert_blocked_before_db(
+            capsys, lambda: self.mod.cmd_add_comment(args, "db", "cfg"), "review comment"
+        )
+
+    def test_resolve_note_metachar_blocked(self, tmp_path, capsys):
+        args = SimpleNamespace(resolution="fixed", note="done via $PATH", comment_id=1)
+        self._assert_blocked_before_db(
+            capsys, lambda: self.mod.cmd_resolve(args, "db"), "review note"
+        )
+
+    def test_approve_note_metachar_blocked(self, tmp_path, capsys):
+        args = SimpleNamespace(review_id=1, note="good $(rm -rf .)", model=None,
+                               cost_dollars=None, tokens_in=None, tokens_out=None)
+        self._assert_blocked_before_db(
+            capsys, lambda: self.mod.cmd_approve(args, "db"), "review note"
+        )
+
+    def test_request_changes_note_metachar_blocked(self, tmp_path, capsys):
+        args = SimpleNamespace(review_id=1, note="fix ${THING}", model=None,
+                               cost_dollars=None, tokens_in=None, tokens_out=None)
+        self._assert_blocked_before_db(
+            capsys, lambda: self.mod.cmd_request_changes(args, "db"), "review note"
+        )
+
+    def test_add_comment_safe_reaches_get_connection(self):
+        args = SimpleNamespace(review_id=1, comment="plain comment $1", file=None,
+                               line_start=None, line_end=None, category=None, severity=None)
+        with patch.object(self.mod, "get_connection", side_effect=RuntimeError("reached get_connection")):
+            with pytest.raises(RuntimeError, match="reached get_connection"):
+                self.mod.cmd_add_comment(args, "db", "cfg")
+
+    def test_approve_empty_note_is_exempt(self):
+        """An empty-string note (the 'clear note' sentinel) carries no metachar
+        and must pass the guard."""
+        args = SimpleNamespace(review_id=1, note="", model=None,
+                               cost_dollars=None, tokens_in=None, tokens_out=None)
+        with patch.object(self.mod, "get_connection", side_effect=RuntimeError("reached get_connection")):
+            with pytest.raises(RuntimeError, match="reached get_connection"):
+                self.mod.cmd_approve(args, "db")
