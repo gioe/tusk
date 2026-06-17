@@ -581,11 +581,15 @@ around identifiers (write `_resolve_stable_tusk_bin` and
 `bin/tusk-merge.py` as plain text, not in backticks) and avoid literal
 dollar signs unless every metacharacter is escaped deliberately.
 `tusk commit` and every other tusk text-arg surface (task-insert/update,
-criteria add, progress, context add, jot, review) now reject this
-class via the shared `reject_shell_metacharacters` guard (issues #881,
-#1106, #1107); `gh` is the lone exception, since it is an external tool
-tusk does not wrap, so the hazard on its `--comment`/`--body` values
-stays manual to avoid here.
+criteria add, progress, context add, jot — both category and note —,
+review) now reject this class via the shared `reject_shell_metacharacters`
+guard (issues #881, #1106, #1107, #1108). The operator-authored DB-write
+surfaces (`conventions add`/`update`, `glossary set-definition`/`add`,
+`lint-rule add`/`update` message) are intentionally exempt — documented,
+not guarded — because they legitimately carry literal shell-syntax examples
+and have no agent-relay corruption vector. `gh` is the lone external
+exception, since it is a tool tusk does not wrap, so the hazard on its
+`--comment`/`--body` values stays manual to avoid here.
 
 Use the `commit_sha` from Step 8 (include the PR URL if available,
 else the branch name). On failure, apply **Shared gh Failure
