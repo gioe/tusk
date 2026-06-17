@@ -2,12 +2,12 @@
 """Finalize a task: close session, merge branch, push, clean up, and close task.
 
 Called by the tusk wrapper:
-    tusk merge <task_id> [--session <session_id>] [--pr] [--pr-number N] [--rebase] [--skip-lint] [--skip-verify]
+    tusk merge <task_id> [--session <session_id>] [--pr] [--pr-number N] [--rebase] [--skip-lint] [--skip-verify] [--allow-diverged-default]
 
 Arguments received from tusk:
     sys.argv[1] — DB path
     sys.argv[2] — config path
-    sys.argv[3:] — task_id [--session <session_id>] [--pr] [--pr-number N] [--rebase] [--skip-lint] [--skip-verify]
+    sys.argv[3:] — task_id [--session <session_id>] [--pr] [--pr-number N] [--rebase] [--skip-lint] [--skip-verify] [--allow-diverged-default]
 
 If --session is omitted, the open session for the task is auto-detected:
   - Exactly one open session → use it
@@ -606,12 +606,63 @@ def _rebase_feature_for_ff_merge(
     return 0
 
 
+def _drop_patch_id_published_commits(
+    commits: list[tuple[str, str]], default_branch: str
+) -> list[tuple[str, str]]:
+    """Drop commits whose patch-id is already present on origin/<default_branch>.
+
+    The raw `git log origin/<default>..<default>` comparison in
+    `_local_default_unpushed_commits` is pure SHA reachability: a commit that was
+    rebase-published to origin under a NEW SHA still appears "unpushed" even though
+    its content already shipped (issue #1102). `git cherry origin/<default>
+    <default>` compares by patch-id and prefixes each commit with '-' when an
+    equivalent patch is already upstream or '+' when it is genuinely new. We drop
+    only the explicit '-' (already-published) commits and keep everything else —
+    including merge commits that `git cherry` skips and any commit we cannot match
+    — so the strand guard stays conservative.
+
+    On any `git cherry` failure (returncode != 0) the input list is returned
+    unchanged, degrading gracefully to the SHA-based behavior rather than crashing
+    or silently passing a stranded commit.
+    """
+    if not commits:
+        return commits
+    cherry = run(
+        ["git", "cherry", f"refs/remotes/origin/{default_branch}", default_branch],
+        check=False,
+    )
+    if cherry.returncode != 0:
+        return commits
+    published_shas = [
+        line[2:].strip()
+        for line in cherry.stdout.splitlines()
+        if line.strip().startswith("- ")
+    ]
+    if not published_shas:
+        return commits
+    # `commits` carries abbreviated SHAs (%h); a published full SHA matches when
+    # the abbreviation is its prefix.
+    return [
+        (sha, subject)
+        for sha, subject in commits
+        if not any(full.startswith(sha) for full in published_shas)
+    ]
+
+
 def _local_default_unpushed_commits(default_branch: str) -> list[tuple[str, str]] | None:
     """Return [(sha, subject), ...] for commits on local <default_branch> that are
-    not yet on origin/<default_branch>.
+    not yet on origin/<default_branch> AND whose content is not already published
+    upstream under a different SHA.
 
     Returns None when the comparison can't be performed (e.g. origin/<default> ref
     is missing because the repo has never fetched). Empty list means nothing unpushed.
+
+    The result is filtered through `_drop_patch_id_published_commits` so a
+    rebase-published commit (same patch-id, new SHA on origin) is not reported as
+    stranded (issue #1102). Both the standard-checkout strand guard
+    (`_confirm_proceed_with_unpushed`) and the no-checkout strand guard
+    (`_warn_no_checkout_unpushed_default`) consume this function and therefore
+    inherit the patch-id awareness.
     """
     rev_parse = run(
         ["git", "rev-parse", "--verify", f"refs/remotes/origin/{default_branch}"],
@@ -633,7 +684,7 @@ def _local_default_unpushed_commits(default_branch: str) -> list[tuple[str, str]
             continue
         parts = line.split(" ", 1)
         commits.append((parts[0], parts[1] if len(parts) > 1 else ""))
-    return commits
+    return _drop_patch_id_published_commits(commits, default_branch)
 
 
 def _confirm_proceed_with_unpushed(
@@ -2141,6 +2192,7 @@ def _complete_no_checkout_fast_forward(
     session_was_closed: bool,
     did_stash: bool,
     use_rebase: bool,
+    allow_diverged_default: bool = False,
 ) -> int:
     print(
         f"Note: {default_branch} is checked out in another worktree; using "
@@ -2266,12 +2318,31 @@ def _complete_no_checkout_fast_forward(
         # reached origin.
         unpushed_local = _local_default_unpushed_commits(default_branch)
         if unpushed_local:
-            _warn_no_checkout_unpushed_default(
-                unpushed_local, default_branch, task_id, session_id
-            )
-            if did_stash:
-                _try_pop_stash(task_id)
-            return 2
+            if allow_diverged_default:
+                # Escape hatch (issue #1102): the operator has confirmed the
+                # diverged local-<default> state is acceptable — typically because
+                # primary's tree is dirty, so neither `git pull --rebase` nor
+                # `git reset --hard` is safe to reconcile it. Warn loudly but
+                # proceed with the push rather than aborting. The stranded commits
+                # remain on primary's local <default>; the operator owns
+                # reconciling them afterward.
+                print(
+                    f"\nWarning: --allow-diverged-default set — proceeding with the "
+                    f"TASK-{task_id} no-checkout push despite "
+                    f"{len(unpushed_local)} commit(s) on local '{default_branch}' "
+                    f"not on 'origin/{default_branch}'. They stay on local "
+                    f"'{default_branch}' for you to reconcile:",
+                    file=sys.stderr,
+                )
+                for sha, subject in unpushed_local:
+                    print(f"  {sha}  {subject}", file=sys.stderr)
+            else:
+                _warn_no_checkout_unpushed_default(
+                    unpushed_local, default_branch, task_id, session_id
+                )
+                if did_stash:
+                    _try_pop_stash(task_id)
+                return 2
         pre_push_merge_base_sha = _resolve_merge_base(branch_name, default_branch)
         print(
             f"Pushing {branch_name} to origin/{default_branch} via no-checkout "
@@ -3550,6 +3621,7 @@ def main(argv: list[str]) -> int:
     pr_number = None
     use_rebase = False
     skip_lint = False
+    allow_diverged_default = False
 
     i = 0
     while i < len(remaining):
@@ -3584,6 +3656,9 @@ def main(argv: list[str]) -> int:
             i += 1
         elif remaining[i] == "--skip-verify":
             skip_lint = True
+            i += 1
+        elif remaining[i] == "--allow-diverged-default":
+            allow_diverged_default = True
             i += 1
         else:
             print(f"Error: Unknown argument: {remaining[i]}", file=sys.stderr)
@@ -3814,6 +3889,7 @@ def main(argv: list[str]) -> int:
                 session_was_closed=False,
                 did_stash=False,
                 use_rebase=use_rebase,
+                allow_diverged_default=allow_diverged_default,
             )
 
     # Step 1b (local mode only): Auto-stash if working tree is dirty.
@@ -3883,6 +3959,7 @@ def main(argv: list[str]) -> int:
                 session_was_closed=False,
                 did_stash=did_stash,
                 use_rebase=use_rebase,
+                allow_diverged_default=allow_diverged_default,
             )
 
     # Step 2: Close the session (captures git diff stats while on feature branch)
@@ -3997,6 +4074,7 @@ def main(argv: list[str]) -> int:
                     session_was_closed=session_was_closed,
                     did_stash=did_stash,
                     use_rebase=use_rebase,
+                    allow_diverged_default=allow_diverged_default,
                 )
             print(
                 f"Error: git checkout {default_branch} failed:\n{result.stderr.strip()}",
@@ -4440,7 +4518,7 @@ if __name__ == "__main__":
     if len(sys.argv) < 2 or not sys.argv[1].endswith(".db"):
         print("Error: This script must be invoked via the tusk wrapper.", file=sys.stderr)
         print(
-            "Use: tusk merge <task_id> [--session <session_id>] [--pr --pr-number <N>] [--rebase] [--skip-lint] [--skip-verify]",
+            "Use: tusk merge <task_id> [--session <session_id>] [--pr --pr-number <N>] [--rebase] [--skip-lint] [--skip-verify] [--allow-diverged-default]",
             file=sys.stderr,
         )
         sys.exit(1)
