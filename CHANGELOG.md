@@ -8,7 +8,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [1165] - 2026-06-16
 
-- [TASK-670] Extend shell-metacharacter guard to review/progress/context/jot text args
+- [TASK-670] Extend the shell-substitution metacharacter guard to the remaining tusk-owned text-arg surfaces (issue #1107). `tusk progress` (`--note`, `--next-steps`), `tusk context add` (`--content`), `tusk jot` (the note arg), and `tusk review` (`add-comment` comment text plus the `--note` on `resolve`/`approve`/`request-changes`) now route their text through the shared reject_shell_metacharacters helper, rejecting backtick, $(...), ${...}, and bare $IDENT before any DB write — the same guard TASK-669 wired into task-insert/update and criteria add. An empty `--note` (the review "clear note" sentinel) and verification specs stay exempt. `gh issue/pr comment` calls in /address-issue and /review-commits remain unguarded by design (gh is external); the tusk-skill, address-issue, and review-commits prose are corrected to say so.
 
 ## [1164] - 2026-06-16
 
