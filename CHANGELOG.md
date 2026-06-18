@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1169] - 2026-06-17
+
+- [TASK-673] Warn when tusk version-bump lands VERSION more than 1 ahead of origin default
+
 ## [1168] - 2026-06-17
 
 - [TASK-672] Fix: make merge strand guard patch-id aware and add a diverged-default escape hatch

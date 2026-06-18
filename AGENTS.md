@@ -293,6 +293,8 @@ echo 14 > VERSION   # increment by 1
 
 Commit the bump in the same branch as the feature. Also update `CHANGELOG.md` in the same commit under a new `## [<version>] - <YYYY-MM-DD>` heading. **One VERSION bump per PR.**
 
+**Double-bump guard (issue #1109):** after writing the new value, `tusk version-bump` resolves the VERSION committed on `origin/<default>` (`git show origin/<default>:VERSION`, falling back to the local default branch when origin is unreachable) and emits a one-line stderr warning when the new value is more than 1 ahead of that baseline. This catches the common accidental double-bump (running `version-bump` twice silently lands VERSION 2+ ahead even though the rule is one bump per PR, as observed in TASK-672). The warning is **advisory, not a refusal** — the bump still writes, stages, and exits 0 — so the rare legitimate over-bump stays unblocked while the mistake becomes loud. When the baseline cannot be resolved (no origin ref and no local default), no warning is emitted.
+
 > **Worktree routing — the resolution key is the invoking checkout's `REPO_ROOT`, NOT the active task's worktree branch (issue #903).** `tusk version-bump` and `tusk changelog-add` walk up from `$PWD` to the nearest `.git` and write VERSION/CHANGELOG.md against that checkout. Run them from inside the task worktree and the bump lands there cleanly (issues #798/#801). Run them from the primary checkout while it is on the default branch and the bump silently lands in the primary instead. To bump a task worktree's files from any CWD, pass `--task-id`:
 >
 > ```bash
