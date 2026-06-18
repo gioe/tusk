@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1170] - 2026-06-18
+
+- [TASK-674] Warn when changelog-add lands a version more than 1 ahead of origin default
+
 ## [1169] - 2026-06-17
 
 - [TASK-673] Warn when tusk version-bump lands VERSION more than 1 ahead of origin default
