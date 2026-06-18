@@ -35,6 +35,70 @@ _db_lib = tusk_loader.load("tusk-db-lib")
 resolve_task_workspace = _db_lib.resolve_task_workspace
 maybe_advise_primary_no_task_id = _db_lib.maybe_advise_primary_no_task_id
 
+_DEFAULT_BRANCH_FALLBACK = "main"
+
+
+def _git_default_branch(target_root: str) -> str:
+    """Resolve the default branch name from origin/HEAD, falling back to main."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", target_root, "symbolic-ref", "refs/remotes/origin/HEAD"],
+            check=True,
+            capture_output=True,
+            encoding="utf-8",
+        ).stdout.strip()
+    except (subprocess.CalledProcessError, OSError):
+        return _DEFAULT_BRANCH_FALLBACK
+    prefix = "refs/remotes/origin/"
+    if out.startswith(prefix):
+        return out[len(prefix):]
+    return _DEFAULT_BRANCH_FALLBACK
+
+
+def _version_at_ref(target_root: str, ref: str):
+    """Return the integer VERSION committed at <ref>, or None if unresolvable."""
+    try:
+        out = subprocess.run(
+            ["git", "-C", target_root, "show", f"{ref}:VERSION"],
+            check=True,
+            capture_output=True,
+            encoding="utf-8",
+        ).stdout.strip()
+    except (subprocess.CalledProcessError, OSError):
+        return None
+    try:
+        return int(out)
+    except ValueError:
+        return None
+
+
+def resolve_default_baseline_version(target_root: str):
+    """Best-effort committed VERSION on origin/<default>, falling back to the
+    local default branch when origin is unreachable. Returns int or None when
+    neither ref is resolvable (no warning can then be emitted)."""
+    default_branch = _git_default_branch(target_root)
+    for ref in (f"origin/{default_branch}", default_branch):
+        baseline = _version_at_ref(target_root, ref)
+        if baseline is not None:
+            return baseline
+    return None
+
+
+def maybe_warn_version_ahead(target_root: str, new_version: int) -> None:
+    """Warn on stderr (non-blocking) when the bumped VERSION lands more than 1
+    ahead of the default-branch baseline — the common accidental double-bump."""
+    baseline = resolve_default_baseline_version(target_root)
+    if baseline is None:
+        return
+    ahead = new_version - baseline
+    if ahead > 1:
+        print(
+            f"Warning: VERSION {new_version} is {ahead} ahead of origin "
+            f"default ({baseline}); expected exactly 1. Possible accidental "
+            "double-bump — the rule is one VERSION bump per PR.",
+            file=sys.stderr,
+        )
+
 
 def main() -> None:
     if len(sys.argv) < 5:
@@ -109,6 +173,11 @@ def main() -> None:
         encoding="utf-8",
     )
     print(new_version)
+
+    # Non-blocking double-bump guard: if the just-written VERSION is more than
+    # 1 ahead of the default-branch baseline, the operator likely bumped twice
+    # (issue #1109). The bump already succeeded above; this only advises.
+    maybe_warn_version_ahead(target_root, new_version)
 
 
 if __name__ == "__main__":
