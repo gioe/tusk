@@ -30,12 +30,37 @@ import sys
 from datetime import date
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader  # loads tusk-db-lib.py
+import tusk_loader  # loads tusk-db-lib.py and tusk-version-bump.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 get_connection = _db_lib.get_connection
 resolve_task_workspace = _db_lib.resolve_task_workspace
 maybe_advise_primary_no_task_id = _db_lib.maybe_advise_primary_no_task_id
+
+# Reuse the origin/<default> baseline resolver from the version-bump guard
+# (issue #1109) so changelog-add surfaces the same double-bump signal — the two
+# commands are normally run together (issue #1111).
+_version_bump = tusk_loader.load("tusk-version-bump")
+resolve_default_baseline_version = _version_bump.resolve_default_baseline_version
+
+
+def maybe_warn_changelog_ahead(target_root: str, version: int) -> None:
+    """Warn on stderr (non-blocking) when the CHANGELOG entry's version lands
+    more than 1 ahead of the default-branch baseline — the common accidental
+    double-bump (issue #1111). Mirrors `tusk version-bump`'s guard so the two
+    commands surface the same signal. Advisory only: the entry has already been
+    written and staged by the time this runs, and the command still exits 0."""
+    baseline = resolve_default_baseline_version(target_root)
+    if baseline is None:
+        return
+    ahead = version - baseline
+    if ahead > 1:
+        print(
+            f"Warning: CHANGELOG version {version} is {ahead} ahead of origin "
+            f"default ({baseline}); expected exactly 1. Possible accidental "
+            "double-bump — the rule is one VERSION bump per PR.",
+            file=sys.stderr,
+        )
 
 
 def fetch_summaries(conn: sqlite3.Connection, task_ids: list[str]) -> list[dict]:
@@ -225,6 +250,12 @@ def main() -> None:
         raise
 
     print(entry_block, end="")
+
+    # Non-blocking double-bump guard (issue #1111): if the resolved version is
+    # more than 1 ahead of the default-branch baseline, the operator likely
+    # bumped VERSION twice. The entry has already been written and staged above;
+    # this only advises and never changes the exit code.
+    maybe_warn_changelog_ahead(repo_root, int(version))
 
 
 if __name__ == "__main__":
