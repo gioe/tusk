@@ -78,7 +78,21 @@ def test_parallel_criteria_done_locked_db_reports_actionable_errors(db_path):
             )
             for cid in criterion_ids
         ]
-        results = [proc.communicate(timeout=10) + (proc.returncode,) for proc in procs]
+        # Generous per-process timeout (TASK-681 / issue #1085). This test
+        # asserts on the *content* of the locked-DB diagnostic, not on how
+        # fast it is produced. The criteria-done path runs several git
+        # subprocesses (`_git_head_metadata`, `_has_new_commits_over_default`,
+        # `_head_task_id` in tusk-criteria.py) against the host repo *before*
+        # it reaches the UPDATE that fails on the held lock and emits the
+        # OperationalError diagnostic. With four processes in parallel against
+        # the real (large, deep-history) tusk repo, those git calls can take
+        # several seconds under load or a cold object cache — occasionally
+        # past the previous 10s ceiling, producing a spurious TimeoutExpired
+        # that read as a flaky failure even though every diagnostic was
+        # correct. The wait is bounded (the lock fails fast once reached), so a
+        # large ceiling cannot mask a genuine deadlock; it only absorbs
+        # incidental subprocess latency. Do not lower this back toward 10s.
+        results = [proc.communicate(timeout=120) + (proc.returncode,) for proc in procs]
     finally:
         conn.rollback()
         conn.close()
