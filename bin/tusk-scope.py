@@ -85,29 +85,18 @@ def _validate_pattern(pattern: str) -> "str | None":
     return None
 
 
-def _repo_root(config_path: str) -> str:
-    env_root = os.environ.get("TUSK_REPO_ROOT")
-    if env_root:
-        return os.path.realpath(env_root)
-
-    cfg = os.path.realpath(config_path)
-    if os.path.basename(cfg) == "config.default.json":
-        return os.path.dirname(cfg)
-    if os.path.basename(cfg) == "config.json" and os.path.basename(os.path.dirname(cfg)) == "tusk":
-        return os.path.dirname(os.path.dirname(cfg))
-    return os.getcwd()
-
-
 def _is_pattern_like(pattern: str) -> bool:
     return any(ch in pattern for ch in _GLOB_CHARS)
 
 
-def _normalize_pattern(pattern: str, repo_root: str, source: str) -> tuple[str, "str | None"]:
+def _normalize_pattern(pattern: str, worktree_root: str, source: str) -> tuple[str, "str | None"]:
     """Return a stable repo-root-relative path for plain scope paths.
 
     ``task_scope`` can also hold pattern-like values, so leave those alone.
     The normal mid-task flow should reference files that already exist; the
-    ``creates`` source intentionally names future paths and is exempt.
+    ``creates`` source intentionally names future paths and is exempt. The
+    existence check resolves against the worktree the command runs in, not the
+    primary checkout (issue #1099) — see ``_path_exists_for_scope``.
     """
     if _is_pattern_like(pattern):
         return pattern, None
@@ -118,8 +107,7 @@ def _normalize_pattern(pattern: str, repo_root: str, source: str) -> tuple[str, 
     if normalized.startswith("../") or normalized == "..":
         return normalized, f"Error: pattern must not escape the repo root; got {pattern!r}"
 
-    path = Path(repo_root, normalized)
-    if source != "creates" and not path.exists():
+    if source != "creates" and not _path_exists_for_scope(normalized, worktree_root):
         return normalized, (
             f"Error: scope path does not exist at repo root: {normalized!r}. "
             "Use --source creates for paths this task will create."
@@ -137,6 +125,44 @@ def _git(cwd: str, args: list[str]) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _worktree_root() -> str:
+    """Resolve the working tree the scope command was invoked from.
+
+    Existence checks for plain scope paths must validate against the worktree
+    the task actually operates in — NOT the primary checkout. ``bin/tusk``
+    exports ``TUSK_REPO_ROOT`` (and passes the config path) as the *primary*
+    checkout even when invoked from a linked worktree (the shared-config
+    invariant), so the old config-derived root rejected paths that exist on
+    ``origin/<default>`` and in the worktree but not yet in a lagging primary
+    checkout (issue #1099). The git toplevel of CWD is the ground truth for
+    what the task operates on; fall back to CWD when git can't resolve it.
+    """
+    result = _git(os.getcwd(), ["rev-parse", "--show-toplevel"])
+    if result.returncode == 0:
+        top = result.stdout.strip()
+        if top:
+            return os.path.realpath(top)
+    return os.path.realpath(os.getcwd())
+
+
+def _path_exists_for_scope(normalized: str, worktree_root: str) -> bool:
+    """Does this repo-root-relative path exist for the task to operate on?
+
+    A path counts as present when it is either materialized on disk in the
+    worktree OR tracked in the worktree's ``HEAD`` tree. The HEAD check keeps
+    sparse-checkout scope additions working: ``tusk task-worktree create``
+    leaves out-of-cone paths unmaterialized on disk, but they are still
+    tracked, and ``_materialize_sparse_path`` pulls them into the cone right
+    after this check passes. Before issue #1099 the sparse path relied on the
+    existence check hitting the full primary checkout; resolving against the
+    worktree means that fallback now comes from HEAD instead.
+    """
+    if Path(worktree_root, normalized).exists():
+        return True
+    tracked = _git(worktree_root, ["cat-file", "-e", f"HEAD:{normalized}"])
+    return tracked.returncode == 0
+
+
 def _is_sparse_checkout(worktree_root: str) -> bool:
     inside = _git(worktree_root, ["rev-parse", "--is-inside-work-tree"])
     if inside.returncode != 0 or inside.stdout.strip() != "true":
@@ -145,12 +171,12 @@ def _is_sparse_checkout(worktree_root: str) -> bool:
     return sparse.returncode == 0 and sparse.stdout.strip() == "true"
 
 
-def _sparse_cone_entry(pattern: str, repo_root: str) -> "str | None":
+def _sparse_cone_entry(pattern: str, root: str) -> "str | None":
     if _is_pattern_like(pattern) or "/" not in pattern:
         return None
 
-    primary_path = Path(repo_root, pattern)
-    if primary_path.is_dir():
+    root_path = Path(root, pattern)
+    if root_path.is_dir():
         entry = pattern
     else:
         entry = os.path.dirname(pattern)
@@ -163,9 +189,9 @@ def _sparse_cone_entry(pattern: str, repo_root: str) -> "str | None":
     return entry
 
 
-def _materialize_sparse_path(pattern: str, repo_root: str) -> None:
+def _materialize_sparse_path(pattern: str) -> None:
     """Best-effort: keep sparse checkout contents aligned with new scope."""
-    worktree_root = os.getcwd()
+    worktree_root = _worktree_root()
     if not _is_sparse_checkout(worktree_root):
         return
 
@@ -173,7 +199,7 @@ def _materialize_sparse_path(pattern: str, repo_root: str) -> None:
     if target.exists():
         return
 
-    entry = _sparse_cone_entry(pattern, repo_root)
+    entry = _sparse_cone_entry(pattern, worktree_root)
     if entry is None:
         return
 
@@ -247,7 +273,7 @@ def cmd_list(args: argparse.Namespace, db_path: str) -> int:
     return 0
 
 
-def cmd_add(args: argparse.Namespace, db_path: str, repo_root: str) -> int:
+def cmd_add(args: argparse.Namespace, db_path: str) -> int:
     task_id = _parse_task_id(args.task_id)
     if args.source is not None and args.source not in VALID_SOURCES_ADD:
         joined = ", ".join(VALID_SOURCES_ADD)
@@ -278,12 +304,13 @@ def cmd_add(args: argparse.Namespace, db_path: str, repo_root: str) -> int:
             }))
             return 0
         source = _resolve_add_source(conn, task_id, args.source)
-        pattern, err = _normalize_pattern(pattern, repo_root, source)
+        worktree_root = _worktree_root()
+        pattern, err = _normalize_pattern(pattern, worktree_root, source)
         if err is not None:
             print(err, file=sys.stderr)
             return 2
         if source != "creates":
-            _materialize_sparse_path(pattern, repo_root)
+            _materialize_sparse_path(pattern)
 
         existing = conn.execute(
             "SELECT id, task_id, pattern, source, reason, locked_at, locked_by, created_at "
@@ -376,8 +403,10 @@ def main(argv: list) -> int:
         return 1
 
     db_path = argv[1]
-    config_path = argv[2]
-    repo_root = _repo_root(config_path)
+    # argv[2] is the primary checkout's config path (the shared-config
+    # invariant). Scope existence checks resolve against the worktree the
+    # command runs in via _worktree_root(), so the config path is no longer
+    # consumed for path resolution (issue #1099).
 
     parser = argparse.ArgumentParser(allow_abbrev=False, prog="tusk scope", description="Manage task scope")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -428,7 +457,7 @@ def main(argv: list) -> int:
         if args.cmd == "list":
             return cmd_list(args, db_path)
         if args.cmd == "add":
-            return cmd_add(args, db_path, repo_root)
+            return cmd_add(args, db_path)
         if args.cmd in ("remove", "rm"):
             return cmd_remove(args, db_path)
         if args.cmd == "lock":
