@@ -109,10 +109,12 @@ def test_finish_deferred_only_matches_exact_reason():
         "FROM acceptance_criteria WHERE task_id = 1 ORDER BY id"
     ).fetchall()
 
-    # 1. chain-deferred → converted to completed (is_deferred unchanged in current
-    #    implementation, but the gate already excludes is_deferred so the column's
-    #    state is irrelevant; what matters is is_completed flipped to 1).
+    # 1. chain-deferred → converted to completed AND is_deferred cleared to 0,
+    #    matching _done_single (TASK-644 / issue #1058 / #1090). deferred_reason
+    #    is preserved for history.
     assert rows[0]["is_completed"] == 1
+    assert rows[0]["is_deferred"] == 0
+    assert rows[0]["deferred_reason"] == "chain"
     # 2/3. non-matching reasons left untouched
     assert rows[1]["is_completed"] == 0
     assert rows[1]["is_deferred"] == 1

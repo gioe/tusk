@@ -1103,8 +1103,12 @@ def cmd_finish_deferred(args: argparse.Namespace, db_path: str, config: dict) ->
             return 0
         ids = [r["id"] for r in rows]
         id_placeholders = ", ".join("?" for _ in ids)
+        # Clear is_deferred to match _done_single (TASK-644 / issue #1058): a
+        # completed criterion must not also read as deferred. deferred_reason is
+        # kept for history — is_completed=1 with completed_at is what marks it
+        # as performed in coverage views and audit queries (issue #1090).
         conn.execute(
-            f"UPDATE acceptance_criteria SET is_completed = 1, "
+            f"UPDATE acceptance_criteria SET is_completed = 1, is_deferred = 0, "
             f"completed_at = datetime('now'), updated_at = datetime('now') "
             f"WHERE id IN ({id_placeholders})",
             ids,
