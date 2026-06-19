@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1175] - 2026-06-19
+
+- [TASK-679] Fix: classify-spec misclassifies project-tool-off-sandbox-PATH specs as malformed instead of unverifiable
+
 ## [1174] - 2026-06-18
 
 - [TASK-678] Fix: clear is_deferred in criteria finish-deferred bulk completion path
