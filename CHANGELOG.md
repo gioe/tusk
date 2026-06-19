@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1174] - 2026-06-18
+
+- [TASK-678] Fix: clear is_deferred in criteria finish-deferred bulk completion path
+
 ## [1173] - 2026-06-18
 
 - [TASK-677] Document the MISMATCH/exit-2 path of review-check-perms in review-commits SKILL.md
