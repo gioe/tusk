@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1173] - 2026-06-18
+
+- [TASK-677] Document the MISMATCH/exit-2 path of review-check-perms in review-commits SKILL.md
+
 ## [1172] - 2026-06-18
 
 - [TASK-676] Fix: review-check-perms warns when session CWD is a worktree subdirectory with mismatched settings resolution
