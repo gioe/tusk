@@ -219,6 +219,25 @@ def prune_aliases(
     return {k: v for k, v in aliases.items() if v in models}
 
 
+def preserve_context_windows(
+    new_models: dict[str, dict], old_models: dict[str, dict]
+) -> dict[str, dict]:
+    """Carry each surviving model's ``context_window`` forward across a refresh.
+
+    build_models() rebuilds entries from the scraped rate table alone, so a
+    plain rewrite would drop the per-model ``context_window`` field that
+    pricing.json is the single source of truth for (see get_context_window()
+    in tusk-pricing-lib.py). Re-attach the prior value for any model that
+    still exists. New models scraped fresh have no prior window and are left
+    untouched — the operator adds one to pricing.json when registering them.
+    """
+    for model_id, entry in new_models.items():
+        prior = old_models.get(model_id, {}).get("context_window")
+        if isinstance(prior, int):
+            entry["context_window"] = prior
+    return new_models
+
+
 def format_diff(
     old_models: dict,
     new_models: dict,
@@ -355,7 +374,10 @@ def main():
         print("\n(dry run — no changes written)")
         return
 
-    # Write updated pricing.json
+    # Write updated pricing.json. Carry forward per-model context windows,
+    # which build_models() does not scrape (pricing.json is their source of
+    # truth — see get_context_window() in tusk-pricing-lib.py).
+    new_models = preserve_context_windows(new_models, old_models)
     new_data = {
         "models": new_models,
         "aliases": new_aliases,

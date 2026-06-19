@@ -51,6 +51,7 @@ class TestFablePricing:
             "cache_write_1h": 20.0,
             "cache_read": 1.0,
             "output": 50.0,
+            "context_window": 1_000_000,
         }
 
     def test_pricing_table_has_mythos_and_opus_4_8_entries(self):
