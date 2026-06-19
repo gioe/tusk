@@ -27,6 +27,13 @@ PRICING: dict = {}
 MODEL_ALIASES: dict = {}
 
 # Context window sizes (in tokens) for known models.
+#
+# This table is a *fallback* only — the authoritative source is the
+# per-model ``context_window`` field in pricing.json, read by
+# get_context_window() once load_pricing() has populated PRICING. The
+# literals below cover callers that resolve a window before (or without)
+# ever calling load_pricing(); keep their values in sync with pricing.json.
+# Registering a *new* model only requires a pricing.json entry — no edit here.
 CONTEXT_WINDOW: dict[str, int] = {
     "claude-fable-5": 1_000_000,
     "claude-mythos-5": 1_000_000,
@@ -47,7 +54,21 @@ CONTEXT_WINDOW_DEFAULT = 200_000
 
 
 def get_context_window(model: str) -> int:
-    """Return the context window size for *model*, falling back to CONTEXT_WINDOW_DEFAULT."""
+    """Return the context window size (in tokens) for *model*.
+
+    Resolution order:
+      1. The model's ``context_window`` field in loaded pricing.json data
+         (PRICING, populated by load_pricing()) — the single source of truth,
+         so a new model is registered in pricing.json alone.
+      2. The hardcoded CONTEXT_WINDOW fallback table, for callers that resolve
+         a window before (or without) ever calling load_pricing().
+      3. CONTEXT_WINDOW_DEFAULT, only when the model is absent from both.
+    """
+    entry = PRICING.get(model)
+    if isinstance(entry, dict):
+        window = entry.get("context_window")
+        if isinstance(window, int):
+            return window
     return CONTEXT_WINDOW.get(model, CONTEXT_WINDOW_DEFAULT)
 
 
