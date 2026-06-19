@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1177] - 2026-06-19
+
+- [TASK-682] Fix: review-commits watchdog-kill & stall branches should fall back to inline review, not auto-approve-empty
+
 ## [1176] - 2026-06-19
 
 - [TASK-680] Consolidate per-model context windows into pricing.json
