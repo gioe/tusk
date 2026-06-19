@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1172] - 2026-06-18
+
+- [TASK-676] Fix: review-check-perms warns when session CWD is a worktree subdirectory with mismatched settings resolution
+
 ## [1171] - 2026-06-18
 
 - [TASK-675] Fix: tusk scope add validates path existence against worktree base, not primary checkout
