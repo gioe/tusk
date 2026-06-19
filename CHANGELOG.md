@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1176] - 2026-06-19
+
+- [TASK-680] Consolidate per-model context windows into pricing.json
+
 ## [1175] - 2026-06-19
 
 - [TASK-679] Fix: classify-spec misclassifies project-tool-off-sandbox-PATH specs as malformed instead of unverifiable
