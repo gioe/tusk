@@ -175,20 +175,30 @@ Scan the issue body for a `## Failing Test` section. If present:
      in epistemic value to a user-typed skip; this preserves the
      invariant that `test_present="yes"` means the bug was observed
      to fail under our own execution)?
-   - **Command error — malformed spec** (stderr contains "command
-     not found" / "syntax error", OR exit 126/127 with stderr that
-     matches neither the empty nor "No such file or directory"
+   - **Command error — malformed spec** (stderr contains "syntax
+     error"; OR "command not found" naming the spec's **own effective
+     first command** or an on-PATH token; OR exit 126/127 with stderr
+     that matches neither the empty nor "No such file or directory"
      environmental signature below) — not a runnable shell command.
      Set `test_spec=null`, score `test_present="no"`, and inform:
      > The `## Failing Test` spec produced a command error
      > (`<first line of SPEC_STDERR>`). Treating as no failing test.
+
+     A "command not found" naming a **downstream** tool the sandbox
+     stripped from PATH is NOT malformed — see the environmental
+     branch below (issue #1114).
    - **Command error — environmental** (exit 126/127 with stderr
      empty OR containing "No such file or directory", and NOT
-     containing "command not found" / "syntax error") — the spec
-     invokes a tool or relative path (e.g. `bin/tusk`, `tests/...`)
-     that is unreachable from the sandbox tempdir. The author
-     supplied a concrete reproducer but it can't be validated under
-     the sandbox's safety constraints. Set `test_spec=null`, score
+     containing "syntax error"; OR a "command not found" naming a
+     downstream tool whose basename is off `/usr/bin:/bin` and is not
+     the spec's effective first command — issue #1114, e.g. the
+     throwaway-DB pattern `cp "$(tusk path)" /tmp/x.db && tusk …`
+     where `cp` runs on-PATH and the project `tusk` reports "command
+     not found") — the spec invokes a tool or relative path (e.g.
+     `bin/tusk`, `tests/...`, or a downstream project binary) that is
+     unreachable from the sandbox tempdir. The author supplied a
+     concrete reproducer but it can't be validated under the
+     sandbox's safety constraints. Set `test_spec=null`, score
      `test_present="unverifiable"`, and inform:
      > The `## Failing Test` spec exited 126/127 with sandbox
      > unreachable-path signature (`<first line of SPEC_STDERR>` or
