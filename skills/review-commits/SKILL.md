@@ -134,8 +134,12 @@ After recording the inline decision, skip directly to Step 7.
 REVIEW_PERM_CHECK=$(tusk review-check-perms) || { echo "Agent review aborted: $REVIEW_PERM_CHECK"; tusk skill-run cancel <run_id>; exit 1; }
 ```
 
-On success the command prints `OK` and exits 0. On failure it prints a single `MISSING: …` line (either `not found on disk or in HEAD`, a JSON/shape error, or a comma-separated list of missing `permissions.allow` entries), cancels the skill run to avoid an orphan pending row, and exits 1. When the check fails, surface to the user:
-> Agent review aborted: `<captured MISSING: line>`. Create `.claude/settings.json` or add the missing entries manually, or run `tusk upgrade` to apply them, then restart the session.
+On success the command prints `OK` and exits 0. There are two distinct failure shapes, both of which cancel the skill run to avoid an orphan pending row:
+> - **`MISSING: …` / exit 1** — the db-derived `.claude/settings.json` is absent (`not found on disk or in HEAD`), malformed (a JSON/shape error), or is missing required `permissions.allow` entries (a comma-separated list).
+> - **`MISMATCH: …` / exit 2** — the invoking CWD is a git-worktree subdirectory whose CWD-derived `.claude/settings.json` (the file a spawned subagent actually inherits) is absent or lacks a required permission, even though the db-derived file validated (issue #1091). The line names both settings files.
+>
+> The `|| { … }` capture-and-abort above routes **any** non-zero exit identically — both `MISSING`/exit-1 and `MISMATCH`/exit-2 abort the agent path the same way. When the check fails, surface the captured line to the user:
+> Agent review aborted: `<captured MISSING or MISMATCH line>`. Create `.claude/settings.json` or add the missing entries manually (for a MISMATCH, in the CWD project root that owns the worktree, or run review from the project root that owns `.claude/settings.json`), or run `tusk upgrade` to apply them, then restart the session.
 
 Proceed to spawn the agent only if the check prints `OK`.
 
@@ -406,8 +410,8 @@ Otherwise, loop while `can_retry` is true:
    REVIEW_PERM_CHECK=$(tusk review-check-perms) || { echo "Re-review agent aborted: $REVIEW_PERM_CHECK"; exit 1; }
    ```
 
-   On failure the command prints a single `MISSING: …` line and exits 1. When the check fails, surface to the user:
-   > Re-review agent aborted: `<captured MISSING: line>`. Create `.claude/settings.json` or add the missing entries manually, or run `tusk upgrade` to apply them, then restart the session.
+   On failure the command prints one of two lines: a `MISSING: …` line and exit 1 (db-derived `.claude/settings.json` absent, malformed, or short the required `permissions.allow` entries), or a `MISMATCH: …` line and exit 2 (the invoking CWD is a git-worktree subdirectory whose CWD-derived `.claude/settings.json` — the file a spawned subagent inherits — is absent or lacks a required permission, even though the db-derived file validated; issue #1091). The `|| { … }` capture-and-abort above routes **any** non-zero exit identically — both `MISSING`/exit-1 and `MISMATCH`/exit-2 abort the re-review agent path the same way. When the check fails, surface the captured line to the user:
+   > Re-review agent aborted: `<captured MISSING or MISMATCH line>`. Create `.claude/settings.json` or add the missing entries manually (for a MISMATCH, in the CWD project root that owns the worktree, or run review from the project root that owns `.claude/settings.json`), or run `tusk upgrade` to apply them, then restart the session.
 
    Proceed to spawn the re-review agent only if the check prints `OK`. The re-review agent fetches the diff itself — no diff is passed inline. Refresh the cost-attribution anchors before spawning so Step 6's "Apply agent cost" block can correct this pass's row too:
 
