@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1171] - 2026-06-18
+
+- [TASK-675] Fix: tusk scope add validates path existence against worktree base, not primary checkout
+
 ## [1170] - 2026-06-18
 
 - [TASK-674] Warn when changelog-add lands a version more than 1 ahead of origin default
