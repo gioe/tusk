@@ -52,9 +52,11 @@ def mod():
     return _load_module()
 
 
-def _classify(mod, exit_code, stderr, decision=None):
+def _classify(mod, exit_code, stderr, decision=None, effective_first_token=""):
     """Convenience wrapper around classify_post_sandbox for assertion-heavy tests."""
-    return mod.classify_post_sandbox(exit_code, stderr, decision)
+    return mod.classify_post_sandbox(
+        exit_code, stderr, decision, effective_first_token
+    )
 
 
 # ─── Effective first-token resolution ───────────────────────────────────────
@@ -129,7 +131,13 @@ class TestClassifyMalformed:
     """Step 4.1.c — malformed spec branch (command not found / syntax error)."""
 
     def test_bash_command_not_found(self, mod):
-        result = _classify(mod, 127, "bash: definitely-fake: command not found")
+        # The missing token IS the spec's own effective first command, so the
+        # spec is genuinely malformed (issue #1114 only reroutes a DOWNSTREAM
+        # tool to environmental).
+        result = _classify(
+            mod, 127, "bash: definitely-fake: command not found",
+            effective_first_token="definitely-fake",
+        )
         assert result["action"] == "discard"
         assert result["test_present"] == "no"
         assert "malformed" in result["reason"]
@@ -139,12 +147,94 @@ class TestClassifyMalformed:
         assert result["action"] == "discard"
         assert result["test_present"] == "no"
 
+    def test_syntax_error_stays_malformed_regardless_of_token(self, mod):
+        # A syntax error is unambiguously malformed even when an unrelated
+        # downstream token would otherwise look environmental.
+        result = _classify(
+            mod, 2,
+            "bash: tusk: command not found\nbash: -c: line 2: syntax error near unexpected token `)'",
+            effective_first_token="cp",
+        )
+        assert result["action"] == "discard"
+        assert result["test_present"] == "no"
+        assert "malformed" in result["reason"]
+
     def test_127_unrecognized_stderr_routes_to_malformed(self, mod):
         # 126/127 + stderr matching neither environmental NSFOD nor explicit
         # command-not-found is treated as malformed per Step 4.1.c.
         result = _classify(mod, 127, "bash: pytest: Permission denied")
         assert result["action"] == "discard"
         assert result["test_present"] == "no"
+
+    def test_command_not_found_unparseable_token_stays_malformed(self, mod):
+        # "command not found" present but no token recoverable from the line —
+        # fall back to malformed, preserving the historic behaviour.
+        result = _classify(mod, 1, "command not found")
+        assert result["action"] == "discard"
+        assert result["test_present"] == "no"
+
+
+class TestClassifyCommandNotFoundEnvironmental:
+    """Issue #1114 regression — a `command not found` naming a downstream
+    project tool the sandbox stripped from PATH is environmental, not malformed.
+
+    The Step 4.1 sandbox runs under `env -i PATH=/usr/bin:/bin`, which removes
+    `tusk` and every project-installed binary. A reproducer that runs an on-PATH
+    command first (e.g. `cp`) and then drives `tusk` therefore emits
+    `bash: tusk: command not found`, but the spec itself is sound — the missing
+    token is a project tool unreachable from the sandbox, the same epistemic
+    situation as the Step 4.1.a fast-path skip.
+    """
+
+    def test_downstream_tool_off_path_is_environmental(self, mod):
+        # The #1114 scenario: effective first token `cp` ran (on-PATH), the
+        # downstream `tusk` is missing.
+        result = _classify(
+            mod, 1, "bash: tusk: command not found",
+            effective_first_token="cp",
+        )
+        assert result["action"] == "null"
+        assert result["test_present"] == "unverifiable"
+        assert "environmental" in result["reason"]
+        assert "tusk" in result["reason"]
+
+    def test_line_number_prefixed_form_extracts_token(self, mod):
+        result = _classify(
+            mod, 1, "bash: line 2: pytest: command not found",
+            effective_first_token="cp",
+        )
+        assert result["action"] == "null"
+        assert result["test_present"] == "unverifiable"
+        assert "pytest" in result["reason"]
+
+    def test_zsh_token_after_phrase_extracts_token(self, mod):
+        result = _classify(
+            mod, 1, "zsh: command not found: tusk",
+            effective_first_token="cp",
+        )
+        assert result["action"] == "null"
+        assert result["test_present"] == "unverifiable"
+        assert "tusk" in result["reason"]
+
+    def test_token_equal_to_effective_first_token_is_malformed(self, mod):
+        # When the missing token IS the spec's own first command, it is genuinely
+        # malformed — not the downstream-tool case.
+        result = _classify(
+            mod, 127, "bash: tusk: command not found",
+            effective_first_token="tusk",
+        )
+        assert result["action"] == "discard"
+        assert result["test_present"] == "no"
+        assert "malformed" in result["reason"]
+
+    def test_extract_command_not_found_token(self, mod):
+        f = mod._extract_command_not_found_token
+        assert f("bash: tusk: command not found") == "tusk"
+        assert f("bash: line 2: tusk: command not found") == "tusk"
+        assert f("tusk: command not found") == "tusk"
+        assert f("zsh: command not found: tusk") == "tusk"
+        assert f("no command-not-found line here") is None
+        assert f("") is None
 
 
 class TestClassifyEnvironmental126127:
@@ -397,6 +487,28 @@ class TestCLI:
         assert result["test_present"] == "unverifiable"
         assert "environmental" in result["reason"]
         assert "grep" in result["reason"]
+
+    def test_post_sandbox_command_not_found_downstream_tool_issue_1114(self):
+        # Issue #1114 reproducer end-to-end through the dispatcher: a throwaway-DB
+        # spec whose effective first token `cp` is on-PATH but whose downstream
+        # `tusk` is stripped by the sandbox must classify as environmental
+        # (unverifiable), not malformed.
+        out = subprocess.check_output(
+            [
+                TUSK, "address-issue", "classify-spec",
+                "--spec",
+                "cp /tmp/live.db /tmp/x.db && tusk criteria finish-deferred --reason chain 1",
+                "--sandbox-exit", "1",
+                "--sandbox-stderr", "bash: tusk: command not found",
+            ],
+            encoding="utf-8",
+        )
+        result = json.loads(out)
+        assert result["action"] == "null"
+        assert result["test_present"] == "unverifiable"
+        assert result["effective_first_token"] == "cp"
+        assert "environmental" in result["reason"]
+        assert "tusk" in result["reason"]
 
     def test_post_sandbox_python_dash_m_task_314(self, tmp_path):
         # TASK-314 reproducer end-to-end: python3 -m pytest exits 1 with

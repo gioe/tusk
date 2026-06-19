@@ -222,10 +222,38 @@ def _extract_wrapper_match(stderr: str):
     return None
 
 
-def _has_malformed_signature(stderr: str) -> bool:
-    """True iff stderr contains the canonical malformed-spec markers."""
-    s = stderr.lower()
-    return ("command not found" in s) or ("syntax error" in s)
+# `command not found` token recognisers. The bash sandbox emits
+# `bash: <token>: command not found` (optionally with a `line N:` segment);
+# some shells emit the token after the phrase (`zsh: command not found: <token>`).
+# The "after" form is checked first so the zsh ordering does not mis-capture
+# the shell name from the "before" pattern.
+_CNF_TOKEN_AFTER_RE = re.compile(
+    r"command not found:\s*(?P<token>\S+)", re.IGNORECASE
+)
+_CNF_TOKEN_BEFORE_RE = re.compile(
+    r"(?P<token>[^\s:]+):\s*command not found", re.IGNORECASE
+)
+
+
+def _extract_command_not_found_token(stderr: str):
+    """Return the missing command name from a `command not found` stderr line,
+    or None when no such line is present.
+
+    Handles the common shell phrasings:
+      bash: tusk: command not found
+      bash: line 2: tusk: command not found   -> tusk
+      tusk: command not found                  -> tusk
+      zsh: command not found: tusk             -> tusk
+    """
+    if not stderr:
+        return None
+    m = _CNF_TOKEN_AFTER_RE.search(stderr)
+    if m:
+        return m.group("token")
+    m = _CNF_TOKEN_BEFORE_RE.search(stderr)
+    if m:
+        return m.group("token")
+    return None
 
 
 def _first_line(text: str) -> str:
@@ -244,10 +272,17 @@ def classify_post_sandbox(
     sandbox_exit: int,
     sandbox_stderr: str,
     exit_zero_decision: str | None,
+    effective_first_token: str = "",
 ) -> dict:
     """Return {action, test_present, reason} given sandbox results. The
     caller layers `effective_first_token` and `on_path` onto the dict before
     emitting it.
+
+    `effective_first_token` is the spec's resolved first command (the same value
+    the caller layers onto the result). It is consumed by the `command not found`
+    branch to tell a genuinely malformed spec (the spec's own command is
+    missing) apart from the issue #1114 environmental case (a downstream project
+    tool the sandbox stripped from PATH).
 
     Branch order is significant: language-specific interpreter-wrapper-bypass
     signatures are checked before the generic `<tool>: ... No such file or
@@ -280,8 +315,40 @@ def classify_post_sandbox(
             ),
         }
 
-    # Malformed: explicit "command not found" / "syntax error" anywhere in stderr.
-    if _has_malformed_signature(stderr):
+    lower = stderr.lower()
+
+    # Syntax error — an unambiguously broken spec regardless of exit code or
+    # which token names it.
+    if "syntax error" in lower:
+        return {
+            "action": "discard",
+            "test_present": "no",
+            "reason": f"malformed spec: {_first_line(stderr)}",
+        }
+
+    # `command not found` — malformed ONLY when the missing token is the spec's
+    # own effective first command. When it names a downstream tool that the
+    # sandbox stripped from PATH (issue #1114 — e.g. a project `tusk`/`pytest`
+    # invoked after an on-PATH command like `cp`), the sandbox merely removed a
+    # project binary, exactly like the Step 4.1.a fast-path skip: environmental,
+    # not malformed. A "command not found" whose token cannot be parsed falls
+    # back to malformed (preserving the historic behaviour).
+    if "command not found" in lower:
+        cnf_token = _extract_command_not_found_token(stderr)
+        if (
+            cnf_token
+            and cnf_token != effective_first_token
+            and not is_on_sandbox_path(cnf_token)
+        ):
+            return {
+                "action": "null",
+                "test_present": "unverifiable",
+                "reason": (
+                    f"environmental: 'command not found' names downstream tool "
+                    f"'{cnf_token}' off sandbox PATH, not the effective first "
+                    f"token '{effective_first_token}'"
+                ),
+            }
         return {
             "action": "discard",
             "test_present": "no",
@@ -496,6 +563,7 @@ def cmd_classify_spec(argv) -> int:
 
     classification = classify_post_sandbox(
         args.sandbox_exit, sandbox_stderr or "", args.exit_zero_decision,
+        effective_first_token,
     )
     classification["effective_first_token"] = effective_first_token
     classification["on_path"] = on_path
