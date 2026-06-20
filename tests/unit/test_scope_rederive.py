@@ -54,7 +54,8 @@ def _make_conn():
             id INTEGER PRIMARY KEY,
             summary TEXT,
             description TEXT,
-            task_type TEXT
+            task_type TEXT,
+            status TEXT DEFAULT 'To Do'
         );
         CREATE TABLE task_scope (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -163,6 +164,8 @@ def test_cmd_rederive_emits_removed_added_preserved(monkeypatch, capsys):
 
     class _Args:
         task_id = "1"
+        all = False
+        include_closed = False
 
     rc = scope_mod.cmd_rederive(_Args(), ":memory:", "/repo/tusk/config.json")
     assert rc == 0
@@ -182,10 +185,115 @@ def test_cmd_rederive_unknown_task_exits_1(monkeypatch, capsys):
 
     class _Args:
         task_id = "999"
+        all = False
+        include_closed = False
 
     with pytest.raises(SystemExit) as exc:
         scope_mod.cmd_rederive(_Args(), ":memory:", "/repo/tusk/config.json")
     assert exc.value.code == 1
+
+
+def _seed_bulk(conn):
+    """Three tasks: two open (one with a phantom auto row), one Done.
+
+    Each open task gets a phantom auto_derived row plus an operator_declared row
+    so the bulk rebuild has something to remove and something to preserve.
+    """
+    for tid, status in ((1, "To Do"), (2, "In Progress"), (3, "Done")):
+        conn.execute(
+            "INSERT INTO tasks (id, summary, description, task_type, status) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (tid, f"Touch the {DERIVED} file", f"This edits {DERIVED}.", "feature", status),
+        )
+        _add_scope(conn, tid, PHANTOM, "auto_derived")
+        _add_scope(conn, tid, "custom/op.py", "operator_declared")
+    conn.commit()
+
+
+def test_cmd_rederive_all_processes_open_tasks(monkeypatch, capsys):
+    conn = _make_conn()
+    _seed_bulk(conn)
+    _patch_derivation(monkeypatch)
+    monkeypatch.setattr(scope_mod, "get_connection", lambda db_path: conn)
+
+    class _Args:
+        task_id = None
+        all = True
+        include_closed = False
+
+    rc = scope_mod.cmd_rederive(_Args(), ":memory:", "/repo/tusk/config.json")
+    assert rc == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    # Default = open tasks only: task 3 (Done) is excluded.
+    assert payload["all"] is True
+    assert payload["include_closed"] is False
+    assert payload["tasks_processed"] == 2
+    assert payload["tasks_changed"] == 2
+    assert [r["task_id"] for r in payload["results"]] == [1, 2]
+
+    # Each per-task result carries the removed/added/preserved diff, and the
+    # rebuild rewrote auto_derived rows while preserving operator_declared rows.
+    for r in payload["results"]:
+        assert r["removed"] == [PHANTOM]
+        assert r["added"] == [DERIVED]
+        assert r["auto_derived"] == [DERIVED]
+        assert {(p["pattern"], p["source"]) for p in r["preserved"]} == {
+            ("custom/op.py", "operator_declared")
+        }
+
+    # The Done task's rows were left untouched (not iterated).
+    assert {r["pattern"] for r in conn.execute(
+        "SELECT pattern FROM task_scope WHERE task_id = 3 AND source = 'auto_derived'"
+    ).fetchall()} == {PHANTOM}
+
+
+def test_cmd_rederive_all_include_closed_processes_done(monkeypatch, capsys):
+    conn = _make_conn()
+    _seed_bulk(conn)
+    _patch_derivation(monkeypatch)
+    monkeypatch.setattr(scope_mod, "get_connection", lambda db_path: conn)
+
+    class _Args:
+        task_id = None
+        all = True
+        include_closed = True
+
+    rc = scope_mod.cmd_rederive(_Args(), ":memory:", "/repo/tusk/config.json")
+    assert rc == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["include_closed"] is True
+    assert payload["tasks_processed"] == 3
+    assert [r["task_id"] for r in payload["results"]] == [1, 2, 3]
+
+
+def test_cmd_rederive_all_and_task_id_exits_2(monkeypatch, capsys):
+    conn = _make_conn()
+    monkeypatch.setattr(scope_mod, "get_connection", lambda db_path: conn)
+
+    class _Args:
+        task_id = "1"
+        all = True
+        include_closed = False
+
+    rc = scope_mod.cmd_rederive(_Args(), ":memory:", "/repo/tusk/config.json")
+    assert rc == 2
+    assert "not both" in capsys.readouterr().err
+
+
+def test_cmd_rederive_neither_exits_1(monkeypatch, capsys):
+    conn = _make_conn()
+    monkeypatch.setattr(scope_mod, "get_connection", lambda db_path: conn)
+
+    class _Args:
+        task_id = None
+        all = False
+        include_closed = False
+
+    rc = scope_mod.cmd_rederive(_Args(), ":memory:", "/repo/tusk/config.json")
+    assert rc == 1
+    assert "task_id or --all" in capsys.readouterr().err
 
 
 def test_rederive_clears_missing_scope_path_warning(monkeypatch):
