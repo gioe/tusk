@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1184] - 2026-06-20
+
+- [TASK-689] Wire tusk scope rederive --all into /groom-backlog as an auto-cleanup pass
+
 ## [1183] - 2026-06-20
 
 - [TASK-688] Add bulk scope rederive (--all) to clean up stale auto_derived rows fleet-wide
