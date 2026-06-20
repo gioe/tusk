@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1178] - 2026-06-19
+
+- [TASK-683] Fix: review-commits silent-completion branch should fall back to inline review, not auto-approve-empty (issue #1115)
+
 ## [1177] - 2026-06-19
 
 - [TASK-682] Fix: review-commits watchdog-kill & stall branches should fall back to inline review, not auto-approve-empty
