@@ -633,8 +633,19 @@ class TestTaskUpdateWorkflow:
         conn.commit()
         conn.close()
 
+        # This test's subject is the re-derive *replace* behavior (a
+        # summary/description update rebuilds auto_derived rows). subprocess.run
+        # is mocked here, so the tracked-path validator (issue #1116) cannot
+        # reach git and would drop every derived path; stub it to True so the
+        # replace logic stays exercised. The validator itself is covered by
+        # tests/unit/test_scope_derive_tracked_path.py.
         with redirect_stdout(StringIO()), redirect_stderr(StringIO()), \
-             patch("subprocess.run"):
+             patch("subprocess.run"), \
+             patch.object(
+                 update_mod._git_helpers,
+                 "is_trackable_scope_pattern",
+                 return_value=True,
+             ):
             result = update_mod.main([
                 db_path,
                 config_path,
