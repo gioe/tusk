@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1181] - 2026-06-20
+
+- [TASK-686] Fix: validate scope auto-derivation against tracked paths so untracked issue-body paths are dropped
+
 ## [1180] - 2026-06-19
 
 - [TASK-685] Fix: conventions inject is silent on no-match; map test-file paths to topics
