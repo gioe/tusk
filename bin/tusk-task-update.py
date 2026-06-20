@@ -104,6 +104,11 @@ def _rederive_auto_scope(
             if _task_insert.is_prose_identifier_path(path, repo_root):
                 continue
             resolved = _task_insert._resolve_auto_derived_scope_pattern(repo_root, path)
+            # Drop foreign description paths that name no tracked file and live
+            # under no existing tracked tree, mirroring the insert-side guard so
+            # re-derivation stays consistent with first derivation (issue #1116).
+            if not _git_helpers.is_trackable_scope_pattern(repo_root, resolved):
+                continue
             if resolved in explicit_patterns or resolved in seen_auto:
                 continue
             seen_auto.add(resolved)
