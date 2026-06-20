@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1183] - 2026-06-20
+
+- [TASK-688] Add bulk scope rederive (--all) to clean up stale auto_derived rows fleet-wide
+
 ## [1182] - 2026-06-20
 
 - [TASK-687] Add `tusk scope rederive <task_id>` to recompute a task's auto_derived scope rows on demand — rebuilds them from the current summary/description/criteria while preserving operator_declared/creates/unbounded rows, clearing stale missing_scope_path warnings without a description edit (issue #1118)
