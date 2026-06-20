@@ -38,6 +38,30 @@ Use `gh` to fetch the issue. Detect the repo from the argument:
 gh issue view <number> --repo <owner/repo> --json number,title,body,labels,comments,state
 ```
 
+### REST fallback for transient GraphQL HTTP 401 (issue #1055)
+
+`gh issue view --json` routes through GitHub's **GraphQL** API, which intermittently rejects keyring-sourced tokens with `HTTP 401: Requires authentication (https://api.github.com/graphql)` even when `gh auth status` shows a valid login and the immediately preceding `gh issue list` succeeded. The REST API accepts the same token without issue.
+
+When `gh issue view` exits non-zero **and** its stderr contains an HTTP 401 mentioning `api.github.com/graphql`, retry via the REST endpoints instead of stopping:
+
+```bash
+gh api repos/<owner>/<repo>/issues/<number>
+gh api repos/<owner>/<repo>/issues/<number>/comments
+```
+
+Map the REST fields onto what the rest of the skill consumes:
+
+| Skill field | REST source |
+|-------------|-------------|
+| `number` | `.number` (from the issue endpoint) |
+| `title` | `.title` |
+| `state` | `.state` (REST returns lowercase `open`/`closed` — uppercase it before the Step 2 closed-state check that compares against `"CLOSED"`) |
+| `labels[].name` | `.labels[].name` |
+| `body` | `.body` |
+| `comments` | the `/comments` array (each element's `.body`, `.user.login`) |
+
+Only fall back on this specific GraphQL 401 signature. For other failures (404 not found, network errors, auth genuinely missing), surface the error and stop as usual.
+
 If the issue is already closed (`state: "CLOSED"`), warn the user:
 
 > Issue #<N> is already closed. Do you still want to create a task for it?
