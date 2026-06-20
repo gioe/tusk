@@ -407,6 +407,64 @@ def _auto_derived_patterns(conn: sqlite3.Connection, task_id: int) -> set:
     return {r["pattern"] for r in rows}
 
 
+def _rederive_one(conn: sqlite3.Connection, task_id: int, config_path: str) -> dict:
+    """Rebuild one task's ``auto_derived`` rows and return its removed/added diff.
+
+    The single shared per-task path for both ``scope rederive <task_id>`` and
+    ``scope rederive --all``: it deletes and rebuilds the task's
+    ``auto_derived`` rows via ``_rederive_auto_scope`` while leaving
+    ``operator_declared`` / ``creates`` / ``unbounded`` rows untouched, and
+    returns the JSON-serializable per-task summary. The caller owns the
+    transaction (so the bulk path can commit per task)."""
+    before = _auto_derived_patterns(conn, task_id)
+    preserved = conn.execute(
+        "SELECT id, pattern, source FROM task_scope "
+        "WHERE task_id = ? AND source <> 'auto_derived' ORDER BY id",
+        (task_id,),
+    ).fetchall()
+    rederive_auto_scope(conn, task_id, config_path)
+    after = _auto_derived_patterns(conn, task_id)
+    return {
+        "task_id": task_id,
+        "removed": sorted(before - after),
+        "added": sorted(after - before),
+        "auto_derived": sorted(after),
+        "preserved": [_row_to_dict(r) for r in preserved],
+    }
+
+
+def _cmd_rederive_all(args: argparse.Namespace, db_path: str, config_path: str) -> int:
+    """Rebuild ``auto_derived`` scope rows across many tasks in one call.
+
+    The bulk variant of ``cmd_rederive``: iterates every open task (or every
+    task with ``--include-closed``) and runs the same ``_rederive_one`` path the
+    single-task command uses, committing per task so a failure partway through
+    keeps prior progress. Emits a per-task removed/added/preserved summary plus a
+    processed/changed rollup.
+    """
+    with get_connection(db_path) as conn:
+        if args.include_closed:
+            rows = conn.execute("SELECT id FROM tasks ORDER BY id").fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id FROM tasks WHERE status <> 'Done' ORDER BY id"
+            ).fetchall()
+        results = []
+        for row in rows:
+            results.append(_rederive_one(conn, row["id"], config_path))
+            conn.commit()
+
+    changed = [r for r in results if r["removed"] or r["added"]]
+    print(dumps({
+        "all": True,
+        "include_closed": bool(args.include_closed),
+        "tasks_processed": len(results),
+        "tasks_changed": len(changed),
+        "results": results,
+    }))
+    return 0
+
+
 def cmd_rederive(args: argparse.Namespace, db_path: str, config_path: str) -> int:
     """Recompute a task's ``auto_derived`` scope rows from its current text.
 
@@ -417,27 +475,29 @@ def cmd_rederive(args: argparse.Namespace, db_path: str, config_path: str) -> in
     description (which the shell-metacharacter guard blocks for issue-sourced
     text). ``operator_declared``, ``creates``, and ``unbounded`` rows are left
     untouched — only ``auto_derived`` rows are deleted and rebuilt.
+
+    Pass ``--all`` (mutually exclusive with a positional ``task_id``) to rebuild
+    every open task fleet-wide; see ``_cmd_rederive_all``.
     """
+    if args.all and args.task_id is not None:
+        print(
+            "Error: pass either a task_id or --all, not both",
+            file=sys.stderr,
+        )
+        return 2
+    if not args.all and args.task_id is None:
+        print("Error: provide a task_id or --all", file=sys.stderr)
+        return 1
+    if args.all:
+        return _cmd_rederive_all(args, db_path, config_path)
+
     task_id = _parse_task_id(args.task_id)
     with get_connection(db_path) as conn:
         _ensure_task_exists(conn, task_id)
-        before = _auto_derived_patterns(conn, task_id)
-        preserved = conn.execute(
-            "SELECT id, pattern, source FROM task_scope "
-            "WHERE task_id = ? AND source <> 'auto_derived' ORDER BY id",
-            (task_id,),
-        ).fetchall()
-        rederive_auto_scope(conn, task_id, config_path)
+        result = _rederive_one(conn, task_id, config_path)
         conn.commit()
-        after = _auto_derived_patterns(conn, task_id)
 
-    print(dumps({
-        "task_id": task_id,
-        "removed": sorted(before - after),
-        "added": sorted(after - before),
-        "auto_derived": sorted(after),
-        "preserved": [_row_to_dict(r) for r in preserved],
-    }))
+    print(dumps(result))
     return 0
 
 
@@ -499,10 +559,21 @@ def main(argv: list) -> int:
         help=(
             "Recompute auto_derived scope rows from the task's current "
             "summary/description/criteria (preserves operator_declared/"
-            "creates/unbounded rows)"
+            "creates/unbounded rows). Pass --all to rebuild every open task "
+            "fleet-wide instead of a single task_id."
         ),
     )
-    p_rederive.add_argument("task_id")
+    p_rederive.add_argument("task_id", nargs="?", default=None)
+    p_rederive.add_argument(
+        "--all",
+        action="store_true",
+        help="Rebuild auto_derived rows for every open task (mutually exclusive with task_id)",
+    )
+    p_rederive.add_argument(
+        "--include-closed",
+        action="store_true",
+        help="With --all, also process Done tasks (default: open tasks only)",
+    )
 
     args = parser.parse_args(argv[3:])
 
