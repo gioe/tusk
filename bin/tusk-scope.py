@@ -36,12 +36,16 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader  # loads tusk-db-lib.py and tusk-json-lib.py
+import tusk_loader  # loads tusk-db-lib.py, tusk-json-lib.py, and tusk-task-update.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
+_task_update = tusk_loader.load("tusk-task-update")
 get_connection = _db_lib.get_connection
 dumps = _json_lib.dumps
+# Reuse the same auto_derived rebuild path task-update runs on a summary or
+# description edit, so `scope rederive` and an inline edit stay consistent.
+rederive_auto_scope = _task_update._rederive_auto_scope
 
 
 VALID_SOURCES_ADD = ("expanded_mid_task", "operator_declared", "creates")
@@ -394,10 +398,53 @@ def cmd_remove(args: argparse.Namespace, db_path: str) -> int:
     return 0
 
 
+def _auto_derived_patterns(conn: sqlite3.Connection, task_id: int) -> set:
+    rows = conn.execute(
+        "SELECT pattern FROM task_scope "
+        "WHERE task_id = ? AND source = 'auto_derived'",
+        (task_id,),
+    ).fetchall()
+    return {r["pattern"] for r in rows}
+
+
+def cmd_rederive(args: argparse.Namespace, db_path: str, config_path: str) -> int:
+    """Recompute a task's ``auto_derived`` scope rows from its current text.
+
+    Re-runs the same ``_rederive_auto_scope`` path ``tusk task-update`` runs on
+    a summary/description edit, but on demand — so operators can clean up stale
+    auto_derived rows (and the spurious ``missing_scope_path`` warnings they
+    produce) after the derivation logic changes, without editing the
+    description (which the shell-metacharacter guard blocks for issue-sourced
+    text). ``operator_declared``, ``creates``, and ``unbounded`` rows are left
+    untouched — only ``auto_derived`` rows are deleted and rebuilt.
+    """
+    task_id = _parse_task_id(args.task_id)
+    with get_connection(db_path) as conn:
+        _ensure_task_exists(conn, task_id)
+        before = _auto_derived_patterns(conn, task_id)
+        preserved = conn.execute(
+            "SELECT id, pattern, source FROM task_scope "
+            "WHERE task_id = ? AND source <> 'auto_derived' ORDER BY id",
+            (task_id,),
+        ).fetchall()
+        rederive_auto_scope(conn, task_id, config_path)
+        conn.commit()
+        after = _auto_derived_patterns(conn, task_id)
+
+    print(dumps({
+        "task_id": task_id,
+        "removed": sorted(before - after),
+        "added": sorted(after - before),
+        "auto_derived": sorted(after),
+        "preserved": [_row_to_dict(r) for r in preserved],
+    }))
+    return 0
+
+
 def main(argv: list) -> int:
     if len(argv) < 3:
         print(
-            "Usage: tusk-scope.py <db_path> <config_path> <list|add|remove|lock> ...",
+            "Usage: tusk-scope.py <db_path> <config_path> <list|add|remove|lock|rederive> ...",
             file=sys.stderr,
         )
         return 1
@@ -405,8 +452,11 @@ def main(argv: list) -> int:
     db_path = argv[1]
     # argv[2] is the primary checkout's config path (the shared-config
     # invariant). Scope existence checks resolve against the worktree the
-    # command runs in via _worktree_root(), so the config path is no longer
-    # consumed for path resolution (issue #1099).
+    # command runs in via _worktree_root(), so the config path is not consumed
+    # for path resolution (issue #1099) — but `rederive` does pass it through to
+    # _rederive_auto_scope, which resolves the repo root from it to derive
+    # candidate paths.
+    config_path = argv[2]
 
     parser = argparse.ArgumentParser(allow_abbrev=False, prog="tusk scope", description="Manage task scope")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -444,6 +494,16 @@ def main(argv: list) -> int:
     )
     p_remove.add_argument("row_id")
 
+    p_rederive = sub.add_parser(
+        "rederive", allow_abbrev=False,
+        help=(
+            "Recompute auto_derived scope rows from the task's current "
+            "summary/description/criteria (preserves operator_declared/"
+            "creates/unbounded rows)"
+        ),
+    )
+    p_rederive.add_argument("task_id")
+
     args = parser.parse_args(argv[3:])
 
     # Catch-all so an uncaught exception (e.g. a transient "database is locked"
@@ -462,6 +522,8 @@ def main(argv: list) -> int:
             return cmd_remove(args, db_path)
         if args.cmd == "lock":
             return cmd_lock(args, db_path)
+        if args.cmd == "rederive":
+            return cmd_rederive(args, db_path, config_path)
 
         parser.print_help(sys.stderr)
         return 1
