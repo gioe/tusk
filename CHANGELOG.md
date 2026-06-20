@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1182] - 2026-06-20
+
+- [TASK-687] Add `tusk scope rederive <task_id>` to recompute a task's auto_derived scope rows on demand — rebuilds them from the current summary/description/criteria while preserving operator_declared/creates/unbounded rows, clearing stale missing_scope_path warnings without a description edit (issue #1118)
+
 ## [1181] - 2026-06-20
 
 - [TASK-686] Fix: validate scope auto-derivation against tracked paths so untracked issue-body paths are dropped
