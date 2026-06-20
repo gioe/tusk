@@ -1143,6 +1143,16 @@ def main(argv: list[str]) -> int:
                     # is preserved via the explicit_patterns short-circuit below.
                     if resolved in _git_helpers.SCOPE_DERIVE_BOOKKEEPING_DENYLIST:
                         continue
+                    # Drop description/issue-body paths that name no tracked file
+                    # and live under no existing tracked tree (e.g. consumer-repo
+                    # paths quoted in a GitHub issue body). Applies the same
+                    # tracked-path validation the worktree cone derivation uses
+                    # (issue #1044) so the scope table and the cone no longer
+                    # diverge into phantom auto_derived rows (issue #1116).
+                    if not _git_helpers.is_trackable_scope_pattern(
+                        repo_root, resolved
+                    ):
+                        continue
                     if resolved in explicit_patterns or resolved in seen_auto:
                         continue
                     seen_auto.add(resolved)

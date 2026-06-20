@@ -650,6 +650,56 @@ def is_prose_identifier_path(path: str | None, repo_root: str | None = None) -> 
     return any(re.fullmatch(r"\d+(?:\.\d+)+", part) for part in parts[1:])
 
 
+def is_trackable_scope_pattern(repo_root: str | None, pattern: str | None) -> bool:
+    """Return True when an auto-derived scope pattern names a real repo path or
+    a plausible new file under an existing tracked tree.
+
+    Mirrors the tracked-path validation the worktree cone derivation applies
+    (issue #1044, ``_validate_referenced_cone`` in tusk-task-worktree.py): a
+    multi-segment description/issue-body path that names no tracked file AND
+    whose top-level segment is not an existing repo entry (e.g. a consumer-repo
+    path like ``apps/web/ui/pages/entity/podcast/index.test.tsx`` quoted in an
+    issue body) is a foreign path and must NOT become a phantom ``auto_derived``
+    ``task_scope`` row (issue #1116). Before this check the scope-table
+    derivation diverged from the cone: the cone dropped these paths while the
+    scope table kept them, producing spurious ``missing_scope_path``
+    context_health_warnings.
+
+    Kept (returns True):
+    - a tracked/on-disk path (``path_exists_in_repo``);
+    - a single-segment top-level entry (a new top-level file the task creates,
+      e.g. ``NEWDOC.md``) — explicitly named, not a foreign multi-segment path;
+    - a multi-segment path whose top-level segment is an existing repo entry
+      (a plausible new file under an existing tree, e.g. a new
+      ``tests/unit/test_*.py``), matching the cone's "first segment exists at
+      root" preservation rule.
+
+    Dropped (returns False): a multi-segment path whose top-level segment does
+    not exist in the repo.
+
+    When ``repo_root`` is falsy the path cannot be validated, so the pattern is
+    kept (no validation) — matching ``_validate_referenced_cone``'s behavior
+    when ``git ls-tree`` is unavailable.
+    """
+    if not repo_root or not pattern:
+        return True
+    raw = pattern.strip()
+    if not raw:
+        return True
+    # A trailing-slash directory reference resolves to ``<dir>/**``; validate
+    # the directory portion, not the glob.
+    base = raw[:-3] if raw.endswith("/**") else raw
+    base = base.rstrip("/")
+    if not base:
+        return True
+    if path_exists_in_repo(repo_root, base):
+        return True
+    if "/" not in base:
+        return True
+    top = base.split("/", 1)[0]
+    return path_exists_in_repo(repo_root, top)
+
+
 # Regex to extract bare-basename file-like tokens (basename with multi-char
 # extension) that did NOT match _PATH_RE — i.e. no directory prefix and not
 # in the whitelist. The extension must be at least 2 chars to exclude
