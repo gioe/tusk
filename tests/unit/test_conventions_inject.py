@@ -123,6 +123,32 @@ class TestDeriveTopics:
         assert "testing" in topics
         assert "python" in topics
 
+    def test_test_tsx_returns_vitest_testing_mocking(self):
+        """Issue #1053: a *.test.tsx file derives the vitest test topics so
+        topic-tagged conventions surface for it.
+        """
+        topics = derive_topics("apps/web/ui/pages/entity/podcast/index.test.tsx")
+        assert "vitest" in topics
+        assert "testing" in topics
+        assert "mocking" in topics
+
+    def test_spec_ts_returns_vitest_topics(self):
+        topics = derive_topics("src/util.spec.ts")
+        assert "vitest" in topics
+        assert "testing" in topics
+        assert "mocking" in topics
+
+    def test_test_js_and_mts_siblings_match(self):
+        for path in ("foo.test.js", "bar.test.jsx", "baz.spec.mts", "qux.test.cjs"):
+            topics = derive_topics(path)
+            assert "vitest" in topics, path
+            assert "testing" in topics, path
+
+    def test_plain_tsx_is_not_a_test_file(self):
+        """A non-test .tsx component must NOT pick up the vitest topics."""
+        topics = derive_topics("apps/web/ui/components/Button.tsx")
+        assert topics == []
+
     def test_result_is_sorted(self):
         topics = derive_topics("skills/foo/SKILL.md")
         assert topics == sorted(topics)
@@ -149,18 +175,57 @@ class TestCmdInject:
         assert rc == 0
         assert "testing rule" in out
 
-    def test_unrecognized_path_exits_0_with_empty_output(self):
+    def test_test_tsx_surfaces_vitest_convention(self):
+        """Issue #1053 end-to-end: a *.test.tsx path injects a vitest-tagged
+        convention that was previously lost to the silent empty result.
+        """
+        conn = make_db(
+            (1, "happy-dom docblock requirement", "vitest"),
+            (2, "unrelated python rule", "python"),
+        )
+        rc, out, _ = capture("apps/web/ui/pages/entity/podcast/index.test.tsx", conn)
+        assert rc == 0
+        assert "happy-dom docblock requirement" in out
+        assert "unrelated python rule" not in out
+
+    def test_unrecognized_path_prints_no_topics_diagnostic(self):
+        """Issue #1053: a path that derives no topics must print a one-line
+        diagnostic on stdout (naming the path + total count + the search
+        pointer) instead of exiting silently with empty output.
+        """
         conn = make_db((1, "some convention", "skill"))
         rc, out, err = capture("an/unrecognized/path.xyz", conn)
         assert rc == 0
-        assert out == ""
-        assert err == ""
+        assert out != ""
+        assert "an/unrecognized/path.xyz" in out
+        assert "no topics could be derived" in out
+        assert "1 convention(s) exist" in out
+        assert "tusk conventions search" in out
 
-    def test_no_matching_conventions_exits_0_with_empty_output(self):
+    def test_no_matching_conventions_prints_no_match_diagnostic(self):
+        """Issue #1053: topics derived but no convention matched them must
+        print a diagnostic on stdout, not exit silently.
+        """
         conn = make_db()  # empty DB
         rc, out, err = capture("skills/foo/SKILL.md", conn)
         assert rc == 0
-        assert out == ""
+        assert out != ""
+        assert "skills/foo/SKILL.md" in out
+        assert "matched no convention tags" in out
+        # empty DB → the "no conventions are recorded" tail, not a count
+        assert "no conventions are recorded" in out
+
+    def test_topics_derived_but_no_match_reports_count_and_topics(self):
+        """The diagnostic for the topics-derived-but-unmatched path names the
+        derived topics and the total convention count (issue #1053).
+        """
+        # 'other'-tagged row exists, but skills/foo/SKILL.md derives skill/docs
+        conn = make_db((1, "unrelated", "other"), (2, "also unrelated", "misc"))
+        rc, out, _ = capture("skills/foo/SKILL.md", conn)
+        assert rc == 0
+        assert "docs" in out and "skill" in out  # derived topics listed
+        assert "2 convention(s) exist" in out
+        assert "tusk conventions search" in out
 
     def test_deduplication_across_topics(self):
         # A convention tagged 'skill,docs' should appear only once

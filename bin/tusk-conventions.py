@@ -12,6 +12,7 @@ Arguments received from tusk:
 
 import argparse
 import os
+import re
 import sqlite3
 import sys
 
@@ -149,6 +150,7 @@ def derive_topics(path: str) -> list[str]:
       - path contains a 'bin' component AND filename matches 'tusk-*.py' → 'cli', 'python'
       - path contains a 'tests' component OR filename starts with 'test_' → 'testing'
       - filename ends with '.py'           → 'python'
+      - filename matches '*.{test,spec}.{ts,tsx,js,jsx,…}' → 'vitest', 'testing', 'mocking'
     """
     topics: set[str] = set()
     parts = path.replace("\\", "/").split("/")
@@ -170,13 +172,38 @@ def derive_topics(path: str) -> list[str]:
     if filename.endswith(".py"):
         topics.add("python")
 
+    # JS/TS test files (issue #1053): a *.test.ts(x) / *.spec.ts(x) filename
+    # (and the .js/.jsx/.mts/.cts siblings vitest also runs) surfaces the
+    # vitest/testing/mocking conventions written about those file shapes.
+    if re.search(r"\.(test|spec)\.[cm]?[jt]sx?$", filename):
+        topics.add("vitest")
+        topics.add("testing")
+        topics.add("mocking")
+
     return sorted(topics)
+
+
+def _no_match_diagnostic(path: str, topics: list, total: int) -> str:
+    """Build the one-line no-match message printed when inject finds nothing.
+
+    Emitted on stdout (issue #1053) so the silent exit-0 case is no longer
+    indistinguishable from "this project has no conventions" — the agent that
+    ran inject sees a real diagnostic and a pointer to `tusk conventions
+    search` instead of empty output.
+    """
+    if topics:
+        reason = f"derived topics [{', '.join(topics)}] matched no convention tags"
+    else:
+        reason = "no topics could be derived from the path"
+    if total > 0:
+        tail = f"{total} convention(s) exist — try: tusk conventions search <term>"
+    else:
+        tail = "no conventions are recorded for this project"
+    return f"No conventions matched {path}: {reason}; {tail}."
 
 
 def cmd_inject(args: argparse.Namespace, db_path: str, config: dict) -> int:
     topics = derive_topics(args.path)
-    if not topics:
-        return 0
 
     conn = get_connection(db_path)
     try:
@@ -198,11 +225,17 @@ def cmd_inject(args: argparse.Namespace, db_path: str, config: dict) -> int:
                 if row["id"] not in seen_ids:
                     seen_ids.add(row["id"])
                     rows.append(row)
+
+        # No match — whether because the path derived no topics or because the
+        # derived topics tagged no convention, print a diagnostic instead of
+        # exiting silently (issue #1053). Counting total conventions requires
+        # the open connection, so do it before the finally closes it.
+        if not rows:
+            total = conn.execute("SELECT COUNT(*) FROM conventions").fetchone()[0]
+            print(_no_match_diagnostic(args.path, topics, total))
+            return 0
     finally:
         conn.close()
-
-    if not rows:
-        return 0
 
     rows.sort(key=lambda r: r["id"])
     print(f"{'ID':<6} {'Skill':<18} {'Violations':<12} {'Topics':<20} {'Text'}")
