@@ -63,6 +63,41 @@ is healthy — skip to Step 7 and report.
 > for review. The backlog-scan and lint steps run unchanged either
 > way.
 
+## Pre-Check: Rederive Stale Scope Rows
+
+`tusk groom` does **not** include this pass — run it separately to rebuild
+stale `auto_derived` scope rows across the open backlog, so the spurious
+`missing_scope_path` context-health warnings they produce are cleaned up
+automatically during routine grooming instead of requiring a manual
+command run after the scope auto-derivation logic changes:
+
+```bash
+tusk scope rederive --all
+```
+
+This runs the bulk rederive over **open tasks only** (the default;
+grooming operates on the open backlog, so `--include-closed` is
+intentionally omitted). It emits a single JSON object:
+
+```json
+{"all": true, "include_closed": false, "tasks_processed": N, "tasks_changed": M,
+ "results": [{"task_id": N, "removed": ["..."], "added": ["..."], "auto_derived": ["..."], "preserved": [...]}, ...]}
+```
+
+Report `tasks_changed` (`M`) and, for each entry in `results` whose
+`removed` or `added` array is non-empty, a one-line
+`TASK-<task_id>: -<removed> +<added>` rollup. If `tasks_changed` is 0,
+report "No stale scope rows found" and proceed to Step 1.
+
+**Why this runs automatically (not behind the Step 4 approval gate):**
+like the autoclose pass inside `tusk groom`, this is a safe pre-approval
+mutation. It is in fact *strictly safer* than autoclose — autoclose
+changes task **status** (closes tasks), whereas rederive only rebuilds
+derived metadata: it deletes and rebuilds `auto_derived` scope rows from
+the task's current text while leaving every `operator_declared`,
+`creates`, and `unbounded` row untouched. No operator intent is lost and
+no task status changes, so there is nothing for the user to approve.
+
 ## Step 1: Fetch Config, Backlog, and Dependency Data
 
 The mechanical signals are now in hand. Fetch context for the analysis
@@ -250,6 +285,7 @@ Generate the summary report:
 
 ### Actions Taken:
 - **Auto-closed** (from `tusk groom`): T tasks
+- **Scope rows rederived** (from the Pre-Check rederive pass): M tasks changed
 - **Moved to Done**: W tasks
 - **Deleted**: X tasks
 - **Reprioritized**: Y tasks
@@ -257,6 +293,9 @@ Generate the summary report:
 - **Sized**: S tasks
 - **Unchanged**: Z tasks
 ```
+
+Use the `tasks_changed` count (`M`) captured during the
+`## Pre-Check: Rederive Stale Scope Rows` pass above.
 
 Show the final backlog state (this also serves as WSJF score
 verification):
