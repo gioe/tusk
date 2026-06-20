@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1180] - 2026-06-19
+
+- [TASK-685] Fix: conventions inject is silent on no-match; map test-file paths to topics
+
 ## [1179] - 2026-06-19
 
 - [TASK-684] Document REST fallback for transient gh GraphQL HTTP 401 in address-issue Step 2
