@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1179] - 2026-06-19
+
+- [TASK-684] Document REST fallback for transient gh GraphQL HTTP 401 in address-issue Step 2
+
 ## [1178] - 2026-06-19
 
 - [TASK-683] Fix: review-commits silent-completion branch should fall back to inline review, not auto-approve-empty (issue #1115)
