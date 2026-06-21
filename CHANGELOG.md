@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1187] - 2026-06-21
+
+- [TASK-693] Detect skill/CLI subcommand drift and steer stale installs to tusk upgrade
+
 ## [1186] - 2026-06-20
 
 - [TASK-692] Fix: review symbol-mismatch guard uses substring match, allowing false dismissals
