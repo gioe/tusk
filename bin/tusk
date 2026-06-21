@@ -274,6 +274,25 @@ maybe_warn_path_resolved_tusk_overrides_cwd() {
 }
 maybe_warn_path_resolved_tusk_overrides_cwd
 
+# Proactive skill/CLI drift nudge at task-start (issue #1122). Unlike the three
+# sibling advisories above, this is NOT invoked on every tusk command — it is
+# called only from the task-start dispatch case, so the cost of scanning the
+# installed skills is paid once per task pickup rather than per invocation.
+#
+# Same gating as maybe_warn_cross_repo_drift: stderr-TTY-only by default (agent
+# callers, piped/captured stderr, and CI stay silent so the warning never lands
+# back in LLM context), silenced by TUSK_QUIET=1, restorable in non-TTY contexts
+# by TUSK_FORCE_WARN=1. The gate runs entirely in-shell BEFORE any python3 is
+# spawned, so the silent agent/CI path adds zero subprocess cost. The drift
+# computation and advisory wording live in tusk-skill-drift.py --advisory, which
+# always exits 0 so this nudge can never block task-start (advisory, not a gate).
+maybe_warn_skill_drift_at_task_start() {
+  [[ -n "${TUSK_QUIET:-}" ]] && return 0
+  [[ -z "${TUSK_FORCE_WARN:-}" && ! -t 2 ]] && return 0
+  [[ ! -f "$SCRIPT_DIR/tusk-skill-drift.py" ]] && return 0
+  python3 "$SCRIPT_DIR/tusk-skill-drift.py" "$REPO_ROOT" --advisory || true
+}
+
 # Default config: check sibling (installed) then parent dir (source repo)
 if [[ -f "$SCRIPT_DIR/config.default.json" ]]; then
   DEFAULT_CONFIG="$SCRIPT_DIR/config.default.json"
@@ -2023,7 +2042,7 @@ case "${1:-}" in
   task-get) shift; exec python3 "$SCRIPT_DIR/tusk-task-get.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   task-get-multi) shift; exec python3 "$SCRIPT_DIR/tusk-task-get-multi.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   task-select) shift; exec python3 "$SCRIPT_DIR/tusk-task-select.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
-  task-start) shift; exec python3 "$SCRIPT_DIR/tusk-task-start.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  task-start) shift; maybe_warn_skill_drift_at_task_start; exec python3 "$SCRIPT_DIR/tusk-task-start.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   task-done) shift; exec python3 "$SCRIPT_DIR/tusk-task-done.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   task-insert) shift; exec python3 "$SCRIPT_DIR/tusk-task-insert.py" "$DB_PATH" "$(resolve_config)" --repo-root "$REPO_ROOT" "$@" ;;
   task-update) shift; exec python3 "$SCRIPT_DIR/tusk-task-update.py" "$DB_PATH" "$(resolve_config)" "$@" ;;

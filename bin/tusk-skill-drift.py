@@ -221,6 +221,25 @@ def _rel(repo_root: str, path: str) -> str:
         return path
 
 
+def compute_advisory(repo_root: str, tusk_path: str = None):
+    """Return the one-line proactive drift advisory, or None when in sync.
+
+    Reuses `compute_drift` so the `tusk task-start` proactive nudge (issue
+    #1122) shares the exact drift computation surfaced by `tusk validate` and
+    the unknown-subcommand handler — no second implementation to drift apart.
+    Returns None when there is no drift (or no skills to check), so the caller
+    stays silent in the common in-sync case."""
+    drift, _refs, _installed, _files = compute_drift(repo_root, tusk_path=tusk_path)
+    if not drift:
+        return None
+    n = len(drift)
+    return (
+        f"tusk: warning — {n} skill subcommand(s) referenced by installed skills "
+        f"are absent from this CLI. Your tusk CLI is behind the skills it ships "
+        f"with; run 'tusk upgrade'. (TUSK_QUIET=1 to silence)"
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="tusk skill-drift", add_help=True, allow_abbrev=False
@@ -232,6 +251,15 @@ def main() -> int:
         metavar="SUBCOMMAND",
         help="exit 0 iff installed skills reference 'tusk <SUBCOMMAND>' (quiet probe)",
     )
+    parser.add_argument(
+        "--advisory",
+        action="store_true",
+        help=(
+            "proactive nudge mode: print a single drift advisory line to stderr "
+            "when the installed CLI is behind the skills it ships with, else stay "
+            "silent. Always exits 0 (non-blocking) — used by 'tusk task-start'."
+        ),
+    )
     args = parser.parse_args()
 
     repo_root = args.repo_root
@@ -242,6 +270,16 @@ def main() -> int:
         skill_files = find_skill_files(repo_root)
         refs = referenced_subcommands(skill_files)
         return 0 if args.is_referenced in refs else 1
+
+    # Proactive nudge mode (issue #1122): emit one advisory stderr line on drift
+    # and always exit 0 so the caller (`tusk task-start`) is never blocked. The
+    # TTY/quiet gating lives in the bin/tusk shell helper, so by the time we run
+    # the operator has already opted in to seeing the warning.
+    if args.advisory:
+        line = compute_advisory(repo_root)
+        if line:
+            print(line, file=sys.stderr)
+        return 0
 
     drift, refs, installed, skill_files = compute_drift(repo_root)
 
