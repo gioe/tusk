@@ -23,7 +23,7 @@ bin/tusk path
 bin/tusk config [key]
 bin/tusk setup          # config + backlog + conventions in one JSON call
 bin/tusk validate
-bin/tusk skill-drift [--format text|json]   # report tusk subcommands referenced by installed skills but absent from this CLI (version skew → run tusk upgrade); also run advisory by tusk validate (issue #1035)
+bin/tusk skill-drift [--format text|json] [--advisory]   # report tusk subcommands referenced by installed skills but absent from this CLI (version skew → run tusk upgrade); also run advisory by tusk validate (issue #1035) and proactively at tusk task-start via --advisory, gated TTY/quiet so agent/CI callers stay silent (issue #1122)
 
 # Task lifecycle
 bin/tusk task-get <task_id>        # accepts integer ID or TASK-NNN prefix form
