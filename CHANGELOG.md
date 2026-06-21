@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1185] - 2026-06-20
+
+- [TASK-691] Fix: review validate-comments symbol guard dismisses valid comments on prose tokens (e.g.)
+
 ## [1184] - 2026-06-20
 
 - [TASK-689] Wire tusk scope rederive --all into /groom-backlog as an auto-cleanup pass
