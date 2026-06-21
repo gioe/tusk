@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1189] - 2026-06-21
+
+- [TASK-695] Fix: scope tusk lint Rule 10 to the task being linted
+
 ## [1188] - 2026-06-21
 
 - [TASK-694] Surface skill-drift advisory at task-start for proactive stale-install warning
