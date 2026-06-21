@@ -490,6 +490,19 @@ _PATH_TOKEN_RE = re.compile(
 )
 _SYMBOL_TOKEN_RE = re.compile(r"\b([A-Za-z_][\w]*\.[A-Za-z_][\w]*)\b")
 
+# Dotted English prose abbreviations that the symbol regex above matches but
+# which are never code symbols. Without this denylist the line-symbol-mismatch
+# guard (issue #1012) extracted tokens like "e.g" from comment bodies such as
+# "(e.g. one selling stand-up)" and auto-dismissed correctly-anchored review
+# comments because the prose token was absent from the cited line but present
+# elsewhere in the file (issue #1117). Compared case-insensitively.
+_PROSE_ABBREVIATIONS = frozenset({
+    "e.g",
+    "i.e",
+    "et.al",
+    "a.k",  # from "a.k.a" — the regex yields only the first dotted pair
+})
+
 
 def _extract_paths(text: str | None) -> list[str]:
     """Extract file-path-shaped tokens from a comment body.
@@ -511,13 +524,21 @@ def _extract_paths(text: str | None) -> list[str]:
 
 
 def _extract_symbol_tokens(text: str | None) -> list[str]:
-    """Extract dotted code-symbol references from review prose."""
+    """Extract dotted code-symbol references from review prose.
+
+    Common dotted English prose abbreviations (``e.g``, ``i.e``, ...) are
+    excluded so the line-symbol-mismatch guard does not auto-dismiss a
+    correctly-anchored comment whose body merely contains "(e.g. ...)"
+    (issue #1117).
+    """
     if not text:
         return []
     found: list[str] = []
     seen: set[str] = set()
     for m in _SYMBOL_TOKEN_RE.finditer(text):
         token = m.group(1).rstrip(".,;:!?)\"'")
+        if token.lower() in _PROSE_ABBREVIATIONS:
+            continue
         if token and token not in seen:
             seen.add(token)
             found.append(token)

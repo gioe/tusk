@@ -295,6 +295,64 @@ class TestValidateComments:
         assert "line 2" in note
         assert "ProductionCompany" not in note
 
+    def test_prose_abbreviation_comment_not_dismissed(self, tmp_path, monkeypatch):
+        """Issue #1117: a correctly-anchored comment whose body merely contains
+        a prose abbreviation like '(e.g. ...)' must NOT be dismissed under the
+        line-symbol-mismatch guard — 'e.g' is prose, not a code symbol.
+        """
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        task_id = _insert_in_progress_task(db_path)
+
+        _git(["checkout", "-b", f"feature/TASK-{task_id}-venues"], cwd=repo)
+        # The literal 'e.g' appears elsewhere in the file (line 5) but NOT on
+        # the cited line (line 2) — the exact shape that previously tripped the
+        # guard before prose abbreviations were excluded.
+        src = "\n".join([
+            "def score(venue):",
+            "    return venue.rating",
+            "",
+            "# Some venues are comedy-adjacent",
+            "# (e.g. one selling stand-up tickets)",
+            "",
+        ])
+        (repo / "venues.py").write_text(src, encoding="utf-8")
+        _git(["add", "venues.py"], cwd=repo, env=env)
+        _git(["commit", "-m", f"[TASK-{task_id}] add venues"], cwd=repo, env=env)
+
+        begin = _run(["review", "begin", str(task_id)], cwd=repo, env=env)
+        assert begin.returncode == 0, begin.stderr
+        review_id = json.loads(begin.stdout)["review_id"]
+
+        r = _run(
+            [
+                "review", "add-comment", str(review_id),
+                "venue.rating may be null for some sources (e.g. one selling stand-up)",
+                "--file", "venues.py",
+                "--line-start", "2",
+                "--category", "suggest",
+                "--severity", "minor",
+            ],
+            cwd=repo,
+            env=env,
+        )
+        assert r.returncode == 0, r.stderr
+
+        result = _run(["review", "validate-comments", str(review_id)], cwd=repo, env=env)
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+
+        assert payload["dismissed"] == []
+        assert payload["dismissed_general"] == []
+        assert payload["dismissed_symbol_mismatch"] == []
+
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT resolution FROM review_comments WHERE review_id = ?",
+                (review_id,),
+            ).fetchone()
+        assert row["resolution"] != "dismissed"
+
     def test_unknown_review_id_exits_two(self, tmp_path, monkeypatch):
         repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
         result = _run(["review", "validate-comments", "99999"], cwd=repo, env=env)
