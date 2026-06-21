@@ -553,6 +553,20 @@ def _read_repo_file_lines(repo_root: str, path: str) -> list[str]:
         return []
 
 
+def _symbol_in_line(symbol: str, line: str) -> bool:
+    """Return True when *symbol* appears in *line* as a whole identifier.
+
+    The dotted symbol is matched with identifier boundaries on both sides
+    rather than as a raw substring: neither the character before nor the
+    character after the match may be a word character or a dot. This keeps
+    a coincidental substring (``a.b`` inside ``data.bar``) from counting as
+    the symbol appearing — the substring match was the primary source of
+    false dismissals the prose denylist could only patch one case at a time
+    (issue #1121). ``re.escape`` neutralizes the literal ``.`` in the token.
+    """
+    return re.search(rf"(?<![\w.]){re.escape(symbol)}(?![\w.])", line) is not None
+
+
 def _line_symbol_mismatch(
     repo_root: str,
     path: str,
@@ -563,8 +577,9 @@ def _line_symbol_mismatch(
 
     The guard is intentionally conservative: dismiss only when the exact
     dotted symbol is absent from the cited line but present elsewhere in
-    the same file. If the symbol cannot be found literally elsewhere, the
-    validator leaves the finding open for the operator.
+    the same file, matched as a whole identifier rather than a substring
+    (issue #1121). If the symbol cannot be found as a whole token
+    elsewhere, the validator leaves the finding open for the operator.
     """
     if not line_start:
         return None
@@ -576,9 +591,13 @@ def _line_symbol_mismatch(
         return None
     cited_line = lines[line_start - 1]
     for symbol in symbols:
-        if symbol in cited_line:
+        if _symbol_in_line(symbol, cited_line):
             continue
-        if any(symbol in line for i, line in enumerate(lines) if i != line_start - 1):
+        if any(
+            _symbol_in_line(symbol, line)
+            for i, line in enumerate(lines)
+            if i != line_start - 1
+        ):
             return symbol, cited_line.strip()
     return None
 

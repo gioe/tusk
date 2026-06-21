@@ -90,3 +90,29 @@ def test_real_symbol_misanchored_still_flagged(tmp_path):
     assert result is not None
     symbol, _cited = result
     assert symbol == "foo.bar"
+
+
+def test_substring_token_not_treated_as_symbol_presence(tmp_path):
+    """Issue #1121: a cited dotted token that only appears as a *substring* of
+    an unrelated identifier elsewhere must NOT be dismissed. The literal 'a.b'
+    is a substring of 'data.bar', but it is not a whole-identifier match, so the
+    finding stays open for the operator.
+    """
+    _write(tmp_path, "f.py", ["x = 1", "    data.bar = 2"])
+    assert (
+        mod._line_symbol_mismatch(str(tmp_path), "f.py", 1, "a.b is wrong here")
+        is None
+    )
+
+
+def test_whole_token_match_still_dismisses(tmp_path):
+    """Issue #1121: the legitimate dismissal must still fire when the cited
+    symbol appears elsewhere as a whole identifier (not a substring).
+    """
+    _write(tmp_path, "f.py", ["x = 1", "    data.bar = 2"])
+    result = mod._line_symbol_mismatch(
+        str(tmp_path), "f.py", 1, "data.bar is wrong here"
+    )
+    assert result is not None
+    symbol, _cited = result
+    assert symbol == "data.bar"
