@@ -103,3 +103,65 @@ class TestRule10CriteriaTypeMismatch:
             conn.close()
             with patch.object(lint, "_db_path_from_root", return_value=db_path):
                 assert lint.rule10_criteria_type_mismatch(tmp) == []
+
+
+class TestRule10TaskScoping:
+    """Rule 10 honors _TASK_SCOPE like Rule 6 (issue #1034): a pre-existing
+    offender on an unrelated task must not block `tusk merge` of the task being
+    merged, since `tusk merge` runs `tusk lint --task <id>`."""
+
+    def test_scoped_does_not_leak_across_tasks(self):
+        """With _TASK_SCOPE set to task B, an offender on task A is NOT flagged."""
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = _make_criteria_db(
+                tmp,
+                criteria=[(1, 100, "Offender on A", "manual", "pytest -q")],
+            )
+            with patch.object(lint, "_db_path_from_root", return_value=db_path), \
+                    patch.object(lint, "_TASK_SCOPE", 200):
+                assert lint.rule10_criteria_type_mismatch(tmp) == []
+
+    def test_scoped_still_flags_own_task(self):
+        """With _TASK_SCOPE set to the offender's own task, it IS flagged."""
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = _make_criteria_db(
+                tmp,
+                criteria=[(1, 100, "Offender on A", "manual", "pytest -q")],
+            )
+            with patch.object(lint, "_db_path_from_root", return_value=db_path), \
+                    patch.object(lint, "_TASK_SCOPE", 100):
+                violations = lint.rule10_criteria_type_mismatch(tmp)
+        assert len(violations) == 1
+        assert "task 100" in violations[0]
+
+    def test_scoped_filters_to_only_scoped_task(self):
+        """With offenders on two tasks, only the scoped task's offender is flagged."""
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = _make_criteria_db(
+                tmp,
+                criteria=[
+                    (1, 100, "Offender on A", "manual", "pytest -q"),
+                    (2, 200, "Offender on B", "manual", "pytest -q"),
+                ],
+            )
+            with patch.object(lint, "_db_path_from_root", return_value=db_path), \
+                    patch.object(lint, "_TASK_SCOPE", 200):
+                violations = lint.rule10_criteria_type_mismatch(tmp)
+        assert len(violations) == 1
+        assert "task 200" in violations[0]
+        assert "task 100" not in violations[0]
+
+    def test_unscoped_flags_all_tasks(self):
+        """With _TASK_SCOPE None (standalone `tusk lint`), DB-wide behavior is retained."""
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = _make_criteria_db(
+                tmp,
+                criteria=[
+                    (1, 100, "Offender on A", "manual", "pytest -q"),
+                    (2, 200, "Offender on B", "manual", "pytest -q"),
+                ],
+            )
+            with patch.object(lint, "_db_path_from_root", return_value=db_path), \
+                    patch.object(lint, "_TASK_SCOPE", None):
+                violations = lint.rule10_criteria_type_mismatch(tmp)
+        assert len(violations) == 2

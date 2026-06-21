@@ -255,12 +255,13 @@ def rule5_done_without_closed_reason(root):
 # `tusk merge` in its lint phase for minutes at a time.
 RULE6_RECENT_DAYS = 30
 
-# When non-None, Rule 6 narrows its query to a single task ID instead of
-# scanning every recently-closed task. Set by main() from the --task CLI
-# flag and consumed by rule6_done_incomplete_criteria. `tusk commit` passes
-# the active task ID so a commit cannot be blocked by unrelated historical
-# Done-task state (Issue #568); standalone `tusk lint` invocations leave it
-# at None and retain the global health-check behavior.
+# When non-None, the DB-backed rules that opt into scoping narrow their query
+# to a single task ID instead of scanning the whole table. Set by main() from
+# the --task CLI flag and consumed by rule6_done_incomplete_criteria (Issue
+# #568) and rule10_criteria_type_mismatch (Issue #1034). `tusk merge` passes
+# the active task ID so a merge cannot be blocked by an unrelated task's
+# pre-existing DB state; standalone `tusk lint` invocations leave it at None
+# and retain the global health-check behavior.
 _TASK_SCOPE = None
 
 
@@ -332,19 +333,36 @@ def rule6_done_incomplete_criteria(root):
 
 
 def rule10_criteria_type_mismatch(root):
-    """acceptance_criteria with verification_spec set but criterion_type='manual'."""
+    """acceptance_criteria with verification_spec set but criterion_type='manual'.
+
+    Honors the module-level ``_TASK_SCOPE`` (set by main() from the ``--task``
+    flag) like Rule 6: when scoped, only criteria on that task are checked, so a
+    pre-existing offender on an unrelated task cannot block ``tusk merge`` of the
+    task being merged (issue #1034). Standalone ``tusk lint`` leaves ``_TASK_SCOPE``
+    at None and retains the DB-wide health-check behavior.
+    """
     db_path = _db_path_from_root(root)
     if not db_path:
         return []
     try:
         conn = tusk_loader.load("tusk-db-lib").get_connection(db_path)
         try:
-            rows = conn.execute(
-                "SELECT ac.id, ac.task_id, ac.criterion, ac.verification_spec"
-                " FROM acceptance_criteria ac"
-                " WHERE ac.verification_spec IS NOT NULL AND ac.criterion_type = 'manual'"
-                " ORDER BY ac.id"
-            ).fetchall()
+            if _TASK_SCOPE is not None:
+                rows = conn.execute(
+                    "SELECT ac.id, ac.task_id, ac.criterion, ac.verification_spec"
+                    " FROM acceptance_criteria ac"
+                    " WHERE ac.verification_spec IS NOT NULL AND ac.criterion_type = 'manual'"
+                    "   AND ac.task_id = ?"
+                    " ORDER BY ac.id",
+                    (_TASK_SCOPE,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT ac.id, ac.task_id, ac.criterion, ac.verification_spec"
+                    " FROM acceptance_criteria ac"
+                    " WHERE ac.verification_spec IS NOT NULL AND ac.criterion_type = 'manual'"
+                    " ORDER BY ac.id"
+                ).fetchall()
             # Blank specs ('' or whitespace-only, issue #1045) are absent, not a
             # mismatch; SQL TRIM only strips spaces, so filter here instead.
             rows = [row for row in rows if (row[3] or "").strip()]
