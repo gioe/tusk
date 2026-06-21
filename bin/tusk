@@ -431,6 +431,12 @@ cmd_validate() {
       return 1
     fi
   fi
+
+  # Detect skill/CLI subcommand drift: installed skills must not reference
+  # subcommands this CLI lacks (issue #1035). Advisory only — drift is a
+  # recoverable version-skew condition fixed by 'tusk upgrade', not a config
+  # integrity error, so it must not fail validate.
+  python3 "$SCRIPT_DIR/tusk-skill-drift.py" "$REPO_ROOT" || true
 }
 
 update_gitignore() {
@@ -1332,7 +1338,7 @@ cmd_query() {
         _fuzzy_match="$(python3 - "$_subcmd_lc" <<'PYEOF' 2>/dev/null  # suppress errors; no hint shown on failure
 import difflib, sys
 candidates = [
-  'init','path','config','validate','sql-quote','typed-criteria-build','resolve-schema-bin','branch','commit',
+  'init','path','config','validate','skill-drift','sql-quote','typed-criteria-build','resolve-schema-bin','branch','commit',
   'lint','lint-rule','dupes','conventions','pillars','glossary','plans','criteria','dashboard','cost','chain','blockers',
   'context',
   'review','review-verdict','review-pass-status','review-final-summary','review-diff-range','review-wait','review-check-perms','review-agent-cost',
@@ -1358,6 +1364,13 @@ PYEOF
             _hint=" Did you mean: tusk $_fuzzy_match?"
           fi
         fi
+      fi
+      # If installed skills reference this exact subcommand, the CLI is almost
+      # certainly behind the skills it ships with (issue #1035) — steer the
+      # operator to 'tusk upgrade' rather than leaving a bare "Unknown
+      # subcommand". Probe is quiet and only runs on the error path.
+      if python3 "$SCRIPT_DIR/tusk-skill-drift.py" "$REPO_ROOT" --is-referenced "$_subcmd_lc" >/dev/null 2>&1; then
+        _hint="$_hint Installed skills reference 'tusk $_subcmd_lc' but it is absent from this CLI (v$TUSK_VERSION) — run 'tusk upgrade' to enable it."
       fi
       echo "Warning: Unknown subcommand '$_subcmd_lc'.${_hint}" >&2
       ;;
@@ -1805,7 +1818,7 @@ is_readonly_subcmd() {
     return 1
   fi
   case "${1:-}" in
-    ""|path|config|validate|sql-quote|typed-criteria-build|version|version-bump|\
+    ""|path|config|validate|skill-drift|sql-quote|typed-criteria-build|version|version-bump|\
     git-default-branch|branch-parse|report-issue|\
     sync-skills|reconcile-skills|generate-manifest|pricing-update|dev-sync|token-audit|\
     task-get|task-get-multi|task-list|task-select|task-summary|task-brief|setup|cost|\
@@ -1905,7 +1918,7 @@ preflight_schema_version() {
     ""|init|path|config|version|version-bump|upgrade|migrate|regen-triggers|\
       sql-quote|typed-criteria-build|git-default-branch|branch-parse|report-issue|update-gitignore|\
       sync-skills|sync-main|reconcile-skills|generate-manifest|pricing-update|dev-sync|token-audit|\
-      resolve-schema-bin)
+      skill-drift|resolve-schema-bin)
       return 0 ;;
   esac
   local user_version supported_max _uv_err _uv_rc=0
@@ -1971,6 +1984,7 @@ case "${1:-}" in
   path)   shift; cmd_path "$@" ;;
   config) shift; cmd_config "$@" ;;
   validate) shift; cmd_validate "$@" ;;
+  skill-drift) shift; exec python3 "$SCRIPT_DIR/tusk-skill-drift.py" "$REPO_ROOT" "$@" ;;
   sql-quote) shift; sql_quote "${1:-}" ;;
   typed-criteria-build) shift; exec python3 "$SCRIPT_DIR/tusk-typed-criteria-build.py" "$@" ;;
   resolve-schema-bin) shift; exec python3 "$SCRIPT_DIR/tusk-resolve-schema-bin.py" "$@" ;;

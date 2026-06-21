@@ -90,6 +90,7 @@ require it).
 | File | CLI command(s) | Reads | Writes |
 |------|---------------|-------|--------|
 | **tusk-config-tools.py** | `tusk validate` / `tusk regen-triggers` | `config.json` | nothing (`validate`); DB triggers (`regen-triggers`) |
+| **tusk-skill-drift.py** | `tusk skill-drift [--format text\|json] [--is-referenced <subcmd>]` (also run advisory by `tusk validate`) | installed `SKILL.md` files + the sibling `bin/tusk` dispatcher | nothing; reports `tusk <subcommand>` references absent from the installed CLI and recommends `tusk upgrade` (issue #1035); exit 1 on drift |
 | **tusk-migrate.py** | `tusk migrate` | `tasks.db` (`PRAGMA user_version`) | DB schema (applies pending migrations in order) |
 | **tusk-setup.py** | `tusk setup` | `tasks.db`, `config.json` | nothing; returns config + backlog JSON in one call |
 | **tusk-lint.py** | `tusk lint` | repo files, `tasks.db`, config, `MANIFEST` | nothing; advisory output only; depends on `tusk-db-lib.py` |
