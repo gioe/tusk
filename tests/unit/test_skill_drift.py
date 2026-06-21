@@ -175,6 +175,40 @@ class TestIsReferenced:
         assert "done" not in refs
 
 
+class TestComputeAdvisory:
+    """The proactive task-start nudge (issue #1122). `compute_advisory` reuses
+    `compute_drift`, so it must emit a single count-bearing line that recommends
+    `tusk upgrade` when drift exists and stay silent (None) otherwise."""
+
+    def test_drift_present_emits_advisory(self, tmp_path):
+        skill = "Use `tusk scope add 5 p` and `tusk task-worktree create 5 s`. Also `tusk init`.\n"
+        repo = _build_repo(tmp_path, skill)
+        line = drift.compute_advisory(repo, tusk_path=os.path.join(repo, "bin", "tusk"))
+        assert line is not None
+        # Names the count (two drifted subcommands) and the upgrade remedy.
+        assert "2 skill subcommand(s)" in line
+        assert "tusk upgrade" in line
+        # Single line — the nudge is one stderr line, not a multi-line block.
+        assert "\n" not in line.strip()
+
+    def test_in_sync_is_silent(self, tmp_path):
+        skill = "Run `tusk init`, then `tusk commit 5 msg f`, then `tusk review begin 5`.\n"
+        repo = _build_repo(tmp_path, skill)
+        assert drift.compute_advisory(repo, tusk_path=os.path.join(repo, "bin", "tusk")) is None
+
+    def test_no_skills_is_silent(self, tmp_path):
+        repo = os.path.join(str(tmp_path), "repo")
+        _write(os.path.join(repo, "bin", "tusk"), _FAKE_TUSK)
+        assert drift.compute_advisory(repo, tusk_path=os.path.join(repo, "bin", "tusk")) is None
+
+    def test_slash_command_and_prose_stay_silent(self, tmp_path):
+        # The drift-computation guards (slash command / prose mention) carry
+        # through to the advisory — no false-positive nudge.
+        skill = "Suggest `/tusk blocked`. The tusk database is shared.\n"
+        repo = _build_repo(tmp_path, skill)
+        assert drift.compute_advisory(repo, tusk_path=os.path.join(repo, "bin", "tusk")) is None
+
+
 class TestRealRepoNoDrift:
     """The source repo ships skills and CLI in sync — the detector must report
     zero drift against the real tree (criterion: no false positives)."""
@@ -184,3 +218,7 @@ class TestRealRepoNoDrift:
         assert installed, "dispatcher parse must find subcommands"
         assert files, "real skills must be discovered"
         assert d == {}, f"unexpected drift in source repo: {sorted(d)}"
+
+    def test_source_repo_advisory_is_silent(self):
+        # The shipped tree is in sync, so the proactive nudge must say nothing.
+        assert drift.compute_advisory(REPO_ROOT) is None
