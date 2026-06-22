@@ -240,6 +240,7 @@ Two external library repos ship their own `tusk-bootstrap.json` and are pre-conf
 - **`/investigate-directory`** — Audit a directory's purpose and alignment with the tusk client project
 - **`/resume-task`** — Recover session from branch name + progress log
 - **`/chain`** — Parallel dependency sub-DAG execution (one or more head IDs)
+- **`/objective`** — Run an objective end to end: create it, decompose into tasks via `/create-task`, drive the linked sub-DAG to Done in parallel waves via `/chain`, roll up via `tusk objective brief`, and close via `tusk objective done`
 - **`/loop`** — Autonomous backlog loop; dispatches `/chain` or `/tusk` until empty
 - **`/review-commits`** — Parallel AI code review; fixes must_fix findings, and fixes, preserves as context, dismisses, or spins suggest findings into follow-up tasks
 - **`/address-issue`** — Fetch a GitHub issue, score it, create a tusk task, and work through it
