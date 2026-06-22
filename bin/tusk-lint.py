@@ -8,7 +8,7 @@ Checks the tusk codebase against Key Conventions from CLAUDE.md.
 Prints results grouped by rule and exits with status 1 if any violations found.
 
 The optional ``--task <task_id>`` flag narrows DB-backed rules that support
-scoping (currently Rule 6) to a single task ID. Used by ``tusk commit`` so
+scoping (Rules 6 and 10) to a single task ID. Used by ``tusk commit`` so
 unrelated historical task state cannot block the active commit (Issue #568).
 """
 
@@ -1491,7 +1491,7 @@ def main():
     #                    already prints its own banners.
     #
     # `--task <task_id>` narrows DB-backed rules that opt into scoping
-    # (currently Rule 6) to a single task ID — see _TASK_SCOPE comment above.
+    # (Rules 6 and 10) to a single task ID — see _TASK_SCOPE comment above.
     raw_flags = sys.argv[2:]
     flags = []
     task_scope = None
