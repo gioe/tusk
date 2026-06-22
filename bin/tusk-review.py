@@ -1459,8 +1459,16 @@ def main():
     args = parser.parse_args(sys.argv[3:])
 
     if not args.command:
-        parser.print_help()
-        sys.exit(1)
+        # Emit an actionable diagnostic to stderr (not only help to stdout) so a
+        # nonzero exit always carries a reason. Without this the bin/tusk
+        # silent-exit guard papers over the bare exit with the generic
+        # "exited N with no diagnostic output" message (issue #1029).
+        print(
+            "tusk review: no subcommand given. Run 'tusk review --help' for usage.",
+            file=sys.stderr,
+        )
+        parser.print_help(sys.stderr)
+        sys.exit(2)
 
     try:
         if args.command == "start":
@@ -1489,6 +1497,18 @@ def main():
             sys.exit(cmd_verdict(args, db_path))
         elif args.command == "pass-status":
             sys.exit(cmd_pass_status(args, db_path, config_path))
+        else:
+            # Defensive: a subparser exists but was not wired into this dispatch
+            # (parser/handler drift). Without this else the function falls
+            # through, returns None, and exits 0 — silently swallowing the
+            # command. Emit an actionable diagnostic and exit nonzero so the
+            # mismatch is never invisible (issue #1029).
+            print(
+                f"tusk review: unhandled subcommand '{args.command}' "
+                "(parser/dispatch mismatch). Run 'tusk review --help'.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
     except sqlite3.Error as e:
         print(f"Database error: {e}", file=sys.stderr)
         sys.exit(2)
