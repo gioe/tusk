@@ -12,9 +12,11 @@ Pipeline:
   1. autoclose            — expired-deferred / moot-contingent closures
                             (--dry-run: query the same conditions without
                              closing rows)
-  2. backlog-scan         — duplicates / unassigned / unsized / expired
+  2. scope rederive       — rebuild auto_derived scope rows across open tasks
+                            (--dry-run: skip the mutation, applied=false)
+  3. backlog-scan         — duplicates / unassigned / unsized / expired
                             (calls `tusk backlog-scan` with all four flags)
-  3. lint (advisory)      — captures the convention-lint summary
+  4. lint (advisory)      — captures the convention-lint summary
 
 Output JSON shape:
     {
@@ -27,6 +29,12 @@ Output JSON shape:
             "applied":          bool,                    # false in --dry-run
             "moot_contingent":  {"count": N, "task_ids": [...]},
             "total":            N
+        },
+        "scope_rederive": {
+            "applied":          bool,                    # false in --dry-run
+            "tasks_processed":  N,                       # 0 in --dry-run
+            "tasks_changed":    N,                       # 0 in --dry-run
+            "results":          [ {task_id, removed, added, ...}, ... ]
         },
         "lint": {"exit_code": N, "summary": "<last summary line>"}
     }
@@ -58,14 +66,16 @@ HELP_TEXT = """\
 Usage: tusk groom [--dry-run]
 
 Mechanical orchestrator for the /groom-backlog pipeline. Runs autoclose,
-backlog-scan (duplicates / unassigned / unsized / expired), and lint in
-sequence and prints a single JSON document summarizing the state of the
-backlog.
+scope rederive (open tasks), backlog-scan (duplicates / unassigned / unsized
+/ expired), and lint in sequence and prints a single JSON document
+summarizing the state of the backlog.
 
 Flags:
   --dry-run   Skip the autoclose UPDATE; report what *would* be closed
-              under autoclose_candidates with applied=false. The
-              backlog-scan and lint steps run unchanged either way.
+              under autoclose_candidates with applied=false. The scope
+              rederive mutation is likewise skipped (scope_rederive with
+              applied=false). The backlog-scan and lint steps run unchanged
+              either way.
   --help      Show this message.
 
 Output JSON keys:
@@ -74,6 +84,7 @@ Output JSON keys:
   unassigned           To Do tasks with no assignee
   unsized              To Do tasks with no complexity estimate
   autoclose_candidates {moot_contingent, total, applied}
+  scope_rederive       {applied, tasks_processed, tasks_changed, results}
   lint                 {exit_code, summary} from `tusk lint --quiet`
 """
 
@@ -108,6 +119,45 @@ def run_autoclose(dry_run: bool = False) -> dict:
             "moot_contingent", {"count": 0, "task_ids": []}
         ),
         "total": payload.get("total_closed", 0),
+    }
+
+
+def run_scope_rederive(dry_run: bool = False) -> dict:
+    """Invoke `tusk scope rederive --all` (open tasks only) and shape its rollup.
+
+    Rebuilds the ``auto_derived`` scope rows of every open task so stale rows
+    (and the spurious ``missing_scope_path`` warnings they produce) get cleaned
+    up as part of the mechanical groom pass instead of a separate invocation.
+
+    In ``--dry-run`` the mutation is skipped entirely — mirroring the
+    ``autoclose_candidates.applied=false`` treatment — because
+    ``tusk scope rederive`` has no read-only query mode. The returned rollup is
+    empty with ``applied=false`` so callers can branch on it uniformly.
+    """
+    if dry_run:
+        return {
+            "applied": False,
+            "tasks_processed": 0,
+            "tasks_changed": 0,
+            "results": [],
+        }
+    result = subprocess.run(
+        [_tusk_bin(), "scope", "rederive", "--all"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    if result.returncode != 0:
+        msg = (result.stderr or result.stdout or "tusk scope rederive failed").strip()
+        raise RuntimeError(
+            f"tusk scope rederive --all failed (exit {result.returncode}): {msg}"
+        )
+    payload = json.loads(result.stdout)
+    return {
+        "applied": True,
+        "tasks_processed": payload.get("tasks_processed", 0),
+        "tasks_changed": payload.get("tasks_changed", 0),
+        "results": payload.get("results", []),
     }
 
 
@@ -181,6 +231,12 @@ def main(argv: list[str]) -> int:
         return 2
 
     try:
+        scope_rederive = run_scope_rederive(dry_run=dry_run)
+    except (RuntimeError, json.JSONDecodeError) as exc:
+        print(f"groom: {exc}", file=sys.stderr)
+        return 2
+
+    try:
         scan = run_backlog_scan()
     except (RuntimeError, json.JSONDecodeError) as exc:
         print(f"groom: {exc}", file=sys.stderr)
@@ -195,6 +251,7 @@ def main(argv: list[str]) -> int:
         "unassigned": scan.get("unassigned", []),
         "unsized": scan.get("unsized", []),
         "autoclose_candidates": autoclose_candidates,
+        "scope_rederive": scope_rederive,
         "lint": lint_summary,
     }
     print(dumps(result))
