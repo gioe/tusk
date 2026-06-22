@@ -83,6 +83,39 @@ class TestGetConnection:
         assert row["name"] == "tusk"
         conn.close()
 
+    def test_missing_parent_dir_exits_cleanly_with_diagnostic(self, tmp_path, capsys):
+        """Issue #1126: opening a DB whose parent dir does not exist (i.e. not
+        inside an initialized tusk project) must emit an actionable one-line
+        diagnostic and exit non-zero — not a raw OperationalError traceback.
+        """
+        missing = tmp_path / "no-such-dir" / "tasks.db"
+        assert not missing.parent.exists()
+
+        with pytest.raises(SystemExit) as exc_info:
+            db_lib.get_connection(str(missing))
+        assert exc_info.value.code != 0
+
+        err = capsys.readouterr().err
+        assert "could not locate a tusk database" in err
+        assert str(missing) in err
+        assert "tusk init" in err
+        # The raw exception name must NOT leak — the whole point is no traceback.
+        assert "OperationalError" not in err
+        assert "Traceback" not in err
+
+    def test_genuine_open_error_is_reraised_not_swallowed(self, tmp_path, monkeypatch):
+        """A failure to open a DB whose parent dir DOES exist (e.g. real
+        corruption/permission error) must propagate as OperationalError, not be
+        masked by the issue #1126 missing-project diagnostic.
+        """
+        def boom(*a, **k):
+            raise sqlite3.OperationalError("unable to open database file")
+
+        monkeypatch.setattr(db_lib.sqlite3, "connect", boom)
+        # Parent dir exists, so the guard must re-raise rather than exit.
+        with pytest.raises(sqlite3.OperationalError):
+            db_lib.get_connection(str(tmp_path / "tasks.db"))
+
 
 # ── load_config ───────────────────────────────────────────────────────
 
