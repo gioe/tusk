@@ -303,6 +303,49 @@ def test_sparse_vs_full_manifest_parity(tmp_path):
     )
 
 
+def test_sparse_includes_untracked_new_script(tmp_path):
+    """Issue #1124: a brand-new bin/tusk-*.py created in a sparse worktree but
+    not yet committed/staged must still land in MANIFEST. git ls-files alone
+    (TASK-706) lists only tracked files and would drop it; the merged lister
+    unions git ls-files with the on-disk cone walk so the just-added script is
+    enumerated — the add-a-new-script workflow works without sparse juggling.
+    """
+    root = tmp_path / "src-repo"
+    _build_source_repo_layout(
+        root,
+        extra_bin_scripts=[("tusk-existing.py", "# existing\n")],
+    )
+    script = root / "bin" / "tusk-generate-manifest.py"
+    _git_init_commit(root)
+
+    # Enable sparse-checkout (cone = bin, where new scripts land).
+    _git(["sparse-checkout", "init", "--cone"], root)
+    _git(["sparse-checkout", "set", "bin"], root)
+
+    # A brand-new distributed script — created on disk in the cone, NOT staged.
+    (root / "bin" / "tusk-newscript.py").write_text("# new, uncommitted\n", encoding="utf-8")
+    status = subprocess.run(
+        ["git", "-C", str(root), "status", "--porcelain", "bin/tusk-newscript.py"],
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    assert status.stdout.startswith("??"), (
+        f"Precondition: new script must be untracked; got {status.stdout!r}"
+    )
+
+    result = _run_generate(script, cwd=root)
+    assert result.returncode == 0, (
+        f"Expected success under sparse-checkout; got rc={result.returncode}\n"
+        f"stderr: {result.stderr!r}"
+    )
+    entries = json.loads((root / "MANIFEST").read_text(encoding="utf-8"))
+    assert ".claude/bin/tusk-newscript.py" in entries, (
+        f"Untracked new script dropped from sparse MANIFEST (issue #1124). "
+        f"Entries: {entries!r}"
+    )
+    # The committed script is still present too (no regression of TASK-706).
+    assert ".claude/bin/tusk-existing.py" in entries
+
+
 def test_unit_get_repo_root_returns_script_grandparent():
     """Unit-shape pin on the new resolver: invoking ``get_repo_root()``
     from the actual installed script returns the directory two levels up

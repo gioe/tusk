@@ -1104,16 +1104,19 @@ def rule18_manifest_drift(root):
     # The expected manifest comes from the SAME enumeration
     # tusk-generate-manifest.py writes, so the lint check and the regenerator
     # can never drift (TASK-707) — previously this rule reimplemented the walk
-    # inline and the two copies could diverge.  That enumeration is sparse-aware
-    # (TASK-706 / issue #1125): under sparse-checkout it sources the complete
-    # tracked-file set from `git ls-files` rather than the partial on-disk walk,
-    # so `tusk commit` catches MANIFEST drift inside a sparse task worktree
-    # instead of skipping the check.  When the tracked-file list cannot be read
-    # under sparse-checkout, skip rather than emit the issue #904 false-positive
-    # cluster (every out-of-cone entry flagged "extra in MANIFEST").
+    # inline and the two copies could diverge.  That enumeration is sparse-aware:
+    # under sparse-checkout it uses the merged lister — the union of `git
+    # ls-files` (complete tracked set, including cone-excluded files — TASK-706 /
+    # issue #1125) and the on-disk cone walk (materialized untracked-new files —
+    # TASK-708 / issue #1124) — so `tusk commit` catches MANIFEST drift inside a
+    # sparse task worktree (instead of skipping) and stays consistent with the
+    # regenerator even for a just-added, not-yet-committed distributed file.  When
+    # the tracked-file list cannot be read under sparse-checkout, skip rather than
+    # emit the issue #904 false-positive cluster (out-of-cone entries flagged
+    # "extra in MANIFEST").
     gm = tusk_loader.load("tusk-generate-manifest")  # loads tusk-generate-manifest.py
     if _sparse_checkout_active(root):
-        lister = gm._git_lister(root)
+        lister = gm._merged_lister(root)
         if lister is None:
             return []
     else:

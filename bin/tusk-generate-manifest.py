@@ -196,6 +196,50 @@ def _git_lister(root):
     return list_subdirs, list_files, glob_bin, underscore_files
 
 
+def _merged_lister(root):
+    """Sparse-safe lister: union of git ls-files and the on-disk cone walk.
+
+    ``_git_lister`` alone (TASK-706) sources only *tracked* files, so a
+    brand-new distributed file created in the cone but not yet committed/staged
+    is dropped from MANIFEST — the exact add-a-new-script friction of issue
+    #1124. The on-disk walk alone misses cone-*excluded* tracked files. Their
+    union is the complete distributed set under sparse: git ls-files supplies
+    every tracked file (including cone-excluded ones), the on-disk walk supplies
+    materialized untracked-new files in the cone, and a cone-*excluded*
+    *untracked* file cannot exist (sparse removes non-cone files from disk).
+
+    Each primitive merges the two sources and re-sorts with the same key the
+    sub-listers use, so on a full checkout (where every tracked file is also on
+    disk) the union collapses to the identical set and order — preserving the
+    byte-identical parity TASK-706 established. Returns ``None`` when the
+    tracked-file list cannot be read (git unavailable), mirroring _git_lister.
+    """
+    git = _git_lister(root)
+    if git is None:
+        return None
+    disk = _disk_lister(root)
+    g_subdirs, g_files, g_glob, g_under = git
+    d_subdirs, d_files, d_glob, d_under = disk
+
+    def list_subdirs(reldir):
+        merged = set(g_subdirs(reldir)) | set(d_subdirs(reldir))
+        return sorted(merged, key=lambda d: d + "/")
+
+    def list_files(reldir):
+        return sorted(set(g_files(reldir)) | set(d_files(reldir)))
+
+    def glob_bin():
+        return sorted(set(g_glob()) | set(d_glob()))
+
+    def underscore_files():
+        # Re-order the union by the canonical UNDERSCORE_BIN_FILES sequence so
+        # the output order matches both sub-listers (and the full checkout).
+        names = set(g_under()) | set(d_under())
+        return [name for name in UNDERSCORE_BIN_FILES if name in names]
+
+    return list_subdirs, list_files, glob_bin, underscore_files
+
+
 def _enumerate(root, lister):
     """Map the source tree to install paths using ``lister``'s primitives.
 
@@ -245,16 +289,19 @@ def build_manifest(root):
     # file outside the cone — regenerating MANIFEST from that partial view would
     # drop entries for unmaterialized hooks/skills/codex-prompts and corrupt
     # ``tusk upgrade`` for downstream installs (TASK-480, issues #895 / #905).
-    # Rather than refuse (the original gate), source the complete tracked-file
-    # set from ``git ls-files`` — which reads the index and is complete even
-    # under sparse — so new-skill/new-script tasks can regenerate MANIFEST from
-    # their sparse task worktree without first running ``git sparse-checkout
-    # disable`` (issue #1125). The working tree's sparse state is never mutated.
-    # The non-sparse primary checkout keeps the proven on-disk walk unchanged.
-    # If the tracked-file list cannot be read (git unavailable), fall back to
-    # the conservative refusal — never emit a partial MANIFEST.
+    # Rather than refuse (the original gate), enumerate the complete distributed
+    # set under sparse via the union of ``git ls-files`` (the complete tracked
+    # set, including cone-excluded files — issue #1125) and the on-disk cone walk
+    # (materialized untracked-new files, e.g. a just-created bin/tusk-*.py the
+    # add-a-new-script task is about to commit — issue #1124). New-skill/new-
+    # script tasks can therefore regenerate MANIFEST from their sparse task
+    # worktree without first running ``git sparse-checkout disable``. The working
+    # tree's sparse state is never mutated, and the non-sparse primary checkout
+    # keeps the proven on-disk walk unchanged. If the tracked-file list cannot be
+    # read (git unavailable), fall back to the conservative refusal — never emit
+    # a partial MANIFEST.
     if _sparse_checkout_active(root):
-        lister = _git_lister(root)
+        lister = _merged_lister(root)
         if lister is None:
             print(
                 "Error: tusk generate-manifest is running under a sparse "
