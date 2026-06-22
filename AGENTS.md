@@ -27,7 +27,7 @@ bin/tusk skill-drift [--format text|json] [--advisory]   # report tusk subcomman
 
 # Task lifecycle
 bin/tusk task-get <task_id>        # accepts integer ID or TASK-NNN prefix form
-bin/tusk task-list [--status <s>] [--domain <d>] [--assignee <a>] [--workflow <w>] [--format text|json] [--all] [--include-shadows] [--bakeoff <id>]  # list tasks (not the built-in TaskList tool); bakeoff shadows are hidden by default
+bin/tusk task-list [--status <s>] [--domain <d>] [--assignee <a>] [--workflow <w>] [--objective <id>] [--format text|json] [--all] [--include-shadows] [--bakeoff <id>]  # list tasks (not the built-in TaskList tool); bakeoff shadows are hidden by default; --objective filters to tasks linked to that objective
 bin/tusk task-select [--max-complexity XS|S|M|L|XL]
 bin/tusk task-insert "<summary>" "<description>" [--priority P] [--domain D] [--task-type T] [--assignee A] [--complexity C] [--workflow W] [--criteria "..." ...] [--typed-criteria '{"text":"...","type":"...","spec":"..."}' ...] [--expires-in DAYS] [--fixes-task-id ID]
 bin/tusk task-start [<task_id>] [--force] [--force-deps] [--force-contingent] [--force-session] [--agent NAME] [--skill NAME]   # --skill opens a skill_runs row attributed to the task (returned under result.skill_run); --force-session intentionally attaches to an existing active session from outside the task workspace
@@ -69,6 +69,16 @@ bin/tusk context add <task_id> --type memory|assumption|question|risk|decision|e
 bin/tusk context list <task_id> [--type memory|assumption|question|risk|decision|entry_point] [--status active|resolved|superseded|all] [--format json|text]
 bin/tusk context resolve <context_item_id>
 bin/tusk context supersede <context_item_id>
+
+# Objectives (initiative-level intent spanning one or more tasks; tasks stay the independent shippable unit)
+bin/tusk objective insert "<summary>" [--description <text>]
+bin/tusk objective list [--status active|completed|abandoned|all] [--format json|text]
+bin/tusk objective get <objective_id> [--format json|text]   # accepts integer ID or OBJ-NNN prefix form; includes linked tasks
+bin/tusk objective update <objective_id> [--summary S] [--description D] [--status active|completed|abandoned]
+bin/tusk objective link <objective_id> <task_id> [--type primary|contributes_to|follow_up]   # re-linking the same pair upserts relationship_type
+bin/tusk objective unlink <objective_id> <task_id>
+bin/tusk objective done <objective_id> --reason completed|abandoned   # closes the objective only; never touches linked task status
+# Linked objectives also surface in `tusk task-get <id>` output (objectives array) and filter `tusk task-list --objective <id>`
 
 # Dependencies
 bin/tusk deps add <task_id> <depends_on_id> [--type blocks|contingent]
