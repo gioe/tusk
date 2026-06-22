@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1197] - 2026-06-22
+
+- [TASK-703] Add /objective skill: decompose, execute tasks in parallel, roll up, and close
+
 ## [1196] - 2026-06-22
 
 - [TASK-702] Add tusk objective brief roll-up read view over linked tasks
