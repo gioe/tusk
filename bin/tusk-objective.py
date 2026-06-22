@@ -5,6 +5,7 @@ Called by the tusk wrapper:
     tusk objective insert "<summary>" [--description <text>]
     tusk objective list [--status active|completed|abandoned|all] [--format json|text]
     tusk objective get <objective_id> [--format json|text]
+    tusk objective brief <objective_id> [--format json|markdown]
     tusk objective update <objective_id> [--summary <s>] [--description <d>] [--status <s>]
     tusk objective link <objective_id> <task_id> [--type primary|contributes_to|follow_up]
     tusk objective unlink <objective_id> <task_id>
@@ -150,6 +151,98 @@ def cmd_get(args: argparse.Namespace, conn: sqlite3.Connection) -> dict:
     return obj
 
 
+def _linked_task_ids(conn: sqlite3.Connection, objective_id: int) -> list[int]:
+    """Distinct task ids linked to an objective.
+
+    objective_tasks' PK is (objective_id, task_id), so each task appears at most
+    once per objective — but DISTINCT is kept as a defensive belt so downstream
+    aggregation can never fan out even if a duplicate link is ever inserted.
+    """
+    rows = conn.execute(
+        "SELECT DISTINCT task_id FROM objective_tasks WHERE objective_id = ?",
+        (objective_id,),
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
+def cmd_brief(args: argparse.Namespace, conn: sqlite3.Connection) -> dict:
+    """Read-side rollup over an objective's linked tasks.
+
+    Counterpart to task-brief/task-summary. Aggregates status breakdown,
+    criteria coverage, summed cost/duration, and open objective-scoped context
+    items. Every metric is aggregated in its own query over the DISTINCT linked
+    task set against an already-per-task-aggregated view (task_metrics,
+    v_criteria_coverage) so a task is counted exactly once — no multi-join
+    fan-out, and a task linked to several objectives is never double-counted in
+    this objective's totals (the active risk on this task).
+    """
+    objective_id = _parse_objective_id(args.objective_id)
+    objective = _row_to_dict(_fetch_objective(conn, objective_id))
+    task_ids = _linked_task_ids(conn, objective_id)
+    tasks = _linked_tasks(conn, objective_id)
+
+    # Status breakdown over the distinct linked tasks (one row per task).
+    status_breakdown: dict[str, int] = {}
+    for t in tasks:
+        status_breakdown[t["status"]] = status_breakdown.get(t["status"], 0) + 1
+
+    total_criteria = completed_criteria = 0
+    total_cost = 0.0
+    total_duration_seconds = 0
+    session_count = 0
+    if task_ids:
+        placeholders = ",".join("?" * len(task_ids))
+        cov = conn.execute(
+            "SELECT COALESCE(SUM(total_criteria), 0) AS total, "
+            "       COALESCE(SUM(completed_criteria), 0) AS completed "
+            f"  FROM v_criteria_coverage WHERE task_id IN ({placeholders})",
+            task_ids,
+        ).fetchone()
+        total_criteria = cov["total"]
+        completed_criteria = cov["completed"]
+
+        metrics = conn.execute(
+            "SELECT COALESCE(SUM(total_cost), 0) AS cost, "
+            "       COALESCE(SUM(total_duration_seconds), 0) AS duration, "
+            "       COALESCE(SUM(session_count), 0) AS sessions "
+            f"  FROM task_metrics WHERE id IN ({placeholders})",
+            task_ids,
+        ).fetchone()
+        total_cost = metrics["cost"]
+        total_duration_seconds = metrics["duration"]
+        session_count = metrics["sessions"]
+
+    context_items = [
+        _row_to_dict(r)
+        for r in conn.execute(
+            "SELECT id, task_id, objective_id, item_type, content, status, source, "
+            "       created_at, updated_at, resolved_at "
+            "  FROM task_context_items "
+            " WHERE objective_id = ? AND status = 'active' "
+            " ORDER BY item_type, id",
+            (objective_id,),
+        ).fetchall()
+    ]
+
+    return {
+        "objective": objective,
+        "task_count": len(task_ids),
+        "status_breakdown": status_breakdown,
+        "tasks": tasks,
+        "criteria": {
+            "total": total_criteria,
+            "completed": completed_criteria,
+            "remaining": total_criteria - completed_criteria,
+        },
+        "cost": {
+            "total_cost_dollars": round(total_cost or 0.0, 4),
+            "total_duration_seconds": total_duration_seconds or 0,
+            "session_count": session_count or 0,
+        },
+        "context_items": context_items,
+    }
+
+
 def cmd_update(args: argparse.Namespace, conn: sqlite3.Connection) -> dict:
     objective_id = _parse_objective_id(args.objective_id)
     _ensure_objective_exists(conn, objective_id)
@@ -274,6 +367,61 @@ def _format_get_text(obj: dict) -> str:
     return "\n".join(lines)
 
 
+def _format_duration(seconds: int) -> str:
+    seconds = int(seconds or 0)
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes, secs = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{minutes}m {secs}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes}m"
+
+
+def _md_list(items: list[str]) -> str:
+    if not items:
+        return "- None"
+    return "\n".join(f"- {item}" for item in items)
+
+
+def _format_brief_markdown(brief: dict) -> str:
+    obj = brief["objective"]
+    summary = " ".join((obj["summary"] or "").split())
+    cost = brief["cost"]
+    crit = brief["criteria"]
+    breakdown = brief["status_breakdown"]
+    status_line = ", ".join(f"{k}: {v}" for k, v in sorted(breakdown.items())) or "None"
+
+    task_lines = [
+        f"TASK-{t['id']} [{t['status']}] ({t['relationship_type']}) "
+        f"{' '.join((t['summary'] or '').split())}"
+        for t in brief["tasks"]
+    ]
+    context_lines = [
+        f"{c['item_type']}: {' '.join((c['content'] or '').split())}"
+        for c in brief["context_items"]
+    ]
+
+    lines = [f"## OBJ-{obj['id']} — {summary} ({obj['status']})", ""]
+    if obj.get("description"):
+        lines += [" ".join(obj["description"].split()), ""]
+    lines += [
+        f"- **Tasks:** {brief['task_count']} linked — {status_line}",
+        f"- **Criteria:** {crit['completed']}/{crit['total']} complete "
+        f"({crit['remaining']} remaining)",
+        f"- **Cost:** ${cost['total_cost_dollars']:.4f} across "
+        f"{cost['session_count']} session(s)",
+        f"- **Duration:** {_format_duration(cost['total_duration_seconds'])}",
+        "",
+        "## Linked Tasks",
+        _md_list(task_lines),
+        "",
+        "## Open Context",
+        _md_list(context_lines),
+    ]
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -324,6 +472,11 @@ def main(argv: list[str]) -> int:
     get.add_argument("objective_id", help="Objective ID, e.g. 7 or OBJ-7.")
     get.add_argument("--format", choices=("json", "text"), default="json")
 
+    brief = sub.add_parser("brief", allow_abbrev=False,
+                           help="Roll-up read view over an objective's linked tasks.")
+    brief.add_argument("objective_id", help="Objective ID, e.g. 7 or OBJ-7.")
+    brief.add_argument("--format", choices=("json", "markdown"), default="json")
+
     upd = sub.add_parser("update", allow_abbrev=False, help="Update an objective.")
     upd.add_argument("objective_id", help="Objective ID, e.g. 7 or OBJ-7.")
     upd.add_argument("--summary", default=None)
@@ -370,6 +523,13 @@ def main(argv: list[str]) -> int:
                     print(_format_get_text(obj))
                 else:
                     print(dumps(obj))
+                return 0
+            if args.mode == "brief":
+                brief_data = cmd_brief(args, conn)
+                if args.format == "markdown":
+                    print(_format_brief_markdown(brief_data))
+                else:
+                    print(dumps(brief_data))
                 return 0
             if args.mode == "update":
                 print(dumps(cmd_update(args, conn)))
