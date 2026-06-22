@@ -54,6 +54,14 @@ An acceptance criterion closed via `tusk criteria skip --reason <text>` (sets `i
 
 ---
 
+## objective
+
+An initiative-level unit of intent that spans one or more tasks. Objectives capture the larger why above the shippable task layer: a task remains the independent unit of delivery, while an objective groups related tasks and tracks its own lifecycle (`active`, `completed`, `abandoned`) independently of any linked task status. Tasks are linked through `objective_tasks` with a `relationship_type` of `primary`, `contributes_to`, or `follow_up`; closing an objective never changes the status of its linked tasks. Managed via `tusk objective` and surfaced task-side by `tusk task-get` and `tusk task-list --objective <id>`.
+
+→ See the `objectives` and `objective_tasks` tables in `docs/DOMAIN.md`, and the `tusk objective` CLI.
+
+---
+
 ## plan
 
 A recorded flat-rate subscription period (e.g. Claude Max 20x at $200/month) stored in the plans table — the denominator for ROI calculations against tusk's metered token value. Multiple rows per name are allowed so price changes and lapses are recorded as separate effective periods; see also subscription cost.
