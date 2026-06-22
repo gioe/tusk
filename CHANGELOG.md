@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1194] - 2026-06-21
+
+- [TASK-700] Converge groom-backlog SKILL.md onto the tusk groom orchestrator
+
 ## [1193] - 2026-06-21
 
 - [TASK-690] Fold scope rederive --all into the tusk groom orchestrator
