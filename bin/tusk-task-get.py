@@ -9,7 +9,8 @@ Arguments received from tusk:
     sys.argv[2] — config path (unused)
     sys.argv[3] — task_id (integer or TASK-NNN form)
 
-Returns JSON with task row, acceptance_criteria array, and task_progress array.
+Returns JSON with task row, acceptance_criteria array, task_progress array, and
+an objectives array (initiative-level intents this task is linked to).
 Does not modify any state.
 """
 
@@ -69,10 +70,20 @@ def main(argv: list[str]) -> int:
             (task_id,),
         ).fetchall()
 
+        objective_rows = conn.execute(
+            "SELECT o.id AS objective_id, o.summary, o.status, "
+            "ot.relationship_type, ot.created_at "
+            "FROM objective_tasks ot "
+            "JOIN objectives o ON o.id = ot.objective_id "
+            "WHERE ot.task_id = ? ORDER BY ot.relationship_type, o.id",
+            (task_id,),
+        ).fetchall()
+
         result = {
             "task": {key: task[key] for key in task.keys()},
             "acceptance_criteria": [{key: row[key] for key in row.keys()} for row in criteria_rows],
             "task_progress": [{key: row[key] for key in row.keys()} for row in progress_rows],
+            "objectives": [{key: row[key] for key in row.keys()} for row in objective_rows],
         }
 
         print(dumps(result))
