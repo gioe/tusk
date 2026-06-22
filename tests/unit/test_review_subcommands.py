@@ -210,11 +210,16 @@ class TestCmdApprove:
 
 # ─── cmd_summary queries ─────────────────────────────────────────────────────
 
+# cmd_summary resolves the *latest non-superseded review for a task* — the arg
+# is a task_id, never a review_id (issue #1033). These mirror the two queries in
+# cmd_summary(): the task-existence check and the latest-review resolution.
+_SUMMARY_TASK_QUERY = "SELECT id, summary FROM tasks WHERE id = ?"
 _SUMMARY_REVIEW_QUERY = (
     "SELECT r.id, r.task_id, r.reviewer, r.status, r.review_pass,"
     "  r.diff_summary, r.created_at, t.summary as task_summary"
     " FROM code_reviews r JOIN tasks t ON t.id = r.task_id"
-    " WHERE r.id = ?"
+    " WHERE r.task_id = ? AND r.status <> 'superseded'"
+    " ORDER BY r.id DESC LIMIT 1"
 )
 _SUMMARY_COMMENTS_QUERY = (
     "SELECT id, file_path, line_start, line_end, category, severity, comment, resolution"
@@ -240,13 +245,96 @@ class TestCmdSummary:
         assert row["diff_summary"] == "small diff"
         conn.close()
 
-    def test_nonexistent_review_returns_none(self):
+    def test_nonexistent_task_returns_none(self):
         conn = _make_db()
         conn.execute("INSERT INTO tasks (id, summary) VALUES (1, 'task')")
         conn.commit()
 
-        row = conn.execute(_SUMMARY_REVIEW_QUERY, (999,)).fetchone()
+        # task-existence check returns no row → cmd_summary reports
+        # "Error: Task N not found" and exits 2.
+        row = conn.execute(_SUMMARY_TASK_QUERY, (999,)).fetchone()
         assert row is None
+        conn.close()
+
+    def test_task_with_no_reviews_resolves_no_review(self):
+        # The task exists but has no review → cmd_summary prints
+        # "No reviews for task #N" rather than rendering an unrelated review.
+        conn = _make_db()
+        conn.execute("INSERT INTO tasks (id, summary) VALUES (5, 'unreviewed task')")
+        conn.commit()
+
+        assert conn.execute(_SUMMARY_TASK_QUERY, (5,)).fetchone() is not None
+        assert conn.execute(_SUMMARY_REVIEW_QUERY, (5,)).fetchone() is None
+        conn.close()
+
+    def test_task_id_arg_never_resolves_colliding_review_id(self):
+        """Regression for issue #1033: the arg is a task_id, not a review_id.
+
+        Reproduces the original incident — a review whose id equals an unrelated
+        task's id (review #567 belonged to task #694; the arg 567 was a task_id
+        with its own review #472). cmd_summary must resolve task #567's own
+        review, never the review whose id collides with the task_id.
+        """
+        conn = _make_db()
+        # Task 567 owns review 472. Task 694 owns review 567 (the collision).
+        conn.execute("INSERT INTO tasks (id, summary) VALUES (567, 'the queried task')")
+        conn.execute("INSERT INTO tasks (id, summary) VALUES (694, 'unrelated task')")
+        conn.execute(
+            "INSERT INTO code_reviews (id, task_id, reviewer, status, review_pass)"
+            " VALUES (472, 567, 'alice', 'approved', 1)"
+        )
+        conn.execute(
+            "INSERT INTO code_reviews (id, task_id, reviewer, status, review_pass)"
+            " VALUES (567, 694, 'bob', 'approved', 1)"
+        )
+        conn.commit()
+
+        row = conn.execute(_SUMMARY_REVIEW_QUERY, (567,)).fetchone()
+        assert row is not None
+        # Resolves task 567's own review, NOT review #567 (which belongs to 694).
+        assert row["task_id"] == 567
+        assert row["id"] == 472
+        assert row["task_summary"] == "the queried task"
+        conn.close()
+
+    def test_latest_review_selected_when_task_has_several(self):
+        # When a task has multiple non-superseded reviews, the most recent
+        # (highest id) wins.
+        conn = _make_db()
+        conn.execute("INSERT INTO tasks (id, summary) VALUES (1, 'task')")
+        conn.execute(
+            "INSERT INTO code_reviews (id, task_id, reviewer, status, review_pass)"
+            " VALUES (10, 1, 'alice', 'changes_requested', 1)"
+        )
+        conn.execute(
+            "INSERT INTO code_reviews (id, task_id, reviewer, status, review_pass)"
+            " VALUES (11, 1, 'bob', 'approved', 2)"
+        )
+        conn.commit()
+
+        row = conn.execute(_SUMMARY_REVIEW_QUERY, (1,)).fetchone()
+        assert row["id"] == 11
+        assert row["review_pass"] == 2
+        conn.close()
+
+    def test_superseded_review_excluded_from_resolution(self):
+        # A superseded review is not the "latest" review even if it has the
+        # highest id; the newest non-superseded review wins.
+        conn = _make_db()
+        conn.execute("INSERT INTO tasks (id, summary) VALUES (1, 'task')")
+        conn.execute(
+            "INSERT INTO code_reviews (id, task_id, reviewer, status, review_pass)"
+            " VALUES (10, 1, 'alice', 'approved', 1)"
+        )
+        conn.execute(
+            "INSERT INTO code_reviews (id, task_id, reviewer, status, review_pass)"
+            " VALUES (11, 1, 'bob', 'superseded', 2)"
+        )
+        conn.commit()
+
+        row = conn.execute(_SUMMARY_REVIEW_QUERY, (1,)).fetchone()
+        assert row["id"] == 10
+        assert row["status"] == "approved"
         conn.close()
 
     def test_comments_ordered_by_severity_then_category(self):
