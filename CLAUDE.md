@@ -75,6 +75,7 @@ bin/tusk context supersede <context_item_id>
 bin/tusk objective insert "<summary>" [--description <text>]
 bin/tusk objective list [--status active|completed|abandoned|all] [--format json|text]
 bin/tusk objective get <objective_id> [--format json|text]   # accepts integer ID or OBJ-NNN prefix form; includes linked tasks
+bin/tusk objective brief <objective_id> [--format json|markdown]   # read-side rollup over linked tasks: status breakdown, criteria coverage, summed cost/duration (per distinct task — no double-count), open objective-scoped context
 bin/tusk objective update <objective_id> [--summary S] [--description D] [--status active|completed|abandoned]
 bin/tusk objective link <objective_id> <task_id> [--type primary|contributes_to|follow_up]   # re-linking the same pair upserts relationship_type
 bin/tusk objective unlink <objective_id> <task_id>
