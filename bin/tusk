@@ -1359,7 +1359,7 @@ import difflib, sys
 candidates = [
   'init','path','config','validate','skill-drift','sql-quote','typed-criteria-build','resolve-schema-bin','branch','commit',
   'lint','lint-rule','dupes','conventions','pillars','glossary','plans','criteria','dashboard','cost','chain','blockers',
-  'context',
+  'context','objective',
   'review','review-verdict','review-pass-status','review-final-summary','review-diff-range','review-wait','review-check-perms','review-agent-cost',
   'deps','session-stats','session-recalc','session-close','skill-run','jot','jots','call-breakdown',
   'active-project','git-default-branch','branch-parse',
@@ -1836,6 +1836,12 @@ is_readonly_subcmd() {
     [[ "${2:-}" == "list" ]] && return 0
     return 1
   fi
+  # `objective` is dispatched at the second positional: only `list` and `get`
+  # are read-only — insert/update/link/unlink/done mutate objective rows.
+  if [[ "${1:-}" == "objective" ]]; then
+    [[ "${2:-}" == "list" || "${2:-}" == "get" ]] && return 0
+    return 1
+  fi
   case "${1:-}" in
     ""|path|config|validate|skill-drift|sql-quote|typed-criteria-build|version|version-bump|\
     git-default-branch|branch-parse|report-issue|\
@@ -2018,6 +2024,7 @@ case "${1:-}" in
   plans)       shift; exec python3 "$SCRIPT_DIR/tusk-plans.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   criteria) shift; exec python3 "$SCRIPT_DIR/tusk-criteria.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   context) shift; exec python3 "$SCRIPT_DIR/tusk-context.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  objective) shift; exec python3 "$SCRIPT_DIR/tusk-objective.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   dashboard) shift; exec python3 "$SCRIPT_DIR/tusk-dashboard.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   cost) shift; exec python3 "$SCRIPT_DIR/tusk-cost.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   chain) shift; exec python3 "$SCRIPT_DIR/tusk-chain.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
