@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1202] - 2026-06-22
+
+- [TASK-709] Emit a clean diagnostic instead of a raw sqlite traceback when no tusk DB is resolvable
+
 ## [1201] - 2026-06-22
 
 - [TASK-708] Include untracked new distributed files in sparse generate-manifest enumeration
