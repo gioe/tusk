@@ -3,7 +3,7 @@
 
 Called by the tusk wrapper:
     tusk task-list [--status <s>] [--domain <d>] [--assignee <a>] [--format text|json] [--all]
-                   [--include-shadows] [--bakeoff <id>]
+                   [--include-shadows] [--bakeoff <id>] [--objective <id>]
 
 Arguments received from tusk:
     sys.argv[1] — DB path
@@ -63,7 +63,7 @@ def main(argv: list[str]) -> int:
     if len(argv) < 2:
         print(
             "Usage: tusk task-list [--status <s>] [--domain <d>] [--assignee <a>] "
-            "[--format text|json] [--all] [--include-shadows] [--bakeoff <id>]",
+            "[--format text|json] [--all] [--include-shadows] [--bakeoff <id>] [--objective <id>]",
             file=sys.stderr,
         )
         return 1
@@ -83,6 +83,8 @@ def main(argv: list[str]) -> int:
                         help="Include bakeoff shadow rows (default: hidden)")
     parser.add_argument("--bakeoff", type=int, default=None,
                         help="Filter to a single bakeoff_id (implicitly includes shadows)")
+    parser.add_argument("--objective", type=int, default=None,
+                        help="Filter to tasks linked to this objective id")
     parser.add_argument("--help", "-h", action="store_true")
     args, _ = parser.parse_known_args(argv[2:])
 
@@ -102,6 +104,7 @@ def main(argv: list[str]) -> int:
         print("  --all               Include Done tasks (default: only non-Done tasks); ignored when --status is also set")
         print("  --include-shadows   Include bakeoff shadow rows (default: hidden)")
         print("  --bakeoff <id>      Filter to a single bakeoff_id (implicitly includes shadows)")
+        print("  --objective <id>    Filter to tasks linked to this objective id")
         return 0
 
     conditions: list[str] = []
@@ -133,6 +136,12 @@ def main(argv: list[str]) -> int:
     if args.workflow is not None:
         conditions.append("workflow = ?")
         params.append(args.workflow)
+
+    if args.objective is not None:
+        conditions.append(
+            "id IN (SELECT task_id FROM objective_tasks WHERE objective_id = ?)"
+        )
+        params.append(args.objective)
 
     where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     sql = f"""
