@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1190] - 2026-06-21
+
+- [TASK-697] tusk review summary now takes a task_id (not a review_id), resolving the latest non-superseded review for that task — consistent with review list/status/verdict. Previously a task_id argument silently rendered a colliding code_reviews.id belonging to an unrelated task. Prints "No reviews for task #N" when the task has none, and fails with exit 2 for an unknown task (issue #1033).
+
 ## [1189] - 2026-06-21
 
 - [TASK-695] Fix: scope tusk lint Rule 10 to the task being linted
