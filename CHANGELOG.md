@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1200] - 2026-06-22
+
+- [TASK-707] Make rule18_manifest_drift sparse-aware and share enumeration with generate-manifest
+
 ## [1199] - 2026-06-22
 
 - [TASK-706] Make tusk generate-manifest work under sparse task worktrees instead of refusing
