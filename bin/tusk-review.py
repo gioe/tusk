@@ -1227,24 +1227,35 @@ def cmd_pass_status(args: argparse.Namespace, db_path: str, config_path: str) ->
 
 
 def cmd_summary(args: argparse.Namespace, db_path: str) -> int:
-    """Output a summary of all findings for a review."""
+    """Output a summary of the latest review's findings for a task."""
     conn = get_connection(db_path)
     try:
+        task = conn.execute(
+            "SELECT id, summary FROM tasks WHERE id = ?", (args.task_id,)
+        ).fetchone()
+        if not task:
+            print(f"Error: Task {args.task_id} not found", file=sys.stderr)
+            return 2
+
+        # Resolve the latest non-superseded review for this task. Mirrors the
+        # task-centric lookup used by `review list`/`status`/`verdict`; the arg
+        # is a task_id, never a review_id (issue #1033).
         review = conn.execute(
             "SELECT r.id, r.task_id, r.reviewer, r.status, r.review_pass,"
             "  r.diff_summary, r.created_at, t.summary as task_summary"
             " FROM code_reviews r JOIN tasks t ON t.id = r.task_id"
-            " WHERE r.id = ?",
-            (args.review_id,),
+            " WHERE r.task_id = ? AND r.status <> 'superseded'"
+            " ORDER BY r.id DESC LIMIT 1",
+            (args.task_id,),
         ).fetchone()
         if not review:
-            print(f"Error: Review {args.review_id} not found", file=sys.stderr)
-            return 2
+            print(f"No reviews for task #{args.task_id}: {task['summary']}")
+            return 0
 
         comments = conn.execute(
             "SELECT id, file_path, line_start, line_end, category, severity, comment, resolution, resolution_note"
             " FROM review_comments WHERE review_id = ? ORDER BY severity, category, id",
-            (args.review_id,),
+            (review["id"],),
         ).fetchall()
     finally:
         conn.close()
@@ -1427,8 +1438,8 @@ def main():
     status_p.add_argument("task_id", type=int, help="Task ID")
 
     # summary
-    summary_p = subparsers.add_parser("summary", allow_abbrev=False, help="Print a human-readable summary of a review")
-    summary_p.add_argument("review_id", type=int, help="Review ID")
+    summary_p = subparsers.add_parser("summary", allow_abbrev=False, help="Print a human-readable summary of a task's latest review")
+    summary_p.add_argument("task_id", type=int, help="Task ID")
 
     # validate-comments
     validate_p = subparsers.add_parser(
