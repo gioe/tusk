@@ -21,62 +21,58 @@ tusk skill-run start groom-backlog
 
 This prints `{"run_id": N, "started_at": "..."}`. Capture `run_id` — you will need it in Step 7.
 
-> **Early-exit cleanup:** If any check below causes the skill to stop before Step 7b (e.g., `tusk setup` / `tusk backlog-scan` fails, the backlog is empty with nothing to groom, or the user declines the Step 4 approval prompt), first call `tusk skill-run cancel <run_id>` to close the open row, then stop. Otherwise the row lingers as `(open)` in `tusk skill-run list` forever.
+> **Early-exit cleanup:** If any check below causes the skill to stop before Step 7b (e.g., `tusk groom` fails, the backlog is empty with nothing to groom, or the user declines the Step 4 approval prompt), first call `tusk skill-run cancel <run_id>` to close the open row, then stop. Otherwise the row lingers as `(open)` in `tusk skill-run list` forever.
 
-## Setup: Fetch Config and Backlog
-
-Before grooming, fetch everything needed in a single call:
+## Setup: Run the Mechanical Pipeline
 
 ```bash
-tusk setup
+tusk groom
 ```
 
-This returns a JSON object with two keys:
-- **`config`** — full project config (domains, agents, task_types, priorities, complexity, etc.). Use these values (not hardcoded ones) throughout the grooming process.
-- **`backlog`** — all open tasks as an array of objects. Use this as the primary backlog data for Step 1 (you still need the dependency queries below).
+`tusk groom` is a single CLI orchestrator that runs autoclose, scope rederive (open tasks), backlog-scan (duplicates / unassigned / unsized / expired), and lint in sequence. It returns one JSON document with these keys:
 
-## Pre-Check: Auto-Close Stale Tasks
+- `expired` — open tasks past their `expires_at` date
+- `duplicates` — heuristic duplicate pairs among open tasks
+- `unassigned` — To Do tasks with no assignee
+- `unsized` — To Do tasks with no complexity estimate
+- `autoclose_candidates` — `{moot_contingent, total, applied}`
+- `scope_rederive` — `{applied, tasks_processed, tasks_changed, results}`
+- `lint` — `{exit_code, summary}` from `tusk lint --quiet`
 
-Run the auto-close check for moot contingent tasks:
+Hold this JSON in memory for the rest of the flow. **Do not** run `tusk autoclose`, `tusk scope rederive --all`, `tusk backlog-scan`, or `tusk lint` separately — the orchestrator already invoked them.
 
-```bash
-tusk autoclose
-```
+If `autoclose_candidates.applied > 0`, report the counts before continuing. If every list is empty and `lint.exit_code` is 0, the backlog is healthy — skip to Step 7 and report.
 
-This returns a JSON summary with counts and task IDs per category:
-- `moot_contingent` — tasks contingent on upstream work that closed as `wont_do`/`expired` (closed as `wont_do`)
-
-If `total_closed` is 0, report "No auto-close candidates found" and proceed to Step 1. Otherwise, report the counts before continuing.
+> **Dry-run preview.** To inspect what `tusk groom` *would* close without applying changes, run:
+> ```bash
+> tusk groom --dry-run
+> ```
+> The `autoclose_candidates.applied` flag is `false` and the same candidate IDs appear under `autoclose_candidates.moot_contingent` for review. The `scope_rederive.applied` flag is likewise `false` (the rederive mutation is skipped, with `tasks_processed` and `tasks_changed` both 0). The backlog-scan and lint steps run unchanged either way.
 
 ## Pre-Check: Rederive Stale Scope Rows
 
-Rebuild stale `auto_derived` scope rows across the open backlog so the spurious `missing_scope_path` context-health warnings they produce are cleaned up automatically during routine grooming instead of requiring a manual command run after the scope auto-derivation logic changes:
-
-```bash
-tusk scope rederive --all
-```
-
-> **Note:** the `tusk groom` orchestrator now folds this same pass in and surfaces it under a `scope_rederive` key (`{applied, tasks_processed, tasks_changed, results}`) in its JSON — that is how the codex-prompt groom surface consumes it. This skill runs grooming commands à-la-carte (`tusk autoclose`, `tusk scope rederive --all`, `tusk backlog-scan` separately) and does not call `tusk groom`, so it invokes the rederive directly here. Callers that drive grooming through `tusk groom` should read the `scope_rederive` rollup from that output instead of running this command separately.
-
-This runs the bulk rederive over **open tasks only** (the default; grooming operates on the open backlog, so `--include-closed` is intentionally omitted). It emits a single JSON object:
+`tusk groom` already ran this pass for you — the `scope_rederive` key in the Setup JSON is its rollup. The orchestrator runs the bulk rederive over **open tasks only**, rebuilding stale `auto_derived` scope rows so the spurious `missing_scope_path` context-health warnings they produce are cleaned up automatically during routine grooming. **Do not** run `tusk scope rederive --all` separately. The `scope_rederive` rollup shape:
 
 ```json
-{"all": true, "include_closed": false, "tasks_processed": N, "tasks_changed": M,
+{"applied": true, "tasks_processed": N, "tasks_changed": M,
  "results": [{"task_id": N, "removed": ["..."], "added": ["..."], "auto_derived": ["..."], "preserved": [...]}, ...]}
 ```
 
-Report `tasks_changed` (`M`) and, for each entry in `results` whose `removed` or `added` array is non-empty, a one-line `TASK-<task_id>: -<removed> +<added>` rollup. If `tasks_changed` is 0, report "No stale scope rows found" and proceed to Step 1.
+Report `tasks_changed` (`M`) and, for each entry in `results` whose `removed` or `added` array is non-empty, a one-line `TASK-<task_id>: -<removed> +<added>` rollup. If `tasks_changed` is 0, report "No stale scope rows found" and proceed to Step 1. In a `tusk groom --dry-run` preview, `scope_rederive.applied` is `false` and `results` is empty (the mutation was skipped).
 
-**Why this runs automatically (not behind the Step 4 approval gate):** like the `tusk autoclose` pre-check above, this is a safe pre-approval mutation. It is in fact *strictly safer* than autoclose — autoclose changes task **status** (closes tasks), whereas rederive only rebuilds derived metadata: it deletes and rebuilds `auto_derived` scope rows from the task's current text while leaving every `operator_declared`, `creates`, and `unbounded` row untouched. No operator intent is lost and no task status changes, so there is nothing for the user to approve. This is the auto-cleanup pass that keeps grooming a backlog-hygiene operation rather than a read-only audit.
+**Why this runs automatically (not behind the Step 4 approval gate):** like the autoclose pass inside `tusk groom`, this is a safe pre-approval mutation. It is in fact *strictly safer* than autoclose — autoclose changes task **status** (closes tasks), whereas rederive only rebuilds derived metadata: it deletes and rebuilds `auto_derived` scope rows from the task's current text while leaving every `operator_declared`, `creates`, and `unbounded` row untouched. No operator intent is lost and no task status changes, so there is nothing for the user to approve. This is the auto-cleanup pass that keeps grooming a backlog-hygiene operation rather than a read-only audit.
 
-## Step 1: Fetch Dependency Data
+## Step 1: Fetch Config, Backlog, and Dependency Data
 
-The backlog tasks are already available from the `tusk setup` call above. Fetch dependency data to supplement:
+The mechanical signals are now in hand. Fetch context for the analysis layer:
 
 ```bash
+tusk setup
 tusk deps blocked
 tusk deps all
 ```
+
+`tusk setup` returns `{config, backlog}`. Use `config` for valid domain / agent / priority values (not hardcoded ones) throughout the grooming process, and `backlog` as the authoritative open-task list for Step 2's semantic-duplicate sweep.
 
 **On-demand descriptions**: This query intentionally omits the `description` column to keep context lean. When you identify action candidates in Step 2 (tasks to close, delete, reprioritize, or assign), fetch full details for just those tasks:
 
@@ -84,34 +80,15 @@ tusk deps all
 tusk -header -column "SELECT id, summary, description FROM tasks WHERE id IN (<comma-separated ids>)"
 ```
 
-## Step 1b: Consolidated Backlog Pre-flight Scan
+## Step 2: Categorize Tasks
 
-Run the consolidated pre-flight scan to gather all grooming signals in a single call:
+The `duplicates`, `unassigned`, `unsized`, and `expired` arrays from `tusk groom` (Setup) drive most categories:
+- **`duplicates`** — heuristic duplicate pairs among open tasks. Each entry is `{"task_a": {"id": N, "summary": "..."}, "task_b": {"id": N, "summary": "..."}, "similarity": 0.N}`; include any pairs found in **Category B** with reason "duplicate".
+- **`unassigned`** — open tasks with no assignee (feeds Category D).
+- **`unsized`** — open tasks without a complexity estimate (feeds Step 6).
+- **`expired`** — open tasks past their `expires_at` date; if non-empty, report those task IDs alongside the `autoclose_candidates` from the Setup pipeline as additional candidates for manual review.
 
-```bash
-tusk backlog-scan
-```
-
-This returns JSON with four categories — hold onto the result, it replaces several individual queries throughout the workflow:
-- **`duplicates`** — Heuristic duplicate pairs among open tasks (feeds Step 2a)
-- **`unassigned`** — Open tasks with no assignee (feeds Category D)
-- **`unsized`** — Open tasks without a complexity estimate (feeds Step 6)
-- **`expired`** — Open tasks past their `expires_at` date; if non-empty, report those task IDs alongside the `tusk autoclose` results from the Pre-Check step as additional candidates for manual review
-
-## Step 2: Scan for Duplicates and Categorize Tasks
-
-### Step 2a: Scan for Duplicate Pairs
-
-Use the **`duplicates`** array from the `tusk backlog-scan` result (Step 1b). Each entry is:
-```json
-{"task_a": {"id": N, "summary": "..."}, "task_b": {"id": N, "summary": "..."}, "similarity": 0.N}
-```
-
-Any pairs found should be included in **Category B** with reason "duplicate".
-
-### Step 2b: Categorize Tasks
-
-Analyze each task and categorize. In addition to the heuristic scan results from Step 2a, look for **semantic duplicates** — tasks that cover the same intent but use different wording (e.g., "Implement password reset flow" vs. "Add forgot password endpoint"). The heuristic catches textual near-matches; you should catch conceptual overlap that differs in phrasing.
+In addition to the heuristic scan results, look for **semantic duplicates** — tasks that cover the same intent but use different wording (e.g., "Implement password reset flow" vs. "Add forgot password endpoint"). The heuristic catches textual near-matches; you should catch conceptual overlap that differs in phrasing.
 
 ### Category A: Candidates for Done (Acceptance Criteria Already Met)
 Tasks where the work has already been completed in the codebase:
@@ -138,9 +115,9 @@ tusk deps dependents <id>
 - **Over-prioritized**: Nice-to-haves, speculative work
 
 ### Category D: Unassigned Tasks
-Tasks without an agent assignee. Use the **`unassigned`** array from the `tusk backlog-scan` result (Step 1b) — each entry includes `id`, `summary`, and `domain`.
+Tasks without an agent assignee. Use the **`unassigned`** array from the `tusk groom` result (Setup) — each entry includes `id`, `summary`, and `domain`.
 
-Assign based on project agents (from `tusk config`).
+Assign based on project agents (from the `config` returned by `tusk setup` in Step 1).
 
 ### Category E: Healthy Tasks
 Correctly prioritized, assigned, and relevant. No action needed.
@@ -168,6 +145,8 @@ Present analysis in this format:
 
 ### No Action Needed (V tasks)
 ```
+
+If `lint.exit_code` from the Setup pipeline is non-zero, append a one-line note: the lint summary is informational here — it doesn't block grooming, but the user may want to address violations before the next session.
 
 ## Step 4: Get User Confirmation
 
@@ -213,7 +192,7 @@ tusk -header -column "SELECT id, summary, status, priority, assignee FROM tasks 
 
 ## Step 6: Bulk-Estimate Unsized Tasks
 
-Before computing priority scores, check for tasks without complexity estimates. Use the **`unsized`** array from the `tusk backlog-scan` result (Step 1b) — each entry includes `id`, `summary`, `domain`, and `task_type`.
+Before computing priority scores, check for tasks without complexity estimates. Use the **`unsized`** array from the `tusk groom` result (Setup) — each entry includes `id`, `summary`, `domain`, and `task_type`.
 
 If the `unsized` array is empty, skip to Step 7.
 
@@ -233,15 +212,17 @@ Generate the summary report:
 ## Backlog Grooming Complete
 
 ### Actions Taken:
+- **Auto-closed** (from `tusk groom`): T tasks
 - **Scope rows rederived** (from the Pre-Check rederive pass): M tasks changed
 - **Moved to Done**: W tasks
 - **Deleted**: X tasks
 - **Reprioritized**: Y tasks
 - **Assigned**: U tasks
+- **Sized**: S tasks
 - **Unchanged**: Z tasks
 ```
 
-Use the `tasks_changed` count (`M`) captured during the `## Pre-Check: Rederive Stale Scope Rows` pass above.
+Use the `autoclose_candidates.applied`/`moot_contingent` counts (`T`) and the `scope_rederive.tasks_changed` count (`M`) from the `tusk groom` output captured in Setup.
 
 Show the final backlog state (this also serves as WSJF score verification):
 
