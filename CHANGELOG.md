@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1199] - 2026-06-22
+
+- [TASK-706] Make tusk generate-manifest work under sparse task worktrees instead of refusing
+
 ## [1198] - 2026-06-22
 
 - [TASK-705] Add codex-prompts/objective.md Codex port of the /objective skill
