@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1191] - 2026-06-21
+
+- [TASK-698] Fix: harden `tusk review` dispatch so it never exits nonzero with empty stderr (issue #1029). The no-subcommand path printed help to stdout and exited 1 with empty stderr, so the bin/tusk silent-exit guard papered over it with the generic "exited N with no diagnostic output" message (the exact phrasing the reporter saw). It now prints an actionable line plus usage to stderr and exits 2. Added a defensive final `else` in `main()`'s dispatch so a parser/handler mismatch emits a named diagnostic and exits 2 instead of silently returning 0. The reported `review status <task_id>` happy path was already correct (exit 0 with JSON) and is now covered by a regression test.
+
 ## [1190] - 2026-06-21
 
 - [TASK-697] tusk review summary now takes a task_id (not a review_id), resolving the latest non-superseded review for that task — consistent with review list/status/verdict. Previously a task_id argument silently rendered a colliding code_reviews.id belonging to an unrelated task. Prints "No reviews for task #N" when the task has none, and fails with exit 2 for an unknown task (issue #1033).
