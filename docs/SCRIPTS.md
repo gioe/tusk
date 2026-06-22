@@ -58,6 +58,7 @@ require it).
 | **tusk-progress.py** | `tusk progress <id> [--note "…"] [--next-steps "…"]` | git HEAD | `task_progress` |
 | **tusk-criteria.py** | `tusk criteria add\|list\|done\|skip\|reset\|delete <id> [flags]` | `acceptance_criteria`, git HEAD, Claude Code transcripts | `acceptance_criteria`; cost attribution via `tusk-pricing-lib.py` |
 | **tusk-context.py** | `tusk context add\|list\|resolve\|supersede ...` | `tasks`, `objectives`, `task_context_items` | `task_context_items` (except `list`) |
+| **tusk-objective.py** | `tusk objective insert\|list\|get\|brief\|update\|link\|unlink\|done ...` | `objectives`, `objective_tasks`, `tasks`, `task_metrics`, `v_criteria_coverage`, `task_context_items` (brief rollup) | `objectives`, `objective_tasks` |
 
 ### Dependencies
 
