@@ -56,6 +56,8 @@ Rebuild stale `auto_derived` scope rows across the open backlog so the spurious 
 tusk scope rederive --all
 ```
 
+> **Note:** the `tusk groom` orchestrator now folds this same pass in and surfaces it under a `scope_rederive` key (`{applied, tasks_processed, tasks_changed, results}`) in its JSON — that is how the codex-prompt groom surface consumes it. This skill runs grooming commands à-la-carte (`tusk autoclose`, `tusk scope rederive --all`, `tusk backlog-scan` separately) and does not call `tusk groom`, so it invokes the rederive directly here. Callers that drive grooming through `tusk groom` should read the `scope_rederive` rollup from that output instead of running this command separately.
+
 This runs the bulk rederive over **open tasks only** (the default; grooming operates on the open backlog, so `--include-closed` is intentionally omitted). It emits a single JSON object:
 
 ```json

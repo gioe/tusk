@@ -43,6 +43,7 @@ sequence. It returns one JSON document with these keys:
 - `unassigned` — To Do tasks with no assignee
 - `unsized` — To Do tasks with no complexity estimate
 - `autoclose_candidates` — `{moot_contingent, total, applied}`
+- `scope_rederive` — `{applied, tasks_processed, tasks_changed, results}`
 - `lint` — `{exit_code, summary}` from `tusk lint --quiet`
 
 Hold this JSON in memory for the rest of the flow. **Do not** run
@@ -60,34 +61,31 @@ is healthy — skip to Step 7 and report.
 > ```
 > The `autoclose_candidates.applied` flag is `false` and the same
 > candidate IDs appear under `autoclose_candidates.moot_contingent`
-> for review. The backlog-scan and lint steps run unchanged either
-> way.
+> for review. The `scope_rederive.applied` flag is likewise `false`
+> (the rederive mutation is skipped, with `tasks_processed` and
+> `tasks_changed` both 0). The backlog-scan and lint steps run
+> unchanged either way.
 
 ## Pre-Check: Rederive Stale Scope Rows
 
-`tusk groom` does **not** include this pass — run it separately to rebuild
-stale `auto_derived` scope rows across the open backlog, so the spurious
-`missing_scope_path` context-health warnings they produce are cleaned up
-automatically during routine grooming instead of requiring a manual
-command run after the scope auto-derivation logic changes:
-
-```bash
-tusk scope rederive --all
-```
-
-This runs the bulk rederive over **open tasks only** (the default;
-grooming operates on the open backlog, so `--include-closed` is
-intentionally omitted). It emits a single JSON object:
+`tusk groom` already ran this pass for you — the `scope_rederive` key in
+the Step 0 JSON is its rollup. The orchestrator runs the bulk rederive
+over **open tasks only**, rebuilding stale `auto_derived` scope rows so
+the spurious `missing_scope_path` context-health warnings they produce are
+cleaned up automatically during routine grooming. **Do not** run
+`tusk scope rederive --all` separately. The `scope_rederive` rollup shape:
 
 ```json
-{"all": true, "include_closed": false, "tasks_processed": N, "tasks_changed": M,
+{"applied": true, "tasks_processed": N, "tasks_changed": M,
  "results": [{"task_id": N, "removed": ["..."], "added": ["..."], "auto_derived": ["..."], "preserved": [...]}, ...]}
 ```
 
 Report `tasks_changed` (`M`) and, for each entry in `results` whose
 `removed` or `added` array is non-empty, a one-line
 `TASK-<task_id>: -<removed> +<added>` rollup. If `tasks_changed` is 0,
-report "No stale scope rows found" and proceed to Step 1.
+report "No stale scope rows found" and proceed to Step 1. In a
+`tusk groom --dry-run` preview, `scope_rederive.applied` is `false` and
+`results` is empty (the mutation was skipped).
 
 **Why this runs automatically (not behind the Step 4 approval gate):**
 like the autoclose pass inside `tusk groom`, this is a safe pre-approval
