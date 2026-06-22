@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1196] - 2026-06-22
+
+- [TASK-702] Add tusk objective brief roll-up read view over linked tasks
+
 ## [1195] - 2026-06-22
 
 - [TASK-704] Surface objectives from the task side: task-list filter, task-get linkage, glossary
