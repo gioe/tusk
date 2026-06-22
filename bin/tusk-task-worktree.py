@@ -604,12 +604,38 @@ def _primary_repo_root(repo_root: str) -> str:
     return primary if os.path.isdir(primary) else repo_root
 
 
-def _primary_origin_state(primary_root: str) -> tuple[str, int, int] | None:
-    """Return ``(default_branch, ahead, behind)`` for primary vs origin.
+def _primary_current_branch(primary_root: str) -> str | None:
+    """Return primary's current branch name, or ``None`` when detached/unknown.
+
+    Best-effort: a detached HEAD (or any git failure) returns ``None`` so
+    callers fall back to the default-branch wording rather than guessing.
+    """
+    result = _run_git(primary_root, ["symbolic-ref", "--quiet", "--short", "HEAD"])
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _primary_origin_state(
+    primary_root: str,
+) -> tuple[str, int, int, str | None] | None:
+    """Return ``(default_branch, ahead, behind, current_branch)`` for primary's
+    LOCAL default branch vs origin.
+
+    ``ahead``/``behind`` compare primary's local ``<default>`` ref against
+    ``origin/<default>`` — NOT ``HEAD``. When the primary checkout is parked on
+    a sibling feature branch (a concurrent session), ``HEAD`` points at that
+    branch, so a ``HEAD``-based comparison evaluates the wrong branch and
+    reports a bogus divergence (issue #1123). The staleness that actually
+    matters is whether primary's local default branch trails origin: that is
+    what a later ``tusk sync-main`` fast-forwards, and the worktree base is
+    always ``origin/<default>`` regardless. ``current_branch`` lets callers
+    tailor the remedy when primary is not on ``<default>``.
 
     Best-effort: any git failure (no remote, no network, detached HEAD,
-    unreachable refs, missing ``origin``) returns ``None`` so callers can stay
-    silent rather than blocking worktree creation on an unprovable state.
+    unreachable refs, missing ``origin``, no local ``<default>`` ref) returns
+    ``None`` so callers can stay silent rather than blocking worktree creation
+    on an unprovable state.
     """
     if not primary_root or not os.path.isdir(primary_root):
         return None
@@ -628,11 +654,12 @@ def _primary_origin_state(primary_root: str) -> tuple[str, int, int] | None:
     # Best-effort fetch; silently swallow failures (offline, auth, etc.).
     _run_git(primary_root, ["fetch", "origin", default_branch])
 
-    behind = _rev_count(primary_root, f"HEAD..origin/{default_branch}")
-    ahead = _rev_count(primary_root, f"origin/{default_branch}..HEAD")
+    behind = _rev_count(primary_root, f"{default_branch}..origin/{default_branch}")
+    ahead = _rev_count(primary_root, f"origin/{default_branch}..{default_branch}")
     if behind is None or ahead is None:
         return None
-    return default_branch, ahead, behind
+    current_branch = _primary_current_branch(primary_root)
+    return default_branch, ahead, behind, current_branch
 
 
 def _stale_primary_refusal(primary_root: str) -> str | None:
@@ -640,9 +667,34 @@ def _stale_primary_refusal(primary_root: str) -> str | None:
     state = _primary_origin_state(primary_root)
     if state is None:
         return None
-    default_branch, ahead, behind = state
+    default_branch, ahead, behind, current_branch = state
     if behind <= 0:
         return None
+
+    # When primary is parked on a sibling feature branch (a concurrent session),
+    # neither "tusk sync-main" nor "git pull --rebase origin <default>" is the
+    # right remedy — both operate on the checked-out branch, not <default>, so
+    # they would advance or rebase the wrong (possibly someone else's) branch.
+    # --force-stale bases the new worktree on origin/<default> directly, which
+    # is the correct path here (issue #1123).
+    on_feature = bool(current_branch) and current_branch != default_branch
+    if on_feature:
+        if ahead > 0:
+            state_desc = (
+                f"has diverged from origin/{default_branch} "
+                f"({ahead} commit(s) ahead, {behind} behind)"
+            )
+        else:
+            state_desc = f"is {behind} commit(s) behind origin/{default_branch}"
+        return (
+            f"primary checkout's local {default_branch} {state_desc}, but "
+            f"primary is currently on '{current_branch}', not {default_branch} "
+            "— a concurrent session may own that branch. Do NOT run "
+            f'"git pull --rebase origin {default_branch}" or "tusk sync-main" '
+            f"here: both operate on the checked-out '{current_branch}', not "
+            f"{default_branch}. Pass --force-stale to create the workspace from "
+            f"origin/{default_branch} directly (the correct path for this case)."
+        )
 
     if ahead > 0:
         return (
@@ -689,7 +741,33 @@ def _maybe_advise_stale_primary(primary_root: str) -> None:
     state = _primary_origin_state(primary_root)
     if state is None:
         return
-    default_branch, ahead, behind = state
+    default_branch, ahead, behind, current_branch = state
+
+    # When primary is parked on a sibling feature branch and its local default
+    # branch trails origin, the recovery commands below (sync-main / pull
+    # --rebase) operate on the checked-out branch, not <default> — so naming
+    # them here would misdirect the operator (issue #1123). The worktree was
+    # already based on origin/<default> directly (--force-stale), so surface the
+    # concurrent-session context instead and point at --force-stale.
+    on_feature = bool(current_branch) and current_branch != default_branch
+    if on_feature and behind > 0:
+        if ahead and ahead > 0:
+            state_desc = (
+                f"has diverged from origin/{default_branch} "
+                f"({ahead} commit(s) ahead, {behind} behind)"
+            )
+        else:
+            state_desc = f"is {behind} commit(s) behind origin/{default_branch}"
+        print(
+            f"tusk: primary checkout's local {default_branch} {state_desc}, but "
+            f"primary is currently on '{current_branch}', not {default_branch} "
+            "— a concurrent session may own that branch. This worktree was "
+            f"based on origin/{default_branch} directly; reconcile {default_branch} "
+            f"from a checkout that owns it (not via sync-main/pull --rebase here, "
+            f"which would act on '{current_branch}').",
+            file=sys.stderr,
+        )
+        return
 
     # Compute behind AND ahead so a divergence (local commits unpushed AND
     # origin advanced) is reported as such instead of being mislabeled as a

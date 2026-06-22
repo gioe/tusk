@@ -476,3 +476,193 @@ def test_diverged_primary_does_not_recommend_sync_main_as_the_fix(
         f"diverged advisory should explain why sync-main is wrong here; "
         f"got: {stderr}"
     )
+
+
+def _seed_repo_on_feature_main_current(tmp_path):
+    """primary parked on a feature branch that diverged from an older main,
+    while local main == origin/main. Reproduces issue #1123: a HEAD-based
+    comparison reports the sibling feature branch as '1 ahead, 1 behind'
+    origin/main, but the local default branch is identical to origin (0 0)."""
+    origin = tmp_path / "origin.git"
+    subprocess.run(
+        ["git", "init", "-b", "main", "--bare", str(origin)],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+    primary = tmp_path / "primary"
+    primary.mkdir()
+    _git(["init", "-b", "main"], cwd=primary)
+    _git(["config", "user.email", "tusk@example.test"], cwd=primary)
+    _git(["config", "user.name", "Tusk Tests"], cwd=primary)
+    _git(["remote", "add", "origin", str(origin)], cwd=primary)
+    (primary / "README.md").write_text("x\n", encoding="utf-8")
+    _git(["add", "."], cwd=primary)
+    _git(["commit", "-m", "initial"], cwd=primary)  # commit A
+    _git(["push", "-u", "origin", "main"], cwd=primary)
+    _git(["remote", "set-head", "origin", "main"], cwd=primary)
+
+    # Branch the sibling feature off A and give it its own commit C.
+    _git(["checkout", "-b", "feature/SOME-OTHER-TASK"], cwd=primary)
+    (primary / "feature.txt").write_text("c\n", encoding="utf-8")
+    _git(["add", "."], cwd=primary)
+    _git(["commit", "-m", "feature commit C"], cwd=primary)
+
+    # origin/main advances to B via a second clone (also forked from A).
+    advancer = tmp_path / "advancer"
+    _git(["clone", str(origin), str(advancer)], cwd=tmp_path)
+    _git(["config", "user.email", "tusk@example.test"], cwd=advancer)
+    _git(["config", "user.name", "Tusk Tests"], cwd=advancer)
+    (advancer / "advance.txt").write_text("b\n", encoding="utf-8")
+    _git(["add", "."], cwd=advancer)
+    _git(["commit", "-m", "advance origin to B"], cwd=advancer)
+    _git(["push", "origin", "main"], cwd=advancer)
+
+    # Fast-forward primary's LOCAL main to match origin/main (B) without leaving
+    # the feature branch, so local main == origin/main while HEAD is the sibling
+    # feature branch (A->C), which is 1 ahead + 1 behind origin/main.
+    _git(["fetch", "origin"], cwd=primary)
+    _git(["branch", "-f", "main", "origin/main"], cwd=primary)
+    return primary
+
+
+def _seed_repo_on_feature_main_behind(tmp_path):
+    """primary parked on a feature branch while its local main genuinely trails
+    origin/main by 1 commit (issue #1123 stale-but-on-feature case)."""
+    primary = _seed_repo_with_origin(tmp_path, advance_origin=True)
+    _git(["checkout", "-b", "feature/SOME-OTHER-TASK"], cwd=primary)
+    return primary
+
+
+def test_on_feature_branch_main_current_does_not_refuse(tmp_path, monkeypatch):
+    """issue #1123: when primary is on a sibling feature branch but its local
+    default branch equals origin/<default>, task-worktree create must NOT
+    refuse with a bogus 'diverged'/'behind' message — the staleness check
+    compares the local default branch, not the checked-out HEAD."""
+    primary = _seed_repo_on_feature_main_current(tmp_path)
+    db_path, env = _init_tusk(primary, monkeypatch)
+    task_id = _insert_task(db_path)
+
+    workspace_root = tmp_path / "workspaces"
+    result = _run(
+        [
+            "task-worktree", "create",
+            str(task_id), "onfeature-current-test",
+            "--workspace-root", str(workspace_root),
+        ],
+        cwd=primary,
+        env=env,
+    )
+    assert result.returncode == 0, (
+        f"create must succeed when local main == origin/main even on a feature "
+        f"branch; got exit {result.returncode}, stderr: {result.stderr}"
+    )
+    assert "diverged" not in result.stderr.lower(), (
+        f"must not report a bogus divergence; got: {result.stderr}"
+    )
+    assert "behind origin" not in result.stderr.lower(), (
+        f"must not report a bogus behind state; got: {result.stderr}"
+    )
+    branch = f"feature/TASK-{task_id}-onfeature-current-test"
+    branch_result = subprocess.run(
+        ["git", "show-ref", "--verify", f"refs/heads/{branch}"],
+        cwd=primary,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert branch_result.returncode == 0, (
+        f"task branch {branch} should have been created"
+    )
+
+
+def test_on_feature_branch_main_behind_refuses_with_force_stale_remedy(
+    tmp_path, monkeypatch
+):
+    """issue #1123: when primary's local default branch genuinely trails origin
+    AND primary is on a non-default branch, the refusal must name the current
+    branch, flag the concurrent-session risk, and recommend --force-stale
+    rather than sync-main / git pull --rebase (which would act on the wrong
+    branch)."""
+    primary = _seed_repo_on_feature_main_behind(tmp_path)
+    db_path, env = _init_tusk(primary, monkeypatch)
+    task_id = _insert_task(db_path)
+
+    workspace_root = tmp_path / "workspaces"
+    result = _run(
+        [
+            "task-worktree", "create",
+            str(task_id), "onfeature-behind-test",
+            "--workspace-root", str(workspace_root),
+        ],
+        cwd=primary,
+        env=env,
+    )
+    assert result.returncode == 2, result.stderr
+    stderr = result.stderr
+    assert "feature/SOME-OTHER-TASK" in stderr, (
+        f"refusal should name the current branch; got: {stderr}"
+    )
+    assert "concurrent session" in stderr, (
+        f"refusal should flag the concurrent-session risk; got: {stderr}"
+    )
+    assert "--force-stale" in stderr, (
+        f"refusal should recommend --force-stale; got: {stderr}"
+    )
+    assert "Do NOT run" in stderr, (
+        f"refusal should warn against the wrong-branch remedies; got: {stderr}"
+    )
+    # The pure-behind path's bare "Run \"tusk sync-main\" in <path> first"
+    # instruction must NOT appear as the actionable fix here.
+    assert 'sync-main" in' not in stderr, (
+        f"on-feature refusal must not recommend running sync-main as the fix; "
+        f"got: {stderr}"
+    )
+    branch = f"feature/TASK-{task_id}-onfeature-behind-test"
+    branch_result = subprocess.run(
+        ["git", "show-ref", "--verify", f"refs/heads/{branch}"],
+        cwd=primary,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert branch_result.returncode != 0, (
+        f"on-feature refusal must not create branch {branch}"
+    )
+
+
+def test_on_feature_branch_main_behind_force_stale_creates_worktree(
+    tmp_path, monkeypatch
+):
+    """--force-stale remains the documented escape hatch: it bases the worktree
+    on origin/<default> directly even when primary is on a feature branch with
+    a stale local default branch (issue #1123)."""
+    primary = _seed_repo_on_feature_main_behind(tmp_path)
+    db_path, env = _init_tusk(primary, monkeypatch)
+    task_id = _insert_task(db_path)
+
+    workspace_root = tmp_path / "workspaces"
+    result = _run(
+        [
+            "task-worktree", "create",
+            str(task_id), "onfeature-forcestale-test",
+            "--workspace-root", str(workspace_root),
+            "--force-stale",
+        ],
+        cwd=primary,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr
+    branch = f"feature/TASK-{task_id}-onfeature-forcestale-test"
+    branch_result = subprocess.run(
+        ["git", "show-ref", "--verify", f"refs/heads/{branch}"],
+        cwd=primary,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert branch_result.returncode == 0, (
+        f"--force-stale should create branch {branch} from origin/<default>"
+    )
