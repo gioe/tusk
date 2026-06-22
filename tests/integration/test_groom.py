@@ -25,9 +25,11 @@ JSON_KEYS = {
     "unassigned",
     "unsized",
     "autoclose_candidates",
+    "scope_rederive",
     "lint",
 }
 AUTOCLOSE_KEYS = {"applied", "moot_contingent", "total"}
+SCOPE_REDERIVE_KEYS = {"applied", "tasks_processed", "tasks_changed", "results"}
 
 
 def _run_groom(db_path, *flags):
@@ -223,6 +225,74 @@ class TestGroomApply:
         dry = json.loads(_run_groom(db_path, "--dry-run").stdout)
         full = json.loads(_run_groom(db_path).stdout)
         assert set(dry.keys()) == set(full.keys()) == JSON_KEYS
+
+
+class TestGroomScopeRederive:
+    def test_dry_run_skips_rederive_mutation(self, db_path):
+        """--dry-run reports an empty scope_rederive rollup with applied=false
+        and never invokes the underlying mutation (mirrors autoclose)."""
+        _populate_backlog(str(db_path))
+
+        # Snapshot the auto_derived scope rows so we can prove the dry-run
+        # left them untouched.
+        conn = sqlite3.connect(str(db_path))
+        try:
+            before = conn.execute(
+                "SELECT COUNT(*) FROM task_scope WHERE source = 'auto_derived'"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+
+        result = _run_groom(db_path, "--dry-run")
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+
+        rederive = payload["scope_rederive"]
+        assert set(rederive.keys()) == SCOPE_REDERIVE_KEYS
+        assert rederive["applied"] is False
+        assert rederive["tasks_processed"] == 0
+        assert rederive["tasks_changed"] == 0
+        assert rederive["results"] == []
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            after = conn.execute(
+                "SELECT COUNT(*) FROM task_scope WHERE source = 'auto_derived'"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        assert after == before
+
+    def test_full_run_surfaces_rederive_rollup(self, db_path):
+        """A non-dry-run groom runs scope rederive over open tasks and surfaces
+        a tasks_processed / tasks_changed / results rollup."""
+        _populate_backlog(str(db_path))
+
+        # Open (non-Done) task count is what `scope rederive --all` processes.
+        conn = sqlite3.connect(str(db_path))
+        try:
+            open_count = conn.execute(
+                "SELECT COUNT(*) FROM tasks WHERE status <> 'Done'"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+
+        result = _run_groom(db_path)  # no --dry-run
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+
+        rederive = payload["scope_rederive"]
+        assert set(rederive.keys()) == SCOPE_REDERIVE_KEYS
+        assert rederive["applied"] is True
+        # autoclose closes the moot-contingent row before rederive runs, so the
+        # processed count reflects the open tasks that remain at that point.
+        assert rederive["tasks_processed"] >= 1
+        assert rederive["tasks_processed"] <= open_count
+        assert rederive["tasks_changed"] >= 0
+        assert isinstance(rederive["results"], list)
+        assert len(rederive["results"]) == rederive["tasks_processed"]
+        for entry in rederive["results"]:
+            assert {"task_id", "removed", "added"} <= set(entry.keys())
 
 
 class TestGroomHelp:
