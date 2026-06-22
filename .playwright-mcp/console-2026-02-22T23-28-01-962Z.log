@@ -1,9 +1,0 @@
-[     727ms] TypeError: Cannot read properties of undefined (reading 'getAttribute')
-    at http://localhost:8765/dashboard.html:8045:51
-    at Array.forEach (<anonymous>)
-    at updateFooter (http://localhost:8765/dashboard.html:8044:14)
-    at render (http://localhost:8765/dashboard.html:8108:5)
-    at applyFilter (http://localhost:8765/dashboard.html:8011:5)
-    at http://localhost:8765/dashboard.html:8471:3
-    at http://localhost:8765/dashboard.html:8820:3
-[     731ms] [ERROR] Failed to load resource: the server responded with a status of 404 (File not found) @ http://localhost:8765/favicon.ico:0
