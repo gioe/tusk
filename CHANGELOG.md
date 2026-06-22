@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1195] - 2026-06-22
+
+- [TASK-704] Surface objectives from the task side: task-list filter, task-get linkage, glossary
+
 ## [1194] - 2026-06-21
 
 - [TASK-700] Converge groom-backlog SKILL.md onto the tusk groom orchestrator
