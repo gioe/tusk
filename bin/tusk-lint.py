@@ -25,8 +25,7 @@ import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader
-from tusk_underscore_bin_files import get_underscore_bin_files
+import tusk_loader  # loads tusk-generate-manifest.py (rule18), tusk-db-lib.py, tusk-glossary.py
 
 
 def find_files(root, dirs, extensions):
@@ -1087,23 +1086,9 @@ def _sparse_checkout_active(root):
 
 def rule18_manifest_drift(root):
     """MANIFEST file is out of sync with files distributed by install.sh."""
-    import glob as _glob
-
     # This rule is only meaningful in the tusk source repo.  Target projects
     # don't have a MANIFEST or a bin/tusk shell script.  Mirror rule8's guard.
     if not os.path.isfile(os.path.join(root, "bin", "tusk")):
-        return []
-
-    # In a sparse-checkout worktree, the on-disk enumeration below is a
-    # subset of the canonical source tree — every file outside the cone is
-    # absent on disk but present in MANIFEST. Reporting each as "extra in
-    # MANIFEST but not in source tree" was the issue #904 false-positive
-    # cluster (TASK-480, criterion 2227): a typical sparse worktree scored
-    # 17+ violations, which then triggered tusk commit's auto-`generate-
-    # manifest` retry path and silently destroyed every out-of-cone entry.
-    # Skip the drift check entirely under sparse-checkout — MANIFEST drift
-    # can only be assessed reliably from a full checkout.
-    if _sparse_checkout_active(root):
         return []
 
     manifest_path = os.path.join(root, "MANIFEST")
@@ -1116,61 +1101,25 @@ def rule18_manifest_drift(root):
     except (OSError, json.JSONDecodeError) as exc:
         return [f"  MANIFEST could not be parsed: {exc}"]
 
-    # Generate expected manifest using the same logic as install.sh section 4c
-    # Scripts that are only meaningful in the tusk source repo — not distributed.
-    # Canonical source: bin/dist-excluded.txt (also read by tusk-generate-manifest.py and install.sh).
-    _dist_excl_path = os.path.join(root, "bin", "dist-excluded.txt")
-    try:
-        with open(_dist_excl_path, encoding="utf-8") as _f:
-            _dist_excluded = {line.strip() for line in _f if line.strip()}
-    except OSError as exc:
-        return [f"  bin/dist-excluded.txt could not be read: {exc}"]
+    # The expected manifest comes from the SAME enumeration
+    # tusk-generate-manifest.py writes, so the lint check and the regenerator
+    # can never drift (TASK-707) — previously this rule reimplemented the walk
+    # inline and the two copies could diverge.  That enumeration is sparse-aware
+    # (TASK-706 / issue #1125): under sparse-checkout it sources the complete
+    # tracked-file set from `git ls-files` rather than the partial on-disk walk,
+    # so `tusk commit` catches MANIFEST drift inside a sparse task worktree
+    # instead of skipping the check.  When the tracked-file list cannot be read
+    # under sparse-checkout, skip rather than emit the issue #904 false-positive
+    # cluster (every out-of-cone entry flagged "extra in MANIFEST").
+    gm = tusk_loader.load("tusk-generate-manifest")  # loads tusk-generate-manifest.py
+    if _sparse_checkout_active(root):
+        lister = gm._git_lister(root)
+        if lister is None:
+            return []
+    else:
+        lister = gm._disk_lister(root)
+    expected_set = set(gm._enumerate(root, lister))
 
-    expected = []
-
-    expected.append(".claude/bin/tusk")
-
-    for p in sorted(_glob.glob(os.path.join(root, "bin", "tusk-*.py"))):
-        if os.path.basename(p) in _dist_excluded:
-            continue
-        expected.append(".claude/bin/" + os.path.basename(p))
-
-    # Underscore-named bin/ files — canonical list lives in bin/tusk_underscore_bin_files.py.
-    for name in get_underscore_bin_files(root):
-        expected.append(".claude/bin/" + name)
-
-    for name in ["config.default.json", "VERSION", "pricing.json"]:
-        expected.append(".claude/bin/" + name)
-
-    for skill_dir in sorted(_glob.glob(os.path.join(root, "skills", "*/"))):
-        skill_name = os.path.basename(skill_dir.rstrip("/"))
-        for fname in sorted(os.listdir(skill_dir)):
-            full = os.path.join(skill_dir, fname)
-            if os.path.isfile(full):
-                expected.append(".claude/skills/" + skill_name + "/" + fname)
-
-    hooks_src = os.path.join(root, ".claude", "hooks")
-    if os.path.isdir(hooks_src):
-        for fname in sorted(os.listdir(hooks_src)):
-            full = os.path.join(hooks_src, fname)
-            if os.path.isfile(full):
-                expected.append(".claude/hooks/" + fname)
-
-    git_hooks_src = os.path.join(root, "hooks", "git")
-    if os.path.isdir(git_hooks_src):
-        for fname in sorted(os.listdir(git_hooks_src)):
-            full = os.path.join(git_hooks_src, fname)
-            if os.path.isfile(full):
-                expected.append(".claude/bin/hooks/git/" + fname)
-
-    prompts_src = os.path.join(root, "codex-prompts")
-    if os.path.isdir(prompts_src):
-        for fname in sorted(os.listdir(prompts_src)):
-            full = os.path.join(prompts_src, fname)
-            if os.path.isfile(full) and fname.endswith(".md"):
-                expected.append(".codex/prompts/" + fname)
-
-    expected_set = set(expected)
     violations = []
     for path in sorted(expected_set - on_disk):
         violations.append(f"  MANIFEST: missing '{path}' (in source tree but not in MANIFEST)")
