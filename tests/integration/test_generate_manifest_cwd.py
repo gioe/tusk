@@ -196,42 +196,110 @@ def test_source_repo_guard_still_fires_outside_source_repo(tmp_path):
     )
 
 
-def test_sparse_checkout_guard_applies_to_file_derived_root(tmp_path):
-    """Pin: the sparse-checkout refusal in build_manifest() reads
-    ``core.sparseCheckout`` against the __file__-derived root. Enabling
-    sparse-checkout on a layout where the script lives must trigger the
-    refusal even when CWD is a different (non-sparse) repo.
+def _git(args, cwd):
+    subprocess.run(
+        ["git", *args], cwd=str(cwd), check=True,
+        capture_output=True, encoding="utf-8",
+    )
+
+
+def _git_init_commit(root):
+    """git init + commit everything under ``root`` so git ls-files sees it."""
+    _git(["init", "-q", "-b", "main"], root)
+    _git(["config", "user.email", "test@example.com"], root)
+    _git(["config", "user.name", "Test"], root)
+    _git(["add", "-A"], root)
+    _git(["commit", "-q", "-m", "layout"], root)
+
+
+def test_sparse_checkout_enumerates_via_git_ls_files(tmp_path):
+    """Issue #1125: generate-manifest no longer REFUSES under sparse-checkout —
+    it enumerates the complete tracked-file set from ``git ls-files`` (which
+    reads the index and is complete even under sparse) instead of the partial
+    on-disk walk. This pins the new behaviour: under sparse-checkout the command
+    succeeds and the committed bin script is present in MANIFEST, even when CWD
+    is a different (non-sparse) repo (the __file__-derived root still governs).
     """
     root = tmp_path / "src-repo"
     script = _build_source_repo_layout(
         root,
         extra_bin_scripts=[("tusk-helper.py", "# helper\n")],
     )
+    _git_init_commit(root)
+    # Enable sparse-checkout so _sparse_checkout_active(root) returns True.
+    _git(["config", "core.sparseCheckout", "true"], root)
 
-    # Initialize a real git repo at the layout root and enable sparse-checkout
-    # so _sparse_checkout_active(root) returns True.
-    subprocess.run(
-        ["git", "init", "-q", "-b", "main"], cwd=str(root), check=True,
-        capture_output=True, encoding="utf-8",
-    )
-    subprocess.run(
-        ["git", "config", "core.sparseCheckout", "true"], cwd=str(root), check=True,
-        capture_output=True, encoding="utf-8",
-    )
-
-    # CWD: a sibling tmpdir with its own (non-sparse) git repo. The fix
-    # must check sparse-checkout on the __file__-derived root, NOT on CWD.
+    # CWD: a sibling non-sparse repo — the fix must read sparse state and the
+    # tracked list against the __file__-derived root, NOT CWD.
     sibling = tmp_path / "sibling"
     sibling.mkdir()
-    subprocess.run(
-        ["git", "init", "-q", "-b", "main"], cwd=str(sibling), check=True,
-        capture_output=True, encoding="utf-8",
-    )
+    _git(["init", "-q", "-b", "main"], sibling)
 
     result = _run_generate(script, cwd=sibling)
-    assert result.returncode != 0
-    assert "refuses to run under a sparse worktree" in result.stderr, (
-        f"Expected sparse-checkout refusal; got: {result.stderr!r}"
+    assert result.returncode == 0, (
+        f"Expected success under sparse-checkout (issue #1125); got rc="
+        f"{result.returncode}\nstdout: {result.stdout!r}\nstderr: {result.stderr!r}"
+    )
+    entries = json.loads((root / "MANIFEST").read_text(encoding="utf-8"))
+    assert ".claude/bin/tusk-helper.py" in entries, (
+        f"Committed bin script missing from MANIFEST under sparse-checkout. "
+        f"Entries: {entries!r}"
+    )
+
+
+def test_sparse_vs_full_manifest_parity(tmp_path):
+    """Issue #1125 core guard: the MANIFEST produced under a sparse worktree
+    (with out-of-cone files unmaterialized on disk) is byte-identical to the one
+    produced from a full checkout of the same commit. Proves the git-ls-files
+    enumeration recovers entries the on-disk walk would silently drop.
+    """
+    root = tmp_path / "src-repo"
+    _build_source_repo_layout(
+        root,
+        extra_bin_scripts=[("tusk-foo.py", "# foo\n")],
+    )
+    script = root / "bin" / "tusk-generate-manifest.py"
+
+    # Populate categories that will be unmaterialized by a bin/.claude-only cone.
+    (root / "skills" / "myskill").mkdir(parents=True)
+    (root / "skills" / "myskill" / "SKILL.md").write_text("# skill\n", encoding="utf-8")
+    (root / "codex-prompts").mkdir(parents=True)
+    (root / "codex-prompts" / "foo.md").write_text("# prompt\n", encoding="utf-8")
+
+    _git_init_commit(root)
+
+    # Full checkout (non-sparse) → canonical MANIFEST via the on-disk walk.
+    result_full = _run_generate(script, cwd=root)
+    assert result_full.returncode == 0, result_full.stderr
+    manifest_full = (root / "MANIFEST").read_text(encoding="utf-8")
+    # Sanity: the out-of-cone entries are present in the full manifest.
+    full_entries = json.loads(manifest_full)
+    assert ".claude/skills/myskill/SKILL.md" in full_entries
+    assert ".codex/prompts/foo.md" in full_entries
+
+    # Restrict the cone to bin + .claude (the latter so the tusk-manifest.json
+    # write target stays materialized); skills/ and codex-prompts/ drop off disk.
+    _git(["sparse-checkout", "init", "--cone"], root)
+    _git(["sparse-checkout", "set", "bin", ".claude"], root)
+    assert not (root / "skills" / "myskill" / "SKILL.md").exists(), (
+        "Precondition failed: skill file should be unmaterialized under the cone"
+    )
+    assert not (root / "codex-prompts" / "foo.md").exists(), (
+        "Precondition failed: codex prompt should be unmaterialized under the cone"
+    )
+
+    # Sparse checkout → MANIFEST via git ls-files. Must equal the full manifest.
+    result_sparse = _run_generate(script, cwd=root)
+    assert result_sparse.returncode == 0, (
+        f"Expected success under sparse cone; got rc={result_sparse.returncode}\n"
+        f"stderr: {result_sparse.stderr!r}"
+    )
+    manifest_sparse = (root / "MANIFEST").read_text(encoding="utf-8")
+
+    assert manifest_sparse == manifest_full, (
+        "Sparse MANIFEST differs from full MANIFEST — the git-ls-files "
+        "enumeration must recover out-of-cone entries byte-identically.\n"
+        f"full:   {manifest_full!r}\nsparse: {manifest_sparse!r}"
     )
 
 
