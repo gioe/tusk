@@ -4,6 +4,14 @@ Runs the autonomous backlog loop via the `tusk loop` CLI. Queries the
 highest-priority ready task, dispatches it to the chain or task workflow,
 and repeats until the backlog is empty or a stop condition is met.
 
+**Drain-then-propose:** when the backlog drains (no ready task remains),
+`tusk loop` does not stop silently — it runs `tusk propose-work` and surfaces
+the ranked origination candidates (unconfirmed skill patches, unconsumed
+next_steps, recurring jot categories, repo TODO/FIXME scan, cost outliers)
+for the operator to review. These proposals are **surfaced only — never
+auto-created**. Task origination stays behind the human gate: review the
+candidates and create the worthwhile ones via `/create-task`.
+
 > **Conventions:** Run `tusk conventions search <topic>` for project rules.
 > Do not restate convention text inline — it drifts from the DB.
 
@@ -42,8 +50,12 @@ tusk loop --on-failure abort
 3. Dispatches:
    - **Chain head** → follow `chain.md` for `<id>` (sequential wave loop).
    - **Standalone** → follow `tusk.md` for `<id>`.
-4. Stops on non-zero exit from any dispatch, on empty backlog, or when
-   `--max-tasks` is reached.
+4. On an **empty backlog** (no ready task), runs `tusk propose-work` and
+   surfaces the ranked candidates to the operator, then stops. Proposals are
+   surfaced only — nothing is auto-created; review and create the worthwhile
+   ones via `/create-task`.
+5. Also stops on non-zero exit from any dispatch or when `--max-tasks` is
+   reached.
 
 > **Note:** Tasks dispatched via `tusk.md` or `chain.md` use
 > `tusk task-start --force` so that zero-criteria tasks emit a warning
