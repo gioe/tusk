@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1206] - 2026-06-23
+
+- [TASK-710] Route remaining raw sqlite3.connect callers through a shared opener for the no-DB clean diagnostic
+
 ## [1205] - 2026-06-23
 
 - [TASK-717] Add --skip-dupe/--force to task-insert to bypass the internal fuzzy dupe-guard
