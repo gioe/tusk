@@ -9,9 +9,12 @@ Arguments received from tusk:
     sys.argv[2] — config path (accepted for consistency, unused)
     sys.argv[3:] — optional flags
 
-Loop behavior:
+Loop behavior (drain-then-propose):
   1. Query highest-priority ready task (no incomplete dependencies, no open blockers)
-  2. If no task found: stop (empty backlog)
+  2. If no task found: run `tusk propose-work` and surface the ranked candidates
+     to the operator (node `propose_on_empty`), then stop. Proposals are
+     surfaced only — never auto-created — preserving the human gate on task
+     origination.
   3. Check if chain head via v_chain_heads view — task in view means it has downstream dependents
   4. If chain head → spawn claude -p /chain <id> [--on-failure <strategy>]
      Else        → spawn claude -p /tusk <id>
@@ -83,6 +86,58 @@ def is_chain_head(conn: sqlite3.Connection, task_id: int) -> bool:
         return False
 
 
+def decide_dispatch(task: dict | None, chain_head: bool) -> dict:
+    """Pure decision: given the next ready task (or None) and whether it is a chain
+    head, return the dispatch decision as a dict with a ``node`` field.
+
+    Nodes:
+      - ``propose_on_empty`` — no ready task; surface `tusk propose-work` candidates
+        to the operator instead of stopping silently. Proposals are surfaced only,
+        never auto-created — the human gate on task origination is preserved.
+      - ``chain``            — dispatch the chain head via /chain.
+      - ``tusk``             — dispatch the standalone task via /tusk.
+    """
+    if task is None:
+        return {"node": "propose_on_empty", "skill": None, "task_id": None}
+    if chain_head:
+        return {"node": "chain", "skill": "chain", "task_id": task["id"]}
+    return {"node": "tusk", "skill": "tusk", "task_id": task["id"]}
+
+
+def propose_work() -> int:
+    """Run `tusk propose-work` and stream its ranked candidates to the operator.
+
+    Surfaces origination candidates only — never inserts tasks. Returns the
+    process exit code (non-fatal: failures degrade to an empty surface).
+    """
+    result = subprocess.run(
+        ["tusk", "propose-work"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    candidates = (result.stdout or "").strip()
+    if result.returncode == 0 and candidates and candidates != "[]":
+        print(
+            "Backlog drained — ranked work proposals (review and create via "
+            "/create-task; nothing is auto-created):",
+            flush=True,
+        )
+        print(candidates, flush=True)
+    elif result.returncode == 0:
+        print("Backlog drained — no work proposals surfaced.", flush=True)
+    else:
+        stderr = (result.stderr or "").strip()
+        print(
+            f"Backlog drained — `tusk propose-work` exited {result.returncode}"
+            + (f": {stderr}" if stderr else "")
+            + " — no proposals surfaced.",
+            file=sys.stderr,
+            flush=True,
+        )
+    return result.returncode
+
+
 def spawn_agent(skill: str, task_id: int, on_failure: str | None = None) -> int:
     """Spawn claude -p /<skill> <task_id> [--on-failure <strategy>]. Returns the process exit code."""
     prompt = f"/{skill} {task_id}"
@@ -148,15 +203,22 @@ Examples:
         while True:
             task = get_next_task(conn, exclude_ids=dispatched_ids if dispatched_ids else None)
 
-            if task is None:
-                print("Backlog empty — loop complete.", flush=True)
+            chain_head = is_chain_head(conn, task["id"]) if task is not None else False
+            decision = decide_dispatch(task, chain_head)
+
+            if decision["node"] == "propose_on_empty":
+                # Drain-then-propose: instead of stopping silently, surface ranked
+                # work proposals for the operator to act on. Nothing is auto-created.
+                print("Backlog empty — surfacing work proposals.", flush=True)
+                if not args.dry_run:
+                    propose_work()
+                else:
+                    print("[dry-run] Would run: tusk propose-work", flush=True)
                 break
 
             task_id = task["id"]
             summary = task["summary"]
-
-            chain_head = is_chain_head(conn, task_id)
-            skill = "chain" if chain_head else "tusk"
+            skill = decision["skill"]
 
             if args.dry_run:
                 on_failure_suffix = (

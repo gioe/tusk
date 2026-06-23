@@ -1,6 +1,6 @@
 ---
 name: loop
-description: Autonomously work through the backlog — dispatches /chain for chain heads, /tusk for standalone tasks, repeating until empty
+description: Autonomously work through the backlog — dispatches /chain for chain heads, /tusk for standalone tasks, then surfaces tusk propose-work candidates once the backlog drains
 allowed-tools: Bash
 model: sonnet
 ---
@@ -8,6 +8,8 @@ model: sonnet
 # Loop
 
 Runs the autonomous backlog loop via the `tusk loop` CLI command. Queries the highest-priority ready task, dispatches it to `/chain` (if it has dependents) or `/tusk` (standalone), and repeats until the backlog is empty or a stop condition is met.
+
+**Drain-then-propose:** when the backlog drains (no ready task remains), `tusk loop` does not stop silently — it runs `tusk propose-work` and surfaces the ranked origination candidates (unconfirmed skill patches, unconsumed next_steps, recurring jot categories, repo TODO/FIXME scan, cost outliers) for the operator to review. These proposals are **surfaced only — never auto-created**. Task origination stays behind the human gate: review the candidates and create the ones worth doing via `/create-task`. The loop never inserts a task on its own.
 
 > Use `/create-task` for task creation — handles decomposition, deduplication, criteria, and deps. Use `tusk task-insert` only for bulk/automated inserts.
 
@@ -37,7 +39,8 @@ tusk loop --on-failure abort
 3. Dispatches:
    - **Chain head** → `claude -p /chain <id> [--on-failure <strategy>]`
    - **Standalone** → `claude -p /tusk <id>`
-4. Stops on non-zero exit from any agent, on empty backlog, or when `--max-tasks` is reached
+4. On an **empty backlog** (no ready task), runs `tusk propose-work` and surfaces the ranked candidates to the operator, then stops. Proposals are surfaced only — nothing is auto-created; review and create the worthwhile ones via `/create-task`.
+5. Also stops on non-zero exit from any agent or when `--max-tasks` is reached
 
 > **Note:** Tasks dispatched via `/tusk` or `/chain` use `tusk task-start --force` so that zero-criteria tasks emit a warning rather than hard-failing the automated workflow.
 
