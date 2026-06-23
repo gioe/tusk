@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1205] - 2026-06-23
+
+- [TASK-717] Add --skip-dupe/--force to task-insert to bypass the internal fuzzy dupe-guard
+
 ## [1204] - 2026-06-23
 
 - [TASK-716] Fix: accept non-converging multi-head sets in tusk chain scope/frontier/status
