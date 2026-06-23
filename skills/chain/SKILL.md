@@ -66,6 +66,8 @@ tusk -header -column "SELECT id, summary, status, priority, complexity, assignee
 tusk chain scope <head_task_id1> [<head_task_id2> ...]
 ```
 
+Multiple heads need **not** share a common downstream task. Independent strands (e.g. `A->B`, `C->D`, `E` standalone — the typical shape when `/objective` hands you all of an objective's ready roots) are accepted: `scope`, `frontier`, `frontier-check`, `validate-scope`, and `status` all compute the **union** of the per-head sub-DAGs and drive every strand in the same waves (issue #1133). Pass the whole non-converging head set in one `/chain` invocation rather than splitting it.
+
 Parse the returned JSON. The `head_task_ids` array lists all head IDs. Fetch assignees for all scope task IDs:
 
 ```bash

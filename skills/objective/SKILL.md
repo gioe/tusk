@@ -100,6 +100,8 @@ tusk deps ready
 
 Use the linked task ids (intersected with ready/eligible tasks) as the head list `HEAD_IDS`.
 
+The heads need **not** converge on a shared downstream task. Objectives routinely decompose into independent strands (e.g. `A->B`, `C->D`, `E` standalone), so the union of `HEAD_IDS` has no common dependent — that is a first-class shape, not an error. Pass the whole non-converging set to `/chain` in one invocation; `tusk chain scope|frontier|validate-scope` computes the union of the per-head sub-DAGs and drives every strand in the same parallel waves (issue #1133). Do **not** split disjoint strands into separate `/chain` calls.
+
 **4b. Branch on shape:**
 
 - **Multiple linked tasks, or a single task with downstream dependents** → hand `HEAD_IDS` to `/chain`. Follow its instructions inline:
