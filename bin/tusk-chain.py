@@ -77,39 +77,6 @@ def bfs_downstream_union(conn: sqlite3.Connection, head_ids: list[int]) -> list[
     return list(depth_map.items())
 
 
-def validate_multi_head(conn: sqlite3.Connection, head_ids: list[int]) -> None:
-    """Validate that multiple heads share at least one common downstream task.
-
-    Exits with error if all heads have completely disjoint sub-DAGs, since
-    multi-head chains are only meaningful when heads converge on shared dependents.
-    """
-    if len(head_ids) <= 1:
-        return
-
-    head_set = set(head_ids)
-    non_head_downstream_sets = []
-
-    for hid in head_ids:
-        ds = bfs_downstream(conn, hid)
-        non_head_ds = {tid for tid, _ in ds if tid not in head_set}
-        non_head_downstream_sets.append(non_head_ds)
-
-    # Accept if any two heads share a common downstream task
-    for i in range(len(non_head_downstream_sets)):
-        for j in range(i + 1, len(non_head_downstream_sets)):
-            if non_head_downstream_sets[i] & non_head_downstream_sets[j]:
-                return
-
-    heads_str = " ".join(str(h) for h in head_ids)
-    print(
-        f"Error: tasks {heads_str} have no common downstream tasks — "
-        "multi-head chains are only useful when heads converge on shared dependents. "
-        "Run separate /chain or /tusk invocations instead.",
-        file=sys.stderr,
-    )
-    sys.exit(1)
-
-
 def cmd_scope(conn: sqlite3.Connection, head_ids: list[int]):
     """Return JSON with head tasks, all downstream tasks, depths, and completion counts."""
     downstream = bfs_downstream_union(conn, head_ids)
@@ -454,9 +421,12 @@ Examples:
                 print(f"Error: Task {tid} does not exist", file=sys.stderr)
                 sys.exit(1)
 
-        # For multi-head calls, validate that heads share at least one common downstream task
-        if len(args.head_task_ids) > 1:
-            validate_multi_head(conn, args.head_task_ids)
+        # Multi-head sets need NOT converge on a shared downstream task. Objectives
+        # routinely decompose into independent strands (A->B, C->D, E standalone),
+        # and /objective Step 4a hands the union of those ready heads to /chain. All
+        # downstream operations below run over bfs_downstream_union, which already
+        # computes the union of per-head sub-DAGs with min depth — disjoint strands
+        # are a first-class shape, not an error (issue #1133).
 
         if args.command == "scope":
             cmd_scope(conn, args.head_task_ids)
