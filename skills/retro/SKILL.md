@@ -185,6 +185,12 @@ Category A findings are always **tusk-issues**. Category D findings are normally
    ```
    Always include at least one `--criteria` flag — derive 1–3 concrete acceptance criteria from the task description. Omit `--domain` or `--assignee` entirely if the value is NULL/empty. Exit code 1 means duplicate — skip. Skip subsumption and dependency proposals.
 
+   **Auto-prioritize deferred skill-patch tasks.** When a deferred **skill/doc patch** finding (step 3f above — the task description carries a proposed diff against a skill/agent/doc file) is inserted, it would otherwise land at the unmodified default priority and rot in the backlog. Immediately after the `task-insert` returns the new task ID, derive a priority from the task's retro-signals (reopen counts, rework chains, recurring review themes — higher counts yield higher priority) and apply it:
+   ```bash
+   tusk skill-patch-priority <new_task_id> --apply
+   ```
+   This is a no-op for a brand-new task with no rework history (it stays at default), but lifts the priority when the underlying skill/doc has a history of reopens or fix-chains. Only run it for skill/doc-patch follow-ups, not for every project-issue task.
+
 ### LR-2a: Inline Convention/Doc Actions
 
 Before creating tasks for project-issue findings, check whether the approved action can be applied inline as a convention or documentation patch.

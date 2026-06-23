@@ -177,6 +177,12 @@ tusk task-done <id> --reason wont_do
 tusk task-update <id> --priority "<New Priority>"
 ```
 
+**Auto-prioritize skill-patch follow-up tasks.** Skill-patch follow-up tasks (created by `/retro` from deferred skill/doc-patch findings) frequently land at the unmodified default priority and rot in the backlog. For any open task that is a skill/doc-patch follow-up, derive its priority from its retro-signals — reopen counts, rework chains (fixes/fixed_by), and recurring review themes — and apply it. Higher reopen and rework counts yield a higher priority:
+```bash
+tusk skill-patch-priority <id> --apply
+```
+The command is a no-op when the task carries no rework history (it stays at default) and lifts the priority otherwise, so it is safe to run across every candidate skill-patch task. Count each task it changes toward the `tasks_reprioritized` metric in Step 7's `skill-run finish` rollup.
+
 ### For Agent Assignments:
 ```bash
 tusk task-update <id> --assignee "<agent-name>"

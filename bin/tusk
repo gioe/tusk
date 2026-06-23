@@ -1365,7 +1365,7 @@ candidates = [
   'active-project','git-default-branch','branch-parse',
   'task-get','task-get-multi','task-select','task-start','task-done','task-insert','task-update','task-reopen','task-unstart','task-list','task-summary','task-brief','task-worktree',
   'audit','insights','autoclose','backlog-scan','groom','check-deliverables','scope-paths','scope','scope-hint',
-  'retro','retro-signals','retro-themes','retro-finding','retro-patches',
+  'retro','retro-signals','retro-themes','retro-finding','retro-patches','skill-patch-priority',
   'test-detect','test-precheck','add-lib','address-issue',
   'init-scan-codebase','init-scan-todos','init-fetch-bootstrap','init-write-config','init-write-manifest-files','init-wizard','init-scaffold',
   'loop','merge','abandon','bakeoff','progress','setup',
@@ -2072,6 +2072,7 @@ case "${1:-}" in
   retro-themes) shift; exec python3 "$SCRIPT_DIR/tusk-retro-themes.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   retro-finding) shift; exec python3 "$SCRIPT_DIR/tusk-retro-finding.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   retro-patches) shift; exec python3 "$SCRIPT_DIR/tusk-retro-patches.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  skill-patch-priority) shift; exec python3 "$SCRIPT_DIR/tusk-skill-patch-priority.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   retro) shift; exec python3 "$SCRIPT_DIR/tusk-retro.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   test-detect) shift; exec python3 "$SCRIPT_DIR/tusk-test-detect.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   test-precheck) shift; exec python3 "$SCRIPT_DIR/tusk-test-precheck.py" "$REPO_ROOT" "$(resolve_config)" "$@" ;;
