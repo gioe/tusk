@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1204] - 2026-06-23
+
+- [TASK-716] Fix: accept non-converging multi-head sets in tusk chain scope/frontier/status
+
 ## [1203] - 2026-06-23
 
 - [TASK-711] Add an advisory tier to DB-backed lint rules so a rule can be staged without gating merge
