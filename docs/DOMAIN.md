@@ -614,7 +614,9 @@ A generalizable heuristic or rule captured for the project. Managed via `tusk co
 
 ### Lint Rule
 
-A DB-backed grep rule that `tusk lint` runs alongside its hardcoded rules. Rules are managed via `tusk lint-rule add/list/remove` and created by skills or users. Advisory rules emit `WARN [ADVISORY]`; blocking rules contribute to the non-zero exit code.
+A DB-backed grep rule that `tusk lint` runs alongside its hardcoded rules. Rules are managed via `tusk lint-rule add/list/update/promote/remove` and created by skills or users. A rule's hits gate the lint exit code (and therefore `tusk commit`/`tusk merge`) only when `is_blocking = 1 AND enforcement = 'enforcing'`; everything else emits `WARN [ADVISORY]` and does not contribute to the non-zero exit code.
+
+`is_blocking` and `enforcement` are **orthogonal**: `is_blocking` is the long-standing distinction between Rule 16 (gating) and Rule 17 (advisory) candidates, while `enforcement` lets a newly-discovered anti-pattern be staged for observation — added with `tusk lint-rule add --advisory`, a rule warns but never gates even if `is_blocking=1`, until `tusk lint-rule promote <id>` flips it to `enforcing` once it has been observed to hold. This is the foundation for auto-proposing rules from retro output (Task 711).
 
 | Attribute | Type | Constraints | Description |
 |-----------|------|-------------|-------------|
@@ -622,8 +624,9 @@ A DB-backed grep rule that `tusk lint` runs alongside its hardcoded rules. Rules
 | `grep_pattern` | TEXT | NOT NULL | Extended regex pattern (`grep -E`) to search for |
 | `file_glob` | TEXT | NOT NULL | Glob pattern for files to search (e.g. `**/*.py`, `skills/**/*.md`) |
 | `message` | TEXT | NOT NULL | Violation message shown when the pattern is found |
-| `is_blocking` | INTEGER | CHECK IN (0, 1); NOT NULL, default 0 | 1 = counts toward lint exit code; 0 = advisory warning only |
+| `is_blocking` | INTEGER | CHECK IN (0, 1); NOT NULL, default 0 | 1 = candidate to count toward lint exit code; 0 = advisory warning only |
 | `source_skill` | TEXT | nullable | Skill that created this rule (e.g. `lint-conventions`) |
+| `enforcement` | TEXT | CHECK IN ('advisory', 'enforcing'); NOT NULL, default 'enforcing' | `'enforcing'` = a blocking rule's hits gate the exit code; `'advisory'` = staged for observation, hits warn but never gate even when `is_blocking=1`. Flip via `tusk lint-rule promote`. |
 | `created_at` | TEXT | default now | When the rule was added |
 
 ---
