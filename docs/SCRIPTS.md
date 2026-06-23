@@ -73,6 +73,7 @@ require it).
 | **tusk-autoclose.py** | `tusk autoclose` | `tasks`, `task_sessions`, `task_dependencies` | `tasks` (expired/moot → Done), `task_sessions` (close open) |
 | **tusk-backlog-scan.py** | `tusk backlog-scan [--duplicates\|--unassigned\|--unsized\|--expired]` | `tasks` | nothing; returns JSON |
 | **tusk-blockers.py** | `tusk blockers add\|list\|resolve\|remove\|blocked\|all [flags]` | `tasks`, `external_blockers` | `external_blockers` |
+| **tusk-propose-work.py** | `tusk propose-work [--window-days N] [--limit N] [--no-todo-scan] [--no-cost-outliers]` | `retro_findings`, `task_progress`, `tasks`, `jots`, `tool_call_stats`, repo TODO/FIXME scan | nothing; returns a ranked JSON array of origination proposals (each with a `source` label + numeric `score`). Read-only — never inserts tasks; aggregates unconfirmed skill-patch findings, unconsumed next_steps, recurring jot categories, a repo TODO/FIXME scan, and (stretch) cost outliers. Empty-signal env returns `[]`. |
 | **tusk-dupes.py** | `tusk dupes check\|scan\|similar [flags]` | `tasks` | nothing; heuristic fuzzy-match, returns JSON |
 | **tusk-wsjf.py** | `tusk wsjf` | `tasks`, `task_dependencies` | `tasks` (`priority_score`) |
 | **tusk-chain.py** | `tusk chain scope\|frontier\|status <head_id…>` | `tasks`, `task_dependencies`, `v_chain_heads` | nothing; DFS sub-DAG traversal |
