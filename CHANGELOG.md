@@ -6,6 +6,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1203] - 2026-06-23
+
+- [TASK-711] Add an advisory tier to DB-backed lint rules so a rule can be staged without gating merge
+- [TASK-712] Add tusk lint-rule propose and wire /retro to auto-propose advisory rules from findings
+- [TASK-713] Add tusk propose-work to aggregate origination signals into ranked candidate proposals
+- [TASK-714] Wire drain-then-propose into /loop and the empty-backlog path
+- [TASK-715] Auto-prioritize skill-patch tasks from retro-signals instead of default priority
+
 ## [1202] - 2026-06-22
 
 - [TASK-709] Emit a clean diagnostic instead of a raw sqlite traceback when no tusk DB is resolvable
