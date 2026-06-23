@@ -17,6 +17,12 @@ import os
 import sqlite3
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tusk_loader  # loads tusk-db-lib.py
+
+_db_lib = tusk_loader.load("tusk-db-lib")
+open_sqlite = _db_lib.open_sqlite
+
 
 def cmd_validate(config_path: str) -> int:
     # ── Load JSON ──
@@ -371,7 +377,7 @@ def cmd_validate_triggers(config_path: str, db_path: str) -> int:
         cfg = json.load(f)
     expected = {name: _normalize_sql(sql) for name, sql in compute_expected_triggers(cfg)}
 
-    conn = sqlite3.connect(db_path)
+    conn = open_sqlite(db_path)
     try:
         rows = conn.execute(
             "SELECT name, sql FROM sqlite_master "

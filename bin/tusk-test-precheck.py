@@ -62,10 +62,12 @@ import tempfile
 import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader  # loads tusk-json-lib.py
+import tusk_loader  # loads tusk-json-lib.py and tusk-db-lib.py
 
 _json_lib = tusk_loader.load("tusk-json-lib")
 dumps = _json_lib.dumps
+_db_lib = tusk_loader.load("tusk-db-lib")
+open_sqlite = _db_lib.open_sqlite
 
 
 GENERATED_POP_CONFLICT_PATHS = (".claude/scheduled_tasks.lock",)
@@ -300,7 +302,7 @@ def _record_precheck_verdict(repo_root: str, script_dir: str,
         return
     task_id = _detect_active_task_id(repo_root, script_dir)
     try:
-        conn = sqlite3.connect(db_path, timeout=2.0)
+        conn = open_sqlite(db_path, timeout=2.0)
         try:
             conn.execute(
                 "INSERT INTO precheck_verdicts "

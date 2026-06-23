@@ -66,12 +66,14 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import tusk_loader  # loads tusk-json-lib.py, tusk-worktree-command.py and tusk-git-helpers.py
+import tusk_loader  # loads tusk-json-lib.py, tusk-worktree-command.py, tusk-git-helpers.py and tusk-db-lib.py
 
 _json_lib = tusk_loader.load("tusk-json-lib")
 dumps = _json_lib.dumps
 _worktree_command = tusk_loader.load("tusk-worktree-command")
 _git_helpers = tusk_loader.load("tusk-git-helpers")
+_db_lib = tusk_loader.load("tusk-db-lib")
+open_sqlite = _db_lib.open_sqlite
 
 
 TRAILER = "Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
@@ -444,7 +446,7 @@ def _compute_auto_timeout(
     if not test_command or not os.path.exists(db_path):
         return None
     try:
-        conn = sqlite3.connect(db_path, timeout=2.0)
+        conn = open_sqlite(db_path, timeout=2.0)
         try:
             rows = conn.execute(
                 "SELECT elapsed_seconds FROM test_runs "
@@ -485,7 +487,7 @@ def _record_test_run(
     if not test_command or not os.path.exists(db_path):
         return
     try:
-        conn = sqlite3.connect(db_path, timeout=2.0)
+        conn = open_sqlite(db_path, timeout=2.0)
         try:
             conn.execute(
                 "INSERT INTO test_runs (task_id, test_command, elapsed_seconds, succeeded) "
@@ -533,7 +535,7 @@ def _reuse_precheck_verdict(
         return None
     head_sha = head.stdout.strip()
     try:
-        conn = sqlite3.connect(db_path, timeout=2.0)
+        conn = open_sqlite(db_path, timeout=2.0)
         try:
             row = conn.execute(
                 "SELECT pre_existing, "
@@ -716,7 +718,7 @@ def _lookup_task_workspace(
     if not os.path.exists(db_path):
         return (_LOOKUP_UNAVAILABLE, None)
     try:
-        conn = sqlite3.connect(db_path, timeout=2.0)
+        conn = open_sqlite(db_path, timeout=2.0)
         try:
             row = conn.execute(
                 "SELECT branch, workspace_path FROM task_workspaces "

@@ -46,6 +46,7 @@ _db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
+open_sqlite = _db_lib.open_sqlite
 checkpoint_wal = _db_lib.checkpoint_wal
 
 _git_helpers = tusk_loader.load("tusk-git-helpers")
@@ -140,7 +141,7 @@ def _bin_supports_schema(tusk_bin: str, required_version: int) -> bool:
 def _db_user_version(db_path: str) -> int | None:
     """Read ``PRAGMA user_version``. Returns None on any sqlite error or empty result."""
     try:
-        conn = sqlite3.connect(db_path)
+        conn = open_sqlite(db_path)
         try:
             row = conn.execute("PRAGMA user_version").fetchone()
         finally:
