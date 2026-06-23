@@ -117,6 +117,66 @@ class TestGetConnection:
             db_lib.get_connection(str(tmp_path / "tasks.db"))
 
 
+# ── open_sqlite (shared raw opener, issue #1131) ──────────────────────
+
+
+class TestOpenSqlite:
+    """open_sqlite() is the shared raw opener the commit/merge/test-precheck/
+    config-tools raw callers route through: it emits the issue #1126
+    missing-parent diagnostic and forwards connect kwargs (e.g. timeout=2.0),
+    but does NOT apply get_connection's row_factory / foreign_keys /
+    busy_timeout PRAGMAs."""
+
+    def test_returns_bare_sqlite_connection(self, tmp_path):
+        conn = db_lib.open_sqlite(str(tmp_path / "test.db"))
+        assert isinstance(conn, sqlite3.Connection)
+        # No row_factory layered on — that is get_connection's job.
+        assert conn.row_factory is None
+        conn.close()
+
+    def test_forwards_connect_kwargs(self, tmp_path):
+        """timeout (and any other sqlite3.connect kwarg) must pass through —
+        the commit/merge/test-precheck callers rely on timeout=2.0 fast-fail."""
+        captured = {}
+        real_connect = db_lib.sqlite3.connect
+
+        def spy(path, **kwargs):
+            captured.update(kwargs)
+            return real_connect(path, **kwargs)
+
+        import unittest.mock as mock
+        with mock.patch.object(db_lib.sqlite3, "connect", spy):
+            conn = db_lib.open_sqlite(str(tmp_path / "test.db"), timeout=2.0)
+        assert captured.get("timeout") == 2.0
+        conn.close()
+
+    def test_missing_parent_dir_exits_cleanly_with_diagnostic(self, tmp_path, capsys):
+        """Issue #1131: the shared opener emits the same issue #1126 diagnostic
+        and SystemExit(2) — not a raw OperationalError traceback — so every raw
+        caller routed through it degrades uniformly."""
+        missing = tmp_path / "no-such-dir" / "tasks.db"
+        assert not missing.parent.exists()
+
+        with pytest.raises(SystemExit) as exc_info:
+            db_lib.open_sqlite(str(missing), timeout=2.0)
+        assert exc_info.value.code == 2
+
+        err = capsys.readouterr().err
+        assert "could not locate a tusk database" in err
+        assert str(missing) in err
+        assert "OperationalError" not in err
+        assert "Traceback" not in err
+
+    def test_genuine_open_error_is_reraised_not_swallowed(self, tmp_path, monkeypatch):
+        """A real open failure against an existing parent dir must propagate."""
+        def boom(*a, **k):
+            raise sqlite3.OperationalError("unable to open database file")
+
+        monkeypatch.setattr(db_lib.sqlite3, "connect", boom)
+        with pytest.raises(sqlite3.OperationalError):
+            db_lib.open_sqlite(str(tmp_path / "tasks.db"))
+
+
 # ── load_config ───────────────────────────────────────────────────────
 
 
