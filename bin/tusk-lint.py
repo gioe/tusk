@@ -986,19 +986,49 @@ def _db_path_from_root(root):
     return None
 
 
-def _load_lint_rules(root, is_blocking):
-    """Load lint_rules rows from the DB filtered by is_blocking. Returns [] on any failure."""
+def _load_lint_rules(root, gating):
+    """Load lint_rules rows partitioned by whether they gate the lint exit code.
+
+    A rule gates only when it is blocking AND its enforcement is 'enforcing'.
+    Two orthogonal columns drive the warn-vs-gate decision:
+      * ``is_blocking`` — whether the rule was ever meant to count toward the
+        exit code (the long-standing distinction; Rule 16 vs Rule 17).
+      * ``enforcement`` — 'advisory' stages a rule for observation so its hits
+        warn but never gate, even when ``is_blocking=1``; 'promote' flips it to
+        'enforcing' (Task 711).
+
+    Pass ``gating=True`` for the rules that count toward the exit code
+    (``is_blocking = 1 AND enforcement = 'enforcing'``) and ``gating=False`` for
+    everything else (warn-only). Returns [] on any failure.
+
+    The enforcement column predicate degrades gracefully on a pre-migration DB:
+    if the column is missing the query raises OperationalError and we retry
+    without it, so an un-migrated client still partitions purely on
+    ``is_blocking`` (advisory rules simply aren't available there yet).
+    """
     db_path = _db_path_from_root(root)
     if not db_path:
         return []
     try:
         conn = tusk_loader.load("tusk-db-lib").get_connection(db_path)
         try:
-            rows = conn.execute(
-                "SELECT id, grep_pattern, file_glob, message FROM lint_rules"
-                " WHERE is_blocking = ? ORDER BY id",
-                (1 if is_blocking else 0,),
-            ).fetchall()
+            if gating:
+                where = "is_blocking = 1 AND enforcement = 'enforcing'"
+            else:
+                where = "NOT (is_blocking = 1 AND enforcement = 'enforcing')"
+            try:
+                rows = conn.execute(
+                    "SELECT id, grep_pattern, file_glob, message FROM lint_rules"
+                    f" WHERE {where} ORDER BY id"
+                ).fetchall()
+            except sqlite3.OperationalError:
+                # Pre-migration DB without the enforcement column — fall back to
+                # the is_blocking-only partition.
+                rows = conn.execute(
+                    "SELECT id, grep_pattern, file_glob, message FROM lint_rules"
+                    " WHERE is_blocking = ? ORDER BY id",
+                    (1 if gating else 0,),
+                ).fetchall()
             return [dict(r) for r in rows]
         except sqlite3.OperationalError:
             return []  # lint_rules table not yet created (pre-migration DB)
@@ -1052,14 +1082,24 @@ def _run_lint_rules(root, rules):
 
 
 def rule16_db_rules_blocking(root):
-    """DB-backed lint rules with is_blocking=1 (count toward exit code)."""
-    rules = _load_lint_rules(root, is_blocking=True)
+    """DB-backed lint rules that gate the exit code.
+
+    A rule gates only when ``is_blocking=1 AND enforcement='enforcing'`` — an
+    advisory-enforcement rule, even if blocking, falls through to Rule 17 and
+    warns instead of gating (Task 711).
+    """
+    rules = _load_lint_rules(root, gating=True)
     return _run_lint_rules(root, rules)
 
 
 def rule17_db_rules_advisory(root):
-    """DB-backed lint rules with is_blocking=0 (advisory warnings only)."""
-    rules = _load_lint_rules(root, is_blocking=False)
+    """DB-backed lint rules that warn only (advisory warnings).
+
+    Covers everything that is NOT (``is_blocking=1 AND enforcement='enforcing'``):
+    non-blocking rules and blocking rules still staged at
+    ``enforcement='advisory'`` (Task 711).
+    """
+    rules = _load_lint_rules(root, gating=False)
     return _run_lint_rules(root, rules)
 
 

@@ -2,11 +2,13 @@
 """Manage DB-backed lint rules for tusk lint.
 
 Called by the tusk wrapper:
-    tusk lint-rule add <pattern> <file_glob> <message> [--blocking] [--skill <name>]
+    tusk lint-rule add <pattern> <file_glob> <message> [--blocking] [--advisory]
+                       [--skill <name>]
     tusk lint-rule list
     tusk lint-rule update <id> [--file-glob <glob>] [--grep-pattern <pattern>]
                                [--message <text>] [--blocking | --no-blocking]
                                [--skill <name>]
+    tusk lint-rule promote <id>
     tusk lint-rule remove <id>
 
 Arguments received from tusk:
@@ -28,14 +30,17 @@ get_connection = _db_lib.get_connection
 
 
 def cmd_add(args: argparse.Namespace, db_path: str) -> int:
+    enforcement = "advisory" if args.advisory else "enforcing"
     conn = get_connection(db_path)
     try:
         cur = conn.execute(
-            "INSERT INTO lint_rules (grep_pattern, file_glob, message, is_blocking, source_skill)"
-            " VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO lint_rules"
+            " (grep_pattern, file_glob, message, is_blocking, source_skill, enforcement)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
             (args.pattern, args.file_glob, args.message,
              1 if args.blocking else 0,
-             args.skill),
+             args.skill,
+             enforcement),
         )
         conn.commit()
         print(cur.lastrowid)
@@ -48,22 +53,25 @@ def cmd_list(db_path: str) -> int:
     conn = get_connection(db_path)
     try:
         rows = conn.execute(
-            "SELECT id, grep_pattern, file_glob, message, is_blocking, source_skill, created_at"
+            "SELECT id, grep_pattern, file_glob, message, is_blocking, source_skill,"
+            " enforcement, created_at"
             " FROM lint_rules ORDER BY id"
         ).fetchall()
         if not rows:
             print("No lint rules defined.")
             return 0
-        fmt = "{:<5} {:<10} {:<20} {:<35} {}"
-        print(fmt.format("ID", "BLOCKING", "FILE_GLOB", "PATTERN", "MESSAGE"))
-        print("-" * 80)
+        fmt = "{:<5} {:<10} {:<10} {:<18} {:<30} {}"
+        print(fmt.format("ID", "BLOCKING", "ENFORCE", "FILE_GLOB", "PATTERN", "MESSAGE"))
+        print("-" * 90)
         for row in rows:
             blocking = "yes" if row["is_blocking"] else "no"
+            enforcement = row["enforcement"]
             pattern = row["grep_pattern"]
-            if len(pattern) > 33:
-                pattern = pattern[:30] + "..."
+            if len(pattern) > 28:
+                pattern = pattern[:25] + "..."
             message = row["message"]
-            print(fmt.format(row["id"], blocking, row["file_glob"], pattern, message))
+            print(fmt.format(
+                row["id"], blocking, enforcement, row["file_glob"], pattern, message))
         return 0
     finally:
         conn.close()
@@ -133,9 +141,33 @@ def cmd_remove(args: argparse.Namespace, db_path: str) -> int:
         conn.close()
 
 
+def cmd_promote(args: argparse.Namespace, db_path: str) -> int:
+    """Flip an advisory rule to enforcing once it has been observed to hold."""
+    conn = get_connection(db_path)
+    try:
+        row = conn.execute(
+            "SELECT id, enforcement FROM lint_rules WHERE id = ?", (args.id,)
+        ).fetchone()
+        if not row:
+            print(f"Error: lint rule {args.id} not found", file=sys.stderr)
+            return 2
+        if row["enforcement"] == "enforcing":
+            print(f"Lint rule {args.id} is already enforcing.")
+            return 0
+        conn.execute(
+            "UPDATE lint_rules SET enforcement = 'enforcing' WHERE id = ?",
+            (args.id,),
+        )
+        conn.commit()
+        print(f"Promoted lint rule {args.id} to enforcing.")
+        return 0
+    finally:
+        conn.close()
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 3:
-        print("Usage: tusk lint-rule {add|list|update|remove} ...", file=sys.stderr)
+        print("Usage: tusk lint-rule {add|list|update|promote|remove} ...", file=sys.stderr)
         return 2
 
     db_path = argv[1]
@@ -152,6 +184,10 @@ def main(argv: list[str]) -> int:
         parser.add_argument("message", help="violation message to display")
         parser.add_argument("--blocking", action="store_true",
                             help="make this rule blocking (counts toward lint exit code)")
+        parser.add_argument("--advisory", action="store_true",
+                            help="stage this rule advisory-only — hits warn but never gate "
+                                 "tusk lint/commit/merge until `tusk lint-rule promote` "
+                                 "flips it to enforcing")
         parser.add_argument("--skill", default=None, metavar="NAME",
                             help="skill that created this rule")
         args = parser.parse_args(argv[4:])
@@ -181,6 +217,13 @@ def main(argv: list[str]) -> int:
         args = parser.parse_args(argv[4:])
         return cmd_update(args, db_path)
 
+    elif subcommand == "promote":
+        parser = argparse.ArgumentParser(allow_abbrev=False, prog="tusk lint-rule promote")
+        parser.add_argument("id", type=int,
+                            help="rule ID to promote from advisory to enforcing")
+        args = parser.parse_args(argv[4:])
+        return cmd_promote(args, db_path)
+
     elif subcommand == "remove":
         parser = argparse.ArgumentParser(allow_abbrev=False, prog="tusk lint-rule remove")
         parser.add_argument("id", type=int, help="rule ID to remove")
@@ -189,7 +232,7 @@ def main(argv: list[str]) -> int:
 
     else:
         print(f"Unknown subcommand: {subcommand!r}", file=sys.stderr)
-        print("Usage: tusk lint-rule {add|list|update|remove} ...", file=sys.stderr)
+        print("Usage: tusk lint-rule {add|list|update|promote|remove} ...", file=sys.stderr)
         return 2
 
 
