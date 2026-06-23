@@ -3543,6 +3543,35 @@ def migrate_82(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 82: added lint_rules.enforcement")
 
 
+def migrate_83(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add lint_rules.source_finding_id for retro-finding provenance.
+
+    Task 712: `tusk lint-rule propose` converts a grep-detectable anti-pattern
+    surfaced by /retro into a staged advisory rule and records which retro
+    finding it came from. The `source_finding_id` column carries that
+    provenance — a nullable reference into retro_findings(id). It is added
+    without an inline FK constraint because ALTER TABLE ADD COLUMN cannot
+    declare one against an existing table; the value is set on insert by
+    `lint-rule propose` and left NULL for rules added any other way. No views
+    project lint_rules columns, so none need recreating.
+
+    Idempotent: guarded with has_column; re-running is a no-op after the column
+    exists.
+    """
+    if get_version(db_path) >= 83:
+        _progress("  Migration 83: added lint_rules.source_finding_id")
+        return
+
+    if not has_column(db_path, "lint_rules", "source_finding_id"):
+        run_script(
+            db_path,
+            "ALTER TABLE lint_rules ADD COLUMN source_finding_id INTEGER;",
+        )
+
+    set_version(db_path, 83)
+    _progress("  Migration 83: added lint_rules.source_finding_id")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -3628,6 +3657,7 @@ MIGRATIONS = [
     (80, migrate_80),
     (81, migrate_81),
     (82, migrate_82),
+    (83, migrate_83),
 ]
 
 

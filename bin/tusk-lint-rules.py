@@ -4,6 +4,8 @@
 Called by the tusk wrapper:
     tusk lint-rule add <pattern> <file_glob> <message> [--blocking] [--advisory]
                        [--skill <name>]
+    tusk lint-rule propose <pattern> <file_glob> <message>
+                           [--finding-id <id>] [--skill <name>]
     tusk lint-rule list
     tusk lint-rule update <id> [--file-glob <glob>] [--grep-pattern <pattern>]
                                [--message <text>] [--blocking | --no-blocking]
@@ -41,6 +43,44 @@ def cmd_add(args: argparse.Namespace, db_path: str) -> int:
              1 if args.blocking else 0,
              args.skill,
              enforcement),
+        )
+        conn.commit()
+        print(cur.lastrowid)
+        return 0
+    finally:
+        conn.close()
+
+
+def cmd_propose(args: argparse.Namespace, db_path: str) -> int:
+    """Stage a grep-detectable anti-pattern surfaced by /retro as an advisory rule.
+
+    Always inserts ``enforcement='advisory'`` and ``is_blocking=1`` so the rule
+    warns on hits but never gates ``tusk lint``/``commit``/``merge`` until
+    ``tusk lint-rule promote`` flips it to enforcing once the pattern is observed
+    to hold. The originating retro finding is recorded in ``source_finding_id``
+    for provenance back to the retrospective that proposed the rule. When
+    ``--finding-id`` is supplied it is validated as a real retro_findings FK
+    before the insert so a typo'd id fails fast.
+    """
+    conn = get_connection(db_path)
+    try:
+        if args.finding_id is not None:
+            finding = conn.execute(
+                "SELECT id FROM retro_findings WHERE id = ?", (args.finding_id,)
+            ).fetchone()
+            if not finding:
+                print(
+                    f"Error: retro finding {args.finding_id} not found",
+                    file=sys.stderr,
+                )
+                return 2
+        cur = conn.execute(
+            "INSERT INTO lint_rules"
+            " (grep_pattern, file_glob, message, is_blocking, source_skill,"
+            "  enforcement, source_finding_id)"
+            " VALUES (?, ?, ?, 1, ?, 'advisory', ?)",
+            (args.pattern, args.file_glob, args.message,
+             args.skill, args.finding_id),
         )
         conn.commit()
         print(cur.lastrowid)
@@ -167,7 +207,7 @@ def cmd_promote(args: argparse.Namespace, db_path: str) -> int:
 
 def main(argv: list[str]) -> int:
     if len(argv) < 3:
-        print("Usage: tusk lint-rule {add|list|update|promote|remove} ...", file=sys.stderr)
+        print("Usage: tusk lint-rule {add|propose|list|update|promote|remove} ...", file=sys.stderr)
         return 2
 
     db_path = argv[1]
@@ -192,6 +232,23 @@ def main(argv: list[str]) -> int:
                             help="skill that created this rule")
         args = parser.parse_args(argv[4:])
         return cmd_add(args, db_path)
+
+    elif subcommand == "propose":
+        parser = argparse.ArgumentParser(allow_abbrev=False, prog="tusk lint-rule propose")
+        parser.add_argument("pattern", help="grep pattern to search for")
+        parser.add_argument("file_glob",
+                            help="file glob to search (e.g. '**/*.py'). Pass a comma-separated"
+                                 " list to scope multiple paths"
+                                 " (e.g. 'skills/**/*.md,codex-prompts/**/*.md').")
+        parser.add_argument("message", help="violation message to display")
+        parser.add_argument("--finding-id", dest="finding_id", type=int, default=None,
+                            metavar="ID",
+                            help="retro_findings id this rule was proposed from "
+                                 "(recorded as provenance)")
+        parser.add_argument("--skill", default="retro", metavar="NAME",
+                            help="skill that proposed this rule (default: retro)")
+        args = parser.parse_args(argv[4:])
+        return cmd_propose(args, db_path)
 
     elif subcommand == "list":
         return cmd_list(db_path)
@@ -232,13 +289,13 @@ def main(argv: list[str]) -> int:
 
     else:
         print(f"Unknown subcommand: {subcommand!r}", file=sys.stderr)
-        print("Usage: tusk lint-rule {add|list|update|promote|remove} ...", file=sys.stderr)
+        print("Usage: tusk lint-rule {add|propose|list|update|promote|remove} ...", file=sys.stderr)
         return 2
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2 or not sys.argv[1].endswith(".db"):
         print("Error: This script must be invoked via the tusk wrapper.", file=sys.stderr)
-        print("Use: tusk lint-rule {add|list|update|remove} ...", file=sys.stderr)
+        print("Use: tusk lint-rule {add|propose|list|update|remove} ...", file=sys.stderr)
         sys.exit(1)
     sys.exit(main(sys.argv))

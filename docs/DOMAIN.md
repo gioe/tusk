@@ -614,9 +614,11 @@ A generalizable heuristic or rule captured for the project. Managed via `tusk co
 
 ### Lint Rule
 
-A DB-backed grep rule that `tusk lint` runs alongside its hardcoded rules. Rules are managed via `tusk lint-rule add/list/update/promote/remove` and created by skills or users. A rule's hits gate the lint exit code (and therefore `tusk commit`/`tusk merge`) only when `is_blocking = 1 AND enforcement = 'enforcing'`; everything else emits `WARN [ADVISORY]` and does not contribute to the non-zero exit code.
+A DB-backed grep rule that `tusk lint` runs alongside its hardcoded rules. Rules are managed via `tusk lint-rule add/propose/list/update/promote/remove` and created by skills or users. A rule's hits gate the lint exit code (and therefore `tusk commit`/`tusk merge`) only when `is_blocking = 1 AND enforcement = 'enforcing'`; everything else emits `WARN [ADVISORY]` and does not contribute to the non-zero exit code.
 
 `is_blocking` and `enforcement` are **orthogonal**: `is_blocking` is the long-standing distinction between Rule 16 (gating) and Rule 17 (advisory) candidates, while `enforcement` lets a newly-discovered anti-pattern be staged for observation — added with `tusk lint-rule add --advisory`, a rule warns but never gates even if `is_blocking=1`, until `tusk lint-rule promote <id>` flips it to `enforcing` once it has been observed to hold. This is the foundation for auto-proposing rules from retro output (Task 711).
+
+`tusk lint-rule propose <pattern> <file_glob> <message> [--finding-id <id>]` (Task 712) is the auto-propose entry point /retro emits for each grep-detectable anti-pattern it surfaces. It always inserts `is_blocking=1, enforcement='advisory'` (so a proposed rule warns but never gates until promoted) and records the originating retro finding in `source_finding_id` for provenance. A supplied `--finding-id` is validated as a real `retro_findings` FK before insert.
 
 | Attribute | Type | Constraints | Description |
 |-----------|------|-------------|-------------|
@@ -627,6 +629,7 @@ A DB-backed grep rule that `tusk lint` runs alongside its hardcoded rules. Rules
 | `is_blocking` | INTEGER | CHECK IN (0, 1); NOT NULL, default 0 | 1 = candidate to count toward lint exit code; 0 = advisory warning only |
 | `source_skill` | TEXT | nullable | Skill that created this rule (e.g. `lint-conventions`) |
 | `enforcement` | TEXT | CHECK IN ('advisory', 'enforcing'); NOT NULL, default 'enforcing' | `'enforcing'` = a blocking rule's hits gate the exit code; `'advisory'` = staged for observation, hits warn but never gate even when `is_blocking=1`. Flip via `tusk lint-rule promote`. |
+| `source_finding_id` | INTEGER | nullable | Provenance: the `retro_findings.id` a rule was proposed from via `tusk lint-rule propose`. NULL for rules added any other way. |
 | `created_at` | TEXT | default now | When the rule was added |
 
 ---

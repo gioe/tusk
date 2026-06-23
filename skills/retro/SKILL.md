@@ -273,27 +273,27 @@ Apply this step if any approved finding has a proposed "add lint rule" action. W
 
 The bar is high — only proceed if you observed an **actual mistake** that a grep rule would have caught. Do not apply lint rules for general advice.
 
-For each lint-rule action candidate, attempt **inline application** first:
+For each grep-detectable anti-pattern you surfaced, **emit a `tusk lint-rule propose` call** rather than instructing the operator to run `tusk lint-rule add` by hand. `propose` stages the rule **advisory** — its hits warn but never gate `tusk lint`/`commit`/`merge` until someone runs `tusk lint-rule promote <id>` once the pattern is observed to hold — and records provenance back to the originating retro finding via `--finding-id`. This keeps a newly-proposed rule from blocking work before it has been validated.
 
 1. **Present the proposed rule** — show the exact command and ask for approval:
 
    > Found lint rule candidate: [finding description]
-   > Command: `tusk lint-rule add '<pattern>' '<file_glob>' '<message>'`
-   > Apply this rule now? (Reversible with `tusk lint-rule remove <id>`.)
+   > Command: `tusk lint-rule propose '<pattern>' '<file_glob>' '<message>'`
+   > Stage this advisory rule now? (Reversible with `tusk lint-rule remove <id>`; promote later with `tusk lint-rule promote <id>`.)
 
-2. **If the user approves** — run the command immediately:
+2. **If the user approves** — run the command immediately. If you have already recorded the originating finding in LR-3a, pass its id so the proposed rule carries provenance:
    ```bash
-   tusk lint-rule add '<pattern>' '<file_glob>' '<message>'
+   tusk lint-rule propose '<pattern>' '<file_glob>' '<message>' [--finding-id <finding_id>]
    ```
-   - **Success**: note the rule ID returned. **Do not create a task** for this finding.
+   - **Success**: note the rule ID returned. **Do not create a task** for this finding. Record the action as `lint:<id>` in LR-3a.
    - **Error or unavailable**: fall back to task creation (step 3).
 
 3. **If the user declines**, or **if inline application fails**, create a task as a fallback:
    ```bash
    tusk task-insert "Add lint rule: <short description>" \
-     "Run: tusk lint-rule add '<pattern>' '<file_glob>' '<message>'" \
+     "Run: tusk lint-rule propose '<pattern>' '<file_glob>' '<message>'" \
      --priority "Low" --task-type "<task_type>" --complexity "XS" \
-     --criteria "tusk lint-rule add has been run with the specified pattern, glob, and message"
+     --criteria "tusk lint-rule propose has been run with the specified pattern, glob, and message"
    ```
 
 For `<task_type>`: use the project's config `task_types` array (already fetched via `tusk setup` in Step 0). Pick the entry that best fits a maintenance/tooling task (e.g., `maintenance`, `chore`, `tech-debt`, `infra` — whatever is closest in your project's list). If no entry is a clear fit, omit `--task-type` entirely.
@@ -342,7 +342,7 @@ tusk retro-finding add \
 - `criterion:<id>` — an acceptance criterion was added via `tusk criteria add`
 - `context:<id>` — a context atom was added, resolved, or superseded via `tusk context`
 - `issue:<url>` — a GitHub issue was filed via `tusk report-issue`
-- `lint:<id>` — a lint rule was added via `tusk lint-rule add`
+- `lint:<id>` — a lint rule was staged via `tusk lint-rule propose` (advisory) or added via `tusk lint-rule add`
 - `convention:<id>` — a convention was added via `tusk conventions add`
 - `skill-patch:<file>` — an inline edit was applied to a skill or agent doc
 - `doc-patch:<file>` — an inline edit was applied to README.md or a file under docs/
