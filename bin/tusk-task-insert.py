@@ -872,6 +872,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--unbounded", action="store_true", default=False,
                         help="Mark this task as legitimately spanning the repo — emits an 'unbounded' "
                              "scope row that signals the commit-time scope guard to silently pass.")
+    parser.add_argument("--skip-dupe", "--force", dest="skip_dupe", action="store_true", default=False,
+                        help="Bypass the internal fuzzy duplicate guard and insert unconditionally. For "
+                             "batch callers that already dedup on a stable identity key (e.g. one task per "
+                             "venue keyed on google_place_id) where fuzzy summary matching mislinks distinct "
+                             "items sharing category nouns (issue #1127). --force is an accepted alias.")
     args = parser.parse_args(argv[2:])
 
     summary = args.summary
@@ -995,17 +1000,19 @@ def main(argv: list[str]) -> int:
     repo_root = _repo_root(config_path, args.repo_root)
     _warn_for_missing_declared_paths(repo_root, scope_patterns, typed_criteria)
 
-    # Run duplicate check
-    dupe = run_dupe_check(summary, domain)
-    if dupe:
-        result = {
-            "duplicate": True,
-            "matched_task_id": dupe.get("id"),
-            "matched_summary": dupe.get("summary", ""),
-            "similarity": dupe.get("similarity", 0),
-        }
-        print(dumps(result))
-        return 1
+    # Run duplicate check (unless the caller deduped on a stable identity key
+    # and passed --skip-dupe/--force to bypass the fuzzy summary guard, issue #1127).
+    if not args.skip_dupe:
+        dupe = run_dupe_check(summary, domain)
+        if dupe:
+            result = {
+                "duplicate": True,
+                "matched_task_id": dupe.get("id"),
+                "matched_summary": dupe.get("summary", ""),
+                "similarity": dupe.get("similarity", 0),
+            }
+            print(dumps(result))
+            return 1
 
     # Compute expires_at
     expires_at_expr = None
