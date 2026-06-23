@@ -74,6 +74,7 @@
   ".claude/bin/tusk-session-stats.py",
   ".claude/bin/tusk-setup.py",
   ".claude/bin/tusk-skill-drift.py",
+  ".claude/bin/tusk-skill-patch-priority.py",
   ".claude/bin/tusk-skill-run.py",
   ".claude/bin/tusk-sync-main.py",
   ".claude/bin/tusk-sync-skills.py",
