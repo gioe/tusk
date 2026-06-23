@@ -96,7 +96,7 @@ require it).
 | **tusk-migrate.py** | `tusk migrate` | `tasks.db` (`PRAGMA user_version`) | DB schema (applies pending migrations in order) |
 | **tusk-setup.py** | `tusk setup` | `tasks.db`, `config.json` | nothing; returns config + backlog JSON in one call |
 | **tusk-lint.py** | `tusk lint` | repo files, `tasks.db`, config, `MANIFEST` | nothing; advisory output only; depends on `tusk-db-lib.py` |
-| **tusk-lint-rules.py** | `tusk lint-rule add\|list\|remove [flags]` | `lint_rules` | `lint_rules` |
+| **tusk-lint-rules.py** | `tusk lint-rule add\|propose\|list\|update\|promote\|remove [flags]` | `lint_rules`, `retro_findings` | `lint_rules` |
 | **tusk-test-detect.py** | `tusk test-detect` | `package.json`, lockfiles, `pyproject.toml`, `pytest.ini`, `Makefile`, etc. | nothing; returns `{"command": "…", "confidence": "…"}` |
 
 ### Sessions & Cost Tracking

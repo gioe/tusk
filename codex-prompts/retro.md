@@ -309,11 +309,15 @@ For each approved project-issue finding routed here:
 
 ### LR-2b: Apply Lint Rules Inline (only if lint-rule action candidates exist)
 
-For each lint-rule action candidate:
+For each grep-detectable anti-pattern you surfaced, **emit a `tusk
+lint-rule propose` call** rather than `tusk lint-rule add`. `propose`
+stages the rule **advisory** (warns but never gates `tusk
+lint`/`commit`/`merge` until `tusk lint-rule promote <id>`) and records
+provenance back to the originating retro finding via `--finding-id`.
 
 1. Present the proposed rule and command:
    ```bash
-   tusk lint-rule add '<pattern>' '<file_glob>' '<message>'
+   tusk lint-rule propose '<pattern>' '<file_glob>' '<message>' [--finding-id <finding_id>]
    ```
    Ask for approval. The bar is high — only proceed if you observed an
    actual mistake that a grep rule would have caught.
@@ -325,9 +329,9 @@ For each lint-rule action candidate:
 3. **If declined or fallback**:
    ```bash
    tusk task-insert "Add lint rule: <short description>" \
-     "Run: tusk lint-rule add '<pattern>' '<file_glob>' '<message>'" \
+     "Run: tusk lint-rule propose '<pattern>' '<file_glob>' '<message>'" \
      --priority "Low" --task-type "<task_type>" --complexity "XS" \
-     --criteria "tusk lint-rule add has been run with the specified pattern, glob, and message"
+     --criteria "tusk lint-rule propose has been run with the specified pattern, glob, and message"
    ```
 
 ### LR-3: Report
@@ -386,7 +390,7 @@ tusk retro-finding add \
 - `context:<id>` — context atom added, resolved, or superseded via
   `tusk context`
 - `issue:<url>` — GitHub issue filed via `tusk report-issue`
-- `lint:<id>` — lint rule added via `tusk lint-rule add`
+- `lint:<id>` — lint rule staged via `tusk lint-rule propose` (advisory) or added via `tusk lint-rule add`
 - `convention:<id>` — convention added via `tusk conventions add`
 - `prompt-patch:<file>` — inline edit applied to a prompt file or
   agent doc
