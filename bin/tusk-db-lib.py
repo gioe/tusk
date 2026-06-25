@@ -34,6 +34,20 @@ import time
 # spurious nonzero exit. Override with TUSK_BUSY_TIMEOUT_MS.
 DEFAULT_BUSY_TIMEOUT_MS = 5000
 
+# busy_timeout (above) covers most contention but NOT the lock-upgrade case:
+# when a connection already holds a SHARED read lock (e.g. an open SELECT
+# cursor) and tries to promote to a writer while another connection holds the
+# RESERVED lock, SQLite returns SQLITE_BUSY *immediately* without invoking the
+# busy handler, because waiting could deadlock. Under parallel worktree
+# sessions sharing one tasks.db that surfaces as a hard "database is locked"
+# crash mid-command even with busy_timeout set (issue #1143). The only robust
+# remedy is to retry the whole unit of work — dropping the SHARED lock between
+# attempts — with bounded exponential backoff. These knobs mirror
+# TUSK_BUSY_TIMEOUT_MS: env override → sane default.
+DEFAULT_WRITE_RETRIES = 6           # attempts AFTER the first try (override: TUSK_WRITE_RETRIES)
+DEFAULT_WRITE_RETRY_BASE_MS = 25    # first backoff; doubles each attempt (override: TUSK_WRITE_RETRY_BASE_MS)
+WRITE_RETRY_MAX_DELAY_S = 2.0       # cap on any single backoff sleep
+
 
 def _busy_timeout_ms() -> int:
     raw = os.environ.get("TUSK_BUSY_TIMEOUT_MS")
@@ -45,6 +59,108 @@ def _busy_timeout_ms() -> int:
         except ValueError:
             pass
     return DEFAULT_BUSY_TIMEOUT_MS
+
+
+def _write_retries() -> int:
+    raw = os.environ.get("TUSK_WRITE_RETRIES")
+    if raw is not None:
+        try:
+            val = int(raw)
+            if val >= 0:
+                return val
+        except ValueError:
+            pass
+    return DEFAULT_WRITE_RETRIES
+
+
+def _write_retry_base_ms() -> int:
+    raw = os.environ.get("TUSK_WRITE_RETRY_BASE_MS")
+    if raw is not None:
+        try:
+            val = int(raw)
+            if val >= 0:
+                return val
+        except ValueError:
+            pass
+    return DEFAULT_WRITE_RETRY_BASE_MS
+
+
+def _is_locked_error(exc: BaseException) -> bool:
+    """True iff ``exc`` is a transient SQLite lock/busy error worth retrying.
+
+    Matches "database is locked" (SQLITE_BUSY) and "database is busy"; both are
+    transient contention, not corruption or schema errors.
+    """
+    if not isinstance(exc, sqlite3.OperationalError):
+        return False
+    msg = str(exc).lower()
+    return "database is locked" in msg or "database is busy" in msg
+
+
+def retry_on_locked(operation, *, retries=None, base_ms=None, label=None):
+    """Run ``operation`` (a zero-arg callable), retrying on transient
+    "database is locked" / "database is busy" ``OperationalError`` with bounded
+    exponential backoff.
+
+    This exists because ``PRAGMA busy_timeout`` does NOT cover the lock-upgrade
+    case (issue #1143): a connection holding a SHARED read lock that tries to
+    promote to a writer while another connection holds RESERVED gets SQLITE_BUSY
+    *immediately*, with no busy-handler wait. The only robust remedy is to retry
+    the whole unit of work so the SHARED lock is released between attempts —
+    hence ``operation`` should open/commit/close its own connection (or be wrapped
+    by ``run_write``) rather than reuse a poisoned one.
+
+    On any non-lock error, or once the retry budget is exhausted, the original
+    exception is re-raised unchanged so existing per-command catch-alls keep
+    classifying it. When the budget is exhausted on a genuine lock, a one-line
+    actionable diagnostic is emitted to stderr first so the failure is not a bare
+    traceback.
+    """
+    if retries is None:
+        retries = _write_retries()
+    if base_ms is None:
+        base_ms = _write_retry_base_ms()
+    attempt = 0
+    while True:
+        try:
+            return operation()
+        except sqlite3.OperationalError as exc:
+            if not _is_locked_error(exc):
+                raise
+            if attempt >= retries:
+                print(
+                    f"tusk: database stayed locked after {retries + 1} attempts "
+                    f"({label or 'write'}) — another tusk process is holding the "
+                    "write lock. Retry in a moment, or raise TUSK_WRITE_RETRIES / "
+                    "TUSK_BUSY_TIMEOUT_MS under heavy parallel load.",
+                    file=sys.stderr,
+                )
+                raise
+            delay = min((base_ms * (2 ** attempt)) / 1000.0, WRITE_RETRY_MAX_DELAY_S)
+            time.sleep(delay)
+            attempt += 1
+
+
+def run_write(db_path: str, fn, *, label=None, retries=None, base_ms=None):
+    """Run ``fn(conn)`` against a fresh ``get_connection(db_path)``, retrying the
+    whole unit of work on transient lock contention (see ``retry_on_locked``).
+
+    A new connection is opened for every attempt and always closed in a finally,
+    so a failed attempt's uncommitted transaction is rolled back and its SHARED
+    lock dropped before the next attempt — the property that makes the
+    lock-upgrade SQLITE_BUSY (issue #1143) recoverable. ``fn`` must be safe to
+    re-run from scratch: on a locked failure nothing was committed, so callers
+    that print their success payload only after ``conn.commit()`` are naturally
+    idempotent. Returns whatever ``fn`` returns.
+    """
+    def _attempt():
+        conn = get_connection(db_path)
+        try:
+            return fn(conn)
+        finally:
+            conn.close()
+
+    return retry_on_locked(_attempt, retries=retries, base_ms=base_ms, label=label)
 
 
 def open_sqlite(db_path: str, **connect_kwargs) -> sqlite3.Connection:
@@ -94,11 +210,24 @@ def get_connection(db_path: str) -> sqlite3.Connection:
     lock to clear instead of failing instantly with "database is locked".
     Opens through ``open_sqlite`` so the missing-parent diagnostic (issue #1126)
     is applied uniformly with the other raw callers.
+
+    ``isolation_level = "IMMEDIATE"`` (issue #1143) makes Python's implicit
+    transactions emit ``BEGIN IMMEDIATE`` before the first write, so the
+    RESERVED write lock is acquired up front — where ``busy_timeout`` IS
+    honored — instead of as a SHARED→RESERVED promotion later, which SQLite
+    refuses to wait on. This eliminates the common lock-upgrade SQLITE_BUSY for
+    write paths whose first statement is the write. Paths that interleave an
+    open read cursor with a write still need the whole-operation retry layer
+    (``run_write`` / ``retry_on_locked``). Explicit ``conn.execute("BEGIN
+    IMMEDIATE")`` callers (e.g. tusk-bakeoff.py) are unaffected: Python
+    recognizes a literal ``BEGIN`` and does not auto-open a competing
+    transaction.
     """
     conn = open_sqlite(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute(f"PRAGMA busy_timeout = {_busy_timeout_ms()}")
+    conn.isolation_level = "IMMEDIATE"
     return conn
 
 
