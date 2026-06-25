@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1207] - 2026-06-25
+
+- [TASK-718] Fix: retry tusk write commands on transient SQLITE_BUSY instead of crashing
+
 ## [1206] - 2026-06-23
 
 - [TASK-710] Route remaining raw sqlite3.connect callers through a shared opener for the no-DB clean diagnostic
