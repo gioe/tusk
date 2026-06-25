@@ -1254,7 +1254,14 @@ def main():
             "delete": cmd_delete,
             "finish-deferred": cmd_finish_deferred,
         }
-        sys.exit(handlers[args.command](args, db_path, config))
+        # retry_on_locked re-runs the whole handler (each opens/commits/closes its
+        # own connection) on transient "database is locked" contention so parallel
+        # worktree sessions don't hard-fail a criteria write (issue #1143). On
+        # budget exhaustion it re-raises OperationalError into the catch-all below.
+        sys.exit(_db_lib.retry_on_locked(
+            lambda: handlers[args.command](args, db_path, config),
+            label=f"criteria {args.command}",
+        ))
     except Exception as e:
         print(
             f"Error: criteria {args.command} crashed with "

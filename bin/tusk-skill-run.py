@@ -333,7 +333,14 @@ def cmd_list(conn, skill_name: str | None, limit: int, task_id: int | None = Non
         print(f"{r['id']:<6} {task_str:<10} {r['skill_name']:<20} {started:<20} {cost_str:>8}  {tokens_str:>10}  {per_msg_str:>7}  {(r['model'] or '-'):<25}  {meta_str} {status}")
 
 
-def main():
+def _main_once():
+    """Run the skill-run command once against a fresh connection.
+
+    Opens its own connection and closes it in the finally below, so the retrying
+    main() wrapper can re-invoke this for a clean whole-operation retry on
+    transient lock contention (issue #1143) — each attempt drops any SHARED lock
+    before the next one starts.
+    """
     if len(sys.argv) < 4:
         print(
             "Usage: tusk skill-run {start <skill_name> | finish <run_id> [--metadata JSON] | cancel <run_id> | list [<skill_name>] [--limit N]}",
@@ -481,6 +488,21 @@ def main():
     except SystemExit:
         # Already handled by per-subcommand wrappers or explicit sys.exit calls.
         raise
+    except sqlite3.OperationalError as exc:
+        # Transient "database is locked" contention (issue #1143): let it bubble
+        # to the retrying main() wrapper instead of converting it to a hard exit.
+        # The finally below closes this attempt's connection first, dropping any
+        # SHARED lock so the retry starts clean. Non-lock OperationalErrors fall
+        # through to the catch-all below.
+        if _db_lib._is_locked_error(exc):
+            raise
+        subcmd = args[0] if args else "(no-subcommand)"
+        print(
+            f"Error: skill-run {subcmd} crashed with "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     except Exception as exc:
         # Catch-all so an uncaught exception (DB error, transcript I/O failure,
         # unexpected type error) leaves an actionable stderr message rather than
@@ -497,6 +519,28 @@ def main():
         sys.exit(1)
     finally:
         conn.close()
+
+
+def main():
+    """Retry the whole skill-run command on transient lock contention.
+
+    Wraps _main_once (which opens/closes its own connection) in the shared
+    bounded retry layer (issue #1143). On a transient "database is locked", a
+    fresh _main_once attempt runs against a new connection; once the retry budget
+    is exhausted retry_on_locked has already emitted its stderr diagnostic, so we
+    convert the final failure into the same actionable "crashed with" exit the
+    catch-all uses for every other error.
+    """
+    subcmd = sys.argv[3] if len(sys.argv) > 3 else "(no-subcommand)"
+    try:
+        _db_lib.retry_on_locked(_main_once, label=f"skill-run {subcmd}")
+    except sqlite3.OperationalError as exc:
+        print(
+            f"Error: skill-run {subcmd} crashed with "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":

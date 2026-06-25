@@ -1318,7 +1318,10 @@ def cmd_summary(args: argparse.Namespace, db_path: str) -> int:
 
 # ── CLI ──────────────────────────────────────────────────────────────
 
-def main():
+def _main_once():
+    """Run the review command once. Each handler opens/commits/closes its own
+    connection, so the retrying main() wrapper can re-invoke this for a clean
+    whole-operation retry on transient lock contention (issue #1143)."""
     if len(sys.argv) < 3:
         print("Usage: tusk review {start|begin|add-comment|list|resolve|approve|request-changes|status|summary} ...", file=sys.stderr)
         sys.exit(1)
@@ -1510,6 +1513,26 @@ def main():
             )
             sys.exit(2)
     except sqlite3.Error as e:
+        # Transient "database is locked" contention (issue #1143) bubbles to the
+        # retrying main() wrapper; the handler's own connection is already closed
+        # (its finally ran), so the retry starts clean. Other DB errors are real.
+        if _db_lib._is_locked_error(e):
+            raise
+        print(f"Database error: {e}", file=sys.stderr)
+        sys.exit(2)
+
+
+def main():
+    """Retry the whole review command on transient lock contention (issue #1143).
+
+    Wraps _main_once in the shared bounded retry layer. Once the budget is
+    exhausted retry_on_locked has already emitted its stderr diagnostic; convert
+    the final failure into the same "Database error" exit 2 the dispatch uses for
+    every other sqlite error."""
+    subcmd = sys.argv[3] if len(sys.argv) > 3 else "(no-subcommand)"
+    try:
+        _db_lib.retry_on_locked(_main_once, label=f"review {subcmd}")
+    except sqlite3.OperationalError as e:
         print(f"Database error: {e}", file=sys.stderr)
         sys.exit(2)
 

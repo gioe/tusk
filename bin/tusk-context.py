@@ -252,4 +252,6 @@ if __name__ == "__main__":
         print("Error: This script must be invoked via the tusk wrapper.", file=sys.stderr)
         print("Use: tusk context add <task_id> --type <type> --content <text>", file=sys.stderr)
         sys.exit(1)
-    sys.exit(main(sys.argv[1:]))
+    # Retry the whole command (a fresh connection per attempt) on transient
+    # "database is locked" contention under parallel worktree sessions (#1143).
+    sys.exit(_db_lib.retry_on_locked(lambda: main(sys.argv[1:]), label="context"))

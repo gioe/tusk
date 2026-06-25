@@ -217,4 +217,6 @@ if __name__ == "__main__":
         print("Use: tusk jot <category> \"<note>\" [--file <path>] [--skill <name>]", file=sys.stderr)
         print("     tusk jots [--skill-run-id <id>] [--task-id <id>] [--limit N]", file=sys.stderr)
         sys.exit(1)
-    sys.exit(main(sys.argv[1:]))
+    # Retry the whole command (a fresh connection per attempt) on transient
+    # "database is locked" contention under parallel worktree sessions (#1143).
+    sys.exit(_db_lib.retry_on_locked(lambda: main(sys.argv[1:]), label="jot"))
