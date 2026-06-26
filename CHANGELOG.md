@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1208] - 2026-06-26
+
+- [TASK-719] Migrate existing tasks.db to WAL journal mode (close the #1143 root-cause gap for pre-WAL DBs)
+
 ## [1207] - 2026-06-25
 
 - [TASK-718] Fix: retry tusk write commands on transient SQLITE_BUSY instead of crashing
