@@ -1274,7 +1274,8 @@ PRECHECK_VERDICTS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 83;"
+  # (migration 84 switches existing DBs to WAL; cmd_init already enabled WAL above)
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 84;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."

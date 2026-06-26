@@ -3572,6 +3572,45 @@ def migrate_83(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 83: added lint_rules.source_finding_id")
 
 
+def migrate_84(db_path: str, config_path: str, script_dir: str) -> None:
+    """Switch existing rollback-journal DBs to WAL journal mode.
+
+    cmd_init has set ``PRAGMA journal_mode = WAL`` for fresh installs since Feb
+    2026, and the supporting infrastructure is already WAL-safe — ``snapshot_db``
+    backs up via ``VACUUM INTO`` (no WAL/SHM sidecars) and ``checkpoint_wal`` is
+    invoked before every branch-switch/stash. But databases created before that
+    line stay in ``delete`` mode forever, where a reader holding a SHARED lock
+    blocks a concurrent writer and the SHARED→RESERVED promotion returns
+    SQLITE_BUSY *immediately* (busy_timeout is not honored on the upgrade) — the
+    root cause behind issue #1143's "database is locked" crashes under parallel
+    worktree sessions. WAL lets readers and writers proceed concurrently, so the
+    upgrade deadlock disappears.
+
+    ``PRAGMA journal_mode = WAL`` cannot run inside a transaction, so this opens a
+    fresh autocommit connection (``isolation_level = None``) and runs the PRAGMA
+    directly; the new mode is persisted in the database header immediately, so no
+    commit is needed. The statement is idempotent — running it on a DB that is
+    already in WAL is a no-op. On a filesystem without shared-memory support
+    (some network filesystems), SQLite keeps the current mode and the PRAGMA
+    simply returns the unchanged value without error, so the migration is a safe
+    no-op there rather than a hard failure; we therefore do NOT assert the result
+    is ``wal``.
+    """
+    if get_version(db_path) >= 84:
+        _progress("  Migration 84: tasks.db journal_mode set to WAL")
+        return
+
+    conn = db_connect(db_path)
+    try:
+        conn.isolation_level = None  # autocommit — journal_mode cannot change inside a txn
+        mode = conn.execute("PRAGMA journal_mode = WAL").fetchone()[0]
+    finally:
+        conn.close()
+
+    set_version(db_path, 84)
+    _progress(f"  Migration 84: tasks.db journal_mode is now '{mode}' (WAL requested)")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -3658,6 +3697,7 @@ MIGRATIONS = [
     (81, migrate_81),
     (82, migrate_82),
     (83, migrate_83),
+    (84, migrate_84),
 ]
 
 
