@@ -12,6 +12,8 @@ This document codifies the entity/attribute model, allowed status transitions, i
 - **The DB is gitignored.** `tusk/tasks.db` (and `tusk/tasks.db-wal`, `tusk/tasks.db-shm`) are excluded from version control by design. Each developer has their own independent task database.
 - **There is no built-in sync or import path.** No replication, rsync, or cross-machine restore workflow is provided.
 
+**Journal mode is WAL.** The database runs in WAL (write-ahead logging) journal mode so concurrent readers and writers do not block each other — the normal mode for parallel worktree `/tusk` sessions sharing one `tasks.db`. In the legacy `delete` (rollback-journal) mode, a reader holding a SHARED lock blocks a writer and the SHARED→RESERVED promotion returns `SQLITE_BUSY` immediately (busy_timeout is not honored on the upgrade) — the root cause behind issue #1143's "database is locked" crashes. `cmd_init` enables WAL for fresh installs, and **migration 84** (issue #1144) switches pre-existing `delete`-mode DBs to WAL; on a filesystem without shared-memory support SQLite keeps the current mode without error, so the migration is a safe no-op there. The WAL/SHM sidecars (`tusk/tasks.db-wal`, `tusk/tasks.db-shm`) are gitignored alongside the main DB. Backups are WAL-safe because `snapshot_db` uses `VACUUM INTO` (a single consolidated file with no sidecars), and `checkpoint_wal` (`bin/tusk-db-lib.py`) is invoked before every branch-switch/stash so no in-flight WAL frames are lost.
+
 **Workaround — export your tasks to SQL:**
 
 ```bash
