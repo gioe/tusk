@@ -663,6 +663,7 @@ def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
             "dismissed": [{"comment_id", "file_path"}, ...],
             "dismissed_general": [{"comment_id", "cited_paths"}, ...],
             "dismissed_symbol_mismatch": [{"comment_id", "file_path", "line_start", "symbol"}, ...],
+            "flagged_symbol_mismatch": [{"comment_id", "file_path", "line_start", "symbol"}, ...],
             "out_of_diff_real": [{"comment_id", "cited_paths", "existing_paths"}, ...],
             "in_diff": int,                  # file_path values matched
             "general": int,                  # null-file_path comments preserved
@@ -748,6 +749,7 @@ def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
     dismissed = []
     dismissed_general = []
     dismissed_symbol_mismatch = []
+    flagged_symbol_mismatch = []
     out_of_diff_real = []
     in_diff = 0
     general = 0
@@ -810,6 +812,16 @@ def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
             )
             if mismatch:
                 symbol, cited_line = mismatch
+                if c["category"] == "must_fix":
+                    flagged_symbol_mismatch.append({
+                        "comment_id": c["id"],
+                        "file_path": fp,
+                        "line_start": c["line_start"],
+                        "symbol": symbol,
+                        "cited_line": cited_line,
+                    })
+                    in_diff += 1
+                    continue
                 note = (
                     f"validation: cited line {c['line_start']} in '{fp}' "
                     f"does not contain referenced symbol '{symbol}' "
@@ -861,6 +873,7 @@ def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
         "dismissed": dismissed,
         "dismissed_general": dismissed_general,
         "dismissed_symbol_mismatch": dismissed_symbol_mismatch,
+        "flagged_symbol_mismatch": flagged_symbol_mismatch,
         "out_of_diff_real": out_of_diff_real,
         "in_diff": in_diff,
         "general": general,

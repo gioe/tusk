@@ -295,6 +295,70 @@ class TestValidateComments:
         assert "line 2" in note
         assert "ProductionCompany" not in note
 
+    def test_preserves_must_fix_line_symbol_mismatch(self, tmp_path, monkeypatch):
+        """A real must_fix in an in-diff file should remain operator-visible
+        even when its symbol is cited on the wrong line.
+        """
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        task_id = _insert_in_progress_task(db_path)
+
+        _git(["checkout", "-b", f"feature/TASK-{task_id}-release"], cwd=repo)
+        fastfile = "\n".join([
+            "# gradle.properties is rewritten by the internal lane",
+            "lane :production do",
+            "  upload_to_play_store(",
+            "    version_code: read_gradle_property(\"VERSION_CODE\").to_i,",
+            "  )",
+            "end",
+            "",
+        ])
+        (repo / "Fastfile").write_text(fastfile, encoding="utf-8")
+        _git(["add", "Fastfile"], cwd=repo, env=env)
+        _git(["commit", "-m", f"[TASK-{task_id}] add release lane"], cwd=repo, env=env)
+
+        begin = _run(["review", "begin", str(task_id)], cwd=repo, env=env)
+        assert begin.returncode == 0, begin.stderr
+        review_id = json.loads(begin.stdout)["review_id"]
+
+        r = _run(
+            [
+                "review", "add-comment", str(review_id),
+                "Production promote reads stale VERSION_CODE from gradle.properties",
+                "--file", "Fastfile",
+                "--line-start", "4",
+                "--category", "must_fix",
+                "--severity", "major",
+            ],
+            cwd=repo,
+            env=env,
+        )
+        assert r.returncode == 0, r.stderr
+
+        result = _run(["review", "validate-comments", str(review_id)], cwd=repo, env=env)
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+
+        assert payload["dismissed"] == []
+        assert payload["dismissed_general"] == []
+        assert payload["dismissed_symbol_mismatch"] == []
+        assert len(payload["flagged_symbol_mismatch"]) == 1
+        flagged = payload["flagged_symbol_mismatch"][0]
+        assert flagged["file_path"] == "Fastfile"
+        assert flagged["line_start"] == 4
+        assert flagged["symbol"] == "gradle.properties"
+        assert payload["in_diff"] == 1
+
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT resolution, resolution_note FROM review_comments"
+                " WHERE review_id = ?",
+                (review_id,),
+            ).fetchone()
+
+        assert row["resolution"] is None
+        assert row["resolution_note"] is None
+
     def test_prose_abbreviation_comment_not_dismissed(self, tmp_path, monkeypatch):
         """Issue #1117: a correctly-anchored comment whose body merely contains
         a prose abbreviation like '(e.g. ...)' must NOT be dismissed under the
