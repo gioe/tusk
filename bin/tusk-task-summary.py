@@ -119,11 +119,26 @@ def fetch_identity(conn: sqlite3.Connection, task_id: int) -> dict | None:
 
 
 def fetch_cost(conn: sqlite3.Connection, task_id: int) -> dict:
-    """SUM(cost_dollars) across every skill_runs row attributed to the task."""
+    """SUM(cost_dollars) across every skill_runs row attributed to the task.
+
+    Modern rows carry skill_runs.task_id directly. Older or manually-started
+    rows may lack that attribution, so include completed un-attributed runs
+    that started inside one of the task's recorded sessions.
+    """
     row = conn.execute(
         "SELECT COALESCE(SUM(cost_dollars), 0.0) AS total, COUNT(*) AS cnt "
-        "FROM skill_runs WHERE task_id = ?",
-        (task_id,),
+        "FROM skill_runs sr "
+        "WHERE sr.task_id = ? "
+        "   OR (sr.task_id IS NULL "
+        "       AND sr.ended_at IS NOT NULL "
+        "       AND sr.started_at IS NOT NULL "
+        "       AND EXISTS ("
+        "           SELECT 1 FROM task_sessions ts "
+        "           WHERE ts.task_id = ? "
+        "             AND ts.started_at <= sr.started_at "
+        "             AND (ts.ended_at IS NULL OR ts.ended_at >= sr.started_at)"
+        "       ))",
+        (task_id, task_id),
     ).fetchone()
     return {
         "total": round(float(row["total"] or 0.0), 4),
@@ -225,8 +240,18 @@ def fetch_tokens(conn: sqlite3.Connection, task_id: int) -> dict:
         "SELECT COALESCE(SUM(tokens_in), 0) AS tin, "
         "       COALESCE(SUM(tokens_out), 0) AS tout, "
         "       COALESCE(SUM(request_count), 0) AS req "
-        "FROM skill_runs WHERE task_id = ?",
-        (task_id,),
+        "FROM skill_runs sr "
+        "WHERE sr.task_id = ? "
+        "   OR (sr.task_id IS NULL "
+        "       AND sr.ended_at IS NOT NULL "
+        "       AND sr.started_at IS NOT NULL "
+        "       AND EXISTS ("
+        "           SELECT 1 FROM task_sessions ts "
+        "           WHERE ts.task_id = ? "
+        "             AND ts.started_at <= sr.started_at "
+        "             AND (ts.ended_at IS NULL OR ts.ended_at >= sr.started_at)"
+        "       ))",
+        (task_id, task_id),
     ).fetchone()
     return {
         "tokens_in": int(row["tin"] or 0),

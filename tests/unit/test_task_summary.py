@@ -80,6 +80,8 @@ CREATE TABLE skill_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     skill_name TEXT NOT NULL,
     task_id INTEGER,
+    started_at TEXT,
+    ended_at TEXT,
     cost_dollars REAL,
     tokens_in INTEGER,
     tokens_out INTEGER,
@@ -204,6 +206,47 @@ class TestOneSessionTask:
         assert data["criteria"]["automated"] == 2
         assert data["review_passes"] == 1
         assert data["reopen_count"] == 0
+
+    def test_summary_includes_completed_unattributed_skill_run_in_task_session(self, tmp_path):
+        db_path, conn = _make_db(tmp_path)
+        _insert_task(
+            conn, task_id=12, summary="Cost attribution fallback",
+            started_at="2026-04-19 10:00:00",
+            closed_at="2026-04-19 12:30:00",
+        )
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, ended_at, duration_seconds) "
+            "VALUES (?, ?, ?, ?)",
+            (12, "2026-04-19 10:00:00", "2026-04-19 12:30:00", 9000),
+        )
+        conn.execute(
+            "INSERT INTO skill_runs "
+            "(skill_name, task_id, started_at, ended_at, cost_dollars, tokens_in, tokens_out, request_count) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "tusk",
+                None,
+                "2026-04-19 10:15:00",
+                "2026-04-19 12:20:00",
+                0.1178,
+                12000,
+                3000,
+                8,
+            ),
+        )
+        conn.commit()
+
+        data = mod.build_summary(conn, 12, str(tmp_path))
+
+        assert data["cost"] == {"total": 0.1178, "skill_run_count": 1}
+        assert data["tokens"] == {
+            "tokens_in": 12000,
+            "tokens_out": 3000,
+            "request_count": 8,
+        }
+        markdown = mod.render_markdown(data)
+        assert "- **Cost:** $0.1178 across 1 skill run" in markdown
+        assert "/bin/zsh.0000" not in markdown
 
 
 # ── multi-session task ────────────────────────────────────────────────
