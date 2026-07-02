@@ -1950,7 +1950,7 @@ preflight_schema_version() {
       skill-drift|resolve-schema-bin)
       return 0 ;;
   esac
-  local user_version supported_max _uv_err _uv_rc=0
+  local user_version supported_max _uv_err _uv_rc=0 _uv_attempt=0 _uv_retries
   # Capture sqlite3's stderr and exit code instead of discarding them. The
   # previous form — an unguarded assignment with 2>/dev/null under
   # `set -euo pipefail` — killed the whole script with sqlite3's bare exit
@@ -1958,7 +1958,23 @@ preflight_schema_version() {
   # exit 14 / SQLITE_CANTOPEN from a corrupted or permission-blocked
   # tasks.db-wal / tasks.db-shm sidecar looked like an internal tusk crash).
   _uv_err="$(mktemp -t tusk-uv.XXXXXX 2>/dev/null || echo "/tmp/tusk-uv.$$")"
-  user_version="$(sqlite3 "$DB_PATH" "PRAGMA user_version" 2>"$_uv_err")" || _uv_rc=$?
+  _uv_retries="${TUSK_WRITE_RETRIES:-6}"
+  while :; do
+    : >"$_uv_err"
+    _uv_rc=0
+    user_version="$(sqlite3 "$DB_PATH" "PRAGMA user_version" 2>"$_uv_err")" || _uv_rc=$?
+    if (( _uv_rc == 0 )); then
+      break
+    fi
+    if ! { (( _uv_rc == 5 )) || grep -Eiq 'database is (locked|busy)|SQLITE_BUSY' "$_uv_err"; }; then
+      break
+    fi
+    if (( _uv_attempt >= _uv_retries )); then
+      break
+    fi
+    _uv_attempt=$(( _uv_attempt + 1 ))
+    sleep 0.05
+  done
   if (( _uv_rc != 0 )); then
     {
       echo "Error: cannot read the schema version from the task database (sqlite3 exit ${_uv_rc})."

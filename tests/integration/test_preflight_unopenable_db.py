@@ -11,8 +11,10 @@ diagnostic naming the cwd, binary, and db path.
 """
 
 import os
+import shutil
 import sqlite3
 import subprocess
+import textwrap
 
 REPO_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -43,6 +45,22 @@ def _run_tusk(args, db, cwd, binary=TUSK_BIN):
     env.pop("TUSK_GUARD_ACTIVE", None)
     return subprocess.run(
         [binary, *args],
+        cwd=str(cwd),
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+
+def _run_tusk_with_env(args, db, cwd, env_overrides):
+    env = os.environ.copy()
+    env["TUSK_DB"] = db
+    env["TUSK_QUIET"] = "1"
+    env.pop("TUSK_GUARD_ACTIVE", None)
+    env.update(env_overrides)
+    return subprocess.run(
+        [TUSK_BIN, *args],
         cwd=str(cwd),
         env=env,
         capture_output=True,
@@ -101,3 +119,40 @@ def test_healthy_db_does_not_trigger_diagnostic(tmp_path):
     result = _run_tusk(["task-list"], db=db, cwd=tmp_path)
 
     assert "cannot read the schema version" not in result.stderr
+
+
+def test_transient_schema_lock_is_retried(tmp_path):
+    """A transient SQLITE_BUSY from the shell preflight should be retried
+    before the user-facing unopenable-db diagnostic fires."""
+    db = _make_wal_db(tmp_path)
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    state_file = tmp_path / "sqlite-attempts"
+    fake_sqlite = fake_bin / "sqlite3"
+    real_sqlite = shutil.which("sqlite3")
+    assert real_sqlite is not None
+    fake_sqlite.write_text(
+        textwrap.dedent(
+            f"""\
+            #!/usr/bin/env bash
+            if [[ "${{2:-}}" == "PRAGMA user_version" && ! -f "{state_file}" ]]; then
+              touch "{state_file}"
+              echo "Error: database is locked" >&2
+              exit 5
+            fi
+            exec "{real_sqlite}" "$@"
+            """
+        ),
+        encoding="utf-8",
+    )
+    fake_sqlite.chmod(0o755)
+
+    result = _run_tusk_with_env(
+        ["task-list"],
+        db=db,
+        cwd=tmp_path,
+        env_overrides={"PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"},
+    )
+
+    assert "cannot read the schema version" not in result.stderr
+    assert state_file.exists(), "fake sqlite3 must have exercised the retry path"
