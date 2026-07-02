@@ -17,10 +17,10 @@ If --session is omitted, the open session for the task is auto-detected:
 
 Default behavior (merge.mode = local):
   1. Preflight: verify working tree is clean and feature branch exists (errors here leave session and task untouched)
-  2. tusk session-close <session_id> (captures diff stats before branch change)
-  3. git checkout <default_branch> && git pull
-  4. git merge --ff-only feature/TASK-<id>-*
-  5. git push
+  2. git checkout <default_branch> && git pull
+  3. git merge --ff-only feature/TASK-<id>-*
+  4. git push
+  5. tusk session-close <session_id> (only after the merge path succeeds)
   6. git branch -d feature/TASK-<id>-*
   7. tusk task-done <id> --reason completed (--force if task-done warns)
   8. Print JSON with task details and unblocked_tasks array
@@ -1194,6 +1194,24 @@ def _run_pre_merge_lint(
         )
         return 6
     return 0
+
+
+def _session_close_diff_args(default_branch: str) -> list[str]:
+    """Capture branch diff stats before checkout so delayed close keeps metrics."""
+    result = run(
+        ["git", "diff", "--shortstat", f"{default_branch}...HEAD"],
+        check=False,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return []
+    insertions = re.search(r"(\d+) insertion", result.stdout)
+    deletions = re.search(r"(\d+) deletion", result.stdout)
+    return [
+        "--lines-added",
+        insertions.group(1) if insertions else "0",
+        "--lines-removed",
+        deletions.group(1) if deletions else "0",
+    ]
 
 
 def _recover_missing_task(db_path: str, task_id: int) -> bool:
@@ -3860,6 +3878,7 @@ def main(argv: list[str]) -> int:
 
     default_branch = None
     has_origin = None
+    session_close_extra_args: list[str] = []
     if not use_pr:
         default_branch = detect_default_branch()
         has_origin = _has_remote()
@@ -3892,6 +3911,7 @@ def main(argv: list[str]) -> int:
                 use_rebase=use_rebase,
                 allow_diverged_default=allow_diverged_default,
             )
+        session_close_extra_args = _session_close_diff_args(default_branch)
 
     # Step 1b (local mode only): Auto-stash if working tree is dirty.
     # Only tracked modified/staged files are stashed; untracked files ("??")
@@ -3963,35 +3983,7 @@ def main(argv: list[str]) -> int:
                 allow_diverged_default=allow_diverged_default,
             )
 
-    # Step 2: Close the session (captures git diff stats while on feature branch)
-    #
-    # Checkpoint the WAL first so that any uncommitted writes (e.g. from tusk task-start)
-    # are flushed to the main db file before session-close reads the session row.
-    # Without this, a git stash or branch switch that reverts tasks.db to a pre-WAL
-    # snapshot can silently drop the session row, causing "No session found" below.
-    checkpoint_wal(_db_path)
-
-    print(f"Closing session {session_id}...", file=sys.stderr)
-    result = _run_tusk_subcommand(tusk_bin, ["session-close", str(session_id)])
-    session_was_closed = result.returncode == 0
-    if result.returncode != 0:
-        if "already closed" in result.stderr:
-            print(f"Warning: session {session_id} is already closed — continuing.", file=sys.stderr)
-        elif "No session found" in result.stderr:
-            # The session row is missing despite the WAL checkpoint above — likely lost
-            # due to a git stash/checkout that reverted tasks.db before the WAL was
-            # checkpointed. Skip session-close and continue so the merge itself is not
-            # blocked by this transient data-loss scenario.
-            print(
-                f"Warning: session {session_id} not found in DB (may have been lost to a "
-                "WAL revert) — skipping session-close and continuing with merge.",
-                file=sys.stderr,
-            )
-        else:
-            print(f"Error: session-close failed:\n{result.stderr.strip()}", file=sys.stderr)
-            if did_stash:
-                _try_pop_stash(task_id)
-            return 2
+    session_was_closed = False
 
     # Captured at each merge path; passed to _close_completed_task so the
     # tasks.merge_commit_sha column gets stamped before task-done flips the
@@ -4472,6 +4464,40 @@ def main(argv: list[str]) -> int:
 
         if did_stash:
             _try_pop_stash(task_id)
+
+    # Close the session only after the merge path has reached its successful
+    # tail. Failed checkout/pull/rebase/ff/push attempts must leave the session
+    # open so a retry can use the same session without already-closed warnings.
+    #
+    # Checkpoint the WAL first so that any uncommitted writes (e.g. from tusk
+    # task-start) are flushed to the main db file before session-close reads the
+    # session row. Without this, a git stash or branch switch that reverts
+    # tasks.db to a pre-WAL snapshot can silently drop the session row, causing
+    # "No session found" below.
+    checkpoint_wal(_db_path)
+
+    print(f"Closing session {session_id}...", file=sys.stderr)
+    result = _run_tusk_subcommand(
+        tusk_bin,
+        ["session-close", str(session_id), *session_close_extra_args],
+    )
+    session_was_closed = result.returncode == 0
+    if result.returncode != 0:
+        if "already closed" in result.stderr:
+            print(f"Warning: session {session_id} is already closed — continuing.", file=sys.stderr)
+        elif "No session found" in result.stderr:
+            # The session row is missing despite the WAL checkpoint above — likely lost
+            # due to a git stash/checkout that reverted tasks.db before the WAL was
+            # checkpointed. Skip session-close and continue so the merge itself is not
+            # blocked by this transient data-loss scenario.
+            print(
+                f"Warning: session {session_id} not found in DB (may have been lost to a "
+                "WAL revert) — skipping session-close and continuing with merge.",
+                file=sys.stderr,
+            )
+        else:
+            print(f"Error: session-close failed:\n{result.stderr.strip()}", file=sys.stderr)
+            return 2
 
     # Warn about any leftover `tusk-branch: auto-stash for TASK-<id>` entry created
     # during a prior `tusk branch <id>` invocation when the working tree was
