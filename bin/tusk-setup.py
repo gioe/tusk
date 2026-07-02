@@ -21,6 +21,7 @@ _db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
+run_read = _db_lib.run_read
 
 
 def main(argv: list[str]) -> int:
@@ -42,17 +43,15 @@ def main(argv: list[str]) -> int:
         print(f"Error: Invalid JSON in config: {e}", file=sys.stderr)
         return 2
 
-    # Query backlog
     try:
-        conn = get_connection(db_path)
-        try:
+        def _query_backlog(conn):
             rows = conn.execute(
                 "SELECT id, summary, status, priority, domain, assignee, complexity, task_type, priority_score "
                 "FROM tasks WHERE status <> 'Done' ORDER BY priority_score DESC, id"
             ).fetchall()
-            backlog = [dict(row) for row in rows]
-        finally:
-            conn.close()
+            return [dict(row) for row in rows]
+
+        backlog = run_read(db_path, _query_backlog, label="setup")
     except sqlite3.Error as e:
         print(f"Error: Database query failed: {e}", file=sys.stderr)
         return 2

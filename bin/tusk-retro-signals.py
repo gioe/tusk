@@ -58,6 +58,7 @@ _json_lib = tusk_loader.load("tusk-json-lib")
 _pricing_lib = tusk_loader.load("tusk-pricing-lib")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
+run_read = _db_lib.run_read
 
 
 # Per-complexity call_count thresholds for tool_call_outliers. Tunable; defaults
@@ -477,49 +478,54 @@ def main(argv: list) -> int:
         return 1
 
     try:
-        conn = get_connection(db_path)
+        def _collect(conn):
+            try:
+                exists = conn.execute(
+                    "SELECT 1 FROM tasks WHERE id = ?", (task_id,)
+                ).fetchone()
+            except Exception as e:
+                if _db_lib._is_locked_error(e):
+                    raise
+                print(
+                    f"tusk retro-signals: failed during 'task_existence_check' phase "
+                    f"for task {task_id}: {type(e).__name__}: {e}",
+                    file=sys.stderr,
+                )
+                return 1
+            if not exists:
+                print(f"Task {task_id} not found", file=sys.stderr)
+                return 1
+            try:
+                payload = build_signals(conn, task_id)
+            except RetroSignalsError as e:
+                if _db_lib._is_locked_error(e.original):
+                    raise e.original
+                print(
+                    f"tusk retro-signals: failed during '{e.phase}' phase for "
+                    f"task {task_id}: {type(e.original).__name__}: {e.original}",
+                    file=sys.stderr,
+                )
+                return 1
+            except Exception as e:
+                if _db_lib._is_locked_error(e):
+                    raise
+                print(
+                    f"tusk retro-signals: unexpected error while collecting signals "
+                    f"for task {task_id}: {type(e).__name__}: {e}",
+                    file=sys.stderr,
+                )
+                return 1
+            print(dumps(payload))
+            return 0
+
+        return run_read(db_path, _collect, label="retro-signals")
     except Exception as e:
         print(
-            f"tusk retro-signals: failed to open database '{db_path}': "
+            f"tusk retro-signals: failed while reading database '{db_path}': "
             f"{type(e).__name__}: {e}",
             file=sys.stderr,
         )
         return 1
-    try:
-        try:
-            exists = conn.execute(
-                "SELECT 1 FROM tasks WHERE id = ?", (task_id,)
-            ).fetchone()
-        except Exception as e:
-            print(
-                f"tusk retro-signals: failed during 'task_existence_check' phase "
-                f"for task {task_id}: {type(e).__name__}: {e}",
-                file=sys.stderr,
-            )
-            return 1
-        if not exists:
-            print(f"Task {task_id} not found", file=sys.stderr)
-            return 1
-        try:
-            payload = build_signals(conn, task_id)
-        except RetroSignalsError as e:
-            print(
-                f"tusk retro-signals: failed during '{e.phase}' phase for "
-                f"task {task_id}: {type(e.original).__name__}: {e.original}",
-                file=sys.stderr,
-            )
-            return 1
-        except Exception as e:
-            print(
-                f"tusk retro-signals: unexpected error while collecting signals "
-                f"for task {task_id}: {type(e).__name__}: {e}",
-                file=sys.stderr,
-            )
-            return 1
-        print(dumps(payload))
-        return 0
-    finally:
-        conn.close()
 
 
 if __name__ == "__main__":

@@ -163,6 +163,26 @@ def run_write(db_path: str, fn, *, label=None, retries=None, base_ms=None):
     return retry_on_locked(_attempt, retries=retries, base_ms=base_ms, label=label)
 
 
+def run_read(db_path: str, fn, *, label=None, retries=None, base_ms=None):
+    """Run ``fn(conn)`` against a fresh ``get_connection(db_path)``, retrying the
+    whole read operation on transient lock contention.
+
+    WAL mode prevents the common reader-vs-writer collision, but rollback-mode
+    DBs, exclusive maintenance operations, and post-write cleanup can still
+    surface SQLITE_BUSY to read-only commands. Retrying the whole operation gives
+    read paths the same bounded backoff behavior as write paths while ensuring a
+    failed attempt's connection is closed before the next try.
+    """
+    def _attempt():
+        conn = get_connection(db_path)
+        try:
+            return fn(conn)
+        finally:
+            conn.close()
+
+    return retry_on_locked(_attempt, retries=retries, base_ms=base_ms, label=label)
+
+
 def open_sqlite(db_path: str, **connect_kwargs) -> sqlite3.Connection:
     """Open a raw sqlite3 connection, emitting an actionable diagnostic instead
     of a raw OperationalError traceback when ``db_path``'s parent directory does
