@@ -14,6 +14,7 @@ runtime does not police.
 
 Usage:
     tusk review-wait <review_id> [--interval 30] [--timeout-seconds 150]
+        [--diff-lines-meaningful N]
 
 Arguments received from tusk:
     sys.argv[1] — DB path
@@ -45,6 +46,7 @@ Exit codes:
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -61,6 +63,8 @@ TERMINAL_STATUSES = ("approved", "changes_requested", "superseded")
 
 DEFAULT_INTERVAL_SECONDS = 30
 DEFAULT_TIMEOUT_SECONDS = 150  # 5 polls at 30s, matching legacy STALL_THRESHOLD
+LARGE_DIFF_BASE_LINES = 200
+LARGE_DIFF_SECONDS_PER_1000_LINES = 60
 
 
 def _fetch_review(db_path: str, review_id: int) -> dict | None:
@@ -82,6 +86,16 @@ def _fetch_review(db_path: str, review_id: int) -> dict | None:
         "status": row["status"],
         "review_pass": row["review_pass"],
     }
+
+
+def timeout_seconds_for_diff(diff_lines_meaningful: int | None) -> int:
+    """Return the stall timeout to use for a review of this meaningful diff size."""
+    if diff_lines_meaningful is None or diff_lines_meaningful <= LARGE_DIFF_BASE_LINES:
+        return DEFAULT_TIMEOUT_SECONDS
+
+    return DEFAULT_TIMEOUT_SECONDS + math.ceil(
+        diff_lines_meaningful / 1000
+    ) * LARGE_DIFF_SECONDS_PER_1000_LINES
 
 
 def wait_for_terminal(
@@ -152,15 +166,29 @@ def main(argv: list) -> int:
     parser.add_argument(
         "--timeout-seconds",
         type=float,
-        default=DEFAULT_TIMEOUT_SECONDS,
-        help=f"total wall-clock seconds before giving up (default {DEFAULT_TIMEOUT_SECONDS})",
+        default=None,
+        help=(
+            "total wall-clock seconds before giving up "
+            f"(default scales from {DEFAULT_TIMEOUT_SECONDS}s by diff size)"
+        ),
+    )
+    parser.add_argument(
+        "--diff-lines-meaningful",
+        type=int,
+        default=None,
+        help="meaningful diff line count used to scale the default timeout",
     )
     args = parser.parse_args(argv[2:])
 
     if args.interval <= 0:
         print("--interval must be > 0", file=sys.stderr)
         return 1
-    if args.timeout_seconds <= 0:
+    timeout_seconds = (
+        args.timeout_seconds
+        if args.timeout_seconds is not None
+        else timeout_seconds_for_diff(args.diff_lines_meaningful)
+    )
+    if timeout_seconds <= 0:
         print("--timeout-seconds must be > 0", file=sys.stderr)
         return 1
 
@@ -169,7 +197,7 @@ def main(argv: list) -> int:
             db_path,
             args.review_id,
             args.interval,
-            args.timeout_seconds,
+            timeout_seconds,
         )
     except SystemExit as e:
         print(str(e), file=sys.stderr)

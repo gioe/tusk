@@ -180,6 +180,16 @@ class TestTimeout:
         assert clock.sleeps == [100.0, 50.0]
 
 
+class TestAdaptiveTimeout:
+    """Large diffs get more time before the orchestrator treats silence as a stall."""
+
+    def test_small_diff_keeps_legacy_timeout(self):
+        assert mod.timeout_seconds_for_diff(199) == 150
+
+    def test_large_diff_extends_beyond_observed_five_minute_review(self):
+        assert mod.timeout_seconds_for_diff(3119) > 313
+
+
 class TestStatusTransition:
     """Pending → terminal mid-wait exits on the poll that sees the change."""
 

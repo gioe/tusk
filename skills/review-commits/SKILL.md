@@ -190,18 +190,15 @@ Wait for the reviewer agent to finish. The agent was spawned with `run_in_backgr
 
 No active polling required — the runtime delivers a notification when the background agent exits or is killed. When it arrives, fall through to the **Resolve the verdict** sub-step below. The notification may carry `status="failed"` if the runtime watchdog killed the agent before it could post a verdict (e.g. `summary: "Agent stalled: no progress for 600s (stream watchdog did not recover)"`); that case is handled by the first branch under "Resolve the verdict" and is distinct from the orchestrator-side 2.5min stall fallback below — the orchestrator's stall deadline only fires when *no* notification arrives at all.
 
-**Stall detection (no notification within ~2.5 min):**
+**Stall detection (no completion notification before the adaptive wait deadline):**
 
-If you have been waiting for the agent without a completion notification for ~2.5 minutes (matching the previous `STALL_THRESHOLD = 5 × 30s` semantics), the agent may be looping or running a long-running command. Use a short-sleep until-loop — the runtime sleep guard allows `sleep 2` inside an `until` body — that exits as soon as `tusk review status` returns a terminal verdict OR the wall-clock deadline elapses:
+If you have been waiting for the agent without a completion notification, wait for a terminal review verdict using `tusk review-wait`. Pass `$DIFF_LINES_MEANINGFUL` so large diffs get a longer deadline before the orchestrator treats the missing notification as a stall; the helper keeps the legacy 150s wait for small diffs and scales upward for larger ones. It exits as soon as `tusk review status` returns a terminal verdict OR the adaptive wall-clock deadline elapses:
 
 ```bash
-DEADLINE=$(($(date +%s) + 150))
-until [ "$(tusk review status <task_id> | jq -r .status)" != "pending" ] || [ "$(date +%s)" -ge "$DEADLINE" ]; do
-  sleep 2
-done
+WAIT_JSON=$(tusk review-wait "$REVIEW_ID" --diff-lines-meaningful "$DIFF_LINES_MEANINGFUL")
 ```
 
-After the loop exits, fall through to the **Resolve the verdict** sub-step.
+After `review-wait` exits, fall through to the **Resolve the verdict** sub-step. The helper's `timed_out` field is diagnostic context only; the authoritative branch below still comes from re-reading `tusk review status` and, when still pending, checking `TaskOutput` for whether the agent has completed, failed, or is still running.
 
 **Resolve the verdict:**
 
@@ -241,9 +238,9 @@ Parse the JSON.
   - **Do not auto-approve with an empty verdict.** A stalled agent has posted no verdict and may have inspected none of the diff, so auto-approving would convert a review failure into a green review — the same fail-safe gap issue #1065 closed for the runtime-kill branch above. Instead, **fall back to inline review**: read the diff yourself, evaluate it against the reviewer focus area, then record `tusk review approve` or `tusk review request-changes` plus `tusk review add-comment` exactly as the inline-review path does. Pass `--model <your_model_id>` (the orchestrator's own ID) since the orchestrator, not the stalled agent, is closing this review. Carry the stall context in the verdict note for audit; the verdict itself is backed by your own read of the diff:
     ```bash
     # APPROVE example (no blocking issues after reading the diff):
-    tusk review approve <review_id> --model <your_model_id> --note "Inline review (stall fallback): reviewer agent ran ≥2.5 min without posting a verdict (possibly looping or running a long command such as a full test suite). Orchestrator read the diff inline and found no blocking issues. To prevent stalls, ensure the agent sandbox has the required permissions.allow entries: Bash(git diff:*), Bash(git remote:*), Bash(git symbolic-ref:*), Bash(git branch:*), Bash(tusk review:*)"
+    tusk review approve <review_id> --model <your_model_id> --note "Inline review (stall fallback): reviewer agent exceeded the adaptive wait deadline without posting a verdict (possibly looping or running a long command such as a full test suite). Orchestrator read the diff inline and found no blocking issues. To prevent stalls, ensure the agent sandbox has the required permissions.allow entries: Bash(git diff:*), Bash(git remote:*), Bash(git symbolic-ref:*), Bash(git branch:*), Bash(tusk review:*)"
     # or REQUEST-CHANGES example (findings after reading the diff — pair with tusk review add-comment):
-    tusk review request-changes <review_id> --model <your_model_id> --note "Inline review (stall fallback): reviewer agent ran ≥2.5 min without posting a verdict. Orchestrator read the diff inline; see comments. Check REVIEWER-PROMPT.md Step 2.6 constraints to prevent future stalls."
+    tusk review request-changes <review_id> --model <your_model_id> --note "Inline review (stall fallback): reviewer agent exceeded the adaptive wait deadline without posting a verdict. Orchestrator read the diff inline; see comments. Check REVIEWER-PROMPT.md Step 2.6 constraints to prevent future stalls."
     ```
     **Cost note:** the row's `cost_dollars` here reflects orchestrator-only attribution — the agent is still mid-run, so its in-progress JSONL is not safe to aggregate. **Skip the agent-cost correction** in this branch and accept the orchestrator-side cost; the inline read is what now backs the verdict.
 
