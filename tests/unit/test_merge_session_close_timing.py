@@ -75,4 +75,4 @@ def test_ff_merge_failure_leaves_explicit_session_open(monkeypatch, tmp_path):
     rc = mod.main([str(db), str(config), "42", "--session", "7"])
 
     assert rc == 2
-    assert ["session-close", "7"] not in tusk_calls
+    assert not any(args[:2] == ["session-close", "7"] for args in tusk_calls)
