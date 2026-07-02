@@ -193,9 +193,9 @@ def _sparse_cone_entry(pattern: str, root: str) -> "str | None":
     return entry
 
 
-def _materialize_sparse_path(pattern: str) -> None:
+def _materialize_sparse_path(pattern: str, worktree_root: "str | None" = None) -> None:
     """Best-effort: keep sparse checkout contents aligned with new scope."""
-    worktree_root = _worktree_root()
+    worktree_root = worktree_root or _worktree_root()
     if not _is_sparse_checkout(worktree_root):
         return
 
@@ -224,6 +224,24 @@ def _materialize_sparse_path(pattern: str) -> None:
         + (f" git stderr: {stderr}" if stderr else ""),
         file=sys.stderr,
     )
+
+
+def _recorded_task_worktree_root(conn: sqlite3.Connection, task_id: int) -> "str | None":
+    row = conn.execute(
+        "SELECT workspace_path FROM task_workspaces "
+        "WHERE task_id = ? ORDER BY id DESC LIMIT 1",
+        (task_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    workspace_path = row["workspace_path"]
+    if not workspace_path or not os.path.isdir(workspace_path):
+        return None
+    return os.path.realpath(workspace_path)
+
+
+def _scope_validation_root(conn: sqlite3.Connection, task_id: int) -> str:
+    return _recorded_task_worktree_root(conn, task_id) or _worktree_root()
 
 
 def _has_task_work_evidence(conn: sqlite3.Connection, task_id: int) -> bool:
@@ -308,13 +326,13 @@ def cmd_add(args: argparse.Namespace, db_path: str) -> int:
             }))
             return 0
         source = _resolve_add_source(conn, task_id, args.source)
-        worktree_root = _worktree_root()
+        worktree_root = _scope_validation_root(conn, task_id)
         pattern, err = _normalize_pattern(pattern, worktree_root, source)
         if err is not None:
             print(err, file=sys.stderr)
             return 2
         if source != "creates":
-            _materialize_sparse_path(pattern)
+            _materialize_sparse_path(pattern, worktree_root)
 
         existing = conn.execute(
             "SELECT id, task_id, pattern, source, reason, locked_at, locked_by, created_at "

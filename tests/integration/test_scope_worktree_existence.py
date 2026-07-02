@@ -73,6 +73,16 @@ def _scope_rows(db, task_id):
         return [dict(r) for r in rows]
 
 
+def _record_workspace(db, task_id, branch, workspace_path):
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "INSERT INTO task_workspaces (task_id, branch, workspace_path) "
+            "VALUES (?, ?, ?)",
+            (task_id, branch, str(workspace_path)),
+        )
+        conn.commit()
+
+
 def _primary_with_tusk(tmp_path, monkeypatch):
     """Build a primary git checkout with a tusk DB and pin TUSK_DB to it."""
     primary = tmp_path / "primary"
@@ -134,6 +144,34 @@ def test_scope_add_accepts_worktree_file_absent_from_primary(tmp_path, monkeypat
     # that the operator did NOT have to lie with --source creates.
     assert payload["source"] == "operator_declared"
     assert {"pattern": "new_module.py", "source": "operator_declared"} in _scope_rows(db, task)
+
+
+def test_scope_add_from_primary_uses_recorded_task_worktree(tmp_path, monkeypatch):
+    """Issue #1149: operators often run ``tusk scope add`` from the primary
+    checkout. In that mode, a recorded task worktree is the task's real file
+    context; do not validate solely against the primary checkout's branch."""
+    primary, db, env = _primary_with_tusk(tmp_path, monkeypatch)
+    wt = _add_linked_worktree(primary, tmp_path)
+
+    (wt / "worktree_only.py").write_text("value = 4\n", encoding="utf-8")
+    _git(["add", "worktree_only.py"], cwd=wt)
+    _git(["commit", "-m", "add worktree_only.py on feature"], cwd=wt)
+    assert not (primary / "worktree_only.py").exists()
+
+    task = _seed_task(db)
+    _record_workspace(db, task, "feature", wt)
+    added = _run(
+        ["scope", "add", str(task), "worktree_only.py",
+         "--reason", "operator invoked scope add from primary checkout"],
+        cwd=str(primary),
+        env=env,
+    )
+
+    assert added.returncode == 0, added.stderr
+    payload = json.loads(added.stdout)
+    assert payload["pattern"] == "worktree_only.py"
+    assert payload["source"] == "operator_declared"
+    assert {"pattern": "worktree_only.py", "source": "operator_declared"} in _scope_rows(db, task)
 
 
 def test_scope_add_accepts_worktree_head_tracked_unmaterialized_file(tmp_path, monkeypatch):
