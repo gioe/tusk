@@ -66,6 +66,13 @@ _BRACED_PATH_RE = re.compile(
     r"\{(?P<names>[A-Za-z0-9_.-]+(?:,[A-Za-z0-9_.-]+)+)\}"
     r"(?P<ext>\.[A-Za-z0-9][\w.-]*)"
 )
+_BRACED_FULL_PATH_RE = re.compile(
+    r"(?P<dir>(?:[\w.@_-]+/)+)"
+    r"\{(?P<items>"
+    r"[A-Za-z0-9_.-]+\.[A-Za-z0-9][\w.-]*"
+    r"(?:,[A-Za-z0-9_.-]+\.[A-Za-z0-9][\w.-]*)+"
+    r")\}"
+)
 _DIRECTORY_LIST_RE = re.compile(
     r"(?P<dir>(?:\.?[A-Za-z0-9][\w.-]*/)+)\s*:\s*(?P<tail>[^\n]{1,300})"
 )
@@ -420,6 +427,13 @@ def _sibling_shortform_scope_paths(text: str, extracted_paths: list[str]) -> lis
         return []
 
     candidates: list[str] = []
+    for match in _BRACED_FULL_PATH_RE.finditer(text):
+        base_dir = match.group("dir").rstrip("/")
+        for item in match.group("items").split(","):
+            item = item.strip()
+            if item:
+                candidates.append(posixpath.normpath(f"{base_dir}/{item}"))
+
     for match in _BRACED_PATH_RE.finditer(text):
         base_dir = match.group("dir").rstrip("/")
         ext = match.group("ext")
@@ -455,6 +469,40 @@ def _sibling_shortform_scope_paths(text: str, extracted_paths: list[str]) -> lis
             seen.add(path)
             unique.append(path)
     return unique
+
+
+def _top_level_segment(path: str) -> str:
+    file_part = _path_file_portion(path)
+    return file_part.split("/", 1)[0] if "/" in file_part else file_part
+
+
+def _non_doc_scope_paths(paths: list[str]) -> list[str]:
+    return [
+        path for path in paths
+        if path and not _path_file_portion(path).lower().endswith((".md", ".markdown"))
+    ]
+
+
+def _filter_target_paths_for_explicit_scope(
+    target_paths: list[str], explicit_scope_paths: list[str]
+) -> list[str]:
+    """Drop weak test-target matches from unrelated stacks.
+
+    Target-shaped tokens such as ``FooTests`` are useful when prose names no
+    concrete files. Once explicit non-doc paths are present, keep only target
+    paths that share their top-level stack, so a random iOS test target does
+    not override a Python/CLI task's named files.
+    """
+    anchors = {
+        _top_level_segment(path)
+        for path in _non_doc_scope_paths(explicit_scope_paths)
+    }
+    if not anchors:
+        return target_paths
+    return [
+        path for path in target_paths
+        if _top_level_segment(path) in anchors
+    ]
 
 
 def _directory_list_scope_paths(text: str) -> list[str]:
@@ -749,20 +797,37 @@ def _auto_scope_candidates(
     """
     explicit = extract_paths(text)
     target_paths = _test_target_scope_paths(repo_root, text)
-    if target_paths and (task_type or "").lower() != "docs":
-        explicit = [
-            p for p in explicit
-            if not p.lower().endswith((".md", ".markdown"))
-        ]
+    sibling_paths = _sibling_shortform_scope_paths(text, explicit)
+    directory_paths = _directory_list_scope_paths(text)
+    route_paths = _route_shortform_scope_paths(repo_root, text)
     bare_paths = [
         resolved for name in extract_referenced_basenames(text)
         if (resolved := _resolve_unique_repo_basename(repo_root, name))
     ]
+    explicit_scope_paths = [
+        *explicit,
+        *sibling_paths,
+        *directory_paths,
+        *route_paths,
+        *bare_paths,
+    ]
+    target_paths = _filter_target_paths_for_explicit_scope(
+        target_paths, explicit_scope_paths
+    )
+    if (
+        target_paths
+        and (task_type or "").lower() != "docs"
+        and not _non_doc_scope_paths(explicit_scope_paths)
+    ):
+        explicit = [
+            p for p in explicit
+            if not p.lower().endswith((".md", ".markdown"))
+        ]
     candidates = [
         *explicit,
-        *_sibling_shortform_scope_paths(text, explicit),
-        *_directory_list_scope_paths(text),
-        *_route_shortform_scope_paths(repo_root, text),
+        *sibling_paths,
+        *directory_paths,
+        *route_paths,
         *bare_paths,
         *target_paths,
         *_commit_referenced_scope_paths(repo_root, text),

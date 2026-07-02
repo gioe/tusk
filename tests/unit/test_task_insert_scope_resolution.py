@@ -80,3 +80,44 @@ def test_auto_scope_candidates_keep_bracketed_route_segments():
         "apps/web/app/api/v1/comedians/[id]/route.test.ts",
         "apps/web/util/comedian/comedianUtil.test.ts",
     ]
+
+
+def test_auto_scope_candidates_expand_brace_list_paths_with_item_extensions():
+    text = (
+        "Files: bin/{tusk-task-insert.py,tusk-task-update.py}, "
+        "docs/DOMAIN.md"
+    )
+
+    candidates = mod._auto_scope_candidates(text, repo_root="repo", task_type="bug")
+
+    assert candidates[:3] == [
+        "docs/DOMAIN.md",
+        "bin/tusk-task-insert.py",
+        "bin/tusk-task-update.py",
+    ]
+
+
+def test_auto_scope_candidates_keep_explicit_single_stack_paths_over_target_noise(monkeypatch):
+    text = (
+        "Files: bin/{tusk-task-insert.py,tusk-task-update.py}, docs/DOMAIN.md. "
+        "The unrelated FooTests target should not displace explicit scope."
+    )
+    monkeypatch.setattr(
+        mod,
+        "_tracked_repo_files",
+        lambda repo: [
+            "tests/fixtures/ios/Tests/LaughTrackTests/FooTests.swift",
+            "bin/tusk-task-insert.py",
+            "bin/tusk-task-update.py",
+            "docs/DOMAIN.md",
+        ],
+    )
+
+    candidates = mod._auto_scope_candidates(text, repo_root="repo", task_type="bug")
+
+    assert candidates[:3] == [
+        "docs/DOMAIN.md",
+        "bin/tusk-task-insert.py",
+        "bin/tusk-task-update.py",
+    ]
+    assert "tests/fixtures/ios/Tests/LaughTrackTests/FooTests.swift" not in candidates
