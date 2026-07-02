@@ -22,6 +22,11 @@ Sources (CHECK constraint on ``task_scope.source``):
                          "no path restriction" to the commit-time scope
                          guard (scope-paths emits no patterns in that case)
 
+``scope list`` is normally a read-only view of persisted ``task_scope`` rows.
+For enforced tasks with no persisted rows, it may return non-persisted
+``auto_derived`` fallback rows with ``id=null`` so retro/reporting code can see
+the effective text-derived scope without mutating old tasks.
+
 Exit codes:
     0 — success (JSON payload on stdout)
     1 — usage error / task not found / DB error
@@ -282,16 +287,84 @@ def _task_has_unbounded_scope(conn: sqlite3.Connection, task_id: int) -> bool:
     return row is not None
 
 
-def cmd_list(args: argparse.Namespace, db_path: str) -> int:
+def _task_scope_enforced(task: sqlite3.Row) -> bool:
+    return "scope_enforced" in task.keys() and bool(task["scope_enforced"])
+
+
+def _effective_auto_derived_rows(
+    conn: sqlite3.Connection,
+    task: sqlite3.Row,
+    config_path: str,
+) -> list[dict]:
+    """Return derived scope rows for old enforced tasks without mutating DB."""
+    task_id = task["id"]
+    explicit_rows = conn.execute(
+        "SELECT pattern FROM task_scope WHERE task_id = ? AND source <> 'auto_derived'",
+        (task_id,),
+    ).fetchall()
+    explicit_patterns = {row["pattern"] for row in explicit_rows}
+
+    criteria = conn.execute(
+        "SELECT criterion, verification_spec FROM acceptance_criteria WHERE task_id = ?",
+        (task_id,),
+    ).fetchall()
+    text_blocks = [task["summary"] or "", task["description"] or ""]
+    for criterion in criteria:
+        text_blocks.append(criterion["criterion"] or "")
+        text_blocks.append(criterion["verification_spec"] or "")
+
+    ti = _task_update._task_insert
+    gh = _task_update._git_helpers
+    repo_root = ti._repo_root(config_path)
+    task_type = task["task_type"] if "task_type" in task.keys() else None
+    requires_unit_tests = any(
+        ti._UNIT_TEST_REQUIREMENT_RE.search(block or "")
+        for block in text_blocks
+    )
+    seen: set[str] = set()
+    rows = []
+    for text in text_blocks:
+        for path in ti._auto_scope_candidates(
+            text,
+            repo_root=repo_root,
+            task_type=task_type,
+            requires_unit_tests=requires_unit_tests,
+        ):
+            if ti.is_prose_identifier_path(path, repo_root):
+                continue
+            resolved = ti._resolve_auto_derived_scope_pattern(repo_root, path)
+            if not gh.is_trackable_scope_pattern(repo_root, resolved):
+                continue
+            if resolved in explicit_patterns or resolved in seen:
+                continue
+            seen.add(resolved)
+            rows.append({
+                "id": None,
+                "task_id": task_id,
+                "pattern": resolved,
+                "source": "auto_derived",
+                "reason": "effective fallback from task text; not persisted",
+                "locked_at": None,
+                "locked_by": None,
+                "created_at": None,
+            })
+    return rows
+
+
+def cmd_list(args: argparse.Namespace, db_path: str, config_path: str) -> int:
     task_id = _parse_task_id(args.task_id)
     with get_connection(db_path) as conn:
         _ensure_task_exists(conn, task_id)
+        task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         rows = conn.execute(
             "SELECT id, task_id, pattern, source, reason, locked_at, locked_by, created_at "
             "FROM task_scope WHERE task_id = ? ORDER BY id",
             (task_id,),
         ).fetchall()
-    print(dumps([_row_to_dict(r) for r in rows]))
+        payload = [_row_to_dict(r) for r in rows]
+        if not payload and task is not None and _task_scope_enforced(task):
+            payload = _effective_auto_derived_rows(conn, task, config_path)
+    print(dumps(payload))
     return 0
 
 
@@ -604,7 +677,7 @@ def main(argv: list) -> int:
     # an Exception subclass, so usage errors still propagate unchanged.
     try:
         if args.cmd == "list":
-            return cmd_list(args, db_path)
+            return cmd_list(args, db_path, config_path)
         if args.cmd == "add":
             return cmd_add(args, db_path)
         if args.cmd in ("remove", "rm"):

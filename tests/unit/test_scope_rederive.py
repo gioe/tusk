@@ -55,7 +55,8 @@ def _make_conn():
             summary TEXT,
             description TEXT,
             task_type TEXT,
-            status TEXT DEFAULT 'To Do'
+            status TEXT DEFAULT 'To Do',
+            scope_enforced INTEGER DEFAULT 1
         );
         CREATE TABLE task_scope (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -123,6 +124,58 @@ def _patterns_by_source(conn, source):
             (source,),
         ).fetchall()
     }
+
+
+def test_scope_list_surfaces_effective_auto_scope_without_mutating(monkeypatch, capsys):
+    conn = _make_conn()
+    conn.execute(
+        "INSERT INTO tasks (id, summary, description, task_type, scope_enforced) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (1, f"Touch {DERIVED}", f"Edit {DERIVED}.", "bug", 1),
+    )
+    conn.commit()
+    _patch_derivation(monkeypatch)
+    monkeypatch.setattr(scope_mod, "get_connection", lambda db_path: conn)
+
+    class _Args:
+        task_id = "1"
+
+    rc = scope_mod.cmd_list(_Args(), ":memory:", "/repo/tusk/config.json")
+    assert rc == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == [
+        {
+            "id": None,
+            "task_id": 1,
+            "pattern": DERIVED,
+            "source": "auto_derived",
+            "reason": "effective fallback from task text; not persisted",
+            "locked_at": None,
+            "locked_by": None,
+            "created_at": None,
+        }
+    ]
+    assert _patterns_by_source(conn, "auto_derived") == set()
+
+
+def test_scope_list_prefers_persisted_rows_over_effective_fallback(monkeypatch, capsys):
+    conn = _make_conn()
+    _seed_task(conn)
+    _patch_derivation(monkeypatch)
+    monkeypatch.setattr(scope_mod, "get_connection", lambda db_path: conn)
+
+    class _Args:
+        task_id = "1"
+
+    rc = scope_mod.cmd_list(_Args(), ":memory:", "/repo/tusk/config.json")
+    assert rc == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    patterns = {(row["pattern"], row["source"]) for row in payload}
+    assert (PHANTOM, "auto_derived") in patterns
+    assert ("custom/op.py", "operator_declared") in patterns
+    assert not any(row["id"] is None for row in payload)
 
 
 def test_rederive_rebuilds_auto_and_preserves_non_auto(monkeypatch):

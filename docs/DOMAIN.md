@@ -251,6 +251,8 @@ A recorded git worktree owned by a normal task. Bakeoff attempts use shadow task
 
 Authoritative declaration of which paths a task is allowed to touch. The commit-time scope guard (`hooks/git/scope-guard.sh` → `tusk scope-paths <id>`) reads `task_scope` when any rows exist for the current task. It falls back to the legacy `task_referenced_paths` hint cache only for legacy rows with `tasks.scope_enforced = 0`. For enforced tasks (`scope_enforced = 1`), an empty `task_scope` table is a declaration gap: the guard rejects the commit before path matching and tells the operator to add scope rows or create the task as explicitly unbounded.
 
+`tusk scope list <id>` normally reports persisted `task_scope` rows. For enforced tasks that have no persisted rows but whose current task text still contains derivable, trackable paths, it may report read-only effective `auto_derived` fallback rows with `id: null`; this helps retro/reporting distinguish stale missing rows from genuinely absent scope without mutating closed tasks. Commit enforcement still uses `tusk scope-paths`, not this fallback display.
+
 | Attribute | Type | Constraints | Description |
 |-----------|------|-------------|-------------|
 | `id` | INTEGER | PK, autoincrement | |
