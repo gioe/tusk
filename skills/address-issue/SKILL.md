@@ -515,9 +515,12 @@ ADDRESS_ISSUE_TUSK_BIN="$ADDRESS_ISSUE_PRIMARY_CWD/bin/tusk"
 if [ ! -x "$ADDRESS_ISSUE_TUSK_BIN" ]; then
   ADDRESS_ISSUE_TUSK_BIN=$(command -v tusk)
 fi
+ADDRESS_ISSUE_WORKTREE_TUSK_BIN="./bin/tusk"
 ```
 
 Use these values for the post-merge `skill-run finish` and `task-summary` calls in Step 10. `tusk merge` may remove the task worktree before those commands run; if the next tool call launches from that removed worktree, process creation can fail before tusk starts. The primary checkout remains usable after task-worktree cleanup.
+
+After `/tusk` Step 2 moves into the task-owned workspace, use ADDRESS_ISSUE_WORKTREE_TUSK_BIN for task-worktree-local Tusk wrapper calls. ADDRESS_ISSUE_TUSK_BIN is only for stable primary-checkout closeout commands after switching back to `ADDRESS_ISSUE_PRIMARY_CWD`; do not keep using a primary-checkout-relative wrapper from inside the task worktree.
 
 Immediately invoke the `/tusk` workflow for the newly created task. Follow the "Begin Work on a Task" instructions from the tusk skill:
 
