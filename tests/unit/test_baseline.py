@@ -38,7 +38,15 @@ CREATE TABLE tasks (
 CREATE TABLE skill_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id INTEGER,
+    started_at TEXT,
+    ended_at TEXT,
     cost_dollars REAL
+);
+CREATE TABLE task_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER,
+    started_at TEXT,
+    ended_at TEXT
 );
 """
 

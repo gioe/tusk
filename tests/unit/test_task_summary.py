@@ -211,13 +211,25 @@ class TestOneSessionTask:
         db_path, conn = _make_db(tmp_path)
         _insert_task(
             conn, task_id=12, summary="Cost attribution fallback",
+            complexity="S",
             started_at="2026-04-19 10:00:00",
             closed_at="2026-04-19 12:30:00",
+        )
+        _insert_task(
+            conn, task_id=13, summary="Peer with fallback cost",
+            complexity="S",
+            started_at="2026-04-18 10:00:00",
+            closed_at="2026-04-18 12:30:00",
         )
         conn.execute(
             "INSERT INTO task_sessions (task_id, started_at, ended_at, duration_seconds) "
             "VALUES (?, ?, ?, ?)",
             (12, "2026-04-19 10:00:00", "2026-04-19 12:30:00", 9000),
+        )
+        conn.execute(
+            "INSERT INTO task_sessions (task_id, started_at, ended_at, duration_seconds) "
+            "VALUES (?, ?, ?, ?)",
+            (13, "2026-04-18 10:00:00", "2026-04-18 12:30:00", 9000),
         )
         conn.execute(
             "INSERT INTO skill_runs "
@@ -234,11 +246,34 @@ class TestOneSessionTask:
                 8,
             ),
         )
+        conn.execute(
+            "INSERT INTO skill_runs "
+            "(skill_name, task_id, started_at, ended_at, cost_dollars, tokens_in, tokens_out, request_count) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "tusk",
+                None,
+                "2026-04-18 10:15:00",
+                "2026-04-18 12:20:00",
+                0.2,
+                10000,
+                2000,
+                6,
+            ),
+        )
         conn.commit()
 
-        data = mod.build_summary(conn, 12, str(tmp_path))
+        data = mod.build_summary(conn, 12, str(tmp_path), baseline_threshold=1)
 
         assert data["cost"] == {"total": 0.1178, "skill_run_count": 1}
+        assert data["baseline_comparison"] == {
+            "bucket": "S",
+            "median_cost": 0.2,
+            "n": 1,
+            "ratio": 0.59,
+            "threshold": 1,
+            "status": "compared",
+        }
         assert data["tokens"] == {
             "tokens_in": 12000,
             "tokens_out": 3000,

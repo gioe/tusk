@@ -118,6 +118,22 @@ def fetch_identity(conn: sqlite3.Connection, task_id: int) -> dict | None:
     }
 
 
+def _skill_run_task_match_sql(task_ref: str) -> str:
+    """SQL predicate matching directly attributed and session-window skill runs."""
+    return (
+        f"(sr.task_id = {task_ref} "
+        f"OR (sr.task_id IS NULL "
+        f"    AND sr.ended_at IS NOT NULL "
+        f"    AND sr.started_at IS NOT NULL "
+        f"    AND EXISTS ("
+        f"        SELECT 1 FROM task_sessions ts "
+        f"        WHERE ts.task_id = {task_ref} "
+        f"          AND ts.started_at <= sr.started_at "
+        f"          AND (ts.ended_at IS NULL OR ts.ended_at >= sr.started_at)"
+        f"    )))"
+    )
+
+
 def fetch_cost(conn: sqlite3.Connection, task_id: int) -> dict:
     """SUM(cost_dollars) across every skill_runs row attributed to the task.
 
@@ -128,16 +144,7 @@ def fetch_cost(conn: sqlite3.Connection, task_id: int) -> dict:
     row = conn.execute(
         "SELECT COALESCE(SUM(cost_dollars), 0.0) AS total, COUNT(*) AS cnt "
         "FROM skill_runs sr "
-        "WHERE sr.task_id = ? "
-        "   OR (sr.task_id IS NULL "
-        "       AND sr.ended_at IS NOT NULL "
-        "       AND sr.started_at IS NOT NULL "
-        "       AND EXISTS ("
-        "           SELECT 1 FROM task_sessions ts "
-        "           WHERE ts.task_id = ? "
-        "             AND ts.started_at <= sr.started_at "
-        "             AND (ts.ended_at IS NULL OR ts.ended_at >= sr.started_at)"
-        "       ))",
+        f"WHERE {_skill_run_task_match_sql('?')}",
         (task_id, task_id),
     ).fetchone()
     return {
@@ -180,7 +187,7 @@ def fetch_baseline_comparison(
     rows = conn.execute(
         "SELECT COALESCE(SUM(sr.cost_dollars), 0.0) AS total "
         "FROM tasks t "
-        "LEFT JOIN skill_runs sr ON sr.task_id = t.id "
+        f"LEFT JOIN skill_runs sr ON {_skill_run_task_match_sql('t.id')} "
         "WHERE t.status = 'Done' "
         "  AND t.closed_reason = 'completed' "
         "  AND t.complexity = ? "
@@ -241,16 +248,7 @@ def fetch_tokens(conn: sqlite3.Connection, task_id: int) -> dict:
         "       COALESCE(SUM(tokens_out), 0) AS tout, "
         "       COALESCE(SUM(request_count), 0) AS req "
         "FROM skill_runs sr "
-        "WHERE sr.task_id = ? "
-        "   OR (sr.task_id IS NULL "
-        "       AND sr.ended_at IS NOT NULL "
-        "       AND sr.started_at IS NOT NULL "
-        "       AND EXISTS ("
-        "           SELECT 1 FROM task_sessions ts "
-        "           WHERE ts.task_id = ? "
-        "             AND ts.started_at <= sr.started_at "
-        "             AND (ts.ended_at IS NULL OR ts.ended_at >= sr.started_at)"
-        "       ))",
+        f"WHERE {_skill_run_task_match_sql('?')}",
         (task_id, task_id),
     ).fetchone()
     return {
