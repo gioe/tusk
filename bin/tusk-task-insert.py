@@ -471,9 +471,12 @@ def _sibling_shortform_scope_paths(text: str, extracted_paths: list[str]) -> lis
     return unique
 
 
-def _top_level_segment(path: str) -> str:
+def _scope_stack_key(path: str) -> str:
     file_part = _path_file_portion(path)
-    return file_part.split("/", 1)[0] if "/" in file_part else file_part
+    parts = [p for p in file_part.split("/") if p]
+    if len(parts) >= 2 and parts[0] in {"apps", "packages"}:
+        return "/".join(parts[:2])
+    return parts[0] if parts else ""
 
 
 def _non_doc_scope_paths(paths: list[str]) -> list[str]:
@@ -494,14 +497,14 @@ def _filter_target_paths_for_explicit_scope(
     not override a Python/CLI task's named files.
     """
     anchors = {
-        _top_level_segment(path)
+        _scope_stack_key(path)
         for path in _non_doc_scope_paths(explicit_scope_paths)
     }
     if not anchors:
         return target_paths
     return [
         path for path in target_paths
-        if _top_level_segment(path) in anchors
+        if _scope_stack_key(path) in anchors
     ]
 
 

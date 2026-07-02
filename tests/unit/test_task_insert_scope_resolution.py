@@ -121,3 +121,27 @@ def test_auto_scope_candidates_keep_explicit_single_stack_paths_over_target_nois
         "bin/tusk-task-update.py",
     ]
     assert "tests/fixtures/ios/Tests/LaughTrackTests/FooTests.swift" not in candidates
+
+
+def test_auto_scope_candidates_drop_target_noise_from_different_app_stack(monkeypatch):
+    text = (
+        "Files: apps/scraper/scrapers/foo/{scraper.py,extractor.py}. "
+        "The weak ComedianDetailViewTests token belongs to a different app."
+    )
+    monkeypatch.setattr(
+        mod,
+        "_tracked_repo_files",
+        lambda repo: [
+            "apps/web/ios/Tests/ComedianDetailViewTests.swift",
+            "apps/scraper/scrapers/foo/scraper.py",
+            "apps/scraper/scrapers/foo/extractor.py",
+        ],
+    )
+
+    candidates = mod._auto_scope_candidates(text, repo_root="repo", task_type="bug")
+
+    assert candidates[:2] == [
+        "apps/scraper/scrapers/foo/scraper.py",
+        "apps/scraper/scrapers/foo/extractor.py",
+    ]
+    assert "apps/web/ios/Tests/ComedianDetailViewTests.swift" not in candidates
