@@ -411,10 +411,39 @@ def cmd_validate_triggers(config_path: str, db_path: str) -> int:
     return 1
 
 
+def cmd_validate_journal_mode(db_path: str) -> int:
+    """Warn when the live task DB has drifted out of WAL mode.
+
+    The check is advisory: SQLite can legitimately keep rollback-journal mode
+    on filesystems that do not support WAL's shared-memory sidecar.
+    """
+    if not os.path.exists(db_path):
+        return 0
+
+    conn = open_sqlite(db_path)
+    try:
+        row = conn.execute("PRAGMA journal_mode").fetchone()
+    finally:
+        conn.close()
+
+    mode = str(row[0]).lower() if row and row[0] is not None else "unknown"
+    if mode == "wal":
+        return 0
+
+    print(
+        f"WARNING: SQLite journal_mode is {mode}, expected wal. "
+        "Rollback-journal mode can reintroduce database lock contention under "
+        "parallel worktree sessions. If this filesystem supports WAL, repair "
+        "with: sqlite3 \"$(tusk path)\" \"PRAGMA journal_mode = WAL;\"",
+        file=sys.stderr,
+    )
+    return 0
+
+
 def main() -> int:
     if len(sys.argv) < 3:
         print(
-            f'Usage: {sys.argv[0]} <validate|gen-triggers|validate-triggers> <config_path> [db_path]',
+            f'Usage: {sys.argv[0]} <validate|gen-triggers|validate-triggers|validate-journal-mode> <config_path> [db_path]',
             file=sys.stderr,
         )
         return 1
@@ -434,9 +463,17 @@ def main() -> int:
             )
             return 1
         return cmd_validate_triggers(config_path, sys.argv[3])
+    elif subcmd == 'validate-journal-mode':
+        if len(sys.argv) < 4:
+            print(
+                f'Usage: {sys.argv[0]} validate-journal-mode <config_path> <db_path>',
+                file=sys.stderr,
+            )
+            return 1
+        return cmd_validate_journal_mode(sys.argv[3])
     else:
         print(
-            f'Unknown subcommand: {subcmd!r}. Expected validate, gen-triggers, or validate-triggers.',
+            f'Unknown subcommand: {subcmd!r}. Expected validate, gen-triggers, validate-triggers, or validate-journal-mode.',
             file=sys.stderr,
         )
         return 1

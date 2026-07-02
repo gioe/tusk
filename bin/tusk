@@ -449,6 +449,7 @@ cmd_validate() {
     else
       return 1
     fi
+    python3 "$SCRIPT_DIR/tusk-config-tools.py" validate-journal-mode "$(resolve_config)" "$DB_PATH"
   fi
 
   # Detect skill/CLI subcommand drift: installed skills must not reference
