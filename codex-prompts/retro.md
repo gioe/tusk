@@ -304,8 +304,27 @@ For each approved project-issue finding routed here:
    (a prompt name in `.codex/prompts/`, the project agent doc,
    `README.md`, or a specific file under `docs/`), produce a concrete
    proposed edit, and present it with the same three options. `approve`
-   applies the edit now; `defer` includes the diff in the task
-   description; `skip` proceeds to normal task creation.
+   applies the edit now and then immediately commits just the edited
+   file; `defer` includes the diff in the task description; `skip`
+   proceeds to normal task creation.
+
+   After any approved prompt/doc file edit, commit just the edited file
+   before continuing:
+
+   ```bash
+   tusk commit "$RETRO_TASK_ID" "Apply retro inline patch: <short description>" "<target file>" --skip-verify
+   ```
+
+   Use the originating retro task id for `$RETRO_TASK_ID`; if the
+   variable is unavailable, use the task id passed to `/retro`.
+   Convention DB writes already persist atomically through `tusk
+   conventions add`, so this commit step applies only to
+   narrative/reference file patches.
+
+   If the commit fails, do not tell the operator the patch was fully
+   applied. Surface the failure, leave the working-tree edit visible, and
+   create or defer a fallback task that includes the proposed diff plus
+   the commit failure summary.
 
 ### LR-2b: Apply Lint Rules Inline (only if lint-rule action candidates exist)
 

@@ -459,7 +459,7 @@ For each approved project-issue finding routed here:
 
       If **any** condition fails, fall through to step 3d (three-option prompt). Do not partially auto-apply.
 
-      If **all** conditions hold and `retro.auto_apply` is enabled, **apply the edit immediately using the Edit tool — skip the three-option prompt entirely**. Record a one-line entry in `$AUTO_APPLIED` (file path + brief description, one entry per line) for the Step 6 summary, and do **not** create a task for this finding. Proceed to the next finding.
+      If **all** conditions hold and `retro.auto_apply` is enabled, **apply the edit immediately using the Edit tool — skip the three-option prompt entirely**, then follow step 3h to persist it. Record a one-line entry in `$AUTO_APPLIED` (file path + brief description, one entry per line) for the Step 6 summary only after the commit succeeds, and do **not** create a task for this finding. Proceed to the next finding.
 
    d. Otherwise, present the patch with three options:
 
@@ -475,9 +475,18 @@ For each approved project-issue finding routed here:
       > **defer** — create a task with this diff included in the description (handled in 5b)
       > **skip** — create a generic task via 5b as usual
 
-   e. **If approved**: apply the edit in-session using the Edit tool. Do **not** create a task for this finding.
+   e. **If approved**: apply the edit in-session using the Edit tool, then follow step 3h to persist it. Do **not** create a task for this finding.
    f. **If deferred**: proceed to 5b for this finding, including the proposed diff verbatim in the task description.
    g. **If skipped, or if no target file was identified**: proceed to 5b normally.
+   h. **Persist file edits immediately**: after any 5e file edit is applied by the Edit tool (auto-applied or manually approved), commit just the edited file before continuing:
+
+      ```bash
+      tusk commit "$RETRO_TASK_ID" "Apply retro inline patch: <short description>" "<target file>" --skip-verify
+      ```
+
+      Use the originating retro task id for `$RETRO_TASK_ID`; if the variable is unavailable, use the task id passed to `/retro`. The commit must include only the edited file. Convention DB writes already persist atomically through `tusk conventions add`, so this commit step applies only to narrative/reference file patches.
+
+      If the commit fails, do not record the finding as auto-applied and do not tell the operator the patch was fully applied. Surface the failure, leave the working-tree edit visible, and create or defer a fallback task that includes the proposed diff plus the commit failure summary.
 
 ## Step 6: Report Results
 
