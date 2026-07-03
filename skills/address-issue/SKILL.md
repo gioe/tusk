@@ -435,6 +435,14 @@ before inserting the task and surface the failed issue-body fetch or
 description-file write that prevented the file from being populated. Do not
 create a task with an empty issue-context description.
 
+Treat the description-file write, non-empty validation, and `task-insert` as a
+fail-closed boundary. Prefer separate tool calls for (1) fetching/writing the
+issue context, (2) running `test -s "$description_file"`, and (3) inserting the
+task. If you script them in one shell invocation, use an explicit `set -e` (or
+an equivalent `&&` chain) so a failed issue fetch or write cannot fall through
+to `task-insert`. Do not combine issue fetch, `test -s`, and `task-insert` in a
+newline-separated non-errexit shell command.
+
 Then run:
 
 ```bash

@@ -42,6 +42,11 @@ def _assert_description_file_guard(relpath: str) -> None:
     assert "missing or empty" in normalized
     assert "stop before inserting the task" in normalized
     assert "surface the failed issue-body fetch or description-file write" in normalized
+    assert "fail-closed boundary" in normalized
+    assert "Prefer separate tool calls" in normalized
+    assert "explicit" in normalized and "set -e" in normalized
+    assert "failed issue fetch or write cannot fall through" in normalized
+    assert "newline-separated non-errexit shell command" in normalized
 
 
 def test_skill_guards_missing_or_empty_description_file_before_insert():
