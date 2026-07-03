@@ -151,6 +151,73 @@ class TestDoneSingle:
         obj = json.loads(out.getvalue().strip())
         assert obj["id"] == 1 and obj.get("already_completed") is True
 
+    def test_already_completed_refreshes_stale_task_commit_hash(self):
+        conn = make_db(criteria_specs=[
+            {"criterion_type": "manual", "verification_spec": None, "is_completed": 1},
+        ])
+        conn.execute(
+            "UPDATE acceptance_criteria SET commit_hash = ?, committed_at = ? WHERE id = 1",
+            ("old1234", "2026-07-01 10:00:00"),
+        )
+        conn.commit()
+
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = criteria_mod._done_single(
+                conn,
+                1,
+                skip_verify=True,
+                suppress_shared_commit=True,
+                commit_hash="new5678",
+                committed_at="2026-07-02 10:00:00",
+                head_task_id=1,
+            )
+
+        assert rc == 0
+        row = conn.execute(
+            "SELECT commit_hash, committed_at FROM acceptance_criteria WHERE id = 1"
+        ).fetchone()
+        assert row["commit_hash"] == "new5678"
+        assert row["committed_at"] == "2026-07-02 10:00:00"
+        obj = json.loads(out.getvalue().strip())
+        assert obj["id"] == 1
+        assert obj["already_completed"] is True
+        assert obj["commit_hash"] == "new5678"
+        assert obj["commit_hash_refreshed"] is True
+
+    def test_already_completed_does_not_refresh_from_cross_task_head(self):
+        conn = make_db(task_count=2, criteria_specs=[
+            {"criterion_type": "manual", "verification_spec": None, "is_completed": 1},
+        ])
+        conn.execute(
+            "UPDATE acceptance_criteria SET commit_hash = ?, committed_at = ? WHERE id = 1",
+            ("old1234", "2026-07-01 10:00:00"),
+        )
+        conn.commit()
+
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = criteria_mod._done_single(
+                conn,
+                1,
+                skip_verify=True,
+                suppress_shared_commit=True,
+                commit_hash="task2sha",
+                committed_at="2026-07-02 10:00:00",
+                head_task_id=2,
+            )
+
+        assert rc == 0
+        row = conn.execute(
+            "SELECT commit_hash, committed_at FROM acceptance_criteria WHERE id = 1"
+        ).fetchone()
+        assert row["commit_hash"] == "old1234"
+        assert row["committed_at"] == "2026-07-01 10:00:00"
+        obj = json.loads(out.getvalue().strip())
+        assert obj["already_completed"] is True
+        assert obj["commit_hash"] == "old1234"
+        assert obj["commit_hash_refreshed"] is False
+
     def test_verification_failure_returns_1(self):
         conn = make_db(criteria_specs=[
             {"criterion_type": "test", "verification_spec": "false", "is_completed": 0},

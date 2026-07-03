@@ -607,23 +607,13 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
     """Mark a single criterion as done. Returns 0 on success, 1 on verification failure, 2 on not-found."""
     row = conn.execute(
         "SELECT id, task_id, criterion, is_completed, criterion_type, verification_spec, "
-        "is_deferred, deferred_reason "
+        "is_deferred, deferred_reason, commit_hash, committed_at "
         "FROM acceptance_criteria WHERE id = ?",
         (criterion_id,),
     ).fetchone()
     if not row:
         print(f"Error: Criterion {criterion_id} not found", file=sys.stderr)
         return 2
-
-    if row["is_completed"]:
-        print(dumps({
-            "id": criterion_id,
-            "task_id": row["task_id"],
-            "is_completed": True,
-            "already_completed": True,
-            "criterion": row["criterion"],
-        }))
-        return 0
 
     # Cross-task HEAD guard (issue #573): if HEAD's commit message references a
     # different task (or no task at all), do not stamp HEAD's hash onto this
@@ -632,6 +622,27 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
     if commit_hash is not None and head_task_id != row["task_id"]:
         commit_hash = None
         committed_at = None
+
+    if row["is_completed"]:
+        refreshed = False
+        if commit_hash is not None and commit_hash != row["commit_hash"]:
+            conn.execute(
+                "UPDATE acceptance_criteria SET commit_hash = ?, committed_at = ?, "
+                "updated_at = datetime('now') WHERE id = ?",
+                (commit_hash, committed_at, criterion_id),
+            )
+            conn.commit()
+            refreshed = True
+        print(dumps({
+            "id": criterion_id,
+            "task_id": row["task_id"],
+            "is_completed": True,
+            "already_completed": True,
+            "criterion": row["criterion"],
+            "commit_hash": commit_hash if refreshed else row["commit_hash"],
+            "commit_hash_refreshed": refreshed,
+        }))
+        return 0
 
     criterion_type = row["criterion_type"] or "manual"
     spec = row["verification_spec"]
