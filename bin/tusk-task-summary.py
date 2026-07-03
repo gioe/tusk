@@ -134,22 +134,103 @@ def _skill_run_task_match_sql(task_ref: str) -> str:
     )
 
 
-def fetch_cost(conn: sqlite3.Connection, task_id: int) -> dict:
-    """SUM(cost_dollars) across every skill_runs row attributed to the task.
+def _has_cost(value) -> bool:
+    return value is not None
 
-    Modern rows carry skill_runs.task_id directly. Older or manually-started
-    rows may lack that attribution, so include completed un-attributed runs
-    that started inside one of the task's recorded sessions.
+
+def _is_shadowed_tusk_skill_run(sr: sqlite3.Row, sessions: list[sqlite3.Row]) -> bool:
+    """Return true when a tusk skill run is already represented by a session.
+
+    ``/tusk`` opens both a task_session and a ``skill_runs.skill_name='tusk'``
+    row. Session cost is authoritative for the main development run; the skill
+    row is kept for skill-run drilldown and would double-count the same window.
     """
-    row = conn.execute(
-        "SELECT COALESCE(SUM(cost_dollars), 0.0) AS total, COUNT(*) AS cnt "
-        "FROM skill_runs sr "
-        f"WHERE {_skill_run_task_match_sql('?')}",
-        (task_id, task_id),
-    ).fetchone()
+    if sr["skill_name"] != "tusk" or sr["task_id"] is None:
+        return False
+    if not _has_cost(sr["cost_dollars"]):
+        return False
+
+    sr_start = sr["started_at"] or ""
+    for session in sessions:
+        if session["task_id"] != sr["task_id"]:
+            continue
+        if not _has_cost(session["cost_dollars"]):
+            continue
+        session_start = session["started_at"] or ""
+        if sr_start[:16] == session_start[:16]:
+            return True
+    return False
+
+
+def _fetch_task_sessions_for_cost(conn: sqlite3.Connection, task_id: int) -> list[sqlite3.Row]:
+    try:
+        return conn.execute(
+            "SELECT id, task_id, started_at, ended_at, cost_dollars "
+            "FROM task_sessions WHERE task_id = ?",
+            (task_id,),
+        ).fetchall()
+    except sqlite3.OperationalError as exc:
+        if "no such column: cost_dollars" not in str(exc):
+            raise
+        return conn.execute(
+            "SELECT id, task_id, started_at, ended_at, NULL AS cost_dollars "
+            "FROM task_sessions WHERE task_id = ?",
+            (task_id,),
+        ).fetchall()
+
+
+def _fetch_skill_runs_for_cost(conn: sqlite3.Connection, task_id: int) -> list[sqlite3.Row]:
+    try:
+        return conn.execute(
+            "SELECT id, skill_name, task_id, started_at, ended_at, cost_dollars "
+            "FROM skill_runs sr "
+            f"WHERE {_skill_run_task_match_sql('?')}",
+            (task_id, task_id),
+        ).fetchall()
+    except sqlite3.OperationalError as exc:
+        if "no such column: skill_name" not in str(exc):
+            raise
+        return conn.execute(
+            "SELECT id, NULL AS skill_name, task_id, started_at, ended_at, cost_dollars "
+            "FROM skill_runs sr "
+            f"WHERE {_skill_run_task_match_sql('?')}",
+            (task_id, task_id),
+        ).fetchall()
+
+
+def fetch_cost(conn: sqlite3.Connection, task_id: int) -> dict:
+    """All-in cost for the task's main session and extra skill runs.
+
+    This mirrors ``tusk cost`` accounting at task scope: sum costed
+    task_sessions plus non-shadow skill_runs. Modern skill_runs carry task_id
+    directly; older or manually-started rows may lack that attribution, so
+    include completed un-attributed runs that started inside one of the task's
+    recorded sessions. The ``skill_run_count`` field is the number of costed
+    run windows included in the total.
+    """
+    sessions = _fetch_task_sessions_for_cost(conn, task_id)
+    skill_runs = _fetch_skill_runs_for_cost(conn, task_id)
+
+    total = 0.0
+    count = 0
+
+    for session in sessions:
+        if not _has_cost(session["cost_dollars"]):
+            continue
+        total += float(session["cost_dollars"])
+        count += 1
+
+    for sr in skill_runs:
+        if not _has_cost(sr["cost_dollars"]):
+            continue
+        if _is_shadowed_tusk_skill_run(sr, sessions):
+            continue
+        total += float(sr["cost_dollars"])
+        count += 1
+
     return {
-        "total": round(float(row["total"] or 0.0), 4),
-        "skill_run_count": int(row["cnt"] or 0),
+        "total": round(total, 4),
+        "skill_run_count": count,
     }
 
 
@@ -185,19 +266,20 @@ def fetch_baseline_comparison(
         }
 
     rows = conn.execute(
-        "SELECT COALESCE(SUM(sr.cost_dollars), 0.0) AS total "
+        "SELECT id "
         "FROM tasks t "
-        f"LEFT JOIN skill_runs sr ON {_skill_run_task_match_sql('t.id')} "
         "WHERE t.status = 'Done' "
         "  AND t.closed_reason = 'completed' "
         "  AND t.complexity = ? "
-        "  AND t.id <> ? "
-        "GROUP BY t.id "
-        "HAVING total > 0",
+        "  AND t.id <> ?",
         (complexity, task_id),
     ).fetchall()
 
-    peer_costs = sorted(float(r["total"]) for r in rows)
+    peer_costs = sorted(
+        cost["total"]
+        for row in rows
+        if (cost := fetch_cost(conn, int(row["id"])))["total"] > 0
+    )
     n = len(peer_costs)
 
     if n == 0:

@@ -51,7 +51,8 @@ CREATE TABLE task_sessions (
     task_id INTEGER NOT NULL,
     started_at TEXT,
     ended_at TEXT,
-    duration_seconds INTEGER
+    duration_seconds INTEGER,
+    cost_dollars REAL
 );
 CREATE TABLE task_status_transitions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -282,6 +283,85 @@ class TestOneSessionTask:
         markdown = mod.render_markdown(data)
         assert "- **Cost:** $0.1178 across 1 skill run" in markdown
         assert "/bin/zsh.0000" not in markdown
+
+    def test_summary_includes_main_session_cost_and_extra_skill_runs(self, tmp_path):
+        db_path, conn = _make_db(tmp_path)
+        _insert_task(
+            conn, task_id=14, summary="Main plus review cost",
+            complexity="M",
+            started_at="2026-04-19 10:00:00",
+            closed_at="2026-04-19 12:30:00",
+        )
+        _insert_task(
+            conn, task_id=15, summary="Peer main plus review cost",
+            complexity="M",
+            started_at="2026-04-18 10:00:00",
+            closed_at="2026-04-18 12:30:00",
+        )
+        conn.execute(
+            "INSERT INTO task_sessions "
+            "(task_id, started_at, ended_at, duration_seconds, cost_dollars) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (14, "2026-04-19 10:00:00", "2026-04-19 12:30:00", 9000, 0.9508),
+        )
+        conn.execute(
+            "INSERT INTO task_sessions "
+            "(task_id, started_at, ended_at, duration_seconds, cost_dollars) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (15, "2026-04-18 10:00:00", "2026-04-18 12:30:00", 9000, 1.0),
+        )
+        conn.executemany(
+            "INSERT INTO skill_runs "
+            "(skill_name, task_id, started_at, ended_at, cost_dollars, tokens_in, tokens_out, request_count) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    "tusk",
+                    14,
+                    "2026-04-19 10:00:05",
+                    "2026-04-19 12:20:00",
+                    0.9508,
+                    12000,
+                    3000,
+                    8,
+                ),
+                (
+                    "review-commits",
+                    14,
+                    "2026-04-19 12:20:00",
+                    "2026-04-19 12:25:00",
+                    0.7348,
+                    4000,
+                    1000,
+                    3,
+                ),
+                (
+                    "review-commits",
+                    15,
+                    "2026-04-18 12:20:00",
+                    "2026-04-18 12:25:00",
+                    0.5,
+                    3000,
+                    1000,
+                    2,
+                ),
+            ],
+        )
+        conn.commit()
+
+        data = mod.build_summary(conn, 14, str(tmp_path), baseline_threshold=1)
+
+        assert data["cost"] == {"total": 1.6856, "skill_run_count": 2}
+        assert data["baseline_comparison"] == {
+            "bucket": "M",
+            "median_cost": 1.5,
+            "n": 1,
+            "ratio": 1.12,
+            "threshold": 1,
+            "status": "compared",
+        }
+        markdown = mod.render_markdown(data)
+        assert "- **Cost:** $1.6856 across 2 skill runs" in markdown
 
 
 # ── multi-session task ────────────────────────────────────────────────
