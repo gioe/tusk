@@ -245,9 +245,10 @@ def fetch_baseline_comparison(
 
     Median is robust to outlier sessions (a single runaway agent run won't skew
     the baseline). Peers are restricted to status='Done' AND closed_reason='completed'
-    so wont_do/duplicate stubs don't dilute the bucket. Per-task cost is summed
-    from skill_runs to match fetch_cost; tasks with zero recorded cost are excluded
-    via HAVING so empty/orphaned rows don't drag the median to zero.
+    so wont_do/duplicate stubs don't dilute the bucket. Per-task peer cost uses
+    fetch_cost's session plus non-shadow skill-run accounting, and tasks with
+    zero recorded cost are excluded so empty/orphaned rows don't drag the median
+    to zero.
 
     Status values:
         no_complexity — current task has no complexity assigned (cannot bucket)
