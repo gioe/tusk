@@ -472,6 +472,12 @@ GitHub Issue #<N>: <url>
 <body>
 ```
 
+Before running task-insert, verify the description file exists and is non-empty
+(for example, `test -s "$description_file"`). If it is missing or empty, stop
+before inserting the task and surface the failed issue-body fetch or
+description-file write that prevented the file from being populated. Do not
+create a task with an empty issue-context description.
+
 Then run:
 
 ```bash
