@@ -780,6 +780,30 @@ def _read_user_version(repo_root: str) -> int:
         conn.close()
 
 
+def _migration_max_from_file(path: str) -> int | None:
+    """Return the highest migration version advertised by a tusk-migrate.py file."""
+    if not os.path.isfile(path):
+        return None
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError:
+        return None
+    versions = [
+        int(m.group(1))
+        for m in re.finditer(r"^\s*\((\d+),\s*migrate_\d+\)", text, re.MULTILINE)
+    ]
+    return max(versions) if versions else None
+
+
+def _installed_schema_support_stale(repo_root: str, script_dir: str) -> bool:
+    """True when the live DB is newer than the installed migration registry."""
+    current_user_version = _read_user_version(repo_root)
+    if current_user_version <= 0:
+        return False
+    installed_max = _migration_max_from_file(os.path.join(script_dir, "tusk-migrate.py"))
+    return installed_max is not None and current_user_version > installed_max
+
+
 def _import_migrate_module(src: str):
     """Import tusk-migrate from the unpacked tarball so MIGRATIONS reflects the
     new version's migration list, not the installed one. Mirrors
@@ -1162,10 +1186,18 @@ def main() -> None:
     latest_tag = get_latest_tag()
     remote_version = get_remote_version(latest_tag)
 
+    schema_support_stale = _installed_schema_support_stale(repo_root, script_dir)
+
     if not args.force:
         if local_version == remote_version:
-            print(f"Already up to date (version {local_version}).")
-            return
+            if schema_support_stale:
+                print(
+                    f"Installed VERSION is {local_version}, but the live DB schema "
+                    "is newer than this install's migration registry; reinstalling."
+                )
+            else:
+                print(f"Already up to date (version {local_version}).")
+                return
         if local_version > remote_version:
             print(f"Warning: Local version ({local_version}) is ahead of remote ({remote_version}).")
             print("This may indicate a dev build or an unpublished release.")

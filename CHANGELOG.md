@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1209] - 2026-07-03
+
+- [TASK-731] Fix: detect stale installed tusk binaries before task startup
+
 ## [1208] - 2026-06-26
 
 - [TASK-719] Migrate existing tasks.db to WAL journal mode (close the #1143 root-cause gap for pre-WAL DBs)
