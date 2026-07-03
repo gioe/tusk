@@ -23,8 +23,9 @@ Procedure:
   5. If the working tree is dirty, push a uniquely-named stash entry and
      look up the ref by message — same pattern as tusk-test-precheck.py, so
      concurrent invocations do not collide and we never pop by stash position.
-  6. `git merge --ff-only origin/<default>` to fast-forward. If this fails,
-     leave the stash intact, surface the git error, and exit non-zero.
+  6. `git merge --ff-only origin/<default>` to fast-forward. If this fails
+     after a stash was created, restore that stash by its looked-up ref before
+     surfacing the git error and exiting non-zero.
   7. If we stashed, pop the entry by its looked-up ref.
   8. Run `tusk migrate` to apply any schema migrations the new commits brought.
 
@@ -218,6 +219,40 @@ def _format_pop_failure(repo_root, current_ref, stash_message, pop_res):
     )
 
 
+def _restore_stash_after_merge_failure(repo_root, stash_message):
+    """Restore the stash this sync-main invocation created before ff-merge failed."""
+    try:
+        current_ref = _find_stash_ref(repo_root, stash_message)
+    except RuntimeError as e:
+        print(
+            f"Error: {e}\nYour changes remain in the stash list under message "
+            f"'{stash_message}'. Pop it manually with `git stash list` + "
+            "`git stash pop <ref>`.",
+            file=sys.stderr,
+        )
+        return False
+    if not current_ref:
+        print(
+            f"Error: stash entry '{stash_message}' disappeared before it could "
+            "be restored. Inspect `git stash list` and `git fsck --lost-found`.",
+            file=sys.stderr,
+        )
+        return False
+    pop_res = _pop_stash_with_lock_retry(repo_root, current_ref)
+    if pop_res.returncode != 0:
+        print(
+            _format_pop_failure(repo_root, current_ref, stash_message, pop_res),
+            file=sys.stderr,
+        )
+        return False
+    print(
+        f"Note: restored stashed local changes from {current_ref} after "
+        "ff-only merge failure.",
+        file=sys.stderr,
+    )
+    return True
+
+
 def _resolve_default_branch(repo_root, tusk_bin):
     result = _run(
         ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], cwd=repo_root
@@ -388,6 +423,8 @@ def sync_main(repo_root, tusk_bin):
             ["git", "merge", "--ff-only", f"origin/{default_branch}"], cwd=repo_root
         )
         if merge_res.returncode != 0:
+            if result["stashed"]:
+                _restore_stash_after_merge_failure(repo_root, stash_message)
             print(
                 f"Error: git merge --ff-only origin/{default_branch} failed: "
                 f"{merge_res.stderr.strip()}\n"

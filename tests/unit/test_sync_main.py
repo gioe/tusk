@@ -167,6 +167,59 @@ class TestSyncMainStashFlow:
         pop_calls = [c for c in calls if c[:3] == ["git", "stash", "pop"]]
         assert pop_calls and pop_calls[0][3].startswith("stash@{")
 
+    def test_merge_failure_after_stash_restores_owned_stash(self, capsys):
+        """Dirty tree + ff-only merge failure must restore the stash this run
+        created instead of leaving a tusk-sync-main entry orphaned."""
+        plan = [
+            (lambda c: c[:2] == ["git", "symbolic-ref"], _ok("origin/main\n")),
+            (lambda c: c[:2] == ["git", "diff"] and "--diff-filter=U" in c, _ok("")),
+            (lambda c: c[:2] == ["git", "fetch"], _ok("")),
+            (lambda c: c[:2] == ["git", "rev-list"], _ok("4\n")),
+            (lambda c: c[:2] == ["git", "status"], _ok(" M file.py\n")),
+            # Pre-flight passes clean; the residual failure is the ff-only merge.
+            (lambda c: c[:2] == ["git", "read-tree"], _ok("")),
+            (lambda c: c[:2] == ["git", "add"], _ok("")),
+            (lambda c: c[:2] == ["git", "write-tree"], _ok("treeoid\n")),
+            (lambda c: c[:2] == ["git", "commit-tree"], _ok("commitoid\n")),
+            (lambda c: c[:2] == ["git", "merge-tree"], _ok("treeoid\n")),
+            (lambda c: c[:3] == ["git", "stash", "push"], _ok("")),
+            (
+                lambda c: c[:3] == ["git", "stash", "list"],
+                _ok(
+                    "stash@{0} On main: unrelated\n"
+                    "stash@{1} On main: tusk-sync-main/12345/abcdef00\n"
+                ),
+            ),
+            (
+                lambda c: c[:3] == ["git", "merge", "--ff-only"],
+                _err("fatal: Not possible to fast-forward, aborting."),
+            ),
+            (
+                lambda c: c[:3] == ["git", "stash", "list"],
+                _ok(
+                    "stash@{0} On main: unrelated\n"
+                    "stash@{1} On main: tusk-sync-main/12345/abcdef00\n"
+                ),
+            ),
+            (lambda c: c[:3] == ["git", "stash", "pop"], _ok("")),
+        ]
+        fake_run, calls = self._scripted(plan)
+        with mock.patch.object(mod.uuid, "uuid4", return_value=mock.Mock(hex="abcdef00")):
+            with mock.patch.object(mod.os, "getpid", return_value=12345):
+                with mock.patch.object(mod, "_run", side_effect=fake_run):
+                    code, payload = mod.sync_main("/tmp/repo", "/tmp/bin/tusk")
+
+        assert code == 1
+        assert payload["success"] is False
+        assert payload["stashed"] is True
+        assert payload["migrated"] is False
+        pop_calls = [c for c in calls if c[:3] == ["git", "stash", "pop"]]
+        assert pop_calls == [["git", "stash", "pop", "stash@{1}"]]
+        assert not any(c[-1] == "migrate" for c in calls)
+        err = capsys.readouterr().err
+        assert "git merge --ff-only origin/main failed" in err
+        assert "restored stashed local changes" in err
+
     def test_unmerged_paths_short_circuits_before_fetch(self):
         """UU paths → exit 1 with diagnostic naming the file; never fetch/stash/migrate (issue #914)."""
         plan = [
