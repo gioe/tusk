@@ -145,14 +145,14 @@ def _is_shadowed_tusk_skill_run(sr: sqlite3.Row, sessions: list[sqlite3.Row]) ->
     row. Session cost is authoritative for the main development run; the skill
     row is kept for skill-run drilldown and would double-count the same window.
     """
-    if sr["skill_name"] != "tusk" or sr["task_id"] is None:
+    if sr["skill_name"] != "tusk":
         return False
     if not _has_cost(sr["cost_dollars"]):
         return False
 
     sr_start = sr["started_at"] or ""
     for session in sessions:
-        if session["task_id"] != sr["task_id"]:
+        if sr["task_id"] is not None and session["task_id"] != sr["task_id"]:
             continue
         if not _has_cost(session["cost_dollars"]):
             continue
