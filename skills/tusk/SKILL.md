@@ -126,6 +126,13 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
    If the file does not exist, log a warning ("Workflow '<workflow>' not found — falling back to default development cycle") and continue with step 2 (no cancel — the /tusk run stays open for the rest of the default flow).
 
 2. **Create or reuse the task-owned workspace IMMEDIATELY**:
+   Before changing into the task worktree, capture the current stable checkout and a stable `tusk` binary for post-merge finalization:
+   ```bash
+   TUSK_PRIMARY_CWD=$(pwd)
+   TUSK_PRIMARY_BIN=$(command -v tusk)
+   ```
+   Keep these variables for Step 12. `tusk merge` and `tusk abandon` may remove the task worktree before the final `skill-run finish`, `task-summary`, and `/retro` handoff run, so those commands must be launched from a checkout that still exists after cleanup.
+
    ```bash
    tusk task-worktree create <id> <brief-description-slug>
    ```
@@ -388,7 +395,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     tusk merge <id> --session $SESSION_ID --rebase
     ```
 
-    **Partial-cleanup exit code 3 (TASK-504):** If `tusk merge` exits **3**, the no-checkout fast-forward push, session-close, and task-done all succeeded — the task is Done and the work is on `origin/<default>` — but the local worktree directory and/or feature branch could not be removed (typically an untracked file outside the auto-symlink set blocked `git worktree remove`). The stderr message names the leftover artifact. Treat exit 3 like exit 0 for workflow purposes: still run `tusk skill-run finish`, `tusk task-summary`, and `/retro`. Clean up the leftover worktree manually (`git worktree remove --force <path>` and `git branch -D <feature-branch>`) after the retro, or surface it to the user.
+    **Partial-cleanup exit code 3 (TASK-504):** If `tusk merge` exits **3**, the no-checkout fast-forward push, session-close, and task-done all succeeded — the task is Done and the work is on `origin/<default>` — but the local worktree directory and/or feature branch could not be removed (typically an untracked file outside the auto-symlink set blocked `git worktree remove`). The stderr message names the leftover artifact. Treat exit 3 like exit 0 for workflow purposes: still return to the stable checkout and run `skill-run finish`, `task-summary`, and `/retro` as described below. Clean up the leftover worktree manually (`git worktree remove --force <path>` and `git branch -D <feature-branch>`) after the retro, or surface it to the user.
 
     **Sibling-worktree DB fallback:** If the default branch is checked out in a sibling worktree and the primary checkout is unusable, run the merge from the sibling worktree while pinning tusk to the primary repo's DB:
     ```bash
@@ -418,19 +425,20 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
     `tusk abandon` switches off the feature branch, deletes it (force), closes the session, and marks the task Done with the given `closed_reason` in one call. **Refuses** if the feature branch has commits not on the default branch — in that case use `tusk merge` to ship the work, or delete the branch manually if you really want to discard it. The optional `--note` records the decision rationale on `task_progress` so the audit trail survives. After `tusk abandon` exits 0, run `/retro` exactly as you would after `tusk merge`.
 
-    Only after `tusk merge` (or `tusk abandon`) exits 0, close out the /tusk skill-run so its cost is captured before `/retro` starts its own run. Do not run this command after a failed merge or abandon attempt:
+    Only after `tusk merge` (or `tusk abandon`) exits 0, return to the stable checkout captured before task-worktree handoff, then close out the /tusk skill-run so its cost is captured before `/retro` starts its own run. Do not run these commands after a failed merge or abandon attempt, and do not launch them from the task worktree after cleanup has begun:
     ```bash
-    tusk skill-run finish <run_id>
+    cd "$TUSK_PRIMARY_CWD"
+    "$TUSK_PRIMARY_BIN" skill-run finish <run_id>
     ```
 
     Then emit the canonical end-of-run summary before handing off to /retro:
     ```bash
-    tusk task-summary <id> --format markdown
+    "$TUSK_PRIMARY_BIN" task-summary <id> --format markdown
     ```
 
     This prints a single markdown block with the task identity, closed reason, total cost, wall/active duration, diff stats (files changed, lines added/removed, commit count), criteria counts, review pass count, and reopen count. Show it verbatim to the user — do not re-render or summarize it. Runs on both the merge and abandon paths; diff stats are filtered to commits that reference `[TASK-<id>]` so shared-branch pollution never appears in the numbers.
 
-    Then run `/retro <id>` immediately — do not ask "shall I run retro?". Pass the task id explicitly so `/retro` attributes cost to the task you just finalized rather than picking up whichever sibling worktree closed last (issue #805). Invoke it to review the session, surface process improvements, and create follow-up tasks.
+    Then run `/retro <id>` immediately from the same stable checkout — do not ask "shall I run retro?". Pass the task id explicitly so `/retro` attributes cost to the task you just finalized rather than picking up whichever sibling worktree closed last (issue #805). Invoke it to review the session, surface process improvements, and create follow-up tasks.
 
 ### Other Subcommands
 

@@ -269,6 +269,17 @@ JSON blob and the `skill_run.run_id` you already captured.
    rest of the default flow).
 
 2. **Create or reuse the task-owned workspace IMMEDIATELY**:
+   Before changing into the task worktree, capture the current stable
+   checkout and a stable `tusk` binary for post-merge finalization:
+   ```bash
+   TUSK_PRIMARY_CWD=$(pwd)
+   TUSK_PRIMARY_BIN=$(command -v tusk)
+   ```
+   Keep these variables for Step 12. `tusk merge` and `tusk abandon`
+   may remove the task worktree before the final `skill-run finish`,
+   `task-summary`, and retro handoff run, so those commands must be
+   launched from a checkout that still exists after cleanup.
+
    ```bash
    tusk task-worktree create <id> <brief-description-slug>
    ```
@@ -733,11 +744,11 @@ JSON blob and the `skill_run.run_id` you already captured.
     feature branch could not be removed (typically an untracked file
     outside the auto-symlink set blocked `git worktree remove`). The
     stderr message names the leftover artifact. Treat exit 3 like
-    exit 0 for workflow purposes: still run `tusk skill-run finish`,
-    `tusk task-summary`, and retro. Clean up the leftover worktree
-    manually (`git worktree remove --force <path>` and
-    `git branch -D <feature-branch>`) after the retro, or surface
-    it to the user.
+    exit 0 for workflow purposes: still return to the stable checkout
+    and run `skill-run finish`, `task-summary`, and retro as described
+    below. Clean up the leftover worktree manually (`git worktree
+    remove --force <path>` and `git branch -D <feature-branch>`) after
+    the retro, or surface it to the user.
 
     **PR mode:** If the project uses PR-based merges
     (`merge.mode = pr` in config, or when passing `--pr`), use:
@@ -797,18 +808,21 @@ JSON blob and the `skill_run.run_id` you already captured.
     survives. After `tusk abandon` exits 0, run `retro.md` exactly as
     you would after `tusk merge`.
 
-    Only after `tusk merge` (or `tusk abandon`) exits 0, close out
-    the tusk skill-run so its cost is captured before retro starts
-    its own run. Do not run this command after a failed merge or
-    abandon attempt:
+    Only after `tusk merge` (or `tusk abandon`) exits 0, return to
+    the stable checkout captured before task-worktree handoff, then
+    close out the tusk skill-run so its cost is captured before retro
+    starts its own run. Do not run these commands after a failed merge
+    or abandon attempt, and do not launch them from the task worktree
+    after cleanup has begun:
     ```bash
-    tusk skill-run finish <run_id>
+    cd "$TUSK_PRIMARY_CWD"
+    "$TUSK_PRIMARY_BIN" skill-run finish <run_id>
     ```
 
     Then emit the canonical end-of-run summary before handing off to
     retro:
     ```bash
-    tusk task-summary <id> --format markdown
+    "$TUSK_PRIMARY_BIN" task-summary <id> --format markdown
     ```
 
     This prints a single markdown block with the task identity,
@@ -818,13 +832,13 @@ JSON blob and the `skill_run.run_id` you already captured.
     the user — do not re-render or summarize it. Diff stats are
     filtered to commits that reference `[TASK-<id>]`.
 
-    Then follow `retro.md` immediately with the just-finalized task
-    id as the argument — do not ask "shall I run retro?". Pass the
-    id explicitly so retro attributes cost to the task you just
-    finalized rather than picking up whichever sibling worktree
-    closed last (issue #805). The retro prompt expects the canonical
-    task-summary block to have already been printed and
-    intentionally does not re-emit it.
+    Then follow `retro.md` immediately from the same stable checkout
+    with the just-finalized task id as the argument — do not ask
+    "shall I run retro?". Pass the id explicitly so retro attributes
+    cost to the task you just finalized rather than picking up
+    whichever sibling worktree closed last (issue #805). The retro
+    prompt expects the canonical task-summary block to have already
+    been printed and intentionally does not re-emit it.
 
 ## Other Subcommands
 
