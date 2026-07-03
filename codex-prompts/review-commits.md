@@ -297,14 +297,19 @@ For general comments it body-scans for file-path-shaped tokens and dismisses
 the comment when every cited path is out-of-diff and none of those paths
 resolve to real repo files. If at least one cited out-of-diff path exists,
 the comment is preserved and returned under `out_of_diff_real` for follow-up
-task routing. In the Codex inline path the orchestrator IS the reviewer, so
+task routing. Stale-line comments whose referenced symbol exists elsewhere in
+the same in-diff file are preserved under `flagged_symbol_mismatch`: the
+reviewer may have found a real issue on a moved symbol, but the line anchor is
+unreliable. In the Codex inline path the orchestrator IS the reviewer, so
 fabrication is rare — but the validation also catches stale `file_path` values
-left over from earlier renames and so still earns its keep on the inline path:
+left over from earlier renames and stale line anchors, so it still earns its
+keep on the inline path:
 
 ```bash
 VALIDATION_JSON=$(tusk review validate-comments $REVIEW_ID)
 DISMISSED_COUNT=$(printf '%s' "$VALIDATION_JSON" | jq '(.dismissed | length) + (.dismissed_general | length)')
 OUT_OF_DIFF_REAL_COUNT=$(printf '%s' "$VALIDATION_JSON" | jq '(.out_of_diff_real // [] | length)')
+FLAGGED_SYMBOL_MISMATCH_COUNT=$(printf '%s' "$VALIDATION_JSON" | jq '(.flagged_symbol_mismatch // [] | length)')
 ```
 
 If `$DISMISSED_COUNT > 0`, surface both `dismissed` (file_path-driven) and
@@ -313,7 +318,13 @@ what was dropped. If `$OUT_OF_DIFF_REAL_COUNT > 0`, surface those entries
 separately as scope-adjacent findings: the cited files exist in the repo but
 are not part of this diff. Do not fix those files in the current review unless
 the task scope already allows it; create or recommend a focused follow-up task
-when the substance is valid. Then fetch the full review results:
+when the substance is valid. If `$FLAGGED_SYMBOL_MISMATCH_COUNT > 0`, surface
+those entries separately as stale-line symbol findings. Re-review the cited
+symbol in the current diff before acting: fix valid in-scope findings at the
+symbol's current location, create or recommend a focused follow-up for valid
+out-of-scope findings, and manually dismiss unactionable stale anchors with
+that rationale. Do not ignore these preserved entries. Then fetch the full
+review results:
 
 ```bash
 tusk review list $TASK_ID
