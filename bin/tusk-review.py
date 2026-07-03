@@ -812,39 +812,14 @@ def cmd_validate_comments(args: argparse.Namespace, db_path: str) -> int:
             )
             if mismatch:
                 symbol, cited_line = mismatch
-                if c["category"] == "must_fix":
-                    flagged_symbol_mismatch.append({
-                        "comment_id": c["id"],
-                        "file_path": fp,
-                        "line_start": c["line_start"],
-                        "symbol": symbol,
-                        "cited_line": cited_line,
-                    })
-                    in_diff += 1
-                    continue
-                note = (
-                    f"validation: cited line {c['line_start']} in '{fp}' "
-                    f"does not contain referenced symbol '{symbol}' "
-                    f"(line text: {cited_line!r}); symbol appears elsewhere "
-                    f"in the same file (issue #1012 line-symbol-mismatch guard)"
-                )
-                conn = get_connection(db_path)
-                try:
-                    conn.execute(
-                        "UPDATE review_comments SET resolution = 'dismissed',"
-                        " resolution_note = ?, updated_at = datetime('now')"
-                        " WHERE id = ?",
-                        (note, c["id"]),
-                    )
-                    conn.commit()
-                finally:
-                    conn.close()
-                dismissed_symbol_mismatch.append({
+                flagged_symbol_mismatch.append({
                     "comment_id": c["id"],
                     "file_path": fp,
                     "line_start": c["line_start"],
                     "symbol": symbol,
+                    "cited_line": cited_line,
                 })
+                in_diff += 1
                 continue
             in_diff += 1
             continue

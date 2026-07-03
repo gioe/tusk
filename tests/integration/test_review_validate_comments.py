@@ -228,8 +228,10 @@ class TestValidateComments:
         assert guarded_payload["dismissed"] == unguarded_payload["dismissed"] == []
         assert guarded_payload["dismissed_general"] == unguarded_payload["dismissed_general"] == []
 
-    def test_dismisses_line_symbol_mismatch(self, tmp_path, monkeypatch):
-        """Issue #1012: cited line must match the symbol named in the comment."""
+    def test_preserves_line_symbol_mismatch(self, tmp_path, monkeypatch):
+        """A real finding remains visible when a stale line cites a symbol
+        that exists elsewhere in the same in-diff file.
+        """
         repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
         task_id = _insert_in_progress_task(db_path)
 
@@ -273,12 +275,13 @@ class TestValidateComments:
 
         assert payload["dismissed"] == []
         assert payload["dismissed_general"] == []
-        assert len(payload["dismissed_symbol_mismatch"]) == 1
-        mismatch = payload["dismissed_symbol_mismatch"][0]
+        assert payload["dismissed_symbol_mismatch"] == []
+        assert len(payload["flagged_symbol_mismatch"]) == 1
+        mismatch = payload["flagged_symbol_mismatch"][0]
         assert mismatch["file_path"] == "schema.prisma"
         assert mismatch["line_start"] == 2
         assert mismatch["symbol"] == "clubs.visible"
-        assert payload["in_diff"] == 0
+        assert payload["in_diff"] == 1
 
         with sqlite3.connect(db_path) as conn:
             conn.row_factory = sqlite3.Row
@@ -288,12 +291,8 @@ class TestValidateComments:
                 (review_id,),
             ).fetchone()
 
-        assert row["resolution"] == "dismissed"
-        note = row["resolution_note"] or ""
-        assert "line-symbol-mismatch" in note
-        assert "clubs.visible" in note
-        assert "line 2" in note
-        assert "ProductionCompany" not in note
+        assert row["resolution"] is None
+        assert row["resolution_note"] is None
 
     def test_preserves_must_fix_line_symbol_mismatch(self, tmp_path, monkeypatch):
         """A real must_fix in an in-diff file should remain operator-visible
@@ -346,6 +345,71 @@ class TestValidateComments:
         assert flagged["file_path"] == "Fastfile"
         assert flagged["line_start"] == 4
         assert flagged["symbol"] == "gradle.properties"
+        assert payload["in_diff"] == 1
+
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT resolution, resolution_note FROM review_comments"
+                " WHERE review_id = ?",
+                (review_id,),
+            ).fetchone()
+
+        assert row["resolution"] is None
+        assert row["resolution_note"] is None
+
+    def test_preserves_suggest_line_symbol_mismatch(self, tmp_path, monkeypatch):
+        """A real suggest in an in-diff file should remain operator-visible
+        when its symbol is cited on the wrong line but exists elsewhere.
+        """
+        repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+        task_id = _insert_in_progress_task(db_path)
+
+        _git(["checkout", "-b", f"feature/TASK-{task_id}-formatter"], cwd=repo)
+        src = "\n".join([
+            "export function normalize(value) {",
+            "  return value.trim();",
+            "}",
+            "",
+            "export function trimStartOnly(it) {",
+            "  return it.trimStart();",
+            "}",
+            "",
+        ])
+        (repo / "formatter.js").write_text(src, encoding="utf-8")
+        _git(["add", "formatter.js"], cwd=repo, env=env)
+        _git(["commit", "-m", f"[TASK-{task_id}] add formatter"], cwd=repo, env=env)
+
+        begin = _run(["review", "begin", str(task_id)], cwd=repo, env=env)
+        assert begin.returncode == 0, begin.stderr
+        review_id = json.loads(begin.stdout)["review_id"]
+
+        r = _run(
+            [
+                "review", "add-comment", str(review_id),
+                "it.trimStart should handle leading whitespace consistently",
+                "--file", "formatter.js",
+                "--line-start", "2",
+                "--category", "suggest",
+                "--severity", "minor",
+            ],
+            cwd=repo,
+            env=env,
+        )
+        assert r.returncode == 0, r.stderr
+
+        result = _run(["review", "validate-comments", str(review_id)], cwd=repo, env=env)
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+
+        assert payload["dismissed"] == []
+        assert payload["dismissed_general"] == []
+        assert payload["dismissed_symbol_mismatch"] == []
+        assert len(payload["flagged_symbol_mismatch"]) == 1
+        flagged = payload["flagged_symbol_mismatch"][0]
+        assert flagged["file_path"] == "formatter.js"
+        assert flagged["line_start"] == 2
+        assert flagged["symbol"] == "it.trimStart"
         assert payload["in_diff"] == 1
 
         with sqlite3.connect(db_path) as conn:
