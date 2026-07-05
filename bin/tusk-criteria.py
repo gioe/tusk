@@ -537,12 +537,19 @@ def _normalize_update_spec(raw: str | None) -> tuple[bool, str | None]:
 
 def cmd_update(args: argparse.Namespace, db_path: str, config: dict) -> int:
     changed_spec, requested_spec = _normalize_update_spec(args.verification_spec)
-    if args.criterion_type is None and not changed_spec:
+    changed_text = args.text is not None
+    if args.criterion_type is None and not changed_spec and not changed_text:
         print(
-            "Error: provide --criterion-type and/or --verification-spec",
+            "Error: provide --text, --criterion-type, and/or --verification-spec",
             file=sys.stderr,
         )
         return 1
+
+    if changed_text:
+        ok, diagnostic = reject_shell_metacharacters(args.text, subject="criterion text")
+        if not ok:
+            print(diagnostic, file=sys.stderr)
+            return 1
 
     criterion_types = config.get("criterion_types", [])
     if args.criterion_type is not None and criterion_types and args.criterion_type not in criterion_types:
@@ -566,6 +573,7 @@ def cmd_update(args: argparse.Namespace, db_path: str, config: dict) -> int:
 
         new_type = args.criterion_type or row["criterion_type"] or "manual"
         new_spec = requested_spec if changed_spec else row["verification_spec"]
+        new_text = args.text if changed_text else row["criterion"]
 
         if new_type in SPEC_REQUIRED_TYPES and not new_spec:
             print(
@@ -583,15 +591,15 @@ def cmd_update(args: argparse.Namespace, db_path: str, config: dict) -> int:
 
         conn.execute(
             "UPDATE acceptance_criteria "
-            "SET criterion_type = ?, verification_spec = ?, updated_at = datetime('now') "
+            "SET criterion = ?, criterion_type = ?, verification_spec = ?, updated_at = datetime('now') "
             "WHERE id = ?",
-            (new_type, new_spec, args.criterion_id),
+            (new_text, new_type, new_spec, args.criterion_id),
         )
         conn.commit()
         print(dumps({
             "id": args.criterion_id,
             "task_id": row["task_id"],
-            "criterion": row["criterion"],
+            "criterion": new_text,
             "criterion_type": new_type,
             "verification_spec": new_spec,
         }))
@@ -1175,8 +1183,12 @@ def main():
     list_p.add_argument("task_id", type=int, help="Task ID")
 
     # update
-    update_p = subparsers.add_parser("update", allow_abbrev=False, help="Update criterion type or verification spec")
+    update_p = subparsers.add_parser("update", allow_abbrev=False, help="Update criterion text, type, or verification spec")
     update_p.add_argument("criterion_id", type=int, help="Criterion ID")
+    update_p.add_argument(
+        "--text",
+        help="New criterion text",
+    )
     update_p.add_argument(
         "--criterion-type",
         "--type",
