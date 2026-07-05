@@ -2025,7 +2025,24 @@ export TUSK_NESTED_CALL=1
 
 # ── Dispatch ─────────────────────────────────────────────────────────
 
+print_usage() {
+  # Build the subcommand list from the dispatcher case-arms in $0 itself
+  # so the Usage message cannot drift away from the dispatcher (TASK-233).
+  local _usage_subcmds
+  _usage_subcmds="$(sed -n '/^case "\${1:-}" in$/,/^esac$/p' "$0" \
+    | sed -n 's/^  \([a-z][a-z0-9-]*\)).*/\1/p' \
+    | paste -sd '|' -)"
+  if [[ -z "$_usage_subcmds" ]]; then
+    echo "Usage: tusk <subcommand> [args...]" >&2
+  else
+    echo "Usage: tusk {${_usage_subcmds}|\"SQL ...\"}" >&2
+  fi
+}
+
 case "${1:-}" in
+  help|--help|-h)
+          print_usage
+          exit 0 ;;
   init)   shift; cmd_init "$@" ;;
   path)   shift; cmd_path "$@" ;;
   config) shift; cmd_config "$@" ;;
@@ -2134,16 +2151,7 @@ case "${1:-}" in
   regen-triggers) shift; cmd_regen_triggers "$@" ;;
   upgrade) shift; cmd_upgrade "$@" ;;
   "")
-          # Build the subcommand list from the dispatcher case-arms in $0 itself
-          # so the Usage message cannot drift away from the dispatcher (TASK-233).
-          _usage_subcmds="$(sed -n '/^case "\${1:-}" in$/,/^esac$/p' "$0" \
-            | sed -n 's/^  \([a-z][a-z0-9-]*\)).*/\1/p' \
-            | paste -sd '|' -)"
-          if [[ -z "$_usage_subcmds" ]]; then
-            echo "Usage: tusk <subcommand> [args...]" >&2
-          else
-            echo "Usage: tusk {${_usage_subcmds}|\"SQL ...\"}" >&2
-          fi
+          print_usage
           exit 1 ;;
   *)      cmd_query "$@" ;;
 esac
