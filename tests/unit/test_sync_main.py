@@ -151,6 +151,9 @@ class TestSyncMainStashFlow:
                 _ok("stash@{0} On main: tusk-sync-main/12345/abcdef00\n"),
             ),
             (lambda c: c[:3] == ["git", "stash", "pop"], _ok("")),
+            (lambda c: c[:3] == ["git", "rev-parse", "HEAD"], _ok("newhead\n")),
+            (lambda c: c[:3] == ["git", "diff", "--name-status"], _ok("")),
+            (lambda c: c[:3] == ["git", "status", "--porcelain"], _ok("")),
             (lambda c: c[-1] == "migrate", _ok("")),
         ]
         fake_run, calls = self._scripted(plan)
@@ -167,6 +170,76 @@ class TestSyncMainStashFlow:
         pop_calls = [c for c in calls if c[:3] == ["git", "stash", "pop"]]
         assert pop_calls and pop_calls[0][3].startswith("stash@{")
 
+    def test_stale_restored_blob_after_pop_aborts_before_migrate(self, capsys):
+        """A clean stash pop can still resurrect pre-ff file contents as WIP.
+
+        If a popped dirty path now matches the old HEAD blob while the new HEAD
+        has changed that path, sync-main must stop before migrate and name the
+        path so the operator does not accidentally commit an old snapshot.
+        """
+        calls = []
+        head_results = ["oldhead\n", "newhead\n"]
+
+        def fake_run(cmd, cwd, check=False, env=None):
+            calls.append(list(cmd))
+            if cmd[:2] == ["git", "symbolic-ref"]:
+                return _ok("origin/main\n")
+            if cmd[:2] == ["git", "diff"] and "--diff-filter=U" in cmd:
+                return _ok("")
+            if cmd[:2] == ["git", "fetch"]:
+                return _ok("")
+            if cmd[:2] == ["git", "rev-list"]:
+                return _ok("3\n")
+            if cmd[:2] == ["git", "status"] and "--porcelain" not in cmd:
+                return _ok(" M app.py\n")
+            if cmd[:2] == ["git", "rev-parse"] and cmd[-1] == "HEAD":
+                return _ok(head_results.pop(0))
+            # Pre-flight passes clean; the stale snapshot is silent until after pop.
+            if cmd[:2] == ["git", "read-tree"]:
+                return _ok("")
+            if cmd[:2] == ["git", "add"]:
+                return _ok("")
+            if cmd[:2] == ["git", "write-tree"]:
+                return _ok("treeoid\n")
+            if cmd[:2] == ["git", "commit-tree"]:
+                return _ok("commitoid\n")
+            if cmd[:2] == ["git", "merge-tree"]:
+                return _ok("treeoid\n")
+            if cmd[:3] == ["git", "stash", "push"]:
+                return _ok("")
+            if cmd[:3] == ["git", "stash", "list"]:
+                return _ok("stash@{0} On main: tusk-sync-main/12345/abcdef00\n")
+            if cmd[:3] == ["git", "merge", "--ff-only"]:
+                return _ok("")
+            if cmd[:3] == ["git", "stash", "pop"]:
+                return _ok("")
+            if cmd[:3] == ["git", "diff", "--name-status"]:
+                return _ok("M\tapp.py\n")
+            if cmd[:3] == ["git", "status", "--porcelain"]:
+                return _ok(" M app.py\n")
+            if cmd[:2] == ["git", "rev-parse"] and cmd[-1] == "oldhead:app.py":
+                return _ok("oldblob\n")
+            if cmd[:2] == ["git", "rev-parse"] and cmd[-1] == "newhead:app.py":
+                return _ok("newblob\n")
+            if cmd[:2] == ["git", "hash-object"]:
+                return _ok("oldblob\n")
+            raise AssertionError(f"unexpected _run call: {cmd}")
+
+        with mock.patch.object(mod.uuid, "uuid4", return_value=mock.Mock(hex="abcdef00")):
+            with mock.patch.object(mod.os, "getpid", return_value=12345):
+                with mock.patch.object(mod, "_run", side_effect=fake_run):
+                    code, payload = mod.sync_main("/tmp/repo", "/tmp/bin/tusk")
+
+        assert code == 1
+        assert payload["success"] is False
+        assert payload["stashed"] is True
+        assert payload["migrated"] is False
+        assert not any(c[-1] == "migrate" for c in calls)
+        err = capsys.readouterr().err
+        assert "stale file snapshot" in err
+        assert "app.py" in err
+        assert "accidental revert" in err
+
     def test_merge_failure_after_stash_restores_owned_stash(self, capsys):
         """Dirty tree + ff-only merge failure must restore the stash this run
         created instead of leaving a tusk-sync-main entry orphaned."""
@@ -176,6 +249,7 @@ class TestSyncMainStashFlow:
             (lambda c: c[:2] == ["git", "fetch"], _ok("")),
             (lambda c: c[:2] == ["git", "rev-list"], _ok("4\n")),
             (lambda c: c[:2] == ["git", "status"], _ok(" M file.py\n")),
+            (lambda c: c[:2] == ["git", "rev-parse"] and c[-1] == "HEAD", _ok("oldhead\n")),
             # Pre-flight passes clean; the residual failure is the ff-only merge.
             (lambda c: c[:2] == ["git", "read-tree"], _ok("")),
             (lambda c: c[:2] == ["git", "add"], _ok("")),
@@ -354,6 +428,7 @@ class TestSyncMainStashFlow:
             (lambda c: c[:2] == ["git", "fetch"], _ok("")),
             (lambda c: c[:2] == ["git", "rev-list"], _ok("3\n")),
             (lambda c: c[:2] == ["git", "status"], _ok(" M file.py\n")),
+            (lambda c: c[:2] == ["git", "rev-parse"] and c[-1] == "HEAD", _ok("oldhead\n")),
             (lambda c: c[:2] == ["git", "read-tree"], _ok("")),
             (lambda c: c[:2] == ["git", "add"], _ok("")),
             (lambda c: c[:2] == ["git", "write-tree"], _ok("treeoid\n")),
@@ -383,6 +458,7 @@ class TestSyncMainStashFlow:
             (lambda c: c[:2] == ["git", "fetch"], _ok("")),
             (lambda c: c[:2] == ["git", "rev-list"], _ok("5\n")),
             (lambda c: c[:2] == ["git", "status"], _ok(" M file.py\n")),
+            (lambda c: c[:2] == ["git", "rev-parse"] and c[-1] == "HEAD", _ok("head\n")),
             (lambda c: c[:3] == ["git", "stash", "push"], _ok("")),
             (
                 lambda c: c[:3] == ["git", "stash", "list"],
@@ -390,6 +466,8 @@ class TestSyncMainStashFlow:
             ),
             (lambda c: c[:3] == ["git", "merge", "--ff-only"], _ok("")),
             (lambda c: c[:3] == ["git", "stash", "pop"], _ok("")),
+            (lambda c: c[:3] == ["git", "diff", "--name-status"], _ok("")),
+            (lambda c: c[:3] == ["git", "status", "--porcelain"], _ok("")),
             (lambda c: c[-1] == "migrate", _ok("")),
         ]
         fake_run, calls = self._scripted(plan)
@@ -482,6 +560,25 @@ class TestParseMergeTreeConflicts:
         assert mod._parse_merge_tree_conflicts("treeoid\n") == []
 
 
+class TestStaleRestoredPaths:
+    """Post-pop stale snapshot detection (issue #1167)."""
+
+    def test_new_file_deleted_by_old_snapshot_is_stale(self):
+        def fake_run(cmd, cwd, check=False, env=None):
+            if cmd[:3] == ["git", "diff", "--name-status"]:
+                return _ok("A\tnew.py\n")
+            if cmd[:3] == ["git", "status", "--porcelain"]:
+                return _ok(" D new.py\n")
+            if cmd[:2] == ["git", "rev-parse"] and cmd[-1] == "oldhead:new.py":
+                return _err("fatal: path does not exist")
+            if cmd[:2] == ["git", "rev-parse"] and cmd[-1] == "newhead:new.py":
+                return _ok("newblob\n")
+            raise AssertionError(f"unexpected _run call: {cmd}")
+
+        with mock.patch.object(mod, "_run", side_effect=fake_run):
+            assert mod._stale_restored_paths("/repo", "oldhead", "newhead") == ["new.py"]
+
+
 class TestPopStashWithLockRetry:
     """Transient index.lock contention retry on the pop (issue #1075)."""
 
@@ -567,6 +664,8 @@ class TestPopStashWithLockRetry:
                 return _ok("2\n")
             if cmd[:2] == ["git", "status"]:
                 return _ok(" M file.py\n")
+            if cmd[:2] == ["git", "rev-parse"] and cmd[-1] == "HEAD":
+                return _ok("oldhead\n")
             # Pre-flight (issue #1095) passes clean so the pop-conflict path
             # below is still exercised — pre-flight is best-effort and cannot
             # catch every residual pop conflict.

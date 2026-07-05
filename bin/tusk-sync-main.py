@@ -287,6 +287,95 @@ def _unmerged_paths(repo_root):
     return [line for line in result.stdout.splitlines() if line.strip()]
 
 
+def _parse_name_status_paths(output):
+    paths = []
+    seen = set()
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) < 2:
+            continue
+        path = parts[-1].strip()
+        if path and path not in seen:
+            seen.add(path)
+            paths.append(path)
+    return paths
+
+
+def _parse_porcelain_status(output):
+    statuses = {}
+    for line in output.splitlines():
+        if len(line) < 4:
+            continue
+        status = line[:2]
+        path = line[3:].strip()
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        if path:
+            statuses[path] = status
+    return statuses
+
+
+def _blob_at(repo_root, ref, path):
+    result = _run(["git", "rev-parse", f"{ref}:{path}"], cwd=repo_root)
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def _worktree_blob(repo_root, path):
+    result = _run(["git", "hash-object", "--", path], cwd=repo_root)
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def _stale_restored_paths(repo_root, old_head, new_head):
+    """Return dirty paths that look restored from the pre-fast-forward tree.
+
+    ``git stash pop`` can apply cleanly yet leave a path at the old HEAD's blob
+    while the fast-forwarded HEAD contains newer content. That creates WIP that
+    looks legitimate but would commit an accidental revert.
+    """
+    if not old_head or not new_head or old_head == new_head:
+        return []
+
+    incoming = _run(
+        ["git", "diff", "--name-status", f"{old_head}..{new_head}"],
+        cwd=repo_root,
+    )
+    if incoming.returncode != 0:
+        return []
+    changed = set(_parse_name_status_paths(incoming.stdout))
+    if not changed:
+        return []
+
+    status = _run(
+        ["git", "status", "--porcelain", "--untracked-files=no"],
+        cwd=repo_root,
+    )
+    if status.returncode != 0:
+        return []
+    dirty = _parse_porcelain_status(status.stdout)
+
+    stale = []
+    for path in sorted(changed.intersection(dirty)):
+        old_blob = _blob_at(repo_root, old_head, path)
+        new_blob = _blob_at(repo_root, new_head, path)
+        if old_blob == new_blob:
+            continue
+        status_code = dirty[path]
+        if "D" in status_code:
+            if not old_blob and new_blob:
+                stale.append(path)
+            continue
+        worktree_blob = _worktree_blob(repo_root, path)
+        if old_blob and worktree_blob == old_blob:
+            stale.append(path)
+    return stale
+
+
 def _find_stash_ref(repo_root, message):
     """Return stash ref whose subject contains *message*, or empty string.
 
@@ -354,6 +443,17 @@ def sync_main(repo_root, tusk_bin):
     except RuntimeError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1, result
+
+    old_head = ""
+    if result["fetched_commits"] > 0 and dirty:
+        head_res = _run(["git", "rev-parse", "HEAD"], cwd=repo_root)
+        if head_res.returncode != 0 or not head_res.stdout.strip():
+            print(
+                f"Error: git rev-parse HEAD failed: {head_res.stderr.strip()}",
+                file=sys.stderr,
+            )
+            return 1, result
+        old_head = head_res.stdout.strip()
 
     # Pre-flight: refuse BEFORE stashing when the local changes would conflict
     # with the incoming commits, so the working tree is left untouched instead
@@ -457,6 +557,32 @@ def sync_main(repo_root, tusk_bin):
         if pop_res.returncode != 0:
             print(
                 _format_pop_failure(repo_root, current_ref, stash_message, pop_res),
+                file=sys.stderr,
+            )
+            return 1, result
+        head_res = _run(["git", "rev-parse", "HEAD"], cwd=repo_root)
+        if head_res.returncode != 0 or not head_res.stdout.strip():
+            print(
+                f"Error: git rev-parse HEAD failed after stash pop: "
+                f"{head_res.stderr.strip()}",
+                file=sys.stderr,
+            )
+            return 1, result
+        stale_paths = _stale_restored_paths(repo_root, old_head, head_res.stdout.strip())
+        if stale_paths:
+            if len(stale_paths) <= 10:
+                display = ", ".join(stale_paths)
+            else:
+                display = (
+                    ", ".join(stale_paths[:10])
+                    + f", ... and {len(stale_paths) - 10} more"
+                )
+            print(
+                f"Error: git stash pop restored stale file snapshot(s) in "
+                f"{len(stale_paths)} path(s) ({display}). These paths now match "
+                "the pre-sync HEAD while the fast-forwarded HEAD has newer "
+                "content, so committing them could create an accidental revert. "
+                "Inspect the files and restore any stale paths before committing.",
                 file=sys.stderr,
             )
             return 1, result
