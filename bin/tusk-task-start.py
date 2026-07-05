@@ -878,22 +878,33 @@ def main(argv: list[str]) -> int:
         # --task-id <id>` immediately after task-start into a single CLI round-trip.
         skill_run_info = None
         if skill_name is not None:
-            cur = conn.execute(
-                "INSERT INTO skill_runs (skill_name, task_id) VALUES (?, ?)",
-                (skill_name, task_id),
-            )
-            conn.commit()
-            run_id = cur.lastrowid
             run_row = conn.execute(
-                "SELECT id, skill_name, started_at, task_id FROM skill_runs WHERE id = ?",
-                (run_id,),
+                "SELECT id, skill_name, started_at, task_id "
+                "FROM skill_runs "
+                "WHERE task_id = ? AND skill_name = ? AND ended_at IS NULL "
+                "ORDER BY started_at DESC, id DESC LIMIT 1",
+                (task_id, skill_name),
             ).fetchone()
+            reused_skill_run = run_row is not None
+            if run_row is None:
+                cur = conn.execute(
+                    "INSERT INTO skill_runs (skill_name, task_id) VALUES (?, ?)",
+                    (skill_name, task_id),
+                )
+                conn.commit()
+                run_id = cur.lastrowid
+                run_row = conn.execute(
+                    "SELECT id, skill_name, started_at, task_id FROM skill_runs WHERE id = ?",
+                    (run_id,),
+                ).fetchone()
             skill_run_info = {
                 "run_id": run_row["id"],
                 "skill_name": run_row["skill_name"],
                 "started_at": run_row["started_at"],
                 "task_id": run_row["task_id"],
             }
+            if reused_skill_run:
+                skill_run_info["reused"] = True
 
         result = {
             "task": task_dict,
