@@ -260,6 +260,137 @@ class TestFusedTaskStart:
             conn.close()
         assert after == before
 
+    def test_active_session_error_surfaces_abandoned_committed_work(
+        self, db_path, config_path, monkeypatch
+    ):
+        """A stale open session with a finished skill-run and unmerged task commits
+        should identify the likely-abandoned handoff state before --force-session."""
+        monkeypatch.setattr(tusk_task_start, "_current_repo_root", lambda: "/repo")
+        monkeypatch.setattr(
+            tusk_task_start,
+            "_unmerged_task_commits",
+            lambda task_id, repo_root: ["abc1234"] if task_id else [],
+            raising=False,
+        )
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            task_id = insert_task(conn, "Abandoned session task", status="In Progress")
+            insert_criterion(conn, task_id, "do the thing")
+            cur = conn.execute(
+                "INSERT INTO task_sessions (task_id, started_at) "
+                "VALUES (?, datetime('now'))",
+                (task_id,),
+            )
+            session_id = cur.lastrowid
+            conn.execute(
+                "INSERT INTO skill_runs (skill_name, task_id, ended_at) "
+                "VALUES ('tusk', ?, datetime('now'))",
+                (task_id,),
+            )
+            conn.execute(
+                "INSERT INTO task_workspaces (task_id, branch, workspace_path) "
+                "VALUES (?, ?, ?)",
+                (task_id, f"feature/TASK-{task_id}-abandoned", "/workspace"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        rc, result, stderr = call_start(db_path, config_path, str(task_id), "--force")
+
+        assert rc == 2
+        assert result is None
+        assert f"session {session_id}" in stderr
+        assert "likely abandoned" in stderr
+        assert "skill-run is finished" in stderr
+        assert "unmerged commits" in stderr
+        assert "--force-session" in stderr
+
+    def test_active_session_error_omits_abandoned_hint_for_open_skill_run(
+        self, db_path, config_path, monkeypatch
+    ):
+        """A live skill-run keeps the existing active-session guidance unchanged."""
+        monkeypatch.setattr(tusk_task_start, "_current_repo_root", lambda: "/repo")
+        monkeypatch.setattr(
+            tusk_task_start,
+            "_unmerged_task_commits",
+            lambda task_id, repo_root: ["abc1234"] if task_id else [],
+            raising=False,
+        )
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            task_id = insert_task(conn, "Live session task", status="In Progress")
+            insert_criterion(conn, task_id, "do the thing")
+            conn.execute(
+                "INSERT INTO task_sessions (task_id, started_at) "
+                "VALUES (?, datetime('now'))",
+                (task_id,),
+            )
+            conn.execute(
+                "INSERT INTO skill_runs (skill_name, task_id) VALUES ('tusk', ?)",
+                (task_id,),
+            )
+            conn.execute(
+                "INSERT INTO task_workspaces (task_id, branch, workspace_path) "
+                "VALUES (?, ?, ?)",
+                (task_id, f"feature/TASK-{task_id}-live", "/workspace"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        rc, result, stderr = call_start(db_path, config_path, str(task_id), "--force")
+
+        assert rc == 2
+        assert result is None
+        assert "already has an active session" in stderr
+        assert "likely abandoned" not in stderr
+        assert "skill-run is finished" not in stderr
+
+    def test_active_session_error_omits_abandoned_hint_without_unmerged_commits(
+        self, db_path, config_path, monkeypatch
+    ):
+        """A closed skill-run alone is not enough to label a session abandoned."""
+        monkeypatch.setattr(tusk_task_start, "_current_repo_root", lambda: "/repo")
+        monkeypatch.setattr(
+            tusk_task_start,
+            "_unmerged_task_commits",
+            lambda task_id, repo_root: [],
+        )
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            task_id = insert_task(conn, "Closed run no commits task", status="In Progress")
+            insert_criterion(conn, task_id, "do the thing")
+            conn.execute(
+                "INSERT INTO task_sessions (task_id, started_at) "
+                "VALUES (?, datetime('now'))",
+                (task_id,),
+            )
+            conn.execute(
+                "INSERT INTO skill_runs (skill_name, task_id, ended_at) "
+                "VALUES ('tusk', ?, datetime('now'))",
+                (task_id,),
+            )
+            conn.execute(
+                "INSERT INTO task_workspaces (task_id, branch, workspace_path) "
+                "VALUES (?, ?, ?)",
+                (task_id, f"feature/TASK-{task_id}-no-commits", "/workspace"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        rc, result, stderr = call_start(db_path, config_path, str(task_id), "--force")
+
+        assert rc == 2
+        assert result is None
+        assert "already has an active session" in stderr
+        assert "likely abandoned" not in stderr
+        assert "skill-run is finished" not in stderr
+
     def test_explicit_task_id_path_unchanged(self, db_path, config_path):
         """CID 434(c): passing an explicit task_id still starts that specific task
         (regression guard — the fused path only activates when task_id is omitted)."""

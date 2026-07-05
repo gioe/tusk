@@ -243,6 +243,55 @@ def _task_commits_on_default(
     return bool(kept)
 
 
+def _git_ref_exists(repo_root: str, ref: str) -> bool:
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", ref],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=repo_root,
+    )
+    return result.returncode == 0
+
+
+def _unmerged_task_commits(task_id: int, repo_root: str | None) -> list:
+    """Return [TASK-id] commits reachable from any ref but not default.
+
+    Best-effort diagnostic only: task-start must not fail just because git
+    history is unavailable or a repo has no remote-tracking default branch.
+    """
+    if not repo_root:
+        return []
+    try:
+        default = _git_helpers.default_branch(repo_root)
+    except Exception:
+        return []
+    refs = ["--all", "--not", default]
+    origin_default = f"origin/{default}"
+    if _git_ref_exists(repo_root, origin_default):
+        refs.extend(["--not", origin_default])
+    return _git_helpers.find_task_commits(task_id, repo_root, refs=refs)
+
+
+def _closed_tusk_skill_run_status(conn: sqlite3.Connection, task_id: int) -> str | None:
+    row = conn.execute(
+        "SELECT ended_at, cost_dollars, model, metadata "
+        "FROM skill_runs "
+        "WHERE task_id = ? AND skill_name = 'tusk' "
+        "ORDER BY started_at DESC, id DESC LIMIT 1",
+        (task_id,),
+    ).fetchone()
+    if row is None or row["ended_at"] is None:
+        return None
+    if (
+        row["cost_dollars"] == 0
+        and (row["model"] or "") == ""
+        and row["metadata"] is None
+    ):
+        return "cancelled"
+    return "finished"
+
+
 def _count_criteria_already_passing(conn: sqlite3.Connection, task_id: int) -> int:
     """Count incomplete code/file criteria whose verification specs already pass.
 
@@ -712,6 +761,18 @@ def main(argv: list[str]) -> int:
                         lines.append(
                             "Create/reuse one with `tusk task-worktree create`, or pass "
                             "--force-session to explicitly reuse the active session."
+                        )
+                    skill_run_status = _closed_tusk_skill_run_status(conn, task_id)
+                    unmerged_commits = _unmerged_task_commits(task_id, current_root)
+                    if skill_run_status and unmerged_commits:
+                        lines.append(
+                            f"Active session {session_id} is likely abandoned: "
+                            f"its tusk skill-run is {skill_run_status} and "
+                            f"TASK-{task_id} has unmerged commits."
+                        )
+                        lines.append(
+                            "Resume with --force-session if you are taking over "
+                            "that abandoned work."
                         )
                     if current_root:
                         lines.append(f"Current checkout: {current_root}")
