@@ -90,6 +90,21 @@ For each candidate task, fill these fields:
 | **assignee** | Match to a configured agent if the work clearly belongs there. NULL if unsure. |
 | **complexity** | `XS` partial session · `S` 1 session · `M` 2–3 sessions · `L` 3–5 sessions · `XL` 5+. Default `M`. |
 
+### Description Shape
+
+Each task has three distinct spec layers. Keep them separate so a future
+`tusk` pickup can understand intent without inheriting a stale plan:
+
+| Field | Intent | Contains |
+|-------|--------|----------|
+| **summary** | **WHAT** — the deliverable in one imperative sentence | "Add JWT login endpoint", "Fix race in session-close" |
+| **description** | **WHY** — motivation, constraints, links to source material | The user complaint, audit finding, design decision, or durable constraint |
+| **criteria** | **HOW** — testable proof that the WHAT shipped | Behavior checks, edge cases, file/code assertions, or human-review conditions |
+
+Do not bury acceptance criteria, implementation plans, assumptions, risks,
+decisions, or reusable handoff facts in the description. Criteria define proof;
+durable context atoms preserve future memory.
+
 ### Task Type Decision Guide
 
 The key question: **Is this type the primary deliverable, or is it proof
@@ -125,8 +140,9 @@ complete feature → criterion.
 ### Durable Context Atoms
 
 Some source material should survive handoff but is not a requirement or a
-completion condition. Track these as candidate context atoms while drafting,
-then write them after `tusk task-insert` returns the created task ID.
+completion condition. Track these as candidate context atoms while drafting
+instead of burying them in descriptions, then write them after
+`tusk task-insert` returns the created task ID.
 
 Use the smallest unit:
 
@@ -144,7 +160,12 @@ Use the smallest unit:
 Do not write directly to `task_context_items`. Use:
 
 ```bash
+tusk context add <task_id> --source create_task --type assumption --content "<durable assumption>"
+tusk context add <task_id> --source create_task --type risk --content "<future risk and trigger condition>"
+tusk context add <task_id> --source create_task --type question --content "<open question and why it is not blocking now>"
+tusk context add <task_id> --source create_task --type decision --content "<durable decision>"
 tusk context add <task_id> --source create_task --type memory --content "<content>"
+tusk context add <task_id> --source create_task --type entry_point --content "<stable file/module/symbol to inspect first>"
 ```
 
 ## Step 3.5: Pre-Verify Bug Test Failures
@@ -252,7 +273,11 @@ row exists, not embedded in the description.
 ## Step 5: Generate Criteria, Deduplicate, Insert
 
 For each approved task, generate **3–7 acceptance criteria** — concrete,
-testable conditions that define "done." Derive them from the description:
+testable conditions that define "done." When the source material provides
+enough information, include a verification hint by choosing a typed criterion
+(`test`, `code`, or `file`) and a concrete `spec`; keep a criterion manual only
+when the proof genuinely requires judgment. Derive criteria from the
+description:
 
 - Each distinct requirement maps to a criterion.
 - For **bug** tasks, include a criterion that the failure case is resolved.

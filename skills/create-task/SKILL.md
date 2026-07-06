@@ -99,7 +99,7 @@ Each task carries three text fields with distinct intents — keep them sharp. B
 
 ### Durable context atoms
 
-Some input is useful future memory but is neither the task deliverable nor a completion condition. Route that information to `tusk context add` after task insertion instead of stuffing it into the description or criteria.
+Some input is useful future memory but is neither the task deliverable nor a completion condition. Route that information to `tusk context add` after task insertion instead of burying or stuffing it into the description or criteria.
 
 Use the smallest durable unit:
 
@@ -331,7 +331,7 @@ If the proposal has candidate context atoms, show them under the affected task a
 
 ## Step 5: Deduplicate, Insert, and Generate Criteria
 
-For each approved task, generate **2–5 acceptance criteria** — concrete, testable conditions that define "done."
+For each approved task, generate **2–5 acceptance criteria** — concrete, testable conditions that define "done." When the source material provides enough information, attach a verification hint by choosing a typed criterion (`test`, `code`, or `file`) and a concrete `spec`; leave a criterion manual only when the proof genuinely requires judgment.
 
 ### Test-first default
 
