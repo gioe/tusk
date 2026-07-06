@@ -38,6 +38,7 @@ Output (JSON):
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import shutil
@@ -49,6 +50,34 @@ import tusk_loader  # loads tusk-json-lib.py
 
 _json_lib = tusk_loader.load("tusk-json-lib")
 dumps = _json_lib.dumps
+
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _load_script_module(filename: str, module_name: str):
+    path = os.path.join(SCRIPT_DIR, filename)
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _select_project_libs(project_type, init_intent, existing_project_libs):
+    selector = _load_script_module("tusk-init-bootstrap-select.py", "tusk_init_bootstrap_select")
+    archetype = {}
+    if init_intent:
+        try:
+            intent_helper = _load_script_module("tusk-init-intent.py", "tusk_init_intent")
+            archetype = intent_helper.infer_archetype(init_intent)
+        except Exception:
+            archetype = {}
+    return selector.select_bootstrap_packs(
+        project_type=project_type,
+        intent=init_intent or {},
+        archetype=archetype,
+        existing_project_libs=existing_project_libs or {},
+    )
 
 
 def main():
@@ -184,6 +213,7 @@ def main():
             return
         updates["init_intent"] = init_intent
 
+    project_libs_explicit = args.project_libs is not None
     if args.project_libs is not None:
         try:
             project_libs = json.loads(args.project_libs)
@@ -204,23 +234,21 @@ def main():
             }))
             return
         updates["project_libs"] = project_libs
-    elif args.project_type:
-        # Auto-populate project_libs from config.default.json when --project-type is a
-        # known built-in type and --project-libs was not explicitly provided.
-        default_config_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "config.default.json"
+
+    should_auto_select_project_libs = (
+        not project_libs_explicit
+        and (args.project_type is not None or args.init_intent is not None)
+    )
+    if should_auto_select_project_libs:
+        selected_project_type = updates.get("project_type", existing.get("project_type"))
+        selected_intent = updates.get("init_intent", existing.get("init_intent"))
+        selected = _select_project_libs(
+            selected_project_type,
+            selected_intent,
+            existing.get("project_libs") or {},
         )
-        try:
-            with open(default_config_path) as f:
-                default_config = json.load(f)
-            default_libs = default_config.get("project_libs", {})
-            if args.project_type in default_libs:
-                # Carry forward existing project_libs, then add the matched entry.
-                merged_libs = dict(existing.get("project_libs") or {})
-                merged_libs[args.project_type] = default_libs[args.project_type]
-                updates["project_libs"] = merged_libs
-        except (OSError, json.JSONDecodeError):
-            pass  # silently ignore if config.default.json is missing or invalid
+        if selected["project_libs"] != (existing.get("project_libs") or {}):
+            updates["project_libs"] = selected["project_libs"]
 
     if args.worktree_symlink_files is not None:
         try:

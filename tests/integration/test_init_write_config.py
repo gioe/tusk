@@ -110,6 +110,50 @@ def test_init_intent_persists_without_breaking_project_type_defaults(initialised
     assert cfg["init_intent"] == intent
 
 
+def test_init_intent_archetype_can_select_ios_lib_without_project_type(initialised_project):
+    clear = _run(initialised_project, "init-write-config", "--project-libs", "{}")
+    assert clear.returncode == 0, f"init-write-config failed:\n{clear.stderr}"
+    assert _read_config(initialised_project).get("project_libs") == {}
+
+    intent = {
+        "audience": "Parents coordinating youth sports",
+        "primary_workflows": ["create schedule", "message team"],
+        "platforms": ["ios"],
+        "stack_preferences": ["SwiftUI"],
+        "integrations": [],
+        "data_needs": [],
+        "quality_priorities": ["offline support"],
+        "launch_target": None,
+        "non_goals": [],
+        "open_questions": [],
+        "project_type": None,
+    }
+
+    result = _run(
+        initialised_project,
+        "init-write-config",
+        "--init-intent",
+        json.dumps(intent),
+    )
+
+    assert result.returncode == 0, f"init-write-config failed:\n{result.stderr}"
+    cfg = _read_config(initialised_project)
+    assert cfg["project_type"] is None
+    assert cfg["project_libs"]["ios_app"] == {"repo": "gioe/ios-libs", "ref": "main"}
+
+
+def test_project_libs_clear_is_preserved_on_unrelated_config_update(initialised_project):
+    clear = _run(initialised_project, "init-write-config", "--project-libs", "{}")
+    assert clear.returncode == 0, f"init-write-config failed:\n{clear.stderr}"
+
+    result = _run(initialised_project, "init-write-config", "--test-command", "pytest -q")
+
+    assert result.returncode == 0, f"init-write-config failed:\n{result.stderr}"
+    cfg = _read_config(initialised_project)
+    assert cfg["test_command"] == "pytest -q"
+    assert cfg.get("project_libs") == {}
+
+
 def test_python_service_seeds_symlink_files_default(initialised_project):
     """`--project-type python_service` (without --worktree-symlink-files) seeds
     `worktree.symlink_files` to [".venv", ".env"] — the canonical Python-service

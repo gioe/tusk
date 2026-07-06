@@ -455,7 +455,25 @@ tusk init-write-config \
 
 Pass only the flags for values the user explicitly confirmed; keys not passed are carried forward from the existing config unchanged. To clear `test_command`, pass `--test-command ''`. To set `project_type` to null, pass `--project-type ''`.
 
-**Auto-populated `project_libs`:** When `--project-type` is a known built-in (`ios_app` or `python_service`) and `--project-libs` is not passed, the command merges the matching `project_libs` entry from `config.default.json` into the config (preserving any existing `project_libs` entries). Step 8.5 then uses this to seed bootstrap tasks. To override, pass `--project-libs '{"<type>":{"repo":"<owner>/<repo>","ref":"<ref>"}}'` — it takes full precedence over auto-population.
+**Auto-populated `project_libs`:** When `--project-libs` is not passed,
+`init-write-config` runs the bootstrap selector over the confirmed
+`project_type`, `init_intent`, inferred archetype, platforms, and feature
+signals. Today this preserves the old built-ins (`ios_app` →
+`gioe/ios-libs`, `python_service` → `gioe/python-libs`) while leaving clean
+optional hooks for future `android_app`, `web_app`, and `backend` packs. To
+inspect selection directly:
+
+```bash
+tusk init-bootstrap-select \
+  --project-type 'ios_app' \
+  --intent '<normalized init_intent json>' \
+  --archetype '<archetype json>'
+```
+
+The selector returns `project_libs`, `selected_modules`, and
+`skipped_modules`. A matching optional pack whose repo does not exist yet is
+reported under `skipped_modules` instead of hard-failing. To override all
+auto-selection, pass `--project-libs '{"<type>":{"repo":"<owner>/<repo>","ref":"<ref>"}}'`.
 
 The command returns JSON: `{"success": true, "config_path": "...", "backed_up": true}` on success.
 

@@ -149,10 +149,23 @@ tusk pillars list
 
 ## Step 4: Project-Lib Bootstrap Tasks (Optional)
 
-`tusk init-write-config` auto-populates `project_libs` for known
-`project_type` values (`ios_app`, `python_service`). Each lib ships its own
-`tusk-bootstrap.json` with a curated task list and, for richer manifests,
-optional composable bootstrap modules.
+`tusk init-write-config` auto-populates `project_libs` through
+`tusk init-bootstrap-select` when `--project-libs` is not passed. Selection
+uses the confirmed project type, normalized intent, inferred archetype,
+platforms, and feature preferences. Today the built-in concrete packs are
+`ios_app` (`gioe/ios-libs`) and `python_service` (`gioe/python-libs`);
+future optional packs such as `android_app`, `web_app`, and `backend` are
+reported as skipped when they match but have no repo configured yet.
+
+```bash
+tusk init-bootstrap-select \
+  --project-type '<project_type>' \
+  --intent '<normalized init_intent json>' \
+  --archetype '<archetype json>'
+```
+
+Each selected lib ships its own `tusk-bootstrap.json` with a curated task
+list and, for richer manifests, optional composable bootstrap modules.
 
 ```bash
 tusk init-fetch-bootstrap
