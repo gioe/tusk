@@ -657,10 +657,12 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
 
     # Run verification for non-manual types (unless --skip-verify)
     verification_result = None
+    verification_payload = None
     if criterion_type != "manual" and spec and not skip_verify:
         result = _reuse_commit_gate_verification(criterion_type, spec, commit_hash)
         if result is None:
             result = run_verification(criterion_type, spec)
+        verification_payload = result
         verification_result = json.dumps(result)
 
         if not result["passed"]:
@@ -678,6 +680,15 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
                 print(result["output"], file=sys.stderr)
             print("Use --skip-verify to bypass verification.", file=sys.stderr)
             return 1
+    elif criterion_type != "manual" and spec and skip_verify:
+        verification_payload = {
+            "passed": True,
+            "skipped": True,
+            "output": "verification skipped via --skip-verify",
+        }
+        if note:
+            verification_payload["skip_note"] = note
+        verification_result = json.dumps(verification_payload)
 
     # Warn if another completed criterion on this task already has this commit hash.
     # Suppress when flag is set (batch/allow-shared-commit).
@@ -750,6 +761,12 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
         "commit_hash": commit_hash,
         "verification": verification,
         "skip_note": note,
+        "verification_contract": _verification_contract(
+            criterion_type,
+            spec,
+            skip_verify=skip_verify,
+            result=verification_payload,
+        ),
     }
     if deferral_cleared:
         payload["deferral_cleared"] = True
@@ -813,6 +830,39 @@ def _reuse_commit_gate_verification(
             f"{gate_command}"
         ),
         "reused_commit_gate": True,
+    }
+
+
+def _verification_contract(
+    criterion_type: str,
+    spec: Optional[str],
+    *,
+    skip_verify: bool,
+    result: Optional[dict] = None,
+) -> dict:
+    if criterion_type == "manual":
+        return {
+            "type": "manual",
+            "strength": "weak",
+            "evidence": "operator_judgment",
+        }
+
+    if skip_verify:
+        return {
+            "type": criterion_type,
+            "strength": "bypassed",
+            "spec": spec,
+            "evidence": "explicit_skip",
+        }
+
+    evidence = "executed"
+    if result and result.get("reused_commit_gate"):
+        evidence = "reused_commit_gate"
+    return {
+        "type": criterion_type,
+        "strength": "automated",
+        "spec": spec,
+        "evidence": evidence,
     }
 
 

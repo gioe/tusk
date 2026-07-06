@@ -126,6 +126,11 @@ class TestDoneSingle:
         assert row["is_completed"] == 1
         obj = json.loads(out.getvalue().strip())
         assert obj["id"] == 1 and obj["is_completed"] is True
+        assert obj["verification_contract"] == {
+            "type": "manual",
+            "strength": "weak",
+            "evidence": "operator_judgment",
+        }
 
     def test_not_found_returns_2(self):
         conn = make_db()
@@ -235,7 +240,7 @@ class TestDoneSingle:
         row = conn.execute("SELECT is_completed FROM acceptance_criteria WHERE id = 1").fetchone()
         assert row["is_completed"] == 0
 
-    def test_skip_verify_bypasses_verification(self):
+    def test_skip_verify_records_explicit_bypass_evidence(self):
         conn = make_db(criteria_specs=[
             {"criterion_type": "test", "verification_spec": "false", "is_completed": 0},
         ])
@@ -256,7 +261,16 @@ class TestDoneSingle:
             "SELECT is_completed, verification_result FROM acceptance_criteria WHERE id = 1"
         ).fetchone()
         assert row["is_completed"] == 1
-        assert row["verification_result"] is None
+        result = json.loads(row["verification_result"])
+        assert result["passed"] is True
+        assert result["skipped"] is True
+        assert result["output"] == "verification skipped via --skip-verify"
+        assert obj["verification_contract"] == {
+            "type": "test",
+            "strength": "bypassed",
+            "spec": "false",
+            "evidence": "explicit_skip",
+        }
 
     def test_reuses_matching_commit_gate_verification(self, monkeypatch):
         conn = make_db(criteria_specs=[
@@ -329,7 +343,14 @@ class TestDoneSingle:
 
         assert rc == 0
         run_verification.assert_called_once_with("test", "cd apps/web && npm test")
-        assert json.loads(out.getvalue())["verification"] == "passed"
+        obj = json.loads(out.getvalue())
+        assert obj["verification"] == "passed"
+        assert obj["verification_contract"] == {
+            "type": "test",
+            "strength": "automated",
+            "spec": "cd apps/web && npm test",
+            "evidence": "executed",
+        }
 
     def test_uncovered_spec_does_not_reuse_commit_gate(self, monkeypatch):
         conn = make_db(criteria_specs=[
