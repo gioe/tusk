@@ -1941,6 +1941,16 @@ def _recorded_scope_patterns(
     except StopIteration:
         rows = []
 
+    criteria_patterns: list[str] = []
+    try:
+        criteria_patterns = list(task_referenced_paths(task_id, conn))
+    except sqlite3.OperationalError:
+        criteria_patterns = []
+    except StopIteration:
+        criteria_patterns = []
+    except (KeyError, TypeError):
+        criteria_patterns = []
+
     if rows:
         if any(row["source"] == "unbounded" for row in rows):
             return [], True
@@ -1951,14 +1961,13 @@ def _recorded_scope_patterns(
             if pattern and pattern not in seen:
                 seen.add(pattern)
                 patterns.append(pattern)
+        for pattern in criteria_patterns:
+            if pattern and pattern not in seen:
+                seen.add(pattern)
+                patterns.append(pattern)
         return patterns, False
 
-    try:
-        return list(task_referenced_paths(task_id, conn)), False
-    except sqlite3.OperationalError:
-        return [], False
-    except StopIteration:
-        return [], False
+    return criteria_patterns, False
 
 
 def _path_matches_scope(path: str, patterns: list[str]) -> bool:

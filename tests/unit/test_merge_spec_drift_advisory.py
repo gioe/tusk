@@ -120,3 +120,25 @@ def test_unbounded_scope_suppresses_out_of_scope_file_warning():
     lines = mod._spec_drift_advisory_lines(conn, 1, ["docs/unrelated.md"])
 
     assert lines == []
+
+
+def test_criteria_path_references_extend_recorded_scope():
+    mod = _load_module()
+    conn = _conn()
+    conn.execute(
+        "INSERT INTO acceptance_criteria "
+        "(id, task_id, criterion, criterion_type, verification_spec, verification_result, is_completed) "
+        "VALUES (12, 1, 'tests/unit/test_merge_spec_drift_advisory.py covers it', "
+        "'test', NULL, '{\"status\":\"passed\"}', 1)"
+    )
+    conn.execute(
+        "INSERT INTO task_scope (task_id, pattern, source) VALUES (1, 'bin/tusk-merge.py', 'manual')"
+    )
+
+    lines = mod._spec_drift_advisory_lines(
+        conn,
+        1,
+        ["bin/tusk-merge.py", "tests/unit/test_merge_spec_drift_advisory.py"],
+    )
+
+    assert lines == []
