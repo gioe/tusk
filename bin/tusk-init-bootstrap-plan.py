@@ -245,8 +245,14 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--archetype", default=None, help="Inferred archetype JSON object.")
     parser.add_argument("--bootstrap", default=None, help="init-fetch-bootstrap JSON payload.")
     parser.add_argument("--scaffold-spec", default=None, help="Scaffold spec JSON array.")
-    parser.add_argument("--remove-module", action="append", default=[])
-    parser.add_argument("--add-module", action="append", default=[], help="Module JSON object to add.")
+    parser.add_argument("--remove-module", "--plan-remove-module", action="append", default=[])
+    parser.add_argument(
+        "--add-module",
+        "--plan-add-module",
+        action="append",
+        default=[],
+        help="Module JSON object to add.",
+    )
     parser.add_argument(
         "--plan-action",
         choices=["accept", "skip-materialization"],

@@ -187,3 +187,31 @@ def test_cli_outputs_plan_json(capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["success"] is True
     assert payload["plan"]["selected_modules"][0]["id"] == "sharedkit"
+
+
+def test_cli_accepts_wizard_style_module_edit_flags(capsys):
+    mod = _load_module()
+    rc = mod.main(
+        [
+            "ignored.db",
+            "ignored-config.json",
+            "--picked",
+            json.dumps({"project_type": "ios_app", "init_intent": {"platforms": ["ios"], "stack_preferences": ["SwiftUI"]}}),
+            "--archetype",
+            json.dumps({"id": "consumer_ios_app"}),
+            "--bootstrap",
+            json.dumps(_bootstrap()),
+            "--plan-remove-module",
+            "sharedkit",
+            "--plan-add-module",
+            json.dumps({
+                "id": "manual-module",
+                "name": "Manual module",
+                "description": "Added by operator.",
+            }),
+        ]
+    )
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert [m["id"] for m in payload["plan"]["selected_modules"]] == ["manual-module"]
