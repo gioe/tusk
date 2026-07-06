@@ -445,6 +445,7 @@ This model keeps `resolution` semantically pure: it only holds an outcome type, 
 | `comment` | TEXT | NOT NULL | The finding text |
 | `resolution` | TEXT | nullable; CHECK IN (fixed, dismissed) | Outcome when resolved; NULL = open/unresolved |
 | `resolution_note` | TEXT | nullable | Optional rationale captured alongside the resolution. Set via `tusk review resolve <id> {fixed,dismissed} --note "<text>"`. The /review-commits skill records the spun-off-task pointer here when dismissing `suggest` findings (e.g. `Tracked as TASK-N`); preserves the audit trail of where the dismissed comment went. |
+| `spec_gap_type` | TEXT | nullable; CHECK IN (implementation_failure, ambiguous_spec, missing_criterion, missing_verification, design_discovery) | Optional classification of what the finding says about the task spec. `implementation_failure` means the spec was adequate and the code missed it. `ambiguous_spec`, `missing_criterion`, `missing_verification`, and `design_discovery` capture authoring gaps that should feed criteria, context, follow-up tasks, or retro improvements. `tusk review list` and `tusk review summary` expose these values; summaries aggregate counts as "Spec gaps" so retros can spot repeated authoring patterns. |
 | `created_at` | TEXT | default now | |
 | `updated_at` | TEXT | default now | |
 

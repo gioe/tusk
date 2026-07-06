@@ -1025,6 +1025,8 @@ CREATE TABLE review_comments (
     resolution TEXT DEFAULT NULL
         CHECK (resolution IN ('fixed', 'dismissed')),
     resolution_note TEXT,
+    spec_gap_type TEXT
+        CHECK (spec_gap_type IN ('implementation_failure', 'ambiguous_spec', 'missing_criterion', 'missing_verification', 'design_discovery')),
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (review_id) REFERENCES code_reviews(id) ON DELETE CASCADE
@@ -1275,8 +1277,7 @@ PRECHECK_VERDICTS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  # (migration 84 switches existing DBs to WAL; cmd_init already enabled WAL above)
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 84;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 85;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."

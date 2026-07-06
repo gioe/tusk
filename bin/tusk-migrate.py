@@ -3611,6 +3611,38 @@ def migrate_84(db_path: str, config_path: str, script_dir: str) -> None:
     _progress(f"  Migration 84: tasks.db journal_mode is now '{mode}' (WAL requested)")
 
 
+def migrate_85(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add review_comments.spec_gap_type for spec-driven review retrospectives.
+
+    Review findings can now distinguish implementation failures from gaps in
+    the task/spec itself: ambiguous specs, missing criteria, missing
+    verification, and design discoveries. The column is nullable so historical
+    comments remain unchanged, and the CHECK constraint keeps future values
+    aligned with the CLI enum.
+    """
+    if get_version(db_path) >= 85:
+        _progress("  Migration 85: added review_comments.spec_gap_type")
+        return
+
+    if not has_column(db_path, "review_comments", "spec_gap_type"):
+        run_script(
+            db_path,
+            """
+            ALTER TABLE review_comments ADD COLUMN spec_gap_type TEXT
+                CHECK (spec_gap_type IN (
+                    'implementation_failure',
+                    'ambiguous_spec',
+                    'missing_criterion',
+                    'missing_verification',
+                    'design_discovery'
+                ));
+            """,
+        )
+
+    set_version(db_path, 85)
+    _progress("  Migration 85: added review_comments.spec_gap_type")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -3698,6 +3730,7 @@ MIGRATIONS = [
     (82, migrate_82),
     (83, migrate_83),
     (84, migrate_84),
+    (85, migrate_85),
 ]
 
 

@@ -262,6 +262,13 @@ tusk review add-comment $REVIEW_ID "<description and how to fix>" \
 
 Omit `--file` and `--line-start` for general comments.
 
+Add `--spec-gap-type <type>` when a finding reveals why it exists:
+`implementation_failure`, `ambiguous_spec`, `missing_criterion`,
+`missing_verification`, or `design_discovery`. Use
+`implementation_failure` when the task spec was adequate and the code
+missed it; use the other values when the task itself needs stronger
+handoff context, criteria, verification, or decomposition.
+
 ### Step 5.6: Submit the Verdict
 
 Always pass `--model <your_model_id>` — the canonical model ID matching
@@ -356,11 +363,27 @@ For each open `must_fix` comment:
    ```bash
    tusk review resolve <comment_id> fixed
    ```
+   If the fix exposed a spec authoring gap, carry the classification:
+   `tusk review resolve <comment_id> fixed --spec-gap-type missing_criterion`
+   or `--spec-gap-type missing_verification`.
 
 ### suggest comments
 
 These are optional improvements. For each `suggest` comment, **decide
 autonomously** between four branches — do not ask the user:
+
+Before choosing a branch, check whether the comment is really a spec
+gap. If it says the task lacked an acceptance criterion, record
+`--spec-gap-type missing_criterion` and either add the missing
+criterion now with `tusk criteria add $TASK_ID "<criterion>"` when it
+belongs to the current task, preserve the learning as
+`tusk context add $TASK_ID --source review --type decision|assumption|risk|question|memory ...`,
+or spin it into a follow-up task. If it says the task lacked proof,
+record `--spec-gap-type missing_verification` and add a typed
+verification criterion when possible, otherwise preserve context or
+create a follow-up. Use `ambiguous_spec` for unclear intent and
+`design_discovery` when review surfaced a new design decision that
+should be durable.
 
 - **Fix**: implement the suggestion, append every file you modified to
   `REVIEW_FIX_FILES`, then run

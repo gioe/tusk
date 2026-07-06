@@ -126,6 +126,9 @@ tusk review request-changes <review_id> --model <your_model_id>
 tusk review add-comment <review_id> "<description>" --file "<file>" --line-start <line> --category <category> --severity <severity>
 ```
 
+Classify findings with `--spec-gap-type` when the review reveals why the finding exists:
+`implementation_failure`, `ambiguous_spec`, `missing_criterion`, `missing_verification`, or `design_discovery`. Use `implementation_failure` when the task spec was adequate and the code missed it; use the other four values when the task itself needs stronger handoff context, criteria, verification, or decomposition.
+
 After recording the inline decision, skip directly to Step 7.
 
 **Agent path.** For larger code diffs with a configured reviewer, verify the required agent sandbox permissions before spawning the reviewer agent:
@@ -308,6 +311,7 @@ For each open `must_fix` comment:
    ```bash
    tusk review resolve <comment_id> fixed
    ```
+   If the fix exposed a spec authoring gap, carry the classification: `tusk review resolve <comment_id> fixed --spec-gap-type missing_criterion` or `--spec-gap-type missing_verification`.
 
 If there are many `must_fix` comments (more than 5), consider spawning a background implementation agent instead:
 
@@ -329,6 +333,8 @@ Task tool call:
 ### suggest comments
 
 These are optional improvements. For each `suggest` comment, **decide autonomously** between four branches — do not ask the user:
+
+Before choosing a branch, check whether the comment is really a spec gap. If it says the task lacked an acceptance criterion, record `--spec-gap-type missing_criterion` and either add the missing criterion now with `tusk criteria add <task_id> "<criterion>"` when it belongs to the current task, preserve the learning as `tusk context add <task_id> --source review --type decision|assumption|risk|question|memory ...`, or spin it into a follow-up task. If it says the task lacked proof, record `--spec-gap-type missing_verification` and add a typed verification criterion when possible, otherwise preserve context or create a follow-up. Use `ambiguous_spec` for unclear intent and `design_discovery` when review surfaced a new design decision that should be durable.
 
 - **Fix**: implement the suggestion, append every file you modified to `REVIEW_FIX_FILES` (`REVIEW_FIX_FILES+=("<file_path>")`), then run `tusk review resolve <comment_id> fixed`
   - Apply when the fix is small, clearly correct, and within the current task's scope.

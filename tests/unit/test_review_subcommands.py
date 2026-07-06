@@ -38,7 +38,8 @@ def _make_db():
             severity TEXT,
             comment TEXT,
             resolution TEXT,
-            resolution_note TEXT
+            resolution_note TEXT,
+            spec_gap_type TEXT
         );
         """
     )
@@ -53,7 +54,8 @@ _REVIEWS_QUERY = (
     " FROM code_reviews WHERE task_id = ? AND status <> 'superseded' ORDER BY id"
 )
 _COMMENTS_QUERY_TMPL = (
-    "SELECT id, review_id, file_path, line_start, category, severity, comment, resolution"
+    "SELECT id, review_id, file_path, line_start, category, severity, comment, resolution,"
+    " resolution_note, spec_gap_type"
     " FROM review_comments WHERE review_id IN ({ph}) ORDER BY review_id, category, id"
 )
 
@@ -222,7 +224,8 @@ _SUMMARY_REVIEW_QUERY = (
     " ORDER BY r.id DESC LIMIT 1"
 )
 _SUMMARY_COMMENTS_QUERY = (
-    "SELECT id, file_path, line_start, line_end, category, severity, comment, resolution"
+    "SELECT id, file_path, line_start, line_end, category, severity, comment, resolution,"
+    " resolution_note, spec_gap_type"
     " FROM review_comments WHERE review_id = ? ORDER BY severity, category, id"
 )
 
