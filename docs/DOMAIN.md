@@ -901,6 +901,16 @@ Non-enum config keys that control runtime behavior (not column validation). All 
 
 Future packs such as `android_app`, `web_app`, and `backend` can be present in the selector catalog without a configured repo. Matching those optional packs returns them under `skipped_modules` with `reason: "optional utility repo is not configured"` rather than failing config writes or bootstrap fetches. Passing `--project-libs` to `init-write-config` remains an explicit override and bypasses auto-selection. Pinning `ref` to a tag or commit SHA freezes which tasks/modules get fetched, preventing unintended additions if the utility repo's default branch changes later.
 
+**Bootstrap plans:** `tusk init-bootstrap-plan` is the side-effect-free review layer between intent discovery and materialization. It accepts the confirmed init values (`--picked`), inferred archetype, optional fetched bootstrap manifests, scaffold spec, and module edits, then returns one JSON plan containing:
+
+- the durable intent/config values to write;
+- selected utility repos and skipped optional repos from `init-bootstrap-select`;
+- selected modules with `matched` reasons such as `project_type=ios_app`, `archetype=consumer_ios_app`, `platform=ios`, or `requires=swiftui`;
+- scaffold directories, file writes/appends, context atoms, pillars, glossary entries, and tasks to create;
+- `actions.materialize`, which is false when the operator chooses `skip-materialization`.
+
+`tusk init-wizard --plan-only` emits this plan and exits before writing config or starter assets. In non-interactive mode, requested materialization side effects such as `--scaffold-spec` or `--seed-bootstrap-tasks all` require `--plan-action accept` or `--plan-action skip-materialization`; omitting the action fails before mutation. Interactive callers are shown the plan and can accept or skip materialization. Module edits are represented by repeatable `--plan-remove-module <id>` and `--plan-add-module '<json object>'`.
+
 **`tusk-bootstrap.json` task format:** Each task object requires `summary`, `description`, `priority`, `task_type`, `complexity`, and `criteria` (non-empty array of strings). An optional `migration_hints` field (array of strings) may also be present. When a task is seeded via `/tusk-init` Step 8.5, each `migration_hints` entry is injected as an additional acceptance criterion prefixed with `[Migration]` (e.g., `"[Migration] Remove any ad-hoc logging.basicConfig() calls"`). Tasks without `migration_hints` (or with an empty array) are seeded identically to the current behavior.
 
 **`tusk-bootstrap.json` schema versioning:** Legacy task-only manifests remain valid when they include `version`, `project_type`, and `tasks`. Rich bootstrap manifests may additionally set `manifest_schema_version: 2` and include a top-level `modules` array. `init-fetch-bootstrap` returns `manifest_schema_version` for each fetched lib, defaulting to the manifest's `version` or `1` when omitted, so callers can distinguish legacy task lists from module-aware bootstrap packs without breaking older utility repos.

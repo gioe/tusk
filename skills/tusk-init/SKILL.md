@@ -558,6 +558,44 @@ This reads `project_libs` from config, fetches each lib's `tusk-bootstrap.json` 
 }
 ```
 
+Before writing starter files or seeding bootstrap tasks, build and present a
+single editable plan:
+
+```bash
+tusk init-bootstrap-plan \
+  --picked '<confirmed init values json>' \
+  --archetype '<inferred archetype json>' \
+  --bootstrap '<init-fetch-bootstrap json>' \
+  --scaffold-spec '<confirmed scaffold spec json>'
+```
+
+The plan shows confirmed intent/config values, inferred archetype, selected
+utility repos, selected modules, skipped optional modules, files to create or
+append, context atoms, pillars, glossary entries, and tasks to create. Each
+selected module includes `matched` reasons such as `project_type=ios_app`,
+`platform=ios`, or `requires=swiftui`.
+
+Present the plan as one review step:
+
+> **Bootstrap plan ready.**
+>
+> Options: **accept** · **remove module** (provide module id) · **add module**
+> (provide module JSON) · **skip materialization**
+
+- **accept** — proceed with the planned materialization and task seeding.
+- **remove module** — rebuild the plan with `--plan-remove-module <id>`, then
+  present it again.
+- **add module** — rebuild the plan with `--plan-add-module '<json object>'`,
+  then present it again.
+- **skip materialization** — proceed with config only; do not scaffold
+  directories, write manifest files, seed context/pillars/glossary, or create
+  bootstrap tasks.
+
+For non-interactive `tusk init-wizard` calls, materialization side effects such
+as `--scaffold-spec` or `--seed-bootstrap-tasks all` require an explicit
+`--plan-action accept` or `--plan-action skip-materialization`. Use
+`--plan-only` to emit the plan and exit before any mutation.
+
 Legacy task-only manifests remain valid. Rich manifests may additionally return
 `modules`, where each module describes metadata, applicability rules,
 required/optional files, append operations, dependencies, pillar suggestions,

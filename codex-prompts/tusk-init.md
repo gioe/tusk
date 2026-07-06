@@ -198,6 +198,30 @@ Returns:
 }
 ```
 
+Before writing starter files or seeding bootstrap tasks, build a single
+reviewable plan:
+
+```bash
+tusk init-bootstrap-plan \
+  --picked '<confirmed init values json>' \
+  --archetype '<inferred archetype json>' \
+  --bootstrap '<init-fetch-bootstrap json>' \
+  --scaffold-spec '<confirmed scaffold spec json>'
+```
+
+Show the user one plan containing the confirmed intent, inferred archetype,
+selected utility repos, selected modules with matched reasons, skipped
+optional modules, files to create or append, context atoms, pillars, glossary
+entries, tasks to create, test-command defaults, and worktree symlink
+suggestions. Options are **accept**, **remove module**, **add module**, and
+**skip materialization**. Rebuild the plan with `--plan-remove-module <id>` or
+`--plan-add-module '<json object>'` after edits.
+
+For non-interactive `tusk init-wizard` calls, materialization side effects such
+as `--scaffold-spec` or `--seed-bootstrap-tasks all` require
+`--plan-action accept` or `--plan-action skip-materialization`. Use
+`--plan-only` to inspect the plan without mutating config, files, or tasks.
+
 For each lib entry:
 
 - `error` non-null — print a one-line warning and skip:

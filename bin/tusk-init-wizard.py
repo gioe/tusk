@@ -48,6 +48,16 @@ Behaviour flags:
     --seed-bootstrap-tasks <mode>  none|all — whether to seed tasks from
                                    project_libs bootstrap. Default: none in
                                    non-interactive mode.
+    --plan-only                    Emit the bootstrap plan and exit before
+                                   writing config, scaffold files, manifest
+                                   files, or tasks.
+    --plan-action <action>          accept|skip-materialization. Required in
+                                   non-interactive mode when materialization
+                                   side effects are requested.
+    --plan-remove-module <id>       Remove a selected module from the plan.
+                                   Repeatable.
+    --plan-add-module <json>        Add a module JSON object to the plan.
+                                   Repeatable.
 
 Scaffolding flags (mutually exclusive):
     --scaffold-spec <json>   JSON array of {name, purpose, agent} objects;
@@ -66,6 +76,7 @@ Output (JSON):
       "config_path": "/path/to/tusk/config.json",
       "written": {"domains": [...], "agents": {...}, ...},
       "scan": {"manifests": [...], "detected_domains": [...]},
+      "plan": {"intent": {...}, "selected_modules": [...], ...},
       "scaffold": null | {"success": true, "mode": ..., "created": [...], "skipped": [...]},
       "seeded_tasks": [{"task_id": 42, "summary": "..."}],
       "skipped_tasks": [{"summary": "...", "reason": "..."}]
@@ -226,6 +237,14 @@ def _prompt_yes_no(question: str, default: bool = True) -> bool:
 def _load_intent_helper():
     path = os.path.join(SCRIPT_DIR, "tusk-init-intent.py")
     spec = importlib.util.spec_from_file_location("tusk_init_intent", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _load_plan_helper():
+    path = os.path.join(SCRIPT_DIR, "tusk-init-bootstrap-plan.py")
+    spec = importlib.util.spec_from_file_location("tusk_init_bootstrap_plan", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -506,6 +525,37 @@ def _seed_bootstrap_tasks(interactive: bool) -> tuple:
     return seeded, skipped
 
 
+def _infer_archetype_for_plan(picked: dict, scan: dict) -> dict:
+    intent = picked.get("init_intent")
+    if not intent:
+        return {}
+    try:
+        return _load_intent_helper().infer_archetype(intent, scan=scan)
+    except Exception:
+        return {}
+
+
+def _build_plan(
+    *,
+    picked: dict,
+    scan: dict,
+    scaffold_spec: list,
+    plan_action: str,
+    remove_modules: list[str],
+    add_modules: list[dict],
+) -> dict:
+    helper = _load_plan_helper()
+    return helper.build_bootstrap_plan(
+        picked=picked,
+        archetype=_infer_archetype_for_plan(picked, scan),
+        bootstrap={"libs": []},
+        scaffold_spec=scaffold_spec,
+        remove_modules=remove_modules,
+        add_modules=add_modules,
+        plan_action=plan_action,
+    )
+
+
 def main():
     if len(sys.argv) < 3:
         _fail(
@@ -549,6 +599,15 @@ def main():
     )
     parser.add_argument("--scaffold-spec", default=None, dest="scaffold_spec")
     parser.add_argument("--no-scaffold", action="store_true", dest="no_scaffold")
+    parser.add_argument("--plan-only", action="store_true", dest="plan_only")
+    parser.add_argument(
+        "--plan-action",
+        choices=["accept", "skip-materialization"],
+        default=None,
+        dest="plan_action",
+    )
+    parser.add_argument("--plan-remove-module", action="append", default=[], dest="plan_remove_modules")
+    parser.add_argument("--plan-add-module", action="append", default=[], dest="plan_add_modules")
     args, _ = parser.parse_known_args(sys.argv[3:])
 
     # Resolve mode. --interactive / --non-interactive win; otherwise TTY-detect.
@@ -589,8 +648,13 @@ def main():
 
     if args.scaffold_spec is not None and args.no_scaffold:
         _fail("--scaffold-spec and --no-scaffold are mutually exclusive")
+    scaffold_spec = []
     if args.scaffold_spec is not None:
-        _parse_json_arg("scaffold-spec", args.scaffold_spec, list, "array")
+        scaffold_spec = _parse_json_arg("scaffold-spec", args.scaffold_spec, list, "array")
+    add_modules = [
+        _parse_json_arg("plan-add-module", raw, dict, "object")
+        for raw in args.plan_add_modules
+    ]
 
     seed_bootstrap = args.seed_bootstrap
     if seed_bootstrap is None:
@@ -604,6 +668,59 @@ def main():
     else:
         picked = _non_interactive_collect(scan, test_detect, overrides, args.auto_scan)
 
+    materialization_requested = args.scaffold_spec is not None or seed_bootstrap == "all"
+    if not interactive and materialization_requested and args.plan_action is None and not args.plan_only:
+        _emit({
+            "success": False,
+            "mode": "non-interactive",
+            "config_path": config_path,
+            "error": "non-interactive materialization requires --plan-action accept or --plan-action skip-materialization",
+            "written": {},
+            "scan": scan,
+            "plan": None,
+            "scaffold": None,
+            "seeded_tasks": [],
+            "skipped_tasks": [],
+        })
+        sys.exit(1)
+
+    plan_action = args.plan_action or "accept"
+    plan = _build_plan(
+        picked=picked,
+        scan=scan,
+        scaffold_spec=scaffold_spec,
+        plan_action=plan_action,
+        remove_modules=args.plan_remove_modules,
+        add_modules=add_modules,
+    )
+
+    if interactive and materialization_requested and args.plan_action is None and not args.plan_only:
+        print(dumps({"bootstrap_plan": plan}))
+        if not _prompt_yes_no("Apply this bootstrap plan?", default=True):
+            plan_action = "skip-materialization"
+            plan = _build_plan(
+                picked=picked,
+                scan=scan,
+                scaffold_spec=scaffold_spec,
+                plan_action=plan_action,
+                remove_modules=args.plan_remove_modules,
+                add_modules=add_modules,
+            )
+
+    if args.plan_only:
+        _emit({
+            "success": True,
+            "mode": "interactive" if interactive else "non-interactive",
+            "config_path": config_path,
+            "written": {},
+            "scan": scan,
+            "plan": plan,
+            "scaffold": None,
+            "seeded_tasks": [],
+            "skipped_tasks": [],
+        })
+        return
+
     write_result = _apply_write_config(picked)
     if not write_result.get("success"):
         _emit({
@@ -613,17 +730,20 @@ def main():
             "error": write_result.get("error") or "init-write-config failed",
             "written": picked,
             "scan": scan,
+            "plan": plan,
             "scaffold": None,
             "seeded_tasks": [],
             "skipped_tasks": [],
         })
         sys.exit(1)
 
-    scaffold_result = _run_scaffold(args.scaffold_spec) if args.scaffold_spec is not None else None
+    scaffold_result = None
+    if plan["actions"]["materialize"] and args.scaffold_spec is not None:
+        scaffold_result = _run_scaffold(args.scaffold_spec)
 
     seeded: list = []
     skipped: list = []
-    if seed_bootstrap == "all":
+    if plan["actions"]["materialize"] and seed_bootstrap == "all":
         seeded, skipped = _seed_bootstrap_tasks(interactive)
 
     _emit({
@@ -632,6 +752,7 @@ def main():
         "config_path": write_result.get("config_path", config_path),
         "written": picked,
         "scan": scan,
+        "plan": plan,
         "scaffold": scaffold_result,
         "seeded_tasks": seeded,
         "skipped_tasks": skipped,

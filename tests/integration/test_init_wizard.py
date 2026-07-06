@@ -227,6 +227,7 @@ def test_scaffold_spec_invokes_init_scaffold(codex_like_project):
         codex_like_project,
         "--non-interactive",
         "--no-auto-scan",
+        "--plan-action", "accept",
         "--scaffold-spec", spec,
     )
     assert result.returncode == 0, f"wizard failed:\n{result.stderr}"
@@ -240,6 +241,80 @@ def test_scaffold_spec_invokes_init_scaffold(codex_like_project):
     for sub in ("frontend", "backend"):
         assert (codex_like_project / sub / ".gitkeep").exists()
         assert (codex_like_project / sub / "AGENTS.md").exists()
+
+
+def test_scaffold_spec_requires_plan_action(codex_like_project):
+    """Non-interactive materialization must not happen without an explicit
+    bootstrap-plan action. This keeps automation from writing starter assets
+    without acknowledging the reviewable plan."""
+    before = _read_config(codex_like_project)
+    spec = json.dumps([
+        {"name": "frontend", "purpose": "UI sources", "agent": "frontend"},
+    ])
+
+    result = _run(
+        codex_like_project,
+        "--non-interactive",
+        "--no-auto-scan",
+        "--scaffold-spec", spec,
+    )
+
+    assert result.returncode != 0
+    payload = json.loads(result.stdout)
+    assert payload["success"] is False
+    assert "plan-action" in payload["error"]
+    assert _read_config(codex_like_project) == before
+    assert not (codex_like_project / "frontend").exists()
+
+
+def test_plan_only_outputs_plan_without_writing_config_or_scaffold(codex_like_project):
+    before = _read_config(codex_like_project)
+    spec = json.dumps([
+        {"name": "frontend", "purpose": "UI sources", "agent": "frontend"},
+    ])
+
+    result = _run(
+        codex_like_project,
+        "--non-interactive",
+        "--no-auto-scan",
+        "--plan-only",
+        "--project-type", "python_service",
+        "--scaffold-spec", spec,
+    )
+
+    assert result.returncode == 0, f"wizard failed:\n{result.stderr}"
+    payload = json.loads(result.stdout)
+    assert payload["success"] is True
+    assert payload["plan"]["intent"]["project_type"] == "python_service"
+    assert payload["written"] == {}
+    assert payload["scaffold"] is None
+    assert payload["seeded_tasks"] == []
+    assert _read_config(codex_like_project) == before
+    assert not (codex_like_project / "frontend").exists()
+
+
+def test_plan_action_skip_materialization_writes_config_without_scaffold(codex_like_project):
+    spec = json.dumps([
+        {"name": "frontend", "purpose": "UI sources", "agent": "frontend"},
+    ])
+
+    result = _run(
+        codex_like_project,
+        "--non-interactive",
+        "--no-auto-scan",
+        "--plan-action", "skip-materialization",
+        "--project-type", "python_service",
+        "--scaffold-spec", spec,
+    )
+
+    assert result.returncode == 0, f"wizard failed:\n{result.stderr}"
+    payload = json.loads(result.stdout)
+    assert payload["success"] is True
+    assert payload["plan"]["actions"]["materialize"] is False
+    assert payload["scaffold"] is None
+    cfg = _read_config(codex_like_project)
+    assert cfg["project_type"] == "python_service"
+    assert not (codex_like_project / "frontend").exists()
 
 
 def test_no_scaffold_explicit_opt_out(codex_like_project):
