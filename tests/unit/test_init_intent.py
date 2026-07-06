@@ -7,10 +7,18 @@ import os
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SCRIPT = os.path.join(REPO_ROOT, "bin", "tusk-init-intent.py")
+WIZARD_SCRIPT = os.path.join(REPO_ROOT, "bin", "tusk-init-wizard.py")
 
 
 def _load_module():
     spec = importlib.util.spec_from_file_location("tusk_init_intent", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _load_wizard_module():
+    spec = importlib.util.spec_from_file_location("tusk_init_wizard", WIZARD_SCRIPT)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -78,3 +86,140 @@ def test_cli_normalize_outputs_compact_json(capsys):
     assert payload["success"] is True
     assert payload["intent"]["platforms"] == ["android", "backend"]
     assert payload["intent"]["project_type"] == "android_app"
+
+
+def test_interview_questions_collect_intent_before_routing_decisions():
+    mod = _load_module()
+
+    questions = mod.interview_questions()
+
+    assert [q["id"] for q in questions[:6]] == [
+        "audience",
+        "primary_workflows",
+        "platforms",
+        "stack_preferences",
+        "integrations",
+        "quality_priorities",
+    ]
+    assert all(q["phase"] == "intent" for q in questions)
+    assert "domains" not in {q["target_field"] for q in questions}
+    assert "agents" not in {q["target_field"] for q in questions}
+    assert "scaffold" not in {q["target_field"] for q in questions}
+
+
+def test_mobile_app_without_platform_gets_one_conditional_followup():
+    mod = _load_module()
+
+    questions = mod.follow_up_questions(
+        {
+            "audience": "Parents coordinating youth sports",
+            "primary_workflows": "create team schedule, message families",
+            "platforms": "mobile app",
+            "stack_preferences": "",
+        }
+    )
+
+    assert [q["id"] for q in questions] == ["mobile_platform"]
+
+
+def test_ios_field_work_scenario_feeds_the_intent_model():
+    mod = _load_module()
+
+    intent = mod.normalize_intent(
+        {
+            "who_it_serves": "Field technicians",
+            "first_workflows": "capture inspection, sync report",
+            "platforms": "iPhone",
+            "planned_stack": "SwiftUI",
+            "expected_integrations": "company SSO",
+            "data_model_hints": "inspections, photos",
+            "quality_priorities": "offline support, privacy",
+            "launch_constraints": "pilot next quarter",
+            "project_type": "ios_app",
+        }
+    )
+
+    assert intent["audience"] == "Field technicians"
+    assert intent["primary_workflows"] == ["capture inspection", "sync report"]
+    assert intent["platforms"] == ["ios"]
+    assert intent["stack_preferences"] == ["SwiftUI"]
+    assert intent["integrations"] == ["company SSO"]
+    assert intent["data_needs"] == ["inspections", "photos"]
+    assert intent["quality_priorities"] == ["offline support", "privacy"]
+    assert intent["launch_target"] == "pilot next quarter"
+    assert intent["project_type"] == "ios_app"
+
+
+def test_internal_web_dashboard_scenario_does_not_get_mobile_followup():
+    mod = _load_module()
+
+    answers = {
+        "audience": "Operations managers",
+        "primary_workflows": "review queue, approve exceptions",
+        "platforms": "web",
+        "stack_preferences": "Next.js, Prisma",
+        "integrations": "Slack, Okta",
+        "data_needs": "queues, approvals",
+        "quality_priorities": "auditability, fast filters",
+        "project_type": "web_app",
+    }
+
+    assert mod.follow_up_questions(answers) == []
+    intent = mod.normalize_intent(answers)
+    assert intent["platforms"] == ["web"]
+    assert intent["integrations"] == ["Slack", "Okta"]
+    assert intent["data_needs"] == ["queues", "approvals"]
+
+
+def test_backend_service_scenario_prompts_for_missing_data_model_only():
+    mod = _load_module()
+
+    answers = {
+        "audience": "Partner systems",
+        "primary_workflows": "ingest webhook, expose reporting API",
+        "platforms": "backend",
+        "integrations": "Stripe",
+        "project_type": "python_service",
+    }
+
+    questions = mod.follow_up_questions(answers)
+    assert [q["id"] for q in questions] == ["data_needs"]
+
+
+def test_fresh_project_wizard_collects_intent_before_domain_prompts(monkeypatch):
+    wizard = _load_wizard_module()
+    prompts = []
+    answers = iter(
+        [
+            "Field technicians",
+            "capture inspection, sync report",
+            "ios",
+            "SwiftUI",
+            "",
+            "offline support",
+            "",
+            "",
+            "mobile",
+            "mobile,general",
+            "bug,feature",
+            "pytest",
+            "ios_app",
+        ]
+    )
+
+    def fake_input(prompt):
+        prompts.append(prompt)
+        return next(answers)
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    picked = wizard._interactive_collect(
+        {"manifests": [], "detected_domains": []},
+        {"command": "pytest"},
+        {},
+    )
+
+    assert prompts[0].startswith("Who is this project for")
+    assert prompts[6].startswith("Domains ")
+    assert picked["init_intent"]["audience"] == "Field technicians"
+    assert picked["init_intent"]["platforms"] == ["ios"]

@@ -78,6 +78,7 @@ Output (JSON):
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import subprocess
@@ -222,6 +223,33 @@ def _prompt_yes_no(question: str, default: bool = True) -> bool:
     return answer in ("y", "yes")
 
 
+def _load_intent_helper():
+    path = os.path.join(SCRIPT_DIR, "tusk-init-intent.py")
+    spec = importlib.util.spec_from_file_location("tusk_init_intent", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _interactive_collect_intent() -> dict:
+    intent_helper = _load_intent_helper()
+    answers: dict = {}
+    print("Fresh project intent:")
+    for question in intent_helper.interview_questions():
+        answers[question["target_field"]] = _prompt(question["prompt"])
+
+    for question in intent_helper.follow_up_questions(answers):
+        value = _prompt(question["prompt"])
+        if value:
+            existing = answers.get(question["target_field"])
+            if existing:
+                answers[question["target_field"]] = f"{existing}, {value}"
+            else:
+                answers[question["target_field"]] = value
+
+    return intent_helper.normalize_intent(answers)
+
+
 def _interactive_collect(scan: dict, test_detect: dict, overrides: dict) -> dict:
     """Walk the user through confirming each config value. Returns a dict with
     the keys that should be passed to init-write-config (only those actually
@@ -230,6 +258,9 @@ def _interactive_collect(scan: dict, test_detect: dict, overrides: dict) -> dict
 
     print("Detected manifests:", ", ".join(scan.get("manifests") or []) or "(none)")
     proposed_domains = [d["name"] for d in scan.get("detected_domains") or []]
+    if not proposed_domains and "init_intent" not in overrides:
+        picked["init_intent"] = _interactive_collect_intent()
+
     if "domains" in overrides:
         picked["domains"] = overrides["domains"]
         print(f"Using --domains override: {picked['domains']}")
@@ -278,6 +309,9 @@ def _interactive_collect(scan: dict, test_detect: dict, overrides: dict) -> dict
             default="",
         )
         picked["project_type"] = answer
+
+    if "init_intent" in overrides:
+        picked["init_intent"] = overrides["init_intent"]
 
     if "project_libs" in overrides:
         picked["project_libs"] = overrides["project_libs"]

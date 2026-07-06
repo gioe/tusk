@@ -102,26 +102,50 @@ No signals found (fresh project) → skip scanning, proceed to **Step 2e** below
 
 ### 2e: Fresh-project interview (no codebase signals found)
 
-Ask the user these three questions in a single message:
+Ask the user intent questions before proposing domains, agents, project type,
+or directory scaffolding. Prefer the helper contract so the interview stays
+stable across Claude, Codex, and CLI flows:
+
+```bash
+tusk init-intent questions
+```
+
+Ask the returned questions in a single message:
 
 > **Setting up a fresh project — a few quick questions to suggest the right domains and agents:**
 >
-> 1. **What kind of project are you building?**
->    web app · mobile app · CLI tool · API / backend service · data pipeline / ML · documentation site · library / package · monorepo · other
->
-> 2. **What languages or frameworks are you planning to use?**
->    (Free text — e.g., "React + FastAPI", "Go CLI", "Next.js + Prisma + TypeScript")
->
-> 3. **Which areas of work do you expect? (pick all that apply)**
->    UI / frontend · backend / API · database · infrastructure / CI-CD · data / ML · mobile · docs · CLI · auth · other
+> 1. **Who is this project for, and what problem should it solve?**
+> 2. **What are the first user or system workflows that should work end to end?**
+> 3. **Which platforms or surfaces matter at launch?**
+> 4. **What languages, frameworks, or architecture preferences should shape the bootstrap?**
+> 5. **Which external systems, auth providers, APIs, or services should it integrate with?**
+> 6. **Which quality priorities should influence the upfront software?**
 
-**Mobile follow-up — fires only when Q1 is "mobile app".** Ask this single question before continuing to Q2/Q3 mapping:
+Then call:
 
-> **Which platform — iOS, Android, or cross-platform (React Native / Flutter)?**
+```bash
+tusk init-intent follow-ups --answers '<json object from the answers so far>'
+```
 
-Map the answer to `project_type` using the table below. The Q1 "mobile app" row in the project_type table uses this answer to pick the right key.
+Ask only the returned follow-ups. Do not run a long fixed questionnaire. Today
+the helper asks for a mobile target only when the user said "mobile" without
+naming iOS, Android, React Native, or Flutter; it asks for core data objects
+only for backend/API-style projects that have no data-model signal yet.
 
-Map answers to domain and agent suggestions using these rules. Evaluate all three answers together:
+Finally normalize the answers and keep the returned `intent` with the rest of
+the confirmed setup values:
+
+```bash
+tusk init-intent normalize --answers '<json object>'
+```
+
+Use the normalized `init_intent` as the durable source for later bootstrap
+planning. Its stable fields are: `audience`, `primary_workflows`, `platforms`,
+`stack_preferences`, `integrations`, `data_needs`, `quality_priorities`,
+`launch_target`, `non_goals`, `open_questions`, and `project_type`.
+
+Map answers to domain and agent suggestions using these rules. Evaluate the
+full intent record together:
 
 | Signal | Domain | Agent |
 |---|---|---|
@@ -137,7 +161,8 @@ Map answers to domain and agent suggestions using these rules. Evaluate all thre
 
 Always include `general` agent regardless of answers.
 
-Also derive a `project_type` key from question 1 (and the mobile follow-up, when Q1 = "mobile app") using this table and store it for Step 6:
+Also derive a `project_type` key from the intent record using this table and
+store it for Step 6:
 
 | Answer | `project_type` |
 |---|---|

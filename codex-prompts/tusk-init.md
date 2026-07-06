@@ -55,6 +55,7 @@ tusk init-wizard --non-interactive \
   --task-types '["bug","feature","docs"]' \
   --test-command 'pytest -q' \
   --project-type python_service \
+  --init-intent '{"audience":"Partner systems","primary_workflows":["ingest webhook"],"platforms":["backend"],"stack_preferences":["FastAPI"],"integrations":["Stripe"],"data_needs":["events"],"quality_priorities":["observability"],"launch_target":null,"non_goals":[],"open_questions":[],"project_type":"python_service"}' \
   --worktree-symlink-files '[".venv",".env"]'
 ```
 
@@ -64,7 +65,32 @@ tusk init-wizard --non-interactive \
 > description **string**, not name → dict. Passing `{"backend":{"model":"sonnet"}}`
 > fails validation.
 
-### 2c: Domains, agents, project type
+> **Intent value shape:** `--init-intent` should be the normalized object from
+> `tusk init-intent normalize`, not a transcript. The stable fields are
+> `audience`, `primary_workflows`, `platforms`, `stack_preferences`,
+> `integrations`, `data_needs`, `quality_priorities`, `launch_target`,
+> `non_goals`, `open_questions`, and `project_type`.
+
+### 2c: Fresh-project intent interview
+
+When the wizard finds no codebase signals, it asks intent questions before
+domain, agent, project type, or scaffold choices. If you need to advise the
+user outside the interactive wizard, use the same helper contract:
+
+```bash
+tusk init-intent questions
+tusk init-intent follow-ups --answers '<json object from answers so far>'
+tusk init-intent normalize --answers '<json object>'
+```
+
+Ask the base questions first: audience/problem, first end-to-end workflows,
+launch platforms, stack preferences, integrations, and quality priorities.
+Then ask only the conditional follow-ups returned by `follow-ups`; do not
+expand this into a long fixed questionnaire. Pass the normalized result to
+`tusk init-wizard --init-intent` or include it in the eventual
+`tusk init-write-config` call.
+
+### 2d: Domains, agents, project type
 
 Suggested mappings (the wizard auto-derives these from codebase signals; use
 them only if you need to advise the user during interactive mode):
