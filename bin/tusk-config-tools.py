@@ -41,7 +41,7 @@ def cmd_validate(config_path: str) -> int:
     errors = []
 
     # ── Check for unknown top-level keys ──
-    KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'complexity', 'blocker_types', 'criterion_types', 'workflows', 'agents', 'dupes', 'review', 'review_categories', 'review_severities', 'merge', 'retro', 'worktree', 'scope', 'test_command', 'test_command_timeout_sec', 'baseline_min_sample_size', 'domain_test_commands', 'path_test_commands', 'project_type', 'project_libs', 'issue_scoring', 'report_tusk_issue_footer'}
+    KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'complexity', 'blocker_types', 'criterion_types', 'workflows', 'agents', 'dupes', 'review', 'review_categories', 'review_severities', 'merge', 'retro', 'worktree', 'scope', 'test_command', 'test_command_timeout_sec', 'baseline_min_sample_size', 'domain_test_commands', 'path_test_commands', 'init_intent', 'project_type', 'project_libs', 'issue_scoring', 'report_tusk_issue_footer'}
     known_list = ', '.join(sorted(KNOWN_KEYS))
     unknown = set(cfg.keys()) - KNOWN_KEYS
     if unknown:
@@ -86,6 +86,52 @@ def cmd_validate(config_path: str) -> int:
             for k, v in agents.items():
                 if not isinstance(v, str):
                     errors.append(f'"agents.{k}" value must be a string (got {type(v).__name__}: {v!r}).')
+
+    # ── Validate init_intent (optional normalized fresh-project interview record) ──
+    if 'init_intent' in cfg and cfg['init_intent'] is not None:
+        init_intent = cfg['init_intent']
+        if not isinstance(init_intent, dict):
+            errors.append(f'"init_intent" must be an object or null (got {type(init_intent).__name__}).')
+        else:
+            intent_keys = {
+                'audience',
+                'primary_workflows',
+                'platforms',
+                'stack_preferences',
+                'integrations',
+                'data_needs',
+                'quality_priorities',
+                'launch_target',
+                'non_goals',
+                'open_questions',
+                'project_type',
+            }
+            unknown_intent = set(init_intent.keys()) - intent_keys
+            if unknown_intent:
+                known_intent_list = ', '.join(sorted(intent_keys))
+                for k in sorted(unknown_intent):
+                    errors.append(f'Unknown key "init_intent.{k}". Valid init_intent keys: {known_intent_list}')
+            for key in ('audience', 'launch_target', 'project_type'):
+                if key in init_intent and init_intent[key] is not None and not isinstance(init_intent[key], str):
+                    errors.append(f'"init_intent.{key}" must be a string or null (got {type(init_intent[key]).__name__}).')
+            for key in (
+                'primary_workflows',
+                'platforms',
+                'stack_preferences',
+                'integrations',
+                'data_needs',
+                'quality_priorities',
+                'non_goals',
+                'open_questions',
+            ):
+                if key in init_intent:
+                    val = init_intent[key]
+                    if not isinstance(val, list):
+                        errors.append(f'"init_intent.{key}" must be a list (got {type(val).__name__}).')
+                    else:
+                        for i, item in enumerate(val):
+                            if not isinstance(item, str):
+                                errors.append(f'"init_intent.{key}[{i}]" must be a string (got {type(item).__name__}: {item!r}).')
 
     # ── Validate dupes (object with specific sub-keys) ──
     if 'dupes' in cfg:

@@ -30,6 +30,7 @@ Config flags (pass only what you want to override — other keys carry forward):
     --task-types <json_array>    JSON array of task type names
     --test-command <string>      Test command (empty string clears)
     --project-type <string>      Project type key (empty string clears)
+    --init-intent <json_object>  Normalized intent record from `tusk init-intent normalize`
     --project-libs <json_object> JSON object {name: {repo, ref}}
     --worktree-symlink-files <json_array>
                                  JSON array of basenames to auto-symlink from the
@@ -315,6 +316,9 @@ def _non_interactive_collect(scan: dict, test_detect: dict, overrides: dict, aut
     if "project_type" in overrides:
         picked["project_type"] = overrides["project_type"]
 
+    if "init_intent" in overrides:
+        picked["init_intent"] = overrides["init_intent"]
+
     if "project_libs" in overrides:
         picked["project_libs"] = overrides["project_libs"]
 
@@ -338,6 +342,8 @@ def _apply_write_config(picked: dict) -> dict:
         cmd += ["--test-command", picked["test_command"]]
     if "project_type" in picked:
         cmd += ["--project-type", picked["project_type"]]
+    if "init_intent" in picked:
+        cmd += ["--init-intent", json.dumps(picked["init_intent"])]
     if "project_libs" in picked:
         cmd += ["--project-libs", json.dumps(picked["project_libs"])]
     if "worktree_symlink_files" in picked:
@@ -476,6 +482,7 @@ def main():
     parser.add_argument("--task-types", default=None, dest="task_types")
     parser.add_argument("--test-command", default=None, dest="test_command")
     parser.add_argument("--project-type", default=None, dest="project_type")
+    parser.add_argument("--init-intent", default=None, dest="init_intent")
     parser.add_argument("--project-libs", default=None, dest="project_libs")
     parser.add_argument(
         "--worktree-symlink-files",
@@ -514,6 +521,10 @@ def main():
         overrides["test_command"] = args.test_command
     if args.project_type is not None:
         overrides["project_type"] = args.project_type
+    if args.init_intent is not None:
+        overrides["init_intent"] = _parse_json_arg(
+            "init-intent", args.init_intent, dict, "object"
+        )
     if args.project_libs is not None:
         overrides["project_libs"] = _parse_json_arg(
             "project-libs", args.project_libs, dict, "object"

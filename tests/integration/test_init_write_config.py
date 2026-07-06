@@ -79,6 +79,37 @@ def test_android_app_project_type_round_trips(initialised_project):
     )
 
 
+def test_init_intent_persists_without_breaking_project_type_defaults(initialised_project):
+    intent = {
+        "audience": "Operations teams",
+        "primary_workflows": ["triage alerts", "assign incidents"],
+        "platforms": ["web"],
+        "stack_preferences": ["Next.js", "Python"],
+        "integrations": ["Slack"],
+        "data_needs": ["incidents", "owners"],
+        "quality_priorities": ["auditability"],
+        "launch_target": "internal pilot",
+        "non_goals": ["public signup"],
+        "open_questions": ["PagerDuty or native schedules?"],
+        "project_type": "python_service",
+    }
+
+    result = _run(
+        initialised_project,
+        "init-write-config",
+        "--project-type",
+        "python_service",
+        "--init-intent",
+        json.dumps(intent),
+    )
+
+    assert result.returncode == 0, f"init-write-config failed:\n{result.stderr}"
+    cfg = _read_config(initialised_project)
+    assert cfg["project_type"] == "python_service"
+    assert "python_service" in cfg["project_libs"]
+    assert cfg["init_intent"] == intent
+
+
 def test_python_service_seeds_symlink_files_default(initialised_project):
     """`--project-type python_service` (without --worktree-symlink-files) seeds
     `worktree.symlink_files` to [".venv", ".env"] — the canonical Python-service

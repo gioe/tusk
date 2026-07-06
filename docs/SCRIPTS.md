@@ -66,6 +66,19 @@ require it).
 |------|---------------|-------|--------|
 | **tusk-deps.py** | `tusk deps add\|remove\|list\|dependents\|blocked\|ready\|all [flags]` | `task_dependencies`, `tasks` | `task_dependencies` (add/remove); DFS cycle detection on add |
 
+### Init Helpers
+
+| File | CLI command(s) | Reads | Writes |
+|------|---------------|-------|--------|
+| **tusk-init-intent.py** | `tusk init-intent normalize --answers '<json>'` | raw JSON answers | nothing; emits normalized `init_intent` JSON |
+| **tusk-init-write-config.py** | `tusk init-write-config [flags]` | `tusk/config.json`, `config.default.json` | `tusk/config.json`; validation triggers via `tusk regen-triggers` |
+| **tusk-init-wizard.py** | `tusk init-wizard [flags]` | config, codebase scan, test detection, bootstrap manifests | config, optional scaffold files, optional seeded tasks |
+| **tusk-init-scaffold.py** | `tusk init-scaffold --spec '<json>'` | install mode and scaffold spec | directories, `.gitkeep`, routing stubs |
+| **tusk-init-fetch-bootstrap.py** | `tusk init-fetch-bootstrap` | `project_libs` config, remote `tusk-bootstrap.json` manifests | nothing |
+| **tusk-init-write-manifest-files.py** | `tusk init-write-manifest-files --spec '<json>'` | manifest file spec | create-only files and append-if-missing snippets |
+| **tusk-init-scan-codebase.py** | `tusk init-scan-codebase` | manifests and repo directories | nothing |
+| **tusk-init-scan-todos.py** | `tusk init-scan-todos` | source comments | nothing |
+
 ### Backlog Management
 
 | File | CLI command(s) | Reads | Writes |

@@ -28,6 +28,7 @@ Options:
     --task-types <json_array>             JSON array of task type strings, e.g. '["bug","feature"]'
     --test-command <string>               Test command string, or empty string to clear
     --project-type <string>               Project type identifier, or empty string to set null
+    --init-intent <json_object>           Normalized project-intent record from tusk init-intent
     --project-libs <json_object>          JSON object mapping lib name to {repo, ref}, e.g. '{"ios_app":{"repo":"gioe/ios-libs","ref":"main"}}'
     --worktree-symlink-files <json_array> JSON array of basenames to auto-symlink from the primary checkout into new task worktrees, e.g. '[".venv",".env"]'
 
@@ -63,6 +64,7 @@ def main():
     parser.add_argument("--task-types", default=None)
     parser.add_argument("--test-command", default=None)
     parser.add_argument("--project-type", default=None)
+    parser.add_argument("--init-intent", default=None)
     parser.add_argument("--project-libs", default=None)
     parser.add_argument("--worktree-symlink-files", default=None)
     args, _ = parser.parse_known_args(sys.argv[3:])
@@ -160,6 +162,27 @@ def main():
 
     if args.project_type is not None:
         updates["project_type"] = args.project_type if args.project_type != "" else None
+
+    if args.init_intent is not None:
+        try:
+            init_intent = json.loads(args.init_intent)
+        except json.JSONDecodeError as e:
+            print(dumps({
+                "success": False,
+                "config_path": config_path,
+                "backed_up": False,
+                "error": f"--init-intent is not valid JSON: {e}",
+            }))
+            return
+        if not isinstance(init_intent, dict):
+            print(dumps({
+                "success": False,
+                "config_path": config_path,
+                "backed_up": False,
+                "error": "--init-intent must be a JSON object",
+            }))
+            return
+        updates["init_intent"] = init_intent
 
     if args.project_libs is not None:
         try:

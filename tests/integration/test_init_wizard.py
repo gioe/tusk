@@ -136,6 +136,40 @@ def test_project_type_auto_populates_project_libs(codex_like_project):
     assert "python_service" in cfg.get("project_libs", {}), cfg.get("project_libs")
 
 
+def test_init_wizard_persists_init_intent(codex_like_project):
+    intent = {
+        "audience": "Field technicians",
+        "primary_workflows": ["capture inspection", "sync report"],
+        "platforms": ["ios"],
+        "stack_preferences": ["SwiftUI"],
+        "integrations": [],
+        "data_needs": ["inspections"],
+        "quality_priorities": ["offline support"],
+        "launch_target": None,
+        "non_goals": [],
+        "open_questions": [],
+        "project_type": "ios_app",
+    }
+
+    result = _run(
+        codex_like_project,
+        "--non-interactive",
+        "--no-auto-scan",
+        "--project-type",
+        "ios_app",
+        "--init-intent",
+        json.dumps(intent),
+    )
+
+    assert result.returncode == 0, f"wizard failed:\n{result.stderr}"
+    payload = json.loads(result.stdout)
+    assert payload["success"] is True
+
+    cfg = _read_config(codex_like_project)
+    assert cfg["project_type"] == "ios_app"
+    assert cfg["init_intent"] == intent
+
+
 def test_invalid_json_flag_reports_error_without_mutation(codex_like_project):
     """Bad JSON in a config flag produces success=false with a clear error and
     does not touch tusk/config.json."""

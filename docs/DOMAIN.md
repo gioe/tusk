@@ -878,6 +878,7 @@ Non-enum config keys that control runtime behavior (not column validation). All 
 
 | Key | Type | Default | Purpose |
 |-----|------|---------|---------|
+| `init_intent` | `object \| null` | `null` | Normalized project-intent record captured during `tusk-init`. Stable fields are `audience`, `primary_workflows`, `platforms`, `stack_preferences`, `integrations`, `data_needs`, `quality_priorities`, `launch_target`, `non_goals`, `open_questions`, and `project_type`. Later bootstrap planning can read this durable handoff instead of relying on the original setup conversation. |
 | `project_type` | `string \| null` | `null` | Selects the active entry in `project_libs`. Set by `/tusk-init` based on the project category (e.g. `ios_app`, `python_service`). `null` means no bootstrap seeding. |
 | `project_libs` | `object` | (examples) | Maps project-type keys to `{ repo, ref }` objects. `repo` is an owner/name GitHub repo path; `ref` is a branch, tag, or commit SHA pinning which `tusk-bootstrap.json` to fetch. |
 | `test_command` | `string` | `""` | Shell command used by `tusk commit` to run tests before committing. Empty string disables test gating. |

@@ -99,7 +99,8 @@ bin/tusk skill-patch-priority <task_id> [--apply] [--format json|text]   # → c
 bin/tusk test-detect               # → {"command": "<cmd>", "confidence": "high|medium|low|none"}
 bin/tusk add-lib [--lib <name>] [--repo <owner/repo>] [--ref <branch|tag|sha>]  # → {"lib": "<name>", "tasks": [...], "error": null}
 bin/tusk init-fetch-bootstrap      # → {"libs": [{name, repo, tasks, error}, ...]}
-bin/tusk init-write-config [--domains <json>] [--agents <json>] [--task-types <json>] [--test-command <cmd>] [--project-type <type>] [--project-libs <json>] [--worktree-symlink-files <json>]  # → {"success": bool, "config_path": "...", "backed_up": bool}
+bin/tusk init-intent normalize --answers <json>  # → {"success": true, "intent": {...}} normalized project intent for tusk-init
+bin/tusk init-write-config [--domains <json>] [--agents <json>] [--task-types <json>] [--test-command <cmd>] [--project-type <type>] [--init-intent <json>] [--project-libs <json>] [--worktree-symlink-files <json>]  # → {"success": bool, "config_path": "...", "backed_up": bool}
 bin/tusk git-default-branch        # → prints default branch name (e.g. "main"); symbolic-ref → gh fallback → "main"
 bin/tusk branch-parse [--branch <name>]  # → {"task_id": N}; parses task ID from current or named branch
 bin/tusk sql-quote "O'Reilly's book"   # → 'O''Reilly''s book'
