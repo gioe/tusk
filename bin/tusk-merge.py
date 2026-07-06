@@ -30,6 +30,7 @@ Default behavior (merge.mode = local):
   Requires --pr-number.
 """
 
+import fnmatch
 import json
 import os
 import re
@@ -1895,6 +1896,156 @@ def _guard_no_open_completion_criteria(db_path: str, task_id: int) -> int:
         return 0
     print(_format_open_completion_criteria_error(task_id, rows), file=sys.stderr)
     return 2
+
+
+def _completed_typed_criteria_without_verification(
+    conn: sqlite3.Connection, task_id: int
+) -> list[sqlite3.Row]:
+    try:
+        return conn.execute(
+            """
+            SELECT id, criterion, criterion_type
+            FROM acceptance_criteria
+            WHERE task_id = ?
+              AND COALESCE(is_completed, 0) = 1
+              AND COALESCE(criterion_type, 'manual') <> 'manual'
+              AND NULLIF(TRIM(COALESCE(verification_result, '')), '') IS NULL
+            ORDER BY id
+            """,
+            (task_id,),
+        ).fetchall()
+    except sqlite3.OperationalError as exc:
+        missing = (
+            "no such table: acceptance_criteria" in str(exc)
+            or "no such column:" in str(exc)
+        )
+        if missing:
+            return []
+        raise
+    except StopIteration:
+        return []
+
+
+def _recorded_scope_patterns(
+    conn: sqlite3.Connection, task_id: int
+) -> tuple[list[str], bool]:
+    try:
+        rows = conn.execute(
+            "SELECT pattern, source FROM task_scope WHERE task_id = ? ORDER BY id",
+            (task_id,),
+        ).fetchall()
+    except sqlite3.OperationalError as exc:
+        if "no such table: task_scope" not in str(exc):
+            raise
+        rows = []
+    except StopIteration:
+        rows = []
+
+    if rows:
+        if any(row["source"] == "unbounded" for row in rows):
+            return [], True
+        patterns = []
+        seen = set()
+        for row in rows:
+            pattern = (row["pattern"] or "").strip()
+            if pattern and pattern not in seen:
+                seen.add(pattern)
+                patterns.append(pattern)
+        return patterns, False
+
+    try:
+        return list(task_referenced_paths(task_id, conn)), False
+    except sqlite3.OperationalError:
+        return [], False
+    except StopIteration:
+        return [], False
+
+
+def _path_matches_scope(path: str, patterns: list[str]) -> bool:
+    for pattern in patterns:
+        normalized = pattern.strip().rstrip("/")
+        if not normalized:
+            continue
+        if path == normalized or path.startswith(f"{normalized}/"):
+            return True
+        if fnmatch.fnmatch(path, normalized):
+            return True
+    return False
+
+
+def _spec_drift_advisory_lines(
+    conn: sqlite3.Connection, task_id: int, changed_files: list[str]
+) -> list[str]:
+    unevidenced = _completed_typed_criteria_without_verification(conn, task_id)
+    patterns, unbounded = _recorded_scope_patterns(conn, task_id)
+    outside_scope: list[str] = []
+    if changed_files and patterns and not unbounded:
+        outside_scope = [
+            path for path in changed_files if not _path_matches_scope(path, patterns)
+        ]
+
+    if not unevidenced and not outside_scope:
+        return []
+
+    lines = [
+        f"Warning: TASK-{task_id} may have spec drift. This advisory does not block merge.",
+    ]
+    if unevidenced:
+        shown = unevidenced[:10]
+        lines.append(
+            "  Completed typed criteria without verification evidence "
+            f"({len(unevidenced)}):"
+        )
+        for row in shown:
+            lines.append(f"    [{row['id']}] {row['criterion_type']}: {row['criterion']}")
+        if len(unevidenced) > len(shown):
+            lines.append(f"    ... and {len(unevidenced) - len(shown)} more")
+    if outside_scope:
+        shown_files = outside_scope[:10]
+        lines.append(
+            "  Changed files outside recorded task scope or criteria references "
+            f"({len(outside_scope)}):"
+        )
+        for path in shown_files:
+            lines.append(f"    {path}")
+        if len(outside_scope) > len(shown_files):
+            lines.append(f"    ... and {len(outside_scope) - len(shown_files)} more")
+    return lines
+
+
+def _branch_changed_files(branch_name: str, default_branch: str) -> list[str]:
+    base = run(["git", "merge-base", branch_name, f"origin/{default_branch}"], check=False)
+    if base.returncode != 0 or not base.stdout.strip():
+        base = run(["git", "merge-base", branch_name, default_branch], check=False)
+    if base.returncode != 0 or not base.stdout.strip():
+        return []
+    diff = run(
+        ["git", "diff", "--name-only", f"{base.stdout.strip()}..{branch_name}"],
+        check=False,
+    )
+    if diff.returncode != 0:
+        return []
+    return [line.strip() for line in diff.stdout.splitlines() if line.strip()]
+
+
+def _emit_spec_drift_advisory(
+    db_path: str, task_id: int, branch_name: str, default_branch: str
+) -> None:
+    changed_files = _branch_changed_files(branch_name, default_branch)
+    try:
+        conn = get_connection(db_path)
+        try:
+            lines = _spec_drift_advisory_lines(conn, task_id, changed_files)
+        finally:
+            conn.close()
+    except sqlite3.Error as exc:
+        print(
+            f"Warning: Could not evaluate spec drift advisory for TASK-{task_id}: {exc}",
+            file=sys.stderr,
+        )
+        return
+    if lines:
+        print("\n".join(lines), file=sys.stderr)
 
 
 def _task_done_refused_already_done(result: subprocess.CompletedProcess) -> bool:
@@ -3875,12 +4026,18 @@ def main(argv: list[str]) -> int:
     )
     if lint_rc != 0:
         return lint_rc
+    advisory_default_branch = detect_default_branch()
+    _emit_spec_drift_advisory(
+        _db_path,
+        task_id,
+        branch_name,
+        advisory_default_branch,
+    )
 
-    default_branch = None
+    default_branch = advisory_default_branch
     has_origin = None
     session_close_extra_args: list[str] = []
     if not use_pr:
-        default_branch = detect_default_branch()
         has_origin = _has_remote()
         locked_default_path = _worktree_path_for_branch(default_branch)
         if locked_default_path:
