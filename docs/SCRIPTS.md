@@ -126,7 +126,19 @@ Transcript discovery for session, review, criterion, call-breakdown, and skill-r
 | **tusk-sync-skills.py** | `tusk sync-skills` | `skills/`, `skills-internal/` | `.claude/skills/` (recreates symlinks) |
 | **tusk-reconcile-skills.py** | `tusk reconcile-skills [--source-dir <p>] [--dry-run] [--quiet] [--json]` | `tusk/config.json:project_type`, source `skills/` (local or `--source-dir`) | installs / removes `applies_to_project_types`-gated entries under `.claude/skills/` to match the current `project_type` |
 | **tusk-upgrade.py** | `tusk upgrade [--no-commit] [--force]` | GitHub releases tarball, `VERSION` | copies updated files to `.claude/bin/` and `.claude/skills/`; runs `tusk migrate` |
-| **tusk-sync-main.py** | `tusk sync-main` | `origin` git refs, working tree | git working tree (fetch + ff-only pull of `origin/<default>` + stash-by-ref + pop); runs `tusk migrate`. Recovery helper for `/address-issue` Step 4.6 staleness check |
+| **tusk-sync-main.py** | `tusk sync-main` | `origin` git refs, working tree | git working tree (fetch + ff-only pull of `origin/<default>` + stash-by-ref + pop); runs `tusk migrate` only after post-pop safety checks pass. Recovery helper for `/address-issue` Step 4.6 staleness check |
+
+#### `tusk sync-main` stale snapshot guard
+
+When `tusk sync-main` stashes local changes, fast-forwards the default branch,
+and then successfully pops the stash, it runs a post-pop stale snapshot guard
+before invoking `tusk migrate`. The guard compares dirty paths touched by the
+incoming commits against both the pre-sync HEAD and the fast-forwarded HEAD.
+If a popped path now matches the pre-sync blob while the new HEAD has newer
+content, `sync-main` stops with an accidental-revert warning that names the
+stale path(s). At that point the fast-forward and stash pop have already
+succeeded, but migrations have not run; inspect the named files and restore any
+stale content before committing or rerunning `tusk migrate`.
 
 ---
 
