@@ -75,6 +75,95 @@ _DEFER_TRIGGER_RE = re.compile(
     re.IGNORECASE,
 )
 
+_SPEC_RIGOR_VERIFICATION_COMPLEXITIES = frozenset({"M", "L", "XL"})
+_SPEC_RIGOR_CONTEXT_COMPLEXITIES = frozenset({"L", "XL"})
+
+
+def _single_int(conn: sqlite3.Connection, query: str, params: tuple = ()) -> int | None:
+    """Return a scalar count, or None when an optional table is unavailable."""
+    try:
+        row = conn.execute(query, params).fetchone()
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc) or "no such column" in str(exc):
+            return None
+        raise
+    return int(row[0]) if row is not None else 0
+
+
+def _task_complexity(conn: sqlite3.Connection, task_id: int) -> str | None:
+    try:
+        row = conn.execute(
+            "SELECT complexity FROM tasks WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+    except sqlite3.OperationalError as exc:
+        if "no such column" in str(exc):
+            return None
+        raise
+    return row["complexity"] if row else None
+
+
+def _spec_rigor_advisory_lines(conn: sqlite3.Connection, task_id: int) -> list[str]:
+    """Return proportional spec-readiness warnings for task-start.
+
+    This is deliberately advisory. Small tasks should not gain ceremony; larger
+    tasks get lightweight reminders when the durable handoff lacks verification,
+    objective, or risk/assumption/decision signals.
+    """
+    complexity = _task_complexity(conn, task_id)
+    if complexity not in _SPEC_RIGOR_VERIFICATION_COMPLEXITIES:
+        return []
+
+    lines: list[str] = []
+    verification_count = _single_int(
+        conn,
+        """
+        SELECT COUNT(*)
+        FROM acceptance_criteria
+        WHERE task_id = ?
+          AND COALESCE(is_deferred, 0) = 0
+          AND verification_spec IS NOT NULL
+          AND TRIM(verification_spec) <> ''
+        """,
+        (task_id,),
+    )
+    if verification_count == 0:
+        lines.append(
+            f"{complexity} task has no verification-backed criteria; add typed "
+            "criteria specs when the proof can be executed or inspected."
+        )
+
+    if complexity in _SPEC_RIGOR_CONTEXT_COMPLEXITIES:
+        objective_count = _single_int(
+            conn,
+            "SELECT COUNT(*) FROM objective_tasks WHERE task_id = ?",
+            (task_id,),
+        )
+        if objective_count == 0:
+            lines.append(
+                f"{complexity} task is not linked to an objective; large work "
+                "should preserve the higher-level intent when one exists."
+            )
+
+        context_count = _single_int(
+            conn,
+            """
+            SELECT COUNT(*)
+            FROM task_context_items
+            WHERE task_id = ?
+              AND status = 'active'
+              AND item_type IN ('risk', 'assumption', 'decision')
+            """,
+            (task_id,),
+        )
+        if context_count == 0:
+            lines.append(
+                f"{complexity} task has no active risk, assumption, or decision "
+                "context; capture durable context before pickup when relevant."
+            )
+
+    return lines
+
 
 def _stem_token(word: str) -> str:
     """Crude suffix stripping so "cache"/"caching" and "typo"/"typos" collide.
@@ -927,6 +1016,12 @@ def main(argv: list[str]) -> int:
                 f"completion; run tusk check-deliverables {task_id} before implementing",
                 file=sys.stderr,
             )
+
+        spec_rigor_lines = _spec_rigor_advisory_lines(conn, task_id)
+        if spec_rigor_lines:
+            print("Warning: progressive spec rigor advisory:", file=sys.stderr)
+            for line in spec_rigor_lines:
+                print(f"  {line}", file=sys.stderr)
 
         # Convergence-recency hint (issue #1048): surface commits touching files
         # named in this task's description/criteria that landed near its filing
