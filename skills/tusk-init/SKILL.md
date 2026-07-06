@@ -144,6 +144,26 @@ planning. Its stable fields are: `audience`, `primary_workflows`, `platforms`,
 `stack_preferences`, `integrations`, `data_needs`, `quality_priorities`,
 `launch_target`, `non_goals`, `open_questions`, and `project_type`.
 
+Infer the project archetype before proposing routing or scaffolding defaults:
+
+```bash
+tusk init-intent archetype \
+  --answers '<normalized intent json>' \
+  --scan '<init-scan-codebase json, when available>'
+```
+
+Surface the returned `label` and concise `rationale` to the user before using
+the defaults:
+
+> Inferred archetype: **B2B dashboard** — B2B/dashboard workflow and integration signal found; Integrations: Salesforce, Okta.
+
+Ask whether to accept it or override with one of the known IDs:
+`consumer_ios_app`, `internal_tool`, `b2b_dashboard`, `api_service`,
+`content_site`, `library`, `data_pipeline`, `monorepo`, or `ambiguous`.
+If the user overrides, rerun the helper with `--override <id>`. Keep the
+normalized `init_intent` unchanged; the archetype only drives defaults for
+domains, agents, pillars, utility modules, and first vertical-slice tasks.
+
 Map answers to domain and agent suggestions using these rules. Evaluate the
 full intent record together:
 

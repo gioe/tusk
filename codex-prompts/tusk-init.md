@@ -81,6 +81,7 @@ user outside the interactive wizard, use the same helper contract:
 tusk init-intent questions
 tusk init-intent follow-ups --answers '<json object from answers so far>'
 tusk init-intent normalize --answers '<json object>'
+tusk init-intent archetype --answers '<normalized intent json>' --scan '<scan json when available>'
 ```
 
 Ask the base questions first: audience/problem, first end-to-end workflows,
@@ -89,6 +90,14 @@ Then ask only the conditional follow-ups returned by `follow-ups`; do not
 expand this into a long fixed questionnaire. Pass the normalized result to
 `tusk init-wizard --init-intent` or include it in the eventual
 `tusk init-write-config` call.
+
+Before using inferred defaults, surface the archetype recommendation and its
+rationale. Let the user accept it or override with a known ID:
+`consumer_ios_app`, `internal_tool`, `b2b_dashboard`, `api_service`,
+`content_site`, `library`, `data_pipeline`, `monorepo`, or `ambiguous`.
+The override changes the default domains, agents, project type, pillar hints,
+utility modules, and first vertical-slice task hints, but it must not rewrite
+the normalized `init_intent` answers.
 
 ### 2d: Domains, agents, project type
 

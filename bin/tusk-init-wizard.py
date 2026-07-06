@@ -250,6 +250,19 @@ def _interactive_collect_intent() -> dict:
     return intent_helper.normalize_intent(answers)
 
 
+def _interactive_confirm_archetype(intent: dict, scan: dict) -> dict:
+    intent_helper = _load_intent_helper()
+    inferred = intent_helper.infer_archetype(intent, scan=scan)
+    print(f"Inferred archetype: {inferred['label']} — {inferred['rationale']}")
+    answer = _prompt("Archetype (press enter to accept, or type an override id)", default=inferred["id"])
+    if answer != inferred["id"]:
+        try:
+            inferred = intent_helper.infer_archetype(intent, scan=scan, override=answer)
+        except ValueError:
+            print(f"Unknown archetype '{answer}', keeping {inferred['id']}.")
+    return inferred
+
+
 def _interactive_collect(scan: dict, test_detect: dict, overrides: dict) -> dict:
     """Walk the user through confirming each config value. Returns a dict with
     the keys that should be passed to init-write-config (only those actually
@@ -258,8 +271,11 @@ def _interactive_collect(scan: dict, test_detect: dict, overrides: dict) -> dict
 
     print("Detected manifests:", ", ".join(scan.get("manifests") or []) or "(none)")
     proposed_domains = [d["name"] for d in scan.get("detected_domains") or []]
+    inferred_archetype = None
     if not proposed_domains and "init_intent" not in overrides:
         picked["init_intent"] = _interactive_collect_intent()
+        inferred_archetype = _interactive_confirm_archetype(picked["init_intent"], scan)
+        proposed_domains = list(inferred_archetype.get("domains") or [])
 
     if "domains" in overrides:
         picked["domains"] = overrides["domains"]
@@ -306,7 +322,7 @@ def _interactive_collect(scan: dict, test_detect: dict, overrides: dict) -> dict
     else:
         answer = _prompt(
             "Project type (e.g. ios_app, python_service; empty = none)",
-            default="",
+            default=(inferred_archetype or {}).get("project_type") or "",
         )
         picked["project_type"] = answer
 
