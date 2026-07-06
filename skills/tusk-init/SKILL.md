@@ -518,11 +518,34 @@ This reads `project_libs` from config, fetches each lib's `tusk-bootstrap.json` 
 ```json
 {
   "libs": [
-    { "name": "ios_app", "repo": "gioe/ios-libs", "tasks": [...], "manifest_files": [...], "error": null },
-    { "name": "bad_lib", "repo": "owner/repo", "tasks": [], "manifest_files": [], "error": "404: tusk-bootstrap.json not found" }
+    {
+      "name": "ios_app",
+      "repo": "gioe/ios-libs",
+      "manifest_schema_version": 2,
+      "tasks": [...],
+      "modules": [...],
+      "manifest_files": [...],
+      "error": null
+    },
+    {
+      "name": "bad_lib",
+      "repo": "owner/repo",
+      "manifest_schema_version": 1,
+      "tasks": [],
+      "modules": [],
+      "manifest_files": [],
+      "error": "404: tusk-bootstrap.json not found"
+    }
   ]
 }
 ```
+
+Legacy task-only manifests remain valid. Rich manifests may additionally return
+`modules`, where each module describes metadata, applicability rules,
+required/optional files, append operations, dependencies, pillar suggestions,
+glossary terms, context atoms, recommended tasks, and verification hints. This
+step currently surfaces module data for bootstrap planning; deterministic file
+writing still uses the top-level `manifest_files` block below.
 
 If `libs` is empty, skip this step silently.
 

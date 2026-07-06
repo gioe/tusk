@@ -14,20 +14,24 @@ Output (JSON):
           "name": "ios_app",
           "repo": "gioe/ios-libs",
           "tasks": [...],
+          "modules": [...],
           "manifest_files": [...],
+          "manifest_schema_version": 2,
           "error": null
         },
         {
           "name": "bad_lib",
           "repo": "owner/repo",
           "tasks": [],
+          "modules": [],
           "manifest_files": [],
           "error": "404: tusk-bootstrap.json not found"
         }
       ]
     }
 
-Each lib entry always has: name, repo, tasks (list), manifest_files (list), error (str or null).
+Each lib entry always has: name, repo, tasks (list), modules (list),
+manifest_files (list), manifest_schema_version (int), error (str or null).
 """
 
 import base64
@@ -47,7 +51,16 @@ dumps = _json_lib.dumps
 
 REQUIRED_TOP_LEVEL = {"version", "project_type", "tasks"}
 REQUIRED_TASK_FIELDS = {"summary", "description", "priority", "task_type", "complexity", "criteria"}
+REQUIRED_MODULE_FIELDS = {"id", "name", "description"}
 VALID_MANIFEST_MODES = {"create_only", "append_if_missing"}
+VALID_APPLICABILITY_KEYS = {
+    "project_types",
+    "archetypes",
+    "platforms",
+    "requires",
+    "excludes",
+}
+VALID_CONTEXT_TYPES = {"memory", "assumption", "question", "risk", "decision", "entry_point"}
 
 
 def _fetch_bootstrap(repo: str, ref: str) -> tuple:
@@ -88,6 +101,143 @@ def _fetch_bootstrap(repo: str, ref: str) -> tuple:
     return data, None
 
 
+def _validate_task(task: dict, path: str) -> str | None:
+    if not isinstance(task, dict):
+        return f"{path} is not an object"
+    missing = REQUIRED_TASK_FIELDS - task.keys()
+    if missing:
+        return f"{path} missing required fields: {sorted(missing)}"
+    criteria = task.get("criteria")
+    if not isinstance(criteria, list) or len(criteria) == 0:
+        return f"{path}.criteria must be a non-empty array"
+    if any(not isinstance(c, str) for c in criteria):
+        return f"{path}.criteria must be an array of strings"
+    migration_hints = task.get("migration_hints")
+    if migration_hints is not None and (
+        not isinstance(migration_hints, list)
+        or any(not isinstance(h, str) for h in migration_hints)
+    ):
+        return f"{path}.migration_hints must be an array of strings"
+    return None
+
+
+def _validate_manifest_file(entry: dict, path: str) -> str | None:
+    if not isinstance(entry, dict):
+        return f"{path} is not an object"
+    if "path" not in entry:
+        return f"{path} missing required field 'path'"
+    path_err = validate_relative_path(entry["path"])
+    if path_err:
+        return f"{path}.path: {path_err}"
+    if "content" not in entry:
+        return f"{path} missing required field 'content'"
+    if not isinstance(entry["content"], str):
+        return f"{path}.content must be a string"
+    mode = entry.get("mode", "create_only")
+    if mode not in VALID_MANIFEST_MODES:
+        valid_list = sorted(VALID_MANIFEST_MODES)
+        return f"{path}.mode must be one of {valid_list}"
+    return None
+
+
+def _validate_string_array(value, path: str) -> str | None:
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        return f"{path} must be an array of strings"
+    return None
+
+
+def _validate_name_claim_array(value, path: str, *, name_key: str, value_key: str) -> str | None:
+    if not isinstance(value, list):
+        return f"{path} must be an array"
+    for i, item in enumerate(value):
+        item_path = f"{path}[{i}]"
+        if not isinstance(item, dict):
+            return f"{item_path} is not an object"
+        for key in (name_key, value_key):
+            if not isinstance(item.get(key), str) or not item[key].strip():
+                return f"{item_path}.{key} must be a non-empty string"
+    return None
+
+
+def _validate_context_atoms(value, path: str) -> str | None:
+    if not isinstance(value, list):
+        return f"{path} must be an array"
+    for i, item in enumerate(value):
+        item_path = f"{path}[{i}]"
+        if not isinstance(item, dict):
+            return f"{item_path} is not an object"
+        if item.get("type") not in VALID_CONTEXT_TYPES:
+            return f"{item_path}.type must be one of {sorted(VALID_CONTEXT_TYPES)}"
+        if not isinstance(item.get("content"), str) or not item["content"].strip():
+            return f"{item_path}.content must be a non-empty string"
+    return None
+
+
+def _validate_module(module: dict, path: str) -> str | None:
+    if not isinstance(module, dict):
+        return f"{path} is not an object"
+    missing = REQUIRED_MODULE_FIELDS - module.keys()
+    if missing:
+        return f"{path} missing required fields: {sorted(missing)}"
+    for key in REQUIRED_MODULE_FIELDS:
+        if not isinstance(module.get(key), str) or not module[key].strip():
+            return f"{path}.{key} must be a non-empty string"
+
+    applicability = module.get("applicability", {})
+    if not isinstance(applicability, dict):
+        return f"{path}.applicability must be an object"
+    unknown = set(applicability) - VALID_APPLICABILITY_KEYS
+    if unknown:
+        return f"{path}.applicability has unknown keys: {sorted(unknown)}"
+    for key, value in applicability.items():
+        err = _validate_string_array(value, f"{path}.applicability.{key}")
+        if err:
+            return err
+
+    for field in ("files", "optional_files", "append_operations"):
+        entries = module.get(field)
+        if entries is None:
+            continue
+        if not isinstance(entries, list):
+            return f"{path}.{field} must be an array"
+        for i, entry in enumerate(entries):
+            err = _validate_manifest_file(entry, f"{path}.{field}[{i}]")
+            if err:
+                return err
+
+    for field in ("dependencies", "verification_hints"):
+        if field in module:
+            err = _validate_string_array(module[field], f"{path}.{field}")
+            if err:
+                return err
+
+    if "pillars" in module:
+        err = _validate_name_claim_array(module["pillars"], f"{path}.pillars", name_key="name", value_key="claim")
+        if err:
+            return err
+
+    if "glossary" in module:
+        err = _validate_name_claim_array(module["glossary"], f"{path}.glossary", name_key="term", value_key="definition")
+        if err:
+            return err
+
+    if "context_atoms" in module:
+        err = _validate_context_atoms(module["context_atoms"], f"{path}.context_atoms")
+        if err:
+            return err
+
+    tasks = module.get("tasks")
+    if tasks is not None:
+        if not isinstance(tasks, list):
+            return f"{path}.tasks must be an array"
+        for i, task in enumerate(tasks):
+            err = _validate_task(task, f"{path}.tasks[{i}]")
+            if err:
+                return err
+
+    return None
+
+
 def _validate(data: dict) -> str | None:
     """Validate required keys. Returns error string or None."""
     if not isinstance(data, dict):
@@ -96,49 +246,50 @@ def _validate(data: dict) -> str | None:
     missing_top = REQUIRED_TOP_LEVEL - data.keys()
     if missing_top:
         return f"missing required keys: {sorted(missing_top)}"
+    manifest_schema_version = data.get("manifest_schema_version")
+    if manifest_schema_version is not None and not isinstance(manifest_schema_version, int):
+        return "manifest_schema_version must be an integer"
 
     tasks = data.get("tasks")
     if not isinstance(tasks, list):
         return "tasks must be an array"
 
     for i, task in enumerate(tasks):
-        if not isinstance(task, dict):
-            return f"tasks[{i}] is not an object"
-        missing = REQUIRED_TASK_FIELDS - task.keys()
-        if missing:
-            return f"tasks[{i}] missing required fields: {sorted(missing)}"
-        criteria = task.get("criteria")
-        if not isinstance(criteria, list) or len(criteria) == 0:
-            return f"tasks[{i}].criteria must be a non-empty array"
-        migration_hints = task.get("migration_hints")
-        if migration_hints is not None and (
-            not isinstance(migration_hints, list)
-            or any(not isinstance(h, str) for h in migration_hints)
-        ):
-            return f"tasks[{i}].migration_hints must be an array of strings"
+        err = _validate_task(task, f"tasks[{i}]")
+        if err:
+            return err
 
     manifest_files = data.get("manifest_files")
     if manifest_files is not None:
         if not isinstance(manifest_files, list):
             return "manifest_files must be an array"
         for i, entry in enumerate(manifest_files):
-            if not isinstance(entry, dict):
-                return f"manifest_files[{i}] is not an object"
-            if "path" not in entry:
-                return f"manifest_files[{i}] missing required field 'path'"
-            path_err = validate_relative_path(entry["path"])
-            if path_err:
-                return f"manifest_files[{i}].path: {path_err}"
-            if "content" not in entry:
-                return f"manifest_files[{i}] missing required field 'content'"
-            if not isinstance(entry["content"], str):
-                return f"manifest_files[{i}].content must be a string"
-            mode = entry.get("mode", "create_only")
-            if mode not in VALID_MANIFEST_MODES:
-                valid_list = sorted(VALID_MANIFEST_MODES)
-                return f"manifest_files[{i}].mode must be one of {valid_list}"
+            err = _validate_manifest_file(entry, f"manifest_files[{i}]")
+            if err:
+                return err
+
+    modules = data.get("modules")
+    if modules is not None:
+        if not isinstance(modules, list):
+            return "modules must be an array"
+        for i, module in enumerate(modules):
+            err = _validate_module(module, f"modules[{i}]")
+            if err:
+                return err
 
     return None
+
+
+def _empty_lib(name: str, repo: str, error: str) -> dict:
+    return {
+        "name": name,
+        "repo": repo,
+        "tasks": [],
+        "modules": [],
+        "manifest_files": [],
+        "manifest_schema_version": 1,
+        "error": error,
+    }
 
 
 def main():
@@ -167,24 +318,26 @@ def main():
         ref = lib_cfg.get("ref", "main")
 
         if not repo:
-            libs_out.append({"name": name, "repo": repo, "tasks": [], "manifest_files": [], "error": "missing repo in config"})
+            libs_out.append(_empty_lib(name, repo, "missing repo in config"))
             continue
 
         data, fetch_err = _fetch_bootstrap(repo, ref)
         if fetch_err:
-            libs_out.append({"name": name, "repo": repo, "tasks": [], "manifest_files": [], "error": fetch_err})
+            libs_out.append(_empty_lib(name, repo, fetch_err))
             continue
 
         val_err = _validate(data)
         if val_err:
-            libs_out.append({"name": name, "repo": repo, "tasks": [], "manifest_files": [], "error": f"invalid bootstrap: {val_err}"})
+            libs_out.append(_empty_lib(name, repo, f"invalid bootstrap: {val_err}"))
             continue
 
         libs_out.append({
             "name": name,
             "repo": repo,
             "tasks": data["tasks"],
+            "modules": data.get("modules") or [],
             "manifest_files": data.get("manifest_files") or [],
+            "manifest_schema_version": data.get("manifest_schema_version") or data.get("version") or 1,
             "error": None,
         })
 

@@ -896,6 +896,102 @@ Non-enum config keys that control runtime behavior (not column validation). All 
 
 **`tusk-bootstrap.json` task format:** Each task object requires `summary`, `description`, `priority`, `task_type`, `complexity`, and `criteria` (non-empty array of strings). An optional `migration_hints` field (array of strings) may also be present. When a task is seeded via `/tusk-init` Step 8.5, each `migration_hints` entry is injected as an additional acceptance criterion prefixed with `[Migration]` (e.g., `"[Migration] Remove any ad-hoc logging.basicConfig() calls"`). Tasks without `migration_hints` (or with an empty array) are seeded identically to the current behavior.
 
+**`tusk-bootstrap.json` schema versioning:** Legacy task-only manifests remain valid when they include `version`, `project_type`, and `tasks`. Rich bootstrap manifests may additionally set `manifest_schema_version: 2` and include a top-level `modules` array. `init-fetch-bootstrap` returns `manifest_schema_version` for each fetched lib, defaulting to the manifest's `version` or `1` when omitted, so callers can distinguish legacy task lists from module-aware bootstrap packs without breaking older utility repos.
+
+**`tusk-bootstrap.json` `modules` block (top-level, optional):**
+
+`modules` describes composable utility-repo building blocks. A module is not written or seeded automatically by `init-fetch-bootstrap`; it is validated and returned so `/tusk-init` and future bootstrap planners can present module choices, apply files, seed context, and create first vertical-slice tasks.
+
+Each module requires:
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `id` | `string` | Stable machine key used for dependencies and user override. |
+| `name` | `string` | Human-readable module name. |
+| `description` | `string` | One-sentence summary of what the module contributes. |
+
+Optional module fields:
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `applicability` | `object` | Rules for when this module should be suggested. Supported keys are `project_types`, `archetypes`, `platforms`, `requires`, and `excludes`; each value must be an array of strings. |
+| `files` | `array` | Required file specs using the same `{path, content, mode?}` contract as top-level `manifest_files`. |
+| `optional_files` | `array` | Optional file specs using the same writer contract; planners may offer these separately from required files. |
+| `append_operations` | `array` | Additional file specs using the same writer contract; intended for dependency lines, ignore patterns, and small config snippets. |
+| `dependencies` | `array<string>` | Other module IDs that should be applied first. |
+| `pillars` | `array<object>` | Design-pillar suggestions, each `{name, claim}`. |
+| `glossary` | `array<object>` | Glossary terms, each `{term, definition}`. |
+| `context_atoms` | `array<object>` | Context records to seed, each `{type, content}` where `type` is one of Tusk's context atom types. |
+| `tasks` | `array<object>` | Recommended task objects using the same required fields as top-level `tasks`. |
+| `verification_hints` | `array<string>` | Commands or manual checks the consuming project should run after applying the module. |
+
+Invalid module manifests are rejected as a whole with an actionable path such as `modules[0].files[0].path: path must not be absolute`; the returned lib entry has empty `tasks`, `modules`, and `manifest_files` with `error` set to `invalid bootstrap: ...`.
+
+**Minimal `tusk-bootstrap.json` example with modules:**
+
+```json
+{
+  "version": 1,
+  "manifest_schema_version": 2,
+  "project_type": "ios_app",
+  "tasks": [],
+  "modules": [
+    {
+      "id": "sharedkit",
+      "name": "SharedKit",
+      "description": "Shared SwiftUI design tokens and base components.",
+      "applicability": {
+        "project_types": ["ios_app"],
+        "archetypes": ["consumer_ios_app"],
+        "platforms": ["ios"],
+        "requires": ["SwiftUI"]
+      },
+      "files": [
+        {
+          "path": "Package.swift",
+          "content": "// Package skeleton\n",
+          "mode": "create_only"
+        }
+      ],
+      "optional_files": [
+        {
+          "path": "README.md",
+          "content": "# SharedKit\n"
+        }
+      ],
+      "append_operations": [
+        {
+          "path": ".gitignore",
+          "content": ".build/\n",
+          "mode": "append_if_missing"
+        }
+      ],
+      "dependencies": ["api-client"],
+      "pillars": [
+        {"name": "Native feel", "claim": "Use platform conventions before custom UI."}
+      ],
+      "glossary": [
+        {"term": "Design token", "definition": "A named reusable UI value."}
+      ],
+      "context_atoms": [
+        {"type": "decision", "content": "Use SharedKit for core UI primitives."}
+      ],
+      "tasks": [
+        {
+          "summary": "Add SharedKit",
+          "description": "Add the SharedKit package and wire base tokens.",
+          "priority": "High",
+          "task_type": "feature",
+          "complexity": "S",
+          "criteria": ["SharedKit is importable"]
+        }
+      ],
+      "verification_hints": ["Run swift test after adding the package."]
+    }
+  ]
+}
+```
+
 **`tusk-bootstrap.json` contributor guide — adding `migration_hints`:**
 
 `migration_hints` is intended for cleanup steps that a consuming project must perform *after* integrating the library — things that cannot be automated or verified by the library itself because they depend on the consuming project's existing code. Common examples: removing patterns the library replaces, ensuring conflicting packages are uninstalled, or verifying that old config files are deleted.

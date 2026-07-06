@@ -151,7 +151,8 @@ tusk pillars list
 
 `tusk init-write-config` auto-populates `project_libs` for known
 `project_type` values (`ios_app`, `python_service`). Each lib ships its own
-`tusk-bootstrap.json` with a curated task list.
+`tusk-bootstrap.json` with a curated task list and, for richer manifests,
+optional composable bootstrap modules.
 
 ```bash
 tusk init-fetch-bootstrap
@@ -162,8 +163,24 @@ Returns:
 ```json
 {
   "libs": [
-    { "name": "ios_app", "repo": "gioe/ios-libs", "tasks": [...], "error": null },
-    { "name": "bad_lib", "repo": "owner/repo", "tasks": [], "error": "404: ..." }
+    {
+      "name": "ios_app",
+      "repo": "gioe/ios-libs",
+      "manifest_schema_version": 2,
+      "tasks": [...],
+      "modules": [...],
+      "manifest_files": [...],
+      "error": null
+    },
+    {
+      "name": "bad_lib",
+      "repo": "owner/repo",
+      "manifest_schema_version": 1,
+      "tasks": [],
+      "modules": [],
+      "manifest_files": [],
+      "error": "404: ..."
+    }
   ]
 }
 ```
@@ -172,6 +189,12 @@ For each lib entry:
 
 - `error` non-null — print a one-line warning and skip:
   > Warning: could not fetch bootstrap for `<repo>` — `<error>`.
+- `error` null and `modules` non-empty — surface that module data was found.
+  Modules are validated bootstrap-pack metadata for future planning: they can
+  describe applicability rules, files, append operations, dependencies,
+  pillars, glossary terms, context atoms, recommended tasks, and verification
+  hints. Do not auto-apply module contents unless the current flow explicitly
+  asks for module selection.
 - `error` null and `tasks` non-empty — present the task list, ask **yes /
   no / pick**, then insert each chosen task:
   ```bash

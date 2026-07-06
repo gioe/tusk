@@ -6,7 +6,9 @@ Covers two extension blocks added to _validate():
 """
 
 import importlib.util
+import json
 import os
+import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SCRIPT = os.path.join(REPO_ROOT, "bin", "tusk-init-fetch-bootstrap.py")
@@ -35,6 +37,61 @@ def _valid_data(**overrides):
         "project_type": "ios_app",
         "tasks": [task],
     }
+
+
+def _valid_module(**overrides):
+    module = {
+        "id": "sharedkit",
+        "name": "SharedKit",
+        "description": "Shared SwiftUI design tokens and base components.",
+        "applicability": {
+            "project_types": ["ios_app"],
+            "archetypes": ["consumer_ios_app"],
+            "platforms": ["ios"],
+            "requires": ["SwiftUI"],
+        },
+        "files": [
+            {"path": "Package.swift", "content": "// package\n", "mode": "create_only"},
+        ],
+        "optional_files": [
+            {"path": "README.md", "content": "# SharedKit\n"},
+        ],
+        "append_operations": [
+            {"path": ".gitignore", "content": ".build/\n"},
+        ],
+        "dependencies": ["api-client"],
+        "pillars": [
+            {"name": "Native feel", "claim": "Use platform conventions before custom UI."},
+        ],
+        "glossary": [
+            {"term": "Design token", "definition": "A named reusable UI value."},
+        ],
+        "context_atoms": [
+            {"type": "decision", "content": "Use SharedKit for core UI primitives."},
+        ],
+        "tasks": [
+            {
+                "summary": "Add SharedKit",
+                "description": "Add the SharedKit package and wire base tokens.",
+                "priority": "High",
+                "task_type": "feature",
+                "complexity": "S",
+                "criteria": ["SharedKit is importable"],
+            },
+        ],
+        "verification_hints": [
+            "Run swift test after adding the package.",
+        ],
+    }
+    module.update(overrides)
+    return module
+
+
+def _rich_data(modules):
+    data = _valid_data()
+    data["manifest_schema_version"] = 2
+    data["modules"] = modules
+    return data
 
 
 class TestValidateMigrationHints:
@@ -161,3 +218,113 @@ class TestValidateManifestFiles:
         assert "mode" in result
         assert "create_only" in result
         assert "append_if_missing" in result
+
+
+class TestValidateBootstrapModules:
+    def test_task_only_manifest_remains_valid_without_modules(self):
+        mod = _load_module()
+        data = _valid_data()
+
+        assert mod._validate(data) is None
+
+    def test_valid_rich_module_manifest_passes(self):
+        mod = _load_module()
+        data = _rich_data([_valid_module()])
+
+        assert mod._validate(data) is None
+
+    def test_manifest_schema_version_must_be_integer_when_present(self):
+        mod = _load_module()
+        data = _rich_data([_valid_module()])
+        data["manifest_schema_version"] = "2"
+        result = mod._validate(data)
+
+        assert result is not None
+        assert "manifest_schema_version" in result
+
+    def test_modules_must_be_an_array(self):
+        mod = _load_module()
+        result = mod._validate(_rich_data("not-a-list"))
+
+        assert result is not None
+        assert "modules must be an array" in result
+
+    def test_module_missing_required_metadata_fails_with_path(self):
+        mod = _load_module()
+        module = _valid_module()
+        del module["id"]
+        result = mod._validate(_rich_data([module]))
+
+        assert result is not None
+        assert "modules[0]" in result
+        assert "id" in result
+
+    def test_module_applicability_values_must_be_string_arrays(self):
+        mod = _load_module()
+        module = _valid_module(applicability={"project_types": "ios_app"})
+        result = mod._validate(_rich_data([module]))
+
+        assert result is not None
+        assert "modules[0].applicability.project_types" in result
+        assert "array of strings" in result
+
+    def test_module_files_reuse_manifest_file_validation(self):
+        mod = _load_module()
+        module = _valid_module(files=[{"path": "../Package.swift", "content": "x"}])
+        result = mod._validate(_rich_data([module]))
+
+        assert result is not None
+        assert "modules[0].files[0].path" in result
+        assert ".." in result
+
+    def test_module_tasks_reuse_task_validation(self):
+        mod = _load_module()
+        task = _valid_module()["tasks"][0]
+        del task["criteria"]
+        module = _valid_module(tasks=[task])
+        result = mod._validate(_rich_data([module]))
+
+        assert result is not None
+        assert "modules[0].tasks[0]" in result
+        assert "criteria" in result
+
+    def test_main_returns_modules_for_valid_rich_manifest(self, tmp_path, monkeypatch, capsys):
+        mod = _load_module()
+        config_path = tmp_path / "config.json"
+        config_path.write_text(
+            json.dumps({"project_libs": {"ios_app": {"repo": "owner/ios-libs", "ref": "main"}}})
+        )
+        data = _rich_data([_valid_module()])
+
+        monkeypatch.setattr(mod, "_fetch_bootstrap", lambda repo, ref: (data, None))
+        monkeypatch.setattr(sys, "argv", ["script", "tasks.db", str(config_path)])
+
+        mod.main()
+
+        payload = json.loads(capsys.readouterr().out)
+        lib = payload["libs"][0]
+        assert lib["error"] is None
+        assert lib["tasks"] == data["tasks"]
+        assert lib["modules"] == data["modules"]
+        assert lib["manifest_schema_version"] == 2
+
+    def test_main_returns_actionable_error_for_invalid_module(self, tmp_path, monkeypatch, capsys):
+        mod = _load_module()
+        config_path = tmp_path / "config.json"
+        config_path.write_text(
+            json.dumps({"project_libs": {"ios_app": {"repo": "owner/ios-libs", "ref": "main"}}})
+        )
+        module = _valid_module(files=[{"path": "/tmp/bad", "content": "x"}])
+        data = _rich_data([module])
+
+        monkeypatch.setattr(mod, "_fetch_bootstrap", lambda repo, ref: (data, None))
+        monkeypatch.setattr(sys, "argv", ["script", "tasks.db", str(config_path)])
+
+        mod.main()
+
+        payload = json.loads(capsys.readouterr().out)
+        lib = payload["libs"][0]
+        assert lib["tasks"] == []
+        assert lib["modules"] == []
+        assert "invalid bootstrap" in lib["error"]
+        assert "modules[0].files[0].path" in lib["error"]
