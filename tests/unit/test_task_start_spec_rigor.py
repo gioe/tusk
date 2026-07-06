@@ -16,7 +16,7 @@ def _load():
     return mod
 
 
-def _conn(*, complexity, criterion_specs=None, objective=False, context_types=None):
+def _conn(*, complexity, criterion_specs=None, criteria=None, objective=False, context_types=None):
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     conn.executescript(
@@ -53,12 +53,15 @@ def _conn(*, complexity, criterion_specs=None, objective=False, context_types=No
         "INSERT INTO tasks (id, summary, description, complexity) VALUES (1, 'task', 'desc', ?)",
         (complexity,),
     )
-    for spec in criterion_specs or [None]:
+    criterion_rows = criteria
+    if criterion_rows is None:
+        criterion_rows = [("criterion", spec) for spec in (criterion_specs or [None])]
+    for criterion, spec in criterion_rows:
         conn.execute(
             "INSERT INTO acceptance_criteria "
             "(task_id, criterion, criterion_type, verification_spec) "
-            "VALUES (1, 'criterion', ?, ?)",
-            ("test" if spec else "manual", spec),
+            "VALUES (1, ?, ?, ?)",
+            (criterion, "test" if spec else "manual", spec),
         )
     if objective:
         conn.execute(
@@ -91,6 +94,18 @@ def test_m_task_warns_when_no_criteria_have_verification_specs():
     assert not any("objective" in line for line in lines)
 
 
+def test_m_task_warns_when_criteria_are_too_vague_to_observe():
+    mod = _load()
+
+    lines = mod._spec_rigor_advisory_lines(
+        _conn(complexity="M", criteria=[("Improve task readiness", None)]),
+        1,
+    )
+
+    assert any("vague acceptance criteria" in line for line in lines)
+    assert any("Improve task readiness" in line for line in lines)
+
+
 def test_l_task_warns_for_missing_objective_context_and_verification():
     mod = _load()
 
@@ -115,4 +130,3 @@ def test_l_task_with_objective_context_and_verification_has_no_warnings():
     )
 
     assert lines == []
-

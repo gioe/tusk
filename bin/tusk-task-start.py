@@ -77,6 +77,11 @@ _DEFER_TRIGGER_RE = re.compile(
 
 _SPEC_RIGOR_VERIFICATION_COMPLEXITIES = frozenset({"M", "L", "XL"})
 _SPEC_RIGOR_CONTEXT_COMPLEXITIES = frozenset({"L", "XL"})
+_SPEC_RIGOR_VAGUE_CRITERION_RE = re.compile(
+    r"^\s*(?:improve|support|handle|clean\s+up|make\s+better|enhance|optimize|"
+    r"refine|polish|address)\b",
+    re.IGNORECASE,
+)
 
 
 def _single_int(conn: sqlite3.Connection, query: str, params: tuple = ()) -> int | None:
@@ -103,6 +108,29 @@ def _task_complexity(conn: sqlite3.Connection, task_id: int) -> str | None:
     return row["complexity"] if row else None
 
 
+def _vague_acceptance_criteria(conn: sqlite3.Connection, task_id: int) -> list[str]:
+    try:
+        rows = conn.execute(
+            """
+            SELECT criterion
+            FROM acceptance_criteria
+            WHERE task_id = ?
+              AND COALESCE(is_deferred, 0) = 0
+            ORDER BY id
+            """,
+            (task_id,),
+        ).fetchall()
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc) or "no such column" in str(exc):
+            return []
+        raise
+    return [
+        row["criterion"]
+        for row in rows
+        if row["criterion"] and _SPEC_RIGOR_VAGUE_CRITERION_RE.search(row["criterion"])
+    ]
+
+
 def _spec_rigor_advisory_lines(conn: sqlite3.Connection, task_id: int) -> list[str]:
     """Return proportional spec-readiness warnings for task-start.
 
@@ -115,6 +143,16 @@ def _spec_rigor_advisory_lines(conn: sqlite3.Connection, task_id: int) -> list[s
         return []
 
     lines: list[str] = []
+    vague_criteria = _vague_acceptance_criteria(conn, task_id)
+    if vague_criteria:
+        preview = "; ".join(vague_criteria[:3])
+        if len(vague_criteria) > 3:
+            preview += f"; +{len(vague_criteria) - 3} more"
+        lines.append(
+            "Task has vague acceptance criteria; make each criterion observable "
+            f"before pickup: {preview}"
+        )
+
     verification_count = _single_int(
         conn,
         """
