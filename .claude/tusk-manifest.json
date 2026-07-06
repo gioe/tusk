@@ -31,6 +31,7 @@
   ".claude/bin/tusk-git-helpers.py",
   ".claude/bin/tusk-glossary.py",
   ".claude/bin/tusk-groom.py",
+  ".claude/bin/tusk-init-apply-memory.py",
   ".claude/bin/tusk-init-bootstrap-plan.py",
   ".claude/bin/tusk-init-bootstrap-select.py",
   ".claude/bin/tusk-init-fetch-bootstrap.py",

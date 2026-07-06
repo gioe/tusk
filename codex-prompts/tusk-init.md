@@ -222,6 +222,22 @@ as `--scaffold-spec` or `--seed-bootstrap-tasks all` require
 `--plan-action accept` or `--plan-action skip-materialization`. Use
 `--plan-only` to inspect the plan without mutating config, files, or tasks.
 
+For an accepted plan, seed durable project memory before starter assets or
+bootstrap tasks:
+
+```bash
+tusk init-apply-memory --plan '<confirmed bootstrap plan json>' --task-id <task_id>
+```
+
+This inserts context atoms with `source=agent_handoff`, adds design pillars,
+and adds glossary entries. It also derives context from `init_intent`: audience
+and workflows become `memory`, non-goals become `assumption`, open questions
+become `question`, and quality priorities become `decision` context plus pillar
+suggestions. Re-runs skip existing context/type/content, pillar names, and
+glossary terms instead of duplicating them. `tusk init-wizard` applies this
+when `--memory-task-id <id>` is passed with `--plan-action accept`; it does not
+apply memory for `--plan-only` or `--plan-action skip-materialization`.
+
 For each lib entry:
 
 - `error` non-null — print a one-line warning and skip:

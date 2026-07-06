@@ -596,6 +596,23 @@ as `--scaffold-spec` or `--seed-bootstrap-tasks all` require an explicit
 `--plan-action accept` or `--plan-action skip-materialization`. Use
 `--plan-only` to emit the plan and exit before any mutation.
 
+When the plan is accepted, seed durable memory from it before writing starter
+assets or creating bootstrap tasks:
+
+```bash
+tusk init-apply-memory --plan '<confirmed bootstrap plan json>' --task-id <task_id>
+```
+
+The applier inserts context atoms with `source=agent_handoff`, adds design
+pillars, and adds glossary entries. It derives additional context from the
+confirmed `init_intent`: audience and workflows become `memory`, non-goals
+become `assumption`, open questions become `question`, and quality priorities
+become `decision` context plus pillar suggestions. It is idempotent: identical
+task/type/content context rows, existing pillar names, and existing glossary
+terms are reported as skipped rather than duplicated. For `tusk init-wizard`,
+pass `--memory-task-id <id>` with `--plan-action accept` to apply this memory.
+Do not apply memory for `--plan-only` or `--plan-action skip-materialization`.
+
 Legacy task-only manifests remain valid. Rich manifests may additionally return
 `modules`, where each module describes metadata, applicability rules,
 required/optional files, append operations, dependencies, pillar suggestions,

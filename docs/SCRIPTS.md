@@ -73,6 +73,7 @@ require it).
 | **tusk-init-intent.py** | `tusk init-intent normalize --answers '<json>'` | raw JSON answers | nothing; emits normalized `init_intent` JSON |
 | **tusk-init-bootstrap-select.py** | `tusk init-bootstrap-select [flags]` | init intent, archetype, project type, feature choices | nothing; emits selected project-lib packs and skipped optional packs |
 | **tusk-init-bootstrap-plan.py** | `tusk init-bootstrap-plan --picked '<json>' [flags]` | confirmed init values, archetype, bootstrap manifests, scaffold spec | nothing; emits a reviewable plan of config, utility modules, files, context, pillars, glossary, tasks, and materialization action |
+| **tusk-init-apply-memory.py** | `tusk init-apply-memory --plan '<json>' --task-id <id>` | confirmed bootstrap plan, task context, pillars, glossary | idempotently inserts context atoms, design pillars, and glossary entries |
 | **tusk-init-write-config.py** | `tusk init-write-config [flags]` | `tusk/config.json`, `config.default.json` | `tusk/config.json`; validation triggers via `tusk regen-triggers` |
 | **tusk-init-wizard.py** | `tusk init-wizard [flags]` | config, codebase scan, test detection, bootstrap manifests | config, optional scaffold files, optional seeded tasks |
 | **tusk-init-scaffold.py** | `tusk init-scaffold --spec '<json>'` | install mode and scaffold spec | directories, `.gitkeep`, routing stubs |

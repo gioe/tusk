@@ -911,6 +911,14 @@ Future packs such as `android_app`, `web_app`, and `backend` can be present in t
 
 `tusk init-wizard --plan-only` emits this plan and exits before writing config or starter assets. In non-interactive mode, requested materialization side effects such as `--scaffold-spec` or `--seed-bootstrap-tasks all` require `--plan-action accept` or `--plan-action skip-materialization`; omitting the action fails before mutation. Interactive callers are shown the plan and can accept or skip materialization. Module edits are represented by repeatable `--plan-remove-module <id>` and `--plan-add-module '<json object>'`.
 
+**Bootstrap durable memory:** `tusk init-apply-memory --plan '<json>' --task-id <id>` applies the memory-bearing parts of an accepted bootstrap plan. It reads `plan.context_atoms`, `plan.pillars`, `plan.glossary`, and the confirmed `init_intent`, then idempotently inserts:
+
+- task context atoms with `source='agent_handoff'` for audience, primary workflows, integrations, data needs, quality priorities, non-goals, open questions, inferred archetype, and module-provided context;
+- design pillars from module suggestions and quality priorities;
+- glossary terms approved through module suggestions.
+
+Re-runs skip existing context rows with the same task/type/content, existing pillar names, and existing glossary terms. `tusk init-wizard --memory-task-id <id> --plan-action accept` invokes this applier after config write and before scaffold/task materialization. `--plan-only` and `--plan-action skip-materialization` do not apply durable memory.
+
 **`tusk-bootstrap.json` task format:** Each task object requires `summary`, `description`, `priority`, `task_type`, `complexity`, and `criteria` (non-empty array of strings). An optional `migration_hints` field (array of strings) may also be present. When a task is seeded via `/tusk-init` Step 8.5, each `migration_hints` entry is injected as an additional acceptance criterion prefixed with `[Migration]` (e.g., `"[Migration] Remove any ad-hoc logging.basicConfig() calls"`). Tasks without `migration_hints` (or with an empty array) are seeded identically to the current behavior.
 
 **`tusk-bootstrap.json` schema versioning:** Legacy task-only manifests remain valid when they include `version`, `project_type`, and `tasks`. Rich bootstrap manifests may additionally set `manifest_schema_version: 2` and include a top-level `modules` array. `init-fetch-bootstrap` returns `manifest_schema_version` for each fetched lib, defaulting to the manifest's `version` or `1` when omitted, so callers can distinguish legacy task lists from module-aware bootstrap packs without breaking older utility repos.

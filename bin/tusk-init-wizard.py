@@ -58,6 +58,9 @@ Behaviour flags:
                                    Repeatable.
     --plan-add-module <json>        Add a module JSON object to the plan.
                                    Repeatable.
+    --memory-task-id <id>           Task that receives durable context atoms
+                                   when an accepted plan applies project
+                                   memory.
 
 Scaffolding flags (mutually exclusive):
     --scaffold-spec <json>   JSON array of {name, purpose, agent} objects;
@@ -77,6 +80,7 @@ Output (JSON):
       "written": {"domains": [...], "agents": {...}, ...},
       "scan": {"manifests": [...], "detected_domains": [...]},
       "plan": {"intent": {...}, "selected_modules": [...], ...},
+      "memory": null | {"added_context_atoms": [...], ...},
       "scaffold": null | {"success": true, "mode": ..., "created": [...], "skipped": [...]},
       "seeded_tasks": [{"task_id": 42, "summary": "..."}],
       "skipped_tasks": [{"summary": "...", "reason": "..."}]
@@ -556,6 +560,27 @@ def _build_plan(
     )
 
 
+def _apply_memory(plan: dict, task_id: int | None) -> dict | None:
+    if task_id is None:
+        return None
+    try:
+        result = _run_tusk([
+            "init-apply-memory",
+            "--plan", json.dumps(plan),
+            "--task-id", str(task_id),
+        ], timeout=60)
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        return {"success": False, "error": f"init-apply-memory failed: {e}"}
+    if not result.stdout.strip():
+        stderr = (result.stderr or "").strip()
+        return {"success": False, "error": stderr or "init-apply-memory produced no JSON output"}
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        stderr = (result.stderr or "").strip()
+        return {"success": False, "error": stderr or "init-apply-memory produced invalid JSON"}
+
+
 def main():
     if len(sys.argv) < 3:
         _fail(
@@ -608,6 +633,7 @@ def main():
     )
     parser.add_argument("--plan-remove-module", action="append", default=[], dest="plan_remove_modules")
     parser.add_argument("--plan-add-module", action="append", default=[], dest="plan_add_modules")
+    parser.add_argument("--memory-task-id", type=int, default=None, dest="memory_task_id")
     args, _ = parser.parse_known_args(sys.argv[3:])
 
     # Resolve mode. --interactive / --non-interactive win; otherwise TTY-detect.
@@ -678,6 +704,7 @@ def main():
             "written": {},
             "scan": scan,
             "plan": None,
+            "memory": None,
             "scaffold": None,
             "seeded_tasks": [],
             "skipped_tasks": [],
@@ -715,6 +742,7 @@ def main():
             "written": {},
             "scan": scan,
             "plan": plan,
+            "memory": None,
             "scaffold": None,
             "seeded_tasks": [],
             "skipped_tasks": [],
@@ -731,11 +759,31 @@ def main():
             "written": picked,
             "scan": scan,
             "plan": plan,
+            "memory": None,
             "scaffold": None,
             "seeded_tasks": [],
             "skipped_tasks": [],
         })
         sys.exit(1)
+
+    memory_result = None
+    if plan["actions"]["materialize"]:
+        memory_result = _apply_memory(plan, args.memory_task_id)
+        if memory_result is not None and not memory_result.get("success"):
+            _emit({
+                "success": False,
+                "mode": "interactive" if interactive else "non-interactive",
+                "config_path": write_result.get("config_path", config_path),
+                "error": memory_result.get("error") or "init-apply-memory failed",
+                "written": picked,
+                "scan": scan,
+                "plan": plan,
+                "memory": memory_result,
+                "scaffold": None,
+                "seeded_tasks": [],
+                "skipped_tasks": [],
+            })
+            sys.exit(1)
 
     scaffold_result = None
     if plan["actions"]["materialize"] and args.scaffold_spec is not None:
@@ -753,6 +801,7 @@ def main():
         "written": picked,
         "scan": scan,
         "plan": plan,
+        "memory": memory_result,
         "scaffold": scaffold_result,
         "seeded_tasks": seeded,
         "skipped_tasks": skipped,

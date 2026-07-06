@@ -1373,7 +1373,7 @@ candidates = [
   'audit','insights','autoclose','backlog-scan','groom','check-deliverables','scope-paths','scope','scope-hint',
   'retro','retro-signals','retro-themes','retro-finding','retro-patches','skill-patch-priority','propose-work',
   'test-detect','test-precheck','add-lib','address-issue',
-  'init-scan-codebase','init-scan-todos','init-fetch-bootstrap','init-bootstrap-select','init-bootstrap-plan','init-write-config','init-write-manifest-files','init-wizard','init-scaffold','init-intent',
+  'init-scan-codebase','init-scan-todos','init-fetch-bootstrap','init-bootstrap-select','init-bootstrap-plan','init-apply-memory','init-write-config','init-write-manifest-files','init-wizard','init-scaffold','init-intent',
   'loop','merge','abandon','bakeoff','progress','setup',
   'token-audit','sync-skills','sync-main','reconcile-skills','generate-manifest','uninstall-hooks','pricing-update','dev-sync','wsjf','shell',
   'version','version-bump','report-issue','changelog-add','migrate','update-gitignore','regen-triggers','upgrade',
@@ -2123,6 +2123,7 @@ case "${1:-}" in
   init-fetch-bootstrap) shift; exec python3 "$SCRIPT_DIR/tusk-init-fetch-bootstrap.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   init-bootstrap-select) shift; exec python3 "$SCRIPT_DIR/tusk-init-bootstrap-select.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   init-bootstrap-plan) shift; exec python3 "$SCRIPT_DIR/tusk-init-bootstrap-plan.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  init-apply-memory) shift; exec python3 "$SCRIPT_DIR/tusk-init-apply-memory.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   init-write-config) shift; exec python3 "$SCRIPT_DIR/tusk-init-write-config.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   init-write-manifest-files) shift; exec python3 "$SCRIPT_DIR/tusk-init-write-manifest-files.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   init-wizard) shift; exec python3 "$SCRIPT_DIR/tusk-init-wizard.py" "$DB_PATH" "$(resolve_config)" "$@" ;;

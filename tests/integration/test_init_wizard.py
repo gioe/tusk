@@ -34,6 +34,19 @@ def _read_config(tmp_path):
     return json.loads((tmp_path / "tusk" / "config.json").read_text())
 
 
+def _run_tusk(tmp_path, *args):
+    db_file = tmp_path / "tusk" / "tasks.db"
+    env = {**os.environ, "TUSK_DB": str(db_file)}
+    return subprocess.run(
+        [TUSK_BIN, *args],
+        cwd=str(tmp_path),
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+
 @pytest.fixture()
 def codex_like_project(tmp_path):
     """A git repo with AGENTS.md and an initialised tusk/ DB + config, mirroring
@@ -315,6 +328,135 @@ def test_plan_action_skip_materialization_writes_config_without_scaffold(codex_l
     cfg = _read_config(codex_like_project)
     assert cfg["project_type"] == "python_service"
     assert not (codex_like_project / "frontend").exists()
+
+
+def test_plan_action_accept_applies_durable_memory_once(codex_like_project):
+    insert = _run_tusk(
+        codex_like_project,
+        "task-insert",
+        "Bootstrap memory host",
+        "Task used to hold init context.",
+        "--priority", "Low",
+        "--task-type", "feature",
+        "--complexity", "XS",
+        "--criteria", "seed",
+    )
+    assert insert.returncode == 0, f"task-insert failed:\n{insert.stderr}"
+    task_id = json.loads(insert.stdout)["task_id"]
+    intent = {
+        "audience": "Partner systems",
+        "primary_workflows": ["ingest webhook"],
+        "platforms": ["backend"],
+        "stack_preferences": ["FastAPI"],
+        "integrations": ["Stripe"],
+        "data_needs": ["events"],
+        "quality_priorities": ["observability"],
+        "launch_target": None,
+        "non_goals": ["public signup"],
+        "open_questions": ["PagerDuty or native schedules?"],
+        "project_type": "python_service",
+    }
+    module = {
+        "id": "python-logging",
+        "name": "Python logging",
+        "description": "Structured logging defaults.",
+        "context_atoms": [
+            {"type": "decision", "content": "Use structured logging."},
+        ],
+        "pillars": [
+            {"name": "Operability", "claim": "Production behavior must be observable."},
+        ],
+        "glossary": [
+            {"term": "Webhook", "definition": "A callback delivered by a partner system."},
+        ],
+    }
+
+    args = [
+        "--non-interactive",
+        "--no-auto-scan",
+        "--plan-action", "accept",
+        "--memory-task-id", str(task_id),
+        "--project-type", "python_service",
+        "--init-intent", json.dumps(intent),
+        "--plan-add-module", json.dumps(module),
+    ]
+    first = _run(codex_like_project, *args)
+    assert first.returncode == 0, f"wizard failed:\n{first.stderr}"
+    payload = json.loads(first.stdout)
+    assert payload["memory"]["added_context_atoms"]
+    assert payload["memory"]["added_pillars"] == ["Operability", "Observability"]
+    assert payload["memory"]["added_glossary"] == ["Webhook"]
+
+    second = _run(codex_like_project, *args)
+    assert second.returncode == 0, f"wizard rerun failed:\n{second.stderr}"
+    rerun = json.loads(second.stdout)["memory"]
+    assert rerun["added_context_atoms"] == []
+    assert rerun["added_pillars"] == []
+    assert rerun["added_glossary"] == []
+    assert rerun["skipped_context_atoms"]
+    assert rerun["skipped_pillars"] == ["Operability", "Observability"]
+    assert rerun["skipped_glossary"] == ["Webhook"]
+
+    context = _run_tusk(codex_like_project, "context", "list", str(task_id), "--format", "json")
+    assert context.returncode == 0, f"context list failed:\n{context.stderr}"
+    rows = json.loads(context.stdout)
+    contents = [row["content"] for row in rows]
+    assert contents.count("Use structured logging.") == 1
+    assert contents.count("Non-goal: public signup") == 1
+    assert contents.count("Open question: PagerDuty or native schedules?") == 1
+    assert all(row["source"] == "agent_handoff" for row in rows)
+
+    pillars = _run_tusk(codex_like_project, "pillars", "list")
+    assert pillars.returncode == 0, f"pillars list failed:\n{pillars.stderr}"
+    pillar_names = [row["name"] for row in json.loads(pillars.stdout)]
+    assert pillar_names.count("Operability") == 1
+    assert pillar_names.count("Observability") == 1
+
+    glossary = _run_tusk(codex_like_project, "glossary", "list")
+    assert glossary.returncode == 0, f"glossary list failed:\n{glossary.stderr}"
+    assert [row["term"] for row in json.loads(glossary.stdout)].count("Webhook") == 1
+
+
+def test_plan_action_skip_materialization_does_not_apply_memory(codex_like_project):
+    insert = _run_tusk(
+        codex_like_project,
+        "task-insert",
+        "Bootstrap memory host",
+        "Task used to hold init context.",
+        "--priority", "Low",
+        "--task-type", "feature",
+        "--complexity", "XS",
+        "--criteria", "seed",
+    )
+    assert insert.returncode == 0, f"task-insert failed:\n{insert.stderr}"
+    task_id = json.loads(insert.stdout)["task_id"]
+    result = _run(
+        codex_like_project,
+        "--non-interactive",
+        "--no-auto-scan",
+        "--plan-action", "skip-materialization",
+        "--memory-task-id", str(task_id),
+        "--project-type", "python_service",
+        "--init-intent", json.dumps({
+            "audience": "Partner systems",
+            "primary_workflows": [],
+            "platforms": ["backend"],
+            "stack_preferences": [],
+            "integrations": [],
+            "data_needs": [],
+            "quality_priorities": ["observability"],
+            "launch_target": None,
+            "non_goals": ["public signup"],
+            "open_questions": [],
+            "project_type": "python_service",
+        }),
+    )
+
+    assert result.returncode == 0, f"wizard failed:\n{result.stderr}"
+    payload = json.loads(result.stdout)
+    assert payload["memory"] is None
+    context = _run_tusk(codex_like_project, "context", "list", str(task_id), "--format", "json")
+    assert json.loads(context.stdout) == []
 
 
 def test_no_scaffold_explicit_opt_out(codex_like_project):
