@@ -300,9 +300,8 @@ def _text_blob(intent: dict[str, Any]) -> str:
 
 
 def _merge_domains(defaults: list[str], scan_domains: list[str]) -> list[str]:
-    source = scan_domains or defaults
     merged: list[str] = []
-    for domain in source:
+    for domain in [*scan_domains, *defaults]:
         if domain not in merged:
             merged.append(domain)
     return merged
