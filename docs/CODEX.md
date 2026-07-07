@@ -127,7 +127,7 @@ Everything else works identically: the `tusk` CLI, task database, criteria track
 
 ## First-time setup (Codex)
 
-Use `tusk init-wizard` to configure `tusk/config.json` (domains, agents, task types, test command, project type, and optional bootstrap task seeding). The wizard is the Codex-facing equivalent of the Claude-only `/tusk-init` skill — it runs in any shell and works the same way in Claude and Codex sessions.
+Use `tusk init-wizard` to configure `tusk/config.json` (domains, agents, task types, test command, project type, normalized project intent, and optional bootstrap materialization). The wizard is the Codex-facing equivalent of the Claude-only `/tusk-init` skill - it runs in any shell and works the same way in Claude and Codex sessions.
 
 - **Interactive** (default when stdin is a TTY): prompts for each setting with suggestions derived from a codebase scan.
 
@@ -146,4 +146,22 @@ Use `tusk init-wizard` to configure `tusk/config.json` (domains, agents, task ty
     --project-type python_service
   ```
 
-Passing `--project-type ios_app` or `--project-type python_service` auto-populates `project_libs` from `config.default.json`. Add `--seed-bootstrap-tasks all` to fetch each lib's `tusk-bootstrap.json` and insert the published tasks in one pass.
+For a fresh project, pass `--init-intent '<json>'` in non-interactive mode or answer the interactive questions in a TTY. The intent records who the project serves, first workflows, launch platforms, preferred stack, integrations, data needs, quality priorities, non-goals, and open questions. Tusk normalizes that into `config.init_intent`, infers an archetype, and uses both values to select utility bootstrap packs and first vertical-slice tasks.
+
+Passing `--project-type ios_app` or `--project-type python_service` auto-populates `project_libs` from `config.default.json`. Add `--plan-only` to preview the side-effect-free bootstrap plan before writing anything. The plan contains selected modules, skipped optional packs, file materialization specs, durable memory, utility setup tasks, and generated first vertical-slice tasks.
+
+Non-interactive calls must opt in before materializing files or tasks:
+
+```bash
+tusk init-wizard --non-interactive \
+  --project-type ios_app \
+  --init-intent '{"audience":"Field inspectors","primary_workflows":["capture inspection"],"platforms":["ios"],"stack_preferences":["SwiftUI"],"integrations":["weather api"],"data_needs":["inspections"],"quality_priorities":["offline support"]}' \
+  --plan-action accept \
+  --memory-task-id 42 \
+  --seed-bootstrap-tasks all \
+  --seed-plan-tasks all
+```
+
+Use `--plan-action skip-materialization` when you want config changes but no scaffold directories, starter files, durable memory, or generated tasks. Use `--plan-remove-module`, `--plan-add-module`, `--plan-task-mode pick`, `--plan-task-id`, `--plan-remove-task`, and `--plan-add-task` to edit the plan before accepting it.
+
+Bootstrap materialization is intentionally conservative. File specs use `create_only` for new files, `append_if_missing` for idempotent snippets, and `marker_block` for replacing only a managed section between explicit markers. Template values are resolved from the confirmed init intent, and missing values fail as conflicts. Re-running accepted init should report existing files, tasks, context atoms, pillars, and glossary entries as skipped rather than duplicating them.

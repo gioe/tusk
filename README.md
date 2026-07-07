@@ -26,7 +26,7 @@ This will:
 2. Create `tusk/config.json` with defaults
 3. Initialize the database at `tusk/tasks.db`
 
-Then start a new Claude Code session and run `/tusk-init` — it will scan your codebase, suggest domains and agents, write your config, and seed tasks from TODOs.
+Then start a new Claude Code session and run `/tusk-init`. It will scan existing code when present, or interview you about a fresh project's intent before suggesting domains, agents, utility modules, starter files, durable memory, and initial tasks.
 
 You can also configure manually by editing `tusk/config.json` and running `tusk init --force`.
 
@@ -74,7 +74,7 @@ Edit `tusk/config.json` after install:
   "merge": {
     "mode": "local"                 // "local" = fast-forward merge; "pr" = squash-merge via gh pr merge
   },
-  "project_type": "ios_app"        // selects bootstrap/<project_type>.json for task seeding (null = disabled)
+  "project_type": "ios_app"        // selects matching utility bootstrap packs (null = disabled)
 }
 ```
 
@@ -91,9 +91,22 @@ Edit `tusk/config.json` after install:
 - **merge.mode**: `"local"` performs a fast-forward merge directly; `"pr"` squash-merges via `gh pr merge`
 - **project_type**: Selects which configured utility bootstrap packs can be fetched and proposed during `/tusk-init`; `null` disables project-lib seeding
 
-### Project Bootstrap
+### Intent-Driven Project Bootstrap
 
-During `/tusk-init`, tusk can seed your backlog with starter tasks and modules from configured utility repos. Set `project_type` in `tusk/config.json` (or via `/tusk-update`) to enable this.
+During `/tusk-init`, Tusk acts as a spec-driven project bootstrapper. For existing projects it starts from codebase signals. For fresh projects it asks intent questions first: who the project serves, which workflows should work end to end, launch surfaces, stack preferences, integrations, data needs, quality priorities, non-goals, and open questions. Those answers become a normalized `init_intent` record in `tusk/config.json`, so future agents can recover the setup rationale without the original chat.
+
+The wizard uses that intent to infer an archetype such as `consumer_ios_app`, `b2b_dashboard`, or `api_service`. The archetype, `project_type`, platforms, stack preferences, integrations, and quality priorities drive utility bootstrap-pack selection. Before anything is written, Tusk builds one editable bootstrap plan showing:
+
+- selected utility repos and modules, with matched reasons;
+- optional modules skipped because their utility repo is not configured yet;
+- starter files to create, append, or manage inside marker blocks;
+- durable context atoms, design pillars, and glossary entries to seed;
+- generic setup tasks from utility repos; and
+- first vertical-slice tasks derived from the user's stated workflow.
+
+The user can accept the plan, remove or add modules, pick or edit generated tasks, emit the plan only, or skip materialization. Non-interactive `tusk init-wizard` calls must pass `--plan-action accept` before any scaffold files, memory, or plan tasks are written.
+
+Set `project_type` in `tusk/config.json` (or via `/tusk-update`) to enable utility bootstrap packs.
 
 Two built-in project types are included:
 
@@ -101,6 +114,10 @@ Two built-in project types are included:
 |---|---|---|
 | `ios_app` | [gioe/ios-libs](https://github.com/gioe/ios-libs) — standalone Swift Package providing SharedKit (UI design tokens) and APIClient (HTTP client) | Tasks for adding the SPM dependency, configuring design tokens, and wiring up APIClient |
 | `python_service` | [gioe/python-libs](https://github.com/gioe/python-libs) — standalone Python package (`gioe-libs`) providing structured logging and observability utilities | Tasks for installing the package, configuring structured logging, and enabling observability |
+
+Generic setup tasks and first vertical-slice tasks serve different purposes. Utility setup tasks install or configure shared libraries, package dependencies, design tokens, clients, logging, and test scaffolding. Vertical-slice tasks describe the first useful product workflow across behavior, data, integrations, verification, and docs, so the initial backlog is not only infrastructure chores.
+
+Starter files are applied with safe, idempotent materialization rules. `create_only` writes a new file only when it does not exist. `append_if_missing` adds a snippet only if the exact content is not already present. `marker_block` replaces only the content between explicit begin/end markers and leaves user-authored content outside the markers alone. Template variables such as `{{ init_intent.platforms.0 }}` are resolved from confirmed init intent; missing variables are conflicts, not silent blanks. Re-running accepted init skips existing files, duplicate task inserts, existing context atoms, existing pillars, and existing glossary terms.
 
 Each utility repo publishes its own root-level `tusk-bootstrap.json`. Starter contracts and schema-validated examples for utility maintainers live under `docs/bootstrap-packs/`.
 
