@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1211] - 2026-07-07
+
+- [TASK-769] Fix sparse-cone path test command tokenization
+
 ## [1210] - 2026-07-07
 
 - [TASK-768] Verify sync-main stash restoration is distributed in installed builds

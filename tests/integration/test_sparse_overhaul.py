@@ -799,6 +799,46 @@ def test_test_command_outside_sparse_cone_present_path(tmp_path, monkeypatch):
     assert outside is False
 
 
+def test_test_command_outside_sparse_cone_ignores_shell_substitution_paths(
+    tmp_path, monkeypatch
+):
+    """Shell-expanded absolute paths are not repo paths to sparse-cone check."""
+    repo, _db_path, _env = _repo_with_tusk(tmp_path, monkeypatch)
+    _git(["sparse-checkout", "init", "--cone"], cwd=repo)
+    _git(["sparse-checkout", "set", "bin"], cwd=repo)
+
+    commit = _load_commit_helpers(monkeypatch)
+    command = (
+        "cd ios && xcodebuild build-for-testing "
+        "-derivedDataPath "
+        '"$HOME/Library/Developer/Xcode/DerivedData/App-wt-$(git rev-parse '
+        '--show-toplevel | shasum -a 256 | cut -c1-12)" '
+        "CODE_SIGNING_ALLOWED=NO"
+    )
+
+    outside, target = commit._test_command_outside_sparse_cone(command, str(repo))
+
+    assert outside is False
+    assert target == ""
+
+
+def test_test_command_outside_sparse_cone_ignores_absolute_paths(
+    tmp_path, monkeypatch
+):
+    """Absolute filesystem paths are not repo paths to sparse-cone check."""
+    repo, _db_path, _env = _repo_with_tusk(tmp_path, monkeypatch)
+    _git(["sparse-checkout", "init", "--cone"], cwd=repo)
+    _git(["sparse-checkout", "set", "bin"], cwd=repo)
+
+    commit = _load_commit_helpers(monkeypatch)
+    command = "tool --cache-dir /tmp/out-of-cone/cache"
+
+    outside, target = commit._test_command_outside_sparse_cone(command, str(repo))
+
+    assert outside is False
+    assert target == ""
+
+
 # ── Criterion 2232 (issue #893) ─────────────────────────────────────
 
 
