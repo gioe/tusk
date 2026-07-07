@@ -89,11 +89,11 @@ Edit `tusk/config.json` after install:
 - **dupes.check_threshold**: Cosine similarity score (0–1) above which a candidate is treated as a likely duplicate and blocked
 - **dupes.similar_threshold**: Cosine similarity score (0–1) above which a candidate is surfaced as possibly similar (for human review)
 - **merge.mode**: `"local"` performs a fast-forward merge directly; `"pr"` squash-merges via `gh pr merge`
-- **project_type**: Selects which `bootstrap/<project_type>.json` file is used for task seeding during `/tusk-init`; `null` disables seeding
+- **project_type**: Selects which configured utility bootstrap packs can be fetched and proposed during `/tusk-init`; `null` disables project-lib seeding
 
 ### Project Bootstrap
 
-During `/tusk-init`, tusk can seed your backlog with a starter set of tasks based on your project type. Set `project_type` in `tusk/config.json` (or via `/tusk-update`) to enable this.
+During `/tusk-init`, tusk can seed your backlog with starter tasks and modules from configured utility repos. Set `project_type` in `tusk/config.json` (or via `/tusk-update`) to enable this.
 
 Two built-in project types are included:
 
@@ -102,7 +102,7 @@ Two built-in project types are included:
 | `ios_app` | [gioe/ios-libs](https://github.com/gioe/ios-libs) — standalone Swift Package providing SharedKit (UI design tokens) and APIClient (HTTP client) | Tasks for adding the SPM dependency, configuring design tokens, and wiring up APIClient |
 | `python_service` | [gioe/python-libs](https://github.com/gioe/python-libs) — standalone Python package (`gioe-libs`) providing structured logging and observability utilities | Tasks for installing the package, configuring structured logging, and enabling observability |
 
-Bootstrap files live under `bootstrap/` in the tusk source repo and are copied to `.claude/bin/bootstrap/` at install time. A new reader can review them to see exactly which tasks they will receive before running `/tusk-init`.
+Each utility repo publishes its own root-level `tusk-bootstrap.json`. Starter contracts and schema-validated examples for utility maintainers live under `docs/bootstrap-packs/`.
 
 ## CLI Reference
 

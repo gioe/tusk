@@ -472,7 +472,10 @@ tusk init-bootstrap-select \
 
 The selector returns `project_libs`, `selected_modules`, and
 `skipped_modules`. A matching optional pack whose repo does not exist yet is
-reported under `skipped_modules` instead of hard-failing. To override all
+reported under `skipped_modules` instead of hard-failing. Starter pack examples
+and future-repo contracts live in the Tusk source repo under
+`docs/bootstrap-packs/`; use those as the contract reference when creating or
+updating utility repos. To override all
 auto-selection, pass `--project-libs '{"<type>":{"repo":"<owner>/<repo>","ref":"<ref>"}}'`.
 
 The command returns JSON: `{"success": true, "config_path": "...", "backed_up": true}` on success.

@@ -156,6 +156,9 @@ platforms, and feature preferences. Today the built-in concrete packs are
 `ios_app` (`gioe/ios-libs`) and `python_service` (`gioe/python-libs`);
 future optional packs such as `android_app`, `web_app`, and `backend` are
 reported as skipped when they match but have no repo configured yet.
+Starter pack examples and future-repo contracts live in the Tusk source repo
+under `docs/bootstrap-packs/`; use those as the reference when creating or
+updating utility repos.
 
 ```bash
 tusk init-bootstrap-select \

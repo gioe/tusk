@@ -901,6 +901,8 @@ Non-enum config keys that control runtime behavior (not column validation). All 
 
 Future packs such as `android_app`, `web_app`, and `backend` can be present in the selector catalog without a configured repo. Matching those optional packs returns them under `skipped_modules` with `reason: "optional utility repo is not configured"` rather than failing config writes or bootstrap fetches. Passing `--project-libs` to `init-write-config` remains an explicit override and bypasses auto-selection. Pinning `ref` to a tag or commit SHA freezes which tasks/modules get fetched, preventing unintended additions if the utility repo's default branch changes later.
 
+Starter bootstrap-pack contracts live under `docs/bootstrap-packs/`. The `ios-libs/tusk-bootstrap.json` example is validated by the unit suite against the same schema used by `init-fetch-bootstrap`; the `android-libs`, `web-libs`, and `backend-libs` contract files document the expected shape for future utility repos until those repos exist.
+
 **Bootstrap plans:** `tusk init-bootstrap-plan` is the side-effect-free review layer between intent discovery and materialization. It accepts the confirmed init values (`--picked`), inferred archetype, optional fetched bootstrap manifests, scaffold spec, and module edits, then returns one JSON plan containing:
 
 - the durable intent/config values to write;

@@ -1,0 +1,294 @@
+{
+  "version": 1,
+  "manifest_schema_version": 2,
+  "project_type": "ios_app",
+  "manifest_files": [
+    {
+      "path": "tusk/conventions/ios.md",
+      "content": "# iOS conventions\n\n- Prefer SwiftUI for product UI.\n- Keep generated client code behind thin app-owned adapters.\n",
+      "mode": "create_only"
+    }
+  ],
+  "tasks": [
+    {
+      "summary": "Integrate ios-libs starter package",
+      "description": "Add gioe/ios-libs as a Swift Package dependency and make SharedKit plus APIClient importable from the app target.",
+      "priority": "High",
+      "task_type": "feature",
+      "complexity": "S",
+      "criteria": [
+        "gioe/ios-libs is declared as a Swift Package dependency",
+        "SharedKit and APIClient compile in the app target"
+      ],
+      "migration_hints": [
+        "Remove duplicate local design-token definitions after SharedKit is wired"
+      ]
+    }
+  ],
+  "modules": [
+    {
+      "id": "sharedkit-design-system",
+      "name": "SharedKit design system",
+      "description": "Shared SwiftUI design tokens, typography, spacing, and reusable controls.",
+      "applicability": {
+        "project_types": ["ios_app"],
+        "archetypes": ["consumer_ios_app"],
+        "platforms": ["ios"],
+        "requires": ["swiftui"]
+      },
+      "files": [
+        {
+          "path": "Sources/AppDesign/DesignSystem.swift",
+          "content": "import SharedKit\n\npublic enum AppDesignSystem {\n    public static let namespace = \"{{ project_name }}\"\n}\n",
+          "mode": "create_only"
+        }
+      ],
+      "append_operations": [
+        {
+          "path": "Package.swift",
+          "content": ".package(url: \"https://github.com/gioe/ios-libs\", branch: \"main\")\n",
+          "mode": "marker_block",
+          "begin_marker": "// BEGIN TUSK MANAGED PACKAGE DEPENDENCIES",
+          "end_marker": "// END TUSK MANAGED PACKAGE DEPENDENCIES"
+        }
+      ],
+      "pillars": [
+        {
+          "name": "Native feel",
+          "claim": "Use platform SwiftUI conventions before custom visual systems."
+        }
+      ],
+      "glossary": [
+        {
+          "term": "SharedKit",
+          "definition": "The ios-libs Swift package module that owns shared design tokens and base SwiftUI components."
+        }
+      ],
+      "context_atoms": [
+        {
+          "type": "decision",
+          "content": "Use SharedKit as the source of truth for app-wide iOS design primitives."
+        }
+      ],
+      "tasks": [
+        {
+          "summary": "Wire SharedKit design tokens",
+          "description": "Import SharedKit and replace ad-hoc colors, spacing, and typography with shared design tokens.",
+          "priority": "High",
+          "task_type": "feature",
+          "complexity": "S",
+          "criteria": [
+            "SharedKit is imported from at least one app-owned SwiftUI view",
+            "A first screen uses shared colors, spacing, or typography tokens"
+          ]
+        }
+      ],
+      "verification_hints": [
+        "Run swift build or the Xcode app build after adding the package.",
+        "Open the first SwiftUI screen and confirm SharedKit-backed styling renders."
+      ]
+    },
+    {
+      "id": "api-client",
+      "name": "APIClient wiring",
+      "description": "Shared HTTP client setup and OpenAPI-oriented request boundaries.",
+      "applicability": {
+        "project_types": ["ios_app"],
+        "platforms": ["ios"],
+        "requires": ["api"]
+      },
+      "dependencies": ["sharedkit-design-system"],
+      "files": [
+        {
+          "path": "Sources/Networking/AppAPIClient.swift",
+          "content": "import APIClient\n\npublic struct AppAPIClientFactory {\n    public static func make(baseURL: URL) -> APIClient {\n        APIClient(baseURL: baseURL)\n    }\n}\n",
+          "mode": "create_only"
+        }
+      ],
+      "context_atoms": [
+        {
+          "type": "assumption",
+          "content": "The app will keep APIClient behind an app-owned factory so generated endpoint code can change independently."
+        }
+      ],
+      "tasks": [
+        {
+          "summary": "Connect APIClient to the first backend endpoint",
+          "description": "Create an app-owned APIClient factory and use it from the first workflow that needs network data.",
+          "priority": "High",
+          "task_type": "feature",
+          "complexity": "M",
+          "criteria": [
+            "The app has one app-owned APIClient factory",
+            "The first networked workflow uses APIClient rather than ad-hoc URLSession calls",
+            "Failure and loading states are covered in the first workflow"
+          ]
+        }
+      ],
+      "verification_hints": [
+        "Run the API client's unit tests or a mocked endpoint test.",
+        "Confirm the first workflow handles non-200 responses."
+      ]
+    },
+    {
+      "id": "navigation-shell",
+      "name": "Navigation shell",
+      "description": "A small SwiftUI app shell for tabs, stacks, and first workflow routing.",
+      "applicability": {
+        "project_types": ["ios_app"],
+        "archetypes": ["consumer_ios_app"],
+        "platforms": ["ios"],
+        "requires": ["mobile"]
+      },
+      "files": [
+        {
+          "path": "Sources/AppShell/AppRoute.swift",
+          "content": "public enum AppRoute: Hashable {\n    case home\n    case detail(id: String)\n}\n",
+          "mode": "create_only"
+        }
+      ],
+      "context_atoms": [
+        {
+          "type": "decision",
+          "content": "Start with a typed SwiftUI route enum so first-workflow navigation stays explicit."
+        }
+      ],
+      "tasks": [
+        {
+          "summary": "Build the first SwiftUI navigation shell",
+          "description": "Create the app's root navigation structure and connect it to the first user workflow.",
+          "priority": "Medium",
+          "task_type": "feature",
+          "complexity": "M",
+          "criteria": [
+            "The root view owns a typed route model",
+            "The first workflow can navigate to a detail or completion screen",
+            "Navigation state is covered by at least one lightweight test or preview"
+          ]
+        }
+      ],
+      "verification_hints": [
+        "Run the app in Simulator and exercise the first workflow navigation."
+      ]
+    },
+    {
+      "id": "persistence",
+      "name": "Persistence boundary",
+      "description": "A minimal persistence abstraction for local drafts, cache state, or offline-first workflow data.",
+      "applicability": {
+        "project_types": ["ios_app"],
+        "platforms": ["ios"],
+        "requires": ["offline"]
+      },
+      "files": [
+        {
+          "path": "Sources/Persistence/AppStore.swift",
+          "content": "public protocol AppStore {\n    associatedtype Value\n    func load() throws -> Value?\n    func save(_ value: Value) throws\n}\n",
+          "mode": "create_only"
+        }
+      ],
+      "context_atoms": [
+        {
+          "type": "risk",
+          "content": "Local persistence should be introduced behind a protocol before concrete storage choices spread through views."
+        }
+      ],
+      "tasks": [
+        {
+          "summary": "Add local persistence for first workflow state",
+          "description": "Choose a local storage mechanism and hide it behind the app-owned persistence boundary.",
+          "priority": "Medium",
+          "task_type": "feature",
+          "complexity": "M",
+          "criteria": [
+            "First workflow state survives app restart when persistence is required",
+            "Views depend on an app-owned persistence protocol rather than a concrete storage API"
+          ]
+        }
+      ],
+      "verification_hints": [
+        "Run a persistence round-trip unit test.",
+        "Restart the app and confirm the first workflow restores expected state."
+      ]
+    },
+    {
+      "id": "observability",
+      "name": "Observability hooks",
+      "description": "Shared logging and event boundaries for launch, network, and first-workflow diagnostics.",
+      "applicability": {
+        "project_types": ["ios_app"],
+        "platforms": ["ios"],
+        "requires": ["observability"]
+      },
+      "append_operations": [
+        {
+          "path": ".gitignore",
+          "content": "DerivedData/\n.swiftpm/\n",
+          "mode": "append_if_missing"
+        }
+      ],
+      "context_atoms": [
+        {
+          "type": "decision",
+          "content": "Emit first-workflow diagnostic events through an app-owned observability boundary."
+        }
+      ],
+      "tasks": [
+        {
+          "summary": "Add observability for first workflow failures",
+          "description": "Record structured diagnostics for launch, API failure, and first workflow completion paths.",
+          "priority": "Medium",
+          "task_type": "feature",
+          "complexity": "S",
+          "criteria": [
+            "The first workflow emits a success or completion event",
+            "Network and persistence failures include enough context for debugging"
+          ]
+        }
+      ],
+      "verification_hints": [
+        "Trigger a mocked workflow failure and confirm the diagnostic event is emitted."
+      ]
+    },
+    {
+      "id": "test-scaffolding",
+      "name": "Test scaffolding",
+      "description": "Starter test targets, previews, and fixtures for first-workflow confidence.",
+      "applicability": {
+        "project_types": ["ios_app"],
+        "platforms": ["ios"],
+        "requires": ["tests"]
+      },
+      "optional_files": [
+        {
+          "path": "Tests/FirstWorkflowTests/README.md",
+          "content": "# First workflow tests\n\nStart with model, routing, persistence, and API-client boundary tests before UI automation.\n",
+          "mode": "create_only"
+        }
+      ],
+      "context_atoms": [
+        {
+          "type": "memory",
+          "content": "Prefer fast unit tests for first-workflow state before adding slower simulator UI tests."
+        }
+      ],
+      "tasks": [
+        {
+          "summary": "Add first-workflow test coverage",
+          "description": "Create starter tests for route state, API-client boundaries, persistence, and view model behavior.",
+          "priority": "Medium",
+          "task_type": "test",
+          "complexity": "M",
+          "criteria": [
+            "First workflow has a fast test for success state",
+            "First workflow has a fast test for failure or empty state",
+            "The configured test command runs those tests"
+          ]
+        }
+      ],
+      "verification_hints": [
+        "Run the configured test command before marking the first workflow task done."
+      ]
+    }
+  ]
+}
