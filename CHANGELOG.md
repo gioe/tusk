@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1210] - 2026-07-07
+
+- [TASK-768] Verify sync-main stash restoration is distributed in installed builds
+
 ## [1209] - 2026-07-03
 
 - [TASK-731] Fix: detect stale installed tusk binaries before task startup

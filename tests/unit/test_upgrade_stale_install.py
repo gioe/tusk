@@ -31,6 +31,33 @@ def _write_migrate(path: Path, max_version: int) -> None:
     path.write_text("".join(lines), encoding="utf-8")
 
 
+def test_copy_bin_files_overwrites_stale_sync_main_helper(tmp_path):
+    upgrade = _load_upgrade()
+
+    src = tmp_path / "src"
+    src_bin = src / "bin"
+    src_bin.mkdir(parents=True)
+    (src / "config.default.json").write_text("{}\n", encoding="utf-8")
+    (src / "pricing.json").write_text("{}\n", encoding="utf-8")
+    (src_bin / "tusk").write_text("#!/bin/sh\n", encoding="utf-8")
+    fixed_helper = (
+        "def _restore_stash_after_merge_failure(repo_root, stash_message):\n"
+        "    return 'fixed'\n"
+    )
+    (src_bin / "tusk-sync-main.py").write_text(fixed_helper, encoding="utf-8")
+
+    script_dir = tmp_path / "install" / ".claude" / "bin"
+    script_dir.mkdir(parents=True)
+    (script_dir / "tusk-sync-main.py").write_text(
+        "# old ff-only failure branch left owned stash intact\n",
+        encoding="utf-8",
+    )
+
+    upgrade.copy_bin_files(str(src), str(script_dir))
+
+    assert (script_dir / "tusk-sync-main.py").read_text(encoding="utf-8") == fixed_helper
+
+
 def test_no_commit_does_not_claim_current_when_schema_support_is_stale(
     tmp_path, monkeypatch, capsys
 ):
