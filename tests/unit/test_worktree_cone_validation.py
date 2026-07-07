@@ -13,6 +13,7 @@ and drops the rest — emitting an advisory at the call site.
 
 import importlib.util
 import os
+import sqlite3
 import subprocess
 
 import pytest
@@ -168,3 +169,38 @@ class TestTrackedDirs:
         plain = tmp_path / "plain"
         plain.mkdir()
         assert mod._tracked_dirs(str(plain)) is None
+
+
+class TestTaskScopeCone:
+    def test_scope_patterns_contribute_top_level_dirs(self, mod):
+        conn = sqlite3.connect(":memory:")
+        conn.execute(
+            """
+            CREATE TABLE task_scope (
+                task_id INTEGER,
+                pattern TEXT,
+                source TEXT
+            )
+            """
+        )
+        conn.executemany(
+            "INSERT INTO task_scope (task_id, pattern, source) VALUES (?, ?, ?)",
+            [
+                (
+                    42,
+                    "android/app/src/main/kotlin/app/laughtrack/android/push/PushNotifications.kt",
+                    "auto_derived",
+                ),
+                (
+                    42,
+                    "android/feature/library/src/main/kotlin/app/laughtrack/android/feature/library/LibraryScreen.kt",
+                    "operator_declared",
+                ),
+                (42, ".github/workflows/android.yml", "auto_derived"),
+                (42, "README.md", "auto_derived"),
+                (42, "**", "unbounded"),
+                (99, "ios/Sources/App.swift", "auto_derived"),
+            ],
+        )
+
+        assert mod._task_scope_top_level_cone(conn, 42) == [".github", "android"]

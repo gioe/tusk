@@ -422,6 +422,42 @@ def _derive_sparse_cone(paths: list[str]) -> list[str]:
     return sorted(cone)
 
 
+def _task_scope_top_level_cone(conn: sqlite3.Connection, task_id: int) -> list[str]:
+    """Return top-level sparse cone dirs implied by persisted task scope.
+
+    ``task_scope`` is the authoritative edit contract. Worktree sparse cones
+    should not depend only on prose token extraction because that path can miss
+    valid project roots such as ``android/``. Root-level files are ignored
+    because cone mode materializes them automatically; the unbounded sentinel
+    is not a real path.
+    """
+    rows = conn.execute(
+        "SELECT pattern, source FROM task_scope WHERE task_id = ?",
+        (task_id,),
+    ).fetchall()
+    cone: set[str] = set()
+    for row in rows:
+        pattern = row["pattern"] if isinstance(row, sqlite3.Row) else row[0]
+        source = row["source"] if isinstance(row, sqlite3.Row) else row[1]
+        if not pattern or source == "unbounded" or pattern == "**":
+            continue
+        normalized = _normalize_cone_entry(str(pattern))
+        if not normalized:
+            continue
+        if "/" in normalized:
+            candidate = normalized.split("/", 1)[0]
+        else:
+            # Cone mode auto-includes root-level files. Keep single-segment
+            # entries only when they look directory-shaped.
+            if os.path.splitext(normalized)[1]:
+                continue
+            candidate = normalized
+        candidate = _normalize_cone_entry(candidate)
+        if candidate:
+            cone.add(candidate)
+    return sorted(cone)
+
+
 def _tracked_dirs(repo_root: str) -> set | None:
     """Every directory tracked at HEAD, or None when git fails (validation
     is then skipped entirely rather than guessing)."""
@@ -1356,25 +1392,27 @@ def cmd_create(
         # Cone sources unioned together (TASK-480, issues #892/#896):
         #   1. task_referenced_paths — extracted from the task description
         #      and criteria.
-        #   2. scope.sparse_always_include — project-level "always materialize"
+        #   2. task_scope top-level directories — authoritative persisted
+        #      scope rows, independent of prose tokenization.
+        #   3. scope.sparse_always_include — project-level "always materialize"
         #      paths from tusk/config.json (file paths; dirname extracted).
-        #   3. scope.always_allowed — auto-allowed files (VERSION, MANIFEST,
+        #   4. scope.always_allowed — auto-allowed files (VERSION, MANIFEST,
         #      etc.); cone derivation drops root-level entries.
-        #   4. test_command's target paths — so `tusk commit`'s default test
+        #   5. test_command's target paths — so `tusk commit`'s default test
         #      gate (typically `python3 -m pytest tests/unit/`) does not fail
         #      with "file or directory not found" the first time it runs
         #      (issue #892, criterion 2230).
-        #   5. --cone <path> CLI flag — operator-declared extras for tasks
+        #   6. --cone <path> CLI flag — operator-declared extras for tasks
         #      that obviously touch skills/docs/hooks without describing
         #      every path up front (issue #896, criterion 2231).
-        #   6. scope.sparse_always_cone — project-level "always materialize"
+        #   7. scope.sparse_always_cone — project-level "always materialize"
         #      cone directories from tusk/config.json (literal directory
         #      entries; no dirname extraction). Right for source-repo
         #      configs that want to force `.claude/`, `skills/`, `.github/`,
         #      etc. into every task worktree so unit tests reading those
         #      files don't FileNotFoundError under a narrow per-task cone
         #      (issue #935).
-        #   7. CI workflow prose/scope hints — tasks that ask for GitHub
+        #   8. CI workflow prose/scope hints — tasks that ask for GitHub
         #      Actions or workflow_dispatch work need sibling workflows even
         #      when they never spell out `.github/workflows/...` (issue #978).
         if not os.environ.get("TUSK_NO_SPARSE_WORKTREE"):
@@ -1382,7 +1420,8 @@ def cmd_create(
                 p for p in task_referenced_paths(task_id, conn)
                 if not is_prose_identifier_path(p, repo_root)
             ]
-            if referenced:
+            task_scope_cone = _task_scope_top_level_cone(conn, task_id)
+            if referenced or task_scope_cone:
                 always_include = _load_scope_list(
                     config_path, "sparse_always_include"
                 )
@@ -1422,7 +1461,7 @@ def cmd_create(
                         "(issue #1044). Use --cone <path> to force an entry.",
                         file=sys.stderr,
                     )
-                cone_set = set(kept) | set(resolved.values())
+                cone_set = set(task_scope_cone) | set(kept) | set(resolved.values())
                 cone_set.update(
                     _derive_sparse_cone(
                         [
