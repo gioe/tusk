@@ -79,7 +79,7 @@ require it).
 | **tusk-init-wizard.py** | `tusk init-wizard [flags]` | config, codebase scan, test detection, bootstrap manifests, accepted bootstrap plan tasks | config, optional scaffold files, optional seeded bootstrap or plan tasks |
 | **tusk-init-scaffold.py** | `tusk init-scaffold --spec '<json>'` | install mode and scaffold spec | directories, `.gitkeep`, routing stubs |
 | **tusk-init-fetch-bootstrap.py** | `tusk init-fetch-bootstrap` | `project_libs` config, remote `tusk-bootstrap.json` manifests | nothing |
-| **tusk-init-write-manifest-files.py** | `tusk init-write-manifest-files --spec '<json>'` | manifest file spec | create-only files and append-if-missing snippets |
+| **tusk-init-write-manifest-files.py** | `tusk init-write-manifest-files --spec '<json>' [--dry-run] [--intent-file <json>]` | manifest file spec, optional confirmed init intent | create-only files, append-if-missing snippets, and marker-bounded managed blocks |
 | **tusk-init-scan-codebase.py** | `tusk init-scan-codebase` | manifests and repo directories | nothing |
 | **tusk-init-scan-todos.py** | `tusk init-scan-todos` | source comments | nothing |
 

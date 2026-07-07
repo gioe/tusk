@@ -256,6 +256,13 @@ For each lib entry:
   pillars, glossary terms, context atoms, recommended tasks, and verification
   hints. Do not auto-apply module contents unless the current flow explicitly
   asks for module selection.
+- `error` null and `manifest_files` non-empty — materialize only after the
+  user accepts the reviewable plan. Use `tusk init-write-manifest-files` for
+  all file writes. It supports safe create-only files, append-if-missing
+  snippets, marker-bounded managed sections, `--dry-run` previews, and
+  `--intent-file <json>` rendering for `{{ dotted.path }}` variables from the
+  confirmed init intent. Surface the summary and any `conflicts`; conflicts
+  mean the file was left unchanged and should be handled before task seeding.
 - `error` null and `tasks` non-empty — present the task list, ask **yes /
   no / pick**, then insert each chosen task:
   ```bash

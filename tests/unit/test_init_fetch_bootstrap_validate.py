@@ -145,6 +145,20 @@ class TestValidateManifestFiles:
         ])
         assert mod._validate(data) is None
 
+    def test_valid_manifest_files_marker_block_passes(self):
+        """marker_block is valid when both marker strings are present."""
+        mod = _load_module()
+        data = _with_manifest([
+            {
+                "path": "Package.swift",
+                "content": ".package(url: \"https://example.com/lib\", from: \"1.0.0\")\n",
+                "mode": "marker_block",
+                "begin_marker": "// BEGIN TUSK",
+                "end_marker": "// END TUSK",
+            },
+        ])
+        assert mod._validate(data) is None
+
     def test_manifest_files_non_list_fails(self):
         mod = _load_module()
         result = mod._validate(_with_manifest("not-a-list"))
@@ -218,6 +232,32 @@ class TestValidateManifestFiles:
         assert "mode" in result
         assert "create_only" in result
         assert "append_if_missing" in result
+
+    def test_marker_block_missing_begin_marker_fails(self):
+        mod = _load_module()
+        result = mod._validate(_with_manifest([
+            {
+                "path": "Package.swift",
+                "content": "x",
+                "mode": "marker_block",
+                "end_marker": "// END TUSK",
+            },
+        ]))
+        assert result is not None
+        assert "begin_marker" in result
+
+    def test_marker_block_missing_end_marker_fails(self):
+        mod = _load_module()
+        result = mod._validate(_with_manifest([
+            {
+                "path": "Package.swift",
+                "content": "x",
+                "mode": "marker_block",
+                "begin_marker": "// BEGIN TUSK",
+            },
+        ]))
+        assert result is not None
+        assert "end_marker" in result
 
 
 class TestValidateBootstrapModules:

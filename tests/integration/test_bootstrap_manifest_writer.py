@@ -22,7 +22,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 TUSK_BIN = os.path.join(REPO_ROOT, "bin", "tusk")
 
 
-def _write_manifest(tmp_path, spec, *, repo_root=None, via="spec"):
+def _write_manifest(tmp_path, spec, *, repo_root=None, via="spec", extra_args=None):
     """Run `tusk init-write-manifest-files` with the given JSON spec; return parsed stdout JSON.
 
     `via` selects how the spec is delivered to the writer:
@@ -42,6 +42,8 @@ def _write_manifest(tmp_path, spec, *, repo_root=None, via="spec"):
         raise ValueError(f"unknown via mode: {via!r}")
     if repo_root is not None:
         args += ["--repo-root", str(repo_root)]
+    if extra_args:
+        args += extra_args
     result = subprocess.run(
         args,
         cwd=str(tmp_path),
@@ -225,3 +227,112 @@ def test_bootstrap_manifest_spec_and_spec_file_are_mutually_exclusive(project_ro
     # argparse's own error message also lands on stderr — confirm the mutual-exclusion
     # branch fired (rather than some unrelated argparse failure).
     assert "not allowed with argument" in result.stderr
+
+
+def test_bootstrap_manifest_dry_run_reports_writes_without_mutating(project_root):
+    """--dry-run should report planned writes but leave the project tree untouched."""
+    spec = [
+        {"path": "generated.txt", "content": "hello\n"},
+    ]
+    result = _write_manifest(project_root, spec, repo_root=project_root, extra_args=["--dry-run"])
+    assert result.returncode == 0, f"writer failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+    payload = json.loads(result.stdout)
+
+    assert payload["success"] is True
+    assert payload["wrote"] == [{"path": "generated.txt", "mode": "create_only", "dry_run": True}]
+    assert payload["skipped"] == []
+    assert payload["conflicts"] == []
+    assert not (project_root / "generated.txt").exists()
+
+
+def test_bootstrap_manifest_renders_intent_templates(project_root):
+    """Manifest content can reference the confirmed init intent model."""
+    intent_path = project_root / "intent.json"
+    intent_path.write_text(
+        json.dumps({"project_name": "Ledger", "init_intent": {"platforms": ["ios"]}}),
+        encoding="utf-8",
+    )
+    spec = [
+        {
+            "path": "README.md",
+            "content": "# {{ project_name }}\nPlatform: {{ init_intent.platforms.0 }}\n",
+        },
+    ]
+    result = _write_manifest(
+        project_root,
+        spec,
+        repo_root=project_root,
+        extra_args=["--intent-file", str(intent_path)],
+    )
+    assert result.returncode == 0, f"writer failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+
+    assert (project_root / "README.md").read_text(encoding="utf-8") == "# Ledger\nPlatform: ios\n"
+
+
+def test_bootstrap_manifest_missing_intent_template_reports_conflict(project_root):
+    """Missing template variables should be reported without writing partial files."""
+    intent_path = project_root / "intent.json"
+    intent_path.write_text(json.dumps({"project_name": "Ledger"}), encoding="utf-8")
+    spec = [
+        {"path": "README.md", "content": "# {{ missing_name }}\n"},
+    ]
+    result = _write_manifest(
+        project_root,
+        spec,
+        repo_root=project_root,
+        extra_args=["--intent-file", str(intent_path)],
+    )
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+
+    assert payload["success"] is False
+    assert payload["conflicts"][0]["path"] == "README.md"
+    assert "missing template variable" in payload["conflicts"][0]["reason"]
+    assert not (project_root / "README.md").exists()
+
+
+def test_bootstrap_manifest_marker_block_replaces_only_managed_section(project_root):
+    """marker_block mode may update only the explicitly bounded managed section."""
+    target = project_root / "Package.swift"
+    target.write_text(
+        "// user header\n// BEGIN TUSK\nold\n// END TUSK\n// user footer\n",
+        encoding="utf-8",
+    )
+    spec = [
+        {
+            "path": "Package.swift",
+            "content": "new\n",
+            "mode": "marker_block",
+            "begin_marker": "// BEGIN TUSK",
+            "end_marker": "// END TUSK",
+        },
+    ]
+    result = _write_manifest(project_root, spec, repo_root=project_root)
+    assert result.returncode == 0, f"writer failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+
+    assert target.read_text(encoding="utf-8") == (
+        "// user header\n// BEGIN TUSK\nnew\n// END TUSK\n// user footer\n"
+    )
+
+
+def test_bootstrap_manifest_marker_block_conflict_does_not_mutate_partial_marker(project_root):
+    """A partial marker pair should be a conflict rather than a destructive rewrite."""
+    target = project_root / "Package.swift"
+    target.write_text("// user header\n// BEGIN TUSK\nold\n", encoding="utf-8")
+    spec = [
+        {
+            "path": "Package.swift",
+            "content": "new\n",
+            "mode": "marker_block",
+            "begin_marker": "// BEGIN TUSK",
+            "end_marker": "// END TUSK",
+        },
+    ]
+    result = _write_manifest(project_root, spec, repo_root=project_root)
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+
+    assert payload["success"] is False
+    assert payload["conflicts"][0]["path"] == "Package.swift"
+    assert "marker" in payload["conflicts"][0]["reason"]
+    assert target.read_text(encoding="utf-8") == "// user header\n// BEGIN TUSK\nold\n"

@@ -643,7 +643,7 @@ For each lib entry:
   tusk init-write-manifest-files --spec '<json array of manifest_files>'
   ```
 
-  This creates files that don't exist yet (`mode: create_only`, the default) and idempotently appends lines to existing files (`mode: append_if_missing`). The writer returns `{wrote: [...], skipped: [...], summary: "wrote N files, skipped M existing"}` — surface the `summary` line to the user before the seed-tasks prompt below.
+  This creates files that don't exist yet (`mode: create_only`, the default), idempotently appends lines to existing files (`mode: append_if_missing`), and safely updates marker-bounded managed sections (`mode: marker_block` with `begin_marker` and `end_marker`). Pass `--intent-file <confirmed-intent.json>` when manifest content uses `{{ dotted.path }}` template variables from the confirmed init intent. Use `--dry-run` when previewing a plan: it reports the same writes, skips, and conflicts without touching the filesystem. The writer returns `{wrote: [...], skipped: [...], conflicts: [...], summary: "wrote N files, skipped M existing"}` — surface the `summary` line and any conflicts to the user before the seed-tasks prompt below.
 
 - If `error` is null and `tasks` is non-empty, present the task list to the user:
 

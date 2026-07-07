@@ -1073,13 +1073,18 @@ These appear alongside the task's normal criteria in `tusk criteria list` and ar
 | Field | Type | Required | Default | Purpose |
 |-------|------|----------|---------|---------|
 | `path` | `string` | yes | — | Repo-root-relative file path. Must not be absolute, must not contain `..` segments, and may only contain `[a-zA-Z0-9._/-]` characters. |
-| `content` | `string` | yes | — | Exact bytes to write or append. |
-| `mode` | `string` | no | `create_only` | Conflict-handling mode. One of `create_only` or `append_if_missing`. |
+| `content` | `string` | yes | — | Exact bytes to write, append, or place inside a managed marker block. May contain `{{ dotted.path }}` template variables when the writer is called with an init intent file. |
+| `mode` | `string` | no | `create_only` | Conflict-handling mode. One of `create_only`, `append_if_missing`, or `marker_block`. |
+| `begin_marker` | `string` | only for `marker_block` | — | Start marker for the managed section. |
+| `end_marker` | `string` | only for `marker_block` | — | End marker for the managed section. |
 
 **Modes and conflict behavior:**
 
 - **`create_only`** (default) — writes `path` only if it does not already exist. If the file is already present, the entry is silently skipped — no overwrite, no error. Use this for skeleton files the consuming project takes ownership of after the first integration.
 - **`append_if_missing`** — appends `content` to `path` only if `content` is not already a substring of the existing file. Idempotent: re-running the bootstrap step does not produce duplicate appends. If `path` does not exist, it is created with `content` as the initial body. Use this for line-oriented additions like `requirements.txt` entries or `.gitignore` patterns.
+- **`marker_block`** — creates or replaces only the text between `begin_marker` and `end_marker`. If the file is missing, the writer creates a file containing the bounded block. If both markers exist exactly once, only that bounded block is replaced. If either marker is missing, duplicated, or out of order, the entry is reported as a conflict and the file is left unchanged. Use this for generated dependency sections inside user-owned manifests.
+
+`tusk init-write-manifest-files --dry-run` evaluates the same file-state, template, and conflict rules without creating directories or mutating files. The JSON output includes `wrote`, `skipped`, and `conflicts`; any conflict exits non-zero. When called with `--intent-file <json>`, `content` can reference fields such as `{{ project_name }}` or list items such as `{{ init_intent.platforms.0 }}`. Missing template variables are conflicts rather than empty strings.
 
 **Minimal `tusk-bootstrap.json` example showing both `manifest_files` modes:**
 
@@ -1096,6 +1101,13 @@ These appear alongside the task's normal criteria in `tusk criteria list` and ar
       "path": "requirements.txt",
       "content": "gioe-libs>=0.4\n",
       "mode": "append_if_missing"
+    },
+    {
+      "path": "Package.swift",
+      "content": ".package(url: \"https://github.com/gioe/ios-libs\", from: \"0.1.0\")\n",
+      "mode": "marker_block",
+      "begin_marker": "// BEGIN TUSK MANAGED DEPENDENCIES",
+      "end_marker": "// END TUSK MANAGED DEPENDENCIES"
     }
   ],
   "tasks": [
@@ -1113,4 +1125,4 @@ These appear alongside the task's normal criteria in `tusk criteria list` and ar
 }
 ```
 
-The first entry omits `mode`, so it defaults to `create_only` — `tusk/conventions/python.md` is written on first integration and skipped on subsequent runs. The second uses `append_if_missing`, so `gioe-libs>=0.4` is added to `requirements.txt` exactly once even if the bootstrap step runs again later.
+The first entry omits `mode`, so it defaults to `create_only` — `tusk/conventions/python.md` is written on first integration and skipped on subsequent runs. The second uses `append_if_missing`, so `gioe-libs>=0.4` is added to `requirements.txt` exactly once even if the bootstrap step runs again later. The third uses `marker_block`, so future runs can refresh the managed dependency section without rewriting user-authored `Package.swift` content outside the markers.

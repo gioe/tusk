@@ -52,7 +52,7 @@ dumps = _json_lib.dumps
 REQUIRED_TOP_LEVEL = {"version", "project_type", "tasks"}
 REQUIRED_TASK_FIELDS = {"summary", "description", "priority", "task_type", "complexity", "criteria"}
 REQUIRED_MODULE_FIELDS = {"id", "name", "description"}
-VALID_MANIFEST_MODES = {"create_only", "append_if_missing"}
+VALID_MANIFEST_MODES = {"create_only", "append_if_missing", "marker_block"}
 VALID_APPLICABILITY_KEYS = {
     "project_types",
     "archetypes",
@@ -137,6 +137,11 @@ def _validate_manifest_file(entry: dict, path: str) -> str | None:
     if mode not in VALID_MANIFEST_MODES:
         valid_list = sorted(VALID_MANIFEST_MODES)
         return f"{path}.mode must be one of {valid_list}"
+    if mode == "marker_block":
+        if not isinstance(entry.get("begin_marker"), str) or not entry["begin_marker"]:
+            return f"{path}.begin_marker must be a non-empty string for marker_block"
+        if not isinstance(entry.get("end_marker"), str) or not entry["end_marker"]:
+            return f"{path}.end_marker must be a non-empty string for marker_block"
     return None
 
 
