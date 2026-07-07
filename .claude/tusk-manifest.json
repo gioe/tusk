@@ -39,6 +39,7 @@
   ".claude/bin/tusk-init-scaffold.py",
   ".claude/bin/tusk-init-scan-codebase.py",
   ".claude/bin/tusk-init-scan-todos.py",
+  ".claude/bin/tusk-init-vertical-slice.py",
   ".claude/bin/tusk-init-wizard.py",
   ".claude/bin/tusk-init-write-config.py",
   ".claude/bin/tusk-init-write-manifest-files.py",

@@ -216,6 +216,144 @@ def test_seed_bootstrap_tasks_none_skips_fetch(codex_like_project):
     assert payload["skipped_tasks"] == []
 
 
+def test_seed_plan_tasks_materializes_vertical_slice_task(codex_like_project):
+    intent = {
+        "primary_workflows": ["submit intake request"],
+        "platforms": ["api"],
+        "data_needs": ["intake requests"],
+        "integrations": ["postgres"],
+        "quality_priorities": ["audit trail"],
+        "project_type": "python_service",
+    }
+
+    result = _run(
+        codex_like_project,
+        "--non-interactive",
+        "--no-auto-scan",
+        "--project-type", "python_service",
+        "--init-intent", json.dumps(intent),
+        "--plan-action", "accept",
+        "--seed-plan-tasks", "all",
+    )
+
+    assert result.returncode == 0, f"wizard failed:\n{result.stderr}"
+    payload = json.loads(result.stdout)
+    assert payload["success"] is True
+    assert payload["seeded_tasks"]
+    assert payload["seeded_tasks"][0]["summary"] == "Ship first backend vertical slice for submit intake request"
+
+    listed = _run_tusk(codex_like_project, "task-list", "--format", "json", "--all")
+    assert listed.returncode == 0, listed.stderr
+    tasks = json.loads(listed.stdout)
+    assert any(t["summary"] == "Ship first backend vertical slice for submit intake request" for t in tasks)
+
+
+def test_seed_plan_tasks_skip_materialization_writes_no_tasks(codex_like_project):
+    intent = {
+        "primary_workflows": ["submit intake request"],
+        "platforms": ["api"],
+        "project_type": "python_service",
+    }
+
+    result = _run(
+        codex_like_project,
+        "--non-interactive",
+        "--no-auto-scan",
+        "--project-type", "python_service",
+        "--init-intent", json.dumps(intent),
+        "--plan-action", "skip-materialization",
+        "--seed-plan-tasks", "all",
+    )
+
+    assert result.returncode == 0, f"wizard failed:\n{result.stderr}"
+    payload = json.loads(result.stdout)
+    assert payload["seeded_tasks"] == []
+
+    listed = _run_tusk(codex_like_project, "task-list", "--format", "json", "--all")
+    assert listed.returncode == 0, listed.stderr
+    tasks = json.loads(listed.stdout)
+    assert not any(t["summary"] == "Ship first backend vertical slice for submit intake request" for t in tasks)
+
+
+def test_plan_only_bad_plan_task_id_fails_with_json(codex_like_project):
+    intent = {
+        "primary_workflows": ["submit intake request"],
+        "platforms": ["api"],
+        "project_type": "python_service",
+    }
+
+    result = _run(
+        codex_like_project,
+        "--non-interactive",
+        "--no-auto-scan",
+        "--project-type", "python_service",
+        "--init-intent", json.dumps(intent),
+        "--plan-task-mode", "pick",
+        "--plan-task-id", "missing",
+        "--plan-only",
+    )
+
+    assert result.returncode != 0
+    payload = json.loads(result.stdout)
+    assert payload["success"] is False
+    assert "unknown task id" in payload["error"].lower()
+    assert "missing" in payload["error"]
+
+
+def test_unknown_flag_fails_with_json(codex_like_project):
+    result = _run(
+        codex_like_project,
+        "--non-interactive",
+        "--no-auto-scan",
+        "--seed-plan-task", "all",
+    )
+
+    assert result.returncode != 0
+    payload = json.loads(result.stdout)
+    assert payload["success"] is False
+    assert "unknown argument" in payload["error"].lower()
+    assert "--seed-plan-task" in payload["error"]
+
+
+def test_invalid_seed_plan_tasks_choice_fails_with_json(codex_like_project):
+    result = _run(
+        codex_like_project,
+        "--non-interactive",
+        "--no-auto-scan",
+        "--seed-plan-tasks", "bogus",
+    )
+
+    assert result.returncode != 0
+    payload = json.loads(result.stdout)
+    assert payload["success"] is False
+    assert "invalid choice" in payload["error"].lower()
+    assert "--seed-plan-tasks" in payload["error"]
+
+
+def test_seed_plan_tasks_skips_empty_summary_task(codex_like_project):
+    result = _run(
+        codex_like_project,
+        "--non-interactive",
+        "--no-auto-scan",
+        "--plan-action", "accept",
+        "--seed-plan-tasks", "all",
+        "--plan-task-mode", "none",
+        "--plan-add-task", json.dumps({
+            "id": "empty-summary-task",
+            "summary": "",
+            "description": "This task should be accounted for.",
+            "criteria": ["account for skipped task"],
+        }),
+    )
+
+    assert result.returncode == 0, f"wizard failed:\n{result.stderr}"
+    payload = json.loads(result.stdout)
+    assert payload["seeded_tasks"] == []
+    assert payload["skipped_tasks"]
+    assert payload["skipped_tasks"][0]["summary"] == "<empty summary>"
+    assert "empty summary" in payload["skipped_tasks"][0]["reason"].lower()
+
+
 def test_no_auto_scan_leaves_domains_empty_when_no_overrides(codex_like_project):
     """Without --auto-scan and without explicit flags, the wizard writes nothing
     to existing keys — they carry forward from init-write-config's merge."""
@@ -597,4 +735,9 @@ def test_help_documents_scaffold_flags(codex_like_project):
     assert result.returncode == 0, f"--help failed:\n{result.stderr}"
     assert "--scaffold-spec" in result.stdout
     assert "--no-scaffold" in result.stdout
+    assert "--seed-plan-tasks" in result.stdout
+    assert "--plan-task-mode" in result.stdout
+    assert "--plan-task-id" in result.stdout
+    assert "--plan-remove-task" in result.stdout
+    assert "--plan-add-task" in result.stdout
     assert _read_config(codex_like_project) == before

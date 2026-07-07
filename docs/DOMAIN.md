@@ -906,10 +906,12 @@ Future packs such as `android_app`, `web_app`, and `backend` can be present in t
 - the durable intent/config values to write;
 - selected utility repos and skipped optional repos from `init-bootstrap-select`;
 - selected modules with `matched` reasons such as `project_type=ios_app`, `archetype=consumer_ios_app`, `platform=ios`, or `requires=swiftui`;
-- scaffold directories, file writes/appends, context atoms, pillars, glossary entries, and tasks to create;
+- scaffold directories, file writes/appends, context atoms, pillars, glossary entries, bootstrap tasks, and generated first vertical-slice tasks to create;
 - `actions.materialize`, which is false when the operator chooses `skip-materialization`.
 
-`tusk init-wizard --plan-only` emits this plan and exits before writing config or starter assets. In non-interactive mode, requested materialization side effects such as `--scaffold-spec` or `--seed-bootstrap-tasks all` require `--plan-action accept` or `--plan-action skip-materialization`; omitting the action fails before mutation. Interactive callers are shown the plan and can accept or skip materialization. Module edits are represented by repeatable `--plan-remove-module <id>` and `--plan-add-module '<json object>'`.
+Generated vertical-slice tasks are deterministic starter backlog proposals derived from `init_intent`, inferred archetype, and selected modules. They describe the first useful mobile, web, or backend workflow and include behavior, data, integration, verification, and documentation criteria. Task-level controls are represented by `--plan-task-mode all|none|pick`, repeatable `--plan-task-id <id>`, repeatable `--plan-remove-task <id>`, and repeatable `--plan-add-task '<json object>'`. These controls apply to generated/editable plan tasks without silently removing id-less utility-repo bootstrap tasks.
+
+`tusk init-wizard --plan-only` emits this plan and exits before writing config or starter assets. In non-interactive mode, requested materialization side effects such as `--scaffold-spec`, `--seed-bootstrap-tasks all`, or `--seed-plan-tasks all` require `--plan-action accept` or `--plan-action skip-materialization`; omitting the action fails before mutation. Interactive callers are shown the plan and can accept or skip materialization. Module edits are represented by repeatable `--plan-remove-module <id>` and `--plan-add-module '<json object>'`. Accepted plan tasks are inserted only when materialization is accepted and `--seed-plan-tasks all` is passed; duplicate and insertion failures are reported in the wizard's `skipped_tasks` array.
 
 **Bootstrap durable memory:** `tusk init-apply-memory --plan '<json>' --task-id <id>` applies the memory-bearing parts of an accepted bootstrap plan. It reads `plan.context_atoms`, `plan.pillars`, `plan.glossary`, and the confirmed `init_intent`, then idempotently inserts:
 

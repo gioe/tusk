@@ -47,6 +47,25 @@ def _list(value: Any) -> list[str]:
     return items
 
 
+def _id_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        raw_items = value.replace("\n", ",").split(",")
+    elif isinstance(value, list):
+        raw_items = value
+    else:
+        raw_items = [value]
+    items: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_items:
+        text = str(raw).strip()
+        if text and text not in seen:
+            seen.add(text)
+            items.append(text)
+    return items
+
+
 def _signals(picked: dict[str, Any], archetype: dict[str, Any] | None) -> dict[str, set[str]]:
     intent = picked.get("init_intent") or {}
     archetype = archetype or {}
@@ -100,6 +119,60 @@ def _task_with_source(task: dict[str, Any], source: str) -> dict[str, Any]:
     return out
 
 
+def _task_ids(tasks: list[dict[str, Any]]) -> set[str]:
+    return {str(task.get("id")) for task in tasks if task.get("id")}
+
+
+def _reject_unknown_task_ids(requested: list[str], known: set[str], label: str) -> None:
+    unknown = [task_id for task_id in requested if task_id not in known]
+    if unknown:
+        raise ValueError(f"unknown task id in {label}: {', '.join(unknown)}")
+
+
+def _is_controlled_task(task: dict[str, Any]) -> bool:
+    return str(task.get("source", "")).startswith("vertical_slice:")
+
+
+def _apply_task_controls(
+    tasks: list[dict[str, Any]],
+    *,
+    task_mode: str,
+    task_ids: list[str] | None,
+    remove_tasks: list[str] | None,
+    add_tasks: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    if task_mode not in {"all", "none", "pick"}:
+        raise ValueError("--task-mode must be one of: all, none, pick")
+
+    picked_ids = _id_list(task_ids)
+    removed_ids = _id_list(remove_tasks)
+    known_ids = _task_ids(tasks)
+    controlled_ids = _task_ids([task for task in tasks if _is_controlled_task(task)])
+
+    if task_mode == "pick":
+        _reject_unknown_task_ids(picked_ids, controlled_ids, "pick")
+        picked_set = set(picked_ids)
+        tasks = [
+            task
+            for task in tasks
+            if not _is_controlled_task(task) or task.get("id") in picked_set
+        ]
+    elif task_mode == "none":
+        tasks = [task for task in tasks if not _is_controlled_task(task)]
+    else:
+        tasks = list(tasks)
+
+    if removed_ids:
+        _reject_unknown_task_ids(removed_ids, known_ids, "remove")
+        removed_set = set(removed_ids)
+        tasks = [task for task in tasks if task.get("id") not in removed_set]
+
+    for task in add_tasks or []:
+        tasks.append(_task_with_source(task, task.get("source", "manual")))
+
+    return tasks
+
+
 def build_bootstrap_plan(
     *,
     picked: dict[str, Any],
@@ -109,6 +182,10 @@ def build_bootstrap_plan(
     remove_modules: list[str] | None = None,
     add_modules: list[dict[str, Any]] | None = None,
     plan_action: str = "accept",
+    task_mode: str = "all",
+    task_ids: list[str] | None = None,
+    remove_tasks: list[str] | None = None,
+    add_tasks: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     bootstrap = bootstrap or {"libs": []}
     remove_set = set(_list(remove_modules))
@@ -197,6 +274,23 @@ def build_bootstrap_plan(
             for task in module.get("tasks") or []:
                 tasks_to_create.append(_task_with_source(task, f"module:{module_id}"))
 
+        vertical_slice = _load_script_module("tusk-init-vertical-slice.py", "tusk_init_vertical_slice")
+        for task in vertical_slice.generate_vertical_slice_tasks(
+            picked=picked,
+            archetype=archetype or {},
+            selected_modules=selected_modules,
+        ):
+            source = task.get("source", "generated")
+            tasks_to_create.append(_task_with_source(task, f"vertical_slice:{source}"))
+
+        tasks_to_create = _apply_task_controls(
+            tasks_to_create,
+            task_mode=task_mode,
+            task_ids=task_ids,
+            remove_tasks=remove_tasks,
+            add_tasks=add_tasks,
+        )
+
     return {
         "intent": {
             "project_type": picked.get("project_type"),
@@ -258,6 +352,21 @@ def main(argv: list[str]) -> int:
         choices=["accept", "skip-materialization"],
         default="accept",
     )
+    parser.add_argument(
+        "--task-mode",
+        "--plan-task-mode",
+        choices=["all", "none", "pick"],
+        default="all",
+    )
+    parser.add_argument("--task-id", "--plan-task-id", action="append", default=[])
+    parser.add_argument("--remove-task", "--plan-remove-task", action="append", default=[])
+    parser.add_argument(
+        "--add-task",
+        "--plan-add-task",
+        action="append",
+        default=[],
+        help="Task JSON object to add.",
+    )
     args = parser.parse_args(argv[2:])
 
     try:
@@ -266,6 +375,7 @@ def main(argv: list[str]) -> int:
         bootstrap = _parse_json_arg(args.bootstrap, "bootstrap", {"libs": []})
         scaffold_spec = _parse_json_arg(args.scaffold_spec, "scaffold-spec", [])
         add_modules = [_parse_json_arg(raw, "add-module", {}) for raw in args.add_module]
+        add_tasks = [_parse_json_arg(raw, "add-task", {}) for raw in args.add_task]
         if not isinstance(picked, dict):
             raise ValueError("--picked must be a JSON object")
         if not isinstance(archetype, dict):
@@ -276,6 +386,8 @@ def main(argv: list[str]) -> int:
             raise ValueError("--scaffold-spec must be a JSON array")
         if not all(isinstance(item, dict) for item in add_modules):
             raise ValueError("--add-module must be a JSON object")
+        if not all(isinstance(item, dict) for item in add_tasks):
+            raise ValueError("--add-task must be a JSON object")
         plan = build_bootstrap_plan(
             picked=picked,
             archetype=archetype,
@@ -284,6 +396,10 @@ def main(argv: list[str]) -> int:
             remove_modules=args.remove_module,
             add_modules=add_modules,
             plan_action=args.plan_action,
+            task_mode=args.task_mode,
+            task_ids=args.task_id,
+            remove_tasks=args.remove_task,
+            add_tasks=add_tasks,
         )
     except ValueError as exc:
         print(dumps({"success": False, "error": str(exc)}))

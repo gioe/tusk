@@ -48,6 +48,8 @@ Behaviour flags:
     --seed-bootstrap-tasks <mode>  none|all — whether to seed tasks from
                                    project_libs bootstrap. Default: none in
                                    non-interactive mode.
+    --seed-plan-tasks <mode>       none|all — whether to seed accepted
+                                   plan["tasks_to_create"] tasks. Default: none.
     --plan-only                    Emit the bootstrap plan and exit before
                                    writing config, scaffold files, manifest
                                    files, or tasks.
@@ -57,6 +59,13 @@ Behaviour flags:
     --plan-remove-module <id>       Remove a selected module from the plan.
                                    Repeatable.
     --plan-add-module <json>        Add a module JSON object to the plan.
+                                   Repeatable.
+    --plan-task-mode <mode>         all|none|pick — select generated plan tasks.
+    --plan-task-id <id>             Keep a generated task when task mode is pick.
+                                   Repeatable.
+    --plan-remove-task <id>         Remove a generated task from the plan.
+                                   Repeatable.
+    --plan-add-task <json>          Add a task JSON object to the plan.
                                    Repeatable.
     --memory-task-id <id>           Task that receives durable context atoms
                                    when an accepted plan applies project
@@ -147,6 +156,11 @@ def _fail(msg: str, **extra) -> None:
     payload.update(extra)
     _emit(payload)
     sys.exit(1)
+
+
+class JsonArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        _fail(message)
 
 
 def _run_tusk(args: list, timeout: int = 60) -> subprocess.CompletedProcess:
@@ -455,6 +469,63 @@ def _run_scaffold(spec_json: str) -> dict:
         return {"success": False, "error": stderr or "init-scaffold produced invalid JSON"}
 
 
+def _insert_seed_task(task: dict, interactive: bool) -> tuple[dict | None, dict | None]:
+    summary = task.get("summary", "").strip()
+    if not summary:
+        return None, {"summary": "<empty summary>", "reason": "empty summary"}
+    if interactive and not _prompt_yes_no(f"Seed '{summary}'?", default=True):
+        return None, {"summary": summary, "reason": "user declined"}
+
+    criteria = list(task.get("criteria") or [])
+    for hint in task.get("migration_hints") or []:
+        criteria.append(f"[Migration] {hint}")
+    insert_cmd = [
+        "task-insert",
+        summary,
+        task.get("description", ""),
+        "--priority", task.get("priority", "Medium"),
+        "--task-type", task.get("task_type", "feature"),
+        "--complexity", task.get("complexity", "M"),
+    ]
+    if task.get("domain"):
+        insert_cmd += ["--domain", task["domain"]]
+    for c in criteria:
+        insert_cmd += ["--criteria", c]
+    try:
+        ir = _run_tusk(insert_cmd, timeout=60)
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        return None, {"summary": summary, "reason": f"task-insert failed: {e}"}
+    try:
+        body = json.loads(ir.stdout) if ir.stdout.strip() else {}
+    except json.JSONDecodeError:
+        body = {}
+    if ir.returncode == 0 and body.get("task_id"):
+        return {"task_id": body["task_id"], "summary": summary}, None
+    if body.get("duplicate"):
+        return None, {
+            "summary": summary,
+            "reason": f"duplicate of TASK-{body.get('matched_task_id')}",
+        }
+    err = (ir.stderr or body.get("error") or "").strip() or f"exit {ir.returncode}"
+    return None, {"summary": summary, "reason": err}
+
+
+def _seed_tasks_from_plan(plan: dict, interactive: bool) -> tuple:
+    """Run task-insert for each accepted plan task.
+    Returns (seeded_tasks, skipped_tasks)."""
+    seeded: list = []
+    skipped: list = []
+
+    for task in plan.get("tasks_to_create") or []:
+        inserted, skip = _insert_seed_task(task, interactive)
+        if inserted:
+            seeded.append(inserted)
+        if skip:
+            skipped.append(skip)
+
+    return seeded, skipped
+
+
 def _seed_bootstrap_tasks(interactive: bool) -> tuple:
     """Run init-fetch-bootstrap + task-insert for each bootstrap task.
     Returns (seeded_tasks, skipped_tasks)."""
@@ -487,44 +558,11 @@ def _seed_bootstrap_tasks(interactive: bool) -> tuple:
             })
             continue
         for task in lib.get("tasks") or []:
-            summary = task.get("summary", "").strip()
-            if not summary:
-                continue
-            if interactive and not _prompt_yes_no(f"Seed '{summary}'?", default=True):
-                skipped.append({"summary": summary, "reason": "user declined"})
-                continue
-            criteria = list(task.get("criteria") or [])
-            for hint in task.get("migration_hints") or []:
-                criteria.append(f"[Migration] {hint}")
-            insert_cmd = [
-                "task-insert",
-                summary,
-                task.get("description", ""),
-                "--priority", task.get("priority", "Medium"),
-                "--task-type", task.get("task_type", "feature"),
-                "--complexity", task.get("complexity", "M"),
-            ]
-            for c in criteria:
-                insert_cmd += ["--criteria", c]
-            try:
-                ir = _run_tusk(insert_cmd, timeout=60)
-            except (FileNotFoundError, subprocess.TimeoutExpired) as e:
-                skipped.append({"summary": summary, "reason": f"task-insert failed: {e}"})
-                continue
-            try:
-                body = json.loads(ir.stdout) if ir.stdout.strip() else {}
-            except json.JSONDecodeError:
-                body = {}
-            if ir.returncode == 0 and body.get("task_id"):
-                seeded.append({"task_id": body["task_id"], "summary": summary})
-            elif body.get("duplicate"):
-                skipped.append({
-                    "summary": summary,
-                    "reason": f"duplicate of TASK-{body.get('matched_task_id')}",
-                })
-            else:
-                err = (ir.stderr or body.get("error") or "").strip() or f"exit {ir.returncode}"
-                skipped.append({"summary": summary, "reason": err})
+            inserted, skip = _insert_seed_task(task, interactive)
+            if inserted:
+                seeded.append(inserted)
+            if skip:
+                skipped.append(skip)
 
     return seeded, skipped
 
@@ -547,6 +585,10 @@ def _build_plan(
     plan_action: str,
     remove_modules: list[str],
     add_modules: list[dict],
+    task_mode: str,
+    task_ids: list[str],
+    remove_tasks: list[str],
+    add_tasks: list[dict],
 ) -> dict:
     helper = _load_plan_helper()
     return helper.build_bootstrap_plan(
@@ -557,6 +599,10 @@ def _build_plan(
         remove_modules=remove_modules,
         add_modules=add_modules,
         plan_action=plan_action,
+        task_mode=task_mode,
+        task_ids=task_ids,
+        remove_tasks=remove_tasks,
+        add_tasks=add_tasks,
     )
 
 
@@ -598,7 +644,7 @@ def main():
 
     config_path = sys.argv[2]
 
-    parser = argparse.ArgumentParser(allow_abbrev=False, add_help=False)
+    parser = JsonArgumentParser(allow_abbrev=False, add_help=False)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--interactive", action="store_true")
     mode.add_argument("--non-interactive", action="store_true")
@@ -622,6 +668,12 @@ def main():
         choices=["none", "all"],
         default=None,
     )
+    parser.add_argument(
+        "--seed-plan-tasks",
+        dest="seed_plan_tasks",
+        choices=["none", "all"],
+        default="none",
+    )
     parser.add_argument("--scaffold-spec", default=None, dest="scaffold_spec")
     parser.add_argument("--no-scaffold", action="store_true", dest="no_scaffold")
     parser.add_argument("--plan-only", action="store_true", dest="plan_only")
@@ -633,8 +685,19 @@ def main():
     )
     parser.add_argument("--plan-remove-module", action="append", default=[], dest="plan_remove_modules")
     parser.add_argument("--plan-add-module", action="append", default=[], dest="plan_add_modules")
+    parser.add_argument(
+        "--plan-task-mode",
+        choices=["all", "none", "pick"],
+        default="all",
+        dest="plan_task_mode",
+    )
+    parser.add_argument("--plan-task-id", action="append", default=[], dest="plan_task_ids")
+    parser.add_argument("--plan-remove-task", action="append", default=[], dest="plan_remove_tasks")
+    parser.add_argument("--plan-add-task", action="append", default=[], dest="plan_add_tasks")
     parser.add_argument("--memory-task-id", type=int, default=None, dest="memory_task_id")
-    args, _ = parser.parse_known_args(sys.argv[3:])
+    args, unknown = parser.parse_known_args(sys.argv[3:])
+    if unknown:
+        _fail(f"unknown argument: {' '.join(unknown)}")
 
     # Resolve mode. --interactive / --non-interactive win; otherwise TTY-detect.
     if args.interactive:
@@ -681,6 +744,10 @@ def main():
         _parse_json_arg("plan-add-module", raw, dict, "object")
         for raw in args.plan_add_modules
     ]
+    add_tasks = [
+        _parse_json_arg("plan-add-task", raw, dict, "object")
+        for raw in args.plan_add_tasks
+    ]
 
     seed_bootstrap = args.seed_bootstrap
     if seed_bootstrap is None:
@@ -694,7 +761,11 @@ def main():
     else:
         picked = _non_interactive_collect(scan, test_detect, overrides, args.auto_scan)
 
-    materialization_requested = args.scaffold_spec is not None or seed_bootstrap == "all"
+    materialization_requested = (
+        args.scaffold_spec is not None
+        or seed_bootstrap == "all"
+        or args.seed_plan_tasks == "all"
+    )
     if not interactive and materialization_requested and args.plan_action is None and not args.plan_only:
         _emit({
             "success": False,
@@ -712,27 +783,67 @@ def main():
         sys.exit(1)
 
     plan_action = args.plan_action or "accept"
-    plan = _build_plan(
-        picked=picked,
-        scan=scan,
-        scaffold_spec=scaffold_spec,
-        plan_action=plan_action,
-        remove_modules=args.plan_remove_modules,
-        add_modules=add_modules,
-    )
+    try:
+        plan = _build_plan(
+            picked=picked,
+            scan=scan,
+            scaffold_spec=scaffold_spec,
+            plan_action=plan_action,
+            remove_modules=args.plan_remove_modules,
+            add_modules=add_modules,
+            task_mode=args.plan_task_mode,
+            task_ids=args.plan_task_ids,
+            remove_tasks=args.plan_remove_tasks,
+            add_tasks=add_tasks,
+        )
+    except ValueError as e:
+        _emit({
+            "success": False,
+            "mode": "interactive" if interactive else "non-interactive",
+            "config_path": config_path,
+            "error": str(e),
+            "written": {},
+            "scan": scan,
+            "plan": None,
+            "memory": None,
+            "scaffold": None,
+            "seeded_tasks": [],
+            "skipped_tasks": [],
+        })
+        sys.exit(1)
 
     if interactive and materialization_requested and args.plan_action is None and not args.plan_only:
         print(dumps({"bootstrap_plan": plan}))
         if not _prompt_yes_no("Apply this bootstrap plan?", default=True):
             plan_action = "skip-materialization"
-            plan = _build_plan(
-                picked=picked,
-                scan=scan,
-                scaffold_spec=scaffold_spec,
-                plan_action=plan_action,
-                remove_modules=args.plan_remove_modules,
-                add_modules=add_modules,
-            )
+            try:
+                plan = _build_plan(
+                    picked=picked,
+                    scan=scan,
+                    scaffold_spec=scaffold_spec,
+                    plan_action=plan_action,
+                    remove_modules=args.plan_remove_modules,
+                    add_modules=add_modules,
+                    task_mode=args.plan_task_mode,
+                    task_ids=args.plan_task_ids,
+                    remove_tasks=args.plan_remove_tasks,
+                    add_tasks=add_tasks,
+                )
+            except ValueError as e:
+                _emit({
+                    "success": False,
+                    "mode": "interactive",
+                    "config_path": config_path,
+                    "error": str(e),
+                    "written": {},
+                    "scan": scan,
+                    "plan": None,
+                    "memory": None,
+                    "scaffold": None,
+                    "seeded_tasks": [],
+                    "skipped_tasks": [],
+                })
+                sys.exit(1)
 
     if args.plan_only:
         _emit({
@@ -791,8 +902,14 @@ def main():
 
     seeded: list = []
     skipped: list = []
+    if plan["actions"]["materialize"] and args.seed_plan_tasks == "all":
+        plan_seeded, plan_skipped = _seed_tasks_from_plan(plan, interactive)
+        seeded.extend(plan_seeded)
+        skipped.extend(plan_skipped)
     if plan["actions"]["materialize"] and seed_bootstrap == "all":
-        seeded, skipped = _seed_bootstrap_tasks(interactive)
+        bootstrap_seeded, bootstrap_skipped = _seed_bootstrap_tasks(interactive)
+        seeded.extend(bootstrap_seeded)
+        skipped.extend(bootstrap_skipped)
 
     _emit({
         "success": True,

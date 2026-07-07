@@ -212,15 +212,23 @@ tusk init-bootstrap-plan \
 Show the user one plan containing the confirmed intent, inferred archetype,
 selected utility repos, selected modules with matched reasons, skipped
 optional modules, files to create or append, context atoms, pillars, glossary
-entries, tasks to create, test-command defaults, and worktree symlink
-suggestions. Options are **accept**, **remove module**, **add module**, and
-**skip materialization**. Rebuild the plan with `--plan-remove-module <id>` or
-`--plan-add-module '<json object>'` after edits.
+entries, bootstrap tasks, generated first vertical-slice tasks, test-command
+defaults, and worktree symlink suggestions. Generated vertical-slice tasks
+connect the user's first workflow to behavior, data, integrations, tests, and
+docs. Options are **accept**, **remove module**, **add module**, **pick tasks**,
+**remove task**, **add/edit task**, and **skip materialization**. Rebuild the
+plan with `--plan-remove-module <id>` or `--plan-add-module '<json object>'`
+after module edits. Rebuild generated tasks with `--plan-task-mode pick` plus
+repeatable `--plan-task-id <id>`, `--plan-remove-task <id>`, or
+`--plan-add-task '<json object>'`; for edits, remove the generated task id and
+add the edited replacement.
 
 For non-interactive `tusk init-wizard` calls, materialization side effects such
-as `--scaffold-spec` or `--seed-bootstrap-tasks all` require
-`--plan-action accept` or `--plan-action skip-materialization`. Use
-`--plan-only` to inspect the plan without mutating config, files, or tasks.
+as `--scaffold-spec`, `--seed-bootstrap-tasks all`, or
+`--seed-plan-tasks all` require `--plan-action accept` or
+`--plan-action skip-materialization`. Use `--plan-only` to inspect the plan
+without mutating config, files, or tasks. Accepted plan tasks are inserted only
+when the plan materializes and `--seed-plan-tasks all` is passed.
 
 For an accepted plan, seed durable project memory before starter assets or
 bootstrap tasks:

@@ -571,30 +571,41 @@ tusk init-bootstrap-plan \
 
 The plan shows confirmed intent/config values, inferred archetype, selected
 utility repos, selected modules, skipped optional modules, files to create or
-append, context atoms, pillars, glossary entries, and tasks to create. Each
-selected module includes `matched` reasons such as `project_type=ios_app`,
-`platform=ios`, or `requires=swiftui`.
+append, context atoms, pillars, glossary entries, bootstrap tasks, and generated
+first vertical-slice tasks to create. Each selected module includes `matched`
+reasons such as `project_type=ios_app`, `platform=ios`, or `requires=swiftui`.
+Generated vertical-slice tasks connect the user's first workflow to behavior,
+data, integrations, tests, and docs.
 
 Present the plan as one review step:
 
 > **Bootstrap plan ready.**
 >
 > Options: **accept** · **remove module** (provide module id) · **add module**
-> (provide module JSON) · **skip materialization**
+> (provide module JSON) · **pick tasks** (provide generated task ids) ·
+> **remove task** (provide generated task id) · **add/edit task** (provide task
+> JSON) · **skip materialization**
 
 - **accept** — proceed with the planned materialization and task seeding.
 - **remove module** — rebuild the plan with `--plan-remove-module <id>`, then
   present it again.
 - **add module** — rebuild the plan with `--plan-add-module '<json object>'`,
   then present it again.
+- **pick tasks** — rebuild the plan with `--plan-task-mode pick` plus
+  repeatable `--plan-task-id <id>` values.
+- **remove task** — rebuild the plan with `--plan-remove-task <id>`.
+- **add/edit task** — rebuild the plan with `--plan-add-task '<json object>'`;
+  for edits, remove the generated task id and add the edited replacement.
 - **skip materialization** — proceed with config only; do not scaffold
   directories, write manifest files, seed context/pillars/glossary, or create
-  bootstrap tasks.
+  bootstrap or generated plan tasks.
 
 For non-interactive `tusk init-wizard` calls, materialization side effects such
-as `--scaffold-spec` or `--seed-bootstrap-tasks all` require an explicit
-`--plan-action accept` or `--plan-action skip-materialization`. Use
-`--plan-only` to emit the plan and exit before any mutation.
+as `--scaffold-spec`, `--seed-bootstrap-tasks all`, or
+`--seed-plan-tasks all` require an explicit `--plan-action accept` or
+`--plan-action skip-materialization`. Use `--plan-only` to emit the plan and
+exit before any mutation. Accepted plan tasks are inserted only when the plan
+materializes and `--seed-plan-tasks all` is passed.
 
 When the plan is accepted, seed durable memory from it before writing starter
 assets or creating bootstrap tasks:

@@ -73,14 +73,35 @@ require it).
 | **tusk-init-intent.py** | `tusk init-intent normalize --answers '<json>'` | raw JSON answers | nothing; emits normalized `init_intent` JSON |
 | **tusk-init-bootstrap-select.py** | `tusk init-bootstrap-select [flags]` | init intent, archetype, project type, feature choices | nothing; emits selected project-lib packs and skipped optional packs |
 | **tusk-init-bootstrap-plan.py** | `tusk init-bootstrap-plan --picked '<json>' [flags]` | confirmed init values, archetype, bootstrap manifests, scaffold spec | nothing; emits a reviewable plan of config, utility modules, files, context, pillars, glossary, tasks, and materialization action |
+| **tusk-init-vertical-slice.py** | `tusk init-vertical-slice --picked '<json>' [--archetype '<json>'] [--selected-modules '<json>']` | confirmed init intent, archetype, and selected modules via bootstrap plan | nothing; pure helper used by `init-bootstrap-plan` to generate first vertical-slice task proposals |
 | **tusk-init-apply-memory.py** | `tusk init-apply-memory --plan '<json>' --task-id <id>` | confirmed bootstrap plan, task context, pillars, glossary | idempotently inserts context atoms, design pillars, and glossary entries |
 | **tusk-init-write-config.py** | `tusk init-write-config [flags]` | `tusk/config.json`, `config.default.json` | `tusk/config.json`; validation triggers via `tusk regen-triggers` |
-| **tusk-init-wizard.py** | `tusk init-wizard [flags]` | config, codebase scan, test detection, bootstrap manifests | config, optional scaffold files, optional seeded tasks |
+| **tusk-init-wizard.py** | `tusk init-wizard [flags]` | config, codebase scan, test detection, bootstrap manifests, accepted bootstrap plan tasks | config, optional scaffold files, optional seeded bootstrap or plan tasks |
 | **tusk-init-scaffold.py** | `tusk init-scaffold --spec '<json>'` | install mode and scaffold spec | directories, `.gitkeep`, routing stubs |
 | **tusk-init-fetch-bootstrap.py** | `tusk init-fetch-bootstrap` | `project_libs` config, remote `tusk-bootstrap.json` manifests | nothing |
 | **tusk-init-write-manifest-files.py** | `tusk init-write-manifest-files --spec '<json>'` | manifest file spec | create-only files and append-if-missing snippets |
 | **tusk-init-scan-codebase.py** | `tusk init-scan-codebase` | manifests and repo directories | nothing |
 | **tusk-init-scan-todos.py** | `tusk init-scan-todos` | source comments | nothing |
+
+`tusk init-vertical-slice --picked` expects the same picked object passed to
+`init-bootstrap-plan`: a top-level `project_type` plus optional
+`init_intent` fields such as `primary_workflows`, `platforms`, `data_needs`,
+`integrations`, and `quality_priorities`. Missing intent fields are
+fallback-backed so the helper can still return a generic first-workflow task.
+The expected shape is:
+
+```json
+{
+  "project_type": "python_service",
+  "init_intent": {
+    "primary_workflows": ["submit intake request"],
+    "platforms": ["api"],
+    "data_needs": ["intake requests"],
+    "integrations": ["postgres"],
+    "quality_priorities": ["audit trail"]
+  }
+}
+```
 
 ### Backlog Management
 
