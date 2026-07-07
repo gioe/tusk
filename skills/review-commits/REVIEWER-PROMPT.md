@@ -106,6 +106,8 @@ Required for `must_fix` only. `suggest` doesn't need final-state verification.
 
 **Never run the full test suite.** Any Bash call longer than ~30 s returns "Command running in background" and triggers a retry loop. If a pytest invocation takes >5 s, stop — replace with `git show HEAD:<file> | grep <pattern>`. For collection-error checks only: `pytest --collect-only -q` (sub-second). If you can't verify a finding with `git show` + `grep`, downgrade from `must_fix` to `suggest`.
 
+**Keep the whole review bounded.** The orchestrator has a hard wall-clock cap and will stop this reviewer task if no verdict is posted in time. Budget the review so Step 4 happens promptly: inspect the diff once, use targeted `git show`/`grep` checks only for candidate findings, and avoid exploratory tool chains that do not directly support a finding. If you are running out of budget, submit the best grounded verdict you can with no speculative comments rather than continuing to investigate.
+
 ### Step 3: Record Your Findings
 
 ```bash
