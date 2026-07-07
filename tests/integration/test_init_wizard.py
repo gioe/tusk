@@ -555,6 +555,132 @@ def test_plan_action_accept_applies_durable_memory_once(codex_like_project):
     assert [row["term"] for row in json.loads(glossary.stdout)].count("Webhook") == 1
 
 
+def test_intent_driven_init_accepts_plan_without_network_and_reruns_idempotently(codex_like_project):
+    insert = _run_tusk(
+        codex_like_project,
+        "task-insert",
+        "Intent bootstrap memory host",
+        "Task used to hold no-network init context.",
+        "--priority", "Low",
+        "--task-type", "feature",
+        "--complexity", "XS",
+        "--criteria", "seed",
+    )
+    assert insert.returncode == 0, f"task-insert failed:\n{insert.stderr}"
+    task_id = json.loads(insert.stdout)["task_id"]
+    intent = {
+        "audience": "Field inspectors",
+        "primary_workflows": ["capture inspection"],
+        "platforms": ["ios"],
+        "stack_preferences": ["SwiftUI"],
+        "integrations": ["weather api"],
+        "data_needs": ["inspections"],
+        "quality_priorities": ["offline support"],
+        "launch_target": None,
+        "non_goals": ["social feed"],
+        "open_questions": ["Which map provider?"],
+        "project_type": "ios_app",
+    }
+    module = {
+        "id": "sharedkit-example",
+        "name": "SharedKit example",
+        "description": "No-network module injected by the test fixture.",
+        "applicability": {
+            "project_types": ["ios_app"],
+            "archetypes": ["consumer_ios_app"],
+            "platforms": ["ios"],
+            "requires": ["SwiftUI"],
+        },
+        "files": [
+            {
+                "path": "Sources/AppDesign/DesignSystem.swift",
+                "content": "import SharedKit\n",
+                "mode": "create_only",
+            }
+        ],
+        "context_atoms": [
+            {"type": "decision", "content": "Use SharedKit for app UI primitives."}
+        ],
+        "pillars": [
+            {"name": "Native feel", "claim": "Prefer platform SwiftUI conventions."}
+        ],
+        "glossary": [
+            {"term": "Inspection", "definition": "A field workflow record captured offline."}
+        ],
+        "tasks": [
+            {
+                "summary": "Wire SharedKit no-network fixture",
+                "description": "Use the injected module task from the reviewable plan.",
+                "priority": "Medium",
+                "task_type": "feature",
+                "complexity": "S",
+                "criteria": ["SharedKit fixture task is seeded"],
+            }
+        ],
+        "verification_hints": ["Run the configured test command."],
+    }
+    manual_task = {
+        "id": "manual-plan-task",
+        "summary": "Verify accepted intent plan fixture",
+        "description": "Representative no-network task added through plan controls.",
+        "priority": "Medium",
+        "task_type": "test",
+        "complexity": "S",
+        "criteria": ["Plan fixture task is seeded exactly once"],
+    }
+    args = [
+        "--non-interactive",
+        "--no-auto-scan",
+        "--project-type", "ios_app",
+        "--init-intent", json.dumps(intent),
+        "--plan-action", "accept",
+        "--memory-task-id", str(task_id),
+        "--seed-plan-tasks", "all",
+        "--plan-add-module", json.dumps(module),
+        "--plan-add-task", json.dumps(manual_task),
+    ]
+
+    first = _run(codex_like_project, *args)
+    assert first.returncode == 0, f"wizard failed:\n{first.stderr}"
+    first_payload = json.loads(first.stdout)
+    assert first_payload["success"] is True
+    assert first_payload["plan"]["archetype"]["id"] == "consumer_ios_app"
+    assert [m["id"] for m in first_payload["plan"]["selected_modules"]] == ["sharedkit-example"]
+    assert first_payload["plan"]["files_to_write"][0]["path"] == "Sources/AppDesign/DesignSystem.swift"
+    assert {task["summary"] for task in first_payload["seeded_tasks"]} >= {
+        "Wire SharedKit no-network fixture",
+        "Verify accepted intent plan fixture",
+        "Ship first mobile vertical slice for capture inspection",
+    }
+    assert first_payload["memory"]["added_context_atoms"]
+    assert first_payload["memory"]["added_pillars"] == ["Native feel", "Offline Support"]
+    assert first_payload["memory"]["added_glossary"] == ["Inspection"]
+
+    second = _run(codex_like_project, *args)
+    assert second.returncode == 0, f"wizard rerun failed:\n{second.stderr}"
+    second_payload = json.loads(second.stdout)
+    assert second_payload["memory"]["added_context_atoms"] == []
+    assert second_payload["memory"]["added_pillars"] == []
+    assert second_payload["memory"]["added_glossary"] == []
+    assert second_payload["skipped_tasks"]
+    assert all("duplicate of TASK-" in item["reason"] for item in second_payload["skipped_tasks"])
+
+    listed = _run_tusk(codex_like_project, "task-list", "--format", "json", "--all")
+    assert listed.returncode == 0, listed.stderr
+    summaries = [task["summary"] for task in json.loads(listed.stdout)]
+    assert summaries.count("Wire SharedKit no-network fixture") == 1
+    assert summaries.count("Verify accepted intent plan fixture") == 1
+    assert summaries.count("Ship first mobile vertical slice for capture inspection") == 1
+
+    context = _run_tusk(codex_like_project, "context", "list", str(task_id), "--format", "json")
+    assert context.returncode == 0, f"context list failed:\n{context.stderr}"
+    contents = [row["content"] for row in json.loads(context.stdout)]
+    assert contents.count("Use SharedKit for app UI primitives.") == 1
+    assert contents.count("Audience: Field inspectors") == 1
+    assert contents.count("Non-goal: social feed") == 1
+    assert contents.count("Open question: Which map provider?") == 1
+
+
 def test_plan_action_skip_materialization_does_not_apply_memory(codex_like_project):
     insert = _run_tusk(
         codex_like_project,

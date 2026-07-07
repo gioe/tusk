@@ -87,3 +87,31 @@ def test_apply_memory_skips_existing_rows():
     assert {"name": "Operability", "claim": "Production behavior must be observable."} in result["skipped_pillars"]
     assert {"term": "Webhook", "definition": "A callback delivered by a partner system."} in result["skipped_glossary"]
     assert {"type": "question", "content": "Open question: PagerDuty or native schedules?"} in result["context_atoms_to_add"]
+
+
+def test_plan_memory_application_is_empty_when_rerun_has_all_existing_rows():
+    mod = _load_module()
+    memory = mod.derive_memory(_plan())
+    existing = {
+        "context_atoms": [
+            {"type": atom["type"], "content": atom["content"]}
+            for atom in memory["context_atoms"]
+        ],
+        "pillars": [
+            {"name": pillar["name"], "core_claim": pillar["claim"]}
+            for pillar in memory["pillars"]
+        ],
+        "glossary": [
+            {"term": entry["term"], "definition": entry["definition"]}
+            for entry in memory["glossary"]
+        ],
+    }
+
+    result = mod.plan_memory_application(memory, existing)
+
+    assert result["context_atoms_to_add"] == []
+    assert result["pillars_to_add"] == []
+    assert result["glossary_to_add"] == []
+    assert result["skipped_context_atoms"] == memory["context_atoms"]
+    assert result["skipped_pillars"] == memory["pillars"]
+    assert result["skipped_glossary"] == memory["glossary"]

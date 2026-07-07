@@ -58,6 +58,37 @@ def test_normalize_intent_preserves_stable_fields_and_list_values():
     }
 
 
+def test_normalize_intent_merges_aliases_dedupes_lists_and_canonicalizes_platforms():
+    mod = _load_module()
+
+    intent = mod.normalize_intent(
+        {
+            "who_it_serves": "Operations team",
+            "audience": "Operations team",
+            "first_workflows": "Review queue\nApprove exception, review queue",
+            "platforms": ["Browser", "api", "web", "Backend"],
+            "planned_stack": ["Next.js", "FastAPI", "Next.js"],
+            "expected_integrations": "Okta, Stripe, Okta",
+            "data_model_hints": "accounts\napprovals",
+            "quality_priorities": ["auditability", "fast filters", "auditability"],
+            "non_goals": "native mobile app, native mobile app",
+            "open_questions": ["which CRM?", "which CRM?"],
+            "project_type": "web_app",
+        }
+    )
+
+    assert intent["audience"] == "Operations team"
+    assert intent["primary_workflows"] == ["Review queue", "Approve exception", "review queue"]
+    assert intent["platforms"] == ["web", "backend"]
+    assert intent["stack_preferences"] == ["Next.js", "FastAPI"]
+    assert intent["integrations"] == ["Okta", "Stripe"]
+    assert intent["data_needs"] == ["accounts", "approvals"]
+    assert intent["quality_priorities"] == ["auditability", "fast filters"]
+    assert intent["non_goals"] == ["native mobile app"]
+    assert intent["open_questions"] == ["which CRM?"]
+    assert intent["project_type"] == "web_app"
+
+
 def test_normalize_intent_fills_missing_fields_without_clobbering_project_type():
     mod = _load_module()
 

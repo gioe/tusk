@@ -336,3 +336,83 @@ def test_bootstrap_manifest_marker_block_conflict_does_not_mutate_partial_marker
     assert payload["conflicts"][0]["path"] == "Package.swift"
     assert "marker" in payload["conflicts"][0]["reason"]
     assert target.read_text(encoding="utf-8") == "// user header\n// BEGIN TUSK\nold\n"
+
+
+def test_bootstrap_manifest_mixed_safe_modes_are_idempotent_together(project_root):
+    """A realistic bootstrap plan can mix create, append, and marker-block specs and rerun cleanly."""
+    package = project_root / "Package.swift"
+    package.write_text(
+        "// user header\n"
+        "// BEGIN TUSK MANAGED PACKAGE DEPENDENCIES\n"
+        ".package(url: \"https://example.com/old\", branch: \"main\")\n"
+        "// END TUSK MANAGED PACKAGE DEPENDENCIES\n"
+        "// user footer\n",
+        encoding="utf-8",
+    )
+    intent_path = project_root / "intent.json"
+    intent_path.write_text(
+        json.dumps({"project_name": "InspectionApp", "init_intent": {"platforms": ["ios"]}}),
+        encoding="utf-8",
+    )
+    spec = [
+        {
+            "path": "Sources/AppDesign/DesignSystem.swift",
+            "content": "public enum AppDesignSystem { static let name = \"{{ project_name }}\" }\n",
+            "mode": "create_only",
+        },
+        {
+            "path": ".gitignore",
+            "content": "DerivedData/\n.swiftpm/\n",
+            "mode": "append_if_missing",
+        },
+        {
+            "path": "Package.swift",
+            "content": ".package(url: \"https://github.com/gioe/ios-libs\", branch: \"main\")\n",
+            "mode": "marker_block",
+            "begin_marker": "// BEGIN TUSK MANAGED PACKAGE DEPENDENCIES",
+            "end_marker": "// END TUSK MANAGED PACKAGE DEPENDENCIES",
+        },
+    ]
+
+    first = _write_manifest(
+        project_root,
+        spec,
+        repo_root=project_root,
+        extra_args=["--intent-file", str(intent_path)],
+    )
+    assert first.returncode == 0, f"writer failed:\nSTDOUT: {first.stdout}\nSTDERR: {first.stderr}"
+    first_payload = json.loads(first.stdout)
+    assert {item["path"] for item in first_payload["wrote"]} == {
+        "Sources/AppDesign/DesignSystem.swift",
+        ".gitignore",
+        "Package.swift",
+    }
+    assert first_payload["conflicts"] == []
+
+    second = _write_manifest(
+        project_root,
+        spec,
+        repo_root=project_root,
+        extra_args=["--intent-file", str(intent_path)],
+    )
+    assert second.returncode == 0, f"writer rerun failed:\nSTDOUT: {second.stdout}\nSTDERR: {second.stderr}"
+    second_payload = json.loads(second.stdout)
+
+    assert second_payload["wrote"] == []
+    assert {item["path"] for item in second_payload["skipped"]} == {
+        "Sources/AppDesign/DesignSystem.swift",
+        ".gitignore",
+        "Package.swift",
+    }
+    assert second_payload["conflicts"] == []
+    assert (project_root / "Sources" / "AppDesign" / "DesignSystem.swift").read_text(encoding="utf-8") == (
+        "public enum AppDesignSystem { static let name = \"InspectionApp\" }\n"
+    )
+    assert (project_root / ".gitignore").read_text(encoding="utf-8") == "DerivedData/\n.swiftpm/\n"
+    assert package.read_text(encoding="utf-8") == (
+        "// user header\n"
+        "// BEGIN TUSK MANAGED PACKAGE DEPENDENCIES\n"
+        ".package(url: \"https://github.com/gioe/ios-libs\", branch: \"main\")\n"
+        "// END TUSK MANAGED PACKAGE DEPENDENCIES\n"
+        "// user footer\n"
+    )

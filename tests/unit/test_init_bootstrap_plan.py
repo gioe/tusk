@@ -7,6 +7,7 @@ import os
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SCRIPT = os.path.join(REPO_ROOT, "bin", "tusk-init-bootstrap-plan.py")
+IOS_BOOTSTRAP_EXAMPLE = os.path.join(REPO_ROOT, "docs", "bootstrap-packs", "ios-libs", "tusk-bootstrap.json")
 
 
 def _load_module():
@@ -80,6 +81,11 @@ def _bootstrap():
     }
 
 
+def _ios_bootstrap_example():
+    with open(IOS_BOOTSTRAP_EXAMPLE, "r", encoding="utf-8") as f:
+        return {"libs": [json.load(f) | {"name": "ios_app", "repo": "gioe/ios-libs", "error": None}]}
+
+
 def test_plan_selects_applicable_modules_and_explains_reasons():
     mod = _load_module()
 
@@ -88,7 +94,7 @@ def test_plan_selects_applicable_modules_and_explains_reasons():
             "project_type": "ios_app",
             "init_intent": {
                 "platforms": ["ios"],
-                "stack_preferences": ["SwiftUI"],
+                "stack_preferences": ["SwiftUI", "mobile"],
                 "primary_workflows": [],
                 "integrations": [],
                 "quality_priorities": [],
@@ -118,6 +124,41 @@ def test_plan_selects_applicable_modules_and_explains_reasons():
     task_summaries = {t["summary"] for t in plan["tasks_to_create"]}
     assert {"Add iOS lib", "Wire SharedKit"}.issubset(task_summaries)
     assert any(t["source"].startswith("vertical_slice:") for t in plan["tasks_to_create"])
+
+
+def test_plan_selects_real_ios_bootstrap_pack_modules_from_intent():
+    mod = _load_module()
+
+    plan = mod.build_bootstrap_plan(
+        picked={
+            "project_type": "ios_app",
+            "init_intent": {
+                "audience": "Field inspectors",
+                "primary_workflows": ["capture inspection"],
+                "platforms": ["ios"],
+                "stack_preferences": ["SwiftUI", "mobile"],
+                "integrations": ["api"],
+                "data_needs": ["inspections"],
+                "quality_priorities": ["observability", "offline"],
+            },
+        },
+        archetype={"id": "consumer_ios_app", "label": "Consumer iOS app", "rationale": "iOS signal."},
+        bootstrap=_ios_bootstrap_example(),
+    )
+
+    selected_ids = {module["id"] for module in plan["selected_modules"]}
+    assert {
+        "sharedkit-design-system",
+        "api-client",
+        "navigation-shell",
+        "observability",
+    } <= selected_ids
+    assert "persistence" in selected_ids
+    assert any(item["mode"] == "marker_block" for item in plan["files_to_write"])
+    assert any(item["type"] == "decision" and "SharedKit" in item["content"] for item in plan["context_atoms"])
+    assert any(pillar["name"] == "Native feel" for pillar in plan["pillars"])
+    assert any(task["summary"] == "Wire SharedKit design tokens" for task in plan["tasks_to_create"])
+    assert any(task["source"].startswith("vertical_slice:") for task in plan["tasks_to_create"])
 
 
 def test_plan_edit_can_remove_and_add_modules():
