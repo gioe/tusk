@@ -96,6 +96,40 @@ class TestMatchPathTestCommand:
         assert commit_mod.match_path_test_command(patterns, ["apps/scraper/foo.py"]) == "pytest all"
 
 
+class TestSparseMaterializationTargets:
+    def test_redirection_tokens_are_not_missing_sparse_targets(self, tmp_path):
+        android = tmp_path / "android"
+        android.mkdir()
+        gradlew = android / "gradlew"
+        gradlew.write_text("#!/bin/sh\n")
+
+        outside, target = commit_mod._test_command_outside_sparse_cone(
+            "java -version >/dev/null 2>&1 && android/gradlew test",
+            str(tmp_path),
+        )
+
+        assert (outside, target) == (False, "")
+
+    def test_separated_redirection_target_is_not_missing_sparse_target(self, tmp_path):
+        android = tmp_path / "android"
+        android.mkdir()
+
+        outside, target = commit_mod._test_command_outside_sparse_cone(
+            "java -version > /dev/null && ./android",
+            str(tmp_path),
+        )
+
+        assert (outside, target) == (False, "")
+
+    def test_real_missing_relative_path_is_still_reported(self, tmp_path):
+        outside, target = commit_mod._test_command_outside_sparse_cone(
+            "python3 scripts/run-tests.py",
+            str(tmp_path),
+        )
+
+        assert (outside, target) == (True, "scripts/run-tests.py")
+
+
 # ---------------------------------------------------------------------------
 # load_test_command priority (commit path)
 # ---------------------------------------------------------------------------

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1214] - 2026-07-08
+
+- [TASK-781] Fix: ignore shell redirections in path-test sparse materialization checks
+
 ## [1213] - 2026-07-08
 
 - [TASK-780] Fix: prevent skill-run cost overcounting idle and overlapping transcript windows

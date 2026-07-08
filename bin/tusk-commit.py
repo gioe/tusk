@@ -903,9 +903,22 @@ def _test_command_outside_sparse_cone(
         tokens = shlex.split(test_cmd)
     except ValueError:
         tokens = test_cmd.split()
+    skip_next = False
     for tok in tokens:
         tok = tok.strip().strip('"').strip("'")
+        if skip_next:
+            skip_next = False
+            continue
         if not tok or tok.startswith("-") or "=" in tok:
+            continue
+        if tok in {"|", "||", "&", "&&", ";"}:
+            continue
+        if tok in {">", ">>", "<", "<<", "<>", ">|"} or (
+            tok[:-1].isdigit() and tok[-1:] in {">", "<"}
+        ):
+            skip_next = True
+            continue
+        if re.match(r"^\d*(?:>>?|<<?|<>|>\|).*$", tok):
             continue
         if tok.startswith(("$", "~")) or "$" in tok:
             continue
