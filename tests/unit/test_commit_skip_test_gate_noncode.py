@@ -1,10 +1,11 @@
 """Unit tests for the non-code-only test-gate skip in tusk-commit.py (issue #950).
 
 `tusk commit` skips the test_command gate when every staged file is non-code —
-a docs/markdown file (*.md) or a scope.always_allowed metadata file (VERSION,
-CHANGELOG.md, MANIFEST, .claude/tusk-manifest.json) — since such commits cannot
-change test outcomes. These tests exercise the two pure helpers that make that
-decision: `_resolve_non_code_allowlist` and `_all_staged_files_non_code`.
+a docs/markdown file (*.md), a GitHub workflow YAML file, or a
+scope.always_allowed metadata file (VERSION, CHANGELOG.md, MANIFEST,
+.claude/tusk-manifest.json) — since such commits cannot change test outcomes.
+These tests exercise the two pure helpers that make that decision:
+`_resolve_non_code_allowlist` and `_all_staged_files_non_code`.
 """
 
 import importlib.util
@@ -111,6 +112,25 @@ class TestAllStagedFilesNonCode:
 
     def test_markdown_match_is_case_insensitive(self):
         assert self.mod._all_staged_files_non_code(["docs/FOO.MD"], self.allowlist)
+
+    def test_github_workflow_yaml_is_non_code(self):
+        assert self.mod._all_staged_files_non_code(
+            [
+                ".github/workflows/web-ci.yml",
+                ".github/workflows/scraper-ci.yaml",
+            ],
+            self.allowlist,
+        )
+
+    def test_github_workflow_yaml_match_is_case_insensitive(self):
+        assert self.mod._all_staged_files_non_code(
+            [".github/workflows/WEB-CI.YML"], self.allowlist
+        )
+
+    def test_non_workflow_yaml_is_code(self):
+        assert not self.mod._all_staged_files_non_code(
+            [".github/dependabot.yml"], self.allowlist
+        )
 
     def test_non_md_non_allowlisted_doc_is_code(self):
         # A .txt or .rst file is not covered by the *.md glob or the allowlist,

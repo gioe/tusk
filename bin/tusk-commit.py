@@ -1040,12 +1040,17 @@ def _pending_commit_paths(repo_root: str, resolved_files) -> list[str]:
     return list(paths)
 
 
+def _is_github_workflow_yaml(norm_path: str) -> bool:
+    lower = norm_path.lower()
+    return lower.startswith(".github/workflows/") and lower.endswith((".yml", ".yaml"))
+
+
 def _all_staged_files_non_code(rel_paths, allowlist: set[str]) -> bool:
     """Return True when every path in ``rel_paths`` is a non-code file that
-    cannot change test outcomes — a Markdown/docs file (``*.md``) or a
-    ``scope.always_allowed`` metadata entry (VERSION, MANIFEST, CHANGELOG.md,
-    .claude/tusk-manifest.json). Used to skip the test gate for docs-only /
-    version-bump commits (issue #950).
+    cannot change test outcomes — a Markdown/docs file (``*.md``), a GitHub
+    workflow YAML file, or a ``scope.always_allowed`` metadata entry (VERSION,
+    MANIFEST, CHANGELOG.md, .claude/tusk-manifest.json). Used to skip the test
+    gate for docs-only / workflow-only / version-bump commits (issue #950).
 
     Empty input returns False: with nothing to reason about, the caller's
     normal (gate-runs) path is the safe default.
@@ -1057,6 +1062,8 @@ def _all_staged_files_non_code(rel_paths, allowlist: set[str]) -> bool:
         if norm in allowlist:
             continue
         if norm.lower().endswith(".md"):
+            continue
+        if _is_github_workflow_yaml(norm):
             continue
         return False
     return True
@@ -1617,13 +1624,14 @@ def _run_commit(argv: list[str], state: dict) -> int:
             sys.stdout.flush()
             sparse_skip_test = True
     # Non-code-only preflight (issue #950). When every staged file is a
-    # docs/markdown file or a scope.always_allowed metadata file (VERSION,
-    # CHANGELOG.md, MANIFEST, .claude/tusk-manifest.json), the commit cannot
-    # change test outcomes — running the full test gate is wasted wall-clock and
-    # needlessly exposes the (recommended) VERSION-bump-as-own-commit path to
-    # timeout flakes under load. Info-skip the gate; lint (Step 1) and
-    # pre-commit hooks (Step 3) still run since they are separate steps.
-    # Preserve always-run behavior whenever any code file is staged.
+    # docs/markdown file, GitHub workflow YAML file, or scope.always_allowed
+    # metadata file (VERSION, CHANGELOG.md, MANIFEST,
+    # .claude/tusk-manifest.json), the commit cannot change test outcomes —
+    # running the full test gate is wasted wall-clock and needlessly exposes the
+    # (recommended) VERSION-bump-as-own-commit path to timeout flakes under
+    # load. Info-skip the gate; lint (Step 1) and pre-commit hooks (Step 3)
+    # still run since they are separate steps. Preserve always-run behavior
+    # whenever any code file is staged.
     noncode_skip_test = False
     if test_cmd and not skip_verify and not sparse_skip_test:
         gate_rel_paths = _pending_commit_paths(repo_root, resolved_files)
@@ -1631,8 +1639,9 @@ def _run_commit(argv: list[str], state: dict) -> int:
             gate_rel_paths, _resolve_non_code_allowlist(config_path)
         ):
             print(
-                "Note: every staged file is non-code (docs/markdown or a "
-                "scope.always_allowed metadata file) — skipping test gate "
+                "Note: every staged file is non-code (docs/markdown, GitHub "
+                "workflow YAML, or a scope.always_allowed metadata file) — "
+                "skipping test gate "
                 "for this commit.\n"
                 f"  Staged: {', '.join(gate_rel_paths)}\n"
                 "  These files cannot change test outcomes; lint and "

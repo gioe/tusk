@@ -4,8 +4,9 @@
 only VERSION and CHANGELOG.md — files that cannot change test outcomes. This
 wastes wall-clock on every version-bump commit and exposes them to timeout
 flakes under load. The fix info-skips the gate when every staged file is a
-docs/markdown file or a scope.always_allowed metadata file; lint and pre-commit
-hooks still run, and the gate still runs whenever any code file is staged.
+docs/markdown file, a GitHub workflow YAML file, or a scope.always_allowed
+metadata file; lint and pre-commit hooks still run, and the gate still runs
+whenever any code file is staged.
 
 Each test drives tusk-commit.py as a subprocess with a test_command that
 writes a sentinel marker file, then asserts whether the marker was created —
@@ -117,6 +118,56 @@ def test_markdown_only_skips_gate(tmp_path):
     assert _commit_count(repo) == 2
 
 
+def test_github_workflow_yaml_only_skips_gate(tmp_path):
+    repo = str(tmp_path / "repo")
+    _git_init(repo)
+    marker = tmp_path / "gate_ran"
+    config_path = _write_config(tmp_path, marker)
+
+    workflows = os.path.join(repo, ".github", "workflows")
+    os.makedirs(workflows, exist_ok=True)
+    with open(os.path.join(workflows, "web-ci.yml"), "w", encoding="utf-8") as f:
+        f.write("name: web\n")
+    with open(os.path.join(workflows, "scraper-ci.yaml"), "w", encoding="utf-8") as f:
+        f.write("name: scraper\n")
+
+    result = _run_commit(
+        repo,
+        config_path,
+        ".github/workflows/web-ci.yml",
+        ".github/workflows/scraper-ci.yaml",
+    )
+
+    assert result.returncode == 0, (
+        f"expected success, got {result.returncode}.\n"
+        f"stdout={result.stdout}\nstderr={result.stderr}"
+    )
+    assert not marker.exists(), "test gate ran on a workflow-yaml-only commit"
+    assert "skipping test gate" in result.stdout
+    assert _commit_count(repo) == 2
+
+
+def test_non_workflow_yaml_runs_gate(tmp_path):
+    repo = str(tmp_path / "repo")
+    _git_init(repo)
+    marker = tmp_path / "gate_ran"
+    config_path = _write_config(tmp_path, marker)
+
+    dependabot_dir = os.path.join(repo, ".github")
+    os.makedirs(dependabot_dir, exist_ok=True)
+    with open(os.path.join(dependabot_dir, "dependabot.yml"), "w", encoding="utf-8") as f:
+        f.write("version: 2\n")
+
+    result = _run_commit(repo, config_path, ".github/dependabot.yml")
+
+    assert result.returncode == 0, (
+        f"expected success, got {result.returncode}.\n"
+        f"stdout={result.stdout}\nstderr={result.stderr}"
+    )
+    assert marker.exists(), "test gate must run for non-workflow YAML"
+    assert "skipping test gate" not in result.stdout
+
+
 def test_code_file_runs_gate(tmp_path):
     repo = str(tmp_path / "repo")
     _git_init(repo)
@@ -133,6 +184,29 @@ def test_code_file_runs_gate(tmp_path):
         f"stdout={result.stdout}\nstderr={result.stderr}"
     )
     assert marker.exists(), "test gate did NOT run on a code commit"
+    assert "skipping test gate" not in result.stdout
+
+
+def test_mixed_workflow_yaml_and_code_runs_gate(tmp_path):
+    repo = str(tmp_path / "repo")
+    _git_init(repo)
+    marker = tmp_path / "gate_ran"
+    config_path = _write_config(tmp_path, marker)
+
+    workflows = os.path.join(repo, ".github", "workflows")
+    os.makedirs(workflows, exist_ok=True)
+    with open(os.path.join(workflows, "web-ci.yml"), "w", encoding="utf-8") as f:
+        f.write("name: web\n")
+    with open(os.path.join(repo, "code.py"), "w", encoding="utf-8") as f:
+        f.write("x = 1\n")
+
+    result = _run_commit(repo, config_path, ".github/workflows/web-ci.yml", "code.py")
+
+    assert result.returncode == 0, (
+        f"expected success, got {result.returncode}.\n"
+        f"stdout={result.stdout}\nstderr={result.stderr}"
+    )
+    assert marker.exists(), "gate must run when workflow YAML is staged with code"
     assert "skipping test gate" not in result.stdout
 
 
