@@ -181,6 +181,9 @@ def _normalize_dependencies(raw: Any) -> tuple[list[DependencyRef], list[ImportE
                 raw_id = item.get("id")
                 if isinstance(raw_id, str):
                     task_id = _parse_prefixed_int(raw_id, "TASK-")
+                    if task_id is None:
+                        errors.append(ImportErrorItem(field, "dependency id must be a positive integer or TASK-N"))
+                        continue
                 else:
                     task_id = raw_id
             else:

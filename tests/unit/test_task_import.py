@@ -321,6 +321,42 @@ def test_import_resolves_existing_task_identifier_string_dependencies(tmp_path):
     conn.close()
 
 
+def test_import_rejects_invalid_dependency_identifier_objects(tmp_path):
+    db_path = _make_db(tmp_path)
+    config_path = _write_config(tmp_path / "config.json")
+    plan = tmp_path / "tasks.json"
+    plan.write_text(
+        json.dumps({
+            "tasks": [
+                {
+                    "key": "child",
+                    "summary": "Child with bad TASK ref",
+                    "description": "Description",
+                    "criteria": ["Manual criterion"],
+                    "depends_on": [{"id": "TASK-nope"}],
+                }
+            ]
+        }),
+        encoding="utf-8",
+    )
+
+    code, payload, _err = _run_import(db_path, config_path, ["--file", str(plan)])
+
+    assert code == 2
+    assert payload["created"] == {}
+    assert payload["failed"]["0"]["key"] == "child"
+    assert payload["failed"]["0"]["errors"] == [
+        {
+            "field": "depends_on[0]",
+            "message": "dependency id must be a positive integer or TASK-N",
+        }
+    ]
+    conn = sqlite3.connect(db_path)
+    assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM task_dependencies").fetchone()[0] == 0
+    conn.close()
+
+
 def test_import_rejects_cyclic_local_key_dependencies_and_rolls_back(tmp_path):
     db_path = _make_db(tmp_path)
     config_path = _write_config(tmp_path / "config.json")
