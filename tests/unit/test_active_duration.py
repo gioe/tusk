@@ -93,6 +93,20 @@ class TestAggregateSessionActiveSeconds:
         totals = lib.aggregate_session(transcript, T0, None)
         assert totals["active_seconds"] == 600 + 60
 
+    def test_stop_at_idle_gap_excludes_later_request_tokens(self, tmp_path):
+        entries = [
+            self._assistant(0, "early"),
+            self._assistant(lib.IDLE_GAP_THRESHOLD_SECONDS + 1, "late"),
+        ]
+        transcript = self._write_transcript(tmp_path, entries)
+
+        totals = lib.aggregate_session(transcript, T0, None, stop_at_idle_gap=True)
+
+        assert totals["request_count"] == 1
+        assert totals["input_tokens"] == 10
+        assert totals["output_tokens"] == 5
+        assert totals["active_seconds"] == 0
+
     def test_out_of_window_events_excluded(self, tmp_path):
         entries = [self._assistant(i * 60, f"r{i}") for i in range(3)]
         transcript = self._write_transcript(tmp_path, entries)

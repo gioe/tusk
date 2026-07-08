@@ -139,7 +139,12 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
     uncached_tokens_in = 0
 
     if transcript_path and os.path.isfile(transcript_path):
-        totals = lib.aggregate_session(transcript_path, started_at, ended_at)
+        totals = lib.aggregate_session(
+            transcript_path,
+            started_at,
+            ended_at,
+            stop_at_idle_gap=True,
+        )
         if totals["request_count"] > 0:
             cost = lib.compute_cost(totals)
             tokens_in = lib.compute_tokens_in(totals)

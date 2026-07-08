@@ -328,8 +328,8 @@ class TestOneSessionTask:
                 (
                     "review-commits",
                     14,
-                    "2026-04-19 12:20:00",
-                    "2026-04-19 12:25:00",
+                    "2026-04-19 12:35:00",
+                    "2026-04-19 12:40:00",
                     0.7348,
                     4000,
                     1000,
@@ -348,8 +348,8 @@ class TestOneSessionTask:
                 (
                     "review-commits",
                     15,
-                    "2026-04-18 12:20:00",
-                    "2026-04-18 12:25:00",
+                    "2026-04-18 12:35:00",
+                    "2026-04-18 12:40:00",
                     0.5,
                     3000,
                     1000,
@@ -372,6 +372,52 @@ class TestOneSessionTask:
         }
         markdown = mod.render_markdown(data)
         assert "- **Cost:** $1.6856 across 2 skill runs" in markdown
+
+    def test_summary_excludes_skill_run_cost_inside_costed_task_session(self, tmp_path):
+        db_path, conn = _make_db(tmp_path)
+        _insert_task(
+            conn, task_id=16, summary="Overlapping skill cost",
+            started_at="2026-04-19 10:00:00",
+            closed_at="2026-04-19 12:30:00",
+        )
+        conn.execute(
+            "INSERT INTO task_sessions "
+            "(task_id, started_at, ended_at, duration_seconds, cost_dollars) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (16, "2026-04-19 10:00:00", "2026-04-19 12:30:00", 9000, 1.25),
+        )
+        conn.executemany(
+            "INSERT INTO skill_runs "
+            "(skill_name, task_id, started_at, ended_at, cost_dollars, tokens_in, tokens_out, request_count) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    "review-commits",
+                    16,
+                    "2026-04-19 11:00:00",
+                    "2026-04-19 11:15:00",
+                    0.40,
+                    4000,
+                    1000,
+                    2,
+                ),
+                (
+                    "retro",
+                    16,
+                    "2026-04-19 12:35:00",
+                    "2026-04-19 12:45:00",
+                    0.20,
+                    2000,
+                    500,
+                    1,
+                ),
+            ],
+        )
+        conn.commit()
+
+        data = mod.build_summary(conn, 16, str(tmp_path))
+
+        assert data["cost"] == {"total": 1.45, "skill_run_count": 2}
 
 
 # ── multi-session task ────────────────────────────────────────────────

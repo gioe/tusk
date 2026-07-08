@@ -168,6 +168,62 @@ def test_finish_without_transcript_records_missing_transcript_sentinel(db_path, 
     assert row["model"] == "(transcript missing)"
 
 
+def test_finish_caps_cost_at_first_idle_gap(db_path, monkeypatch):
+    c = sqlite3.connect(str(db_path))
+    c.execute(
+        "INSERT INTO skill_runs (skill_name, started_at) VALUES (?, ?)",
+        ("tusk", "2026-05-01 10:00:00"),
+    )
+    c.commit()
+    c.close()
+
+    captured = {}
+
+    def fake_aggregate(transcript_path, started_at, ended_at, *, stop_at_idle_gap=False):
+        captured["stop_at_idle_gap"] = stop_at_idle_gap
+        return {
+            "input_tokens": 100,
+            "output_tokens": 20,
+            "cache_creation_input_tokens": 0,
+            "cache_creation_5m_tokens": 0,
+            "cache_creation_1h_tokens": 0,
+            "cache_read_input_tokens": 5,
+            "model": "claude-sonnet-4-6",
+            "request_count": 1,
+            "user_prompt_tokens": 8,
+            "user_prompt_count": 1,
+        }
+
+    monkeypatch.setattr(skill_run.lib, "load_pricing", lambda: None)
+    monkeypatch.setattr(skill_run.lib, "find_transcript", lambda: "/tmp/transcript.jsonl")
+    monkeypatch.setattr(skill_run.os.path, "isfile", lambda path: True)
+    monkeypatch.setattr(skill_run.lib, "aggregate_session", fake_aggregate)
+    monkeypatch.setattr(skill_run.lib, "compute_cost", lambda totals: 0.0042)
+    monkeypatch.setattr(skill_run.lib, "compute_tokens_in", lambda totals: 105)
+    monkeypatch.setattr(
+        skill_run.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+
+    exit_code, out, err = _run_main(db_path, monkeypatch, "finish", "1")
+
+    c = sqlite3.connect(str(db_path))
+    c.row_factory = sqlite3.Row
+    row = c.execute(
+        "SELECT cost_dollars, tokens_in, request_count FROM skill_runs WHERE id = 1"
+    ).fetchone()
+    c.close()
+
+    assert exit_code == 0
+    assert err == ""
+    assert captured["stop_at_idle_gap"] is True
+    assert row["cost_dollars"] == 0.0042
+    assert row["tokens_in"] == 105
+    assert row["request_count"] == 1
+    assert "Requests:      1" in out
+
+
 def test_list_task_id_shows_closed_task_runs(db_path, monkeypatch):
     c = sqlite3.connect(str(db_path))
     c.execute(

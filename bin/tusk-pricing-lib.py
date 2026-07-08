@@ -359,6 +359,8 @@ def aggregate_session(
     transcript_path: str,
     started_at: datetime,
     ended_at: datetime | None,
+    *,
+    stop_at_idle_gap: bool = False,
 ) -> dict:
     """Parse a JSONL transcript and aggregate tokens within the time window.
 
@@ -391,6 +393,17 @@ def aggregate_session(
     user_prompt_tokens = 0
     user_prompt_count = 0
     event_timestamps: list = []
+    previous_event_ts = None
+
+    def record_event_timestamp(ts: datetime) -> bool:
+        nonlocal previous_event_ts
+        if stop_at_idle_gap and previous_event_ts is not None:
+            delta = (ts - previous_event_ts).total_seconds()
+            if delta > IDLE_GAP_THRESHOLD_SECONDS:
+                return False
+        event_timestamps.append(ts)
+        previous_event_ts = ts
+        return True
 
     with open(transcript_path) as f:
         for line in f:
@@ -415,7 +428,8 @@ def aggregate_session(
                     continue
                 if ended_at and ts > ended_at:
                     continue
-                event_timestamps.append(ts)
+                if not record_event_timestamp(ts):
+                    break
 
                 info = entry.get("payload", {}).get("info", {})
                 usage = info.get("total_token_usage") or info.get("last_token_usage") or {}
@@ -452,7 +466,8 @@ def aggregate_session(
                             continue
                         if ended_at and ts > ended_at:
                             continue
-                        event_timestamps.append(ts)
+                        if not record_event_timestamp(ts):
+                            break
                         text = _user_prompt_text(entry.get("message", {}))
                         chars = len(text)
                         if chars > 0:
@@ -477,7 +492,8 @@ def aggregate_session(
                 continue
             if ended_at and ts > ended_at:
                 continue
-            event_timestamps.append(ts)
+            if not record_event_timestamp(ts):
+                break
 
             # Deduplicate by requestId (streaming produces multiple entries)
             request_id = entry.get("requestId")

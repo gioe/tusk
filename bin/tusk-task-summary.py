@@ -79,6 +79,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tusk_loader  # noqa: E402 — loads tusk-db-lib.py, tusk-json-lib.py, tusk-pricing-lib.py, tusk-git-helpers.py
@@ -136,6 +137,38 @@ def _skill_run_task_match_sql(task_ref: str) -> str:
 
 def _has_cost(value) -> bool:
     return value is not None
+
+
+def _parse_cost_window(ts: str | None):
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts)
+    except ValueError:
+        return None
+
+
+def _skill_run_contained_in_costed_session(sr: sqlite3.Row, sessions: list[sqlite3.Row]) -> bool:
+    if not _has_cost(sr["cost_dollars"]):
+        return False
+
+    sr_start = _parse_cost_window(sr["started_at"])
+    sr_end = _parse_cost_window(sr["ended_at"])
+    if sr_start is None or sr_end is None:
+        return False
+
+    for session in sessions:
+        if sr["task_id"] is not None and session["task_id"] != sr["task_id"]:
+            continue
+        if not _has_cost(session["cost_dollars"]):
+            continue
+        session_start = _parse_cost_window(session["started_at"])
+        session_end = _parse_cost_window(session["ended_at"])
+        if session_start is None or session_end is None:
+            continue
+        if session_start <= sr_start and sr_end <= session_end:
+            return True
+    return False
 
 
 def _is_shadowed_tusk_skill_run(sr: sqlite3.Row, sessions: list[sqlite3.Row]) -> bool:
@@ -224,6 +257,8 @@ def fetch_cost(conn: sqlite3.Connection, task_id: int) -> dict:
         if not _has_cost(sr["cost_dollars"]):
             continue
         if _is_shadowed_tusk_skill_run(sr, sessions):
+            continue
+        if _skill_run_contained_in_costed_session(sr, sessions):
             continue
         total += float(sr["cost_dollars"])
         count += 1

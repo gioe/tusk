@@ -461,7 +461,7 @@ A record of a single execution of a tusk skill, capturing start/end timestamps, 
 | `skill_name` | TEXT | NOT NULL | Skill invoked (e.g. `groom-backlog`) |
 | `started_at` | TEXT | NOT NULL, default now | When `tusk skill-run start` was called |
 | `ended_at` | TEXT | nullable | Set by `tusk skill-run finish` or `tusk skill-run cancel` |
-| `cost_dollars` | REAL | nullable | Estimated cost from transcript parsing |
+| `cost_dollars` | REAL | nullable | Estimated cost from transcript parsing. `tusk skill-run finish` stops attribution at the first transcript-event idle gap above `IDLE_GAP_THRESHOLD_SECONDS` (600s), so a skill run left open across an overnight/user-idle pause does not absorb later unrelated conversation tokens. |
 | `tokens_in` | INTEGER | nullable | Total input tokens (base + cache write + cache read); collapsed sum of the three split columns below — kept as the legacy aggregate |
 | `tokens_out` | INTEGER | nullable | Output tokens |
 | `cache_read_tokens_in` | INTEGER | nullable | Cached input tokens — priced ~10% of regular input. Populated from `totals[cache_read_input_tokens]` by the `tusk skill-run finish` path in `bin/tusk-skill-run.py`. Added in migration 74 (issue #872); NULL for runs closed before migration. |
@@ -473,6 +473,8 @@ A record of a single execution of a tusk skill, capturing start/end timestamps, 
 | `task_id` | INTEGER | FK → tasks(id) ON DELETE SET NULL; nullable | Originating task for task-scoped skills (e.g. `/review-commits`); set from `--task-id <id>` on `tusk skill-run start`. NULL for standalone skills like `/groom-backlog` and `/tusk-insights` that don't run against a specific task |
 | `user_prompt_tokens` | INTEGER | nullable | Estimated tokens (chars/4) across real user-typed prompts in the transcript window. Excludes synthetic `tool_result` blocks and `isMeta` wrappers. Populated by `tusk skill-run finish`, zeroed by `tusk skill-run cancel`, NULL on legacy pre-v60 rows |
 | `user_prompt_count` | INTEGER | nullable | Number of real user prompts in the transcript window. Drives the dashboard's `cost_per_user_prompt` weekly trend (`SUM(cost_dollars) / SUM(user_prompt_count)`). NULL on legacy pre-v60 rows |
+
+`tusk task-summary` cost rollups sum costed task sessions plus non-shadow skill runs. A skill run whose `[started_at, ended_at]` window is fully contained inside an already-costed task session is treated as covered by that session and is not added again; this preserves the existing `/tusk` task-session shadow de-duplication while preventing shared-transcript review/retro windows from inflating the task total.
 
 ---
 

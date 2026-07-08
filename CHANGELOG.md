@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1213] - 2026-07-08
+
+- [TASK-780] Fix: prevent skill-run cost overcounting idle and overlapping transcript windows
+
 ## [1212] - 2026-07-08
 
 - [TASK-770] Add task-import JSON parsing and dry-run validation
