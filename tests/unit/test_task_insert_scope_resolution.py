@@ -14,6 +14,13 @@ _spec = importlib.util.spec_from_file_location(
 mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(mod)
 
+_scope_hint_spec = importlib.util.spec_from_file_location(
+    "tusk_scope_hint",
+    os.path.join(BIN, "tusk-scope-hint.py"),
+)
+scope_hint = importlib.util.module_from_spec(_scope_hint_spec)
+_scope_hint_spec.loader.exec_module(scope_hint)
+
 
 def test_resolve_auto_scope_keeps_ambiguous_suffix_literal(monkeypatch):
     monkeypatch.setattr(mod, "path_exists_in_repo", lambda repo, path: False)
@@ -145,3 +152,57 @@ def test_auto_scope_candidates_drop_target_noise_from_different_app_stack(monkey
         "apps/scraper/scrapers/foo/extractor.py",
     ]
     assert "apps/web/ios/Tests/ComedianDetailViewTests.swift" not in candidates
+
+
+def test_auto_scope_candidates_include_git_rm_directory_operand():
+    text = (
+        "git rm -r --cached .claude/bin and commit; "
+        "diff each modified .claude/skills/*/SKILL.md. "
+        "Files stay on disk after rm --cached; AGENTS.md runtime invocation is unaffected."
+    )
+
+    candidates = mod._auto_scope_candidates(text, repo_root="repo", task_type="bug")
+
+    assert ".claude/bin/**" in candidates
+
+
+def test_scope_hint_shares_git_command_operand_derivation():
+    text = "git rm -r --cached .claude/bin and commit"
+
+    candidates = scope_hint._extract_scope([text], repo_root="repo", task_type="bug")
+
+    assert ".claude/bin/**" in candidates
+
+
+def test_auto_scope_candidates_drop_negated_git_command_operand():
+    text = "Do not run git rm -r --cached .claude/bin; only inspect the current state."
+
+    candidates = mod._auto_scope_candidates(text, repo_root="repo", task_type="bug")
+
+    assert ".claude/bin/**" not in candidates
+
+
+def test_auto_scope_candidates_drop_unaffected_path_mention():
+    text = (
+        "git rm -r --cached .claude/bin and commit; "
+        "AGENTS.md runtime invocation is unaffected."
+    )
+
+    candidates = mod._auto_scope_candidates(text, repo_root="repo", task_type="bug")
+
+    assert ".claude/bin/**" in candidates
+    assert "AGENTS.md" not in candidates
+
+
+def test_auto_scope_candidates_include_git_mv_and_cp_operands():
+    text = (
+        "Run git mv docs/old-guide.md docs/new-guide.md, then "
+        "cp scripts/template.sh scripts/generated.sh."
+    )
+
+    candidates = mod._auto_scope_candidates(text, repo_root="repo", task_type="bug")
+
+    assert "docs/old-guide.md" in candidates
+    assert "docs/new-guide.md" in candidates
+    assert "scripts/template.sh" in candidates
+    assert "scripts/generated.sh" in candidates
