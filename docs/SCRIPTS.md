@@ -40,6 +40,7 @@ require it).
 |------|---------------|-------|--------|
 | **tusk-task-brief.py** | `tusk task-brief <id> [--format json\|markdown]` | `tasks`, `acceptance_criteria`, `task_scope`, `task_dependencies`, `task_progress`, `objectives`, `objective_tasks`, `task_context_items` | nothing |
 | **tusk-task-get.py** | `tusk task-get <id>` | `tasks`, `acceptance_criteria`, `task_progress`, `objective_tasks`, `objectives` | nothing |
+| **tusk-task-import.py** | `tusk task-import --file tasks.json [--dry-run] [--best-effort]` or `tusk task-import --stdin [--dry-run] [--best-effort]` | config, import JSON, `tasks` (dupe check and dependency validation), `objectives` | `tasks`, `acceptance_criteria`, `task_scope`, `task_dependencies`, `objective_tasks` unless `--dry-run` |
 | **tusk-task-insert.py** | `tusk task-insert "<summary>" "<description>" [flags]` | config, `tasks` (dupe check) | `tasks`, `acceptance_criteria` |
 | **tusk-task-list.py** | `tusk task-list [--status] [--domain] [--assignee] [--workflow] [--objective] [--format] [--all]` | `tasks`, `objective_tasks` | nothing |
 | **tusk-task-select.py** | `tusk task-select [--max-complexity] [--exclude-ids]` | `v_ready_tasks`, config | nothing |
@@ -47,6 +48,111 @@ require it).
 | **tusk-task-update.py** | `tusk task-update <id> [flags]` | `tasks`, `acceptance_criteria`, `task_scope`, config | `tasks`, `task_scope` (`auto_derived` rows refreshed when summary/description changes) |
 | **tusk-task-done.py** | `tusk task-done <id> --reason <reason> [--force]` | `tasks`, `acceptance_criteria`, `task_sessions`, `task_dependencies` | `tasks`, `task_sessions`, `acceptance_criteria` |
 | **tusk-task-reopen.py** | `tusk task-reopen <id> --force` | `tasks` | `tasks` (status reset to To Do) |
+
+#### `tusk task-import` JSON contract
+
+`task-import` is the stable bulk task creation path for humans, prompts, and scripts that already have an approved task set. Use it instead of repeated `task-insert` calls when creating two or more related tasks, especially when the tasks need local dependency keys or shared duplicate policy.
+
+Read from a file:
+
+```bash
+tusk task-import --file tasks.json --dry-run
+tusk task-import --file tasks.json
+```
+
+Read from stdin:
+
+```bash
+printf '%s\n' '{"tasks":[{"summary":"Document import","description":"Write docs","criteria":["Docs updated"]}]}' \
+  | tusk task-import --stdin --dry-run
+```
+
+Top-level input must be an object with a `tasks` array. Each task object supports:
+
+| Field | Required | Shape |
+|-------|----------|-------|
+| `key` | no | Non-empty local string used by other items' `depends_on` entries. Keys must be unique within the import. |
+| `summary` | yes | Non-empty string. |
+| `description` | yes | String. |
+| `priority` | no | Configured priority; defaults to `Medium`. Case is canonicalized the same way as `task-insert`. |
+| `domain` | no | Configured domain, or omitted/null. |
+| `task_type` / `task-type` | no | Configured task type; defaults to `feature`. |
+| `assignee` | no | Configured agent key when agents are configured. |
+| `complexity` | no | Configured complexity; defaults to `M`. |
+| `workflow` | no | Configured workflow, or omitted/null. |
+| `expires_in` | no | Integer number of days. |
+| `not_before` | no | Non-empty timestamp string accepted by `task-insert`'s `--not-before` parser. |
+| `fixes_task_id` | no | Positive integer existing task ID. |
+| `scope` | no | String or array of strings; expanded and recorded as operator-declared scope. |
+| `creates` | no | String or array of strings recorded as newly-created paths. |
+| `unbounded` | no | Boolean; `true` records unbounded scope. |
+| `criteria` | yes | Non-empty array of strings or objects. Object criteria use `{"text":"...","type":"manual|code|test|file","spec":"..."}`; non-manual types require `spec`. |
+| `duplicate_policy` | no | `fail` (default), `skip`, or `allow`. |
+| `depends_on` | no | Array of dependency refs. See dependency keys below. |
+| `objectives` | no | Array of objective refs. See objective links below. |
+
+Example:
+
+```json
+{
+  "tasks": [
+    {
+      "key": "schema",
+      "summary": "Add import schema validation",
+      "description": "Validate bulk task JSON before writing task rows.",
+      "priority": "High",
+      "domain": "cli",
+      "task_type": "feature",
+      "criteria": [
+        {"text": "Unit tests cover missing summary", "type": "test", "spec": "python3 -m pytest tests/unit/test_task_import.py -q"}
+      ],
+      "duplicate_policy": "fail"
+    },
+    {
+      "key": "docs",
+      "summary": "Document task-import",
+      "description": "Write the import contract for humans and agents.",
+      "domain": "docs",
+      "task_type": "docs",
+      "criteria": ["AGENTS.md lists file and stdin examples"],
+      "depends_on": [{"key": "schema", "type": "blocks"}],
+      "objectives": [{"id": "OBJ-4", "type": "contributes_to"}],
+      "duplicate_policy": "skip"
+    }
+  ]
+}
+```
+
+Output is a single JSON object with `created`, `skipped`, and `failed` maps keyed by input index string:
+
+```json
+{
+  "created": {
+    "0": {"key": "schema", "task_id": 801, "criteria_ids": [4101]},
+    "1": {"key": "docs", "task_id": 802, "criteria_ids": [4102]}
+  },
+  "skipped": {},
+  "failed": {}
+}
+```
+
+In `--dry-run`, `created` entries contain `{"dry_run": true}` plus `key` when present, and no rows are written. Use dry-run first for multi-task imports so schema, duplicate, dependency, and objective errors surface before the backlog changes.
+
+Duplicate policy is per task:
+
+- `fail` rejects a fuzzy duplicate as a failure (`duplicate_policy: duplicate of TASK-N`).
+- `skip` records the item under `skipped` with `reason`, `matched_task_id`, `matched_summary`, and `similarity`.
+- `allow` bypasses the duplicate check for that item.
+
+Transaction mode is batch-atomic by default: any validation or write failure exits 2 and rolls back the whole import, clearing prior `created` entries. `--best-effort` commits each valid task as it succeeds and reports later invalid tasks under `failed`; use it only when partial backlog creation is acceptable.
+
+Dependency keys are resolved after task rows exist. `depends_on` entries may be:
+
+- `"local-key"` — depends on another task in the same import by `key`.
+- `"TASK-123"` or `123` — depends on an existing task.
+- `{"key":"local-key","type":"blocks"}` or `{"id":"TASK-123","type":"contingent"}` — explicit relationship type. Valid types are `blocks` and `contingent`.
+
+Imports reject unknown keys, references to skipped keys, missing existing tasks, self-dependencies, and cycles. Objective links target existing objectives as `123`, `"OBJ-123"`, or `{"id":"OBJ-123","type":"primary"}`. Valid objective relationship types are `primary`, `contributes_to`, and `follow_up`.
 
 ### Dev Workflow
 
