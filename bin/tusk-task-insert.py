@@ -99,6 +99,14 @@ _OBVIOUS_REPO_PATH_RE = re.compile(
     r'[\w./_-]+)',
     re.MULTILINE,
 )
+_STAR_GLOB_PATH_RE = re.compile(
+    r'(?:^|[\s\'"`(,])('
+    r'(?:\./|\.\./|\.claude/|bin/|skills[-_]?internal/|skills/|tests?/|docs?/|src/'
+    r'|\w[\w._-]*/)'
+    r'[\w./_\-\[\]@]*\*[\w./_\-\[\]@]*\.[A-Za-z0-9][\w.-]*'
+    r')',
+    re.MULTILINE,
+)
 _GIT_FILE_COMMAND_RE = re.compile(
     r"(?<![\w.-])git\s+(?P<verb>rm|mv|add)\b(?P<args>[^\n;]*)",
     re.IGNORECASE,
@@ -567,6 +575,32 @@ def _route_shortform_scope_paths(repo_root: str | None, text: str) -> list[str]:
     return candidates
 
 
+def _star_glob_scope_paths(text: str) -> list[str]:
+    if not text:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for match in _STAR_GLOB_PATH_RE.finditer(text):
+        path = match.group(1).strip().rstrip('.,;:\'"`)')
+        if path and path not in seen:
+            seen.add(path)
+            out.append(posixpath.normpath(path))
+    return out
+
+
+def _drop_glob_basename_suffixes(paths: list[str], glob_paths: list[str]) -> list[str]:
+    if not glob_paths:
+        return paths
+    glob_basenames = {
+        posixpath.basename(_path_file_portion(path) or "")
+        for path in glob_paths
+    }
+    return [
+        path for path in paths
+        if "/" in path or path not in glob_basenames
+    ]
+
+
 def _command_scope_path(raw: str) -> str | None:
     token = raw.strip().strip('\'"`')
     token = token.rstrip(".,)")
@@ -885,16 +919,21 @@ def _auto_scope_candidates(
     sibling_paths = _sibling_shortform_scope_paths(text, explicit)
     directory_paths = _directory_list_scope_paths(text)
     route_paths = _route_shortform_scope_paths(repo_root, text)
+    glob_paths = _star_glob_scope_paths(text)
+    explicit = _drop_glob_basename_suffixes(explicit, glob_paths)
+    route_paths = _drop_glob_basename_suffixes(route_paths, glob_paths)
     command_paths = _command_operand_scope_paths(text)
     bare_paths = [
         resolved for name in extract_referenced_basenames(text)
         if (resolved := _resolve_unique_repo_basename(repo_root, name))
     ]
+    bare_paths = _drop_glob_basename_suffixes(bare_paths, glob_paths)
     explicit_scope_paths = [
         *explicit,
         *sibling_paths,
         *directory_paths,
         *route_paths,
+        *glob_paths,
         *command_paths,
         *bare_paths,
     ]
@@ -915,6 +954,7 @@ def _auto_scope_candidates(
         *sibling_paths,
         *directory_paths,
         *route_paths,
+        *glob_paths,
         *command_paths,
         *bare_paths,
         *target_paths,

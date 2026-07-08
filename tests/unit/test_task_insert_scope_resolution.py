@@ -166,6 +166,20 @@ def test_auto_scope_candidates_include_git_rm_directory_operand():
     assert ".claude/bin/**" in candidates
 
 
+def test_auto_scope_candidates_preserve_skill_glob_without_bare_basename():
+    text = (
+        "git rm -r --cached .claude/bin and commit; "
+        "diff each modified .claude/skills/*/SKILL.md. "
+        "Files stay on disk after rm --cached; AGENTS.md runtime invocation is unaffected."
+    )
+
+    candidates = mod._auto_scope_candidates(text, repo_root="repo", task_type="bug")
+
+    assert ".claude/bin/**" in candidates
+    assert ".claude/skills/*/SKILL.md" in candidates
+    assert "SKILL.md" not in candidates
+
+
 def test_scope_hint_shares_git_command_operand_derivation():
     text = "git rm -r --cached .claude/bin and commit"
 
