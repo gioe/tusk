@@ -3643,6 +3643,22 @@ def migrate_85(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 85: added review_comments.spec_gap_type")
 
 
+def migrate_86(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add skill_runs.transcript_path to pin cost attribution to one JSONL."""
+    if get_version(db_path) >= 86:
+        _progress("  Migration 86: added skill_runs.transcript_path")
+        return
+
+    if not has_column(db_path, "skill_runs", "transcript_path"):
+        run_script(
+            db_path,
+            "ALTER TABLE skill_runs ADD COLUMN transcript_path TEXT;",
+        )
+
+    set_version(db_path, 86)
+    _progress("  Migration 86: added skill_runs.transcript_path")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -3731,6 +3747,7 @@ MIGRATIONS = [
     (83, migrate_83),
     (84, migrate_84),
     (85, migrate_85),
+    (86, migrate_86),
 ]
 
 

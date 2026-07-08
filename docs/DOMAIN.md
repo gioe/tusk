@@ -822,6 +822,8 @@ Backs the Models dashboard tab. Returns a four-key dict:
 
 **NULL vs zero `request_count`.** `task_request_count` / `skill_request_count` (in `models`), `avg_turns` (in `complexity_matrix`), and `request_count` (in both timeseries) are `None` — not `0` — when every contributing row has a NULL `request_count` (rows written before migration 49 added the column). The Models tab renders these as `—` so "unknown turns" stays visually distinct from a genuine zero.
 
+**Skill-run transcript pinning.** `skill_runs.transcript_path` stores the JSONL transcript selected when `tusk skill-run start` opens a run. `tusk skill-run finish` prefers this path so concurrent sessions in the same project transcript directory do not steal each other's cost/model attribution through mtime-based discovery. Historical rows and missing pinned files fall back to the legacy transcript discovery path with a warning rather than failing the finish.
+
 ### Model name normalization
 
 Both `fetch_model_performance` and `fetch_cost_scatter_data` collapse NULL and empty-string `model` values into a single `'unknown'` bucket using:

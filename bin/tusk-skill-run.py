@@ -39,10 +39,11 @@ def cmd_start(conn, skill_name: str, task_id: int | None = None) -> None:
     attribute this skill run to the originating task. Task-scoped skills
     (/tusk, /chain, /review-commits, /retro) should always pass it.
     """
+    transcript_path = lib.find_transcript()
     try:
         cur = conn.execute(
-            "INSERT INTO skill_runs (skill_name, task_id) VALUES (?, ?)",
-            (skill_name, task_id),
+            "INSERT INTO skill_runs (skill_name, task_id, transcript_path) VALUES (?, ?, ?)",
+            (skill_name, task_id, transcript_path),
         )
     except sqlite3.IntegrityError as exc:
         # Worst-offender path from issue #789: skill-run start --task-id <missing>
@@ -81,7 +82,7 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
     row = conn.execute(
         """SELECT id, skill_name, started_at, ended_at,
                   cost_dollars, tokens_in, tokens_out, model, metadata,
-                  request_count
+                  request_count, transcript_path
            FROM skill_runs WHERE id = ?""",
         (run_id,),
     ).fetchone()
@@ -111,7 +112,7 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
 
     # Re-fetch with ended_at populated
     row = conn.execute(
-        "SELECT id, skill_name, started_at, ended_at FROM skill_runs WHERE id = ?",
+        "SELECT id, skill_name, started_at, ended_at, transcript_path FROM skill_runs WHERE id = ?",
         (run_id,),
     ).fetchone()
 
@@ -120,8 +121,16 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
     started_at = lib.parse_sqlite_timestamp(row["started_at"])
     ended_at = lib.parse_sqlite_timestamp(row["ended_at"])
 
-    # Discover transcript
-    transcript_path = lib.find_transcript()
+    pinned_transcript_path = row["transcript_path"] or ""
+    transcript_path = pinned_transcript_path
+    if transcript_path and not os.path.isfile(transcript_path):
+        print(
+            f"Warning: Pinned transcript missing at {transcript_path} — falling back to transcript discovery.",
+            file=sys.stderr,
+        )
+        transcript_path = ""
+    if not transcript_path:
+        transcript_path = lib.find_transcript()
 
     cost = 0.0
     tokens_in = 0

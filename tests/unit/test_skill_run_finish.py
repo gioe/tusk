@@ -49,6 +49,7 @@ CREATE TABLE skill_runs (
     metadata TEXT,
     request_count INTEGER,
     task_id INTEGER,
+    transcript_path TEXT,
     user_prompt_tokens INTEGER,
     user_prompt_count INTEGER
 );
@@ -222,6 +223,127 @@ def test_finish_caps_cost_at_first_idle_gap(db_path, monkeypatch):
     assert row["tokens_in"] == 105
     assert row["request_count"] == 1
     assert "Requests:      1" in out
+
+
+def test_start_records_current_transcript_path(db_path, monkeypatch):
+    monkeypatch.setattr(skill_run.lib, "find_transcript", lambda: "/tmp/session-a.jsonl")
+
+    exit_code, out, err = _run_main(db_path, monkeypatch, "start", "tusk")
+
+    c = sqlite3.connect(str(db_path))
+    c.row_factory = sqlite3.Row
+    row = c.execute("SELECT transcript_path FROM skill_runs WHERE id = 1").fetchone()
+    c.close()
+
+    assert exit_code == 0
+    assert err == ""
+    assert '"run_id":1' in out
+    assert row["transcript_path"] == "/tmp/session-a.jsonl"
+
+
+def test_finish_prefers_pinned_transcript_over_newest_sibling(db_path, monkeypatch):
+    c = sqlite3.connect(str(db_path))
+    c.execute(
+        "INSERT INTO skill_runs (skill_name, started_at, transcript_path) VALUES (?, ?, ?)",
+        ("review-commits", "2026-05-01 10:00:00", "/tmp/session-a.jsonl"),
+    )
+    c.commit()
+    c.close()
+
+    captured = {}
+
+    def fake_aggregate(transcript_path, started_at, ended_at, *, stop_at_idle_gap=False):
+        captured["transcript_path"] = transcript_path
+        return {
+            "input_tokens": 200,
+            "output_tokens": 30,
+            "cache_creation_input_tokens": 0,
+            "cache_creation_5m_tokens": 0,
+            "cache_creation_1h_tokens": 0,
+            "cache_read_input_tokens": 10,
+            "model": "claude-fable-5",
+            "request_count": 2,
+            "user_prompt_tokens": 12,
+            "user_prompt_count": 1,
+        }
+
+    monkeypatch.setattr(skill_run.lib, "load_pricing", lambda: None)
+    monkeypatch.setattr(skill_run.lib, "find_transcript", lambda: "/tmp/session-b.jsonl")
+    monkeypatch.setattr(skill_run.os.path, "isfile", lambda path: True)
+    monkeypatch.setattr(skill_run.lib, "aggregate_session", fake_aggregate)
+    monkeypatch.setattr(skill_run.lib, "compute_cost", lambda totals: 0.0084)
+    monkeypatch.setattr(skill_run.lib, "compute_tokens_in", lambda totals: 210)
+    monkeypatch.setattr(
+        skill_run.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+
+    exit_code, out, err = _run_main(db_path, monkeypatch, "finish", "1")
+
+    c = sqlite3.connect(str(db_path))
+    c.row_factory = sqlite3.Row
+    row = c.execute(
+        "SELECT model, tokens_in, request_count FROM skill_runs WHERE id = 1"
+    ).fetchone()
+    c.close()
+
+    assert exit_code == 0
+    assert err == ""
+    assert captured["transcript_path"] == "/tmp/session-a.jsonl"
+    assert row["model"] == "claude-fable-5"
+    assert row["tokens_in"] == 210
+    assert row["request_count"] == 2
+    assert "Model:         claude-fable-5" in out
+
+
+def test_finish_falls_back_when_pinned_transcript_is_missing(db_path, monkeypatch):
+    c = sqlite3.connect(str(db_path))
+    c.execute(
+        "INSERT INTO skill_runs (skill_name, started_at, transcript_path) VALUES (?, ?, ?)",
+        ("retro", "2026-05-01 10:00:00", "/tmp/missing-session.jsonl"),
+    )
+    c.commit()
+    c.close()
+
+    captured = {}
+
+    def fake_isfile(path):
+        return path == "/tmp/newest-session.jsonl"
+
+    def fake_aggregate(transcript_path, started_at, ended_at, *, stop_at_idle_gap=False):
+        captured["transcript_path"] = transcript_path
+        return {
+            "input_tokens": 90,
+            "output_tokens": 11,
+            "cache_creation_input_tokens": 0,
+            "cache_creation_5m_tokens": 0,
+            "cache_creation_1h_tokens": 0,
+            "cache_read_input_tokens": 3,
+            "model": "claude-sonnet-4-6",
+            "request_count": 1,
+            "user_prompt_tokens": 5,
+            "user_prompt_count": 1,
+        }
+
+    monkeypatch.setattr(skill_run.lib, "load_pricing", lambda: None)
+    monkeypatch.setattr(skill_run.lib, "find_transcript", lambda: "/tmp/newest-session.jsonl")
+    monkeypatch.setattr(skill_run.os.path, "isfile", fake_isfile)
+    monkeypatch.setattr(skill_run.lib, "aggregate_session", fake_aggregate)
+    monkeypatch.setattr(skill_run.lib, "compute_cost", lambda totals: 0.0033)
+    monkeypatch.setattr(skill_run.lib, "compute_tokens_in", lambda totals: 93)
+    monkeypatch.setattr(
+        skill_run.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+
+    exit_code, out, err = _run_main(db_path, monkeypatch, "finish", "1")
+
+    assert exit_code == 0
+    assert "Pinned transcript missing" in err
+    assert captured["transcript_path"] == "/tmp/newest-session.jsonl"
+    assert "Model:         claude-sonnet-4-6" in out
 
 
 def test_list_task_id_shows_closed_task_runs(db_path, monkeypatch):

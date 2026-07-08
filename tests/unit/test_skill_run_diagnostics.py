@@ -57,6 +57,7 @@ CREATE TABLE skill_runs (
     metadata TEXT,
     request_count INTEGER,
     task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+    transcript_path TEXT,
     user_prompt_tokens INTEGER,
     user_prompt_count INTEGER
 );

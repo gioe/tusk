@@ -55,6 +55,7 @@ CREATE TABLE skill_runs (
     metadata TEXT,
     request_count INTEGER,
     task_id INTEGER,
+    transcript_path TEXT,
     user_prompt_tokens INTEGER,
     user_prompt_count INTEGER
 );

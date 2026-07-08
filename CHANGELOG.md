@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1218] - 2026-07-08
+
+- [TASK-785] Fix: pin skill-run cost capture to the starting transcript
+
 ## [1217] - 2026-07-08
 
 - [TASK-784] Fix: scope test-precheck upstream divergence to failing test paths
