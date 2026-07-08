@@ -914,6 +914,36 @@ def _sparse_checkout_active(repo_root: str) -> bool:
     return result.returncode == 0 and result.stdout.strip().lower() == "true"
 
 
+def _shell_scan_tokens(command: str) -> list[str]:
+    """Return shell-ish tokens suitable for conservative path scanning."""
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|<>()")
+        lexer.whitespace_split = True
+        return list(lexer)
+    except ValueError:
+        return command.split()
+
+
+def _path_materialization_tokens(test_cmd: str) -> list[str]:
+    """Tokenize ``test_cmd``, peeling simple shell -c wrappers."""
+    tokens = _shell_scan_tokens(test_cmd)
+    out: list[str] = []
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if (
+            tok in {"sh", "bash", "zsh", "dash", "ksh"}
+            and i + 2 < len(tokens)
+            and tokens[i + 1] == "-c"
+        ):
+            out.extend(_path_materialization_tokens(tokens[i + 2]))
+            i += 3
+            continue
+        out.append(tok)
+        i += 1
+    return out
+
+
 def _test_command_outside_sparse_cone(
     test_cmd: str, repo_root: str
 ) -> tuple[bool, str]:
@@ -927,23 +957,42 @@ def _test_command_outside_sparse_cone(
     missing token, for inclusion in the info message.
     """
     targets = []
-    try:
-        tokens = shlex.split(test_cmd)
-    except ValueError:
-        tokens = test_cmd.split()
+    tokens = _path_materialization_tokens(test_cmd)
     skip_next = False
+    skip_until_separator = False
+    expect_cd_target = False
+    separators = {"|", "||", "&", "&&", ";"}
+    shell_keywords = {
+        "if", "then", "else", "elif", "fi", "do", "done", "while",
+        "until", "for", "case", "esac", "!", "test", "[", "]",
+    }
     for tok in tokens:
         tok = tok.strip().strip('"').strip("'")
         if skip_next:
             skip_next = False
             continue
+        if tok in separators:
+            skip_until_separator = False
+            expect_cd_target = False
+            continue
+        if skip_until_separator:
+            continue
         if not tok or tok.startswith("-") or "=" in tok:
             continue
-        if tok in {"|", "||", "&", "&&", ";"}:
+        if tok in shell_keywords:
+            continue
+        if tok in {"echo"}:
+            skip_until_separator = True
+            continue
+        if tok == "cd":
+            expect_cd_target = True
             continue
         if tok in {">", ">>", "<", "<<", "<>", ">|"} or (
             tok[:-1].isdigit() and tok[-1:] in {">", "<"}
         ):
+            skip_next = True
+            continue
+        if tok in {"&>", ">&"}:
             skip_next = True
             continue
         if re.match(r"^\d*(?:>>?|<<?|<>|>\|).*$", tok):
@@ -954,8 +1003,9 @@ def _test_command_outside_sparse_cone(
             continue
         if "://" in tok:
             continue
-        if "/" in tok:
+        if expect_cd_target or "/" in tok:
             targets.append(tok)
+            expect_cd_target = False
     if not targets:
         return False, ""
     for tok in targets:

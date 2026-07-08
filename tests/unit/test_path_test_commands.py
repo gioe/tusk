@@ -97,6 +97,28 @@ class TestMatchPathTestCommand:
 
 
 class TestSparseMaterializationTargets:
+    def test_echo_message_inside_shell_body_is_not_missing_sparse_target(self, tmp_path):
+        android = tmp_path / "android"
+        android.mkdir()
+
+        outside, target = commit_mod._test_command_outside_sparse_cone(
+            "sh -c 'if ! java -version >/dev/null 2>&1; then "
+            "echo \"[tusk android gate] SKIPPED: no working JDK 17. "
+            "See android/README.md > Prerequisites: JDK 17.;\"; "
+            "exit 0; fi; cd android && ./gradlew test'",
+            str(tmp_path),
+        )
+
+        assert (outside, target) == (False, "")
+
+    def test_cd_target_without_slash_is_still_sparse_checked(self, tmp_path):
+        outside, target = commit_mod._test_command_outside_sparse_cone(
+            "sh -c 'cd android && ./gradlew test'",
+            str(tmp_path),
+        )
+
+        assert (outside, target) == (True, "android")
+
     def test_redirection_tokens_are_not_missing_sparse_targets(self, tmp_path):
         android = tmp_path / "android"
         android.mkdir()

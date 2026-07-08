@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1216] - 2026-07-08
+
+- [TASK-783] Fix: ignore shell echo text in sparse test-gate materialization checks
+
 ## [1215] - 2026-07-08
 
 - [TASK-782] Fix: quarantine vendored Tusk framework tests in consumer test gates
