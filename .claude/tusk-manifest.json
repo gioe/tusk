@@ -88,6 +88,7 @@
   ".claude/bin/tusk-task-done.py",
   ".claude/bin/tusk-task-get-multi.py",
   ".claude/bin/tusk-task-get.py",
+  ".claude/bin/tusk-task-import.py",
   ".claude/bin/tusk-task-insert.py",
   ".claude/bin/tusk-task-list.py",
   ".claude/bin/tusk-task-reopen.py",
