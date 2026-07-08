@@ -16,6 +16,7 @@ Output JSON:
         "files": ["path/that/exists", ...],
         "default_branch_commits": ["sha1", ...],
         "default_branch_commit_files": ["path/changed/by/default/commits", ...],
+        "missing_creates_paths": ["declared/creates/path/that/is/absent", ...],
         "recommendation": "commits_found" | "merged_not_closed" | "merged_not_closed_low_confidence" | "mark_done" | "manual_pending" | "criteria_complete_no_commits" | "implement_fresh"
     }
 
@@ -23,10 +24,10 @@ Recommendations:
     "commits_found"                       — commits referencing this task exist on a non-default branch — normal path
     "merged_not_closed"                   — commits already on the default branch and their diff overlaps with task scope (or there is no scope signal to compare) — skip implementation, go straight to finalize
     "merged_not_closed_low_confidence"    — commits exist on the default branch but their diff doesn't overlap with files referenced in the task or with files modified on any feature branch — likely a [TASK-N] prefix-match false positive — verify before acting
-    "mark_done"                           — no commits, but deliverable files found on disk AND at least one non-deferred criterion is non-manual AND the verification-spec gate passes (issue #1068: at least one incomplete code/file/test spec passes, or no runnable spec exists — test-type included per issue #1103) — mark criteria done and merge
+    "mark_done"                           — no commits, but deliverable files found on disk AND at least one non-deferred criterion is non-manual AND the verification-spec gate passes (issue #1068: at least one incomplete code/file/test spec passes, or no runnable spec exists — test-type included per issue #1103) AND no source='creates' scope paths are missing — mark criteria done and merge
     "manual_pending"                      — no commits, deliverable files found on disk, BUT every non-deferred criterion is criterion_type='manual' (issue #806) — the file-existence signal is noise for manual criteria (a referenced gitignored file may exist regardless of whether the human performed the external work). Do NOT auto-close; proceed with implementation manually.
     "criteria_complete_no_commits"        — every non-deferred acceptance criterion is marked is_completed=1 but there are no [TASK-N] commits anywhere and no deliverable files on disk — salvage / converged-work / speculative-mark signal — investigate before re-implementing
-    "implement_fresh"                     — no commits and either (a) no deliverable files found, or (b) files exist but every incomplete code/file/test verification spec still fails (issue #1068: the deliverable is an EDIT to an existing file, so file existence is noise — verifiable_spec_count/passing_spec_count in the output record the gate decision; test-type specs included per issue #1103) — proceed with implementation
+    "implement_fresh"                     — no commits and either (a) no deliverable files found, (b) files exist but every incomplete code/file/test verification spec still fails (issue #1068: the deliverable is an EDIT to an existing file, so file existence is noise — verifiable_spec_count/passing_spec_count in the output record the gate decision; test-type specs included per issue #1103), or (c) task_scope has source='creates' paths that are still absent — proceed with implementation
 
 Exit codes:
     0 — success (always, even if no commits/files)
@@ -123,6 +124,29 @@ def find_existing_files(task_id: int, conn: sqlite3.Connection, repo_root: str) 
         if os.path.exists(abs_path):
             found.append(p)
     return found
+
+
+def missing_creates_paths(task_id: int, conn: sqlite3.Connection, repo_root: str) -> list:
+    """Return source='creates' task_scope paths that are not present on disk.
+
+    Legacy DBs or minimal test fixtures without task_scope return no signal.
+    """
+    try:
+        rows = conn.execute(
+            "SELECT pattern FROM task_scope "
+            "WHERE task_id = ? AND source = 'creates' ORDER BY id",
+            (task_id,),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+
+    missing = []
+    for row in rows:
+        pattern = row["pattern"] if isinstance(row, sqlite3.Row) else row[0]
+        abs_path = pattern if os.path.isabs(pattern) else os.path.join(repo_root, pattern)
+        if not os.path.exists(abs_path):
+            missing.append(pattern)
+    return missing
 
 
 def all_active_criteria_complete(task_id: int, conn: sqlite3.Connection) -> bool:
@@ -299,6 +323,7 @@ def main(argv: list) -> int:
             return 1
 
         started_at = _task_started_at(conn, task_id)
+        creates_paths_missing = missing_creates_paths(task_id, conn, repo_root)
         default_branch = default_branch_of(repo_root)
         default_commits = find_task_commits(
             task_id, repo_root, [default_branch], since=started_at
@@ -339,6 +364,7 @@ def main(argv: list) -> int:
                 "files": [],
                 "default_branch_commits": default_commits,
                 "default_branch_commit_files": sorted(default_files),
+                "missing_creates_paths": creates_paths_missing,
                 "recommendation": recommendation,
             }
         elif check_commits(task_id, repo_root, since=started_at):
@@ -348,6 +374,7 @@ def main(argv: list) -> int:
                 "files": [],
                 "default_branch_commits": [],
                 "default_branch_commit_files": [],
+                "missing_creates_paths": creates_paths_missing,
                 "recommendation": "commits_found",
             }
         else:
@@ -371,7 +398,9 @@ def main(argv: list) -> int:
                     verifiable_specs, passing_specs = verifiable_spec_results(
                         task_id, conn
                     )
-                    if verifiable_specs > 0 and passing_specs == 0:
+                    if creates_paths_missing:
+                        recommendation = "implement_fresh"
+                    elif verifiable_specs > 0 and passing_specs == 0:
                         recommendation = "implement_fresh"
                     else:
                         recommendation = "mark_done"
@@ -387,6 +416,7 @@ def main(argv: list) -> int:
                 "default_branch_commit_files": [],
                 "verifiable_spec_count": verifiable_specs,
                 "passing_spec_count": passing_specs,
+                "missing_creates_paths": creates_paths_missing,
                 "recommendation": recommendation,
             }
 

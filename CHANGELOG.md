@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1220] - 2026-07-08
+
+- [TASK-787] Fix: suppress mark_done when creates scope paths are missing
+
 ## [1219] - 2026-07-08
 
 - [TASK-786] Fix: keep root file scope patterns out of sparse-checkout cones

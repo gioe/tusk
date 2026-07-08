@@ -34,7 +34,14 @@ _extract_paths = mod.extract_paths
 # ── helpers ───────────────────────────────────────────────────────────
 
 
-def _make_db(tmp_path, task_id=99, summary="Create /foo skill", description="", criteria=None):
+def _make_db(
+    tmp_path,
+    task_id=99,
+    summary="Create /foo skill",
+    description="",
+    criteria=None,
+    scope_rows=None,
+):
     """Create a minimal tasks + acceptance_criteria DB and return its path.
 
     DB is placed at tmp_path/tusk/tasks.db so that repo_root resolves to
@@ -70,6 +77,16 @@ def _make_db(tmp_path, task_id=99, summary="Create /foo skill", description="", 
             is_deferred INTEGER DEFAULT 0,
             criterion_type TEXT DEFAULT 'manual'
         );
+        CREATE TABLE task_scope (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id INTEGER NOT NULL,
+            pattern TEXT NOT NULL,
+            source TEXT NOT NULL,
+            reason TEXT,
+            locked_at TEXT,
+            locked_by TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
     """)
     conn.execute(
         "INSERT INTO tasks (id, summary, description) VALUES (?, ?, ?)",
@@ -91,6 +108,18 @@ def _make_db(tmp_path, task_id=99, summary="Create /foo skill", description="", 
             "is_completed, is_deferred, criterion_type) "
             "VALUES (?, ?, ?, ?, ?, ?)",
             (task_id, crit, spec, is_completed, is_deferred, criterion_type),
+        )
+    for entry in (scope_rows or []):
+        if len(entry) == 2:
+            pattern, source = entry
+            reason = None
+        elif len(entry) == 3:
+            pattern, source, reason = entry
+        else:
+            raise ValueError(f"scope_rows entry must have 2 or 3 elements: {entry!r}")
+        conn.execute(
+            "INSERT INTO task_scope (task_id, pattern, source, reason) VALUES (?, ?, ?, ?)",
+            (task_id, pattern, source, reason),
         )
     conn.commit()
     conn.close()
@@ -438,6 +467,7 @@ class TestMainRecommendations:
             "default_branch_commit_files",
             "verifiable_spec_count",
             "passing_spec_count",
+            "missing_creates_paths",
             "recommendation",
         }
 
@@ -982,6 +1012,38 @@ class TestMarkDoneSpecGate:
         assert data["recommendation"] == "mark_done"
         assert data["verifiable_spec_count"] == 1
         assert data["passing_spec_count"] == 1
+        assert data["missing_creates_paths"] == []
+
+    def test_missing_creates_scope_path_overrides_vacuous_passing_spec(self, tmp_path):
+        # Issue #1195: a passing unrelated spec must not allow mark_done when
+        # the declared creates deliverable is still absent.
+        present = tmp_path / "existing_package"
+        present.mkdir(parents=True)
+        (present / "__init__.py").write_text("# existing\n")
+        db_path = _make_db(
+            tmp_path,
+            task_id=11950,
+            summary="Create new_module.py and refactor existing_package/__init__.py",
+            criteria=[
+                ("new_module.py exists", str(tmp_path / "new_module.py"), 0, 0, "file"),
+                (
+                    "Existing package still imports",
+                    "python3 -c 'import json'",
+                    0,
+                    0,
+                    "code",
+                ),
+            ],
+            scope_rows=[("new_module.py", "creates")],
+        )
+        rc, stdout, _ = _run_main(db_path, 11950)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["files_found"] is True
+        assert data["verifiable_spec_count"] == 2
+        assert data["passing_spec_count"] == 1
+        assert data["missing_creates_paths"] == ["new_module.py"]
+        assert data["recommendation"] == "implement_fresh"
 
     def test_non_manual_without_spec_keeps_mark_done(self, tmp_path):
         # Status quo: a code-type criterion with no runnable spec leaves no
