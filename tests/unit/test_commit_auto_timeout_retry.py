@@ -168,3 +168,32 @@ def test_timeout_had_progress_signal():
     assert mod._timeout_had_progress(
         subprocess.TimeoutExpired(cmd="x", timeout=1, output="", stderr="")
     ) is False
+
+
+def test_consumer_install_env_quarantines_vendored_tusk_pytest_files(tmp_path, monkeypatch):
+    mod = _load_module()
+    install_bin = tmp_path / ".claude" / "bin"
+    install_bin.mkdir(parents=True)
+    (install_bin / "install-mode").write_text("claude-consumer\n", encoding="utf-8")
+    monkeypatch.setattr(mod, "__file__", str(install_bin / "tusk-commit.py"))
+
+    env = mod._test_command_env({"PYTEST_ADDOPTS": "-q", "TUSK_DB": "/tmp/live.db"})
+
+    assert "TUSK_DB" not in env
+    assert env["PYTEST_ADDOPTS"] == (
+        "-q --ignore-glob=test_tusk_*.py "
+        "--ignore-glob=tests/test_tusk_*.py "
+        "--ignore-glob=*/tests/test_tusk_*.py"
+    )
+
+
+def test_source_install_env_does_not_quarantine_tusk_source_tests(tmp_path, monkeypatch):
+    mod = _load_module()
+    install_bin = tmp_path / "bin"
+    install_bin.mkdir()
+    (install_bin / "install-mode").write_text("claude-source\n", encoding="utf-8")
+    monkeypatch.setattr(mod, "__file__", str(install_bin / "tusk-commit.py"))
+
+    env = mod._test_command_env({})
+
+    assert "PYTEST_ADDOPTS" not in env

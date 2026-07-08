@@ -586,6 +586,33 @@ def _reuse_precheck_verdict(
 
 
 _TEST_COMMAND_ROUTING_ENV_KEYS = ("TUSK_DB", "TUSK_PROJECT", "TUSK_REPO_ROOT")
+_TUSK_INTERNAL_PYTEST_IGNORE_GLOBS = (
+    "test_tusk_*.py",
+    "tests/test_tusk_*.py",
+    "*/tests/test_tusk_*.py",
+)
+
+
+def _install_role() -> str:
+    marker = os.path.join(os.path.dirname(os.path.abspath(__file__)), "install-mode")
+    try:
+        value = open(marker, encoding="utf-8").read().strip()
+    except OSError:
+        return "source"
+    if "-" not in value:
+        return "source"
+    return value.split("-", 1)[1]
+
+
+def _add_consumer_pytest_quarantine(env: dict[str, str]) -> None:
+    """Ignore stale vendored tusk framework tests during consumer test gates."""
+    if _install_role() != "consumer":
+        return
+    ignore_opts = " ".join(
+        f"--ignore-glob={glob}" for glob in _TUSK_INTERNAL_PYTEST_IGNORE_GLOBS
+    )
+    existing = env.get("PYTEST_ADDOPTS", "").strip()
+    env["PYTEST_ADDOPTS"] = f"{existing} {ignore_opts}".strip()
 
 
 def _test_command_env(base_env: dict[str, str] | None = None) -> dict[str, str]:
@@ -593,6 +620,7 @@ def _test_command_env(base_env: dict[str, str] | None = None) -> dict[str, str]:
     env = dict(os.environ if base_env is None else base_env)
     for key in _TEST_COMMAND_ROUTING_ENV_KEYS:
         env.pop(key, None)
+    _add_consumer_pytest_quarantine(env)
     return env
 
 

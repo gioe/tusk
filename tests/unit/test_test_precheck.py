@@ -75,6 +75,33 @@ class TestFindStashRef:
         assert ref == "stash@{1}"
 
 
+class TestConsumerPytestQuarantine:
+    def test_run_test_passes_pytest_ignore_globs_for_consumer_installs(
+        self, tmp_path, monkeypatch
+    ):
+        install_bin = tmp_path / ".claude" / "bin"
+        install_bin.mkdir(parents=True)
+        (install_bin / "install-mode").write_text("claude-consumer\n", encoding="utf-8")
+        monkeypatch.setattr(mod, "__file__", str(install_bin / "tusk-test-precheck.py"))
+
+        seen = {}
+
+        def fake_run(command, **kwargs):
+            seen["command"] = command
+            seen["env"] = kwargs.get("env")
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+        monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+        assert mod.run_test("pytest", str(tmp_path)) == 0
+        assert seen["command"] == "pytest"
+        assert seen["env"]["PYTEST_ADDOPTS"] == (
+            "--ignore-glob=test_tusk_*.py "
+            "--ignore-glob=tests/test_tusk_*.py "
+            "--ignore-glob=*/tests/test_tusk_*.py"
+        )
+
+
 # ---------------------------------------------------------------------------
 # main(): silent-data-loss regression — push succeeds, ref lookup returns ""
 # ---------------------------------------------------------------------------

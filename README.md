@@ -82,7 +82,7 @@ Edit `tusk/config.json` after install:
 - **task_types**: Empty array means no task_type validation
 - **agents**: Used by `/groom-backlog` to auto-assign tasks; empty object skips assignment
 - **statuses**, **priorities**, **closed_reasons**: Changing these is possible but not recommended
-- **test_command**: Shell command run by `tusk commit` before staging files; a non-zero exit blocks the commit. Empty string disables the check.
+- **test_command**: Shell command run by `tusk commit` before staging files; a non-zero exit blocks the commit. Empty string disables the check. In consumer installs, Tusk-run commit and test-precheck gates add pytest ignore globs for `test_tusk_*.py` so stale downstream copies of Tusk's own framework tests do not break unrelated project gates. Tests that import private `.claude/bin/tusk-*.py` helper functions are not a supported downstream API; keep project tests focused on observable CLI behavior.
 - **review.mode**: Controls `/review-commits` behavior — `"disabled"` skips AI review entirely; `"ai_only"` runs the configured reviewer
 - **review.max_passes**: Maximum number of review → fix → re-review cycles before the skill stops iterating
 - **review.reviewer**: Optional AI reviewer persona with `name` and `description`. When absent, `/review-commits` falls back to inline (non-agent) review

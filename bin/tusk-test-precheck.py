@@ -75,6 +75,37 @@ TEST_COMMAND_SKIPPED = "__tusk_test_command_skipped__"
 
 
 GENERATED_POP_CONFLICT_PATHS = (".claude/scheduled_tasks.lock",)
+_TEST_COMMAND_ROUTING_ENV_KEYS = ("TUSK_DB", "TUSK_PROJECT", "TUSK_REPO_ROOT")
+_TUSK_INTERNAL_PYTEST_IGNORE_GLOBS = (
+    "test_tusk_*.py",
+    "tests/test_tusk_*.py",
+    "*/tests/test_tusk_*.py",
+)
+
+
+def _install_role() -> str:
+    marker = os.path.join(os.path.dirname(os.path.abspath(__file__)), "install-mode")
+    try:
+        value = open(marker, encoding="utf-8").read().strip()
+    except OSError:
+        return "source"
+    if "-" not in value:
+        return "source"
+    return value.split("-", 1)[1]
+
+
+def _test_command_env(base_env: dict[str, str] | None = None) -> dict[str, str]:
+    """Return an env for test_command subprocesses with consumer pytest quarantine."""
+    env = dict(os.environ if base_env is None else base_env)
+    for key in _TEST_COMMAND_ROUTING_ENV_KEYS:
+        env.pop(key, None)
+    if _install_role() == "consumer":
+        ignore_opts = " ".join(
+            f"--ignore-glob={glob}" for glob in _TUSK_INTERNAL_PYTEST_IGNORE_GLOBS
+        )
+        existing = env.get("PYTEST_ADDOPTS", "").strip()
+        env["PYTEST_ADDOPTS"] = f"{existing} {ignore_opts}".strip()
+    return env
 
 
 def _run(cmd_args, cwd, capture=True):
@@ -571,6 +602,7 @@ def run_test(test_command: str, repo_root: str) -> int:
         shell=True,
         capture_output=True,
         text=True, encoding="utf-8",
+        env=_test_command_env(),
     )
     if result.stdout:
         sys.stderr.write(result.stdout)
