@@ -1767,6 +1767,22 @@ def _resolve_merge_commit_sha_pr(pr_number: int) -> str | None:
     return None
 
 
+def _recover_pr_merge_commit_after_failure(pr_number: int, stderr: str) -> str | None:
+    """Return merge commit SHA when a failed gh merge already merged remotely."""
+    merge_commit_sha = _resolve_merge_commit_sha_pr(pr_number)
+    if not merge_commit_sha:
+        return None
+    detail = (stderr or "").strip()
+    print(
+        f"Warning: gh pr merge failed locally, but PR #{pr_number} is already "
+        f"merged at {merge_commit_sha}. Continuing local task finalization.",
+        file=sys.stderr,
+    )
+    if detail:
+        print(f"gh reported:\n{detail}", file=sys.stderr)
+    return merge_commit_sha
+
+
 def _resolve_local_ref_sha(ref: str) -> str | None:
     """Return ``git rev-parse <ref>`` output, or None on any failure.
 
@@ -4173,14 +4189,20 @@ def main(argv: list[str]) -> int:
             check=False,
         )
         if result.returncode != 0:
-            print(f"Error: gh pr merge failed:\n{result.stderr.strip()}", file=sys.stderr)
-            return 2
-        if result.stdout.strip():
+            merge_commit_sha = _recover_pr_merge_commit_after_failure(
+                pr_number,
+                result.stderr,
+            )
+            if not merge_commit_sha:
+                print(f"Error: gh pr merge failed:\n{result.stderr.strip()}", file=sys.stderr)
+                return 2
+        elif result.stdout.strip():
             print(result.stdout.strip(), file=sys.stderr)
-        # Query gh for the squash SHA created on the default branch. The
-        # local repo doesn't reflect this commit (gh does the merge on the
-        # GitHub side); querying gh is the only deterministic source.
-        merge_commit_sha = _resolve_merge_commit_sha_pr(pr_number)
+        if not merge_commit_sha:
+            # Query gh for the squash SHA created on the default branch. The
+            # local repo doesn't reflect this commit (gh does the merge on the
+            # GitHub side); querying gh is the only deterministic source.
+            merge_commit_sha = _resolve_merge_commit_sha_pr(pr_number)
     else:
         # Local mode: ff-only merge
         if default_branch is None:
@@ -4678,6 +4700,22 @@ def main(argv: list[str]) -> int:
     )
     if rc == 0:
         _maybe_refresh_deployed_bin(_db_path, tusk_bin)
+    if use_pr and rc == 0:
+        cleanup_ok = True
+        if not _remove_recorded_task_worktree(
+            _db_path, task_id, branch_name, workspace=recorded_workspace
+        ):
+            cleanup_ok = False
+        else:
+            result = run(["git", "branch", "-D", branch_name], check=False)
+            if result.returncode != 0:
+                cleanup_ok = False
+                print(
+                    f"Warning: git branch -D {branch_name} failed:\n{result.stderr.strip()}",
+                    file=sys.stderr,
+                )
+        if not cleanup_ok:
+            return 3
     if not use_pr:
         cleanup_ok = True
         # Step 6: Delete feature branch after task-done. This mirrors the
