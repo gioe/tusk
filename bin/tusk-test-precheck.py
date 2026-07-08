@@ -20,6 +20,8 @@ This CLI wraps the logic safely:
 Resolution order for the test command:
   1. ``--command <cmd>`` argument
   2. ``config["path_test_commands"]`` — first pattern matching every path
+     or, when ``path_test_commands_skip_unmatched`` is true, skip when no
+     changed path touches any configured path-test surface
   3. ``config["domain_test_commands"][--domain]`` when ``--domain`` is set;
      when ``--domain`` is omitted, auto-detect the active task's domain from
      the current branch (``tusk branch-parse`` → task_id → tasks.domain)
@@ -68,6 +70,8 @@ _json_lib = tusk_loader.load("tusk-json-lib")
 dumps = _json_lib.dumps
 _db_lib = tusk_loader.load("tusk-db-lib")
 open_sqlite = _db_lib.open_sqlite
+
+TEST_COMMAND_SKIPPED = "__tusk_test_command_skipped__"
 
 
 GENERATED_POP_CONFLICT_PATHS = (".claude/scheduled_tasks.lock",)
@@ -155,6 +159,19 @@ def _match_path_test_command(patterns: dict, paths, repo_root: str = "") -> str:
         if all(fnmatch.fnmatchcase(p, pattern) for p in normalized):
             return cmd
     return ""
+
+
+def _any_path_matches_test_surface(patterns: dict, paths, repo_root: str = "") -> bool:
+    """Return True when at least one path touches a configured test surface."""
+    if not patterns or not paths:
+        return False
+    normalized = [_normalize_path_for_match(p, repo_root) for p in paths]
+    for pattern, cmd in patterns.items():
+        if not cmd or not isinstance(cmd, str):
+            continue
+        if any(fnmatch.fnmatchcase(p, pattern) for p in normalized):
+            return True
+    return False
 
 
 def _detect_changed_paths(repo_root: str) -> list:
@@ -507,6 +524,14 @@ def resolve_test_command(explicit: str, config_path: str, repo_root: str,
             cmd = _match_path_test_command(path_patterns, effective_paths, repo_root)
             if cmd:
                 return cmd
+            if (
+                cfg.get("path_test_commands_skip_unmatched") is True
+                and effective_paths
+                and not _any_path_matches_test_surface(
+                    path_patterns, effective_paths, repo_root
+                )
+            ):
+                return TEST_COMMAND_SKIPPED
         domain_commands = cfg.get("domain_test_commands") or {}
         effective_domain = domain
         if not effective_domain and domain_commands:
@@ -667,6 +692,19 @@ def main(argv):
         paths=args.paths,
         domain=args.domain,
     )
+    if test_command == TEST_COMMAND_SKIPPED:
+        payload = {
+            "pre_existing": False,
+            "exit_code": 0,
+            "test_command": "",
+            "stashed": False,
+            "diverged_from_default": False,
+            "diverged_paths": [],
+            "skipped": True,
+            "skip_reason": "path_test_commands_skip_unmatched",
+        }
+        print(dumps(payload))
+        return 0
     if not test_command:
         print(
             "Error: no test command available — pass --command, set "

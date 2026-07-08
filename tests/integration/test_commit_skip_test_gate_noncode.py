@@ -36,12 +36,24 @@ def _git_init(repo: str) -> None:
     subprocess.run(["git", "-C", repo, "commit", "-q", "-m", "root"], check=True)
 
 
-def _write_config(tmp_path, marker_path, *, always_allowed=None, drop_scope=False) -> str:
+def _write_config(
+    tmp_path,
+    marker_path,
+    *,
+    always_allowed=None,
+    drop_scope=False,
+    path_test_commands=None,
+    path_test_commands_skip_unmatched=None,
+) -> str:
     """Write a config.json based on config.default.json with a sentinel-writing
     test_command. The gate, when it runs, creates ``marker_path``."""
     with open(CONFIG_DEFAULT, encoding="utf-8") as f:
         cfg = json.load(f)
     cfg["test_command"] = f"touch {marker_path}"
+    if path_test_commands is not None:
+        cfg["path_test_commands"] = path_test_commands
+    if path_test_commands_skip_unmatched is not None:
+        cfg["path_test_commands_skip_unmatched"] = path_test_commands_skip_unmatched
     if drop_scope:
         cfg.pop("scope", None)
     elif always_allowed is not None:
@@ -166,6 +178,92 @@ def test_non_workflow_yaml_runs_gate(tmp_path):
     )
     assert marker.exists(), "test gate must run for non-workflow YAML"
     assert "skipping test gate" not in result.stdout
+
+
+def test_path_scope_unmatched_yaml_skips_gate_when_configured(tmp_path):
+    repo = str(tmp_path / "repo")
+    _git_init(repo)
+    global_marker = tmp_path / "global_gate_ran"
+    path_marker = tmp_path / "path_gate_ran"
+    config_path = _write_config(
+        tmp_path,
+        global_marker,
+        path_test_commands={"apps/scraper/*": f"touch {path_marker}"},
+        path_test_commands_skip_unmatched=True,
+    )
+
+    github_dir = os.path.join(repo, ".github")
+    os.makedirs(github_dir, exist_ok=True)
+    with open(os.path.join(github_dir, "dependabot.yml"), "w", encoding="utf-8") as f:
+        f.write("version: 2\n")
+
+    result = _run_commit(repo, config_path, ".github/dependabot.yml")
+
+    assert result.returncode == 0, (
+        f"expected success, got {result.returncode}.\n"
+        f"stdout={result.stdout}\nstderr={result.stderr}"
+    )
+    assert not global_marker.exists(), "global test gate ran for an unmatched path"
+    assert not path_marker.exists(), "path test gate ran for an unmatched path"
+    assert _commit_count(repo) == 2
+
+
+def test_path_scope_covered_path_runs_path_command_when_skip_configured(tmp_path):
+    repo = str(tmp_path / "repo")
+    _git_init(repo)
+    global_marker = tmp_path / "global_gate_ran"
+    path_marker = tmp_path / "path_gate_ran"
+    config_path = _write_config(
+        tmp_path,
+        global_marker,
+        path_test_commands={"apps/scraper/*": f"touch {path_marker}"},
+        path_test_commands_skip_unmatched=True,
+    )
+
+    scraper_dir = os.path.join(repo, "apps", "scraper")
+    os.makedirs(scraper_dir, exist_ok=True)
+    with open(os.path.join(scraper_dir, "job.py"), "w", encoding="utf-8") as f:
+        f.write("x = 1\n")
+
+    result = _run_commit(repo, config_path, "apps/scraper/job.py")
+
+    assert result.returncode == 0, (
+        f"expected success, got {result.returncode}.\n"
+        f"stdout={result.stdout}\nstderr={result.stderr}"
+    )
+    assert path_marker.exists(), "path-specific test gate did not run"
+    assert not global_marker.exists(), "global test gate ran instead of path command"
+
+
+def test_path_scope_mixed_covered_and_uncovered_paths_run_global_gate(tmp_path):
+    repo = str(tmp_path / "repo")
+    _git_init(repo)
+    global_marker = tmp_path / "global_gate_ran"
+    path_marker = tmp_path / "path_gate_ran"
+    config_path = _write_config(
+        tmp_path,
+        global_marker,
+        path_test_commands={"apps/scraper/*": f"touch {path_marker}"},
+        path_test_commands_skip_unmatched=True,
+    )
+
+    scraper_dir = os.path.join(repo, "apps", "scraper")
+    docs_dir = os.path.join(repo, "docs")
+    os.makedirs(scraper_dir, exist_ok=True)
+    os.makedirs(docs_dir, exist_ok=True)
+    with open(os.path.join(scraper_dir, "job.py"), "w", encoding="utf-8") as f:
+        f.write("x = 1\n")
+    with open(os.path.join(docs_dir, "NOTES.txt"), "w", encoding="utf-8") as f:
+        f.write("notes\n")
+
+    result = _run_commit(repo, config_path, "apps/scraper/job.py", "docs/NOTES.txt")
+
+    assert result.returncode == 0, (
+        f"expected success, got {result.returncode}.\n"
+        f"stdout={result.stdout}\nstderr={result.stderr}"
+    )
+    assert global_marker.exists(), "global test gate must run for mixed coverage"
+    assert not path_marker.exists(), "path-specific command must not run for mixed paths"
 
 
 def test_code_file_runs_gate(tmp_path):

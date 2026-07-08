@@ -176,8 +176,8 @@ USER / /loop
     │       commit <id> "<msg>" <files> --criteria <cid>
     │         ├── test_command gate     (hard-block; --skip-verify bypasses; exit 2 on failure)
     │         │     resolution order: path_test_commands (insertion-order glob match
-    │         │     where every staged path matches) → domain_test_commands[task.domain]
-    │         │     → test_command
+    │         │     where every staged path matches; optional skip when no staged path
+    │         │     touches a configured surface) → domain_test_commands[task.domain] → test_command
     │         ├── lint                  (advisory)
     │         ├── git stage + commit    [TASK-<id>] format
     │         └── criteria done <cid>  (binds commit hash)

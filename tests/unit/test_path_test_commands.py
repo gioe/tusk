@@ -164,6 +164,38 @@ class TestLoadTestCommandPriority:
             config, domain="cli", paths=["apps/scraper/foo.py", "ios/bar.swift"]
         ) == "pytest cli-tests"
 
+    def test_unmatched_paths_skip_when_configured(self, tmp_path):
+        config = _write_config(tmp_path, {
+            "test_command": "pytest all",
+            "domain_test_commands": {"cli": "pytest cli-tests"},
+            "path_test_commands": {"apps/scraper/*": "pytest scraper"},
+            "path_test_commands_skip_unmatched": True,
+        })
+        assert commit_mod.load_test_command(
+            config, domain="cli", paths=["docs/README.txt"]
+        ) == ""
+
+    def test_covered_path_still_uses_path_command_when_skip_unmatched_configured(self, tmp_path):
+        config = _write_config(tmp_path, {
+            "test_command": "pytest all",
+            "path_test_commands": {"apps/scraper/*": "pytest scraper"},
+            "path_test_commands_skip_unmatched": True,
+        })
+        assert commit_mod.load_test_command(
+            config, paths=["apps/scraper/foo.py"]
+        ) == "pytest scraper"
+
+    def test_mixed_covered_and_uncovered_paths_fall_through(self, tmp_path):
+        config = _write_config(tmp_path, {
+            "test_command": "pytest all",
+            "domain_test_commands": {"cli": "pytest cli-tests"},
+            "path_test_commands": {"apps/scraper/*": "pytest scraper"},
+            "path_test_commands_skip_unmatched": True,
+        })
+        assert commit_mod.load_test_command(
+            config, domain="cli", paths=["apps/scraper/foo.py", "docs/README.txt"]
+        ) == "pytest cli-tests"
+
 
 # ---------------------------------------------------------------------------
 # precheck resolve_test_command path priority
@@ -266,6 +298,16 @@ class TestConfigValidatorPathTestCommands:
         rc = self._run_validate(tmp_path, {"path_test_commands": {}})
         assert rc == 0
 
+    def test_rejects_non_boolean_skip_unmatched(self, tmp_path, capsys):
+        rc = self._run_validate(tmp_path, {"path_test_commands_skip_unmatched": "yes"})
+        err = capsys.readouterr().err
+        assert rc == 1
+        assert '"path_test_commands_skip_unmatched" must be a boolean' in err
+
+    def test_accepts_boolean_skip_unmatched(self, tmp_path):
+        rc = self._run_validate(tmp_path, {"path_test_commands_skip_unmatched": True})
+        assert rc == 0
+
 
 class TestPrecheckResolveTestCommand:
     def test_explicit_command_wins_over_path(self, tmp_path):
@@ -310,6 +352,36 @@ class TestPrecheckResolveTestCommand:
             repo_root=str(tmp_path),
             script_dir=BIN,
             paths=["apps/scraper/foo.py", "ios/bar.swift"],
+        )
+        assert cmd == "pytest tests/"
+
+    def test_unmatched_paths_skip_when_configured(self, tmp_path):
+        config = _write_config(tmp_path, {
+            "test_command": "pytest tests/",
+            "path_test_commands": {"apps/scraper/*": "pytest scraper"},
+            "path_test_commands_skip_unmatched": True,
+        })
+        cmd = precheck_mod.resolve_test_command(
+            explicit="",
+            config_path=config,
+            repo_root=str(tmp_path),
+            script_dir=BIN,
+            paths=["docs/README.txt"],
+        )
+        assert cmd == precheck_mod.TEST_COMMAND_SKIPPED
+
+    def test_mixed_covered_and_uncovered_paths_fall_back_to_global(self, tmp_path):
+        config = _write_config(tmp_path, {
+            "test_command": "pytest tests/",
+            "path_test_commands": {"apps/scraper/*": "pytest scraper"},
+            "path_test_commands_skip_unmatched": True,
+        })
+        cmd = precheck_mod.resolve_test_command(
+            explicit="",
+            config_path=config,
+            repo_root=str(tmp_path),
+            script_dir=BIN,
+            paths=["apps/scraper/foo.py", "docs/README.txt"],
         )
         assert cmd == "pytest tests/"
 

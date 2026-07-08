@@ -21,9 +21,13 @@ Steps:
         is the default branch (issue #794). Bypass with --allow-branch-mismatch.
     0. Validate file paths — fail fast before lint/tests if any path is missing or escapes repo root
     1. Preflight git index lock creation, then run test_command gate:
-       use domain_test_commands[task.domain] if present, else test_command (hard-blocks on failure).
-       Info-skipped when every staged file is non-code — a docs/markdown file (*.md) or a scope.always_allowed metadata file
-       (VERSION, CHANGELOG.md, MANIFEST, .claude/tusk-manifest.json) — since such commits cannot change test outcomes (issue #950).
+       use path_test_commands when one pattern covers every staged path, else
+       domain_test_commands[task.domain], else test_command (hard-blocks on failure).
+       When path_test_commands_skip_unmatched is true and no staged path touches
+       any configured path-test surface, info-skip the gate. Also info-skipped
+       when every staged file is non-code — docs/markdown, GitHub workflow YAML,
+       or scope.always_allowed metadata — since such commits cannot change test
+       outcomes (issue #950).
     2. Stage files: git add for all files (handles additions, modifications, and deletions)
     3. git commit with [TASK-<id>] <message> format and Co-Authored-By trailer
     4. For each criterion ID passed via --criteria, call tusk criteria done <id> (captures HEAD automatically)
@@ -350,6 +354,19 @@ def match_path_test_command(patterns: dict, paths, repo_root: str = "") -> str:
     return ""
 
 
+def any_path_matches_test_surface(patterns: dict, paths, repo_root: str = "") -> bool:
+    """Return True when at least one path touches a configured test surface."""
+    if not patterns or not paths:
+        return False
+    normalized = [_normalize_path_for_match(p, repo_root) for p in paths]
+    for pattern, cmd in patterns.items():
+        if not cmd or not isinstance(cmd, str):
+            continue
+        if any(fnmatch.fnmatchcase(p, pattern) for p in normalized):
+            return True
+    return False
+
+
 def load_test_command(config_path: str, domain: str = "", paths=None,
                       repo_root: str = "") -> str:
     """Load the effective test command from config.
@@ -369,11 +386,16 @@ def load_test_command(config_path: str, domain: str = "", paths=None,
         with open(config_path) as f:
             config = json.load(f)
         if paths:
-            cmd = match_path_test_command(
-                config.get("path_test_commands", {}) or {}, paths, repo_root,
-            )
+            path_patterns = config.get("path_test_commands", {}) or {}
+            cmd = match_path_test_command(path_patterns, paths, repo_root)
             if cmd:
                 return cmd
+            if (
+                config.get("path_test_commands_skip_unmatched") is True
+                and path_patterns
+                and not any_path_matches_test_surface(path_patterns, paths, repo_root)
+            ):
+                return ""
         if domain:
             cmd = config.get("domain_test_commands", {}).get(domain)
             if cmd:

@@ -41,7 +41,7 @@ def cmd_validate(config_path: str) -> int:
     errors = []
 
     # ── Check for unknown top-level keys ──
-    KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'complexity', 'blocker_types', 'criterion_types', 'workflows', 'agents', 'dupes', 'review', 'review_categories', 'review_severities', 'merge', 'retro', 'worktree', 'scope', 'test_command', 'test_command_timeout_sec', 'baseline_min_sample_size', 'domain_test_commands', 'path_test_commands', 'init_intent', 'project_type', 'project_libs', 'issue_scoring', 'report_tusk_issue_footer'}
+    KNOWN_KEYS = {'domains', 'task_types', 'statuses', 'priorities', 'closed_reasons', 'complexity', 'blocker_types', 'criterion_types', 'workflows', 'agents', 'dupes', 'review', 'review_categories', 'review_severities', 'merge', 'retro', 'worktree', 'scope', 'test_command', 'test_command_timeout_sec', 'baseline_min_sample_size', 'domain_test_commands', 'path_test_commands', 'path_test_commands_skip_unmatched', 'init_intent', 'project_type', 'project_libs', 'issue_scoring', 'report_tusk_issue_footer'}
     known_list = ', '.join(sorted(KNOWN_KEYS))
     unknown = set(cfg.keys()) - KNOWN_KEYS
     if unknown:
@@ -290,6 +290,16 @@ def cmd_validate(config_path: str) -> int:
                     errors.append(f'"path_test_commands" keys must be non-empty strings (got {type(k).__name__}: {k!r}).')
                 if not isinstance(v, str):
                     errors.append(f'"path_test_commands.{k}" value must be a string (got {type(v).__name__}: {v!r}).')
+
+    if (
+        'path_test_commands_skip_unmatched' in cfg
+        and not isinstance(cfg['path_test_commands_skip_unmatched'], bool)
+    ):
+        errors.append(
+            '"path_test_commands_skip_unmatched" must be a boolean '
+            f'(got {type(cfg["path_test_commands_skip_unmatched"]).__name__}: '
+            f'{cfg["path_test_commands_skip_unmatched"]!r}).'
+        )
 
     # ── Report ──
     if errors:
