@@ -204,3 +204,72 @@ class TestCommitFlowAcceptsRenameSource:
             f"rename source must be excluded from 'git add' (it lives in the index "
             f"already, not on disk); saw: {staged}"
         )
+
+    def test_recreated_rename_source_missing_from_commit_fails_before_criteria(
+        self, tmp_path, capsys
+    ):
+        """Issue #1194: recreated rename source must not be silently omitted.
+
+        After `git mv pkg/__init__.py pkg/service.py`, a replacement
+        pkg/__init__.py may be written at the old path. Because the index still
+        reports `R old new`, the old path is classified as a staged deletion and
+        skipped by the git-add step. The post-commit tree check must catch that
+        the explicitly listed replacement file did not land and must fail before
+        criteria are marked done.
+        """
+        mod = _load_module()
+
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        old_file = pkg / "__init__.py"
+        new_file = pkg / "service.py"
+        old_file.write_text("from pkg.service import A\n")
+        new_file.write_text("A = 1\n")
+
+        argv = _argv(
+            tmp_path,
+            ["pkg/service.py", "pkg/__init__.py", "--criteria", "123"],
+        )
+
+        captured_add_args = []
+        criteria_calls = []
+
+        def fake_run(args, **kwargs):
+            if args[:5] == ["git", "diff", "--cached", "--name-status", "-z"]:
+                return _make_completed(
+                    0,
+                    stdout="R100\x00pkg/__init__.py\x00pkg/service.py\x00",
+                )
+            if args[:3] == ["git", "ls-files", "--deleted"]:
+                return _make_completed(0, stdout="")
+            if args[:2] == ["git", "add"]:
+                captured_add_args.append(list(args))
+                return _make_completed(0)
+            if args[:2] == ["git", "rev-parse"]:
+                if "--short=12" in args:
+                    return _make_completed(0, stdout="bbb222\n")
+                return _make_completed(0, stdout="aaa111\n")
+            if args[:2] == ["git", "commit"]:
+                return _make_completed(0, stdout="[main bbb222] move with shim")
+            if args[:3] == ["git", "cat-file", "-e"]:
+                if args[3] == "HEAD:pkg/__init__.py":
+                    return _make_completed(1, stderr="missing\n")
+                return _make_completed(0)
+            if len(args) >= 3 and args[1:3] == ["criteria", "done"]:
+                criteria_calls.append(list(args))
+                return _make_completed(0)
+            return _make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(tmp_path)):
+            rc = mod.main(argv)
+
+        assert rc == 3
+        captured = capsys.readouterr()
+        output = captured.out + captured.err
+        assert "pkg/__init__.py" in output
+        assert "missing from the committed tree" in output
+        assert len(captured_add_args) == 1
+        assert "pkg/service.py" in captured_add_args[0]
+        assert "pkg/__init__.py" not in captured_add_args[0]
+        assert criteria_calls == []

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1221] - 2026-07-08
+
+- [TASK-788] Fix: verify tusk commit includes every listed path
+
 ## [1220] - 2026-07-08
 
 - [TASK-787] Fix: suppress mark_done when creates scope paths are missing

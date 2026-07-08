@@ -1153,6 +1153,29 @@ def _pending_commit_paths(repo_root: str, resolved_files) -> list[str]:
     return list(paths)
 
 
+def _listed_paths_missing_from_head(repo_root: str, resolved_files) -> list[str]:
+    """Return explicitly listed, existing paths absent from HEAD's tree.
+
+    A listed path that no longer exists on disk may be a legitimate staged
+    deletion or rename source, so this check only covers non-deletion paths.
+    """
+    expected = []
+    for f in resolved_files:
+        rel = os.path.relpath(f, repo_root) if os.path.isabs(f) else f
+        abs_path = f if os.path.isabs(f) else os.path.join(repo_root, f)
+        if os.path.exists(abs_path):
+            expected.append(rel)
+    if not expected:
+        return []
+
+    missing = []
+    for path in expected:
+        res = run(["git", "cat-file", "-e", f"HEAD:{path}"], check=False, cwd=repo_root)
+        if res.returncode != 0:
+            missing.append(path)
+    return missing
+
+
 def _is_github_workflow_yaml(norm_path: str) -> bool:
     lower = norm_path.lower()
     return lower.startswith(".github/workflows/") and lower.endswith((".yml", ".yaml"))
@@ -2143,6 +2166,18 @@ def _run_commit(argv: list[str], state: dict) -> int:
     head = run(["git", "rev-parse", "--short=12", "HEAD"], check=False, cwd=repo_root)
     if head.returncode == 0 and head.stdout.strip():
         state["sha"] = head.stdout.strip()
+
+    missing_from_tree = _listed_paths_missing_from_head(repo_root, resolved_files)
+    if missing_from_tree:
+        for path in missing_from_tree:
+            _print_error(
+                f"Error: explicitly listed path is missing from the committed tree: {path}"
+            )
+        _print_error(
+            "Hint: the path may have been skipped during staging. Stage the file "
+            "manually, then retry tusk commit."
+        )
+        return 3
 
     # ── Step 5: Mark criteria done (captures new HEAD automatically) ─
     # When multiple criteria are batched in one commit call, suppress the
