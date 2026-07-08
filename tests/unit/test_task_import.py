@@ -94,6 +94,22 @@ def _make_db(tmp_path):
             relationship_type TEXT DEFAULT 'blocks',
             PRIMARY KEY (task_id, depends_on_id)
         );
+        CREATE TABLE objectives (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            summary TEXT NOT NULL,
+            description TEXT,
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at TEXT DEFAULT (datetime('now')),
+            updated_at TEXT DEFAULT (datetime('now')),
+            closed_at TEXT
+        );
+        CREATE TABLE objective_tasks (
+            objective_id INTEGER NOT NULL,
+            task_id INTEGER NOT NULL,
+            relationship_type TEXT NOT NULL DEFAULT 'contributes_to',
+            created_at TEXT DEFAULT (datetime('now')),
+            PRIMARY KEY (objective_id, task_id)
+        );
         CREATE TABLE task_scope (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             task_id INTEGER NOT NULL,
@@ -265,6 +281,217 @@ def test_import_accepts_json_from_stdin_and_writes_rows(tmp_path, monkeypatch):
     assert conn.execute(
         "SELECT relationship_type FROM task_dependencies WHERE task_id = 2 AND depends_on_id = 1"
     ).fetchone()[0] == "blocks"
+    conn.close()
+
+
+def test_import_resolves_existing_task_identifier_string_dependencies(tmp_path):
+    db_path = _make_db(tmp_path)
+    config_path = _write_config(tmp_path / "config.json")
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO tasks (summary, description, status) VALUES (?, ?, 'To Do')",
+        ("Existing prerequisite", "Already in backlog"),
+    )
+    conn.commit()
+    conn.close()
+    plan = tmp_path / "tasks.json"
+    plan.write_text(
+        json.dumps({
+            "tasks": [
+                {
+                    "key": "child",
+                    "summary": "Child with TASK ref",
+                    "description": "Description",
+                    "criteria": ["Manual criterion"],
+                    "depends_on": ["TASK-1"],
+                }
+            ]
+        }),
+        encoding="utf-8",
+    )
+
+    code, payload, _err = _run_import(db_path, config_path, ["--file", str(plan)])
+
+    assert code == 0
+    assert payload["created"]["0"]["task_id"] == 2
+    conn = sqlite3.connect(db_path)
+    assert conn.execute(
+        "SELECT relationship_type FROM task_dependencies WHERE task_id = 2 AND depends_on_id = 1"
+    ).fetchone()[0] == "blocks"
+    conn.close()
+
+
+def test_import_rejects_cyclic_local_key_dependencies_and_rolls_back(tmp_path):
+    db_path = _make_db(tmp_path)
+    config_path = _write_config(tmp_path / "config.json")
+    plan = tmp_path / "tasks.json"
+    plan.write_text(
+        json.dumps({
+            "tasks": [
+                {
+                    "key": "a",
+                    "summary": "Cycle A",
+                    "description": "Description",
+                    "criteria": ["Manual criterion"],
+                    "depends_on": ["b"],
+                },
+                {
+                    "key": "b",
+                    "summary": "Cycle B",
+                    "description": "Description",
+                    "criteria": ["Manual criterion"],
+                    "depends_on": ["a"],
+                },
+            ]
+        }),
+        encoding="utf-8",
+    )
+
+    code, payload, _err = _run_import(db_path, config_path, ["--file", str(plan)])
+
+    assert code == 2
+    assert payload["created"] == {}
+    assert payload["failed"]["1"]["key"] == "b"
+    assert payload["failed"]["1"]["errors"] == [
+        {
+            "field": "depends_on[0]",
+            "message": "dependency would create a cycle",
+        }
+    ]
+    conn = sqlite3.connect(db_path)
+    assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM task_dependencies").fetchone()[0] == 0
+    conn.close()
+
+
+def test_import_links_created_tasks_to_existing_objectives(tmp_path):
+    db_path = _make_db(tmp_path)
+    config_path = _write_config(tmp_path / "config.json")
+    conn = sqlite3.connect(db_path)
+    conn.execute("INSERT INTO objectives (summary) VALUES (?)", ("Primary objective",))
+    conn.execute("INSERT INTO objectives (summary) VALUES (?)", ("Contributing objective",))
+    conn.execute("INSERT INTO objectives (summary) VALUES (?)", ("Follow-up objective",))
+    conn.commit()
+    conn.close()
+    plan = tmp_path / "tasks.json"
+    plan.write_text(
+        json.dumps({
+            "tasks": [
+                {
+                    "key": "primary",
+                    "summary": "Primary objective linked import task",
+                    "description": "Description",
+                    "criteria": ["Manual criterion"],
+                    "objectives": [
+                        {"id": "OBJ-1", "type": "primary"},
+                    ],
+                },
+                {
+                    "key": "contributes",
+                    "summary": "Contributing objective linked import task",
+                    "description": "Description",
+                    "criteria": ["Manual criterion"],
+                    "objectives": [2],
+                },
+                {
+                    "key": "follow-up",
+                    "summary": "Follow-up objective linked import task",
+                    "description": "Description",
+                    "criteria": ["Manual criterion"],
+                    "objectives": [
+                        {"id": 3, "type": "follow_up"},
+                    ],
+                }
+            ]
+        }),
+        encoding="utf-8",
+    )
+
+    code, payload, _err = _run_import(db_path, config_path, ["--file", str(plan)])
+
+    assert code == 0
+    assert payload["created"]["0"]["task_id"] == 1
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute(
+        "SELECT objective_id, task_id, relationship_type FROM objective_tasks ORDER BY objective_id"
+    ).fetchall()
+    assert rows == [
+        (1, 1, "primary"),
+        (2, 2, "contributes_to"),
+        (3, 3, "follow_up"),
+    ]
+    conn.close()
+
+
+def test_import_rejects_missing_objective_links_and_rolls_back(tmp_path):
+    db_path = _make_db(tmp_path)
+    config_path = _write_config(tmp_path / "config.json")
+    plan = tmp_path / "tasks.json"
+    plan.write_text(
+        json.dumps({
+            "tasks": [
+                {
+                    "key": "missing-link",
+                    "summary": "Missing objective link import task",
+                    "description": "Description",
+                    "criteria": ["Manual criterion"],
+                    "objectives": [{"id": "OBJ-999", "type": "primary"}],
+                }
+            ]
+        }),
+        encoding="utf-8",
+    )
+
+    code, payload, _err = _run_import(db_path, config_path, ["--file", str(plan)])
+
+    assert code == 2
+    assert payload["created"] == {}
+    assert payload["failed"]["0"]["key"] == "missing-link"
+    assert payload["failed"]["0"]["errors"] == [
+        {
+            "field": "objectives[0].id",
+            "message": "objective OBJ-999 does not exist",
+        }
+    ]
+    conn = sqlite3.connect(db_path)
+    assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM objective_tasks").fetchone()[0] == 0
+    conn.close()
+
+
+def test_import_rejects_invalid_objective_types_and_rolls_back(tmp_path):
+    db_path = _make_db(tmp_path)
+    config_path = _write_config(tmp_path / "config.json")
+    conn = sqlite3.connect(db_path)
+    conn.execute("INSERT INTO objectives (summary) VALUES (?)", ("Objective",))
+    conn.commit()
+    conn.close()
+    plan = tmp_path / "tasks.json"
+    plan.write_text(
+        json.dumps({
+            "tasks": [
+                {
+                    "key": "bad-link",
+                    "summary": "Bad objective link import task",
+                    "description": "Description",
+                    "criteria": ["Manual criterion"],
+                    "objectives": [{"id": "OBJ-1", "type": "owner"}],
+                }
+            ]
+        }),
+        encoding="utf-8",
+    )
+
+    code, payload, _err = _run_import(db_path, config_path, ["--file", str(plan)])
+
+    assert code == 2
+    assert payload["created"] == {}
+    assert payload["failed"]["0"]["key"] == "bad-link"
+    messages = {error["field"]: error["message"] for error in payload["failed"]["0"]["errors"]}
+    assert messages["objectives[0].type"] == "type must be primary, contributes_to, or follow_up"
+    conn = sqlite3.connect(db_path)
+    assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM objective_tasks").fetchone()[0] == 0
     conn.close()
 
 

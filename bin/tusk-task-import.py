@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -56,6 +57,14 @@ class DependencyRef:
 
 
 @dataclass
+class ObjectiveRef:
+    raw_index: int
+    objective_id: int
+    relationship_type: str = "contributes_to"
+    raw_id: str | int | None = None
+
+
+@dataclass
 class TaskPlan:
     index: int
     key: str | None
@@ -77,6 +86,7 @@ class TaskPlan:
     typed_criteria: list[dict[str, Any]]
     duplicate_policy: str
     deps: list[DependencyRef] = field(default_factory=list)
+    objectives: list[ObjectiveRef] = field(default_factory=list)
     dupe: dict[str, Any] | None = None
 
 
@@ -158,7 +168,9 @@ def _normalize_dependencies(raw: Any) -> tuple[list[DependencyRef], list[ImportE
         key: str | None = None
         task_id: int | None = None
         if isinstance(item, str):
-            key = item
+            task_id = _parse_prefixed_int(item, "TASK-")
+            if task_id is None:
+                key = item
         elif isinstance(item, int) and not isinstance(item, bool):
             task_id = item
         elif isinstance(item, dict):
@@ -166,7 +178,11 @@ def _normalize_dependencies(raw: Any) -> tuple[list[DependencyRef], list[ImportE
             if "key" in item:
                 key = item.get("key")
             elif "id" in item:
-                task_id = item.get("id")
+                raw_id = item.get("id")
+                if isinstance(raw_id, str):
+                    task_id = _parse_prefixed_int(raw_id, "TASK-")
+                else:
+                    task_id = raw_id
             else:
                 errors.append(ImportErrorItem(field, "dependency must include key or id"))
                 continue
@@ -181,6 +197,64 @@ def _normalize_dependencies(raw: Any) -> tuple[list[DependencyRef], list[ImportE
             errors.append(ImportErrorItem(field, "dependency id must be a positive integer"))
         deps.append(DependencyRef(raw_index=i, key=key, task_id=task_id, relationship_type=rel_type))
     return deps, errors
+
+
+def _parse_prefixed_int(raw: str, prefix: str) -> int | None:
+    text = raw.strip()
+    if not text.upper().startswith(prefix):
+        return None
+    suffix = text[len(prefix):]
+    if not re.fullmatch(r"[0-9]+", suffix):
+        return None
+    return int(suffix)
+
+
+def _normalize_objectives(raw: Any) -> tuple[list[ObjectiveRef], list[ImportErrorItem]]:
+    if raw is None:
+        return [], []
+    if not isinstance(raw, list):
+        return [], [ImportErrorItem("objectives", "objectives must be an array")]
+
+    refs: list[ObjectiveRef] = []
+    errors: list[ImportErrorItem] = []
+    for i, item in enumerate(raw):
+        field = f"objectives[{i}]"
+        rel_type = "contributes_to"
+        raw_id: str | int | None
+        objective_id: int | None = None
+        if isinstance(item, int) and not isinstance(item, bool):
+            raw_id = item
+            objective_id = item
+        elif isinstance(item, str):
+            raw_id = item
+            objective_id = _parse_prefixed_int(item, "OBJ-")
+        elif isinstance(item, dict):
+            rel_type = item.get("type", "contributes_to")
+            raw_id = item.get("id")
+            if isinstance(raw_id, int) and not isinstance(raw_id, bool):
+                objective_id = raw_id
+            elif isinstance(raw_id, str):
+                objective_id = _parse_prefixed_int(raw_id, "OBJ-")
+            else:
+                objective_id = None
+        else:
+            errors.append(ImportErrorItem(field, "objective link must be an id or object"))
+            continue
+
+        if rel_type not in ("primary", "contributes_to", "follow_up"):
+            errors.append(ImportErrorItem(f"{field}.type", "type must be primary, contributes_to, or follow_up"))
+        if objective_id is None or objective_id <= 0:
+            errors.append(ImportErrorItem(f"{field}.id", "objective id must be a positive integer or OBJ-N"))
+            continue
+        refs.append(
+            ObjectiveRef(
+                raw_index=i,
+                objective_id=objective_id,
+                relationship_type=rel_type,
+                raw_id=raw_id,
+            )
+        )
+    return refs, errors
 
 
 def _normalize_string_list(raw: Any, field_name: str) -> tuple[list[str], list[ImportErrorItem]]:
@@ -314,6 +388,8 @@ def _validate_item(
 
     deps, dep_errors = _normalize_dependencies(item.get("depends_on"))
     errors.extend(dep_errors)
+    objectives, objective_errors = _normalize_objectives(item.get("objectives"))
+    errors.extend(objective_errors)
     for dep in deps:
         if dep.key is None:
             continue
@@ -355,11 +431,16 @@ def _validate_item(
         typed_criteria=typed_criteria,
         duplicate_policy=duplicate_policy,
         deps=deps,
+        objectives=objectives,
     ), [], key
 
 
 def _task_exists(conn: sqlite3.Connection, task_id: int) -> bool:
     return conn.execute("SELECT 1 FROM tasks WHERE id = ?", (task_id,)).fetchone() is not None
+
+
+def _objective_exists(conn: sqlite3.Connection, objective_id: int) -> bool:
+    return conn.execute("SELECT 1 FROM objectives WHERE id = ?", (objective_id,)).fetchone() is not None
 
 
 def _validate_dependency_references(
@@ -375,6 +456,24 @@ def _validate_dependency_references(
             elif dep.task_id is not None and not _task_exists(conn, dep.task_id):
                 errors.setdefault(plan.index, []).append(
                     ImportErrorItem(field, f"task id {dep.task_id} does not exist")
+                )
+    return errors
+
+
+def _validate_objective_references(
+    plans: list[TaskPlan],
+    conn: sqlite3.Connection,
+) -> dict[int, list[ImportErrorItem]]:
+    errors: dict[int, list[ImportErrorItem]] = {}
+    for plan in plans:
+        for ref in plan.objectives:
+            if not _objective_exists(conn, ref.objective_id):
+                label = ref.raw_id if ref.raw_id is not None else ref.objective_id
+                errors.setdefault(plan.index, []).append(
+                    ImportErrorItem(
+                        f"objectives[{ref.raw_index}].id",
+                        f"objective {label} does not exist",
+                    )
                 )
     return errors
 
@@ -411,6 +510,28 @@ def _resolve_dep_id(dep: DependencyRef, key_to_created_id: dict[str, int]) -> in
     if dep.task_id is not None:
         return dep.task_id
     return key_to_created_id[dep.key or ""]
+
+
+def _would_create_dependency_cycle(
+    conn: sqlite3.Connection,
+    task_id: int,
+    depends_on_id: int,
+) -> bool:
+    visited: set[int] = set()
+    stack = [depends_on_id]
+    while stack:
+        current = stack.pop()
+        if current == task_id:
+            return True
+        if current in visited:
+            continue
+        visited.add(current)
+        rows = conn.execute(
+            "SELECT depends_on_id FROM task_dependencies WHERE task_id = ?",
+            (current,),
+        ).fetchall()
+        stack.extend(row["depends_on_id"] for row in rows)
+    return False
 
 
 def _execute_import(
@@ -472,13 +593,39 @@ def _execute_import(
             task_id = index_to_created_id[plan.index]
             try:
                 for dep in plan.deps:
+                    depends_on_id = _resolve_dep_id(dep, key_to_created_id)
+                    if task_id == depends_on_id:
+                        raise ValueError(f"depends_on[{dep.raw_index}]: task cannot depend on itself")
+                    if _would_create_dependency_cycle(conn, task_id, depends_on_id):
+                        raise ValueError(f"depends_on[{dep.raw_index}]: dependency would create a cycle")
                     conn.execute(
                         "INSERT OR IGNORE INTO task_dependencies "
                         "(task_id, depends_on_id, relationship_type) VALUES (?, ?, ?)",
-                        (task_id, _resolve_dep_id(dep, key_to_created_id), dep.relationship_type),
+                        (task_id, depends_on_id, dep.relationship_type),
+                    )
+                for ref in plan.objectives:
+                    conn.execute(
+                        "INSERT INTO objective_tasks (objective_id, task_id, relationship_type) "
+                        "VALUES (?, ?, ?) "
+                        "ON CONFLICT(objective_id, task_id) "
+                        "DO UPDATE SET relationship_type = excluded.relationship_type",
+                        (ref.objective_id, task_id, ref.relationship_type),
                     )
                 if best_effort:
                     conn.commit()
+            except ValueError as exc:
+                conn.rollback()
+                message = str(exc)
+                field = "$"
+                if ": " in message:
+                    field, message = message.split(": ", 1)
+                result["failed"][str(plan.index)] = _failure_entry(
+                    plan.key,
+                    [ImportErrorItem(field, message)],
+                )
+                if not best_effort:
+                    result["created"].clear()
+                    return 2
             except sqlite3.Error as exc:
                 conn.rollback()
                 result["failed"][str(plan.index)] = _failure_entry(
@@ -561,9 +708,15 @@ def main(argv: list[str]) -> int:
     conn = get_connection(db_path)
     try:
         dep_errors = _validate_dependency_references(plans, conn)
+        objective_errors = _validate_objective_references(plans, conn)
     finally:
         conn.close()
     for index, errors in dep_errors.items():
+        result["failed"][str(index)] = _failure_entry(
+            next((p.key for p in plans if p.index == index), None),
+            errors,
+        )
+    for index, errors in objective_errors.items():
         result["failed"][str(index)] = _failure_entry(
             next((p.key for p in plans if p.index == index), None),
             errors,
