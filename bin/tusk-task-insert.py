@@ -22,6 +22,7 @@ Exit codes:
 """
 
 import argparse
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import json
 import os
@@ -901,6 +902,182 @@ def _canonical_enum_value(value: str, valid_values: list[str]) -> str:
     return value
 
 
+@dataclass
+class InsertTaskResult:
+    task_id: int
+    criteria_ids: list[int]
+    typed_inserted: list[tuple[int, str, str | None]]
+
+
+def insert_task_record(
+    conn: sqlite3.Connection,
+    *,
+    summary: str,
+    description: str,
+    priority: str,
+    domain: str | None,
+    task_type: str,
+    assignee: str | None,
+    complexity: str,
+    workflow: str | None,
+    criteria: list[str],
+    typed_criteria: list[dict],
+    repo_root: str | None,
+    expires_in_days: int | None = None,
+    not_before: str | None = None,
+    fixes_task_id: int | None = None,
+    scope_patterns: list[str] | None = None,
+    creates_paths: list[str] | None = None,
+    unbounded: bool = False,
+) -> InsertTaskResult:
+    """Insert a task using the same DB semantics as ``tusk task-insert``."""
+    scope_patterns = scope_patterns or []
+    creates_paths = creates_paths or []
+
+    if fixes_task_id is not None:
+        row = conn.execute(
+            "SELECT 1 FROM tasks WHERE id = ?", (fixes_task_id,)
+        ).fetchone()
+        if row is None:
+            raise ValueError(
+                f"--fixes-task-id {fixes_task_id} does not reference an existing task"
+            )
+
+    expires_at_expr = None
+    if expires_in_days is not None:
+        expires_at_expr = f"+{expires_in_days} days"
+
+    if expires_at_expr:
+        conn.execute(
+            "INSERT INTO tasks (summary, description, status, priority, domain, "
+            "task_type, assignee, complexity, workflow, fixes_task_id, "
+            "expires_at, not_before, created_at, updated_at) "
+            "VALUES (?, ?, 'To Do', ?, ?, ?, ?, ?, ?, ?, datetime('now', ?), "
+            "?, datetime('now'), datetime('now'))",
+            (
+                summary,
+                description,
+                priority,
+                domain,
+                task_type,
+                assignee,
+                complexity,
+                workflow,
+                fixes_task_id,
+                expires_at_expr,
+                not_before,
+            ),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO tasks (summary, description, status, priority, domain, "
+            "task_type, assignee, complexity, workflow, fixes_task_id, "
+            "not_before, created_at, updated_at) "
+            "VALUES (?, ?, 'To Do', ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+            (
+                summary,
+                description,
+                priority,
+                domain,
+                task_type,
+                assignee,
+                complexity,
+                workflow,
+                fixes_task_id,
+                not_before,
+            ),
+        )
+
+    task_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    criteria_ids = []
+    for criterion in criteria:
+        conn.execute(
+            "INSERT INTO acceptance_criteria (task_id, criterion, source) "
+            "VALUES (?, ?, 'original')",
+            (task_id, criterion),
+        )
+        cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        criteria_ids.append(cid)
+
+    typed_inserted = []
+    for tc in typed_criteria:
+        conn.execute(
+            "INSERT INTO acceptance_criteria "
+            "(task_id, criterion, source, criterion_type, verification_spec) "
+            "VALUES (?, ?, 'original', ?, ?)",
+            (task_id, tc["text"], tc.get("type", "manual"), tc.get("spec")),
+        )
+        cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        criteria_ids.append(cid)
+        typed_inserted.append((cid, tc.get("type", "manual"), tc.get("spec")))
+
+    for pattern in scope_patterns:
+        conn.execute(
+            "INSERT INTO task_scope (task_id, pattern, source) "
+            "VALUES (?, ?, 'operator_declared')",
+            (task_id, pattern),
+        )
+    for path in creates_paths:
+        conn.execute(
+            "INSERT INTO task_scope (task_id, pattern, source) "
+            "VALUES (?, ?, 'creates')",
+            (task_id, path),
+        )
+    if unbounded:
+        # Pattern is a sentinel — the scope guard short-circuits when any row
+        # for the task has source='unbounded' (emits no patterns, silent pass).
+        conn.execute(
+            "INSERT INTO task_scope (task_id, pattern, source) "
+            "VALUES (?, '**', 'unbounded')",
+            (task_id,),
+        )
+    else:
+        # Auto-extract paths from summary/description/criteria/specs. Mirrors
+        # the migration-73 backfill so fresh tasks land with task_scope rows
+        # equivalent to the legacy scope-path fallback.
+        explicit_patterns = set(scope_patterns) | set(creates_paths)
+        text_blocks = [summary or "", description or ""]
+        for c in criteria:
+            text_blocks.append(c or "")
+        for tc in typed_criteria:
+            text_blocks.append(tc.get("text") or "")
+            text_blocks.append(tc.get("spec") or "")
+        seen_auto: set = set()
+        requires_unit_tests = any(
+            _UNIT_TEST_REQUIREMENT_RE.search(block or "")
+            for block in text_blocks
+        )
+        for text in text_blocks:
+            for p in _auto_scope_candidates(
+                text,
+                repo_root=repo_root,
+                task_type=task_type,
+                requires_unit_tests=requires_unit_tests,
+            ):
+                resolved = _resolve_auto_derived_scope_pattern(repo_root, p)
+                is_explicit_github_path = p.startswith(".github/") and p != ".github/"
+                if (
+                    not is_explicit_github_path
+                    and is_prose_identifier_path(p, repo_root)
+                ):
+                    continue
+                if resolved in _git_helpers.SCOPE_DERIVE_BOOKKEEPING_DENYLIST:
+                    continue
+                if not _git_helpers.is_trackable_scope_pattern(repo_root, resolved):
+                    continue
+                if resolved in explicit_patterns or resolved in seen_auto:
+                    continue
+                seen_auto.add(resolved)
+                conn.execute(
+                    "INSERT INTO task_scope (task_id, pattern, source) "
+                    "VALUES (?, ?, 'auto_derived')",
+                    (task_id, resolved),
+                )
+
+    return InsertTaskResult(task_id, criteria_ids, typed_inserted)
+
+
 def main(argv: list[str]) -> int:
     db_path = argv[0]
     config_path = argv[1]
@@ -1082,162 +1259,38 @@ def main(argv: list[str]) -> int:
             print(dumps(result))
             return 1
 
-    # Compute expires_at
-    expires_at_expr = None
-    if expires_in_days is not None:
-        expires_at_expr = f"+{expires_in_days} days"
-
     # Insert task + criteria in one transaction
     conn = get_connection(db_path)
     try:
-        if fixes_task_id is not None:
-            row = conn.execute(
-                "SELECT 1 FROM tasks WHERE id = ?", (fixes_task_id,)
-            ).fetchone()
-            if row is None:
-                print(
-                    f"Error: --fixes-task-id {fixes_task_id} does not reference an existing task",
-                    file=sys.stderr,
-                )
-                return 2
-
-        if expires_at_expr:
-            conn.execute(
-                "INSERT INTO tasks (summary, description, status, priority, domain, "
-                "task_type, assignee, complexity, workflow, fixes_task_id, "
-                "expires_at, not_before, created_at, updated_at) "
-                "VALUES (?, ?, 'To Do', ?, ?, ?, ?, ?, ?, ?, datetime('now', ?), "
-                "?, datetime('now'), datetime('now'))",
-                (summary, description, priority, domain, task_type, assignee,
-                 complexity, workflow, fixes_task_id, expires_at_expr, not_before),
-            )
-        else:
-            conn.execute(
-                "INSERT INTO tasks (summary, description, status, priority, domain, "
-                "task_type, assignee, complexity, workflow, fixes_task_id, "
-                "not_before, created_at, updated_at) "
-                "VALUES (?, ?, 'To Do', ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
-                (summary, description, priority, domain, task_type, assignee,
-                 complexity, workflow, fixes_task_id, not_before),
-            )
-
-        task_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-
-        criteria_ids = []
-        for criterion in criteria:
-            conn.execute(
-                "INSERT INTO acceptance_criteria (task_id, criterion, source) "
-                "VALUES (?, ?, 'original')",
-                (task_id, criterion),
-            )
-            cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-            criteria_ids.append(cid)
-
-        typed_inserted = []
-        for tc in typed_criteria:
-            conn.execute(
-                "INSERT INTO acceptance_criteria "
-                "(task_id, criterion, source, criterion_type, verification_spec) "
-                "VALUES (?, ?, 'original', ?, ?)",
-                (task_id, tc["text"], tc.get("type", "manual"), tc.get("spec")),
-            )
-            cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-            criteria_ids.append(cid)
-            typed_inserted.append((cid, tc.get("type", "manual"), tc.get("spec")))
-
-        for pattern in scope_patterns:
-            conn.execute(
-                "INSERT INTO task_scope (task_id, pattern, source) "
-                "VALUES (?, ?, 'operator_declared')",
-                (task_id, pattern),
-            )
-        for path in creates_paths:
-            conn.execute(
-                "INSERT INTO task_scope (task_id, pattern, source) "
-                "VALUES (?, ?, 'creates')",
-                (task_id, path),
-            )
-        if unbounded:
-            # Pattern is a sentinel — the scope guard short-circuits when any
-            # row for the task has source='unbounded' (emits no patterns,
-            # silent pass).
-            conn.execute(
-                "INSERT INTO task_scope (task_id, pattern, source) "
-                "VALUES (?, '**', 'unbounded')",
-                (task_id,),
-            )
-        else:
-            # Auto-extract paths from summary/description/criteria/specs.
-            # Mirrors the migration-73 backfill (which used
-            # task_referenced_paths) so new tasks land with the same
-            # task_scope shape that the scope-paths fallback would have
-            # inferred from a legacy task. Explicit --scope and --creates
-            # rows already inserted above win — auto_derived is only added
-            # for paths the operator didn't already declare.
-            explicit_patterns = set(scope_patterns) | set(creates_paths)
-            text_blocks = [summary or "", description or ""]
-            for c in criteria:
-                text_blocks.append(c or "")
-            for tc in typed_criteria:
-                text_blocks.append(tc.get("text") or "")
-                text_blocks.append(tc.get("spec") or "")
-            seen_auto: set = set()
-            requires_unit_tests = any(
-                _UNIT_TEST_REQUIREMENT_RE.search(block or "")
-                for block in text_blocks
-            )
-            for text in text_blocks:
-                for p in _auto_scope_candidates(
-                    text,
-                    repo_root=repo_root,
-                    task_type=task_type,
-                    requires_unit_tests=requires_unit_tests,
-                ):
-                    resolved = _resolve_auto_derived_scope_pattern(repo_root, p)
-                    # ``.github/`` is a real, ubiquitous repo directory, so any
-                    # path under it is a genuine reference — never a prose
-                    # identifier. The earlier carve-out only matched the
-                    # trailing-slash *directory* form (``.github/workflows/``)
-                    # and so dropped concrete *file* mentions like
-                    # ``.github/workflows/web-ci.yml`` whenever that file did
-                    # not yet exist on disk, because is_prose_identifier_path
-                    # classifies any non-existent dot-first-segment path as
-                    # prose (issue #1084 — co-discovered genuine regression
-                    # from the TASK-549 prose filter).
-                    is_explicit_github_path = p.startswith(".github/") and p != ".github/"
-                    if (
-                        not is_explicit_github_path
-                        and is_prose_identifier_path(p, repo_root)
-                    ):
-                        continue
-                    # Universal bookkeeping files (VERSION, CHANGELOG.md) that a
-                    # description merely *discusses* must not become auto_derived
-                    # scope rows — same defect #1104 fixed for the convergence
-                    # hint, here at the scope-derive consumer (issue #1105). An
-                    # explicit --scope/--creates VERSION already landed above and
-                    # is preserved via the explicit_patterns short-circuit below.
-                    if resolved in _git_helpers.SCOPE_DERIVE_BOOKKEEPING_DENYLIST:
-                        continue
-                    # Drop description/issue-body paths that name no tracked file
-                    # and live under no existing tracked tree (e.g. consumer-repo
-                    # paths quoted in a GitHub issue body). Applies the same
-                    # tracked-path validation the worktree cone derivation uses
-                    # (issue #1044) so the scope table and the cone no longer
-                    # diverge into phantom auto_derived rows (issue #1116).
-                    if not _git_helpers.is_trackable_scope_pattern(
-                        repo_root, resolved
-                    ):
-                        continue
-                    if resolved in explicit_patterns or resolved in seen_auto:
-                        continue
-                    seen_auto.add(resolved)
-                    conn.execute(
-                        "INSERT INTO task_scope (task_id, pattern, source) "
-                        "VALUES (?, ?, 'auto_derived')",
-                        (task_id, resolved),
-                    )
+        inserted = insert_task_record(
+            conn,
+            summary=summary,
+            description=description,
+            priority=priority,
+            domain=domain,
+            task_type=task_type,
+            assignee=assignee,
+            complexity=complexity,
+            workflow=workflow,
+            criteria=criteria,
+            typed_criteria=typed_criteria,
+            repo_root=repo_root,
+            expires_in_days=expires_in_days,
+            not_before=not_before,
+            fixes_task_id=fixes_task_id,
+            scope_patterns=scope_patterns,
+            creates_paths=creates_paths,
+            unbounded=unbounded,
+        )
+        task_id = inserted.task_id
+        criteria_ids = inserted.criteria_ids
+        typed_inserted = inserted.typed_inserted
 
         conn.commit()
+    except ValueError as e:
+        conn.rollback()
+        print(f"Error: {e}", file=sys.stderr)
+        return 2
     except sqlite3.Error as e:
         conn.rollback()
         print(f"Database error: {e}", file=sys.stderr)
