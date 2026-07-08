@@ -56,6 +56,7 @@ import argparse
 import fnmatch
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -81,6 +82,7 @@ _TUSK_INTERNAL_PYTEST_IGNORE_GLOBS = (
     "tests/test_tusk_*.py",
     "*/tests/test_tusk_*.py",
 )
+_LAST_TEST_OUTPUT = ""
 
 
 def _install_role() -> str:
@@ -371,6 +373,40 @@ def _record_precheck_verdict(repo_root: str, script_dir: str,
 DIVERGED_PATHS_SAMPLE = 20
 
 
+def _extract_failed_test_paths(output: str) -> list[str]:
+    """Best-effort pytest failure path extraction from test output.
+
+    The upstream-divergence signal is only actionable when default-branch
+    changes plausibly touch the failing tests. If we cannot identify failing
+    paths, callers fall back to the older broader diff scope.
+    """
+    if not output:
+        return []
+    paths: list[str] = []
+    seen: set[str] = set()
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        token = ""
+        if line.startswith(("FAILED ", "ERROR ")):
+            parts = line.split()
+            if len(parts) >= 2:
+                token = parts[1]
+        elif (" FAILED" in line or " ERROR" in line) and ".py" in line:
+            token = line.split()[0]
+        if not token:
+            continue
+        token = token.split("::", 1)[0]
+        token = re.sub(r":\d+(?::\d+)?$", "", token)
+        token = token.strip("./")
+        if not token.endswith(".py") or token in seen:
+            continue
+        seen.add(token)
+        paths.append(token)
+    return paths
+
+
 def _resolve_default_branch(repo_root: str, script_dir: str) -> str:
     """Return the default branch name (e.g. 'main'), or '' if unresolvable.
 
@@ -451,7 +487,8 @@ def _compute_divergence(repo_root: str, script_dir: str, paths) -> tuple[bool, l
 
 def _emit_verdict(repo_root: str, script_dir: str, test_command: str,
                   exit_code: int, stashed: bool, paths,
-                  flake_exits: list | None = None) -> int:
+                  flake_exits: list | None = None,
+                  failure_output: str | None = None) -> int:
     """Record the verdict, print the JSON payload, and return 0.
 
     Always emits ``diverged_from_default``/``diverged_paths``. The divergence
@@ -472,16 +509,23 @@ def _emit_verdict(repo_root: str, script_dir: str, test_command: str,
     _record_precheck_verdict(
         repo_root, script_dir, test_command, pre_existing, exit_code,
     )
+    failed_test_paths = _extract_failed_test_paths(
+        _LAST_TEST_OUTPUT if failure_output is None else failure_output
+    )
+    divergence_scope = failed_test_paths or paths
     diverged = False
     diverged_paths: list = []
     if pre_existing:
-        diverged, diverged_paths = _compute_divergence(repo_root, script_dir, paths)
+        diverged, diverged_paths = _compute_divergence(
+            repo_root, script_dir, divergence_scope
+        )
         if diverged:
             sample = ", ".join(diverged_paths[:5])
+            scope_note = "failing test path(s)" if failed_test_paths else "file(s)"
             print(
                 "Note: this failure is pre_existing against HEAD, but "
                 f"origin/<default> has commits HEAD lacks touching "
-                f"{len(diverged_paths)} file(s) (e.g. {sample}). The failure "
+                f"{len(diverged_paths)} {scope_note} (e.g. {sample}). The failure "
                 "may already be fixed upstream — consider rebasing onto the "
                 "default branch before concluding pre-existing or filing a "
                 "follow-up.",
@@ -596,6 +640,7 @@ def run_test(test_command: str, repo_root: str) -> int:
     must be able to run ``json.loads(result.stdout)`` directly rather than
     fishing the last line out of interleaved test output.
     """
+    global _LAST_TEST_OUTPUT
     result = subprocess.run(
         test_command,
         cwd=repo_root,
@@ -604,6 +649,7 @@ def run_test(test_command: str, repo_root: str) -> int:
         text=True, encoding="utf-8",
         env=_test_command_env(),
     )
+    _LAST_TEST_OUTPUT = (result.stdout or "") + (result.stderr or "")
     if result.stdout:
         sys.stderr.write(result.stdout)
     if result.stderr:

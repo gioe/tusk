@@ -147,3 +147,41 @@ def test_emit_verdict_warns_on_stderr_when_diverged(diverged_repo, capsys):
     mod._emit_verdict(diverged_repo, BIN, "false", 1, False, None)
     captured = capsys.readouterr()
     assert "may already be fixed upstream" in captured.err
+
+
+def test_emit_verdict_ignores_unrelated_upstream_divergence(diverged_repo, capsys):
+    failure_output = (
+        "FAILED tests/test_tusk_env.py::test_missing_bin - AssertionError\n"
+        "1 failed in 0.10s\n"
+    )
+
+    mod._emit_verdict(
+        diverged_repo, BIN, "pytest", 1, False, None,
+        failure_output=failure_output,
+    )
+
+    captured = capsys.readouterr()
+    out = json.loads(captured.out)
+    assert out["pre_existing"] is True
+    assert out["diverged_from_default"] is False
+    assert out["diverged_paths"] == []
+    assert "may already be fixed upstream" not in captured.err
+
+
+def test_emit_verdict_reports_overlap_with_failing_test(diverged_repo, capsys):
+    failure_output = (
+        "FAILED test_x.py::test_x - AssertionError\n"
+        "1 failed in 0.10s\n"
+    )
+
+    mod._emit_verdict(
+        diverged_repo, BIN, "pytest", 1, False, None,
+        failure_output=failure_output,
+    )
+
+    captured = capsys.readouterr()
+    out = json.loads(captured.out)
+    assert out["pre_existing"] is True
+    assert out["diverged_from_default"] is True
+    assert out["diverged_paths"] == ["test_x.py"]
+    assert "may already be fixed upstream" in captured.err
