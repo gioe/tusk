@@ -309,6 +309,10 @@ user, and revise before inserting:
 
 ### Insert
 
+When two or more tasks are approved, prefer `tusk task-import`, not repeated `tusk task-insert` calls. Build one JSON plan with a top-level `tasks` array, run `tusk task-import --stdin --dry-run` first, show and fix any `failed` or `skipped` outcomes, then run the same JSON without `--dry-run` after approval. Use local `key` values and `depends_on` entries when the approved tasks have ordering relationships; this lets import create the rows first and then resolve dependencies in one transaction.
+
+For single-task creation, or when an operator explicitly asks for one row only, use `tusk task-insert` as before.
+
 ```bash
 tusk task-insert "<summary>" "<description>" \
   --priority "<priority>" \
@@ -359,6 +363,8 @@ class-contained test exists.
   `similarity`. Report which existing task matched and skip:
   > Skipped "<summary>" — duplicate of existing task #N (similarity 0.87)
 - **2** — error. Surface the message and skip.
+
+For `task-import`, output is `{"created":{...},"skipped":{...},"failed":{...}}` keyed by input index; it contains `created`, `skipped`, and `failed` maps. Treat any non-empty `failed` map as a blocker unless the operator explicitly chose `--best-effort`; treat `skipped` duplicates as skipped tasks in the final summary.
 
 ## Step 6: (Reserved)
 
