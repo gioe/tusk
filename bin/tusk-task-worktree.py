@@ -426,10 +426,13 @@ def _is_root_tracked_file(repo_root: str | None, path: str) -> bool:
     if not repo_root or "/" in path:
         return False
     result = _run_git(repo_root, ["ls-tree", "HEAD", "--", path])
+    line = result.stdout.strip()
+    fields = line.split(None, 2)
     return (
         result.returncode == 0
-        and result.stdout.strip().startswith("100")
-        and result.stdout.rstrip().endswith(f"\t{path}")
+        and len(fields) >= 2
+        and fields[1] == "blob"
+        and line.endswith(f"\t{path}")
     )
 
 
