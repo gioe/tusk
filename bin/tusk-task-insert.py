@@ -28,6 +28,7 @@ import json
 import os
 import posixpath
 import re
+import shlex
 import sqlite3
 import subprocess
 import sys
@@ -98,6 +99,20 @@ _OBVIOUS_REPO_PATH_RE = re.compile(
     r'[\w./_-]+)',
     re.MULTILINE,
 )
+_GIT_FILE_COMMAND_RE = re.compile(
+    r"(?<![\w.-])git\s+(?P<verb>rm|mv|add)\b(?P<args>[^\n;]*)",
+    re.IGNORECASE,
+)
+_FILE_COMMAND_RE = re.compile(
+    r"(?<![\w.-])(?P<verb>rm|mv|cp|touch)\b(?P<args>[^\n;]*)",
+    re.IGNORECASE,
+)
+_COMMAND_PATHISH_RE = re.compile(
+    r"^(?:\.{1,2}/|\.?[A-Za-z0-9_.@-]+/|[A-Za-z0-9_.@-]+\.[A-Za-z0-9][\w.-]*)"
+)
+_COMMAND_SENTINELS = {
+    "and", "then", "commit", "committed", "commits", "before", "after",
+}
 
 
 def _format_utc(value: datetime) -> str:
@@ -552,6 +567,54 @@ def _route_shortform_scope_paths(repo_root: str | None, text: str) -> list[str]:
     return candidates
 
 
+def _command_scope_path(raw: str) -> str | None:
+    token = raw.strip().strip('\'"`')
+    token = token.rstrip(".,)")
+    token = token.rstrip("/")
+    if (
+        not token
+        or token.startswith("-")
+        or token.lower() in _COMMAND_SENTINELS
+        or not _COMMAND_PATHISH_RE.search(token)
+    ):
+        return None
+    if any(ch in token for ch in "*?["):
+        return posixpath.normpath(token)
+    basename = posixpath.basename(token)
+    if "/" in token and "." not in basename:
+        return posixpath.normpath(f"{token}/**")
+    return posixpath.normpath(token)
+
+
+def _split_command_args(arg_text: str) -> list[str]:
+    try:
+        return shlex.split(arg_text, comments=False, posix=True)
+    except ValueError:
+        return re.split(r"\s+", arg_text.strip())
+
+
+def _command_operand_scope_paths(text: str) -> list[str]:
+    """Infer scope from explicit git/file command operands.
+
+    Generic path extraction intentionally favors file-looking prose and misses
+    extensionless directory operands such as ``git rm -r --cached .claude/bin``.
+    In command-shaped prose, those operands are high-confidence work targets.
+    """
+    if not text:
+        return []
+
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for regex in (_GIT_FILE_COMMAND_RE, _FILE_COMMAND_RE):
+        for match in regex.finditer(text):
+            for token in _split_command_args(match.group("args") or ""):
+                path = _command_scope_path(token)
+                if path and path not in seen:
+                    seen.add(path)
+                    candidates.append(path)
+    return candidates
+
+
 _LOCKFILE_SIBLINGS = ("package-lock.json", "yarn.lock", "pnpm-lock.yaml")
 
 
@@ -597,6 +660,10 @@ _NEGATION_TRAILING_RE = re.compile(
     r"never\s+existed|nonexistent\b|deleted\b|removed\b)",
     re.IGNORECASE,
 )
+_UNAFFECTED_TRAILING_RE = re.compile(
+    r"^[^.;:!?\n()]{0,100}\b(?:unaffected|unchanged)\b",
+    re.IGNORECASE,
+)
 _NEGATION_CLAUSE_BOUNDARY_RE = re.compile(r"[.;:!?\n()]")
 _NEGATION_LEADING_RE = re.compile(r"\b(?:not|never)\b", re.IGNORECASE)
 _NEGATION_LEADING_WINDOW = 60
@@ -605,6 +672,8 @@ _NEGATION_LEADING_WINDOW = 60
 def _is_negated_mention(text: str, start: int, end: int) -> bool:
     """True when the text span at [start, end) sits in a negation window."""
     if _NEGATION_TRAILING_RE.search(text[end:end + 60]):
+        return True
+    if _UNAFFECTED_TRAILING_RE.search(text[end:end + 120]):
         return True
     window = text[max(0, start - _NEGATION_LEADING_WINDOW):start]
     clause = _NEGATION_CLAUSE_BOUNDARY_RE.split(window)[-1]
@@ -623,11 +692,23 @@ def _negated_path_mentions(text: str, candidates: list[str]) -> set[str]:
         return set()
     negated: set[str] = set()
     for cand in dict.fromkeys(candidates):
-        token = cand
-        if token not in text:
-            token = posixpath.basename(_path_file_portion(cand) or "")
-            if not token or token not in text:
-                continue
+        file_part = _path_file_portion(cand) or ""
+        directory_glob_base = (
+            file_part[:-3] if file_part.endswith("/**") else ""
+        )
+        token = next(
+            (
+                t for t in (
+                    cand,
+                    directory_glob_base,
+                    posixpath.basename(directory_glob_base or file_part),
+                )
+                if t and t in text
+            ),
+            "",
+        )
+        if not token:
+            continue
         found = False
         all_negated = True
         search_start = 0
@@ -804,6 +885,7 @@ def _auto_scope_candidates(
     sibling_paths = _sibling_shortform_scope_paths(text, explicit)
     directory_paths = _directory_list_scope_paths(text)
     route_paths = _route_shortform_scope_paths(repo_root, text)
+    command_paths = _command_operand_scope_paths(text)
     bare_paths = [
         resolved for name in extract_referenced_basenames(text)
         if (resolved := _resolve_unique_repo_basename(repo_root, name))
@@ -813,6 +895,7 @@ def _auto_scope_candidates(
         *sibling_paths,
         *directory_paths,
         *route_paths,
+        *command_paths,
         *bare_paths,
     ]
     target_paths = _filter_target_paths_for_explicit_scope(
@@ -832,6 +915,7 @@ def _auto_scope_candidates(
         *sibling_paths,
         *directory_paths,
         *route_paths,
+        *command_paths,
         *bare_paths,
         *target_paths,
         *_commit_referenced_scope_paths(repo_root, text),
