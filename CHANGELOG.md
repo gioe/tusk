@@ -6,6 +6,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1212] - 2026-07-08
+
+- [TASK-770] Add task-import JSON parsing and dry-run validation
+- [TASK-771] Materialize task-import batches through task-insert semantics
+- [TASK-772] Add dependency and objective linking to task-import
+- [TASK-773] Document task-import and update task creation guidance
+
 ## [1211] - 2026-07-07
 
 - [TASK-769] Fix sparse-cone path test command tokenization
