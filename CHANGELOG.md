@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1219] - 2026-07-08
+
+- [TASK-786] Fix: keep root file scope patterns out of sparse-checkout cones
+
 ## [1218] - 2026-07-08
 
 - [TASK-785] Fix: pin skill-run cost capture to the starting transcript

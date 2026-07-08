@@ -244,6 +244,45 @@ def test_default_cone_unions_pytest_source_helpers(tmp_path, monkeypatch):
     )
 
 
+def test_root_file_task_scope_does_not_force_full_checkout(tmp_path, monkeypatch):
+    """Root-level file scope rows are not valid cone entries.
+
+    Cone mode materializes top-level files automatically, so a task scoped to
+    .gitignore should keep sparse-checkout enabled instead of passing
+    .gitignore to git sparse-checkout set and falling back to a full checkout.
+    """
+    repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+    (repo / ".gitignore").write_text("*.tmp\n", encoding="utf-8")
+    _git(["add", ".gitignore"], cwd=repo)
+    _git(["commit", "-m", "add root gitignore"], cwd=repo)
+    task = _insert_task(db_path, "Update .gitignore and nothing else")
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO task_scope (task_id, pattern, source) VALUES (?, ?, ?)",
+            (task, ".gitignore", "auto_derived"),
+        )
+        conn.commit()
+
+    result = _run(
+        [
+            "task-worktree",
+            "create",
+            str(task),
+            "rootfile",
+            "--workspace-root",
+            str(tmp_path / "workspaces"),
+        ],
+        cwd=repo,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "falls back to a full checkout" not in result.stderr, result.stderr
+    payload = json.loads(result.stdout)
+    cone = _sparse_cone(payload["workspace_path"])
+    assert cone is not None, "sparse-checkout should stay enabled"
+
+
 # ── Criterion 2231 (issue #896) ─────────────────────────────────────
 
 

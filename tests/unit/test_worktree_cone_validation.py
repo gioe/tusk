@@ -55,6 +55,7 @@ def monorepo(tmp_path):
     _git(["config", "user.email", "t@example.test"], cwd=repo)
     _git(["config", "user.name", "T"], cwd=repo)
     for rel in [
+        ".gitignore",
         "apps/web/lib/utils.ts",
         "apps/web/ui/components/ui/button.tsx",
         "apps/web/ui/components/cards/entity/card.tsx",
@@ -204,3 +205,27 @@ class TestTaskScopeCone:
         )
 
         assert mod._task_scope_top_level_cone(conn, 42) == [".github", "android"]
+
+    def test_root_files_are_dropped_when_repo_context_is_available(
+        self, mod, monorepo
+    ):
+        conn = sqlite3.connect(":memory:")
+        conn.execute(
+            """
+            CREATE TABLE task_scope (
+                task_id INTEGER,
+                pattern TEXT,
+                source TEXT
+            )
+            """
+        )
+        conn.executemany(
+            "INSERT INTO task_scope (task_id, pattern, source) VALUES (?, ?, ?)",
+            [
+                (42, ".gitignore", "auto_derived"),
+                (42, "README.md", "auto_derived"),
+                (42, "docs/README.md", "auto_derived"),
+            ],
+        )
+
+        assert mod._task_scope_top_level_cone(conn, 42, str(monorepo)) == ["docs"]

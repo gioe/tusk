@@ -422,7 +422,20 @@ def _derive_sparse_cone(paths: list[str]) -> list[str]:
     return sorted(cone)
 
 
-def _task_scope_top_level_cone(conn: sqlite3.Connection, task_id: int) -> list[str]:
+def _is_root_tracked_file(repo_root: str | None, path: str) -> bool:
+    if not repo_root or "/" in path:
+        return False
+    result = _run_git(repo_root, ["ls-tree", "HEAD", "--", path])
+    return (
+        result.returncode == 0
+        and result.stdout.strip().startswith("100")
+        and result.stdout.rstrip().endswith(f"\t{path}")
+    )
+
+
+def _task_scope_top_level_cone(
+    conn: sqlite3.Connection, task_id: int, repo_root: str | None = None
+) -> list[str]:
     """Return top-level sparse cone dirs implied by persisted task scope.
 
     ``task_scope`` is the authoritative edit contract. Worktree sparse cones
@@ -447,6 +460,8 @@ def _task_scope_top_level_cone(conn: sqlite3.Connection, task_id: int) -> list[s
         if "/" in normalized:
             candidate = normalized.split("/", 1)[0]
         else:
+            if _is_root_tracked_file(repo_root, normalized):
+                continue
             # Cone mode auto-includes root-level files. Keep single-segment
             # entries only when they look directory-shaped.
             if os.path.splitext(normalized)[1]:
@@ -1420,7 +1435,7 @@ def cmd_create(
                 p for p in task_referenced_paths(task_id, conn)
                 if not is_prose_identifier_path(p, repo_root)
             ]
-            task_scope_cone = _task_scope_top_level_cone(conn, task_id)
+            task_scope_cone = _task_scope_top_level_cone(conn, task_id, repo_root)
             if referenced or task_scope_cone:
                 always_include = _load_scope_list(
                     config_path, "sparse_always_include"
