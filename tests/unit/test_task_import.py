@@ -266,3 +266,202 @@ def test_import_accepts_json_from_stdin_and_writes_rows(tmp_path, monkeypatch):
         "SELECT relationship_type FROM task_dependencies WHERE task_id = 2 AND depends_on_id = 1"
     ).fetchone()[0] == "blocks"
     conn.close()
+
+
+def test_import_materializes_task_insert_metadata_criteria_and_scope(tmp_path):
+    db_path = _make_db(tmp_path)
+    config_path = _write_config(tmp_path / "config.json")
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO tasks (summary, description, status) VALUES (?, ?, 'Done')",
+        ("Original bug", "Already fixed"),
+    )
+    conn.commit()
+    conn.close()
+    plan = tmp_path / "tasks.json"
+    plan.write_text(
+        json.dumps({
+            "tasks": [
+                {
+                    "key": "full",
+                    "summary": "Imported full metadata task",
+                    "description": "Update bin/tusk-task-import.py",
+                    "priority": "high",
+                    "domain": "cli",
+                    "task_type": "bug",
+                    "assignee": "codex",
+                    "complexity": "L",
+                    "workflow": "planning",
+                    "expires_in": 3,
+                    "not_before": "2026-08-01T12:00:00Z",
+                    "fixes_task_id": 1,
+                    "scope": ["bin/tusk-task-import.py"],
+                    "creates": ["bin/import-generated.py"],
+                    "unbounded": True,
+                    "criteria": [
+                        "Manual criterion",
+                        {
+                            "text": "Run import unit test",
+                            "type": "test",
+                            "spec": "python3 -m pytest tests/unit/test_task_import.py -q",
+                        },
+                    ],
+                }
+            ]
+        }),
+        encoding="utf-8",
+    )
+
+    code, payload, _err = _run_import(db_path, config_path, ["--file", str(plan)])
+
+    assert code == 0
+    assert payload["created"]["0"]["key"] == "full"
+    assert payload["created"]["0"]["task_id"] == 2
+    assert payload["created"]["0"]["criteria_ids"] == [1, 2]
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        """
+        SELECT summary, priority, domain, task_type, assignee, complexity,
+               workflow, expires_at, not_before, fixes_task_id
+        FROM tasks WHERE id = 2
+        """
+    ).fetchone()
+    assert row[:7] == (
+        "Imported full metadata task",
+        "High",
+        "cli",
+        "bug",
+        "codex",
+        "L",
+        "planning",
+    )
+    assert row[7] is not None
+    assert row[8] == "2026-08-01 12:00:00"
+    assert row[9] == 1
+    criteria = conn.execute(
+        """
+        SELECT criterion, criterion_type, verification_spec
+        FROM acceptance_criteria
+        WHERE task_id = 2
+        ORDER BY id
+        """
+    ).fetchall()
+    assert criteria == [
+        ("Manual criterion", "manual", None),
+        (
+            "Run import unit test",
+            "test",
+            "python3 -m pytest tests/unit/test_task_import.py -q",
+        ),
+    ]
+    scope_rows = conn.execute(
+        "SELECT pattern, source FROM task_scope WHERE task_id = 2 ORDER BY id"
+    ).fetchall()
+    assert scope_rows == [
+        ("bin/tusk-task-import.py", "operator_declared"),
+        ("bin/import-generated.py", "creates"),
+        ("**", "unbounded"),
+    ]
+    conn.close()
+
+
+def test_best_effort_records_created_skipped_and_failed_outcomes(tmp_path):
+    db_path = _make_db(tmp_path)
+    config_path = _write_config(tmp_path / "config.json")
+    plan = tmp_path / "tasks.json"
+    plan.write_text(
+        json.dumps({
+            "tasks": [
+                {
+                    "key": "created",
+                    "summary": "Created import task",
+                    "description": "Description",
+                    "criteria": ["Manual criterion"],
+                },
+                {
+                    "key": "failed",
+                    "summary": "Duplicate failure import task",
+                    "description": "Description",
+                    "criteria": ["Manual criterion"],
+                },
+                {
+                    "key": "skipped",
+                    "summary": "Duplicate skip import task",
+                    "description": "Description",
+                    "criteria": ["Manual criterion"],
+                    "duplicate_policy": "skip",
+                },
+            ]
+        }),
+        encoding="utf-8",
+    )
+
+    def dupes(summary, domain):
+        if summary == "Duplicate failure import task":
+            return {"id": 41, "summary": "Existing fail", "similarity": 0.9}
+        if summary == "Duplicate skip import task":
+            return {"id": 42, "summary": "Existing skip", "similarity": 0.91}
+        return None
+
+    code, payload, _err = _run_import(
+        db_path,
+        config_path,
+        ["--file", str(plan), "--best-effort"],
+        dupes=dupes,
+    )
+
+    assert code == 2
+    assert payload["created"]["0"]["key"] == "created"
+    assert payload["created"]["0"]["task_id"] == 1
+    assert payload["failed"]["1"]["key"] == "failed"
+    assert payload["failed"]["1"]["errors"] == [
+        {"field": "duplicate_policy", "message": "duplicate of TASK-41"}
+    ]
+    assert payload["skipped"]["2"]["key"] == "skipped"
+    assert payload["skipped"]["2"]["reason"] == "duplicate"
+    conn = sqlite3.connect(db_path)
+    assert conn.execute("SELECT summary FROM tasks").fetchall() == [("Created import task",)]
+    assert conn.execute("SELECT COUNT(*) FROM acceptance_criteria").fetchone()[0] == 1
+    conn.close()
+
+
+def test_atomic_mode_rolls_back_full_batch_when_later_task_fails(tmp_path):
+    db_path = _make_db(tmp_path)
+    config_path = _write_config(tmp_path / "config.json")
+    plan = tmp_path / "tasks.json"
+    plan.write_text(
+        json.dumps({
+            "tasks": [
+                {
+                    "key": "first",
+                    "summary": "First atomic import task",
+                    "description": "Description",
+                    "criteria": ["Manual criterion"],
+                },
+                {
+                    "key": "bad",
+                    "summary": "Bad atomic import task",
+                    "description": "Description",
+                    "fixes_task_id": 999,
+                    "criteria": ["Manual criterion"],
+                },
+            ]
+        }),
+        encoding="utf-8",
+    )
+
+    code, payload, _err = _run_import(db_path, config_path, ["--file", str(plan)])
+
+    assert code == 2
+    assert payload["created"] == {}
+    assert payload["failed"]["1"]["key"] == "bad"
+    assert payload["failed"]["1"]["errors"] == [
+        {
+            "field": "$",
+            "message": "--fixes-task-id 999 does not reference an existing task",
+        }
+    ]
+    conn = sqlite3.connect(db_path)
+    assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM acceptance_criteria").fetchone()[0] == 0
+    conn.close()

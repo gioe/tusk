@@ -33,14 +33,12 @@ TUSK_BIN = _task_insert.TUSK_BIN
 run_dupe_check = _task_insert.run_dupe_check
 reject_shell_metacharacters = _task_insert.reject_shell_metacharacters
 _canonical_enum_value = _task_insert._canonical_enum_value
+_expand_scope_patterns = _task_insert._expand_scope_patterns
+_parse_not_before = _task_insert._parse_not_before
 _repo_root = _task_insert._repo_root
 _warn_for_missing_declared_paths = _task_insert._warn_for_missing_declared_paths
 _warn_already_passing_criteria = _task_insert._warn_already_passing_criteria
-_auto_scope_candidates = _task_insert._auto_scope_candidates
-_resolve_auto_derived_scope_pattern = _task_insert._resolve_auto_derived_scope_pattern
-_UNIT_TEST_REQUIREMENT_RE = _task_insert._UNIT_TEST_REQUIREMENT_RE
-is_prose_identifier_path = _task_insert.is_prose_identifier_path
-_git_helpers = _task_insert._git_helpers
+insert_task_record = _task_insert.insert_task_record
 
 
 @dataclass
@@ -69,6 +67,12 @@ class TaskPlan:
     assignee: str | None
     complexity: str
     workflow: str | None
+    expires_in_days: int | None
+    not_before: str | None
+    fixes_task_id: int | None
+    scope_patterns: list[str]
+    creates_paths: list[str]
+    unbounded: bool
     criteria: list[str]
     typed_criteria: list[dict[str, Any]]
     duplicate_policy: str
@@ -179,6 +183,53 @@ def _normalize_dependencies(raw: Any) -> tuple[list[DependencyRef], list[ImportE
     return deps, errors
 
 
+def _normalize_string_list(raw: Any, field_name: str) -> tuple[list[str], list[ImportErrorItem]]:
+    if raw is None:
+        return [], []
+    if isinstance(raw, str):
+        return [raw], []
+    if not isinstance(raw, list):
+        return [], [ImportErrorItem(field_name, f"{field_name} must be a string or array")]
+
+    values: list[str] = []
+    errors: list[ImportErrorItem] = []
+    for i, item in enumerate(raw):
+        text = _as_nonempty_string(item)
+        if text is None:
+            errors.append(ImportErrorItem(f"{field_name}[{i}]", f"{field_name} value is required"))
+        else:
+            values.append(text)
+    return values, errors
+
+
+def _normalize_expires_in(raw: Any) -> tuple[int | None, list[ImportErrorItem]]:
+    if raw is None:
+        return None, []
+    if not isinstance(raw, int) or isinstance(raw, bool):
+        return None, [ImportErrorItem("expires_in", "expires_in must be an integer number of days")]
+    return raw, []
+
+
+def _normalize_not_before(raw: Any) -> tuple[str | None, list[ImportErrorItem]]:
+    if raw is None:
+        return None, []
+    text = _as_nonempty_string(raw)
+    if text is None:
+        return None, [ImportErrorItem("not_before", "not_before must be a non-empty string")]
+    try:
+        return _parse_not_before(text), []
+    except argparse.ArgumentTypeError as exc:
+        return None, [ImportErrorItem("not_before", str(exc))]
+
+
+def _normalize_positive_int(raw: Any, field_name: str) -> tuple[int | None, list[ImportErrorItem]]:
+    if raw is None:
+        return None, []
+    if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
+        return None, [ImportErrorItem(field_name, f"{field_name} must be a positive integer")]
+    return raw, []
+
+
 def _validate_item(
     item: Any,
     index: int,
@@ -212,6 +263,21 @@ def _validate_item(
     domain = item.get("domain")
     assignee = item.get("assignee")
     workflow = item.get("workflow")
+    expires_in_days, expires_errors = _normalize_expires_in(item.get("expires_in"))
+    errors.extend(expires_errors)
+    not_before, not_before_errors = _normalize_not_before(item.get("not_before"))
+    errors.extend(not_before_errors)
+    fixes_task_id, fixes_errors = _normalize_positive_int(item.get("fixes_task_id"), "fixes_task_id")
+    errors.extend(fixes_errors)
+    raw_scope, scope_errors = _normalize_string_list(item.get("scope"), "scope")
+    errors.extend(scope_errors)
+    scope_patterns = _expand_scope_patterns(raw_scope)
+    creates_paths, creates_errors = _normalize_string_list(item.get("creates"), "creates")
+    errors.extend(creates_errors)
+    unbounded = item.get("unbounded", False)
+    if not isinstance(unbounded, bool):
+        errors.append(ImportErrorItem("unbounded", "unbounded must be true or false"))
+        unbounded = False
 
     enum_checks = [
         ("priority", priority, config.get("priorities", [])),
@@ -279,6 +345,12 @@ def _validate_item(
         assignee=assignee,
         complexity=complexity,
         workflow=workflow,
+        expires_in_days=expires_in_days,
+        not_before=not_before,
+        fixes_task_id=fixes_task_id,
+        scope_patterns=scope_patterns,
+        creates_paths=creates_paths,
+        unbounded=unbounded,
         criteria=criteria,
         typed_criteria=typed_criteria,
         duplicate_policy=duplicate_policy,
@@ -307,74 +379,32 @@ def _validate_dependency_references(
     return errors
 
 
-def _insert_task(conn: sqlite3.Connection, plan: TaskPlan, repo_root: str) -> tuple[int, list[int], list[tuple[int, str, str | None]]]:
-    conn.execute(
-        "INSERT INTO tasks (summary, description, status, priority, domain, "
-        "task_type, assignee, complexity, workflow, created_at, updated_at) "
-        "VALUES (?, ?, 'To Do', ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
-        (
-            plan.summary,
-            plan.description,
-            plan.priority,
-            plan.domain,
-            plan.task_type,
-            plan.assignee,
-            plan.complexity,
-            plan.workflow,
-        ),
+def _materialize_task(
+    conn: sqlite3.Connection,
+    plan: TaskPlan,
+    repo_root: str,
+) -> tuple[int, list[int], list[tuple[int, str, str | None]]]:
+    inserted = insert_task_record(
+        conn,
+        summary=plan.summary,
+        description=plan.description,
+        priority=plan.priority,
+        domain=plan.domain,
+        task_type=plan.task_type,
+        assignee=plan.assignee,
+        complexity=plan.complexity,
+        workflow=plan.workflow,
+        criteria=plan.criteria,
+        typed_criteria=plan.typed_criteria,
+        repo_root=repo_root,
+        expires_in_days=plan.expires_in_days,
+        not_before=plan.not_before,
+        fixes_task_id=plan.fixes_task_id,
+        scope_patterns=plan.scope_patterns,
+        creates_paths=plan.creates_paths,
+        unbounded=plan.unbounded,
     )
-    task_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-
-    criteria_ids: list[int] = []
-    typed_inserted: list[tuple[int, str, str | None]] = []
-    for criterion in plan.criteria:
-        conn.execute(
-            "INSERT INTO acceptance_criteria (task_id, criterion, source) VALUES (?, ?, 'original')",
-            (task_id, criterion),
-        )
-        criteria_ids.append(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
-    for tc in plan.typed_criteria:
-        conn.execute(
-            "INSERT INTO acceptance_criteria "
-            "(task_id, criterion, source, criterion_type, verification_spec) "
-            "VALUES (?, ?, 'original', ?, ?)",
-            (task_id, tc["text"], tc.get("type", "manual"), tc.get("spec")),
-        )
-        cid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-        criteria_ids.append(cid)
-        typed_inserted.append((cid, tc.get("type", "manual"), tc.get("spec")))
-
-    text_blocks = [plan.summary or "", plan.description or ""]
-    text_blocks.extend(plan.criteria)
-    for tc in plan.typed_criteria:
-        text_blocks.append(tc.get("text") or "")
-        text_blocks.append(tc.get("spec") or "")
-    seen_auto: set[str] = set()
-    requires_unit_tests = any(_UNIT_TEST_REQUIREMENT_RE.search(block or "") for block in text_blocks)
-    for text in text_blocks:
-        for candidate in _auto_scope_candidates(
-            text,
-            repo_root=repo_root,
-            task_type=plan.task_type,
-            requires_unit_tests=requires_unit_tests,
-        ):
-            resolved = _resolve_auto_derived_scope_pattern(repo_root, candidate)
-            is_explicit_github_path = candidate.startswith(".github/") and candidate != ".github/"
-            if not is_explicit_github_path and is_prose_identifier_path(candidate, repo_root):
-                continue
-            if resolved in _git_helpers.SCOPE_DERIVE_BOOKKEEPING_DENYLIST:
-                continue
-            if not _git_helpers.is_trackable_scope_pattern(repo_root, resolved):
-                continue
-            if resolved in seen_auto:
-                continue
-            seen_auto.add(resolved)
-            conn.execute(
-                "INSERT INTO task_scope (task_id, pattern, source) VALUES (?, ?, 'auto_derived')",
-                (task_id, resolved),
-            )
-
-    return task_id, criteria_ids, typed_inserted
+    return inserted.task_id, inserted.criteria_ids, inserted.typed_inserted
 
 
 def _resolve_dep_id(dep: DependencyRef, key_to_created_id: dict[str, int]) -> int:
@@ -390,39 +420,76 @@ def _execute_import(
     *,
     dry_run: bool,
     repo_root: str,
+    best_effort: bool,
 ) -> int:
     if dry_run:
         for plan in plans:
             result["created"][str(plan.index)] = {"dry_run": True}
             if plan.key is not None:
                 result["created"][str(plan.index)]["key"] = plan.key
-        return 0
+        return 2 if result["failed"] else 0
 
-    conn = get_connection(db_path)
     typed_inserted: list[tuple[int, str, str | None]] = []
     key_to_created_id: dict[str, int] = {}
     index_to_created_id: dict[int, int] = {}
+    conn = get_connection(db_path)
     try:
         for plan in plans:
-            task_id, criteria_ids, typed = _insert_task(conn, plan, repo_root)
-            typed_inserted.extend(typed)
-            index_to_created_id[plan.index] = task_id
-            if plan.key is not None:
-                key_to_created_id[plan.key] = task_id
-            entry = {"task_id": task_id, "criteria_ids": criteria_ids}
-            if plan.key is not None:
-                entry["key"] = plan.key
-            result["created"][str(plan.index)] = entry
+            try:
+                task_id, criteria_ids, typed = _materialize_task(conn, plan, repo_root)
+                if best_effort:
+                    conn.commit()
+                typed_inserted.extend(typed)
+                index_to_created_id[plan.index] = task_id
+                if plan.key is not None:
+                    key_to_created_id[plan.key] = task_id
+                entry = {"task_id": task_id, "criteria_ids": criteria_ids}
+                if plan.key is not None:
+                    entry["key"] = plan.key
+                result["created"][str(plan.index)] = entry
+            except ValueError as exc:
+                conn.rollback()
+                result["failed"][str(plan.index)] = _failure_entry(
+                    plan.key,
+                    [ImportErrorItem("$", str(exc))],
+                )
+                if not best_effort:
+                    result["created"].clear()
+                    return 2
+            except sqlite3.Error as exc:
+                conn.rollback()
+                result["failed"][str(plan.index)] = _failure_entry(
+                    plan.key,
+                    [ImportErrorItem("$", f"database error: {exc}")],
+                )
+                if not best_effort:
+                    result["created"].clear()
+                    return 2
 
         for plan in plans:
+            if plan.index not in index_to_created_id:
+                continue
             task_id = index_to_created_id[plan.index]
-            for dep in plan.deps:
-                conn.execute(
-                    "INSERT OR IGNORE INTO task_dependencies "
-                    "(task_id, depends_on_id, relationship_type) VALUES (?, ?, ?)",
-                    (task_id, _resolve_dep_id(dep, key_to_created_id), dep.relationship_type),
+            try:
+                for dep in plan.deps:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO task_dependencies "
+                        "(task_id, depends_on_id, relationship_type) VALUES (?, ?, ?)",
+                        (task_id, _resolve_dep_id(dep, key_to_created_id), dep.relationship_type),
+                    )
+                if best_effort:
+                    conn.commit()
+            except sqlite3.Error as exc:
+                conn.rollback()
+                result["failed"][str(plan.index)] = _failure_entry(
+                    plan.key,
+                    [ImportErrorItem("$", f"database error: {exc}")],
                 )
-        conn.commit()
+                if not best_effort:
+                    result["created"].clear()
+                    return 2
+        if not best_effort:
+            conn.commit()
     except sqlite3.Error as exc:
         conn.rollback()
         result["failed"]["0"] = _failure_entry(None, [ImportErrorItem("$", f"database error: {exc}")])
@@ -432,7 +499,7 @@ def _execute_import(
 
     _warn_already_passing_criteria(typed_inserted)
     subprocess.run([TUSK_BIN, "wsjf"], capture_output=True)
-    return 0
+    return 2 if result["failed"] else 0
 
 
 def main(argv: list[str]) -> int:
@@ -447,6 +514,11 @@ def main(argv: list[str]) -> int:
     source.add_argument("--file", help="Read import JSON from a UTF-8 file")
     source.add_argument("--stdin", action="store_true", help="Read import JSON from stdin")
     parser.add_argument("--dry-run", action="store_true", help="Validate without writing rows")
+    parser.add_argument(
+        "--best-effort",
+        action="store_true",
+        help="Create valid tasks and report per-task failures instead of rolling back the full batch",
+    )
     parser.add_argument("--repo-root", default=None, help=argparse.SUPPRESS)
     args = parser.parse_args(argv[2:])
 
@@ -544,13 +616,20 @@ def main(argv: list[str]) -> int:
             plans.remove(plan)
 
     for plan in plans:
-        _warn_for_missing_declared_paths(repo_root, [], plan.typed_criteria)
+        _warn_for_missing_declared_paths(repo_root, plan.scope_patterns, plan.typed_criteria)
 
-    if result["failed"]:
+    if result["failed"] and not args.best_effort:
         print(dumps(result))
         return 2
 
-    code = _execute_import(db_path, plans, result, dry_run=args.dry_run, repo_root=repo_root)
+    code = _execute_import(
+        db_path,
+        plans,
+        result,
+        dry_run=args.dry_run,
+        repo_root=repo_root,
+        best_effort=args.best_effort,
+    )
     print(dumps(result))
     return code
 
