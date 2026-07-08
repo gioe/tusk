@@ -167,6 +167,18 @@ def _typed_criterion_type(value: str) -> dict:
     return tc
 
 
+def _looks_like_pipe_delimited_typed_criterion(
+    text: str,
+    criterion_types: list[str],
+) -> bool:
+    parts = (text or "").split("|", 2)
+    if len(parts) != 3:
+        return False
+    criterion_text, criterion_type, spec = (part.strip() for part in parts)
+    valid_types = set(criterion_types or ["manual", "code", "test", "file"])
+    return bool(criterion_text and spec and criterion_type in valid_types)
+
+
 def _read_text_file_argument(path: str, *, arg_name: str) -> str:
     """Read a UTF-8 text argument from a file path, or stdin when path is '-'."""
     if path == "-":
@@ -1291,6 +1303,19 @@ def main(argv: list[str]) -> int:
             "Use --criteria \"...\" or --typed-criteria '{\"text\":\"...\"}' to add one."
         )
 
+    pipe_typed_criteria = [
+        text for text in criteria
+        if _looks_like_pipe_delimited_typed_criterion(text, [])
+    ]
+    if pipe_typed_criteria:
+        print(
+            "Error: --criteria does not accept pipe-delimited typed criteria "
+            "('text|type|spec'). Use --typed-criteria JSON instead, for example "
+            "'{\"text\":\"file exists\",\"type\":\"code\",\"spec\":\"test -f README.md\"}'.",
+            file=sys.stderr,
+        )
+        return 2
+
     # Reject shell-substitution metacharacters in agent-provided text args
     # before any DB write (issue #1106 — extends the issue #881 commit-message
     # guard). zsh/bash expand `, $(...), ${...}, and bare $IDENT before tusk sees
@@ -1317,6 +1342,7 @@ def main(argv: list[str]) -> int:
 
     # Load and validate against config
     config = load_config(config_path)
+    criterion_types = config.get("criterion_types", [])
     priority = _canonical_enum_value(priority, config.get("priorities", []))
 
     errors = []
@@ -1348,7 +1374,6 @@ def main(argv: list[str]) -> int:
             errors.append(err)
 
     # Validate typed criteria
-    criterion_types = config.get("criterion_types", [])
     spec_required_types = {"code", "test", "file"}
     for i, tc in enumerate(typed_criteria):
         ct = tc.get("type", "manual")
