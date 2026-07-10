@@ -350,6 +350,11 @@ require_helper() {
   exit 2
 }
 
+if [[ "${1:-}" != "help" && "${1:-}" != "--help" && "${1:-}" != "-h" && "${1:-}" != "version" ]]; then
+  require_helper "tusk-upgrade.py"
+  require_helper "tusk-migrate.py"
+fi
+
 # ── Config helpers ───────────────────────────────────────────────────
 
 resolve_config() {
