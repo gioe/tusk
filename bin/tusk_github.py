@@ -9,6 +9,8 @@ import — same pattern as `tusk_skill_filter.py`.
 
 import json
 import ssl
+import sys
+import time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -16,6 +18,7 @@ from urllib.request import Request, urlopen
 GITHUB_REPO = "gioe/tusk"
 API_TIMEOUT = 15   # seconds for GitHub API calls
 DL_TIMEOUT = 60    # seconds for tarball download
+VERSION_429_RETRY_DELAYS = (5, 15)
 
 
 def _ssl_context() -> ssl.SSLContext:
@@ -33,15 +36,33 @@ def _ssl_context() -> ssl.SSLContext:
     return ctx
 
 
-def fetch_bytes(url: str, timeout: int = API_TIMEOUT) -> bytes:
+def fetch_bytes(
+    url: str,
+    timeout: int = API_TIMEOUT,
+    retry_429_delays: tuple[float, ...] = (),
+) -> bytes:
     req = Request(url, headers={"User-Agent": "tusk-upgrade"})
-    try:
-        with urlopen(req, timeout=timeout, context=_ssl_context()) as resp:
-            return resp.read()
-    except HTTPError as e:
-        raise SystemExit(f"Error: HTTP {e.code} fetching {url}") from e
-    except URLError as e:
-        raise SystemExit(f"Error: Could not reach {url}: {e.reason}") from e
+    for attempt in range(len(retry_429_delays) + 1):
+        try:
+            with urlopen(req, timeout=timeout, context=_ssl_context()) as resp:
+                return resp.read()
+        except HTTPError as e:
+            if e.code != 429:
+                raise SystemExit(f"Error: HTTP {e.code} fetching {url}") from e
+            if attempt == len(retry_429_delays):
+                attempts = attempt + 1
+                raise SystemExit(
+                    f"Error: HTTP 429 fetching {url} after {attempts} attempts"
+                ) from e
+            delay = retry_429_delays[attempt]
+            print(
+                f"Warning: HTTP 429 fetching {url}; retrying in {delay}s "
+                f"({attempt + 1}/{len(retry_429_delays)})",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+        except URLError as e:
+            raise SystemExit(f"Error: Could not reach {url}: {e.reason}") from e
 
 
 def get_latest_tag() -> str:
@@ -56,7 +77,8 @@ def get_latest_tag() -> str:
 
 def get_remote_version(tag: str) -> int:
     raw = fetch_bytes(
-        f"https://raw.githubusercontent.com/{GITHUB_REPO}/refs/tags/{tag}/VERSION"
+        f"https://raw.githubusercontent.com/{GITHUB_REPO}/refs/tags/{tag}/VERSION",
+        retry_429_delays=VERSION_429_RETRY_DELAYS,
     )
     try:
         return int(raw.strip())
