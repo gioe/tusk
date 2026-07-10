@@ -467,6 +467,10 @@ class TestMainRecommendations:
             "default_branch_commit_files",
             "verifiable_spec_count",
             "passing_spec_count",
+            "positive_spec_count",
+            "passing_positive_spec_count",
+            "negative_spec_count",
+            "passing_negative_spec_count",
             "missing_creates_paths",
             "recommendation",
         }
@@ -1012,6 +1016,8 @@ class TestMarkDoneSpecGate:
         assert data["recommendation"] == "mark_done"
         assert data["verifiable_spec_count"] == 1
         assert data["passing_spec_count"] == 1
+        assert data["positive_spec_count"] == 1
+        assert data["passing_positive_spec_count"] == 1
         assert data["missing_creates_paths"] == []
 
     def test_missing_creates_scope_path_overrides_vacuous_passing_spec(self, tmp_path):
@@ -1056,9 +1062,7 @@ class TestMarkDoneSpecGate:
         assert data["verifiable_spec_count"] == 0
         assert data["passing_spec_count"] == 0
 
-    def test_mixed_passing_and_failing_specs_keep_mark_done(self, tmp_path):
-        # One passing spec is convergence evidence even when a sibling spec
-        # still fails — only the all-fail case downgrades.
+    def test_mixed_passing_and_failing_positive_specs_implement_fresh(self, tmp_path):
         db_path, skill_md = self._edit_task_db(tmp_path, 10684, spec=None)
         conn = sqlite3.connect(db_path)
         conn.execute(
@@ -1075,9 +1079,69 @@ class TestMarkDoneSpecGate:
         rc, stdout, _ = _run_main(db_path, 10684)
         assert rc == 0
         data = json.loads(stdout)
-        assert data["recommendation"] == "mark_done"
+        assert data["recommendation"] == "implement_fresh"
         assert data["verifiable_spec_count"] == 2
         assert data["passing_spec_count"] == 1
+        assert data["positive_spec_count"] == 2
+        assert data["passing_positive_spec_count"] == 1
+
+    def test_negative_only_spec_cannot_mark_done(self, tmp_path):
+        db_path, skill_md = self._edit_task_db(tmp_path, 11970, spec=None)
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "UPDATE acceptance_criteria SET verification_spec = ? WHERE task_id = 11970",
+            (f"! grep -q missing-marker {skill_md}",),
+        )
+        conn.commit()
+        conn.close()
+        rc, stdout, _ = _run_main(db_path, 11970)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "implement_fresh"
+        assert data["verifiable_spec_count"] == 1
+        assert data["passing_spec_count"] == 1
+        assert data["positive_spec_count"] == 0
+        assert data["passing_positive_spec_count"] == 0
+        assert data["negative_spec_count"] == 1
+        assert data["passing_negative_spec_count"] == 1
+
+    def test_negative_pass_does_not_mask_failing_positive_spec(self, tmp_path):
+        db_path, skill_md = self._edit_task_db(tmp_path, 11971, spec=None)
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "UPDATE acceptance_criteria SET verification_spec = ? WHERE task_id = 11971",
+            (f"! grep -q missing-marker {skill_md}",),
+        )
+        conn.execute(
+            "INSERT INTO acceptance_criteria (task_id, criterion, verification_spec, "
+            "is_completed, is_deferred, criterion_type) VALUES (11971, ?, ?, 0, 0, 'code')",
+            ("marker added", f"grep -q missing-marker {skill_md}"),
+        )
+        conn.commit()
+        conn.close()
+        rc, stdout, _ = _run_main(db_path, 11971)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "implement_fresh"
+        assert data["verifiable_spec_count"] == 2
+        assert data["passing_spec_count"] == 1
+        assert data["positive_spec_count"] == 1
+        assert data["passing_positive_spec_count"] == 0
+        assert data["negative_spec_count"] == 1
+        assert data["passing_negative_spec_count"] == 1
+
+    @pytest.mark.parametrize(
+        "spec",
+        ["! grep -q marker file", "test ! -e file", "test -z value", "[ ! -f file ]", "[ -z value ]"],
+    )
+    def test_negative_spec_classification(self, spec):
+        assert mod._is_negative_spec(spec) is True
+
+    @pytest.mark.parametrize(
+        "spec", ["grep -q marker file", "printf '! hello'", "grep -q '!=' file"]
+    )
+    def test_positive_spec_classification(self, spec):
+        assert mod._is_negative_spec(spec) is False
 
     def test_completed_criteria_specs_do_not_count(self, tmp_path):
         # A completed criterion's failing spec is irrelevant — the gate only
