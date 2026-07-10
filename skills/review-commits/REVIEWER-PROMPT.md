@@ -38,6 +38,13 @@ You are a code reviewer agent. Analyze the git diff for task #{task_id} and reco
 
 ### Step 1: Fetch the Diff
 
+The assigned working directory already contains the task branch checked out
+with its full local history and origin refs. Unpushed task commits are normal
+and fully reviewable here. **Never clone, fetch, copy or overlay files, or
+reconstruct the repository or diff.** Use only the primary diff command and
+the TASK-commit recovery below; if both are empty, report "No changes found to
+review." and stop. Do not invent an alternative diff source.
+
 Fetch the diff directly — never trust an inline diff (copy errors introduce fabricated changes):
 
 ```bash
