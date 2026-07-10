@@ -40,6 +40,8 @@ Output JSON (stdout):
                                        #   means the failure may already be fixed
                                        #   upstream — rebase before concluding
         "diverged_paths": [str]        # sample of those differing paths (capped)
+        "run_started_at": str,         # UTC ISO-8601 start of the observed run window
+        "run_ended_at": str            # UTC ISO-8601 end of the observed run window
     }
     With --flake-retries N (N > 0) the verdict additionally carries
     "flake_runs_total" (int), "flake_failures" (int), and "flaky_suspect"
@@ -53,6 +55,7 @@ Exit codes:
 """
 
 import argparse
+from datetime import datetime, timezone
 import fnmatch
 import json
 import os
@@ -488,7 +491,9 @@ def _compute_divergence(repo_root: str, script_dir: str, paths) -> tuple[bool, l
 def _emit_verdict(repo_root: str, script_dir: str, test_command: str,
                   exit_code: int, stashed: bool, paths,
                   flake_exits: list | None = None,
-                  failure_output: str | None = None) -> int:
+                  failure_output: str | None = None,
+                  run_started_at: str | None = None,
+                  run_ended_at: str | None = None) -> int:
     """Record the verdict, print the JSON payload, and return 0.
 
     Always emits ``diverged_from_default``/``diverged_paths``. The divergence
@@ -531,6 +536,7 @@ def _emit_verdict(repo_root: str, script_dir: str, test_command: str,
                 "follow-up.",
                 file=sys.stderr,
             )
+    observed_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     verdict = {
         "pre_existing": pre_existing,
         "exit_code": exit_code,
@@ -538,6 +544,8 @@ def _emit_verdict(repo_root: str, script_dir: str, test_command: str,
         "stashed": stashed,
         "diverged_from_default": diverged,
         "diverged_paths": diverged_paths[:DIVERGED_PATHS_SAMPLE],
+        "run_started_at": run_started_at or observed_at,
+        "run_ended_at": run_ended_at or observed_at,
     }
     if flake_exits and len(flake_exits) > 1:
         total = len(flake_exits)
@@ -813,6 +821,7 @@ def main(argv):
                 "Running the precheck in a temporary worktree at HEAD instead.",
                 file=sys.stderr,
             )
+            run_started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
             try:
                 exit_code = run_test_in_temporary_worktree(repo_root, test_command)
             except RuntimeError as e:
@@ -820,6 +829,8 @@ def main(argv):
                 return 1
             return _emit_verdict(
                 repo_root, script_dir, test_command, exit_code, False, args.paths,
+                run_started_at=run_started_at,
+                run_ended_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             )
         try:
             stash_ref = find_stash_ref_by_message(repo_root, stash_message)
@@ -852,6 +863,7 @@ def main(argv):
     exit_code = 1
     run_test_error: Exception | None = None
     flake_exits: list | None = None
+    run_started_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     try:
         exit_code = run_test(test_command, repo_root)
         if flake_retries > 0:
@@ -928,6 +940,8 @@ def main(argv):
     return _emit_verdict(
         repo_root, script_dir, test_command, exit_code, stashed, args.paths,
         flake_exits=flake_exits,
+        run_started_at=run_started_at,
+        run_ended_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     )
 
 

@@ -482,7 +482,10 @@ class TestDirtyTreeFallback:
         assert rc == 0
         assert fallback_calls == [(str(repo), "true")]
         assert "temporary worktree" in captured.err
-        assert json.loads(captured.out) == {
+        payload = json.loads(captured.out)
+        assert payload.pop("run_started_at").endswith("Z")
+        assert payload.pop("run_ended_at").endswith("Z")
+        assert payload == {
             "pre_existing": False,
             "exit_code": 0,
             "test_command": "true",
