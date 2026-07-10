@@ -161,24 +161,16 @@ def _jsonl_files_for_hash(project_hash: str) -> list[Path]:
     return files
 
 
-def _candidate_dirs(start: str) -> list[str]:
-    """Return candidate directories to try for transcript discovery.
-
-    Order: cwd, git root (if different), the primary checkout that owns a git
-    worktree's common dir, then each parent up to filesystem root. Deduplicates
-    while preserving order.
-    """
+def _git_context_dirs(start: str) -> list[str]:
+    """Return the checkout root and primary checkout relevant to *start*."""
     seen: set[str] = set()
-    candidates: list[str] = []
+    contexts: list[str] = []
 
     def add(path: str) -> None:
         if path not in seen:
             seen.add(path)
-            candidates.append(path)
+            contexts.append(path)
 
-    add(start)
-
-    # Try git root
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
@@ -192,10 +184,6 @@ def _candidate_dirs(start: str) -> list[str]:
     except Exception:
         pass
 
-    # Task-owned worktrees are often under ~/.tusk/worktrees/<repo>/TASK-...
-    # while Claude records transcripts against the primary checkout path. Git's
-    # common dir points back at that checkout, so include it before broad parent
-    # fallbacks.
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--git-common-dir"],
@@ -215,6 +203,28 @@ def _candidate_dirs(start: str) -> list[str]:
     except Exception:
         pass
 
+    return contexts
+
+
+def _candidate_dirs(start: str) -> list[str]:
+    """Return candidate directories to try for transcript discovery.
+
+    Order: cwd, git root (if different), the primary checkout that owns a git
+    worktree's common dir, then each parent up to filesystem root. Deduplicates
+    while preserving order.
+    """
+    seen: set[str] = set()
+    candidates: list[str] = []
+
+    def add(path: str) -> None:
+        if path not in seen:
+            seen.add(path)
+            candidates.append(path)
+
+    add(start)
+    for context in _git_context_dirs(start):
+        add(context)
+
     # Walk up parent directories
     p = Path(start).parent
     while str(p) != str(p.parent):
@@ -224,14 +234,106 @@ def _candidate_dirs(start: str) -> list[str]:
     return candidates
 
 
-def _find_transcript_for_candidates(candidates: list[str]) -> str | None:
-    for candidate in candidates:
-        project_hash = derive_project_hash(candidate)
-        files = _jsonl_files_for_hash(project_hash)
-        if files:
-            chosen = str(max(files, key=lambda p: p.stat().st_mtime))
-            log.debug("Selected transcript: %s (from candidate dir %s)", chosen, candidate)
-            return chosen
+def _transcript_cwd(jsonl: Path) -> str | None:
+    """Read the first usable top-level cwd from a transcript."""
+    try:
+        with jsonl.open(encoding="utf-8") as handle:
+            for line_number, line in enumerate(handle):
+                if line_number >= 200:
+                    break
+                try:
+                    entry = json.loads(line)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                cwd = entry.get("cwd") if isinstance(entry, dict) else None
+                if isinstance(cwd, str) and cwd:
+                    return os.path.realpath(cwd)
+    except OSError:
+        return None
+    return None
+
+
+def _is_within(path: str, root: str) -> bool:
+    try:
+        return os.path.commonpath([path, root]) == root
+    except ValueError:
+        return False
+
+
+def _validated_descendant_files(repo_root: str) -> list[Path]:
+    """Return prefix-matched transcripts whose recorded cwd belongs to root."""
+    projects_dir = Path.home() / ".claude" / "projects"
+    root_real = os.path.realpath(repo_root)
+    prefixes = {
+        derive_project_hash(repo_root) + "-",
+        derive_project_hash(root_real) + "-",
+    }
+    files: list[Path] = []
+    if not projects_dir.is_dir():
+        return files
+
+    for prefix in prefixes:
+        for transcript_dir in projects_dir.glob(prefix + "*"):
+            if not transcript_dir.is_dir():
+                continue
+            for jsonl in transcript_dir.glob("*.jsonl"):
+                cwd = _transcript_cwd(jsonl)
+                if cwd is not None and _is_within(cwd, root_real):
+                    files.append(jsonl)
+    return files
+
+
+def _dedupe_jsonls(files: list[Path]) -> list[Path]:
+    unique: dict[str, Path] = {}
+    for jsonl in files:
+        unique.setdefault(os.path.realpath(str(jsonl)), jsonl)
+    return list(unique.values())
+
+
+def _relevant_transcripts(start: str) -> list[Path]:
+    """Return transcripts for the launch path, repo roots, and subdirectories."""
+    primary_dirs = [start, *_git_context_dirs(start)]
+    files: list[Path] = []
+    seen_dirs: set[str] = set()
+    for candidate in primary_dirs:
+        candidate_real = os.path.realpath(candidate)
+        if candidate_real in seen_dirs:
+            continue
+        seen_dirs.add(candidate_real)
+        # Preserve the exact-path hash Claude used at launch; realpath is only
+        # for containment checks and deduplication.
+        files.extend(_jsonl_files_for_hash(derive_project_hash(candidate)))
+        files.extend(_validated_descendant_files(candidate))
+
+    files = _dedupe_jsonls(files)
+    if files:
+        return files
+
+    # Preserve the legacy broad-parent fallback only when the project-scoped
+    # search found nothing. Parent hashes can represent unrelated sessions and
+    # must not compete by mtime with an actual repo transcript.
+    for candidate in _candidate_dirs(start):
+        candidate_real = os.path.realpath(candidate)
+        if candidate_real in seen_dirs:
+            continue
+        fallback = _jsonl_files_for_hash(derive_project_hash(candidate))
+        if fallback:
+            return _dedupe_jsonls(fallback)
+    return []
+
+
+def _newest_transcript(files: list[Path]) -> str | None:
+    existing: list[Path] = []
+    for jsonl in files:
+        try:
+            jsonl.stat()
+        except OSError:
+            continue
+        existing.append(jsonl)
+    if existing:
+        chosen = str(max(existing, key=lambda p: p.stat().st_mtime))
+        log.debug("Selected transcript: %s", chosen)
+        return chosen
 
     log.debug("No JSONL transcripts found after trying all candidate directories")
     return None
@@ -250,38 +352,33 @@ def find_transcript(project_dir: str | None = None) -> str | None:
     """
     if project_dir is not None:
         if os.path.isdir(project_dir):
-            return _find_transcript_for_candidates(_candidate_dirs(project_dir))
+            return _newest_transcript(_relevant_transcripts(project_dir))
         # Caller supplied an explicit hash — use it directly (legacy behaviour).
         files = _jsonl_files_for_hash(project_dir)
         if not files:
             return None
         return str(max(files, key=lambda p: p.stat().st_mtime))
 
-    return _find_transcript_for_candidates(_candidate_dirs(os.getcwd()))
+    return _newest_transcript(_relevant_transcripts(os.getcwd()))
 
 
 def find_all_transcripts_with_fallback(start_dir: str | None = None) -> list[str]:
     """Find all JSONL transcripts, trying multiple candidate directories.
 
-    Returns a list sorted by mtime descending (most recent first).
-    Falls back through cwd → git root → parent dirs until transcripts are found.
-    Returns [] if nothing is found anywhere.
+    Returns every relevant CWD/root/worktree/subdirectory transcript, deduped
+    and sorted by mtime descending. Broad parent hashes remain a last-resort
+    fallback when no project-scoped transcript exists.
     """
     if start_dir is None:
         start_dir = os.getcwd()
 
-    for candidate in _candidate_dirs(start_dir):
-        project_hash = derive_project_hash(candidate)
-        files = _jsonl_files_for_hash(project_hash)
-        if files:
-            log.debug("Found %d transcripts via candidate dir %s", len(files), candidate)
-            return sorted(
-                [str(p) for p in files],
-                key=lambda p: os.path.getmtime(p),
-                reverse=True,
-            )
-
-    return []
+    files = _relevant_transcripts(start_dir)
+    existing = [p for p in files if p.is_file()]
+    return sorted(
+        [str(p) for p in existing],
+        key=lambda p: os.path.getmtime(p),
+        reverse=True,
+    )
 
 
 def _user_prompt_text(message: dict) -> str:
