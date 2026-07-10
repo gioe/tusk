@@ -75,17 +75,17 @@ def _candidate_jsonls(claude_dir: Path, since_epoch: float, exclude_realpath: st
     return out
 
 
-def _claude_dir_for_project(lib, project_dir: str) -> Path | None:
+def _claude_dirs_for_project(lib, project_dir: str) -> list[Path]:
     project_hash = lib.derive_project_hash(project_dir)
     direct = Path.home() / ".claude" / "projects" / project_hash
-    if list(direct.glob("*.jsonl")):
-        return direct
-
+    dirs: list[Path] = [direct]
     transcripts = lib.find_all_transcripts_with_fallback(project_dir)
-    if transcripts:
-        return Path(transcripts[0]).parent
+    dirs.extend(Path(path).parent for path in transcripts)
 
-    return direct
+    unique: dict[str, Path] = {}
+    for directory in dirs:
+        unique.setdefault(os.path.realpath(str(directory)), directory)
+    return list(unique.values())
 
 
 def aggregate_agent_cost(
@@ -103,7 +103,7 @@ def aggregate_agent_cost(
     """
     lib = _load_pricing_lib()
     project_dir = project_dir or os.getcwd()
-    claude_dir = _claude_dir_for_project(lib, project_dir)
+    claude_dirs = _claude_dirs_for_project(lib, project_dir)
 
     aggregated = {
         "cost_dollars": 0.0,
@@ -112,11 +112,14 @@ def aggregate_agent_cost(
         "request_count": 0,
         "transcripts": [],
     }
-    if claude_dir is None or not claude_dir.exists():
-        return aggregated
-
     exclude_real = os.path.realpath(exclude_jsonl) if exclude_jsonl else None
-    candidates = _candidate_jsonls(claude_dir, since_epoch, exclude_real)
+    candidates_by_realpath: dict[str, Path] = {}
+    for claude_dir in claude_dirs:
+        if not claude_dir.exists():
+            continue
+        for candidate in _candidate_jsonls(claude_dir, since_epoch, exclude_real):
+            candidates_by_realpath.setdefault(os.path.realpath(str(candidate)), candidate)
+    candidates = sorted(candidates_by_realpath.values(), key=lambda p: p.stat().st_mtime)
     if not candidates:
         return aggregated
 

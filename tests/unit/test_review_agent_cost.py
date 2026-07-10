@@ -243,6 +243,45 @@ class TestProjectDirFallback:
         assert result["tokens_out"] == 40
         assert result["transcripts"] == [str(agent)]
 
+    def test_aggregates_agents_across_root_and_subdirectory_hashes(
+        self, fake_home, monkeypatch
+    ):
+        root_dir = _claude_dir_for(fake_home, "root_hash")
+        subdir_dir = _claude_dir_for(fake_home, "subdir_hash")
+        spawn_time = time.time() - 60
+        orch = _seed_jsonl(subdir_dir, "orchestrator", mtime=spawn_time + 10)
+        root_agent = _seed_jsonl(root_dir, "root_agent", mtime=spawn_time + 20)
+        subdir_agent = _seed_jsonl(subdir_dir, "subdir_agent", mtime=spawn_time + 30)
+
+        class _MultiDirStub(_StubLib):
+            def find_all_transcripts_with_fallback(self, start_dir=None):
+                return [str(subdir_agent), str(root_agent), str(orch)]
+
+        stub = _MultiDirStub(
+            "root_hash",
+            {
+                str(root_agent): {
+                    "request_count": 2, "cost_dollars": 0.1,
+                    "tokens_in": 100, "output_tokens": 10,
+                },
+                str(subdir_agent): {
+                    "request_count": 3, "cost_dollars": 0.2,
+                    "tokens_in": 200, "output_tokens": 20,
+                },
+            },
+        )
+        monkeypatch.setattr(agent_cost, "_load_pricing_lib", lambda: stub)
+
+        result = agent_cost.aggregate_agent_cost(
+            since_epoch=spawn_time,
+            exclude_jsonl=str(orch),
+            project_dir="/fake/project",
+        )
+
+        assert result["request_count"] == 5
+        assert result["cost_dollars"] == pytest.approx(0.3)
+        assert sorted(result["transcripts"]) == sorted([str(root_agent), str(subdir_agent)])
+
 
 class TestMainEntrypoint:
     def test_main_exits_0_when_aggregation_succeeds(self, fake_home, monkeypatch, capsys):
