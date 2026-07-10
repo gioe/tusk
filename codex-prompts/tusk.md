@@ -320,9 +320,10 @@ JSON blob and the `skill_run.run_id` you already captured.
      straight to Step 12 to close out the session.
    - **`"mark_done"`** — no commits, but deliverable files listed in
      `files` already exist on disk AND the verification-spec gate
-     passed (issue #1068: at least one incomplete code/file spec
-     passes on the current checkout, or no runnable spec exists — see
-     `verifiable_spec_count` / `passing_spec_count` in the output).
+     passed (all runnable positive specs pass, or no runnable spec
+     exists). Negative/absence specs never count as positive
+     convergence evidence; inspect the positive/negative spec counts
+     alongside the legacy total counts.
      Mark all criteria done with `--skip-verify` and proceed directly
      to Step 9 (commit + merge) without reimplementing.
    - **`"criteria_complete_no_commits"`** — every non-deferred

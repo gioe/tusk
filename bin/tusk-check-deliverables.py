@@ -197,8 +197,22 @@ def all_active_criteria_are_manual(task_id: int, conn: sqlite3.Connection) -> bo
     return active > 0 and active == manual_count
 
 
-def verifiable_spec_results(task_id: int, conn: sqlite3.Connection) -> tuple[int, int]:
-    """Return (verifiable_count, passing_count) over incomplete non-manual specs.
+def _is_negative_spec(spec: str) -> bool:
+    """Return whether *spec* asserts absence rather than positive delivery."""
+    normalized = " ".join(spec.strip().split())
+    return (
+        normalized.startswith("!")
+        or normalized.startswith("test ! ")
+        or normalized.startswith("test -z ")
+        or normalized.startswith("[ ! ")
+        or normalized.startswith("[ -z ")
+    )
+
+
+def verifiable_spec_results(
+    task_id: int, conn: sqlite3.Connection
+) -> tuple[int, int, int, int, int, int]:
+    """Return total, positive, and negative runnable/passing spec counts.
 
     Issue #1068: file existence is noise when the deliverable is an EDIT to a
     file that already exists — the referenced path is on disk before any work
@@ -228,16 +242,24 @@ def verifiable_spec_results(task_id: int, conn: sqlite3.Connection) -> tuple[int
             (task_id,),
         ).fetchall()
         if not rows:
-            return (0, 0)
+            return (0, 0, 0, 0, 0, 0)
         run_verification = tusk_loader.load("tusk-criteria").run_verification
-        passing = sum(
-            1
+        results = [
+            (row[1], run_verification(row[0], row[1])["passed"])
             for row in rows
-            if run_verification(row[0], row[1])["passed"]
+        ]
+        positive_results = [passed for spec, passed in results if not _is_negative_spec(spec)]
+        negative_results = [passed for spec, passed in results if _is_negative_spec(spec)]
+        return (
+            len(results),
+            sum(passed for _, passed in results),
+            len(positive_results),
+            sum(positive_results),
+            len(negative_results),
+            sum(negative_results),
         )
-        return (len(rows), passing)
     except Exception:
-        return (0, 0)
+        return (0, 0, 0, 0, 0, 0)
 
 
 def _task_scope_enforced(conn: sqlite3.Connection, task_id: int) -> bool:
@@ -381,6 +403,8 @@ def main(argv: list) -> int:
             files = find_existing_files(task_id, conn, repo_root)
             files_found = bool(files)
             verifiable_specs, passing_specs = (0, 0)
+            positive_specs, passing_positive_specs = (0, 0)
+            negative_specs, passing_negative_specs = (0, 0)
             if files_found:
                 # Issue #806: when every non-deferred criterion is manual,
                 # file existence is noise — manual criteria don't leave
@@ -395,12 +419,20 @@ def main(argv: list) -> int:
                     # task-start's criteria_already_passing) and downgrade
                     # when every verifiable spec still fails. No verifiable
                     # specs at all keeps the legacy mark_done behavior.
-                    verifiable_specs, passing_specs = verifiable_spec_results(
-                        task_id, conn
-                    )
+                    (
+                        verifiable_specs,
+                        passing_specs,
+                        positive_specs,
+                        passing_positive_specs,
+                        negative_specs,
+                        passing_negative_specs,
+                    ) = verifiable_spec_results(task_id, conn)
                     if creates_paths_missing:
                         recommendation = "implement_fresh"
-                    elif verifiable_specs > 0 and passing_specs == 0:
+                    elif verifiable_specs > 0 and (
+                        positive_specs == 0
+                        or passing_positive_specs < positive_specs
+                    ):
                         recommendation = "implement_fresh"
                     else:
                         recommendation = "mark_done"
@@ -416,6 +448,10 @@ def main(argv: list) -> int:
                 "default_branch_commit_files": [],
                 "verifiable_spec_count": verifiable_specs,
                 "passing_spec_count": passing_specs,
+                "positive_spec_count": positive_specs,
+                "passing_positive_spec_count": passing_positive_specs,
+                "negative_spec_count": negative_specs,
+                "passing_negative_spec_count": passing_negative_specs,
                 "missing_creates_paths": creates_paths_missing,
                 "recommendation": recommendation,
             }
