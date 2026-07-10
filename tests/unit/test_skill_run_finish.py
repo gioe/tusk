@@ -169,6 +169,30 @@ def test_finish_without_transcript_records_missing_transcript_sentinel(db_path, 
     assert row["model"] == "(transcript missing)"
 
 
+def test_finish_uses_sibling_tusk_for_call_breakdown(db_path, monkeypatch):
+    c = sqlite3.connect(str(db_path))
+    c.execute(
+        "INSERT INTO skill_runs (skill_name, started_at) VALUES (?, ?)",
+        ("tusk", "2026-05-01 10:00:00"),
+    )
+    c.commit()
+    c.close()
+    monkeypatch.setattr(skill_run.lib, "load_pricing", lambda: None)
+    monkeypatch.setattr(skill_run.lib, "find_transcript", lambda: None)
+    calls = []
+    monkeypatch.setattr(
+        skill_run.subprocess,
+        "run",
+        lambda args, **kwargs: calls.append(args) or SimpleNamespace(returncode=0, stderr=""),
+    )
+
+    exit_code, _, _ = _run_main(db_path, monkeypatch, "finish", "1")
+
+    assert exit_code == 0
+    assert calls[0][0] == os.path.join(REPO_ROOT, "bin", "tusk")
+    assert calls[0][1:] == ["call-breakdown", "--skill-run", "1", "--write-only"]
+
+
 def test_finish_caps_cost_at_first_idle_gap(db_path, monkeypatch):
     c = sqlite3.connect(str(db_path))
     c.execute(

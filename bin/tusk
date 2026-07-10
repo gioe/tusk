@@ -342,6 +342,14 @@ if [[ ! -f "$SCRIPT_DIR/tusk_loader.py" ]]; then
   unset _loader_url
 fi
 
+require_helper() {
+  local helper="$1"
+  [[ -f "$SCRIPT_DIR/$helper" ]] && return 0
+  echo "Error: incomplete tusk install at $SCRIPT_DIR — missing $helper." >&2
+  echo "  Re-run install.sh, run tusk upgrade from a complete install, or correct PATH to point at one." >&2
+  exit 2
+}
+
 # ── Config helpers ───────────────────────────────────────────────────
 
 resolve_config() {
@@ -1628,6 +1636,7 @@ cmd_migrate() {
 }
 
 cmd_upgrade() {
+  require_helper "tusk-upgrade.py"
   exec python3 "$SCRIPT_DIR/tusk-upgrade.py" "$REPO_ROOT" "$SCRIPT_DIR" "$@"
 }
 

@@ -190,8 +190,9 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
 
     # Persist per-tool-call cost breakdown for this skill run
     try:
+        tusk_bin = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
         result = subprocess.run(
-            ["tusk", "call-breakdown", "--skill-run", str(run_id), "--write-only"],
+            [tusk_bin, "call-breakdown", "--skill-run", str(run_id), "--write-only"],
             capture_output=True,
             text=True, encoding="utf-8",
         )
