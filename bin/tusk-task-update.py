@@ -94,6 +94,10 @@ def _rederive_auto_scope(
         _task_insert._UNIT_TEST_REQUIREMENT_RE.search(block or "")
         for block in text_blocks
     )
+    intended_creates = {
+        _task_insert._resolve_auto_derived_scope_pattern(repo_root, path)
+        for path in _git_helpers.extract_explicit_creation_paths(text_blocks)
+    }
     for text in text_blocks:
         for path in _task_insert._auto_scope_candidates(
             text,
@@ -107,7 +111,11 @@ def _rederive_auto_scope(
             # Drop foreign description paths that name no tracked file and live
             # under no existing tracked tree, mirroring the insert-side guard so
             # re-derivation stays consistent with first derivation (issue #1116).
-            if not _git_helpers.is_trackable_scope_pattern(repo_root, resolved):
+            if not _git_helpers.is_trackable_scope_pattern(
+                repo_root,
+                resolved,
+                allow_new_under_tracked=resolved in intended_creates,
+            ):
                 continue
             if resolved in explicit_patterns or resolved in seen_auto:
                 continue

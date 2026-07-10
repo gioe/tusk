@@ -45,42 +45,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tusk_loader  # loads tusk-task-insert.py, tusk-json-lib.py
 
 _task_insert = tusk_loader.load("tusk-task-insert")
+_git_helpers = tusk_loader.load("tusk-git-helpers")
 _json_lib = tusk_loader.load("tusk-json-lib")
 auto_scope_candidates = _task_insert._auto_scope_candidates
 resolve_auto_derived_scope_pattern = _task_insert._resolve_auto_derived_scope_pattern
 repo_root_for_config = _task_insert._repo_root
 dumps = _json_lib.dumps
 
-
-# A path token for the "creates" regex: dir-prefixed path with a 2-9 char
-# extension. Matches what extract_paths considers a real path, minus the
-# bare-toplevel whitelist (creates suggestions are always pointing at
-# fresh files, not VERSION/README.md/etc.).
-_CREATES_PATH = r"[\w./-]+\.[A-Za-z][\w]{1,9}"
-
-# "create / add / introduce / write / generate a new {file|script|...} <path>"
-_CREATE_VERB = (
-    r"(?:creat(?:e|es|ed|ing)|"
-    r"add(?:s|ed|ing)?|"
-    r"introduc(?:e|es|ed|ing)|"
-    r"writ(?:e|es|ten|ing)|"
-    r"generat(?:e|es|ed|ing))"
-)
-_NEW_ARTIFACT = (
-    r"(?:a |an )?(?:brand[- ])?new\s+"
-    r"(?:file|script|module|helper|skill|command|migration|test|tool)"
-)
-_CREATE_VERB_NEW_RE = re.compile(
-    rf"\b{_CREATE_VERB}\s+{_NEW_ARTIFACT}\s+"
-    rf"(?:at\s+|in\s+|named\s+|called\s+|`)?(?P<path>{_CREATES_PATH})",
-    re.IGNORECASE,
-)
-# "new {file|script|...} <path>" without an explicit verb.
-_NEW_ONLY_RE = re.compile(
-    r"\bnew\s+(?:file|script|module|helper|skill|command|migration|test|tool)\s+"
-    rf"(?:at\s+|in\s+|named\s+|called\s+|`)?(?P<path>{_CREATES_PATH})",
-    re.IGNORECASE,
-)
 
 # Signal phrases that indicate cross-cutting / repo-wide work.
 _UNBOUNDED_PHRASE_RE = re.compile(
@@ -123,6 +94,10 @@ def _extract_scope(
 ) -> list[str]:
     seen: set = set()
     out: list = []
+    intended_creates = {
+        resolve_auto_derived_scope_pattern(repo_root, path)
+        for path in _git_helpers.extract_explicit_creation_paths(blocks)
+    }
     requires_unit_tests = any(
         _task_insert._UNIT_TEST_REQUIREMENT_RE.search(block or "")
         for block in blocks
@@ -135,6 +110,12 @@ def _extract_scope(
             requires_unit_tests=requires_unit_tests,
         ):
             p = resolve_auto_derived_scope_pattern(repo_root, p)
+            if not _git_helpers.is_trackable_scope_pattern(
+                repo_root,
+                p,
+                allow_new_under_tracked=p in intended_creates,
+            ):
+                continue
             if p not in seen:
                 seen.add(p)
                 out.append(p)
@@ -143,20 +124,7 @@ def _extract_scope(
 
 def _extract_creates(blocks: list[str]) -> list[str]:
     """Paths the prose explicitly marks as newly-created."""
-    seen: set = set()
-    out: list = []
-    for text in blocks:
-        for m in _CREATE_VERB_NEW_RE.finditer(text):
-            p = m.group("path")
-            if p and p not in seen:
-                seen.add(p)
-                out.append(p)
-        for m in _NEW_ONLY_RE.finditer(text):
-            p = m.group("path")
-            if p and p not in seen:
-                seen.add(p)
-                out.append(p)
-    return out
+    return _git_helpers.extract_explicit_creation_paths(blocks)
 
 
 def _detect_unbounded(args: argparse.Namespace, blocks: list[str]) -> tuple[bool, str]:

@@ -180,12 +180,47 @@ def test_auto_scope_candidates_preserve_skill_glob_without_bare_basename():
     assert "SKILL.md" not in candidates
 
 
-def test_scope_hint_shares_git_command_operand_derivation():
+def test_scope_hint_shares_git_command_operand_derivation(monkeypatch):
     text = "git rm -r --cached .claude/bin and commit"
+    monkeypatch.setattr(
+        scope_hint._git_helpers,
+        "is_trackable_scope_pattern",
+        lambda _root, _pattern, **_kwargs: True,
+    )
 
     candidates = scope_hint._extract_scope([text], repo_root="repo", task_type="bug")
 
     assert ".claude/bin/**" in candidates
+
+
+def test_scope_hint_drops_foreign_missing_path_under_existing_top_level(monkeypatch):
+    monkeypatch.setattr(
+        scope_hint._git_helpers,
+        "is_trackable_scope_pattern",
+        lambda _root, _pattern, *, allow_new_under_tracked: allow_new_under_tracked,
+    )
+
+    candidates = scope_hint._extract_scope(
+        ["The reporter's project uses .github/workflows/ios.yml."],
+        repo_root="repo",
+        task_type="bug",
+    )
+
+    assert ".github/workflows/ios.yml" not in candidates
+
+
+def test_scope_hint_keeps_explicitly_created_new_path(monkeypatch):
+    monkeypatch.setattr(
+        scope_hint._git_helpers,
+        "is_trackable_scope_pattern",
+        lambda _root, _pattern, *, allow_new_under_tracked: allow_new_under_tracked,
+    )
+    text = "Create a new test tests/unit/test_new_guard.py."
+
+    candidates = scope_hint._extract_scope([text], repo_root="repo", task_type="bug")
+
+    assert "tests/unit/test_new_guard.py" in candidates
+    assert scope_hint._extract_creates([text]) == ["tests/unit/test_new_guard.py"]
 
 
 def test_auto_scope_candidates_drop_negated_git_command_operand():

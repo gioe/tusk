@@ -650,7 +650,12 @@ def is_prose_identifier_path(path: str | None, repo_root: str | None = None) -> 
     return any(re.fullmatch(r"\d+(?:\.\d+)+", part) for part in parts[1:])
 
 
-def is_trackable_scope_pattern(repo_root: str | None, pattern: str | None) -> bool:
+def is_trackable_scope_pattern(
+    repo_root: str | None,
+    pattern: str | None,
+    *,
+    allow_new_under_tracked: bool = True,
+) -> bool:
     """Return True when an auto-derived scope pattern names a real repo path or
     a plausible new file under an existing tracked tree.
 
@@ -696,8 +701,45 @@ def is_trackable_scope_pattern(repo_root: str | None, pattern: str | None) -> bo
         return True
     if "/" not in base:
         return True
+    if not allow_new_under_tracked:
+        return False
     top = base.split("/", 1)[0]
     return path_exists_in_repo(repo_root, top)
+
+
+_CREATES_PATH = r"[\w./-]+\.[A-Za-z][\w]{1,9}"
+_CREATE_VERB = (
+    r"(?:creat(?:e|es|ed|ing)|add(?:s|ed|ing)?|introduc(?:e|es|ed|ing)|"
+    r"writ(?:e|es|ten|ing)|generat(?:e|es|ed|ing))"
+)
+_NEW_ARTIFACT = (
+    r"(?:a |an )?(?:brand[- ])?new\s+"
+    r"(?:file|script|module|helper|skill|command|migration|test|tool)"
+)
+_CREATE_VERB_NEW_RE = re.compile(
+    rf"\b{_CREATE_VERB}\s+{_NEW_ARTIFACT}\s+"
+    rf"(?:at\s+|in\s+|named\s+|called\s+|`)?(?P<path>{_CREATES_PATH})",
+    re.IGNORECASE,
+)
+_NEW_ONLY_RE = re.compile(
+    r"\bnew\s+(?:file|script|module|helper|skill|command|migration|test|tool)\s+"
+    rf"(?:at\s+|in\s+|named\s+|called\s+|`)?(?P<path>{_CREATES_PATH})",
+    re.IGNORECASE,
+)
+
+
+def extract_explicit_creation_paths(blocks: list[str]) -> list[str]:
+    """Return paths named by explicit new-artifact creation wording."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for text in blocks:
+        for regex in (_CREATE_VERB_NEW_RE, _NEW_ONLY_RE):
+            for match in regex.finditer(text or ""):
+                path = match.group("path")
+                if path and path not in seen:
+                    seen.add(path)
+                    out.append(path)
+    return out
 
 
 # Regex to extract bare-basename file-like tokens (basename with multi-char

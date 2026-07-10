@@ -69,6 +69,33 @@ def test_new_file_under_tracked_dir_is_kept():
     assert _is_trackable("tests/unit/test_brand_new_thing.py") is True
 
 
+def test_description_only_new_file_under_tracked_dir_is_dropped():
+    import unittest.mock as mock
+
+    with mock.patch.object(
+        mod, "path_exists_in_repo", side_effect=lambda repo_root, path: path in _TRACKED
+    ):
+        assert mod.is_trackable_scope_pattern(
+            "/repo",
+            ".github/workflows/ios.yml",
+            allow_new_under_tracked=False,
+        ) is False
+
+
+def test_intent_backed_new_file_under_tracked_dir_is_kept():
+    import unittest.mock as mock
+
+    tracked = {*_TRACKED, ".github"}
+    with mock.patch.object(
+        mod, "path_exists_in_repo", side_effect=lambda repo_root, path: path in tracked
+    ):
+        assert mod.is_trackable_scope_pattern(
+            "/repo",
+            ".github/workflows/new-local.yml",
+            allow_new_under_tracked=True,
+        ) is True
+
+
 def test_new_nested_dir_under_tracked_top_is_kept():
     # bin is tracked even though bin/sub does not exist yet.
     assert _is_trackable("bin/sub/newscript.py") is True

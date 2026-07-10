@@ -321,6 +321,10 @@ def _effective_auto_derived_rows(
         ti._UNIT_TEST_REQUIREMENT_RE.search(block or "")
         for block in text_blocks
     )
+    intended_creates = {
+        ti._resolve_auto_derived_scope_pattern(repo_root, path)
+        for path in gh.extract_explicit_creation_paths(text_blocks)
+    }
     seen: set[str] = set()
     rows = []
     for text in text_blocks:
@@ -333,7 +337,11 @@ def _effective_auto_derived_rows(
             if ti.is_prose_identifier_path(path, repo_root):
                 continue
             resolved = ti._resolve_auto_derived_scope_pattern(repo_root, path)
-            if not gh.is_trackable_scope_pattern(repo_root, resolved):
+            if not gh.is_trackable_scope_pattern(
+                repo_root,
+                resolved,
+                allow_new_under_tracked=resolved in intended_creates,
+            ):
                 continue
             if resolved in explicit_patterns or resolved in seen:
                 continue

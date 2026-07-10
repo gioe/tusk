@@ -1179,6 +1179,10 @@ def insert_task_record(
         for tc in typed_criteria:
             text_blocks.append(tc.get("text") or "")
             text_blocks.append(tc.get("spec") or "")
+        intended_creates = {
+            _resolve_auto_derived_scope_pattern(repo_root, path)
+            for path in _git_helpers.extract_explicit_creation_paths(text_blocks)
+        }
         seen_auto: set = set()
         requires_unit_tests = any(
             _UNIT_TEST_REQUIREMENT_RE.search(block or "")
@@ -1200,7 +1204,11 @@ def insert_task_record(
                     continue
                 if resolved in _git_helpers.SCOPE_DERIVE_BOOKKEEPING_DENYLIST:
                     continue
-                if not _git_helpers.is_trackable_scope_pattern(repo_root, resolved):
+                if not _git_helpers.is_trackable_scope_pattern(
+                    repo_root,
+                    resolved,
+                    allow_new_under_tracked=resolved in intended_creates,
+                ):
                     continue
                 if resolved in explicit_patterns or resolved in seen_auto:
                     continue

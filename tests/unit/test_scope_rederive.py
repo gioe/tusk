@@ -100,7 +100,11 @@ def _patch_derivation(monkeypatch):
     monkeypatch.setattr(
         ti, "_resolve_auto_derived_scope_pattern", lambda repo_root, path: path
     )
-    monkeypatch.setattr(gh, "is_trackable_scope_pattern", lambda repo_root, pattern: True)
+    monkeypatch.setattr(
+        gh,
+        "is_trackable_scope_pattern",
+        lambda repo_root, pattern, **kwargs: True,
+    )
 
 
 def _seed_task(conn, *, unbounded=False):
