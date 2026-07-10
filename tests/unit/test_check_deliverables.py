@@ -1132,7 +1132,15 @@ class TestMarkDoneSpecGate:
 
     @pytest.mark.parametrize(
         "spec",
-        ["! grep -q marker file", "test ! -e file", "test -z value", "[ ! -f file ]", "[ -z value ]"],
+        [
+            "! grep -q marker file",
+            "test ! -e file",
+            "test -z value",
+            "[ ! -f file ]",
+            "[ -z value ]",
+            "[[ ! -e file ]]",
+            "[[ -z value ]]",
+        ],
     )
     def test_negative_spec_classification(self, spec):
         assert mod._is_negative_spec(spec) is True

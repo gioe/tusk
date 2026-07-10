@@ -206,6 +206,8 @@ def _is_negative_spec(spec: str) -> bool:
         or normalized.startswith("test -z ")
         or normalized.startswith("[ ! ")
         or normalized.startswith("[ -z ")
+        or normalized.startswith("[[ ! ")
+        or normalized.startswith("[[ -z ")
     )
 
 
