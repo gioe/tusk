@@ -109,7 +109,22 @@ fi
 
 # ── Resolve paths ────────────────────────────────────────────────────
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Follow the complete symlink chain before locating sibling helpers.  Machine-
+# level installs commonly expose tusk through ~/.local/bin/tusk; deriving the
+# directory from that link would make every tusk-*.py dispatch look beside the
+# link instead of beside the installed binary.  Avoid `readlink -f`, which is
+# unavailable in stock macOS, and resolve relative targets against each link.
+TUSK_SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$TUSK_SOURCE" ]]; do
+  TUSK_SOURCE_DIR="$(cd -P "$(dirname "$TUSK_SOURCE")" && pwd)"
+  TUSK_SOURCE_TARGET="$(readlink "$TUSK_SOURCE")"
+  if [[ "$TUSK_SOURCE_TARGET" = /* ]]; then
+    TUSK_SOURCE="$TUSK_SOURCE_TARGET"
+  else
+    TUSK_SOURCE="$TUSK_SOURCE_DIR/$TUSK_SOURCE_TARGET"
+  fi
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$TUSK_SOURCE")" && pwd)"
 # Install dir is parent of bin/
 INSTALL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
