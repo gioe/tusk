@@ -1,12 +1,7 @@
-"""Regression test for GitHub Issue #474.
+"""Regression tests for explicit deletion staging (issues #474 and #1212).
 
-`tusk commit` must auto-stage unstaged deletions of tracked files (e.g. files
-removed via `rm -rf` rather than `git rm`) so they are included in the same
-commit as the explicitly-listed files — not left as unstaged changes afterward.
-
-Exercises the Step 2.5 scan in bin/tusk-commit.py: before `git add`, tusk runs
-`git ls-files --deleted -z` and appends any results not already in the
-user-supplied file list to the set of paths staged by `git add`.
+`tusk commit` stages a tracked deletion when its path is explicitly listed,
+but it must not sweep unrelated working-tree deletions into a coherent commit.
 """
 
 import importlib.util
@@ -40,10 +35,10 @@ def _argv(tmp_path, files):
 
 
 class TestStageUnstagedDeletions:
-    """git ls-files --deleted output is appended to the git add pathspec."""
+    """Only explicitly listed tracked deletions reach the git add pathspec."""
 
-    def test_unstaged_deletions_are_auto_staged(self, tmp_path, capsys):
-        """A tracked directory deleted via rm -rf is included in the git add call."""
+    def test_unrelated_unstaged_deletions_are_not_auto_staged(self, tmp_path, capsys):
+        """Tracked deletions outside the explicit path list remain untouched."""
         mod = _load_module()
 
         other = tmp_path / "other-file.ts"
@@ -79,13 +74,10 @@ class TestStageUnstagedDeletions:
         )
         staged = captured_add_args[0]
         assert "other-file.ts" in staged
-        assert "some-tracked-dir/a.txt" in staged
-        assert "some-tracked-dir/b.txt" in staged
+        assert staged == ["git", "add", "--", "other-file.ts"]
 
         captured = capsys.readouterr()
-        assert "auto-staging 2 unstaged deletion(s)" in captured.out
-        assert "some-tracked-dir/a.txt" in captured.out
-        assert "some-tracked-dir/b.txt" in captured.out
+        assert "auto-staging" not in captured.out
 
     def test_no_deletions_leaves_resolved_files_unchanged(self, tmp_path, capsys):
         """When git ls-files --deleted is empty, git add receives only the explicit paths."""
@@ -125,8 +117,8 @@ class TestStageUnstagedDeletions:
         captured = capsys.readouterr()
         assert "auto-staging" not in captured.out
 
-    def test_explicit_deletion_path_not_duplicated(self, tmp_path, capsys):
-        """If the user explicitly lists a deleted path, the scan must not double-add it."""
+    def test_explicit_deletion_path_excludes_unrelated_deletion(self, tmp_path, capsys):
+        """An explicitly listed deletion is staged without sweeping its sibling."""
         mod = _load_module()
 
         other = tmp_path / "other-file.ts"
@@ -164,11 +156,9 @@ class TestStageUnstagedDeletions:
         assert rc == 0
         assert len(captured_add_args) == 1
         staged = captured_add_args[0]
-        # a.txt must appear exactly once — the scan should dedupe against the user list.
+        # a.txt is explicitly listed and must appear exactly once.
         assert staged.count("some-tracked-dir/a.txt") == 1
-        # b.txt was not in the user's list but was detected as a deletion — included.
-        assert "some-tracked-dir/b.txt" in staged
+        assert "some-tracked-dir/b.txt" not in staged
 
         captured = capsys.readouterr()
-        # Only one auto-staged deletion (b.txt) — a.txt was already on the user's list.
-        assert "auto-staging 1 unstaged deletion(s)" in captured.out
+        assert "auto-staging" not in captured.out

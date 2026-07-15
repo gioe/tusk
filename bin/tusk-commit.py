@@ -1134,22 +1134,23 @@ def _pending_commit_paths(repo_root: str, resolved_files) -> list[str]:
 
     ``tusk commit`` finalizes with a path-less ``git commit``, so the commit
     captures more than the explicitly-resolved files: any already-staged index
-    changes (modifications, additions, ``git rm`` deletions) plus the unstaged
-    deletions of tracked files that Step 2.5 auto-sweeps in. The non-code
-    test-gate skip must reason over this full set so a pre-staged or
-    ``rm``-deleted code file never bypasses the gate (issue #950).
+    changes (modifications, additions, or ``git rm`` deletions). The non-code
+    test-gate skip must reason over this full set so a pre-staged code file
+    never bypasses the gate (issue #950). Unstaged changes outside the explicit
+    path list are intentionally excluded because this command does not stage
+    them (issue #1212).
     """
     paths = {
         os.path.relpath(f, repo_root) if os.path.isabs(f) else f
         for f in resolved_files
     }
-    for git_args in (
+    res = run(
         ["git", "diff", "--cached", "--name-only", "-z"],
-        ["git", "ls-files", "--deleted", "-z"],
-    ):
-        res = run(git_args, check=False, cwd=repo_root)
-        if res.returncode == 0 and res.stdout:
-            paths.update(p for p in res.stdout.split("\0") if p)
+        check=False,
+        cwd=repo_root,
+    )
+    if res.returncode == 0 and res.stdout:
+        paths.update(p for p in res.stdout.split("\0") if p)
     return list(paths)
 
 
@@ -1840,36 +1841,6 @@ def _run_commit(argv: list[str], state: dict) -> int:
             print(f"tests passed ({elapsed:.1f}s)")
             sys.stdout.flush()
             _record_test_run(db_path, task_id, test_cmd, elapsed, succeeded=True)
-
-    # ── Step 2.5: Stage unstaged deletions of tracked files ─────────
-    # GitHub Issue #474: when tracked files are removed via `rm`/`rm -rf`
-    # rather than `git rm`, they remain in the index with a "deleted from
-    # working tree" marker until the next `git add` sees them.  Scan for
-    # these now and append to resolved_files so the Step 3 git add call
-    # captures both the explicit paths and the implicit deletions in a
-    # single commit — otherwise the deletions surface as unstaged changes
-    # after commit and require a manual `git rm && git commit` follow-up.
-    deleted = run(["git", "ls-files", "--deleted", "-z"], check=False, cwd=repo_root)
-    if deleted.returncode == 0 and deleted.stdout:
-        # resolved_files holds either absolute paths or repo-root-relative
-        # paths; git ls-files emits repo-root-relative paths.  Normalize
-        # before deduping so a user-supplied deleted path (which TASK-679
-        # allows through pre-flight) is not staged twice.
-        already_listed = {
-            os.path.relpath(f, repo_root) if os.path.isabs(f) else f
-            for f in resolved_files
-        }
-        extra_deletions = [
-            d for d in deleted.stdout.split("\0") if d and d not in already_listed
-        ]
-        if extra_deletions:
-            print(
-                f"Note: auto-staging {len(extra_deletions)} unstaged "
-                "deletion(s) of tracked file(s) (from rm/rm -rf):"
-            )
-            for d in extra_deletions:
-                print(f"  - {d}")
-            resolved_files = resolved_files + extra_deletions
 
     # ── Step 3: Stage files ──────────────────────────────────────────
     # File paths were already resolved and validated in Step 0.

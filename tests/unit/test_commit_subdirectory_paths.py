@@ -933,10 +933,6 @@ class TestDeletedFilePathRegression:
     def test_deleted_file_git_ls_files_not_called_when_all_exist(self, tmp_path):
         """The pre-flight git ls-files missing-file probe is NOT called when all
         specified files exist on disk (no-op fast path).
-
-        Note: a separate unconditional `git ls-files --deleted -z` scan (added
-        for GitHub Issue #474) always runs before staging — this assertion
-        excludes it so the pre-flight fast path remains covered.
         """
         mod = _load_module()
 
@@ -949,11 +945,8 @@ class TestDeletedFilePathRegression:
 
         def fake_run(args, **kwargs):
             if args[:2] == ["git", "ls-files"]:
-                # Only record pre-flight missing-file probes.  The unstaged-deletion
-                # scan uses --deleted and is outside this test's scope.
-                if "--deleted" not in args:
-                    preflight_ls_files_calls.append(args)
-                return _make_completed(0, stdout="somefile.py\n" if "--deleted" not in args else "")
+                preflight_ls_files_calls.append(args)
+                return _make_completed(0, stdout="somefile.py\n")
             if args[:2] == ["git", "add"]:
                 return _make_completed(0)
             if args[:2] == ["git", "rev-parse"]:
