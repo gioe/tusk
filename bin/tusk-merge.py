@@ -2412,9 +2412,9 @@ def _complete_no_checkout_fast_forward(
         f"no-checkout fast-forward push from {branch_name} to {default_branch}.",
         file=sys.stderr,
     )
+    task_scope_already_published = False
     if use_rebase:
         rebase_target = f"origin/{default_branch}"
-        print(f"Rebasing {branch_name} onto {rebase_target}...", file=sys.stderr)
         fetch_result = run(["git", "fetch", "origin"], check=False)
         if fetch_result.returncode != 0:
             if _is_remote_unreachable(fetch_result.stderr):
@@ -2434,37 +2434,52 @@ def _complete_no_checkout_fast_forward(
                     _try_pop_stash(task_id)
                 return 2
         else:
-            co_result = run(["git", "checkout", branch_name], check=False)
-            if co_result.returncode != 0:
+            task_scope_already_published = _task_scope_already_published(
+                branch_name, task_id, default_branch
+            )
+            if not task_scope_already_published:
                 print(
-                    f"Error: git checkout {branch_name} failed before --rebase:\n"
-                    f"{co_result.stderr.strip()}",
+                    f"Rebasing {branch_name} onto {rebase_target}...",
                     file=sys.stderr,
                 )
-                if did_stash:
-                    _try_pop_stash(task_id)
-                return 2
-            _maybe_warn_main_side_overlap(branch_name, default_branch)
-            rebase_rc = _rebase_branch_onto_target(
-                branch_name, rebase_target, task_id, did_stash
-            )
-            if rebase_rc != 0:
-                return rebase_rc
+                co_result = run(["git", "checkout", branch_name], check=False)
+                if co_result.returncode != 0:
+                    print(
+                        f"Error: git checkout {branch_name} failed before --rebase:\n"
+                        f"{co_result.stderr.strip()}",
+                        file=sys.stderr,
+                    )
+                    if did_stash:
+                        _try_pop_stash(task_id)
+                    return 2
+                _maybe_warn_main_side_overlap(branch_name, default_branch)
+                rebase_rc = _rebase_branch_onto_target(
+                    branch_name, rebase_target, task_id, did_stash
+                )
+                if rebase_rc != 0:
+                    return rebase_rc
 
     else:
         fetch_result = run(["git", "fetch", "origin"], check=False)
         if fetch_result.returncode == 0:
-            base_check = run(
-                [
-                    "git",
-                    "merge-base",
-                    "--is-ancestor",
-                    f"origin/{default_branch}",
-                    branch_name,
-                ],
-                check=False,
+            task_scope_already_published = _task_scope_already_published(
+                branch_name, task_id, default_branch
             )
-            if base_check.returncode != 0:
+            if task_scope_already_published:
+                base_check_returncode = 0
+            else:
+                base_check = run(
+                    [
+                        "git",
+                        "merge-base",
+                        "--is-ancestor",
+                        f"origin/{default_branch}",
+                        branch_name,
+                    ],
+                    check=False,
+                )
+                base_check_returncode = base_check.returncode
+            if base_check_returncode != 0:
                 _maybe_warn_main_side_overlap(branch_name, default_branch)
                 print(
                     f"Error: origin/{default_branch} has commits not reachable from "
@@ -2504,7 +2519,10 @@ def _complete_no_checkout_fast_forward(
     # descends directly from origin/<default_branch>'s tip and the
     # merge-base equals that tip (= parent of the first task commit on
     # the rebased branch). Migration 72, TASK-452.
-    if _origin_already_contains(branch_name, default_branch):
+    branch_fully_published = _origin_already_contains(
+        branch_name, default_branch
+    )
+    if branch_fully_published or task_scope_already_published:
         # Work already shipped — origin/<default_branch>'s tip equals
         # branch_name's tip, so any merge-base resolved here would collapse
         # to the tip and route fetch_diff into single-SHA tip-only mode
@@ -2512,13 +2530,22 @@ def _complete_no_checkout_fast_forward(
         # through to the recovery chain, which reproduces the cumulative
         # stats from the actual [TASK-N] commit history.
         pre_push_merge_base_sha = None
-        print(
-            f"Note: origin/{default_branch} already contains {branch_name}'s "
-            "tip — skipping no-checkout fast-forward push; the work has already "
-            f"shipped to origin (issue #774), continuing task finalization; "
-            f"if this retry is interrupted, rerun tusk merge {task_id} --session {session_id}.",
-            file=sys.stderr,
-        )
+        if task_scope_already_published and not branch_fully_published:
+            print(
+                f"Note: origin/{default_branch} already contains every TASK-{task_id} "
+                "patch, while the remaining branch-only commits are preserved on "
+                f"local {default_branch} — skipping push and continuing task "
+                "finalization without publishing unrelated local-default work.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"Note: origin/{default_branch} already contains {branch_name}'s "
+                "tip — skipping no-checkout fast-forward push; the work has already "
+                f"shipped to origin (issue #774), continuing task finalization; "
+                f"if this retry is interrupted, rerun tusk merge {task_id} --session {session_id}.",
+                file=sys.stderr,
+            )
     else:
         # Guard (issue #949): the standard checkout path runs this check at
         # bin/tusk-merge.py's `git pull` site, but the no-checkout path
@@ -2684,7 +2711,11 @@ def _complete_no_checkout_fast_forward(
     # branch_name's tip equals the SHA the push deposited on the destination
     # ref (no-checkout pushes don't rewrite SHAs; the local branch is the
     # source of truth). Issue #849.
-    merge_commit_sha = _resolve_local_ref_sha(branch_name)
+    merge_commit_sha = (
+        None
+        if task_scope_already_published and not branch_fully_published
+        else _resolve_local_ref_sha(branch_name)
+    )
     # Use the pre-push merge-base captured above. Re-resolving here would
     # collapse to the tip because origin/<default_branch> got advanced by
     # the push. Migration 72, TASK-452.
@@ -2704,7 +2735,7 @@ def _complete_no_checkout_fast_forward(
     # (to invoke `tusk sync-main` against primary_root), so it joins the
     # before-cleanup ordering for the same worktree-path-removal reason.
     refreshed = False
-    if rc == 0:
+    if rc == 0 and not task_scope_already_published:
         refreshed = _maybe_refresh_deployed_bin(db_path, tusk_bin)
     # The auto-refresh above compares primary's bin/ against primary's
     # .claude/bin/, but the no-checkout path never updates primary's working
@@ -2713,8 +2744,12 @@ def _complete_no_checkout_fast_forward(
     # tree being behind origin (issue #869) instead of repeating the
     # ".claude/bin/ may be stale, run dev-sync" line that the refresh has
     # already addressed.
-    advisory_outcome = _maybe_advise_stale_deployed_bin(
-        db_path, tusk_bin=tusk_bin, refresh_fired=refreshed,
+    advisory_outcome = (
+        None
+        if task_scope_already_published
+        else _maybe_advise_stale_deployed_bin(
+            db_path, tusk_bin=tusk_bin, refresh_fired=refreshed,
+        )
     )
     # Issue #921: when auto-sync-main failed, primary is still stale and may
     # be the only binary the operator's next subcommands can reach if the
@@ -3092,6 +3127,78 @@ def _origin_already_contains(ref_to_push: str, default_branch: str) -> bool:
     if result.returncode != 0:
         return False
     return result.stdout.strip() == "0"
+
+
+def _task_scope_already_published(
+    branch_name: str, task_id: int, default_branch: str
+) -> bool:
+    """Return whether only preserved local-default ancestry remains unpublished.
+
+    A task branch may have been rebased onto unpublished local-default commits
+    after its task patches were independently published to ``origin`` under new
+    SHAs.  Full ancestry containment is false in that topology, but pushing the
+    branch would incorrectly publish the unrelated local commits.  ``git
+    cherry`` supplies the patch-equivalence proof: every branch-exclusive
+    ``[TASK-N]`` commit must be marked ``-`` (already upstream), while every
+    other commit not already upstream must remain reachable from the local
+    default ref.  The latter condition makes forced task-worktree cleanup safe
+    because no passenger commit loses its durable local reference.
+
+    Any git failure, missing task commit, unpublished task patch, or unpreserved
+    passenger returns False and leaves the existing conservative merge path in
+    control.
+    """
+    remote_default = f"origin/{default_branch}"
+    cherry = run(
+        ["git", "cherry", remote_default, branch_name], check=False
+    )
+    if cherry.returncode != 0:
+        return False
+
+    statuses: dict[str, str] = {}
+    for raw in cherry.stdout.splitlines():
+        line = raw.strip()
+        if len(line) < 3 or line[0] not in "+-" or line[1] != " ":
+            return False
+        sha = line[2:].strip()
+        if not sha:
+            return False
+        statuses[sha] = line[0]
+
+    task_log = run(
+        [
+            "git",
+            "log",
+            f"{remote_default}..{branch_name}",
+            "--format=%H",
+            task_grep_arg(task_id),
+        ],
+        check=False,
+    )
+    if task_log.returncode != 0:
+        return False
+    task_shas = [
+        line.strip() for line in task_log.stdout.splitlines() if line.strip()
+    ]
+    if not task_shas or any(statuses.get(sha) != "-" for sha in task_shas):
+        return False
+
+    unique = run(
+        ["git", "rev-list", f"{remote_default}..{branch_name}"], check=False
+    )
+    if unique.returncode != 0:
+        return False
+    for raw in unique.stdout.splitlines():
+        sha = raw.strip()
+        if not sha or statuses.get(sha) == "-":
+            continue
+        preserved = run(
+            ["git", "merge-base", "--is-ancestor", sha, default_branch],
+            check=False,
+        )
+        if preserved.returncode != 0:
+            return False
+    return True
 
 
 def _branch_has_task_commits(
