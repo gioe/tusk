@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1224] - 2026-07-15
+
+- [TASK-800] Make force-stale worktree bases explicit
+
 ## [1223] - 2026-07-15
 
 - [TASK-799] Fix explicit commit paths auto-staging unrelated deletions
