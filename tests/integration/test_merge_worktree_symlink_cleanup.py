@@ -1,5 +1,5 @@
-"""Integration test for ``tusk merge``'s pre-clean of tusk-created
-auto-symlinks before ``git worktree remove`` (issues #927/#919/#916).
+"""Integration tests for ``tusk merge`` pre-cleaning generated artifacts
+before ``git worktree remove`` (issues #927/#919/#916/#1214).
 
 When ``task-worktree create`` writes ``.venv`` / ``node_modules`` symlinks
 into a new worktree (via ``worktree.symlink_files`` config or the canonical
@@ -67,7 +67,9 @@ def _seed_repo(tmp_path, monkeypatch):
     (repo / ".venv").mkdir()
     (repo / ".venv" / "marker").write_text("v\n", encoding="utf-8")
     # Gitignore so it doesn't show in the index.
-    (repo / ".gitignore").write_text(".venv/\nnode_modules/\n", encoding="utf-8")
+    (repo / ".gitignore").write_text(
+        ".venv/\nnode_modules/\n.pytest_cache/\n", encoding="utf-8"
+    )
     (repo / "README.md").write_text("x\n", encoding="utf-8")
     _git(["add", ".gitignore", "README.md"], cwd=repo)
     _git(["commit", "-m", "initial"], cwd=repo)
@@ -178,6 +180,59 @@ def test_merge_cleans_canonical_fallback_symlinks(tmp_path, monkeypatch):
     # The worktree directory should be gone.
     assert not os.path.exists(wt), (
         f"worktree {wt} should be removed after successful merge"
+    )
+
+
+def test_merge_cleans_generated_pytest_cache(tmp_path, monkeypatch):
+    """A generated ``.pytest_cache`` must not strand an otherwise-clean
+    completed task worktree, even when no auto-symlink cleanup is involved.
+    """
+    repo, db_path, env = _seed_repo(tmp_path, monkeypatch)
+    env["TUSK_NO_AUTO_SYMLINK"] = "1"
+    monkeypatch.setenv("TUSK_NO_AUTO_SYMLINK", "1")
+    task_id, session_id = _insert_task_and_start_session(
+        db_path, "Update README.md"
+    )
+
+    workspace_root = tmp_path / "workspaces"
+    create = _run(
+        [
+            "task-worktree", "create",
+            str(task_id), "pytestcache",
+            "--workspace-root", str(workspace_root),
+        ],
+        cwd=repo,
+        env=env,
+    )
+    assert create.returncode == 0, create.stderr
+    wt = json.loads(create.stdout)["workspace_path"]
+
+    readme_in_wt = os.path.join(wt, "README.md")
+    with open(readme_in_wt, "w", encoding="utf-8") as f:
+        f.write("changed\n")
+    commit_result = _run(
+        ["commit", str(task_id), "edit", "README.md", "--skip-verify"],
+        cwd=wt,
+        env=env,
+    )
+    assert commit_result.returncode == 0, commit_result.stderr
+
+    cache_file = os.path.join(wt, ".pytest_cache", "v", "cache", "nodeids")
+    os.makedirs(os.path.dirname(cache_file))
+    with open(cache_file, "w", encoding="utf-8") as f:
+        f.write("[]\n")
+
+    merge = _run(
+        ["merge", str(task_id), "--session", str(session_id)],
+        cwd=wt,
+        env=env,
+    )
+    assert merge.returncode == 0, (
+        f"generated pytest cache should not block cleanup; "
+        f"stdout={merge.stdout} stderr={merge.stderr}"
+    )
+    assert not os.path.exists(wt), (
+        f"worktree {wt} should be removed after cache cleanup"
     )
 
 

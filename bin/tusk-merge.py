@@ -34,6 +34,7 @@ import fnmatch
 import json
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -3272,6 +3273,11 @@ def _remove_recorded_task_worktree(
                 file=sys.stderr,
             )
             return False
+        # Pre-clean exact-name generated test caches after the rebase guard so
+        # test execution artifacts cannot strand an otherwise-complete task
+        # worktree. Unknown untracked files remain for plain git worktree
+        # remove to reject as the safety gate.
+        _clean_generated_test_caches(workspace_path)
         # Pre-clean tusk-created auto-symlinks (.venv, node_modules, .env,
         # .env.local, and anything else in worktree.symlink_files) so
         # `git worktree remove` doesn't refuse the worktree as dirty when
@@ -3326,6 +3332,39 @@ def _remove_recorded_task_worktree(
 # in bin/tusk-task-worktree.py (issue #854) — duplicated here so merge/
 # abandon cleanup doesn't have to import from the task-worktree module.
 _CANONICAL_RUNTIME_FILES = ("node_modules", ".venv", ".env", ".env.local")
+
+# Exact directory basenames that test tools generate and can safely recreate.
+# Keep this deliberately narrow: plain git worktree remove must continue to
+# protect every unknown untracked file and directory.
+_GENERATED_TEST_CACHE_DIRS = frozenset({".pytest_cache"})
+
+
+def _clean_generated_test_caches(workspace_path: str) -> int:
+    """Remove allowlisted generated cache directories from a task worktree.
+
+    Bare basenames are matched recursively so pytest runs from nested monorepo
+    projects are covered. Symlinks are never followed or removed, and failures
+    are best-effort: the subsequent non-force ``git worktree remove`` remains
+    the authoritative dirty-worktree safety gate.
+    """
+    if not os.path.isdir(workspace_path):
+        return 0
+
+    removed = 0
+    for root, dirs, _files in os.walk(workspace_path, followlinks=False):
+        if ".git" in dirs:
+            dirs.remove(".git")
+        for name in [d for d in dirs if d in _GENERATED_TEST_CACHE_DIRS]:
+            dirs.remove(name)
+            candidate = os.path.join(root, name)
+            if os.path.islink(candidate) or not os.path.isdir(candidate):
+                continue
+            try:
+                shutil.rmtree(candidate)
+                removed += 1
+            except OSError:
+                pass
+    return removed
 
 
 def _clean_tusk_auto_symlinks(workspace_path: str, db_path: str) -> int:
