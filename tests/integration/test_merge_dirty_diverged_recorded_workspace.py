@@ -8,6 +8,8 @@ import subprocess
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
+import pytest
+
 from tests.integration.conftest import _insert_session, _insert_task
 
 
@@ -48,8 +50,13 @@ def _snapshot(primary: Path) -> dict[str, str]:
     }
 
 
-def test_dirty_diverged_primary_routes_before_stash_and_remains_unchanged(
-    db_path, config_path, monkeypatch, tmp_path
+@pytest.mark.parametrize(
+    "local_default_commit",
+    [True, False],
+    ids=["two-sided-default-divergence", "behind-only-default"],
+)
+def test_dirty_primary_routes_before_stash_and_remains_unchanged(
+    db_path, config_path, monkeypatch, tmp_path, local_default_commit
 ):
     remote = tmp_path / "origin.git"
     primary = tmp_path / "primary"
@@ -89,10 +96,19 @@ def test_dirty_diverged_primary_routes_before_stash_and_remains_unchanged(
     _git(peer, "commit", "-m", "remote advance")
     _git(peer, "push", "origin", "main")
 
-    _write(primary / "local.txt", "local\n")
-    _git(primary, "add", "local.txt")
-    _git(primary, "commit", "-m", "local advance")
+    if local_default_commit:
+        _write(primary / "local.txt", "local\n")
+        _git(primary, "add", "local.txt")
+        _git(primary, "commit", "-m", "local advance")
     _git(primary, "fetch", "origin", "main")
+
+    tusk_merge = _load_merge_module()
+    previous_cwd = os.getcwd()
+    try:
+        os.chdir(primary)
+        assert tusk_merge._default_checkout_has_tracked_changes() is False
+    finally:
+        os.chdir(previous_cwd)
 
     _write(primary / "dirty.txt", "unstaged user work\n")
     _write(primary / "staged.txt", "staged user work\n")
@@ -111,7 +127,6 @@ def test_dirty_diverged_primary_routes_before_stash_and_remains_unchanged(
 
     before = _snapshot(primary)
     routed = {}
-    tusk_merge = _load_merge_module()
     monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
     monkeypatch.setattr(tusk_merge, "_guard_no_open_completion_criteria", lambda *_: 0)
     monkeypatch.setattr(tusk_merge, "_run_pre_merge_lint", lambda *_, **__: 0)
@@ -133,7 +148,6 @@ def test_dirty_diverged_primary_routes_before_stash_and_remains_unchanged(
         _capture_no_checkout,
     )
 
-    previous_cwd = os.getcwd()
     stderr = io.StringIO()
     try:
         os.chdir(primary)
@@ -154,6 +168,6 @@ def test_dirty_diverged_primary_routes_before_stash_and_remains_unchanged(
     assert routed["cwd"] == os.path.realpath(workspace)
     assert routed["did_stash"] is False
     assert _snapshot(primary) == before
-    assert "dirty and diverged" in stderr.getvalue()
+    assert "checkout has tracked changes" in stderr.getvalue()
     assert "no-checkout safety path" in stderr.getvalue()
     assert "Stashing uncommitted changes" not in stderr.getvalue()

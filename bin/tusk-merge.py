@@ -285,40 +285,21 @@ def _worktree_path_for_branch(branch: str) -> str | None:
     return None
 
 
-def _default_checkout_is_dirty_and_diverged(default_branch: str) -> bool:
-    """Return whether the current default checkout needs no-checkout routing.
+def _default_checkout_has_tracked_changes() -> bool:
+    """Return whether tracked primary changes require no-checkout routing.
 
-    A recorded task workspace normally merges locally when the caller is on the
-    default branch.  That is unsafe when tracked changes would need stashing and
-    the local default ref has diverged from its origin ref: synchronizing the
-    default branch can make the stash impossible to restore cleanly.  Keep this
-    probe read-only and best-effort; unexpected git failures preserve the
-    established local-merge path and its existing diagnostics.
+    A valid recorded task workspace can merge without touching the primary
+    checkout. Prefer that path whenever the primary default has staged or
+    unstaged changes: fetching origin may reveal divergence only after an
+    auto-stash, and a later merge refusal can make restoring that stash
+    conflict. Keep this probe read-only and best-effort; unexpected git
+    failures preserve the established local-merge path and its diagnostics.
     """
     unstaged = run(["git", "diff", "--quiet", "--"], check=False)
     staged = run(["git", "diff", "--cached", "--quiet", "--"], check=False)
     if unstaged.returncode not in (0, 1) or staged.returncode not in (0, 1):
         return False
-    if unstaged.returncode == 0 and staged.returncode == 0:
-        return False
-
-    divergence = run(
-        [
-            "git",
-            "rev-list",
-            "--left-right",
-            "--count",
-            f"{default_branch}...origin/{default_branch}",
-        ],
-        check=False,
-    )
-    if divergence.returncode != 0:
-        return False
-    try:
-        local_only, origin_only = map(int, divergence.stdout.split())
-    except (TypeError, ValueError):
-        return False
-    return local_only > 0 and origin_only > 0
+    return unstaged.returncode == 1 or staged.returncode == 1
 
 
 def _format_locked_default_without_origin(
@@ -4053,13 +4034,14 @@ def main(argv: list[str]) -> int:
             # lives in a separate worktree, and `tusk merge --rebase` blows
             # up with a misleading "cannot rebase: You have unstaged changes"
             # that names the primary's files (issue #764). Skip the chdir
-            # when CWD is already on a clean or non-diverged default branch —
+            # when CWD is already on a clean default branch —
             # the existing ff-only path expects to run `git merge --ff-only
             # feature` from whichever worktree has the default branch checked
-            # out.  A dirty, diverged default checkout is different: route to
-            # the recorded workspace before auto-stashing so the existing
-            # no-checkout path and strand guard can handle it without touching
-            # the primary index (issue #1210).
+            # out. A default checkout with tracked changes is different: route
+            # to the recorded workspace before auto-stashing so the existing
+            # no-checkout freshness and strand guards can either proceed,
+            # rebase, or refuse without touching the primary index (issue
+            # #1210).
             if path_exists:
                 try:
                     current_cwd_real = os.path.realpath(os.getcwd())
@@ -4076,25 +4058,23 @@ def main(argv: list[str]) -> int:
                         if current_branch_result.returncode == 0
                         else ""
                     )
-                    route_dirty_diverged_default = (
+                    route_dirty_default = (
                         not use_pr
                         and current_branch == default_branch_probe
-                        and _default_checkout_is_dirty_and_diverged(
-                            default_branch_probe
-                        )
+                        and _default_checkout_has_tracked_changes()
                     )
                     if (
                         current_branch != default_branch_probe
-                        or route_dirty_diverged_default
+                        or route_dirty_default
                     ):
                         os.chdir(candidate_path)
-                        if route_dirty_diverged_default:
+                        if route_dirty_default:
                             print(
                                 f"Note: switched CWD to recorded task workspace "
                                 f"{candidate_path} because the primary default "
-                                "checkout is dirty and diverged; using the "
+                                "checkout has tracked changes; using the "
                                 "no-checkout safety path instead of stashing "
-                                "primary changes.",
+                                "those primary changes.",
                                 file=sys.stderr,
                             )
                         else:
