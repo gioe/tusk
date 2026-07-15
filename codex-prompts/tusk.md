@@ -280,6 +280,32 @@ JSON blob and the `skill_run.run_id` you already captured.
    `task-summary`, and retro handoff run, so those commands must be
    launched from a checkout that still exists after cleanup.
 
+   **Writable-root preflight (before the first create):** If
+   `TUSK_WORKTREE_ROOT` is explicitly set, preserve it and use the normal
+   command below without adding `--workspace-root`. Otherwise, when the
+   active runtime declares authorized writable filesystem roots, compare
+   the expanded default `~/.tusk/worktrees` against those roots before
+   creating anything. Do not rely on `test -w` or Unix permissions alone:
+   a managed sandbox can deny an OS-writable path.
+
+   If the default is inside an authorized writable root, use the normal
+   command unchanged. If it is outside every authorized root, choose an
+   environment-declared writable root outside the primary checkout
+   (prefer the runtime's temporary/external workspace root), derive the
+   pool `<authorized-root>/tusk-worktrees`, and use the fallback command:
+   ```bash
+   tusk task-worktree create <id> <brief-description-slug> --workspace-root <authorized-root>/tusk-worktrees
+   ```
+   Never hardcode `/private/tmp` or another platform-specific path, never
+   create an inaccessible worktree and then relocate it, and never put the
+   pool inside the primary checkout (which would dirty or nest it). If the
+   runtime exposes writable-root metadata but no suitable authorized root
+   outside the checkout, stop before creation and request a writable root.
+   If the runtime exposes no writable-root metadata, preserve the existing
+   behavior and use the normal command. The CLI adds the per-repository
+   namespace beneath the selected pool, preserving collision protection;
+   do not append the repository name yourself.
+
    ```bash
    tusk task-worktree create <id> <brief-description-slug>
    ```
