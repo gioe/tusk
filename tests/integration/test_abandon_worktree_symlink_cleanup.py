@@ -50,7 +50,9 @@ def _seed_repo(tmp_path, monkeypatch):
     _git(["config", "user.name", "Tusk Tests"], cwd=repo)
     (repo / ".venv").mkdir()
     (repo / ".venv" / "marker").write_text("v\n", encoding="utf-8")
-    (repo / ".gitignore").write_text(".venv/\nnode_modules/\n", encoding="utf-8")
+    (repo / ".gitignore").write_text(
+        ".venv/\nnode_modules/\n.pytest_cache/\n", encoding="utf-8"
+    )
     (repo / "README.md").write_text("x\n", encoding="utf-8")
     _git(["add", ".gitignore", "README.md"], cwd=repo)
     _git(["commit", "-m", "initial"], cwd=repo)
@@ -235,6 +237,10 @@ def test_abandon_still_blocks_on_real_untracked_file(tmp_path, monkeypatch):
     stray = os.path.join(wt, "stray.txt")
     with open(stray, "w", encoding="utf-8") as f:
         f.write("real user data\n")
+    cache_file = os.path.join(wt, ".pytest_cache", "v", "cache", "nodeids")
+    os.makedirs(os.path.dirname(cache_file))
+    with open(cache_file, "w", encoding="utf-8") as f:
+        f.write("[]\n")
 
     abandon = _run(
         [
@@ -251,4 +257,7 @@ def test_abandon_still_blocks_on_real_untracked_file(tmp_path, monkeypatch):
     )
     assert "Remaining entries:" in abandon.stderr
     assert "stray.txt" in abandon.stderr
+    assert not os.path.exists(os.path.join(wt, ".pytest_cache")), (
+        "allowlisted generated cache should be removed before cleanup refusal"
+    )
     assert os.path.exists(stray), "real untracked file must be preserved"
