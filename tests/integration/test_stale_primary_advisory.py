@@ -238,6 +238,54 @@ def test_force_stale_primary_keeps_advisory_and_creates_worktree(tmp_path, monke
     )
 
 
+def test_force_stale_diverged_primary_discloses_and_pins_origin_base(
+    tmp_path, monkeypatch
+):
+    """A forced create must name the exact origin commit it uses so callers
+    cannot mistake the workspace for one based on divergent local main.
+    """
+    primary = _seed_repo_diverged(tmp_path)
+    db_path, env = _init_tusk(primary, monkeypatch)
+    task_id = _insert_task(db_path)
+    _git(["fetch", "origin", "main"], cwd=primary)
+    local_sha = _git(["rev-parse", "main"], cwd=primary).stdout.strip()
+    origin_sha = _git(["rev-parse", "origin/main"], cwd=primary).stdout.strip()
+    assert local_sha != origin_sha
+
+    help_result = _run(
+        ["task-worktree", "create", "--help"],
+        cwd=primary,
+        env=env,
+    )
+    assert help_result.returncode == 0, help_result.stderr
+    assert "selected base ref" in help_result.stdout
+    assert "commit SHA" in help_result.stdout
+
+    workspace_root = tmp_path / "workspaces"
+    result = _run(
+        [
+            "task-worktree", "create",
+            str(task_id), "diverged-force-stale-test",
+            "--workspace-root", str(workspace_root),
+            "--force-stale",
+        ],
+        cwd=primary,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    disclosure = (
+        f"--force-stale selected worktree base origin/main at {origin_sha}."
+    )
+    assert disclosure in result.stderr, result.stderr
+    payload = json.loads(result.stdout)
+    worktree_sha = _git(
+        ["rev-parse", "HEAD"], cwd=payload["workspace_path"]
+    ).stdout.strip()
+    assert worktree_sha == origin_sha
+    assert worktree_sha != local_sha
+
+
 def test_behind_and_heavily_dirty_primary_warns_about_stash_round_trip(
     tmp_path, monkeypatch
 ):

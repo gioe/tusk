@@ -1234,8 +1234,9 @@ def cmd_create(
         action="store_true",
         help=(
             "Create the worktree even when the primary checkout is behind or "
-            "diverged from origin/<default>. Intended only for deliberate "
-            "stale-primary recovery/debugging."
+            "diverged from origin/<default>. Reports the selected base ref and "
+            "commit SHA before creation and pins the worktree to that commit. "
+            "Intended only for deliberate stale-primary recovery/debugging."
         ),
     )
     args = parser.parse_args(argv)
@@ -1383,6 +1384,26 @@ def cmd_create(
             print(f"Error: {base_err}", file=sys.stderr)
             return 2
 
+        base_commit = _run_git(
+            repo_root,
+            ["rev-parse", "--verify", f"{base_branch}^{{commit}}"],
+        )
+        base_sha = base_commit.stdout.strip()
+        if base_commit.returncode != 0 or not base_sha:
+            detail = base_commit.stderr.strip() or "ref did not resolve to a commit"
+            print(
+                f"Error: could not resolve worktree base '{base_branch}':\n{detail}",
+                file=sys.stderr,
+            )
+            return 2
+
+        if args.force_stale:
+            print(
+                f"tusk: --force-stale selected worktree base {base_branch} "
+                f"at {base_sha}.",
+                file=sys.stderr,
+            )
+
         # Resolve the per-repo namespace just before the actual create so the
         # marker write never fires for reused existing rows above (TASK-468).
         namespace = _namespace_for(workspace_root, repo_root)
@@ -1394,7 +1415,7 @@ def cmd_create(
             repo_root,
             workspace_path,
             branch,
-            base_branch,
+            base_sha,
         )
         if not ok:
             print(f"Error: git worktree add failed:\n{err}", file=sys.stderr)
