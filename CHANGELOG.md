@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1226] - 2026-07-15
+
+- [TASK-802] Fix dirty-primary routing when task branch has diverged
+
 ## [1225] - 2026-07-15
 
 - [TASK-801] Clean generated test caches before removing task worktrees
