@@ -1235,8 +1235,8 @@ def cmd_create(
         help=(
             "Create the worktree even when the primary checkout is behind or "
             "diverged from origin/<default>. Reports the selected base ref and "
-            "commit SHA before creation and pins the worktree to that commit. "
-            "Intended only for deliberate stale-primary recovery/debugging."
+            "actual commit SHA before returning success. Intended only for "
+            "deliberate stale-primary recovery/debugging."
         ),
     )
     args = parser.parse_args(argv)
@@ -1397,13 +1397,6 @@ def cmd_create(
             )
             return 2
 
-        if args.force_stale:
-            print(
-                f"tusk: --force-stale selected worktree base {base_branch} "
-                f"at {base_sha}.",
-                file=sys.stderr,
-            )
-
         # Resolve the per-repo namespace just before the actual create so the
         # marker write never fires for reused existing rows above (TASK-468).
         namespace = _namespace_for(workspace_root, repo_root)
@@ -1415,11 +1408,24 @@ def cmd_create(
             repo_root,
             workspace_path,
             branch,
-            base_sha,
+            base_branch,
         )
         if not ok:
             print(f"Error: git worktree add failed:\n{err}", file=sys.stderr)
             return 2
+
+        if args.force_stale:
+            created_head = _run_git(
+                workspace_path,
+                ["rev-parse", "--verify", "HEAD^{commit}"],
+            )
+            if created_head.returncode == 0 and created_head.stdout.strip():
+                base_sha = created_head.stdout.strip()
+            print(
+                f"tusk: --force-stale selected worktree base {base_branch} "
+                f"at {base_sha}.",
+                file=sys.stderr,
+            )
 
         # Apply cone-mode sparse-checkout when the task has referenced paths,
         # so the worktree materializes only the task scope plus the always-

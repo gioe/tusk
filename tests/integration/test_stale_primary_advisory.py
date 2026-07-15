@@ -282,8 +282,13 @@ def test_force_stale_diverged_primary_discloses_and_pins_origin_base(
     worktree_sha = _git(
         ["rev-parse", "HEAD"], cwd=payload["workspace_path"]
     ).stdout.strip()
+    worktree_upstream = _git(
+        ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+        cwd=payload["workspace_path"],
+    ).stdout.strip()
     assert worktree_sha == origin_sha
     assert worktree_sha != local_sha
+    assert worktree_upstream == "origin/main"
 
 
 def test_behind_and_heavily_dirty_primary_warns_about_stash_round_trip(
