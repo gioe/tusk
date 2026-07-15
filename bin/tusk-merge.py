@@ -4061,6 +4061,7 @@ def main(argv: list[str]) -> int:
                     route_dirty_default = (
                         not use_pr
                         and current_branch == default_branch_probe
+                        and _has_remote()
                         and _default_checkout_has_tracked_changes()
                     )
                     if (
