@@ -354,9 +354,8 @@ def test_pre_staged_code_runs_gate(tmp_path):
     assert "skipping test gate" not in result.stdout
 
 
-def test_unstaged_deletion_of_code_runs_gate(tmp_path):
-    """An unstaged deletion of a tracked code file is auto-swept into the
-    commit by Step 2.5, so the gate must run even when only VERSION is passed."""
+def test_unstaged_deletion_outside_explicit_paths_stays_outside_commit(tmp_path):
+    """An unrelated code deletion neither runs the gate nor enters the commit."""
     repo = str(tmp_path / "repo")
     _git_init(repo)
     marker = tmp_path / "gate_ran"
@@ -378,8 +377,65 @@ def test_unstaged_deletion_of_code_runs_gate(tmp_path):
         f"expected success, got {result.returncode}.\n"
         f"stdout={result.stdout}\nstderr={result.stderr}"
     )
-    assert marker.exists(), "gate must run when a swept-in code deletion is committed"
+    assert not marker.exists(), "unrelated unstaged code must not affect the gate"
+    assert "skipping test gate" in result.stdout
+    status = subprocess.run(
+        ["git", "-C", repo, "status", "--short"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+    )
+    assert status.stdout.splitlines() == [" D mod.py"]
+    committed = subprocess.run(
+        ["git", "-C", repo, "show", "--format=", "--name-only", "HEAD"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+    )
+    assert committed.stdout.strip() == "VERSION"
+
+
+def test_explicit_deletion_of_code_runs_gate_and_lands(tmp_path):
+    """An explicitly listed code deletion runs the gate and enters the commit."""
+    repo = str(tmp_path / "repo")
+    _git_init(repo)
+    marker = tmp_path / "gate_ran"
+    config_path = _write_config(tmp_path, marker)
+
+    with open(os.path.join(repo, "mod.py"), "w", encoding="utf-8") as f:
+        f.write("y = 2\n")
+    subprocess.run(["git", "-C", repo, "add", "mod.py"], check=True)
+    subprocess.run(["git", "-C", repo, "commit", "-q", "-m", "add mod"], check=True)
+    os.remove(os.path.join(repo, "mod.py"))
+    with open(os.path.join(repo, "VERSION"), "w", encoding="utf-8") as f:
+        f.write("2\n")
+
+    result = _run_commit(repo, config_path, "VERSION", "mod.py")
+
+    assert result.returncode == 0, (
+        f"expected success, got {result.returncode}.\n"
+        f"stdout={result.stdout}\nstderr={result.stderr}"
+    )
+    assert marker.exists(), "explicit code deletion must run the gate"
     assert "skipping test gate" not in result.stdout
+    status = subprocess.run(
+        ["git", "-C", repo, "status", "--short"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+    )
+    assert status.stdout == ""
+    committed = subprocess.run(
+        ["git", "-C", repo, "show", "--format=", "--name-status", "HEAD"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+    )
+    assert set(committed.stdout.splitlines()) == {"A\tVERSION", "D\tmod.py"}
 
 
 def test_version_only_skips_gate_via_default_fallback(tmp_path):
