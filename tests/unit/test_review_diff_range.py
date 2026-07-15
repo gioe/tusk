@@ -297,7 +297,7 @@ class TestPrimaryRange:
             check=True,
         ).stdout
 
-    def test_uses_local_default_when_unpublished_commits_are_task_ancestors(
+    def test_uses_local_default_when_shared_task_base_is_unpublished(
         self, tmp_path, monkeypatch
     ):
         """Issue #1209: a rebase onto unpublished local main must not make
@@ -359,6 +359,32 @@ class TestPrimaryRange:
             ["git", "-C", repo_root, "rebase", "main"], check=True
         )
 
+        # Local main can advance again after the task rebase. Its tip is no
+        # longer an ancestor of the feature branch, but the triple-dot range
+        # still resolves through their unpublished shared task baseline.
+        subprocess.run(
+            ["git", "-C", repo_root, "checkout", "-q", "main"], check=True
+        )
+        with open(os.path.join(repo_root, "later-local.txt"), "w") as f:
+            f.write("later-local\n")
+        subprocess.run(
+            ["git", "-C", repo_root, "add", "later-local.txt"], check=True
+        )
+        subprocess.run(
+            [
+                "git", "-C", repo_root, "commit", "-q", "-m",
+                "Later unpublished local work",
+            ],
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git", "-C", repo_root, "checkout", "-q",
+                "feature/TASK-44-rebased",
+            ],
+            check=True,
+        )
+
         head_sha = subprocess.run(
             ["git", "-C", repo_root, "rev-parse", "HEAD"],
             capture_output=True,
@@ -378,6 +404,7 @@ class TestPrimaryRange:
         ).stdout
         assert "task-only" in diff
         assert "local-only" not in diff
+        assert "later-local" not in diff
         assert result["diff_lines"] == diff.count("\n")
 
 

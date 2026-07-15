@@ -164,19 +164,27 @@ def _ref_exists(ref: str, repo_root: str) -> bool:
     return _git(["rev-parse", "--verify", "--quiet", ref], repo_root).returncode == 0
 
 
-def _local_default_is_unpublished_ancestor(base: str, repo_root: str) -> bool:
-    """Return whether local *base* contributes unpublished ancestors to HEAD.
+def _local_default_has_unpublished_task_base(base: str, repo_root: str) -> bool:
+    """Return whether local *base* and HEAD share an unpublished merge-base.
 
     A task branch can be rebased onto a local default branch that is ahead of
     ``origin/<base>``. In that topology ``origin/<base>...HEAD`` includes the
     local-only default commits as passengers even though they are not part of
-    the task. Comparing from local *base* is safe only when it is actually an
-    ancestor of HEAD; a merely diverged local default must not replace the
-    remote base for a task branch that still starts from ``origin/<base>``.
+    the task. The local default may advance again after that rebase, so its tip
+    need not remain an ancestor of HEAD. Comparing from local *base* is safe
+    when their merge-base itself contains commits absent from origin; a merely
+    diverged local default whose shared base is still on origin must not replace
+    the remote comparison ref.
     """
     remote = f"origin/{base}"
+    merge_base = _git(["merge-base", base, "HEAD"], repo_root)
+    if merge_base.returncode != 0:
+        return False
+    merge_base_sha = (merge_base.stdout or "").strip()
+    if not merge_base_sha:
+        return False
     unpublished = _git(
-        ["rev-list", "--count", f"{remote}..{base}"], repo_root
+        ["rev-list", "--count", f"{remote}..{merge_base_sha}"], repo_root
     )
     if unpublished.returncode != 0:
         return False
@@ -186,10 +194,7 @@ def _local_default_is_unpublished_ancestor(base: str, repo_root: str) -> bool:
         return False
     if unpublished_count == 0:
         return False
-    ancestor = _git(
-        ["merge-base", "--is-ancestor", base, "HEAD"], repo_root
-    )
-    return ancestor.returncode == 0
+    return unpublished_count > 0
 
 
 def primary_range(base: str, repo_root: str) -> str:
@@ -197,7 +202,7 @@ def primary_range(base: str, repo_root: str) -> str:
     remote = f"origin/{base}"
     remote_exists = _ref_exists(remote, repo_root)
     if remote_exists:
-        if _local_default_is_unpublished_ancestor(base, repo_root):
+        if _local_default_has_unpublished_task_base(base, repo_root):
             return f"{base}...HEAD"
         return f"{remote}...HEAD"
     return f"{base}...HEAD"
