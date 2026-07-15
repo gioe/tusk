@@ -164,11 +164,41 @@ def _ref_exists(ref: str, repo_root: str) -> bool:
     return _git(["rev-parse", "--verify", "--quiet", ref], repo_root).returncode == 0
 
 
+def _local_default_is_unpublished_ancestor(base: str, repo_root: str) -> bool:
+    """Return whether local *base* contributes unpublished ancestors to HEAD.
+
+    A task branch can be rebased onto a local default branch that is ahead of
+    ``origin/<base>``. In that topology ``origin/<base>...HEAD`` includes the
+    local-only default commits as passengers even though they are not part of
+    the task. Comparing from local *base* is safe only when it is actually an
+    ancestor of HEAD; a merely diverged local default must not replace the
+    remote base for a task branch that still starts from ``origin/<base>``.
+    """
+    remote = f"origin/{base}"
+    unpublished = _git(
+        ["rev-list", "--count", f"{remote}..{base}"], repo_root
+    )
+    if unpublished.returncode != 0:
+        return False
+    try:
+        unpublished_count = int((unpublished.stdout or "").strip())
+    except ValueError:
+        return False
+    if unpublished_count == 0:
+        return False
+    ancestor = _git(
+        ["merge-base", "--is-ancestor", base, "HEAD"], repo_root
+    )
+    return ancestor.returncode == 0
+
+
 def primary_range(base: str, repo_root: str) -> str:
     """Choose the best default-branch comparison ref for review diffs."""
     remote = f"origin/{base}"
     remote_exists = _ref_exists(remote, repo_root)
     if remote_exists:
+        if _local_default_is_unpublished_ancestor(base, repo_root):
+            return f"{base}...HEAD"
         return f"{remote}...HEAD"
     return f"{base}...HEAD"
 

@@ -297,6 +297,89 @@ class TestPrimaryRange:
             check=True,
         ).stdout
 
+    def test_uses_local_default_when_unpublished_commits_are_task_ancestors(
+        self, tmp_path, monkeypatch
+    ):
+        """Issue #1209: a rebase onto unpublished local main must not make
+        those inherited commits passengers in the task review.
+        """
+        repo_root, _ = _make_repo(tmp_path, default_branch="main")
+        monkeypatch.setattr(mod, "default_branch", lambda _repo: "main")
+
+        seed_sha = subprocess.run(
+            ["git", "-C", repo_root, "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        ).stdout.strip()
+        subprocess.run(
+            [
+                "git", "-C", repo_root, "update-ref",
+                "refs/remotes/origin/main", seed_sha,
+            ],
+            check=True,
+        )
+
+        with open(os.path.join(repo_root, "local-only.txt"), "w") as f:
+            f.write("local-only\n")
+        subprocess.run(
+            ["git", "-C", repo_root, "add", "local-only.txt"], check=True
+        )
+        subprocess.run(
+            [
+                "git", "-C", repo_root, "commit", "-q", "-m",
+                "Local unpublished work",
+            ],
+            check=True,
+        )
+
+        # Start from the recorded origin baseline, then reproduce the incident
+        # by rebasing the task commit onto the unpublished local default.
+        subprocess.run(
+            [
+                "git", "-C", repo_root, "checkout", "-q", "-b",
+                "feature/TASK-44-rebased", "origin/main",
+            ],
+            check=True,
+        )
+        with open(os.path.join(repo_root, "task-only.txt"), "w") as f:
+            f.write("task-only\n")
+        subprocess.run(
+            ["git", "-C", repo_root, "add", "task-only.txt"], check=True
+        )
+        subprocess.run(
+            [
+                "git", "-C", repo_root, "commit", "-q", "-m",
+                "[TASK-44] Task work",
+            ],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", repo_root, "rebase", "main"], check=True
+        )
+
+        head_sha = subprocess.run(
+            ["git", "-C", repo_root, "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        ).stdout.strip()
+        result = mod.compute_range(44, repo_root)
+
+        assert result["range"] == f"main...{head_sha}"
+        diff = subprocess.run(
+            ["git", "-C", repo_root, "diff", result["range"]],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        ).stdout
+        assert "task-only" in diff
+        assert "local-only" not in diff
+        assert result["diff_lines"] == diff.count("\n")
+
 
 class TestTaskCommitRecovery:
     """When primary is empty, fall back to [TASK-N] commit-range recovery."""
