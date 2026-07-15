@@ -284,6 +284,42 @@ def _worktree_path_for_branch(branch: str) -> str | None:
     return None
 
 
+def _default_checkout_is_dirty_and_diverged(default_branch: str) -> bool:
+    """Return whether the current default checkout needs no-checkout routing.
+
+    A recorded task workspace normally merges locally when the caller is on the
+    default branch.  That is unsafe when tracked changes would need stashing and
+    the local default ref has diverged from its origin ref: synchronizing the
+    default branch can make the stash impossible to restore cleanly.  Keep this
+    probe read-only and best-effort; unexpected git failures preserve the
+    established local-merge path and its existing diagnostics.
+    """
+    unstaged = run(["git", "diff", "--quiet", "--"], check=False)
+    staged = run(["git", "diff", "--cached", "--quiet", "--"], check=False)
+    if unstaged.returncode not in (0, 1) or staged.returncode not in (0, 1):
+        return False
+    if unstaged.returncode == 0 and staged.returncode == 0:
+        return False
+
+    divergence = run(
+        [
+            "git",
+            "rev-list",
+            "--left-right",
+            "--count",
+            f"{default_branch}...origin/{default_branch}",
+        ],
+        check=False,
+    )
+    if divergence.returncode != 0:
+        return False
+    try:
+        local_only, origin_only = map(int, divergence.stdout.split())
+    except (TypeError, ValueError):
+        return False
+    return local_only > 0 and origin_only > 0
+
+
 def _format_locked_default_without_origin(
     default_branch: str,
     locked_default_path: str | None,
@@ -3978,9 +4014,13 @@ def main(argv: list[str]) -> int:
             # lives in a separate worktree, and `tusk merge --rebase` blows
             # up with a misleading "cannot rebase: You have unstaged changes"
             # that names the primary's files (issue #764). Skip the chdir
-            # when CWD is already on the default branch — the existing
-            # ff-only path expects to run `git merge --ff-only feature` from
-            # whichever worktree has the default branch checked out.
+            # when CWD is already on a clean or non-diverged default branch —
+            # the existing ff-only path expects to run `git merge --ff-only
+            # feature` from whichever worktree has the default branch checked
+            # out.  A dirty, diverged default checkout is different: route to
+            # the recorded workspace before auto-stashing so the existing
+            # no-checkout path and strand guard can handle it without touching
+            # the primary index (issue #1210).
             if path_exists:
                 try:
                     current_cwd_real = os.path.realpath(os.getcwd())
@@ -3997,15 +4037,35 @@ def main(argv: list[str]) -> int:
                         if current_branch_result.returncode == 0
                         else ""
                     )
-                    if current_branch != default_branch_probe:
-                        os.chdir(candidate_path)
-                        print(
-                            f"Note: switched CWD to recorded task workspace "
-                            f"{candidate_path} so rebase/push/branch-delete "
-                            "operate on the feature branch's worktree, not the "
-                            "primary repo.",
-                            file=sys.stderr,
+                    route_dirty_diverged_default = (
+                        not use_pr
+                        and current_branch == default_branch_probe
+                        and _default_checkout_is_dirty_and_diverged(
+                            default_branch_probe
                         )
+                    )
+                    if (
+                        current_branch != default_branch_probe
+                        or route_dirty_diverged_default
+                    ):
+                        os.chdir(candidate_path)
+                        if route_dirty_diverged_default:
+                            print(
+                                f"Note: switched CWD to recorded task workspace "
+                                f"{candidate_path} because the primary default "
+                                "checkout is dirty and diverged; using the "
+                                "no-checkout safety path instead of stashing "
+                                "primary changes.",
+                                file=sys.stderr,
+                            )
+                        else:
+                            print(
+                                f"Note: switched CWD to recorded task workspace "
+                                f"{candidate_path} so rebase/push/branch-delete "
+                                "operate on the feature branch's worktree, not "
+                                "the primary repo.",
+                                file=sys.stderr,
+                            )
         else:
             reasons = []
             if not branch_exists:
