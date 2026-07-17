@@ -8,7 +8,6 @@ __pycache__/
 # Source repo only: .claude/skills/ contains symlinks created by tusk sync-skills
 # and should not be committed here. In target (installed) projects, .claude/skills/
 # is NOT gitignored so that skill file edits can be committed — see update_gitignore().
-.claude/skills/
 .tusk/
 config.default.json.bak
 
