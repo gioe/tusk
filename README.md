@@ -1,334 +1,254 @@
-# tusk
+# Tusk
 
-A portable task and context handoff system for AI-assisted software projects. Tusk gives Claude Code and Codex a local SQLite database, CLI, skills/prompts, and durable task records so agents can track, prioritize, resume, and complete work without relying on the original chat transcript.
+**Durable context and task orchestration for coding agents.**
 
-## What You Get
+[![Integration suite](https://github.com/gioe/tusk/actions/workflows/integration.yml/badge.svg)](https://github.com/gioe/tusk/actions/workflows/integration.yml)
+[![Latest release](https://img.shields.io/github/v/release/gioe/tusk)](https://github.com/gioe/tusk/releases/latest)
 
-- **`tusk` CLI** — single entry point for task state, context hydration, criteria, dependencies, sessions, review, and merge operations
-- **Skills and prompts** — Claude Code skills and Codex prompt ports for task workflows (`/tusk-init`, `/tusk`, `/create-task`, `/groom-backlog`)
-- **Durable context snapshots** — objectives, tasks, criteria, progress, jots, reviews, and context atoms preserve enough handoff context for a future agent to act
-- **Scripts** — Python utilities for task briefs, duplicate detection, dependency management, summaries, dashboard data, and migrations
-- **Config-driven schema** — define your project's domains, task types, agents, and validation rules in JSON; validation triggers are generated automatically
+![Tusk — durable context for coding agents](docs/assets/tusk-social-preview.png)
+
+Tusk turns a Git repository into a local, agent-operable work system. It gives Claude Code and Codex a shared SQLite task database, a single CLI, and native workflows for planning, isolated implementation, verification, review, handoff, and autonomous backlog execution.
+
+The result is continuity beyond the current chat: a future agent can recover what matters, why it matters, what was tried, what remains, and what proves the work is done.
+
+Tusk is local-first. It runs from your repository, stores project state in SQLite, and requires no hosted Tusk service.
+
+## Why Tusk?
+
+Coding agents are effective inside a session. Software projects are not confined to one.
+
+Without durable structure, context gets flattened into chat history, TODO files, or issue prose. Decisions disappear, “done” becomes subjective, interrupted work is expensive to resume, and autonomous runs repeat discovery that a previous session already paid for.
+
+Tusk makes context handoff part of the development workflow:
+
+```text
+Objective  →  Task  →  Criteria  →  Verification
+                 ↘  progress, decisions, risks, reviews, cost, next steps
+```
+
+- **Objectives** preserve initiative-level intent across multiple changes.
+- **Tasks** are independently shippable units with their own workspace and history.
+- **Criteria** define the observable promises a task must satisfy.
+- **Verifications** provide executable or reviewable proof.
+- **Context atoms** retain compact decisions, assumptions, risks, questions, memories, and entry points.
+
+Agents read only the relevant slice at pickup and write back what the next session needs.
+
+## What Tusk Does
+
+| Capability | What it provides |
+|---|---|
+| Durable handoff | Compiled task briefs, progress checkpoints, next steps, context atoms, and objective rollups |
+| Isolated execution | Task-owned Git worktrees and short-lived feature branches for concurrent agent work |
+| Verifiable completion | Manual, test, code, and file criteria with recorded completion evidence |
+| Workflow control | Readiness, dependency DAGs, scope guards, duplicate detection, review gates, and merge semantics |
+| Autonomous operation | Backlog grooming, dependency chains, objective execution, looped task dispatch, and proposed follow-up work |
+| Observability | Session duration, token and cost attribution, review history, task summaries, dashboards, and health audits |
+| Self-improvement | Jots, retrospectives, recurring-theme detection, lint rules, and prioritized process follow-ups |
+| Cross-agent support | Claude Code skills and Codex prompt ports backed by the same CLI and database |
 
 ## Quick Start
 
-```bash
-# Clone the repo somewhere on your machine
-git clone https://github.com/gioe/tusk.git
+### 1. Install Tusk into a Git project
 
-# From your project root (must be a git repo)
-cd /path/to/your/project
+```bash
+git clone https://github.com/gioe/tusk.git /path/to/tusk
+
+cd /path/to/your-project
 /path/to/tusk/install.sh
 ```
 
-This will:
-1. Install `tusk`, skills, scripts, and default config
-2. Create `tusk/config.json` with defaults
-3. Initialize the database at `tusk/tasks.db`
+The target project must identify its agent environment:
 
-Then start a new Claude Code session and run `/tusk-init`. It will scan existing code when present, or interview you about a fresh project's intent before suggesting domains, agents, utility modules, starter files, durable memory, and initial tasks.
+- **Claude Code:** a `.claude/` directory is present. Tusk installs its CLI, skills, and Git-event hooks under `.claude/`.
+- **Codex:** an `AGENTS.md` file is present and `.claude/` is absent. Tusk installs the CLI under `tusk/bin/` and prompt ports under `.codex/prompts/`.
 
-You can also configure manually by editing `tusk/config.json` and running `tusk init --force`.
+Installation creates project configuration at `tusk/config.json` and the local database at `tusk/tasks.db`.
 
-## Context Handoff Model
+### 2. Configure the project
 
-Tusk treats the database as a durable context snapshot, not just a backlog. Objectives capture larger intent, tasks stay scoped to shippable work, criteria define completion, verifications prove the work, and compact context atoms preserve decisions, risks, assumptions, and memory for the next agent.
+For Claude Code, start a new session so the installed skills are discovered, then run:
 
-The write side of tusk (`/create-task`, `/retro`, `/investigate`, and direct task or criteria commands) records structured context as work is discovered. The read side (`/tusk`, `/resume-task`, `/chain`) starts from the task record, criteria, dependencies, progress, and `tusk task-brief <id>` so it can hydrate only the relevant context needed to ship the next change.
+```text
+/tusk-init
+```
 
-### Upgrading
+For Codex or a terminal-first setup, run:
 
-To pull the latest version of tusk into an installed project:
+```bash
+tusk init-wizard
+```
+
+The wizard can scan an existing codebase or capture a fresh project's intent. It proposes domains, task types, agents, test commands, project memory, starter files, utility modules, and an initial vertical-slice backlog before writing anything.
+
+### 3. Start working
+
+Let the agent select the highest-priority ready task:
+
+```text
+/tusk
+```
+
+Or use the CLI directly:
+
+```bash
+tusk task-list
+tusk task-start TASK-42
+tusk task-worktree create TASK-42 short-slug
+tusk task-brief TASK-42 --format markdown
+```
+
+## The Task Lifecycle
+
+Tusk's default workflow is reviewed trunk-based development with isolated task workspaces:
+
+```text
+select → start → create worktree → implement → verify → commit → review → merge → retro
+```
+
+1. `task-select` chooses ready work using priority, dependencies, timing, and workflow rules.
+2. `task-start` opens a tracked session and hydrates task context.
+3. `task-worktree create` creates an isolated workspace on `feature/TASK-N-slug`.
+4. `tusk commit` runs the configured test gate and records task-aware commits.
+5. Criteria are verified and linked to completion evidence.
+6. AI review records findings and resolutions against the task diff.
+7. `tusk merge` fast-forwards locally by default, or uses a pull request when configured.
+8. Retrospectives turn friction and recurring patterns into durable improvements.
+
+Branches remain the version-control handle; pull requests are optional. This keeps the default workflow lightweight while preserving a CI or human-review path when a project needs one.
+
+## Workflows for Agents
+
+Tusk ships parallel Claude Code skills and Codex prompt ports for its major workflows.
+
+| Workflow | Purpose |
+|---|---|
+| `tusk` | Select or resume one task and carry it through implementation, review, and merge |
+| `create-task` | Convert requirements, bugs, notes, or investigations into structured, deduplicated tasks |
+| `resume-task` | Recover interrupted work from task state, branch history, and progress checkpoints |
+| `chain` | Execute a dependency sub-DAG in ready order |
+| `objective` | Decompose and drive a multi-task initiative through completion |
+| `loop` | Continue through ready backlog work until a stop condition or empty backlog |
+| `groom-backlog` | Close stale work, detect duplicates, repair scope, and normalize priority |
+| `review-commits` | Review task commits, fix blocking findings, and preserve follow-ups |
+| `retro` | Capture process friction, themes, lint rules, and improvement tasks |
+| `investigate` | Research a problem and produce an evidence-based assessment before task creation |
+| `tusk-insights` | Audit database health, workflow quality, cost, and task metrics |
+
+Claude Code can use native multi-agent execution where supported. Codex uses sequential prompt ports around the same deterministic CLI orchestrators and durable state.
+
+## Autonomous and Multi-Task Work
+
+Tusk understands more than a flat backlog:
+
+- **Dependencies** distinguish blocking prerequisites from contingent work.
+- **Chains** traverse ready tasks in dependency order.
+- **Objectives** group shippable tasks under a larger outcome without turning the outcome into one oversized task.
+- **Loops** drain ready work and surface ranked proposals when the backlog is empty.
+- **Bakeoffs** run the same task under multiple models in isolated worktrees and let you select the winning implementation.
+- **Scope enforcement** keeps commits inside the paths declared by the task and flags drift before merge.
+
+```bash
+tusk deps ready
+tusk chain status TASK-42
+tusk objective brief OBJ-7 --format markdown
+tusk loop --dry-run
+tusk bakeoff TASK-42 --models model-a,model-b
+```
+
+## Observability
+
+Every task can retain its session, model, token usage, estimated cost, duration, diff size, review history, criteria evidence, and next steps.
+
+```bash
+tusk task-summary TASK-42 --format markdown
+tusk objective brief OBJ-7 --format markdown
+tusk session-stats
+tusk call-breakdown TASK-42
+tusk insights
+tusk dashboard
+```
+
+`tusk dashboard` produces a self-contained HTML view of backlog health, task metrics, costs, skill runs, and dependency structure. No separate server is required.
+
+## Configuration
+
+Tusk adapts to a project through `tusk/config.json` rather than source edits:
+
+```json
+{
+  "domains": ["frontend", "backend", "infrastructure", "docs"],
+  "task_types": ["bug", "feature", "refactor", "test", "docs"],
+  "priorities": ["Highest", "High", "Medium", "Low", "Lowest"],
+  "complexity": ["XS", "S", "M", "L", "XL"],
+  "test_command": "python3 -m pytest tests/unit/ -q",
+  "review": {
+    "mode": "ai_only",
+    "max_passes": 2
+  },
+  "merge": {
+    "mode": "local"
+  }
+}
+```
+
+Config drives validation, ranking, assignment, test gates, review behavior, merge policy, bootstrap packs, sparse worktree cones, and project-specific workflows. Run `tusk regen-triggers` after changing validated enum values in an existing installation.
+
+## Local-First Architecture
+
+The `tusk` wrapper is the single source of truth for project paths and command dispatch:
+
+```text
+agent skill or prompt
+        ↓
+     tusk CLI
+        ↓
+ local SQLite database + Git worktrees + project config
+```
+
+- SQLite provides portable state, migrations, validation triggers, WAL concurrency, and auditable history.
+- Bash provides the stable command surface and project-path resolution.
+- Focused Python helpers implement deterministic operations behind CLI subcommands.
+- Git worktrees isolate concurrent tasks without requiring a hosted coordinator.
+- Skills and prompts provide agent-specific interaction while keeping workflow state agent-neutral.
+
+Tusk does not upload the task database to a Tusk service. Commands that intentionally integrate with GitHub, fetch upgrades, or refresh model pricing use the corresponding external service explicitly.
+
+## Upgrade Safely
+
+From an installed project:
 
 ```bash
 tusk upgrade
 ```
 
-This downloads the latest release from GitHub, updates all files (CLI, skills, scripts), and runs schema migrations. Your config (`tusk/config.json`) and database (`tusk/tasks.db`) are never touched.
+Upgrades replace managed CLI, skill, prompt, and hook files, then apply schema migrations. They do not overwrite `tusk/config.json` or `tusk/tasks.db`.
 
-## Configuration
+## Documentation
 
-Edit `tusk/config.json` after install:
+- [Product pillars](docs/PILLARS.md) — the values used to resolve design tradeoffs
+- [Domain model](docs/DOMAIN.md) — schema, views, invariants, and lifecycle rules
+- [Skills and workflows](docs/SKILLS.md) — agent workflow reference
+- [Codex support](docs/CODEX.md) — installation layout and parity notes
+- [Git hooks](docs/HOOKS.md) — dispatcher contract and installed guards
+- [Migrations](docs/MIGRATIONS.md) — schema evolution rules and templates
+- [CLI helpers](docs/SCRIPTS.md) — command implementation reference
+- [Changelog](CHANGELOG.md) — release history
 
-```json
-{
-  "domains": ["Frontend", "Backend", "Infrastructure", "Docs"],
-  "task_types": ["bug", "feature", "refactor", "test", "docs", "infrastructure"],
-  "statuses": ["To Do", "In Progress", "Done"],
-  "priorities": ["Highest", "High", "Medium", "Low", "Lowest"],
-  "closed_reasons": ["completed", "expired", "wont_do", "duplicate"],
-  "agents": {
-    "frontend-engineer": "React, CSS, and UI components",
-    "backend-engineer": "API endpoints, database, and server logic"
-  },
-  "test_command": "pytest tests/",  // shell command run by `tusk commit` before staging; empty string disables
-  "review": {
-    "mode": "ai_only",              // "disabled" skips /review-commits; "ai_only" runs one AI reviewer
-    "max_passes": 2,                // maximum review-fix-re-review cycles before stopping
-    "reviewer": { "name": "general", "description": "..." }  // single AI reviewer persona; omit for inline review only
-  },
-  "dupes": {
-    "check_threshold": 0.82,        // cosine similarity above which a task is flagged as a likely duplicate
-    "similar_threshold": 0.6        // cosine similarity above which a task is surfaced as possibly similar
-  },
-  "merge": {
-    "mode": "local"                 // "local" = fast-forward merge; "pr" = squash-merge via gh pr merge
-  },
-  "project_type": "ios_app"        // selects matching utility bootstrap packs (null = disabled)
-}
-```
-
-- **domains**: Empty array means no domain validation (any value accepted)
-- **task_types**: Empty array means no task_type validation
-- **agents**: Used by `/groom-backlog` to auto-assign tasks; empty object skips assignment
-- **statuses**, **priorities**, **closed_reasons**: Changing these is possible but not recommended
-- **test_command**: Shell command run by `tusk commit` before staging files; a non-zero exit blocks the commit. Empty string disables the check. In consumer installs, Tusk-run commit and test-precheck gates add pytest ignore globs for `test_tusk_*.py` so stale downstream copies of Tusk's own framework tests do not break unrelated project gates. Tests that import private `.claude/bin/tusk-*.py` helper functions are not a supported downstream API; keep project tests focused on observable CLI behavior.
-- **review.mode**: Controls `/review-commits` behavior — `"disabled"` skips AI review entirely; `"ai_only"` runs the configured reviewer
-- **review.max_passes**: Maximum number of review → fix → re-review cycles before the skill stops iterating
-- **review.reviewer**: Optional AI reviewer persona with `name` and `description`. When absent, `/review-commits` falls back to inline (non-agent) review
-- **dupes.check_threshold**: Cosine similarity score (0–1) above which a candidate is treated as a likely duplicate and blocked
-- **dupes.similar_threshold**: Cosine similarity score (0–1) above which a candidate is surfaced as possibly similar (for human review)
-- **merge.mode**: `"local"` performs a fast-forward merge directly; `"pr"` squash-merges via `gh pr merge`
-- **project_type**: Selects which configured utility bootstrap packs can be fetched and proposed during `/tusk-init`; `null` disables project-lib seeding
-
-### Intent-Driven Project Bootstrap
-
-During `/tusk-init`, Tusk acts as a spec-driven project bootstrapper. For existing projects it starts from codebase signals. For fresh projects it asks intent questions first: who the project serves, which workflows should work end to end, launch surfaces, stack preferences, integrations, data needs, quality priorities, non-goals, and open questions. Those answers become a normalized `init_intent` record in `tusk/config.json`, so future agents can recover the setup rationale without the original chat.
-
-The wizard uses that intent to infer an archetype such as `consumer_ios_app`, `b2b_dashboard`, or `api_service`. The archetype, `project_type`, platforms, stack preferences, integrations, and quality priorities drive utility bootstrap-pack selection. Before anything is written, Tusk builds one editable bootstrap plan showing:
-
-- selected utility repos and modules, with matched reasons;
-- optional modules skipped because their utility repo is not configured yet;
-- starter files to create, append, or manage inside marker blocks;
-- durable context atoms, design pillars, and glossary entries to seed;
-- generic setup tasks from utility repos; and
-- first vertical-slice tasks derived from the user's stated workflow.
-
-The user can accept the plan, remove or add modules, pick or edit generated tasks, emit the plan only, or skip materialization. Non-interactive `tusk init-wizard` calls must pass `--plan-action accept` before any scaffold files, memory, or plan tasks are written.
-
-Set `project_type` in `tusk/config.json` (or via `/tusk-update`) to enable utility bootstrap packs.
-
-Two built-in project types are included:
-
-| `project_type` | Library repo | What gets seeded |
-|---|---|---|
-| `ios_app` | [gioe/ios-libs](https://github.com/gioe/ios-libs) — standalone Swift Package providing SharedKit (UI design tokens) and APIClient (HTTP client) | Tasks for adding the SPM dependency, configuring design tokens, and wiring up APIClient |
-| `python_service` | [gioe/python-libs](https://github.com/gioe/python-libs) — standalone Python package (`gioe-libs`) providing structured logging and observability utilities | Tasks for installing the package, configuring structured logging, and enabling observability |
-
-Generic setup tasks and first vertical-slice tasks serve different purposes. Utility setup tasks install or configure shared libraries, package dependencies, design tokens, clients, logging, and test scaffolding. Vertical-slice tasks describe the first useful product workflow across behavior, data, integrations, verification, and docs, so the initial backlog is not only infrastructure chores.
-
-Starter files are applied with safe, idempotent materialization rules. `create_only` writes a new file only when it does not exist. `append_if_missing` adds a snippet only if the exact content is not already present. `marker_block` replaces only the content between explicit begin/end markers and leaves user-authored content outside the markers alone. Template variables such as `{{ init_intent.platforms.0 }}` are resolved from confirmed init intent; missing variables are conflicts, not silent blanks. Re-running accepted init skips existing files, duplicate task inserts, existing context atoms, existing pillars, and existing glossary terms.
-
-Each utility repo publishes its own root-level `tusk-bootstrap.json`. Starter contracts and schema-validated examples for utility maintainers live under `docs/bootstrap-packs/`.
-
-## CLI Reference
+## Development
 
 ```bash
-tusk "SELECT ..."           # Run SQL
-tusk -header -column "SQL"   # With formatting flags
-tusk path                    # Print resolved DB path
-tusk config                  # Print full config JSON
-tusk config domains          # List valid domains
-tusk config agents           # List configured agents
-tusk init                    # Bootstrap DB (safe — skips if exists)
-tusk init --force            # Recreate DB from scratch
-tusk shell                   # Interactive sqlite3 shell
-tusk version                 # Print installed version
-tusk migrate                 # Apply pending schema migrations
-tusk upgrade                 # Upgrade tusk from GitHub
-tusk task-brief <id>         # Compile a pickup brief for context hydration
-tusk context add <id> --type decision --content "..."  # Add a durable context atom
-tusk context list <id>       # List active context atoms for a task
+python3 -m pip install -r requirements-dev.txt
+python3 -m pytest tests/unit/ -q
+python3 -m pytest tests/integration/ -q
 ```
 
-## Skills
+The unit suite is the local commit gate. The full hermetic integration suite runs in GitHub Actions for pull requests and pushes to `main`.
 
-| Skill | Description |
-|-------|-------------|
-| `/tusk` | Get the highest-priority ready task and start working on it |
-| `/tusk 42` | Begin the full dev workflow on task #42 |
-| `/tusk list 5` | Show top 5 ready tasks |
-| `/tusk preview` | Show next task without starting it |
-| `/groom-backlog` | Analyze and clean up the backlog |
-| `/tusk-init` | Interactive setup wizard — scans codebase, suggests config, seeds tasks |
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution workflow and [SECURITY.md](SECURITY.md) for responsible vulnerability reporting.
 
-## CLAUDE.md Setup
+## Feedback
 
-The `/tusk-init` skill can generate this automatically. To add it manually:
-
-```markdown
-## Task Queue
-
-The project task database is managed via `tusk`. Use it for all task operations:
-
-    tusk "SELECT ..."          # Run SQL
-    tusk -header -column "SQL"  # With formatting flags
-    tusk path                   # Print resolved DB path
-    tusk config                 # Print project config
-    tusk init                   # Bootstrap DB
-
-Never hardcode the DB path — always go through `tusk`.
-```
-
-## Schema
-
-The database schema is documented in detail in [`docs/DOMAIN.md`](docs/DOMAIN.md). At a high level, tusk stores:
-
-- **Objectives** for larger product or project intent
-- **Tasks** for shippable work units, with status, priority, scope, dependencies, and closeout metadata
-- **Acceptance criteria** for completion promises
-- **Task context items** for durable handoff atoms such as assumptions, risks, decisions, questions, memory, and entry points
-- **Progress, sessions, skill runs, and reviews** for auditability, cost tracking, resumability, and proof of completion
-
-The schema is migration-backed and config-aware: enum-like fields are validated by SQLite triggers generated from `tusk/config.json`, while migrations preserve existing task history during upgrades.
-
-## Pricing
-
-`pricing.json` contains per-model token rates (USD per million tokens) used by `tusk session-stats` to compute the `cost_dollars` column in `task_sessions`. It ships with tusk and is updated via `tusk pricing-update`.
-
-### Structure
-
-```json
-{
-  "models": {
-    "claude-sonnet-4-6": {
-      "input": 3.0,
-      "cache_write_5m": 3.75,
-      "cache_write_1h": 6.0,
-      "cache_read": 0.3,
-      "output": 15.0
-    }
-  },
-  "aliases": {
-    "claude-sonnet-4-6-20250918": "claude-sonnet-4-6"
-  }
-}
-```
-
-- **`models`**: Canonical model IDs mapped to USD per million tokens (e.g., `"input": 3.0` = $3.00/MTok) for five token categories
-- **`aliases`**: Date-stamped model IDs mapped to their canonical key (e.g., `claude-sonnet-4-6-20250918` → `claude-sonnet-4-6`)
-
-### How costs are calculated
-
-`tusk-session-stats.py` parses Claude Code JSONL transcripts, aggregates the `usage` object from each API response, resolves the model ID (exact match → alias lookup → prefix match), and computes cost as:
-
-```
-cost = (usage.input_tokens / 1M × input)
-     + (cache_creation.ephemeral_5m_input_tokens / 1M × cache_write_5m)
-     + (cache_creation.ephemeral_1h_input_tokens / 1M × cache_write_1h)
-     + (usage.cache_read_input_tokens / 1M × cache_read)
-     + (usage.output_tokens / 1M × output)
-```
-
-The left side of each term comes from the transcript; the right side comes from the model's entry in `pricing.json`. When the nested `cache_creation` object is absent (older transcripts), all `cache_creation_input_tokens` are assigned to the 5m tier as a fallback. Claude Code automatically writes JSONL transcripts to `~/.claude/projects/<project_hash>/` during each session — tusk reads these but never writes them. A typical usage object in the transcript looks like:
-
-```json
-{
-  "input_tokens": 2750,
-  "output_tokens": 483,
-  "cache_creation_input_tokens": 12500,
-  "cache_read_input_tokens": 8200,
-  "cache_creation": {
-    "ephemeral_5m_input_tokens": 10000,
-    "ephemeral_1h_input_tokens": 2500
-  }
-}
-```
-
-If `pricing.json` is missing or a model isn't found, cost defaults to `$0` with a warning.
-
-### Updating prices
-
-```bash
-tusk pricing-update              # Fetch latest from Anthropic and update (both cache tiers)
-tusk pricing-update --dry-run    # Show diff without writing
-tusk session-recalc              # Re-run cost calculations for all existing sessions
-```
-
-## How It Works
-
-The `tusk` CLI is the single source of truth for the database path. Everything references it:
-
-- **Skills** call `tusk "SQL"` (never raw `sqlite3`)
-- **Python scripts** resolve the path via `subprocess.check_output(["tusk", "path"])`
-- **Config** lives at `tusk/config.json`; triggers are generated from it at init time
-
-If the DB path ever changes, update one line in `bin/tusk`.
-
-## File Structure
-
-After installation, your project will have:
-
-```
-your-project/
-├── .claude/
-│   ├── bin/
-│   │   ├── tusk                       # CLI (single source of truth)
-│   │   ├── tusk-dupes.py              # Duplicate detection (via tusk dupes)
-│   │   ├── tusk-session-stats.py      # Token/cost tracking (via tusk session-stats)
-│   │   ├── config.default.json        # Fallback config
-│   │   ├── pricing.json               # Per-model token rates (USD/MTok)
-│   │   └── VERSION                    # Installed distribution version
-│   └── skills/
-│       ├── tusk/SKILL.md
-│       ├── groom-backlog/SKILL.md
-│       ├── tasks/SKILL.md
-│       └── tusk-init/SKILL.md
-├── scripts/
-│   └── manage_dependencies.py
-└── tusk/
-    ├── config.json                    # Your project's config
-    └── tasks.db                       # The database
-```
-
-## Troubleshooting
-
-### Skill not found after install
-
-If Claude Code reports an unknown skill (e.g., `/tusk` not recognized) immediately after running `install.sh`, the skill was installed mid-session and has not been discovered yet.
-
-**Resolution:** Start a new Claude Code session. Skills are discovered at session startup — a skill added after the session began will not be available until you restart.
-
-### Task stuck in the wrong state
-
-If a task is stuck `In Progress` when it should be `To Do`, or you need to force-close a task that has open criteria:
-
-```bash
-# Reopen an In Progress task back to To Do
-tusk task-reopen <task_id> --force
-
-# Force-close a task (e.g., wont_do) even if criteria are open
-tusk task-done <task_id> --reason wont_do --force
-```
-
-### Migration failure
-
-If `tusk migrate` fails or reports that schema changes cannot be applied, check for a version mismatch between the installed CLI and the database schema:
-
-```bash
-tusk version          # distribution version of the installed CLI
-tusk shell            # opens sqlite3 shell; then run: PRAGMA user_version;
-```
-
-If `user_version` is ahead of what the installed CLI knows about, you may have downgraded the CLI. Re-run `tusk upgrade` to restore the latest version, then retry `tusk migrate`.
-
-### Database corruption
-
-If the database is corrupted and `tusk` commands are failing with SQLite errors:
-
-> **Warning:** `tusk init --force` **destroys all existing task data**. Back up `tusk/tasks.db` before proceeding.
-
-```bash
-cp tusk/tasks.db tusk/tasks.db.bak   # back up first
-tusk init --force                     # recreate the database from scratch
-```
-
-After reinitializing, re-run `tusk migrate` to apply any pending schema migrations.
-
-## Reporting Issues
-
-Found a bug or have a feature request? Open an issue at https://github.com/gioe/tusk/issues.
-
-If you're reporting a problem from a project where tusk is installed (rather than from the tusk source repo itself), please use the **[Tusk instance feedback](https://github.com/gioe/tusk/issues/new?template=tusk-instance-feedback.md)** issue template. It prompts for your tusk version, project context, observed behavior, reproduction steps, and expected behavior — which helps diagnose issues across different installation environments.
-
-> **Note:** Do not patch `.claude/bin/` files directly. Those files are managed by tusk and will be overwritten the next time you run `tusk upgrade`. To contribute a fix, open an issue or submit a pull request to the source repository.
+- Browse or report issues in [GitHub Issues](https://github.com/gioe/tusk/issues).
+- For a problem observed in an installed project, use the [Tusk instance feedback form](https://github.com/gioe/tusk/issues/new?template=tusk-instance-feedback.yml) and include a runnable reproduction.
+- Do not patch managed `.claude/bin/` or `tusk/bin/` copies in a consumer project; contribute fixes to this source repository instead.
