@@ -174,18 +174,19 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
    - Task assignee field (often indicates the right agent type)
    - Task description and requirements
 
-4. **Confirm failure** — Run the failing tests *before* exploring any code when the task is about *fixing* an existing failure. This confirms the bug still exists and avoids wasted investigation.
+4. **Confirm failure using relevant evidence** — Before exploring code for a task that fixes an existing failure, confirm the reported failure using the evidence type that actually reproduces it. Tests are authoritative only when they exercise the reported behavior; the mere presence of a focused test does not make it the reproducer.
 
    **When to run this step:**
-   - `task_type: bug` → always run
+   - `task_type: bug` → always confirm the failure. For a visual or screenshot bug, use a current screenshot or manual visual check against the active build/checkout. For a logic-test-backed bug, run the relevant failing test.
    - `task_type: test` AND the summary/description indicates fixing a failing or flaky test → run
    - `task_type: test` AND the summary/description indicates *writing new tests* (no existing failure to reproduce, e.g. "Add tests for X", "Write test suite for Y") → **skip this step entirely and proceed to Explore**
    - All other task types (feature, chore, docs, etc.) → skip
 
-   1. Check the task description and acceptance criteria for specific test commands or test names to run.
-   2. If specific tests are named, run them directly. Otherwise, use `tusk test-detect` to find the project's test command, then run the most relevant subset.
-   3. **If tests pass**: before concluding the issue is already fixed, inspect the recorded failure evidence for time/date sensitivity. Signals include date- or year-named tests, local-date versus UTC assertions, and failure timestamps clustered in a narrow wall-clock window (use `run_started_at` / `run_ended_at` from a recorded `tusk test-precheck` verdict when available). When those signals exist, retry under a controlled timezone such as `TZ=UTC` and, when the test framework supports it, a frozen clock at the recorded failure instant. If the controlled reproduction fails, continue to Explore using that output. Only when no time-sensitive signal exists, or controlled retries still pass, run `tusk skill-run cancel <run_id>`, surface that the issue may already be fixed or inaccurate, and stop before investigating further.
-   4. **If tests fail**: capture the failure output. Use it as the primary diagnostic anchor in step 5 (Explore).
+   1. Identify the evidence claimed to reproduce the failure in the task description and acceptance criteria: a test command, current screenshot, or manual observation.
+   2. **Visual or screenshot evidence:** inspect the current screenshot or perform the stated manual visual check against the active build/checkout. If the defect is visible, treat that as the confirmed reproduction and use it as the primary diagnostic anchor in step 5 (Explore). A passing logic test that does not assert rendering must not cancel the run. Only a test that directly asserts the reported rendering defect, such as a screenshot, golden, pixel, or rendering assertion, can invalidate that visual evidence.
+   3. **Logic-test evidence:** if specific relevant tests are named, run them directly. Otherwise, use `tusk test-detect` to find the project's test command, then run the most relevant subset.
+   4. **If a relevant reproducer test passes**: before concluding the issue is already fixed, inspect the recorded failure evidence for time/date sensitivity. Signals include date- or year-named tests, local-date versus UTC assertions, and failure timestamps clustered in a narrow wall-clock window (use `run_started_at` / `run_ended_at` from a recorded `tusk test-precheck` verdict when available). When those signals exist, retry under a controlled timezone such as `TZ=UTC` and, when the test framework supports it, a frozen clock at the recorded failure instant. If the controlled reproduction fails, continue to Explore using that output. Only when no time-sensitive signal exists, or controlled retries still pass, run `tusk skill-run cancel <run_id>`, surface that the issue may already be fixed or inaccurate, and stop before investigating further.
+   5. **If a relevant reproducer test fails**: capture the failure output. Use it as the primary diagnostic anchor in step 5 (Explore).
 
    **State-mutating reproductions:** If the failing command writes to tracked files (e.g. `tusk version-bump`, `tusk changelog-add`, `tusk commit`, `tusk merge --rebase`), do **not** reproduce it against the active task worktree — the writes dirty the working tree and may block `tusk merge` / `tusk abandon` later. Reproduce against a throwaway location instead: `cd` into a fresh `tmp_path` repo (the integration-test pattern) and run the command there, or `git stash` the result immediately after. This is the filesystem analogue of the user-memory guidance to use a `TUSK_DB` throwaway for state-mutating DB reproductions.
 

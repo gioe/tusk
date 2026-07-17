@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1227] - 2026-07-16
+
+- [TASK-804] Distinguish visual bug reproductions from passing logic tests
+
 ## [1226] - 2026-07-15
 
 - [TASK-802] Fix dirty-primary routing when task branch has diverged
