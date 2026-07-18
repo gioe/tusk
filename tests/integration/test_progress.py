@@ -5,6 +5,8 @@ import os
 import sqlite3
 import subprocess
 
+import pytest
+
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TUSK_BIN = os.path.join(REPO_ROOT, "bin", "tusk")
@@ -67,6 +69,66 @@ def _latest_progress(db_path, task_id: int) -> sqlite3.Row:
         ).fetchone()
     finally:
         conn.close()
+
+
+def _progress_count(db_path, task_id: int) -> int:
+    conn = sqlite3.connect(str(db_path))
+    try:
+        return conn.execute(
+            "SELECT COUNT(*) FROM task_progress WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize(
+    "progress_args",
+    [
+        [],
+        ["--note", ""],
+        ["--next-steps", " \t\n"],
+        ["--note", " \t", "--next-steps", "\n"],
+    ],
+)
+def test_progress_rejects_checkpoints_without_meaningful_text(
+    db_path, tmp_path, progress_args
+):
+    task_id = _insert_task(db_path)
+    before = _progress_count(db_path, task_id)
+
+    result = _run(
+        [TUSK_BIN, "progress", str(task_id), *progress_args],
+        cwd=tmp_path,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == (
+        'Usage: tusk progress <task_id> [--note "..."] [--next-steps "..."]\n'
+    )
+    assert _progress_count(db_path, task_id) == before
+
+
+def test_progress_records_note_only_checkpoint(db_path, tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    task_id = _insert_task(db_path)
+    _commit(repo, "feature.txt", "implemented\n", f"[TASK-{task_id}] note checkpoint")
+
+    result = _run(
+        [TUSK_BIN, "progress", str(task_id), "--note", "Decision context"],
+        cwd=repo,
+    )
+
+    payload = json.loads(result.stdout)
+    assert payload["note"] == "Decision context"
+    assert payload["next_steps"] is None
+    row = _latest_progress(db_path, task_id)
+    assert row["note"] == "Decision context"
+    assert row["next_steps"] is None
 
 
 def test_progress_leaves_commit_metadata_null_when_head_does_not_belong_to_task(db_path, tmp_path):
