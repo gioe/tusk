@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1228] - 2026-07-17
+
+- [TASK-806] Add a cost skill for task, objective, and project rollups
+
 ## [1227] - 2026-07-16
 
 - [TASK-804] Distinguish visual bug reproductions from passing logic tests
