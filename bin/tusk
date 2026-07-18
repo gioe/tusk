@@ -327,6 +327,56 @@ else
   TUSK_VERSION="0"
 fi
 
+# Normalize `tusk help <command>` to the command-local help path.  A small
+# group of legacy/manual parsers validate positional IDs before they inspect
+# flags (and session-recalc ignores extra arguments entirely), so handle those
+# commands here before helper checks, schema preflight, snapshots, or delegated
+# code can run.  Argparse-backed commands continue to render their richer help
+# from the owning helper.
+is_known_subcommand() {
+  local subcmd="$1"
+  [[ -n "$subcmd" && "$subcmd" != *[!a-z0-9-]* ]] || return 1
+  grep -qE "^  ${subcmd}\\)" "$0" 2>/dev/null
+}
+
+print_manual_subcommand_help() {
+  case "$1" in
+    branch)
+      echo "Usage: tusk branch <task_id> <slug> [--pop-stash]" ;;
+    commit)
+      echo "Usage: tusk commit <task_id> \"<message>\" <file1> [file2 ...] [--criteria <id>] ... [--skip-verify] [--allow-branch-mismatch] [--verbose]" ;;
+    check-deliverables)
+      echo "Usage: tusk check-deliverables <task_id>" ;;
+    merge)
+      echo "Usage: tusk merge <task_id> [--session <session_id>] [--pr] [--pr-number N] [--rebase] [--skip-lint] [--skip-verify]" ;;
+    abandon)
+      echo "Usage: tusk abandon <task_id> --reason wont_do|duplicate|completed [--session <session_id>] [--note \"...\"] [--auto-defer-criteria]" ;;
+    progress)
+      echo 'Usage: tusk progress <task_id> [--note "..."] [--next-steps "..."]' ;;
+    session-recalc)
+      echo "Usage: tusk session-recalc" ;;
+    *)
+      return 1 ;;
+  esac
+}
+
+if [[ "${1:-}" == "help" && -n "${2:-}" ]]; then
+  _help_subcmd="$2"
+  if ! is_known_subcommand "$_help_subcmd"; then
+    echo "Error: Unknown subcommand '$_help_subcmd'." >&2
+    exit 1
+  fi
+  shift 2
+  set -- "$_help_subcmd" --help "$@"
+  unset _help_subcmd
+fi
+
+if [[ "${2:-}" == "--help" || "${2:-}" == "-h" ]]; then
+  if print_manual_subcommand_help "$1"; then
+    exit 0
+  fi
+fi
+
 # ── Self-heal: repair missing tusk_loader.py ─────────────────────────
 # tusk_loader.py uses an underscore filename and was missed by the tusk-*.py
 # glob in copy_bin_files() for tusk < 465. On the first command after a broken
