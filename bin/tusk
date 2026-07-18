@@ -336,7 +336,8 @@ fi
 is_known_subcommand() {
   local subcmd="$1"
   [[ -n "$subcmd" && "$subcmd" != *[!a-z0-9-]* ]] || return 1
-  grep -qE "^  ${subcmd}\\)" "$0" 2>/dev/null
+  sed -n '/^case "${1:-}" in$/,/^esac$/p' "$0" 2>/dev/null \
+    | grep -qE "^  ${subcmd}\\)"
 }
 
 print_manual_subcommand_help() {
@@ -371,11 +372,19 @@ if [[ "${1:-}" == "help" && -n "${2:-}" ]]; then
   unset _help_subcmd
 fi
 
-if [[ "${2:-}" == "--help" || "${2:-}" == "-h" ]]; then
+_manual_help_requested=0
+for _help_arg in "${@:2}"; do
+  if [[ "$_help_arg" == "--help" || "$_help_arg" == "-h" ]]; then
+    _manual_help_requested=1
+    break
+  fi
+done
+if [[ $_manual_help_requested -eq 1 ]]; then
   if print_manual_subcommand_help "$1"; then
     exit 0
   fi
 fi
+unset _manual_help_requested _help_arg
 
 # ── Self-heal: repair missing tusk_loader.py ─────────────────────────
 # tusk_loader.py uses an underscore filename and was missed by the tusk-*.py

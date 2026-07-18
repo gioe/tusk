@@ -25,9 +25,12 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
     "command",
     ["branch", "commit", "check-deliverables", "merge", "abandon", "progress"],
 )
-@pytest.mark.parametrize("flag", ["--help", "-h"])
-def test_manual_task_id_commands_print_help_before_validation(command, flag):
-    result = _run(command, flag)
+@pytest.mark.parametrize(
+    "arguments",
+    [("--help",), ("-h",), ("123", "--help"), ("123", "-h")],
+)
+def test_manual_task_id_commands_print_help_before_validation(command, arguments):
+    result = _run(command, *arguments)
 
     assert result.returncode == 0
     assert result.stdout.startswith(f"Usage: tusk {command} ")
