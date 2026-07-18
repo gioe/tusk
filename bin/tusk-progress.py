@@ -92,6 +92,13 @@ def main(argv: list[str]) -> int:
         print(f"Error: Invalid task ID: {task_id_str}", file=sys.stderr)
         return 1
 
+    if not any(
+        value is not None and value.strip()
+        for value in (note, next_steps)
+    ):
+        print(usage, file=sys.stderr)
+        return 1
+
     # Reject shell-substitution metacharacters in the free-text fields before any
     # DB write (issue #1107 — extends the issue #881/#1106 guard). zsh/bash expand
     # `, $(...), ${...}, and bare $IDENT before tusk sees the argv, even inside
