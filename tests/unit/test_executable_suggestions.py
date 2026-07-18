@@ -52,6 +52,14 @@ def test_task_get_alias_and_existing_get_shortcut_are_executable(tmp_path):
     assert "Did you mean: tusk task-get 49?" in existing_shortcut.stderr
 
 
+def test_task_alias_without_id_does_not_offer_an_invalid_correction(tmp_path):
+    result = _run_tusk(tmp_path, "task", "show")
+
+    assert result.returncode != 0
+    assert "Unknown subcommand 'task'" in result.stderr
+    assert "Did you mean" not in result.stderr
+
+
 def test_session_id_suggests_the_supported_merge_option(tmp_path, capsys):
     module = _load_merge_module()
 
@@ -75,3 +83,14 @@ def test_low_confidence_merge_option_keeps_plain_diagnostic(tmp_path, capsys):
 
     assert result == 1
     assert capsys.readouterr().err.splitlines() == ["Error: Unknown argument: --mystery"]
+
+
+def test_session_id_without_numeric_value_keeps_plain_diagnostic(tmp_path, capsys):
+    module = _load_merge_module()
+
+    result = module.main(
+        [str(tmp_path / "tasks.db"), str(tmp_path / "config.json"), "3745", "--session-id", "--rebase"]
+    )
+
+    assert result == 1
+    assert capsys.readouterr().err.splitlines() == ["Error: Unknown argument: --session-id"]
