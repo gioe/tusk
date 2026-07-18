@@ -79,13 +79,15 @@ class TestHookFalsePositive:
 
         # HEAD stays at aaa111 across pre/post — commit did not land.
         make_completed = self._make_completed
+        stderr_diagnostic = "error: pre-commit hook rejected the commit"
+        stdout_diagnostic = "stdout should not replace stderr"
 
         def fake_run(args, **kwargs):
             if args[:2] == ["git", "rev-parse"]:
                 return make_completed(0, stdout="aaa111\n")
             if args[:2] == ["git", "commit"]:
                 return make_completed(
-                    1, stderr="error: pre-commit hook rejected the commit"
+                    1, stdout=stdout_diagnostic, stderr=stderr_diagnostic
                 )
             # git diff returns empty → no reformatted files, skip Issue #477 retry.
             return make_completed(0)
@@ -97,6 +99,37 @@ class TestHookFalsePositive:
         assert rc == 3, "Should exit 3 when commit genuinely failed"
         captured = capsys.readouterr()
         assert "Error: git commit failed" in captured.err
+        assert stderr_diagnostic in captured.err
+        assert stdout_diagnostic not in captured.out + captured.err
+
+    def test_stdout_printed_when_commit_fails_with_empty_stderr(
+        self, tmp_path, capsys
+    ):
+        """Useful git stdout is surfaced when a failed commit has no stderr."""
+        mod = _load_module()
+        argv = _argv(tmp_path)
+
+        make_completed = self._make_completed
+        stdout_diagnostic = (
+            "On branch feature/test\nnothing to commit, working tree clean"
+        )
+
+        def fake_run(args, **kwargs):
+            if args[:2] == ["git", "rev-parse"]:
+                return make_completed(0, stdout="aaa111\n")
+            if args[:2] == ["git", "commit"]:
+                return make_completed(1, stdout=stdout_diagnostic, stderr="")
+            # git diff returns empty → no reformatted files, skip Issue #477 retry.
+            return make_completed(0)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(tmp_path)):
+            rc = mod.main(argv)
+
+        assert rc == 3, "Should exit 3 when commit genuinely failed"
+        captured = capsys.readouterr()
+        assert "Error: git commit failed" in captured.err
+        assert stdout_diagnostic in captured.err
 
     def test_no_error_message_on_false_positive(self, tmp_path, capsys):
         """When hook false-positive occurs, 'Error: git commit failed' must not appear."""

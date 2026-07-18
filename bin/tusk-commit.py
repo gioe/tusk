@@ -2102,7 +2102,7 @@ def _run_commit(argv: list[str], state: dict) -> int:
                     commit_landed = post_sha and post_sha != pre_sha
 
         if not commit_landed:
-            error_text = result.stderr.strip()
+            error_text = result.stderr.strip() or result.stdout.strip()
             _print_error(f"Error: git commit failed:\n{error_text}")
             hook_keywords = ("lint-staged", "pre-commit", "husky", "hook")
             if any(kw in error_text.lower() for kw in hook_keywords):
