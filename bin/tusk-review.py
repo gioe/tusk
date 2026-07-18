@@ -950,7 +950,7 @@ def cmd_resolve(args: argparse.Namespace, db_path: str) -> int:
 
 
 def cmd_approve(args: argparse.Namespace, db_path: str) -> int:
-    """Set code_reviews.status = 'approved' and review_pass = 1."""
+    """Set code_reviews.status = 'approved', preserving its review pass."""
     diag = _reject_review_note(args.note)
     if diag is not None:
         print(diag, file=sys.stderr)
@@ -968,7 +968,7 @@ def cmd_approve(args: argparse.Namespace, db_path: str) -> int:
 
         cost_dollars, tokens_in, tokens_out = _resolve_cost_columns(args, review["created_at"])
 
-        set_clauses = ["status = 'approved'", "review_pass = 1", "updated_at = datetime('now')"]
+        set_clauses = ["status = 'approved'", "updated_at = datetime('now')"]
         params: list = []
         if args.note is not None:
             set_clauses.append("note = ?")
@@ -1006,7 +1006,7 @@ def cmd_approve(args: argparse.Namespace, db_path: str) -> int:
 
 
 def cmd_request_changes(args: argparse.Namespace, db_path: str) -> int:
-    """Set code_reviews.status = 'changes_requested' and review_pass = 0."""
+    """Set code_reviews.status = 'changes_requested', preserving its review pass."""
     diag = _reject_review_note(args.note)
     if diag is not None:
         print(diag, file=sys.stderr)
@@ -1024,7 +1024,7 @@ def cmd_request_changes(args: argparse.Namespace, db_path: str) -> int:
 
         cost_dollars, tokens_in, tokens_out = _resolve_cost_columns(args, review["created_at"])
 
-        set_clauses = ["status = 'changes_requested'", "review_pass = 0", "updated_at = datetime('now')"]
+        set_clauses = ["status = 'changes_requested'", "updated_at = datetime('now')"]
         params: list = []
         if args.note is not None:
             set_clauses.append("note = ?")
@@ -1221,7 +1221,7 @@ def cmd_verdict(args: argparse.Namespace, db_path: str) -> int:
 
 
 def cmd_pass_status(args: argparse.Namespace, db_path: str, config_path: str) -> int:
-    """Return JSON with current pass, max passes, can_retry, and open must_fix count."""
+    """Return retry state for the latest non-superseded review pass."""
     conn = get_connection(db_path)
     try:
         task = conn.execute("SELECT id FROM tasks WHERE id = ?", (args.task_id,)).fetchone()
@@ -1230,33 +1230,37 @@ def cmd_pass_status(args: argparse.Namespace, db_path: str, config_path: str) ->
             return 2
 
         pass_row = conn.execute(
-            "SELECT review_pass FROM code_reviews"
+            "SELECT id, review_pass FROM code_reviews"
             " WHERE task_id = ? AND status <> 'superseded' ORDER BY id DESC LIMIT 1",
             (args.task_id,),
         ).fetchone()
         current_pass = pass_row["review_pass"] if pass_row and pass_row["review_pass"] is not None else 0
 
-        must_fix_row = conn.execute(
-            "SELECT COUNT(*) as cnt"
-            " FROM review_comments rc"
-            " JOIN code_reviews cr ON cr.id = rc.review_id"
-            " WHERE cr.task_id = ? AND cr.status <> 'superseded'"
-            " AND rc.category = 'must_fix' AND rc.resolution IS NULL",
-            (args.task_id,),
-        ).fetchone()
+        must_fix_row = None
+        if pass_row:
+            must_fix_row = conn.execute(
+                "SELECT"
+                " SUM(CASE WHEN resolution IS NULL THEN 1 ELSE 0 END) as open_cnt,"
+                " SUM(CASE WHEN resolution = 'fixed' THEN 1 ELSE 0 END) as fixed_cnt"
+                " FROM review_comments"
+                " WHERE review_id = ? AND category = 'must_fix'",
+                (pass_row["id"],),
+            ).fetchone()
     finally:
         conn.close()
 
-    open_must_fix = must_fix_row["cnt"] if must_fix_row else 0
+    open_must_fix = (must_fix_row["open_cnt"] or 0) if must_fix_row else 0
+    fixed_must_fix = (must_fix_row["fixed_cnt"] or 0) if must_fix_row else 0
     cfg = load_review_config(config_path)
     max_passes = cfg["max_passes"]
-    can_retry = current_pass < max_passes and open_must_fix > 0
+    can_retry = current_pass < max_passes and (open_must_fix > 0 or fixed_must_fix > 0)
 
     print(dumps({
         "current_pass": current_pass,
         "max_passes": max_passes,
         "can_retry": can_retry,
         "open_must_fix": open_must_fix,
+        "fixed_must_fix": fixed_must_fix,
     }))
     return 0
 
@@ -1508,7 +1512,11 @@ def _main_once():
     verdict_p.add_argument("task_id", type=int, help="Task ID")
 
     # pass-status
-    pass_status_p = subparsers.add_parser("pass-status", allow_abbrev=False, help="Return JSON with current pass, max passes, can_retry, open_must_fix")
+    pass_status_p = subparsers.add_parser(
+        "pass-status",
+        allow_abbrev=False,
+        help="Return JSON with current pass, retry eligibility, and latest must_fix counts",
+    )
     pass_status_p.add_argument("task_id", type=int, help="Task ID")
 
     args = parser.parse_args(sys.argv[3:])
