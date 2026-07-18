@@ -386,9 +386,9 @@ If any `must_fix` comments were fixed in Step 7, re-run the review to verify the
 tusk review-pass-status <task_id>
 ```
 
-This returns `{"current_pass": N, "max_passes": N, "can_retry": bool, "open_must_fix": N}`.
+This returns `{"current_pass": N, "max_passes": N, "can_retry": bool, "open_must_fix": N, "fixed_must_fix": N}`. The finding counts describe only the latest non-superseded review: a fixed `must_fix` makes that pass eligible for one verification pass, while a clean verification pass does not retrigger because findings from earlier passes are ignored.
 
-If `can_retry` is false (either no open `must_fix` items, or `current_pass >= max_passes`), do not enter the loop. If `open_must_fix > 0` and `can_retry` is false, **escalate to the user**:
+If `can_retry` is false, do not enter the loop. A clean latest pass (`open_must_fix == 0` and `fixed_must_fix == 0`) needs no further verification. If `open_must_fix > 0` and `can_retry` is false because `current_pass >= max_passes`, **escalate to the user**:
 > Max review passes (`max_passes`) reached. The following must_fix items remain unresolved:
 > <list each open must_fix comment>
 >
@@ -445,7 +445,7 @@ Otherwise, loop while `can_retry` is true:
    ```bash
    tusk review-pass-status <task_id>
    ```
-   If `can_retry` is still true and `open_must_fix > 0`, repeat from step 1.
+   If `can_retry` is still true, repeat from step 1. This includes the fixed-finding state where `open_must_fix == 0` and `fixed_must_fix > 0`.
    If `can_retry` is false and `open_must_fix > 0`, **escalate to the user** (same message as above).
 
 If `tusk review-verdict <task_id>` returns `"verdict": "APPROVED"` and no new blocking findings were raised, proceed to Step 9.
