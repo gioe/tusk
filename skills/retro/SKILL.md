@@ -269,10 +269,10 @@ For each approved project-issue finding routed here:
    h. **Persist file edits immediately**: after any LR-2a file edit is applied by the Edit tool (auto-applied or manually approved), commit just the edited file before continuing:
 
       ```bash
-      tusk commit "$RETRO_TASK_ID" "Apply retro inline patch: <short description>" "<target file>" --skip-verify
+      tusk commit "$RETRO_TASK_ID" "Apply retro inline patch: <short description>" "<target file>" --skip-verify --allow-branch-mismatch
       ```
 
-      Use the originating retro task id for `$RETRO_TASK_ID`; if the variable is unavailable, use the task id passed to `/retro`. The commit must include only the edited file. Convention DB writes already persist atomically through `tusk conventions add`, so this commit step applies only to narrative/reference file patches.
+      Use the originating retro task id for `$RETRO_TASK_ID`; if the variable is unavailable, use the task id passed to `/retro`. Retro normally runs after the task workspace has been merged and removed, so `--allow-branch-mismatch` is the explicit exception for this post-merge commit. The command must still include only the edited file. Convention DB writes already persist atomically through `tusk conventions add`, so this commit step applies only to narrative/reference file patches.
 
       If the commit fails, do not record the finding as auto-applied and do not tell the operator the patch was fully applied. Surface the failure, leave the working-tree edit visible, and create or defer a fallback task that includes the proposed diff plus the commit failure summary.
 

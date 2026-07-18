@@ -312,11 +312,15 @@ For each approved project-issue finding routed here:
    before continuing:
 
    ```bash
-   tusk commit "$RETRO_TASK_ID" "Apply retro inline patch: <short description>" "<target file>" --skip-verify
+   tusk commit "$RETRO_TASK_ID" "Apply retro inline patch: <short description>" "<target file>" --skip-verify --allow-branch-mismatch
    ```
 
    Use the originating retro task id for `$RETRO_TASK_ID`; if the
-   variable is unavailable, use the task id passed to `/retro`.
+   variable is unavailable, use the task id passed to `/retro`. Retro
+   normally runs after the task workspace has been merged and removed,
+   so `--allow-branch-mismatch` is the explicit exception for this
+   post-merge commit. The command must still include only the edited
+   file.
    Convention DB writes already persist atomically through `tusk
    conventions add`, so this commit step applies only to
    narrative/reference file patches.
