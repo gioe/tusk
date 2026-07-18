@@ -504,7 +504,7 @@ class TestTaskInsertScopeFlags:
         result = _run([
             "task-insert",
             "workflow env",
-            "provide BUNNYCDN_CDN_HOST to .github/workflows/web-ci.yml",
+            "provide BUNNYCDN_CDN_HOST to .github/workflows/integration.yml",
             "--complexity", "S",
             "--criteria", "workflow file is scoped",
         ])
@@ -513,7 +513,7 @@ class TestTaskInsertScopeFlags:
         payload = json.loads(result.stdout)
         rows = _scope_rows(str(db_path), payload["task_id"])
         assert any(
-            r["pattern"] == ".github/workflows/web-ci.yml"
+            r["pattern"] == ".github/workflows/integration.yml"
             and r["source"] == "auto_derived"
             for r in rows
         ), rows
