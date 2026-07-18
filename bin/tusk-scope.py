@@ -47,6 +47,8 @@ _db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
 _task_update = tusk_loader.load("tusk-task-update")
 get_connection = _db_lib.get_connection
+run_write = _db_lib.run_write
+_is_locked_error = _db_lib._is_locked_error
 dumps = _json_lib.dumps
 # Reuse the same auto_derived rebuild path task-update runs on a summary or
 # description edit, so `scope rederive` and an inline edit stay consistent.
@@ -393,51 +395,84 @@ def cmd_add(args: argparse.Namespace, db_path: str) -> int:
     if err is not None:
         print(err, file=sys.stderr)
         return 2
-    with get_connection(db_path) as conn:
+    def _add(conn: sqlite3.Connection) -> dict:
+        # Serialize validation, deduplication, and insertion as one replayable
+        # unit.  Relying on the connection's implicit IMMEDIATE transaction is
+        # too late here: the existing-row check happens before the INSERT and
+        # two writers can otherwise both observe a missing row.
+        conn.execute("BEGIN IMMEDIATE")
         _ensure_task_exists(conn, task_id)
         if _task_has_unbounded_scope(conn, task_id):
-            print(dumps({
-                "task_id": task_id,
-                "pattern": pattern,
-                "source": "unbounded",
-                "unbounded": True,
-                "note": (
-                    "task scope is unbounded; no further authorization needed"
-                ),
-            }))
-            return 0
+            return {
+                "returncode": 0,
+                "payload": {
+                    "task_id": task_id,
+                    "pattern": pattern,
+                    "source": "unbounded",
+                    "unbounded": True,
+                    "note": (
+                        "task scope is unbounded; no further authorization needed"
+                    ),
+                },
+            }
         source = _resolve_add_source(conn, task_id, args.source)
         worktree_root = _scope_validation_root(conn, task_id)
-        pattern, err = _normalize_pattern(pattern, worktree_root, source)
-        if err is not None:
-            print(err, file=sys.stderr)
-            return 2
+        normalized_pattern, normalize_err = _normalize_pattern(
+            pattern, worktree_root, source
+        )
+        if normalize_err is not None:
+            return {"returncode": 2, "error": normalize_err}
+
+        materialize = None
         if source != "creates":
-            _materialize_sparse_path(pattern, worktree_root)
+            materialize = (normalized_pattern, worktree_root)
 
         existing = conn.execute(
             "SELECT id, task_id, pattern, source, reason, locked_at, locked_by, created_at "
             "FROM task_scope WHERE task_id = ? AND pattern = ? ORDER BY id LIMIT 1",
-            (task_id, pattern),
+            (task_id, normalized_pattern),
         ).fetchone()
         if existing is not None:
-            print(dumps(_row_to_dict(existing)))
-            return 0
+            return {
+                "returncode": 0,
+                "payload": _row_to_dict(existing),
+                "materialize": materialize,
+            }
 
         conn.execute(
             "INSERT INTO task_scope (task_id, pattern, source, reason) "
             "VALUES (?, ?, ?, ?)",
-            (task_id, pattern, source, args.reason),
+            (task_id, normalized_pattern, source, args.reason),
         )
         new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-        conn.commit()
         row = conn.execute(
             "SELECT id, task_id, pattern, source, reason, locked_at, locked_by, created_at "
             "FROM task_scope WHERE id = ?",
             (new_id,),
         ).fetchone()
-    print(dumps(_row_to_dict(row)))
-    return 0
+        conn.commit()
+        return {
+            "returncode": 0,
+            "payload": _row_to_dict(row),
+            "materialize": materialize,
+        }
+
+    try:
+        result = run_write(db_path, _add, label="scope add")
+    except sqlite3.OperationalError as exc:
+        if _is_locked_error(exc):
+            # run_write already emitted its single bounded-retry diagnostic.
+            return 1
+        raise
+
+    if result.get("error") is not None:
+        print(result["error"], file=sys.stderr)
+    else:
+        materialize = result.get("materialize")
+        if materialize is not None:
+            _materialize_sparse_path(*materialize)
+        print(dumps(result["payload"]))
+    return result["returncode"]
 
 
 def cmd_lock(args: argparse.Namespace, db_path: str) -> int:
