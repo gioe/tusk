@@ -4020,6 +4020,11 @@ def main(argv: list[str]) -> int:
             i += 1
         else:
             print(f"Error: Unknown argument: {remaining[i]}", file=sys.stderr)
+            if remaining[i] == "--session-id" and i + 1 < len(remaining):
+                print(
+                    f"Did you mean: tusk merge {task_id} --session {remaining[i + 1]}?",
+                    file=sys.stderr,
+                )
             return 1
 
     # Validate an explicitly-provided session ID. If the session is not found or

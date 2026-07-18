@@ -1380,6 +1380,20 @@ cmd_query() {
       local _hint="" _subcmd_lc
       _subcmd_lc="$(echo "$_subcmd" | tr '[:upper:]' '[:lower:]')"
       local _candidate="task-$_subcmd_lc"
+      # Recognize high-confidence two-token task aliases before the generic
+      # fuzzy matcher. Consume the alias verb so the suggested command follows
+      # task-get's actual grammar (`tusk task-get <id>`), rather than carrying
+      # `show`/`get` forward as a bogus task ID (issue #1223).
+      if [[ "$_subcmd_lc" == "task" && ${#_rest[@]} -gt 0 ]]; then
+        local _task_verb
+        _task_verb="$(echo "${_rest[0]}" | tr '[:upper:]' '[:lower:]')"
+        case "$_task_verb" in
+          show|get)
+            _candidate="task-get"
+            _rest=("${_rest[@]:1}")
+            ;;
+        esac
+      fi
       if grep -qF "  ${_candidate})" "$0" 2>/dev/null; then
         if [[ ${#_rest[@]} -gt 0 ]]; then
           _hint=" Did you mean: tusk $_candidate ${_rest[*]}?"
