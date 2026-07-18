@@ -78,12 +78,12 @@ In the tusk source repo, `.claude/skills/` is a **real directory** containing pe
 - **`skills/`** (public) — Skills distributed to target projects via `install.sh`. Each subdirectory gets a symlink `.claude/skills/<name> → ../../skills/<name>`.
 - **`skills-internal/`** (private) — Dev-only skills available in the source repo but **never installed** to target projects. Each subdirectory gets a symlink `.claude/skills/<name> → ../../skills-internal/<name>`.
 
-Run `tusk sync-skills` to regenerate all symlinks after adding or removing a skill directory. The `.gitignore` entry `.claude/skills/` ensures the symlinks themselves are not tracked.
+Run `tusk sync-skills` to regenerate all symlinks after adding or removing a skill directory. The source repository tracks these symlinks so a fresh checkout discovers every source skill without requiring a separate sync step.
 
 **Editing and staging rules:**
 
 - **Edit only under `skills/` or `skills-internal/`** — editing `.claude/skills/` directly can cause "file modified since read" errors since those are symlinks.
-- **Stage only `skills/` or `skills-internal/` paths** — `git add .claude/skills/...` won't work. Always use `git add skills/<name>/SKILL.md` or `git add skills-internal/<name>/SKILL.md`.
+- **When adding or removing a skill, stage both the source path and its generated symlink** — for example, `git add skills/<name>/SKILL.md .claude/skills/<name>`. Editing an existing skill changes only files under `skills/` or `skills-internal/`, because the tracked symlink target stays the same.
 
 Target projects that install tusk get real copies (not symlinks) of `skills/` only — `skills-internal/` is never distributed.
 
