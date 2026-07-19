@@ -29,6 +29,7 @@ JSON output shape:
 
 import argparse
 import os
+import posixpath
 import re
 import shlex
 import sqlite3
@@ -47,6 +48,10 @@ PATH_SUFFIX_RE = re.compile(
     r"\.(py|sh|md|json|toml|yaml|yml|txt|swift|js|jsx|ts|tsx|css|html|sql)$"
 )
 GLOB_CHARS = frozenset("*?[")
+LEADING_LITERAL_CD_RE = re.compile(
+    r"^\s*cd\s+(?:'([^']+)'|\"([^\"]+)\"|([^\s;&|]+))\s*(?:&&|;)"
+)
+SHELL_EXPANSION_CHARS = frozenset("$`\\~*?[{")
 
 
 def _task_id_type(value: str) -> int:
@@ -76,14 +81,36 @@ def _clean_path_token(token: str) -> str | None:
 
 
 def _spec_paths(spec: str) -> list[str]:
+    command = spec
+    cd_dir = None
+    match = LEADING_LITERAL_CD_RE.match(spec)
+    if match:
+        target = next((group for group in match.groups() if group), "").strip().rstrip("/")
+        if target.startswith("./"):
+            target = target[2:]
+        parts = target.split("/")
+        if (
+            target
+            and not target.startswith(("-", "/"))
+            and ".." not in parts
+            and not any(char in target for char in SHELL_EXPANSION_CHARS)
+        ):
+            cd_dir = posixpath.normpath(target)
+            command = spec[match.end():]
+
     try:
-        tokens = shlex.split(spec)
+        tokens = shlex.split(command)
     except ValueError:
-        tokens = spec.split()
+        tokens = command.split()
     seen: set[str] = set()
     paths: list[str] = []
+    if cd_dir:
+        seen.add(cd_dir)
+        paths.append(cd_dir)
     for token in tokens:
         path = _clean_path_token(token)
+        if path and cd_dir:
+            path = posixpath.normpath(posixpath.join(cd_dir, path))
         if path and path not in seen:
             seen.add(path)
             paths.append(path)
