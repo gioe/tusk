@@ -98,6 +98,13 @@ def _make_db_with_task(tmp_path, task_id, started_at="2026-05-22 00:00:00"):
         skip_note TEXT,
         commit_hash TEXT
     );
+    CREATE TABLE task_status_transitions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id INTEGER NOT NULL,
+        from_status TEXT,
+        to_status TEXT NOT NULL,
+        changed_at TEXT DEFAULT (datetime('now'))
+    );
     """
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
@@ -150,6 +157,40 @@ def repo_with_multi_commit_ff_merge(tmp_path):
     tip_sha = _run(["git", "rev-parse", "HEAD"], cwd=str(repo)).stdout.strip()
 
     return str(repo), base_sha, tip_sha
+
+
+@pytest.fixture()
+def repo_with_reopened_task_lifecycles(tmp_path):
+    """Build two task merge lifecycles separated by unrelated main work."""
+    repo = tmp_path / "reopened-repo"
+    repo.mkdir()
+    _init_repo(str(repo))
+
+    (repo / "README.md").write_text("init\n")
+    _run(["git", "add", "README.md"], cwd=str(repo))
+    _run(["git", "commit", "-q", "-m", "[INIT] initial"], cwd=str(repo))
+
+    _run(["git", "checkout", "-q", "-b", "feature/TASK-99-first"], cwd=str(repo))
+    (repo / "first.txt").write_text("one\ntwo\n")
+    _run(["git", "add", "first.txt"], cwd=str(repo))
+    _run(["git", "commit", "-q", "-m", "[TASK-99] first lifecycle"], cwd=str(repo))
+    _run(["git", "checkout", "-q", "main"], cwd=str(repo))
+    _run(["git", "merge", "-q", "--ff-only", "feature/TASK-99-first"], cwd=str(repo))
+
+    (repo / "unrelated.txt").write_text("not\npart\nof\ntask\n")
+    _run(["git", "add", "unrelated.txt"], cwd=str(repo))
+    _run(["git", "commit", "-q", "-m", "unrelated main work"], cwd=str(repo))
+    second_base = _run(["git", "rev-parse", "HEAD"], cwd=str(repo)).stdout.strip()
+
+    _run(["git", "checkout", "-q", "-b", "feature/TASK-99-second"], cwd=str(repo))
+    (repo / "second.txt").write_text("three\nfour\nfive\n")
+    _run(["git", "add", "second.txt"], cwd=str(repo))
+    _run(["git", "commit", "-q", "-m", "[TASK-99] second lifecycle"], cwd=str(repo))
+    _run(["git", "checkout", "-q", "main"], cwd=str(repo))
+    _run(["git", "merge", "-q", "--ff-only", "feature/TASK-99-second"], cwd=str(repo))
+    final_tip = _run(["git", "rev-parse", "HEAD"], cwd=str(repo)).stdout.strip()
+
+    return str(repo), second_base, final_tip
 
 
 class TestMultiCommitFastForwardFastPath:
@@ -257,3 +298,32 @@ class TestMultiCommitFastForwardFastPath:
         # parity is what criterion 2076 asks for.
         assert fast["recovered_via"] == "stamped-sha"
         assert scan["recovered_via"] is None
+
+
+class TestReopenedTaskCumulativeDiff:
+    def test_reopened_task_bypasses_latest_stamp_and_sums_all_task_commits(
+        self, repo_with_reopened_task_lifecycles, tmp_path
+    ):
+        repo, latest_base, latest_tip = repo_with_reopened_task_lifecycles
+        _db_path, conn = _make_db_with_task(tmp_path, 99)
+        try:
+            conn.execute(
+                "UPDATE tasks SET merge_commit_sha = ?, merge_base_sha = ? WHERE id = ?",
+                (latest_tip, latest_base, 99),
+            )
+            conn.execute(
+                "INSERT INTO task_status_transitions "
+                "(task_id, from_status, to_status) VALUES (?, 'Done', 'To Do')",
+                (99,),
+            )
+            conn.commit()
+
+            diff = mod.fetch_diff(99, repo, conn=conn)
+        finally:
+            conn.close()
+
+        assert diff["commits"] == 2
+        assert diff["files_changed"] == 2
+        assert diff["lines_added"] == 5
+        assert diff["lines_removed"] == 0
+        assert diff["recovered_via"] is None

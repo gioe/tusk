@@ -751,6 +751,30 @@ def _fetch_diff_from_stamped_sha(
     return summary
 
 
+def _task_has_reopen_transition(
+    conn: sqlite3.Connection, task_id: int,
+) -> bool:
+    """Return whether task history includes a transition back to To Do.
+
+    Re-merging a reopened task overwrites ``tasks.merge_base_sha`` and
+    ``merge_commit_sha`` with the latest lifecycle's range.  That stamp is
+    therefore not cumulative.  Databases predating migration 53 have no
+    transition table (and no recoverable reopen history), so they retain the
+    existing stamped-SHA behavior.
+    """
+    try:
+        row = conn.execute(
+            "SELECT EXISTS("
+            "SELECT 1 FROM task_status_transitions "
+            "WHERE task_id = ? AND to_status = 'To Do'"
+            ")",
+            (task_id,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return False
+    return bool(row[0]) if row is not None else False
+
+
 def fetch_diff(
     task_id: int,
     repo_root: str,
@@ -834,7 +858,7 @@ def fetch_diff(
     # one squash commit holds all task work, so ``git show`` is correct.
     # Legacy pre-migration-70 tasks carry both NULLs and fall through to
     # the existing scan + recovery chain unchanged.
-    if conn is not None:
+    if conn is not None and not _task_has_reopen_transition(conn, task_id):
         try:
             row = conn.execute(
                 "SELECT merge_commit_sha, merge_base_sha FROM tasks WHERE id = ?",
