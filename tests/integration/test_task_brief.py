@@ -106,6 +106,21 @@ def _insert_task_bundle(db_path):
         conn.close()
 
 
+def _insert_verification_spec(db_path, task_id, criterion, spec):
+    conn = sqlite3.connect(db_path)
+    try:
+        criterion_id = conn.execute(
+            "INSERT INTO acceptance_criteria "
+            "(task_id, criterion, criterion_type, verification_spec) "
+            "VALUES (?, ?, 'test', ?)",
+            (task_id, criterion, spec),
+        ).lastrowid
+        conn.commit()
+        return criterion_id
+    finally:
+        conn.close()
+
+
 def _materialize_valid_paths(tmp_path):
     (tmp_path / "bin").mkdir()
     (tmp_path / "bin" / "tusk-task-brief.py").write_text("# helper\n", encoding="utf-8")
@@ -114,6 +129,15 @@ def _materialize_valid_paths(tmp_path):
         "# test\n",
         encoding="utf-8",
     )
+
+
+def _materialize_web_paths(tmp_path):
+    vitest = tmp_path / "apps" / "web" / "node_modules" / ".bin" / "vitest"
+    vitest.parent.mkdir(parents=True)
+    vitest.write_text("#!/bin/sh\n", encoding="utf-8")
+    route_test = tmp_path / "apps" / "web" / "app" / "api" / "health" / "route.test.ts"
+    route_test.parent.mkdir(parents=True)
+    route_test.write_text("// test\n", encoding="utf-8")
 
 
 def test_task_brief_json_returns_compiled_context_packet(tmp_path, monkeypatch):
@@ -166,6 +190,44 @@ def test_task_brief_context_health_warnings(tmp_path, monkeypatch):
     }.issubset(codes)
     stale = next(w for w in warnings if w["code"] == "stale_verification_spec")
     assert stale["details"]["missing_paths"] == ["tests/missing/test_gone.py"]
+
+
+def test_task_brief_resolves_leading_cd_paths_from_project_root(tmp_path, monkeypatch):
+    db_path = _init_db(tmp_path, monkeypatch)
+    _materialize_valid_paths(tmp_path)
+    _materialize_web_paths(tmp_path)
+    (tmp_path / ".git").mkdir()
+    task_id = _insert_task_bundle(db_path)
+    valid_id = _insert_verification_spec(
+        db_path,
+        task_id,
+        "Valid web route spec",
+        "cd apps/web && node_modules/.bin/vitest run app/api/health/route.test.ts",
+    )
+    missing_id = _insert_verification_spec(
+        db_path,
+        task_id,
+        "Missing web route spec",
+        "cd apps/web; node_modules/.bin/vitest run app/api/health/missing.test.ts",
+    )
+
+    root_result = _run_brief(tmp_path, db_path, task_id, "--format", "json")
+    nested_result = _run_brief(tmp_path / "apps", db_path, task_id, "--format", "json")
+
+    assert root_result.returncode == 0, root_result.stderr
+    assert nested_result.returncode == 0, nested_result.stderr
+    root_warnings = json.loads(root_result.stdout)["context_health_warnings"]
+    nested_warnings = json.loads(nested_result.stdout)["context_health_warnings"]
+    assert nested_warnings == root_warnings
+    stale_by_criterion = {
+        warning["details"]["criterion_id"]: warning
+        for warning in root_warnings
+        if warning["code"] == "stale_verification_spec"
+    }
+    assert valid_id not in stale_by_criterion
+    assert stale_by_criterion[missing_id]["details"]["missing_paths"] == [
+        "apps/web/app/api/health/missing.test.ts"
+    ]
 
 
 def test_task_brief_help_documents_json_format():
