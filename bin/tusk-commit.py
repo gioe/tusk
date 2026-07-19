@@ -56,8 +56,10 @@ Exit codes:
     7 — current branch does not match the task's recorded workspace branch, or no workspace
         is recorded and HEAD is the default branch. Bypass with --allow-branch-mismatch.
     8 — reserved for the former commit-time lint timeout gate.
+    9 — another tusk commit invocation is already active for this worktree.
 """
 
+import fcntl
 import fnmatch
 import json
 import math
@@ -176,6 +178,66 @@ def _git_index_lock_path(repo_root: str) -> str:
                 git_dir = os.path.normpath(os.path.join(repo_root, git_dir))
             return os.path.join(git_dir, "index.lock")
     return ""
+
+
+def _acquire_commit_operation_lock(
+    repo_root: str,
+) -> tuple[int | None, int, str]:
+    """Serialize the full commit and criterion operation per worktree.
+
+    Git's index lock protects individual index mutations, but a tusk commit
+    spans tests, staging, commit creation, and criterion bookkeeping. A
+    persistent advisory lock file needs no stale-lock cleanup because the
+    kernel releases the lock when its owning process exits.
+    """
+    index_lock_path = _git_index_lock_path(repo_root)
+    if not index_lock_path:
+        return None, 0, ""
+    lock_path = os.path.join(os.path.dirname(index_lock_path), "tusk-commit.lock")
+    try:
+        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o666)
+    except OSError as exc:
+        return (
+            None,
+            3,
+            "Error: tusk commit operation lock is not writable — aborting "
+            "before test_command.\n"
+            f"  Lock path: {lock_path}\n"
+            f"  {exc.strerror or exc}",
+        )
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        return (
+            None,
+            9,
+            "Error: another tusk commit invocation is active for this "
+            "worktree — this process did not run git commit.\n"
+            f"  Lock path: {lock_path}\n"
+            "  Hint: wait for the active invocation to finish, then inspect "
+            "its TUSK_COMMIT_RESULT before retrying.",
+        )
+    except OSError as exc:
+        os.close(fd)
+        return (
+            None,
+            3,
+            "Error: tusk commit operation lock could not be acquired — "
+            "aborting before test_command.\n"
+            f"  Lock path: {lock_path}\n"
+            f"  {exc.strerror or exc}",
+        )
+    return fd, 0, ""
+
+
+def _release_commit_operation_lock(fd: int | None) -> None:
+    if fd is None:
+        return
+    try:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
 
 
 def _preflight_git_index_writable(repo_root: str) -> tuple[bool, str]:
@@ -1413,6 +1475,7 @@ def main(argv: list[str]) -> int:
         exit_code = _run_commit(argv, state)
         return exit_code
     finally:
+        _release_commit_operation_lock(state.get("commit_lock_fd"))
         _emit_final_summary(exit_code, state)
 
 
@@ -1551,6 +1614,7 @@ def _run_commit(argv: list[str], state: dict) -> int:
     #                                          recorded task workspace; bypass
     #                                          with --allow-branch-mismatch)
     #   Step 0  (path validation)   → exit 3  (escapes root or path not found)
+    #   Step 1a (operation lock)    → exit 9  (another tusk commit is active)
     #   Step 1a (index preflight)   → exit 3  (git index lock unavailable)
     #   Step 1b (test_command gate) → exit 2  (test_command failed)
     #   Step 2  (git add)           → exit 3  (git add failed)
@@ -1714,7 +1778,15 @@ def _run_commit(argv: list[str], state: dict) -> int:
     if skip_lint and announce_status:
         print("Note: --skip-lint is ignored by tusk commit; lint runs at merge time.")
 
-    # ── Step 1a: Preflight git index writability before expensive gates ─
+    # ── Step 1a: Serialize the full operation, then preflight the git index ─
+    commit_lock_fd, lock_exit_code, lock_diagnostic = (
+        _acquire_commit_operation_lock(repo_root)
+    )
+    if lock_diagnostic:
+        _print_error(lock_diagnostic)
+        return lock_exit_code
+    state["commit_lock_fd"] = commit_lock_fd
+
     index_ok, index_diagnostic = _preflight_git_index_writable(repo_root)
     if not index_ok:
         _print_error(index_diagnostic)
