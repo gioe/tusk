@@ -2,9 +2,9 @@
 """tusk dev-sync — refresh .claude/bin/ from source bin/ (source-repo only).
 
 Mirrors install.sh's "section 1" file copy without re-running the full
-installer: copies bin/tusk, bin/tusk-*.py, and the canonical
-UNDERSCORE_BIN_FILES into .claude/bin/, then refreshes the .hash sidecar
-for tusk-lint.py.
+installer: copies bin/tusk, bin/tusk-*.py, the canonical
+UNDERSCORE_BIN_FILES, and VERSION into .claude/bin/, then refreshes the
+.hash sidecar for tusk-lint.py.
 
 Source-repo only — refuses to run when REPO_ROOT/bin/ does not exist (a
 consumer install has nothing to sync from). dist-excluded scripts ARE
@@ -71,6 +71,13 @@ def main(argv):
         return 2
 
     copied = []
+
+    src_version = repo_root / "VERSION"
+    if src_version.is_file():
+        dst = target_bin / "VERSION"
+        if not args.dry_run:
+            shutil.copy2(src_version, dst)
+        copied.append(dst.name)
 
     src_tusk = source_bin / "tusk"
     if src_tusk.is_file():

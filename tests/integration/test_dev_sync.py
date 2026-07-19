@@ -24,9 +24,20 @@ def _run(*args, cwd=None):
 @pytest.fixture()
 def fake_repo(tmp_path):
     """A repo-shaped tree with a fake bin/ and an empty .claude/bin/."""
+    (tmp_path / "VERSION").write_text("1234\n")
     src = tmp_path / "bin"
     src.mkdir()
-    (src / "tusk").write_text("#!/bin/bash\necho hello\n")
+    (src / "tusk").write_text(
+        "#!/bin/bash\n"
+        'SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"\n'
+        'INSTALL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"\n'
+        'if [[ -f "$SCRIPT_DIR/VERSION" ]]; then\n'
+        '  version="$(cat "$SCRIPT_DIR/VERSION")"\n'
+        "else\n"
+        '  version="$(cat "$INSTALL_DIR/VERSION")"\n'
+        "fi\n"
+        'echo "tusk version $version"\n'
+    )
     os.chmod(src / "tusk", 0o755)
     (src / "tusk-foo.py").write_text("# foo\n")
     (src / "tusk-bar.py").write_text("# bar\n")
@@ -48,7 +59,8 @@ def test_dev_sync_copies_bash_entry_python_scripts_and_underscore_files(fake_rep
     assert result.returncode == 0, result.stderr
 
     target = fake_repo / ".claude" / "bin"
-    assert (target / "tusk").read_text() == "#!/bin/bash\necho hello\n"
+    assert (target / "VERSION").read_text() == "1234\n"
+    assert (target / "tusk").read_text() == (fake_repo / "bin" / "tusk").read_text()
     assert os.access(str(target / "tusk"), os.X_OK), "executable bit must be preserved"
     assert (target / "tusk-foo.py").read_text() == "# foo\n"
     assert (target / "tusk-bar.py").read_text() == "# bar\n"
@@ -74,14 +86,17 @@ def test_dev_sync_refreshes_lint_hash_sidecar(fake_repo):
 
 def test_dev_sync_dry_run_writes_nothing(fake_repo):
     target = fake_repo / ".claude" / "bin"
+    (target / "VERSION").write_text("stale\n")
     before = sorted(p.name for p in target.iterdir())
 
     result = _run(str(fake_repo), "--dry-run")
     assert result.returncode == 0, result.stderr
     assert "Would copy" in result.stdout
+    assert "  VERSION\n" in result.stdout
 
     after = sorted(p.name for p in target.iterdir())
     assert before == after, "dry-run must not write any files"
+    assert (target / "VERSION").read_text() == "stale\n"
 
 
 def test_dev_sync_refuses_when_source_bin_missing(tmp_path):
@@ -103,13 +118,37 @@ def test_dev_sync_refuses_when_claude_bin_missing(tmp_path):
 
 def test_dev_sync_overwrites_stale_target_files(fake_repo):
     target = fake_repo / ".claude" / "bin"
+    (target / "VERSION").write_text("old\n")
     (target / "tusk-foo.py").write_text("# stale\n")
     (target / "tusk-lint.py").write_text("# stale lint\n")
 
     result = _run(str(fake_repo))
     assert result.returncode == 0, result.stderr
 
+    assert (target / "VERSION").read_text() == "1234\n"
     assert (target / "tusk-foo.py").read_text() == "# foo\n"
     assert (target / "tusk-lint.py").read_text() == "# lint v1\n"
     expected_hash = hashlib.md5(b"# lint v1\n").hexdigest() + "\n"
     assert (target / "tusk-lint.py.hash").read_text() == expected_hash
+
+
+def test_dev_sync_aligns_source_and_installed_version_commands(fake_repo):
+    target = fake_repo / ".claude" / "bin"
+    (target / "VERSION").write_text("old\n")
+
+    result = _run(str(fake_repo))
+    assert result.returncode == 0, result.stderr
+
+    source_version = subprocess.run(
+        [str(fake_repo / "bin" / "tusk"), "version"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    installed_version = subprocess.run(
+        [str(target / "tusk"), "version"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert source_version.stdout == installed_version.stdout == "tusk version 1234\n"
