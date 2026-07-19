@@ -20,7 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 TUSK_BIN = REPO_ROOT / "bin" / "tusk"
 
 
-def _run(cmd, cwd, env=None, check=True):
+def _run(cmd, cwd, env=None, check=True, timeout=None):
     return subprocess.run(
         [str(part) for part in cmd],
         cwd=str(cwd),
@@ -28,6 +28,7 @@ def _run(cmd, cwd, env=None, check=True):
         capture_output=True,
         text=True,
         check=check,
+        timeout=timeout,
     )
 
 
@@ -97,7 +98,8 @@ def test_concurrent_symlink_commit_has_process_specific_collision(tmp_path):
     shim = shim_dir / "git"
     shim.write_text(
         "#!/bin/sh\n"
-        "if [ \"$1\" = add ] && [ \"${TUSK_COMMIT_TEST_PAUSE:-}\" = 1 ]; then\n"
+        "if [ \"$1\" = add ] && [ \"${TUSK_COMMIT_TEST_PAUSE:-}\" = 1 ] "
+        "&& [ ! -e \"$TUSK_COMMIT_TEST_READY\" ]; then\n"
         "  : > \"$TUSK_COMMIT_TEST_READY\"\n"
         "  while [ ! -e \"$TUSK_COMMIT_TEST_RELEASE\" ]; do sleep 0.01; done\n"
         "fi\n"
@@ -135,10 +137,18 @@ def test_concurrent_symlink_commit_has_process_specific_collision(tmp_path):
     deadline = time.monotonic() + 10
     while not ready.exists() and winner.poll() is None and time.monotonic() < deadline:
         time.sleep(0.01)
-    assert ready.exists(), "winner never reached the paused git add"
+    if not ready.exists():
+        release.write_text("release\n", encoding="utf-8")
+        winner_stdout, winner_stderr = winner.communicate(timeout=5)
+        raise AssertionError(
+            "winner never reached the paused git add: "
+            f"stdout={winner_stdout!r} stderr={winner_stderr!r}"
+        )
 
     try:
-        loser = _run(command, cwd=worktree, env=commit_env, check=False)
+        loser = _run(
+            command, cwd=worktree, env=commit_env, check=False, timeout=10
+        )
     finally:
         release.write_text("release\n", encoding="utf-8")
     winner_stdout, winner_stderr = winner.communicate(timeout=30)
