@@ -29,31 +29,20 @@ def main():
 
     lib.load_pricing()
 
-    transcripts = lib.find_all_transcripts_with_fallback()
-
-    if not transcripts:
-        cwd = os.getcwd()
-        project_hash = lib.derive_project_hash(cwd)
-        print(
-            f"Error: No JSONL transcripts found.\n"
-            f"Tried cwd '{cwd}', git root, and parent directories.\n"
-            f"Expected transcripts under ~/.claude/projects/<hash>/ — "
-            f"e.g. ~/.claude/projects/{project_hash}/",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    legacy_claude_transcripts = lib.find_all_transcripts_with_fallback(provider="claude")
 
     conn = get_connection(db_path)
     try:
         rows = conn.execute(
-            "SELECT id, started_at, ended_at FROM task_sessions WHERE started_at IS NOT NULL"
+            "SELECT id, started_at, ended_at, transcript_path, transcript_provider "
+            "FROM task_sessions WHERE started_at IS NOT NULL"
         ).fetchall()
 
         if not rows:
             print("No sessions found to recalculate.")
             return
 
-        print(f"Found {len(rows)} sessions and {len(transcripts)} transcripts")
+        print(f"Found {len(rows)} sessions")
 
         updated = 0
         skipped = 0
@@ -63,9 +52,20 @@ def main():
             started_at = lib.parse_sqlite_timestamp(row["started_at"])
             ended_at = lib.parse_sqlite_timestamp(row["ended_at"]) if row["ended_at"] else None
 
-            # Try each transcript to find one with matching data
+            if row["transcript_path"]:
+                transcripts = [row["transcript_path"]]
+            elif row["transcript_provider"]:
+                resolved = lib.find_transcript(provider=row["transcript_provider"])
+                transcripts = [resolved] if resolved else []
+            else:
+                # Historical rows predate provider identity. Preserve legacy
+                # Claude scanning instead of guessing from the current Codex run.
+                transcripts = legacy_claude_transcripts
+
             best_totals = None
             for transcript_path in transcripts:
+                if not transcript_path or not os.path.isfile(transcript_path):
+                    continue
                 totals = lib.aggregate_session(transcript_path, started_at, ended_at)
                 if totals["request_count"] > 0:
                     best_totals = totals

@@ -39,11 +39,14 @@ def cmd_start(conn, skill_name: str, task_id: int | None = None) -> None:
     attribute this skill run to the originating task. Task-scoped skills
     (/tusk, /chain, /review-commits, /retro) should always pass it.
     """
-    transcript_path = lib.find_transcript()
+    transcript_provider = lib.active_transcript_provider()
+    transcript_path = lib.find_transcript(provider=transcript_provider)
     try:
         cur = conn.execute(
-            "INSERT INTO skill_runs (skill_name, task_id, transcript_path) VALUES (?, ?, ?)",
-            (skill_name, task_id, transcript_path),
+            "INSERT INTO skill_runs "
+            "(skill_name, task_id, transcript_path, transcript_provider, telemetry_status) "
+            "VALUES (?, ?, ?, ?, 'pending')",
+            (skill_name, task_id, transcript_path, transcript_provider),
         )
     except sqlite3.IntegrityError as exc:
         # Worst-offender path from issue #789: skill-run start --task-id <missing>
@@ -82,7 +85,7 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
     row = conn.execute(
         """SELECT id, skill_name, started_at, ended_at,
                   cost_dollars, tokens_in, tokens_out, model, metadata,
-                  request_count, transcript_path
+                  request_count, transcript_path, transcript_provider, telemetry_status
            FROM skill_runs WHERE id = ?""",
         (run_id,),
     ).fetchone()
@@ -95,10 +98,15 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
         print(f"Warning: Run {run_id} is already finished (ended_at={row['ended_at']})", file=sys.stderr)
         print(f"Skill run {run_id} ({row['skill_name']}) finished:")
         print(f"  Model:         {row['model'] or '(unknown)'}")
-        print(f"  Requests:      {row['request_count'] or 0}")
-        print(f"  Tokens in:     {(row['tokens_in'] or 0):,}")
-        print(f"  Tokens out:    {(row['tokens_out'] or 0):,}")
-        print(f"  Est. cost:     ${(row['cost_dollars'] or 0.0):.4f}")
+        request_text = row["request_count"] if row["request_count"] is not None else "unavailable"
+        tokens_in_text = f"{row['tokens_in']:,}" if row["tokens_in"] is not None else "unavailable"
+        tokens_out_text = f"{row['tokens_out']:,}" if row["tokens_out"] is not None else "unavailable"
+        print(f"  Requests:      {request_text}")
+        print(f"  Tokens in:     {tokens_in_text}")
+        print(f"  Tokens out:    {tokens_out_text}")
+        cost_text = (f"${row['cost_dollars']:.4f}" if row["cost_dollars"] is not None
+                     else f"unavailable ({row['telemetry_status'] or 'unknown'})")
+        print(f"  Est. cost:     {cost_text}")
         if row["metadata"]:
             print(f"  Metadata:      {row['metadata']}")
         return
@@ -112,7 +120,8 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
 
     # Re-fetch with ended_at populated
     row = conn.execute(
-        "SELECT id, skill_name, started_at, ended_at, transcript_path FROM skill_runs WHERE id = ?",
+        "SELECT id, skill_name, started_at, ended_at, transcript_path, transcript_provider "
+        "FROM skill_runs WHERE id = ?",
         (run_id,),
     ).fetchone()
 
@@ -122,30 +131,32 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
     ended_at = lib.parse_sqlite_timestamp(row["ended_at"])
 
     pinned_transcript_path = row["transcript_path"] or ""
+    transcript_provider = row["transcript_provider"] or lib.active_transcript_provider()
     transcript_path = pinned_transcript_path
     if transcript_path and not os.path.isfile(transcript_path):
         print(
-            f"Warning: Pinned transcript missing at {transcript_path} — falling back to transcript discovery.",
+            f"Warning: Pinned {transcript_provider} transcript missing at {transcript_path}.",
             file=sys.stderr,
         )
         transcript_path = ""
     if not transcript_path:
-        transcript_path = lib.find_transcript()
+        transcript_path = lib.find_transcript(provider=transcript_provider)
 
-    cost = 0.0
-    tokens_in = 0
-    tokens_out = 0
+    cost = None
+    tokens_in = None
+    tokens_out = None
     # Sentinel distinguishes finish-with-no-transcript from `cmd_cancel` rows,
     # which keep model = '' so `skill-run list` can tag them '(cancelled)'.
     model = "(unknown)"
-    request_count = 0
-    user_prompt_tokens = 0
-    user_prompt_count = 0
+    request_count = None
+    user_prompt_tokens = None
+    user_prompt_count = None
     # Cache split — schema 74 (issue #872). See update_session_stats() in
     # bin/tusk-pricing-lib.py for the parallel task_sessions writer.
-    cache_read_tokens_in = 0
-    cache_write_tokens_in = 0
-    uncached_tokens_in = 0
+    cache_read_tokens_in = None
+    cache_write_tokens_in = None
+    uncached_tokens_in = None
+    status = "transcript_missing"
 
     if transcript_path and os.path.isfile(transcript_path):
         totals = lib.aggregate_session(
@@ -155,7 +166,7 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
             stop_at_idle_gap=True,
         )
         if totals["request_count"] > 0:
-            cost = lib.compute_cost(totals)
+            cost = lib.optional_cost(totals)
             tokens_in = lib.compute_tokens_in(totals)
             tokens_out = totals["output_tokens"]
             model = totals["model"]
@@ -163,12 +174,16 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
             cache_read_tokens_in = totals.get("cache_read_input_tokens", 0)
             cache_write_tokens_in = totals.get("cache_creation_input_tokens", 0)
             uncached_tokens_in = totals.get("input_tokens", 0)
-        user_prompt_tokens = totals.get("user_prompt_tokens", 0)
-        user_prompt_count = totals.get("user_prompt_count", 0)
+            status = lib.telemetry_status(totals)
+            user_prompt_tokens = totals.get("user_prompt_tokens", 0)
+            user_prompt_count = totals.get("user_prompt_count", 0)
+        else:
+            status = "no_usage"
+            model = "(no attributable usage)"
     else:
         model = "(transcript missing)"
         print(
-            "Warning: No transcript found — cost will be $0.00.",
+            f"Warning: No {transcript_provider} transcript found — telemetry is unavailable.",
             file=sys.stderr,
         )
 
@@ -177,11 +192,13 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
            SET cost_dollars = ?, tokens_in = ?, tokens_out = ?, model = ?,
                metadata = ?, request_count = ?,
                user_prompt_tokens = ?, user_prompt_count = ?,
-               cache_read_tokens_in = ?, cache_write_tokens_in = ?, uncached_tokens_in = ?
+               cache_read_tokens_in = ?, cache_write_tokens_in = ?, uncached_tokens_in = ?,
+               telemetry_status = ?, transcript_path = ?, transcript_provider = ?
            WHERE id = ?""",
         (cost, tokens_in, tokens_out, model, metadata, request_count,
          user_prompt_tokens, user_prompt_count,
-         cache_read_tokens_in, cache_write_tokens_in, uncached_tokens_in, run_id),
+         cache_read_tokens_in, cache_write_tokens_in, uncached_tokens_in, status,
+         transcript_path, transcript_provider, run_id),
     )
     conn.commit()
     # Close connection before spawning subprocess to avoid SQLITE_BUSY (two write
@@ -204,10 +221,11 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
 
     print(f"Skill run {run_id} ({row['skill_name']}) finished:")
     print(f"  Model:         {model or '(unknown)'}")
-    print(f"  Requests:      {request_count}")
-    print(f"  Tokens in:     {tokens_in:,}")
-    print(f"  Tokens out:    {tokens_out:,}")
-    print(f"  Est. cost:     ${cost:.4f}")
+    print(f"  Requests:      {request_count if request_count is not None else 'unavailable'}")
+    print(f"  Tokens in:     {f'{tokens_in:,}' if tokens_in is not None else 'unavailable'}")
+    print(f"  Tokens out:    {f'{tokens_out:,}' if tokens_out is not None else 'unavailable'}")
+    cost_text = f"${cost:.4f}" if cost is not None else f"unavailable ({status})"
+    print(f"  Est. cost:     {cost_text}")
     if metadata:
         print(f"  Metadata:      {metadata}")
 

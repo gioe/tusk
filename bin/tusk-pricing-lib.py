@@ -13,6 +13,7 @@ Both this file and tusk-db-lib.py are loaded at runtime via tusk_loader:
 import json
 import logging
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -339,8 +340,47 @@ def _newest_transcript(files: list[Path]) -> str | None:
     return None
 
 
-def find_transcript(project_dir: str | None = None) -> str | None:
-    """Find the most recently modified JSONL in the Claude projects dir.
+_CODEX_THREAD_ID_RE = re.compile(r"^[A-Za-z0-9-]+$")
+
+
+def active_transcript_provider() -> str:
+    """Return the provider identified by the current agent runtime."""
+    return "codex" if os.environ.get("CODEX_THREAD_ID") else "claude"
+
+
+def transcript_provider(transcript_path: str | None) -> str | None:
+    """Infer a provider from a known transcript path."""
+    if not transcript_path:
+        return None
+    normalized = str(Path(transcript_path)).replace("\\", "/")
+    if "/.codex/sessions/" in normalized:
+        return "codex"
+    if "/.claude/projects/" in normalized:
+        return "claude"
+    return None
+
+
+def _find_codex_transcript(thread_id: str | None = None) -> str | None:
+    """Resolve one Codex rollout by its runtime thread identity."""
+    thread_id = thread_id or os.environ.get("CODEX_THREAD_ID", "")
+    if not thread_id or not _CODEX_THREAD_ID_RE.fullmatch(thread_id):
+        return None
+    codex_root = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
+    sessions = codex_root / "sessions"
+    matches = list(sessions.glob(f"*/*/*/*-{thread_id}.jsonl"))
+    return _newest_transcript(matches)
+
+
+def find_transcript(
+    project_dir: str | None = None,
+    *,
+    provider: str | None = None,
+) -> str | None:
+    """Find the transcript for the active provider runtime.
+
+    A known Codex thread is resolved by exact rollout identity and never falls
+    back to Claude's mtime-based project search. Without a Codex identity,
+    existing Claude discovery remains unchanged.
 
     If *project_dir* is not given, tries multiple candidate directories:
     1. os.getcwd()
@@ -350,6 +390,12 @@ def find_transcript(project_dir: str | None = None) -> str | None:
 
     Returns the most recently modified JSONL found, or None if nothing found.
     """
+    provider = provider or ("claude" if project_dir is not None else active_transcript_provider())
+    if provider == "codex":
+        return _find_codex_transcript()
+    if provider != "claude":
+        return None
+
     if project_dir is not None:
         if os.path.isdir(project_dir):
             return _newest_transcript(_relevant_transcripts(project_dir))
@@ -362,13 +408,23 @@ def find_transcript(project_dir: str | None = None) -> str | None:
     return _newest_transcript(_relevant_transcripts(os.getcwd()))
 
 
-def find_all_transcripts_with_fallback(start_dir: str | None = None) -> list[str]:
+def find_all_transcripts_with_fallback(
+    start_dir: str | None = None,
+    *,
+    provider: str | None = None,
+) -> list[str]:
     """Find all JSONL transcripts, trying multiple candidate directories.
 
     Returns every relevant CWD/root/worktree/subdirectory transcript, deduped
     and sorted by mtime descending. Broad parent hashes remain a last-resort
     fallback when no project-scoped transcript exists.
     """
+    provider = provider or ("claude" if start_dir is not None else active_transcript_provider())
+    if provider == "codex":
+        path = _find_codex_transcript()
+        return [path] if path else []
+    if provider != "claude":
+        return []
     if start_dir is None:
         start_dir = os.getcwd()
 
@@ -452,6 +508,43 @@ def compute_active_seconds(
     return int(active)
 
 
+def _codex_model_from_entry(entry: dict) -> str:
+    """Read the active model from current Codex rollout event shapes."""
+    entry_type = entry.get("type")
+    payload = entry.get("payload", {})
+    model = ""
+    if entry_type == "turn_context":
+        model = payload.get("model", "")
+    elif entry_type == "event_msg" and payload.get("type") == "thread_settings_applied":
+        model = payload.get("thread_settings", {}).get("model", "")
+    return resolve_model(model) if isinstance(model, str) and model else ""
+
+
+def _codex_turn_usage(info: dict, previous_total: dict | None) -> tuple[dict, dict | None]:
+    """Return per-turn Codex usage, deriving deltas when only totals exist."""
+    total = info.get("total_token_usage")
+    last = info.get("last_token_usage")
+    if isinstance(last, dict) and last:
+        return last, total if isinstance(total, dict) else previous_total
+    if not isinstance(total, dict):
+        return {}, previous_total
+    fields = (
+        "input_tokens",
+        "cached_input_tokens",
+        "output_tokens",
+        "reasoning_output_tokens",
+        "total_tokens",
+    )
+    if previous_total is None:
+        usage = {field: max(0, total.get(field, 0) or 0) for field in fields}
+    else:
+        usage = {
+            field: max(0, (total.get(field, 0) or 0) - (previous_total.get(field, 0) or 0))
+            for field in fields
+        }
+    return usage, total
+
+
 def aggregate_session(
     transcript_path: str,
     started_at: datetime,
@@ -487,6 +580,8 @@ def aggregate_session(
     last_context_tokens: int | None = None
     context_window: int | None = None
     codex_meta: dict | None = None
+    current_codex_model = ""
+    previous_codex_total: dict | None = None
     user_prompt_tokens = 0
     user_prompt_count = 0
     event_timestamps: list = []
@@ -513,7 +608,13 @@ def aggregate_session(
             except json.JSONDecodeError:
                 continue
 
+            event_model = _codex_model_from_entry(entry)
+            if event_model:
+                current_codex_model = event_model
+
             if entry.get("type") == "event_msg" and entry.get("payload", {}).get("type") == "token_count":
+                info = entry.get("payload", {}).get("info", {})
+                usage, previous_codex_total = _codex_turn_usage(info, previous_codex_total)
                 ts_str = entry.get("timestamp")
                 if not ts_str:
                     continue
@@ -528,17 +629,18 @@ def aggregate_session(
                 if not record_event_timestamp(ts):
                     break
 
-                info = entry.get("payload", {}).get("info", {})
-                usage = info.get("total_token_usage") or info.get("last_token_usage") or {}
-                turn_input = usage.get("input_tokens", 0)
+                raw_input = usage.get("input_tokens", 0)
                 turn_cache_read = usage.get("cached_input_tokens", 0)
+                turn_input = max(0, raw_input - turn_cache_read)
                 turn_output = usage.get("output_tokens", 0) + usage.get("reasoning_output_tokens", 0)
-                turn_context = turn_input + turn_cache_read
+                turn_context = raw_input
 
                 totals["input_tokens"] += turn_input
                 totals["output_tokens"] += turn_output
                 totals["cache_read_input_tokens"] += turn_cache_read
                 request_count += 1
+                if current_codex_model:
+                    model_counts[current_codex_model] = model_counts.get(current_codex_model, 0) + 1
 
                 if turn_context > peak_context_tokens:
                     peak_context_tokens = turn_context
@@ -731,6 +833,23 @@ def compute_cost(totals: dict) -> float:
     return round(cost, 6)
 
 
+def telemetry_status(totals: dict) -> str:
+    """Classify parsed telemetry without replacing unavailable data with zero."""
+    if not totals.get("request_count"):
+        return "no_usage"
+    model = totals.get("model", "")
+    if not model:
+        return "model_missing"
+    if model not in PRICING:
+        return "unpriced_model"
+    return "captured"
+
+
+def optional_cost(totals: dict) -> float | None:
+    """Return an estimate only when the parsed model has configured pricing."""
+    return compute_cost(totals) if telemetry_status(totals) == "captured" else None
+
+
 def compute_tokens_in(totals: dict) -> int:
     """Sum all inbound token fields into a single tokens_in value."""
     return (
@@ -765,6 +884,7 @@ def iter_tool_call_costs(
     pending_codex_calls: list[tuple[str, str]] = []
     codex_meta = _lookup_codex_thread_meta(transcript_path)
     codex_model = resolve_model(codex_meta.get("model", ""))
+    previous_codex_total: dict | None = None
 
     with open(transcript_path) as f:
         for line in f:
@@ -775,6 +895,10 @@ def iter_tool_call_costs(
                 entry = json.loads(line)
             except json.JSONDecodeError:
                 continue
+
+            event_model = _codex_model_from_entry(entry)
+            if event_model:
+                codex_model = event_model
 
             if entry.get("type") == "response_item":
                 payload = entry.get("payload", {})
@@ -787,6 +911,8 @@ def iter_tool_call_costs(
                 continue
 
             if entry.get("type") == "event_msg" and entry.get("payload", {}).get("type") == "token_count":
+                info = entry.get("payload", {}).get("info", {})
+                usage, previous_codex_total = _codex_turn_usage(info, previous_codex_total)
                 ts_str = entry.get("timestamp")
                 if not ts_str:
                     continue
@@ -802,10 +928,9 @@ def iter_tool_call_costs(
                 if not pending_codex_calls:
                     continue
 
-                info = entry.get("payload", {}).get("info", {})
-                usage = info.get("total_token_usage") or info.get("last_token_usage") or {}
-                inp = usage.get("input_tokens", 0)
+                raw_input = usage.get("input_tokens", 0)
                 cache_read = usage.get("cached_input_tokens", 0)
+                inp = max(0, raw_input - cache_read)
                 out = usage.get("output_tokens", 0) + usage.get("reasoning_output_tokens", 0)
                 rates = PRICING.get(codex_model)
                 if rates:
@@ -1061,7 +1186,8 @@ def _extract_error_text(raw) -> str:
 
 
 def _lookup_codex_thread_meta(transcript_path: str) -> dict:
-    """Return session_meta payload from a Codex transcript, or {} when absent."""
+    """Return Codex metadata including the latest event-carried model."""
+    result: dict = {}
     try:
         with open(transcript_path) as f:
             for line in f:
@@ -1075,10 +1201,13 @@ def _lookup_codex_thread_meta(transcript_path: str) -> dict:
                 if entry.get("type") == "session_meta":
                     payload = entry.get("payload", {})
                     if isinstance(payload, dict):
-                        return payload
+                        result.update(payload)
+                model = _codex_model_from_entry(entry)
+                if model:
+                    result["model"] = model
     except OSError:
         pass
-    return {}
+    return result
 
 
 def update_session_stats(conn: sqlite3.Connection, session_id: int, totals: dict) -> None:
@@ -1091,7 +1220,8 @@ def update_session_stats(conn: sqlite3.Connection, session_id: int, totals: dict
     """
     tokens_in = compute_tokens_in(totals)
     tokens_out = totals["output_tokens"]
-    cost = compute_cost(totals)
+    cost = optional_cost(totals)
+    status = telemetry_status(totals)
     model = totals["model"]
     peak_context = totals.get("peak_context_tokens")
     first_context = totals.get("first_context_tokens")
@@ -1117,6 +1247,13 @@ def update_session_stats(conn: sqlite3.Connection, session_id: int, totals: dict
         (tokens_in, tokens_out, cost, model, peak_context, first_context, last_context, context_window, request_count,
          cache_read_tokens_in, cache_write_tokens_in, uncached_tokens_in, session_id),
     )
+    try:
+        conn.execute(
+            "UPDATE task_sessions SET telemetry_status = ? WHERE id = ?",
+            (status, session_id),
+        )
+    except sqlite3.OperationalError:
+        pass
 
     # Idle-gap-discounted active duration (issue #1069, schema 79). Written
     # separately and best-effort: new code may run against a pre-migration

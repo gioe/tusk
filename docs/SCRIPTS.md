@@ -246,12 +246,12 @@ The expected shape is:
 
 | File | CLI command(s) | Reads | Writes |
 |------|---------------|-------|--------|
-| **tusk-session-stats.py** | `tusk session-stats <session_id> [transcript_path]` | Claude Code JSONL transcripts, `task_sessions` | `task_sessions` (`tokens_in`, `tokens_out`, `cost_dollars`, `model`); depends on `tusk-pricing-lib.py` |
-| **tusk-session-recalc.py** | `tusk session-recalc` | `task_sessions`, Claude Code JSONL transcripts | `task_sessions` (recomputes cost for all sessions); depends on `tusk-pricing-lib.py` |
-| **tusk-skill-run.py** | `tusk skill-run start\|finish\|cancel\|list [flags]` | `skill_runs`, Claude Code JSONL transcripts | `skill_runs`; depends on `tusk-pricing-lib.py` |
+| **tusk-session-stats.py** | `tusk session-stats <session_id> [transcript_path]` | Claude Code or Codex JSONL transcripts, `task_sessions` | `task_sessions` (`tokens_in`, `tokens_out`, `cost_dollars`, `model`, telemetry status); depends on `tusk-pricing-lib.py` |
+| **tusk-session-recalc.py** | `tusk session-recalc` | `task_sessions`, pinned provider transcripts | `task_sessions` (recomputes cost without cross-provider guessing); depends on `tusk-pricing-lib.py` |
+| **tusk-skill-run.py** | `tusk skill-run start\|finish\|cancel\|list [flags]` | `skill_runs`, Claude Code or Codex JSONL transcripts | `skill_runs`; depends on `tusk-pricing-lib.py` |
 | **tusk-token-audit.py** | `tusk token-audit [--summary\|--json]` | skill SKILL.md files in `skills/`, `skills-internal/`, `.claude/skills/` | nothing; advisory analysis only |
 
-Transcript discovery for session, review, criterion, call-breakdown, and skill-run cost attribution is centralized in `tusk-pricing-lib.py`. When called from a task-owned worktree, it tries the current directory, the Git toplevel, the primary checkout reached through `git rev-parse --git-common-dir`, then parent directories, deriving the matching `~/.claude/projects/<hash>/*.jsonl` directory for each candidate. This lets task worktrees under `~/.tusk/worktrees/...` still find transcripts recorded against the primary checkout. `tusk skill-run finish` records `model = '(transcript missing)'` when that search finds no JSONL at all; this is distinct from `'(unknown)'`, which means a transcript was found but no model-bearing request was attributable to the run window. Skill-run finish also stops transcript aggregation at the first idle gap above 600 seconds so stale open runs do not absorb later conversation cost.
+Transcript discovery for session, review, criterion, call-breakdown, and skill-run cost attribution is centralized in `tusk-pricing-lib.py`. With `CODEX_THREAD_ID`, tusk resolves only the exact rollout under `~/.codex/sessions/YYYY/MM/DD/` and does not fall back to Claude. Otherwise it uses Claude's project hashes, including the Git toplevel and primary checkout for task worktrees. Codex aggregation uses per-turn usage (or deltas cumulative-only events), separates cached from uncached input, includes reasoning output, and tracks model changes from current rollout events. Missing or unpriced telemetry is stored explicitly with NULL metrics/cost rather than fabricated zeros. Skill-run finish still stops at the first idle gap above 600 seconds.
 
 ### Dashboard
 

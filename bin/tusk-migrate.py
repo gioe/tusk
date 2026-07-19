@@ -3659,6 +3659,27 @@ def migrate_86(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 86: added skill_runs.transcript_path")
 
 
+def migrate_87(db_path: str, config_path: str, script_dir: str) -> None:
+    """Pin task transcripts and persist provider-aware telemetry states."""
+    if get_version(db_path) >= 87:
+        _progress("  Migration 87: added provider-aware telemetry attribution")
+        return
+
+    additions = (
+        ("task_sessions", "transcript_path", "TEXT"),
+        ("task_sessions", "transcript_provider", "TEXT"),
+        ("task_sessions", "telemetry_status", "TEXT"),
+        ("skill_runs", "transcript_provider", "TEXT"),
+        ("skill_runs", "telemetry_status", "TEXT"),
+    )
+    for table, column, column_type in additions:
+        if not has_column(db_path, table, column):
+            run_script(db_path, f"ALTER TABLE {table} ADD COLUMN {column} {column_type};")
+
+    set_version(db_path, 87)
+    _progress("  Migration 87: added provider-aware telemetry attribution")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -3748,6 +3769,7 @@ MIGRATIONS = [
     (84, migrate_84),
     (85, migrate_85),
     (86, migrate_86),
+    (87, migrate_87),
 ]
 
 

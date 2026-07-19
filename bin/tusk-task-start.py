@@ -45,6 +45,7 @@ _db_lib = tusk_loader.load("tusk-db-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
 _rank_lib = tusk_loader.load("tusk-rank-lib")
 _git_helpers = tusk_loader.load("tusk-git-helpers")
+_pricing_lib = tusk_loader.load("tusk-pricing-lib")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
 select_top_ready_task = _rank_lib.select_top_ready_task
@@ -916,6 +917,16 @@ def main(argv: list[str]) -> int:
                     "UPDATE task_sessions SET agent_name = ? WHERE id = ?",
                     (agent_name, session_id),
                 )
+            transcript_path = _pricing_lib.find_transcript()
+            transcript_provider = _pricing_lib.active_transcript_provider()
+            conn.execute(
+                """UPDATE task_sessions
+                   SET transcript_path = COALESCE(transcript_path, ?),
+                       transcript_provider = COALESCE(transcript_provider, ?),
+                       telemetry_status = COALESCE(telemetry_status, 'pending')
+                   WHERE id = ?""",
+                (transcript_path, transcript_provider, session_id),
+            )
         else:
             # Create a new session. Under concurrent /chain execution two agents
             # may both read no-open-session and then race to INSERT. The partial
@@ -923,10 +934,13 @@ def main(argv: list[str]) -> int:
             # reject the second INSERT; catch that and fall back to the session
             # the winning agent already created.
             try:
+                transcript_path = _pricing_lib.find_transcript()
+                transcript_provider = _pricing_lib.active_transcript_provider()
                 conn.execute(
-                    "INSERT INTO task_sessions (task_id, started_at, agent_name)"
-                    " VALUES (?, datetime('now'), ?)",
-                    (task_id, agent_name),
+                    "INSERT INTO task_sessions "
+                    "(task_id, started_at, agent_name, transcript_path, transcript_provider, telemetry_status)"
+                    " VALUES (?, datetime('now'), ?, ?, ?, 'pending')",
+                    (task_id, agent_name, transcript_path, transcript_provider),
                 )
                 session_id = conn.execute(
                     "SELECT MAX(id) as id FROM task_sessions WHERE task_id = ?",

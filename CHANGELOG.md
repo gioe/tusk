@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1231] - 2026-07-19
+
+- [TASK-822] Add reliable provider-aware Codex task and skill-run cost attribution
+
 ## [1230] - 2026-07-19
 
 - [TASK-821] Clarify tusk commit exit-9 recovery guidance

@@ -58,6 +58,8 @@ CREATE TABLE skill_runs (
     request_count INTEGER,
     task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
     transcript_path TEXT,
+    transcript_provider TEXT,
+    telemetry_status TEXT,
     user_prompt_tokens INTEGER,
     user_prompt_count INTEGER
 );

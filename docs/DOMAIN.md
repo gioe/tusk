@@ -352,6 +352,8 @@ A bounded work session on a task, tracking cost and metrics. A task can have mul
 
 **Invariant:** At most one open (unclosed) session per task is allowed. Enforced by a partial UNIQUE index: `UNIQUE INDEX idx_task_sessions_open ON task_sessions(task_id) WHERE ended_at IS NULL`. `tusk task-start` detects a concurrent-insert race via `IntegrityError` and reuses the winning session with a warning rather than failing.
 
+**Provider-aware telemetry attribution.** `task_sessions` and `skill_runs` pin both `transcript_path` and `transcript_provider` when they start. A Codex runtime is identified by `CODEX_THREAD_ID` and resolves only the exact date-partitioned rollout under `~/.codex/sessions`; it never falls back to an unrelated Claude transcript. Claude runtimes retain project-hash discovery. `telemetry_status` records `pending`, `captured`, `transcript_missing`, `no_usage`, `model_missing`, or `unpriced_model`. Missing usage and unavailable prices remain NULL rather than being synthesized as zero.
+
 ---
 
 ### Task Status Transition
@@ -822,7 +824,7 @@ Backs the Models dashboard tab. Returns a four-key dict:
 
 **NULL vs zero `request_count`.** `task_request_count` / `skill_request_count` (in `models`), `avg_turns` (in `complexity_matrix`), and `request_count` (in both timeseries) are `None` — not `0` — when every contributing row has a NULL `request_count` (rows written before migration 49 added the column). The Models tab renders these as `—` so "unknown turns" stays visually distinct from a genuine zero.
 
-**Skill-run transcript pinning.** `skill_runs.transcript_path` stores the JSONL transcript selected when `tusk skill-run start` opens a run. `tusk skill-run finish` prefers this path so concurrent sessions in the same project transcript directory do not steal each other's cost/model attribution through mtime-based discovery. Historical rows and missing pinned files fall back to the legacy transcript discovery path with a warning rather than failing the finish.
+**Transcript pinning.** Task sessions and skill runs reuse their pinned provider/path during finish and recalculation. If a pinned file disappears, discovery is retried only within that provider. Historical task sessions without provider identity retain legacy Claude-only recalculation; tusk does not guess that they belong to the currently active Codex thread.
 
 ### Model name normalization
 

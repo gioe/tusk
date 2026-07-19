@@ -82,7 +82,8 @@ def main():
     conn = get_connection(db_path)
     try:
         row = conn.execute(
-            "SELECT started_at, ended_at FROM task_sessions WHERE id = ?",
+            "SELECT started_at, ended_at, transcript_path, transcript_provider "
+            "FROM task_sessions WHERE id = ?",
             (session_id,),
         ).fetchone()
 
@@ -93,25 +94,35 @@ def main():
         started_at = lib.parse_sqlite_timestamp(row["started_at"])
         ended_at = lib.parse_sqlite_timestamp(row["ended_at"]) if row["ended_at"] else None
 
-        # Discover transcript if not provided
+        transcript_path = transcript_path or row["transcript_path"]
+        provider = row["transcript_provider"] or lib.active_transcript_provider()
         if not transcript_path:
-            transcript_path = lib.find_transcript()
+            transcript_path = lib.find_transcript(provider=provider)
             if not transcript_path:
-                cwd = os.getcwd()
-                project_hash = lib.derive_project_hash(cwd)
                 print(
-                    f"Error: No JSONL transcripts found.\n"
-                    f"Tried cwd '{cwd}', git root, and parent directories.\n"
-                    f"Expected transcripts under ~/.claude/projects/<hash>/ — "
-                    f"e.g. ~/.claude/projects/{project_hash}/\n"
-                    "Provide the transcript path explicitly.",
+                    f"Warning: No {provider} transcript found; telemetry is unavailable.",
                     file=sys.stderr,
                 )
-                sys.exit(1)
+                conn.execute(
+                    "UPDATE task_sessions SET model = ?, telemetry_status = ? WHERE id = ?",
+                    (f"({provider} transcript missing)", "transcript_missing", session_id),
+                )
+                conn.commit()
+                return
 
         if not os.path.isfile(transcript_path):
             print(f"Error: Transcript not found: {transcript_path}", file=sys.stderr)
-            sys.exit(1)
+            conn.execute(
+                "UPDATE task_sessions SET model = ?, telemetry_status = ? WHERE id = ?",
+                (f"({provider} transcript missing)", "transcript_missing", session_id),
+            )
+            conn.commit()
+            return
+
+        conn.execute(
+            "UPDATE task_sessions SET transcript_path = ?, transcript_provider = ? WHERE id = ?",
+            (transcript_path, provider, session_id),
+        )
 
         # Aggregate tokens
         totals = lib.aggregate_session(transcript_path, started_at, ended_at)
@@ -122,11 +133,17 @@ def main():
                 f"[{started_at.isoformat()} .. {ended_at.isoformat() if ended_at else 'now'}]",
                 file=sys.stderr,
             )
-            sys.exit(0)
+            conn.execute(
+                "UPDATE task_sessions SET model = '(no attributable usage)', "
+                "telemetry_status = 'no_usage' WHERE id = ?",
+                (session_id,),
+            )
+            conn.commit()
+            return
 
         tokens_in = lib.compute_tokens_in(totals)
         tokens_out = totals["output_tokens"]
-        cost = lib.compute_cost(totals)
+        cost = lib.optional_cost(totals)
         model = totals["model"]
 
         # Update DB
@@ -151,7 +168,8 @@ def main():
               f"cache write 1h: {totals['cache_creation_1h_tokens']:,}, "
               f"cache read: {totals['cache_read_input_tokens']:,})")
         print(f"  Output tokens: {tokens_out:,}")
-        print(f"  Est. cost:    ${cost:.4f}")
+        cost_text = f"${cost:.4f}" if cost is not None else "unavailable (unpriced model)"
+        print(f"  Est. cost:    {cost_text}")
         print(f"  Active time:  {_format_duration(active_seconds)}")
     finally:
         conn.close()

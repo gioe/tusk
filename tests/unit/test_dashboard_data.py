@@ -82,6 +82,9 @@ CREATE TABLE task_sessions (
     last_context_tokens INTEGER,
     context_window INTEGER,
     request_count INTEGER,
+    transcript_path TEXT,
+    transcript_provider TEXT,
+    telemetry_status TEXT,
     FOREIGN KEY (task_id) REFERENCES tasks(id)
 );
 
@@ -657,6 +660,8 @@ CREATE TABLE skill_runs (
     request_count INTEGER,
     task_id INTEGER,
     transcript_path TEXT,
+    transcript_provider TEXT,
+    telemetry_status TEXT,
     user_prompt_tokens INTEGER,
     user_prompt_count INTEGER
 );
