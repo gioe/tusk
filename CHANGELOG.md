@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1230] - 2026-07-19
+
+- [TASK-821] Clarify tusk commit exit-9 recovery guidance
+
 ## [1229] - 2026-07-17
 
 - [TASK-808] Show Git commit stdout when stderr is empty
