@@ -523,6 +523,20 @@ JSON blob and the `skill_run.run_id` you already captured.
    **After each `tusk commit`,** run `git status --short` to confirm
    your files were staged and committed.
 
+   **If `tusk commit` exits 9 (concurrent commit active),** another
+   invocation holds the operation lock for the same worktree and this
+   process did not run `git commit`. Wait for the active invocation to
+   finish and inspect its `TUSK_COMMIT_RESULT`. Retry only when that
+   result shows the requested commit did not land. If the result is
+   unavailable, inspect HEAD with `git log -1 --format='%H %s'`, the
+   selected paths with `git status --short -- "<file1>" ["<file2>" ...]`,
+   and criterion bindings with `tusk criteria list <id>` before deciding.
+   If the requested TASK commit and intended criterion bindings landed
+   and the selected requested changes are clean, do not reissue
+   `tusk commit`; if the evidence is inconsistent, investigate instead
+   of retrying blindly. Do not interpret exit 9 as a Git failure or mark
+   criteria directly from the losing invocation.
+
    **If `tusk commit` fails with `pathspec did not match any files`**
    (exit code 3, git-add error), first check whether the file was
    already committed in a prior `tusk commit` for this task, or
