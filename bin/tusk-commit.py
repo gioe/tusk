@@ -1475,8 +1475,10 @@ def main(argv: list[str]) -> int:
         exit_code = _run_commit(argv, state)
         return exit_code
     finally:
-        _release_commit_operation_lock(state.get("commit_lock_fd"))
-        _emit_final_summary(exit_code, state)
+        try:
+            _emit_final_summary(exit_code, state)
+        finally:
+            _release_commit_operation_lock(state.get("commit_lock_fd"))
 
 
 def _run_commit(argv: list[str], state: dict) -> int:
