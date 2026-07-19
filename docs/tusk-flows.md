@@ -223,7 +223,8 @@ USER / /loop
 COMMAND             CALLS INTERNALLY
 ──────────────────  ─────────────────────────────────────────────────────
 commit              test_command gate  ·  criteria done  (per --criteria flag)
-                    exit codes: 2=test_command, 3=git add/commit, 4=criteria
+                    exit codes: 2=test_command, 3=git add/commit, 4=criteria,
+                                9=concurrent commit active
 merge               preflight checks  ·  lint gate  ·  session-close  ·  task-done  (+ git ff-merge, push, branch delete)
 branch              compatibility path for branch-only workflows (git operations only)
 task-worktree       git worktree create/list + task_workspaces registry reconciliation
