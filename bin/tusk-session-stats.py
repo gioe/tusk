@@ -94,8 +94,16 @@ def main():
         started_at = lib.parse_sqlite_timestamp(row["started_at"])
         ended_at = lib.parse_sqlite_timestamp(row["ended_at"]) if row["ended_at"] else None
 
-        transcript_path = transcript_path or row["transcript_path"]
         provider = row["transcript_provider"] or lib.active_transcript_provider()
+        if not transcript_path:
+            transcript_path = row["transcript_path"]
+            pinned_provider = lib.transcript_provider(transcript_path)
+            if pinned_provider and pinned_provider != provider:
+                print(
+                    f"Warning: Ignoring legacy {pinned_provider} transcript pinned for {provider} telemetry.",
+                    file=sys.stderr,
+                )
+                transcript_path = None
         if not transcript_path:
             transcript_path = lib.find_transcript(provider=provider)
             if not transcript_path:

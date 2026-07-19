@@ -380,6 +380,51 @@ def test_finish_falls_back_when_pinned_transcript_is_missing(db_path, monkeypatc
     assert "Model:         claude-sonnet-4-6" in out
 
 
+def test_finish_ignores_legacy_claude_pin_during_codex_run(db_path, monkeypatch):
+    c = sqlite3.connect(str(db_path))
+    c.execute(
+        "INSERT INTO skill_runs (skill_name, started_at, transcript_path) VALUES (?, ?, ?)",
+        ("retro", "2026-05-01 10:00:00", "/tmp/.claude/projects/repo/old.jsonl"),
+    )
+    c.commit()
+    c.close()
+    captured = {}
+
+    def fake_aggregate(path, started_at, ended_at, *, stop_at_idle_gap=False):
+        captured["path"] = path
+        return {
+            "input_tokens": 10,
+            "output_tokens": 2,
+            "cache_creation_input_tokens": 0,
+            "cache_creation_5m_tokens": 0,
+            "cache_creation_1h_tokens": 0,
+            "cache_read_input_tokens": 1,
+            "model": "gpt-test",
+            "request_count": 1,
+        }
+
+    codex_path = "/tmp/.codex/sessions/2026/07/19/rollout.jsonl"
+    monkeypatch.setattr(skill_run.lib, "load_pricing", lambda: None)
+    monkeypatch.setattr(skill_run.lib, "active_transcript_provider", lambda: "codex")
+    monkeypatch.setattr(skill_run.lib, "find_transcript", lambda **kwargs: codex_path)
+    monkeypatch.setattr(skill_run.os.path, "isfile", lambda path: path == codex_path)
+    monkeypatch.setattr(skill_run.lib, "aggregate_session", fake_aggregate)
+    monkeypatch.setattr(skill_run.lib, "optional_cost", lambda totals: None)
+    monkeypatch.setattr(skill_run.lib, "telemetry_status", lambda totals: "unpriced_model")
+    monkeypatch.setattr(skill_run.lib, "compute_tokens_in", lambda totals: 11)
+    monkeypatch.setattr(
+        skill_run.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+
+    exit_code, _, err = _run_main(db_path, monkeypatch, "finish", "1")
+
+    assert exit_code == 0
+    assert captured["path"] == codex_path
+    assert "Ignoring legacy claude transcript pinned for codex telemetry" in err
+
+
 def test_list_task_id_shows_closed_task_runs(db_path, monkeypatch):
     c = sqlite3.connect(str(db_path))
     c.execute(

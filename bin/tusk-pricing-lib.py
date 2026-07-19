@@ -632,7 +632,8 @@ def aggregate_session(
                 raw_input = usage.get("input_tokens", 0)
                 turn_cache_read = usage.get("cached_input_tokens", 0)
                 turn_input = max(0, raw_input - turn_cache_read)
-                turn_output = usage.get("output_tokens", 0) + usage.get("reasoning_output_tokens", 0)
+                # Codex output_tokens already includes the reasoning subset.
+                turn_output = usage.get("output_tokens", 0)
                 turn_context = raw_input
 
                 totals["input_tokens"] += turn_input
@@ -931,7 +932,7 @@ def iter_tool_call_costs(
                 raw_input = usage.get("input_tokens", 0)
                 cache_read = usage.get("cached_input_tokens", 0)
                 inp = max(0, raw_input - cache_read)
-                out = usage.get("output_tokens", 0) + usage.get("reasoning_output_tokens", 0)
+                out = usage.get("output_tokens", 0)
                 rates = PRICING.get(codex_model)
                 if rates:
                     mtok = 1_000_000

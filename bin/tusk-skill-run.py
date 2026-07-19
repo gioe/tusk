@@ -133,6 +133,14 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
     pinned_transcript_path = row["transcript_path"] or ""
     transcript_provider = row["transcript_provider"] or lib.active_transcript_provider()
     transcript_path = pinned_transcript_path
+    pinned_provider = lib.transcript_provider(transcript_path)
+    if pinned_provider and pinned_provider != transcript_provider:
+        print(
+            f"Warning: Ignoring legacy {pinned_provider} transcript pinned for "
+            f"{transcript_provider} telemetry.",
+            file=sys.stderr,
+        )
+        transcript_path = ""
     if transcript_path and not os.path.isfile(transcript_path):
         print(
             f"Warning: Pinned {transcript_provider} transcript missing at {transcript_path}.",

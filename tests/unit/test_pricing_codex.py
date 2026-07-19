@@ -161,7 +161,7 @@ class TestCodexAggregateSession:
         assert out["request_count"] == 2
         assert out["input_tokens"] == 1800
         assert out["cache_read_input_tokens"] == 700
-        assert out["output_tokens"] == 110, "reasoning output must be folded into tokens_out"
+        assert out["output_tokens"] == 80, "reasoning is already included in Codex output_tokens"
         assert out["first_context_tokens"] == 1000
         assert out["peak_context_tokens"] == 1500
         assert out["last_context_tokens"] == 1500
@@ -208,12 +208,12 @@ class TestCodexToolCallCosts:
 
         assert [row["tool_name"] for row in out] == ["exec_command", "web_search"]
         assert [row["marginal_input_tokens"] for row in out] == [400, 400]
-        assert [row["output_tokens"] for row in out] == [20, 20]
+        assert [row["output_tokens"] for row in out] == [15, 15]
 
         expected_total_cost = (
             800 / 1_000_000 * 2.5
             + 200 / 1_000_000 * 0.25
-            + 40 / 1_000_000 * 15.0
+            + 30 / 1_000_000 * 15.0
         )
         assert out[0]["cost"] == pytest.approx(expected_total_cost / 2, rel=1e-9)
         assert out[1]["cost"] == pytest.approx(expected_total_cost / 2, rel=1e-9)
@@ -268,7 +268,7 @@ def test_total_only_usage_is_delta_not_cumulative(tmp_path):
     assert out["request_count"] == 2
     assert out["input_tokens"] == 1100  # (1000-200) + ((1600-1000)-(500-200))
     assert out["cache_read_input_tokens"] == 500
-    assert out["output_tokens"] == 70
+    assert out["output_tokens"] == 50
 
 
 class TestCodexToolErrors:

@@ -103,3 +103,26 @@ def test_missing_pinned_provider_never_crosses_to_claude(tmp_path, monkeypatch):
     assert requested == ["codex"]
     assert row == ("transcript_missing", None, None)
     assert "No codex transcript found" in err
+
+
+def test_legacy_claude_pin_is_ignored_during_codex_session(tmp_path, monkeypatch):
+    codex_path = tmp_path / ".codex" / "sessions" / "rollout.jsonl"
+    codex_path.parent.mkdir(parents=True)
+    codex_path.write_text("{}\n")
+    legacy_claude = tmp_path / ".claude" / "projects" / "repo" / "old.jsonl"
+    db_path = _db(tmp_path, path=str(legacy_claude), provider=None)
+    captured = []
+    monkeypatch.setattr(session_stats.lib, "active_transcript_provider", lambda: "codex")
+    monkeypatch.setattr(
+        session_stats.lib, "find_transcript", lambda **kwargs: str(codex_path)
+    )
+    monkeypatch.setattr(
+        session_stats.lib,
+        "aggregate_session",
+        lambda path, start, end: captured.append(path) or {"request_count": 0},
+    )
+
+    _, err = _run(db_path, monkeypatch)
+
+    assert captured == [str(codex_path)]
+    assert "Ignoring legacy claude transcript pinned for codex telemetry" in err
