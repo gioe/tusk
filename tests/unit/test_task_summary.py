@@ -88,7 +88,9 @@ CREATE TABLE skill_runs (
     tokens_in INTEGER,
     tokens_out INTEGER,
     request_count INTEGER
-    ,telemetry_status TEXT
+    ,telemetry_status TEXT,
+    model TEXT,
+    metadata TEXT
 );
 """
 
@@ -177,8 +179,9 @@ class TestOneSessionTask:
             closed_at="2026-04-19 12:30:00",
         )
         conn.execute(
-            "INSERT INTO task_sessions (task_id, started_at, ended_at, duration_seconds) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO task_sessions "
+            "(task_id, started_at, ended_at, duration_seconds, telemetry_status) "
+            "VALUES (?, ?, ?, ?, 'cancelled')",
             (1, "2026-04-19 10:00:00", "2026-04-19 12:30:00", 9000),
         )
         conn.execute(
@@ -225,13 +228,15 @@ class TestOneSessionTask:
             closed_at="2026-04-18 12:30:00",
         )
         conn.execute(
-            "INSERT INTO task_sessions (task_id, started_at, ended_at, duration_seconds) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO task_sessions "
+            "(task_id, started_at, ended_at, duration_seconds, telemetry_status) "
+            "VALUES (?, ?, ?, ?, 'cancelled')",
             (12, "2026-04-19 10:00:00", "2026-04-19 12:30:00", 9000),
         )
         conn.execute(
-            "INSERT INTO task_sessions (task_id, started_at, ended_at, duration_seconds) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO task_sessions "
+            "(task_id, started_at, ended_at, duration_seconds, telemetry_status) "
+            "VALUES (?, ?, ?, ?, 'cancelled')",
             (13, "2026-04-18 10:00:00", "2026-04-18 12:30:00", 9000),
         )
         conn.execute(
@@ -468,6 +473,110 @@ class TestUnavailableCost:
         assert "Cost:** unavailable across 2 completed run windows" in markdown
         assert "$0.0000" not in markdown
 
+    def test_version_1229_zero_usage_rows_render_as_unavailable(self, tmp_path):
+        _, conn = _make_db(tmp_path)
+        _insert_task(
+            conn,
+            task_id=3756,
+            started_at="2026-07-19 10:00:00",
+            closed_at="2026-07-19 12:00:00",
+        )
+        conn.execute(
+            """INSERT INTO task_sessions
+               (task_id, started_at, ended_at, cost_dollars, telemetry_status)
+               VALUES (3756, '2026-07-19 10:00:00', '2026-07-19 12:00:00',
+                       NULL, NULL)"""
+        )
+        conn.executemany(
+            """INSERT INTO skill_runs
+               (skill_name, task_id, started_at, ended_at, cost_dollars,
+                tokens_in, tokens_out, request_count, telemetry_status, model)
+               VALUES (?, 3756, ?, ?, 0, 0, 0, 0, NULL, '(unknown)')""",
+            [
+                ("tusk", "2026-07-19 10:00:01", "2026-07-19 11:00:00"),
+                ("review-commits", "2026-07-19 11:01:00", "2026-07-19 11:15:00"),
+                ("retro", "2026-07-19 11:16:00", "2026-07-19 11:30:00"),
+                ("address-issue", "2026-07-19 11:31:00", "2026-07-19 11:45:00"),
+            ],
+        )
+        conn.commit()
+
+        data = mod.build_summary(conn, 3756, str(tmp_path))
+        markdown = mod.render_markdown(data)
+
+        assert data["cost"] == {
+            "total": 0.0,
+            "skill_run_count": 1,
+            "unavailable_count": 1,
+        }
+        assert "Cost:** unavailable across 1 completed run window" in markdown
+        assert "$0.0000" not in markdown
+
+    def test_legacy_cancelled_and_pending_rows_remain_excluded(self, tmp_path):
+        _, conn = _make_db(tmp_path)
+        _insert_task(conn, task_id=32)
+        conn.executemany(
+            """INSERT INTO skill_runs
+               (skill_name, task_id, started_at, ended_at, cost_dollars,
+                tokens_in, tokens_out, request_count, telemetry_status, model, metadata)
+               VALUES (?, 32, ?, ?, ?, 0, 0, 0, ?, ?, NULL)""",
+            [
+                ("retro", "2026-07-19 12:00:00", "2026-07-19 12:01:00", 0, None, ""),
+                ("review-commits", "2026-07-19 12:02:00", None, None, "pending", None),
+            ],
+        )
+        conn.commit()
+
+        data = mod.build_summary(conn, 32, str(tmp_path))
+
+        assert data["cost"] == {"total": 0.0, "skill_run_count": 0}
+
+    def test_known_zero_requires_positive_usage_evidence(self, tmp_path):
+        _, conn = _make_db(tmp_path)
+        _insert_task(conn, task_id=33)
+        conn.executemany(
+            """INSERT INTO skill_runs
+               (skill_name, task_id, started_at, ended_at, cost_dollars,
+                tokens_in, tokens_out, request_count, telemetry_status, model)
+               VALUES (?, 33, ?, ?, 0, ?, ?, ?, ?, ?)""",
+            [
+                ("tusk", "2026-07-19 10:00:00", "2026-07-19 10:10:00", 1, 1, 1, "captured", "gpt-test"),
+                ("retro", "2026-07-19 10:11:00", "2026-07-19 10:12:00", 1, 0, 1, None, "gpt-test"),
+            ],
+        )
+        conn.commit()
+
+        data = mod.build_summary(conn, 33, str(tmp_path))
+        markdown = mod.render_markdown(data)
+
+        assert data["cost"] == {"total": 0.0, "skill_run_count": 2}
+        assert "Cost:** $0.0000 across 2 skill runs" in markdown
+
+    def test_mixed_known_and_legacy_unavailable_rows_show_subtotal(self, tmp_path):
+        _, conn = _make_db(tmp_path)
+        _insert_task(conn, task_id=34)
+        conn.executemany(
+            """INSERT INTO skill_runs
+               (skill_name, task_id, started_at, ended_at, cost_dollars,
+                tokens_in, tokens_out, request_count, telemetry_status, model)
+               VALUES (?, 34, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                ("review-commits", "2026-07-19 10:00:00", "2026-07-19 10:10:00", 0.25, 10, 5, 1, "captured", "gpt-test"),
+                ("retro", "2026-07-19 10:11:00", "2026-07-19 10:12:00", 0, 0, 0, 0, None, "(unknown)"),
+            ],
+        )
+        conn.commit()
+
+        data = mod.build_summary(conn, 34, str(tmp_path))
+        markdown = mod.render_markdown(data)
+
+        assert data["cost"] == {
+            "total": 0.25,
+            "skill_run_count": 2,
+            "unavailable_count": 1,
+        }
+        assert "Cost:** $0.2500 known subtotal across 2 run windows; 1 unavailable" in markdown
+
 
 class TestTokens:
     """build_summary returns a 'tokens' key aggregated across skill_runs."""
@@ -516,8 +625,9 @@ class TestMultiSessionTask:
         # Three sessions — the earliest is session 1 at 2026-04-18 09:00.
         # Active time sums to 3h regardless of wall gap.
         conn.executemany(
-            "INSERT INTO task_sessions (task_id, started_at, ended_at, duration_seconds) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO task_sessions "
+            "(task_id, started_at, ended_at, duration_seconds, telemetry_status) "
+            "VALUES (?, ?, ?, ?, 'cancelled')",
             [
                 (2, "2026-04-18 09:00:00", "2026-04-18 10:00:00", 3600),
                 (2, "2026-04-19 08:00:00", "2026-04-19 09:30:00", 5400),

@@ -139,23 +139,78 @@ def _has_cost(value) -> bool:
     return value is not None
 
 
-def _has_unavailable_telemetry(row: sqlite3.Row) -> bool:
+def _row_value(row: sqlite3.Row, column: str):
+    return row[column] if column in row.keys() else None
+
+
+def _is_legacy_cancelled_skill_run(row: sqlite3.Row) -> bool:
+    """Recognize the pre-v87 ``skill-run cancel`` persistence shape."""
     return bool(
-        row["ended_at"]
-        and row["cost_dollars"] is None
-        and row["telemetry_status"] in {
+        "skill_name" in row.keys()
+        and row["ended_at"]
+        and row["telemetry_status"] is None
+        and row["cost_dollars"] == 0
+        and _row_value(row, "tokens_in") == 0
+        and _row_value(row, "tokens_out") == 0
+        and _row_value(row, "request_count") == 0
+        and _row_value(row, "model") == ""
+        and _row_value(row, "metadata") is None
+    )
+
+
+def _has_positive_usage(row: sqlite3.Row) -> bool:
+    return any(
+        (_row_value(row, column) or 0) > 0
+        for column in ("tokens_in", "tokens_out", "request_count")
+    )
+
+
+def _has_unavailable_telemetry(row: sqlite3.Row) -> bool:
+    if not row["ended_at"]:
+        return False
+
+    status = row["telemetry_status"]
+    if status in {
             "transcript_missing",
             "no_usage",
             "model_missing",
             "unpriced_model",
-        }
+    }:
+        return True
+
+    if status is not None:
+        return False
+
+    # Migration 87 added telemetry_status without rewriting historical rows.
+    # An ended NULL-cost session therefore represents unavailable accounting.
+    if row["cost_dollars"] is None:
+        return True
+
+    # Before v87, failed skill-run attribution was persisted as zero usage and
+    # zero cost. Preserve the distinct legacy cancellation signature, and only
+    # call a zero genuinely known when some request/token evidence exists.
+    return bool(
+        "skill_name" in row.keys()
+        and row["cost_dollars"] == 0
+        and not _has_positive_usage(row)
+        and not _is_legacy_cancelled_skill_run(row)
+    )
+
+
+def _has_known_cost(row: sqlite3.Row) -> bool:
+    return bool(
+        _has_cost(row["cost_dollars"])
+        and not _has_unavailable_telemetry(row)
+        and not _is_legacy_cancelled_skill_run(row)
     )
 
 
 def _has_accounting(row: sqlite3.Row) -> bool:
     if row["telemetry_status"] in {"pending", "cancelled"}:
         return False
-    return _has_cost(row["cost_dollars"]) or _has_unavailable_telemetry(row)
+    if _is_legacy_cancelled_skill_run(row):
+        return False
+    return _has_known_cost(row) or _has_unavailable_telemetry(row)
 
 
 def _parse_cost_window(ts: str | None):
@@ -181,7 +236,7 @@ def _skill_run_contained_in_costed_session(sr: sqlite3.Row, sessions: list[sqlit
             continue
         if not _has_accounting(session):
             continue
-        if _has_cost(sr["cost_dollars"]) and not _has_cost(session["cost_dollars"]):
+        if _has_known_cost(sr) and not _has_known_cost(session):
             continue
         session_start = _parse_cost_window(session["started_at"])
         session_end = _parse_cost_window(session["ended_at"])
@@ -210,7 +265,7 @@ def _is_shadowed_tusk_skill_run(sr: sqlite3.Row, sessions: list[sqlite3.Row]) ->
             continue
         if not _has_accounting(session):
             continue
-        if _has_cost(sr["cost_dollars"]) and not _has_cost(session["cost_dollars"]):
+        if _has_known_cost(sr) and not _has_known_cost(session):
             continue
         session_start = session["started_at"] or ""
         if sr_start[:16] == session_start[:16]:
@@ -243,30 +298,28 @@ def _fetch_task_sessions_for_cost(conn: sqlite3.Connection, task_id: int) -> lis
 
 
 def _fetch_skill_runs_for_cost(conn: sqlite3.Connection, task_id: int) -> list[sqlite3.Row]:
-    try:
-        return conn.execute(
-            "SELECT id, skill_name, task_id, started_at, ended_at, cost_dollars, telemetry_status "
-            "FROM skill_runs sr "
-            f"WHERE {_skill_run_task_match_sql('?')}",
-            (task_id, task_id),
-        ).fetchall()
-    except sqlite3.OperationalError as exc:
-        if "telemetry_status" in str(exc):
-            return conn.execute(
-                "SELECT id, skill_name, task_id, started_at, ended_at, cost_dollars, "
-                "NULL AS telemetry_status FROM skill_runs sr "
-                f"WHERE {_skill_run_task_match_sql('?')}",
-                (task_id, task_id),
-            ).fetchall()
-        if "skill_name" not in str(exc):
-            raise
-        return conn.execute(
-            "SELECT id, NULL AS skill_name, task_id, started_at, ended_at, cost_dollars, "
-            "NULL AS telemetry_status "
-            "FROM skill_runs sr "
-            f"WHERE {_skill_run_task_match_sql('?')}",
-            (task_id, task_id),
-        ).fetchall()
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(skill_runs)")}
+    selected = []
+    for column in (
+        "id",
+        "skill_name",
+        "task_id",
+        "started_at",
+        "ended_at",
+        "cost_dollars",
+        "telemetry_status",
+        "tokens_in",
+        "tokens_out",
+        "request_count",
+        "model",
+        "metadata",
+    ):
+        selected.append(column if column in columns else f"NULL AS {column}")
+    return conn.execute(
+        f"SELECT {', '.join(selected)} FROM skill_runs sr "
+        f"WHERE {_skill_run_task_match_sql('?')}",
+        (task_id, task_id),
+    ).fetchall()
 
 
 def fetch_cost(conn: sqlite3.Connection, task_id: int) -> dict:
