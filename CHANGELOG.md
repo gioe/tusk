@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1239] - 2026-07-20
+
+- [TASK-829] Fix replacement-file staging after Git renames
+
 ## [1238] - 2026-07-20
 
 - [TASK-828] Fix source-repo pricing sync after merges
