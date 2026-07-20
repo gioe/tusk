@@ -80,3 +80,9 @@ def test_pricing_update_preserves_non_claude_models_only():
         "claude-current": {"input": 3.0},
         "gpt-5.6-sol": {"input": 5.0, "context_window": 1_050_000},
     }
+
+
+def test_pricing_update_does_not_mask_an_empty_anthropic_scrape():
+    old_models = {"gpt-5.6-sol": {"input": 5.0}}
+
+    assert update.preserve_external_models({}, old_models) == {}

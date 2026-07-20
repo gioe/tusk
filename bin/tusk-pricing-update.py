@@ -228,6 +228,8 @@ def preserve_external_models(
     families used by other agent surfaces. Replacing the complete table would
     silently delete those external entries on every pricing-update run.
     """
+    if not new_models:
+        return new_models
     for model_id, entry in old_models.items():
         if not model_id.startswith("claude-"):
             new_models.setdefault(model_id, entry.copy())
