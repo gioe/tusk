@@ -1299,13 +1299,14 @@ def _detect_id_gaps(db_path: str, task_id: int) -> list[int]:
 
 
 def _maybe_refresh_deployed_bin(db_path: str, tusk_bin: str) -> bool:
-    """Auto-refresh the primary's .claude/bin/ when it has drifted from bin/.
+    """Auto-refresh the primary's .claude/bin/ when deployed runtime files drift.
 
-    Source-repo only: silent no-op unless both `bin/tusk-*.py` and the deployed
-    cache at `.claude/bin/` exist in the primary checkout. The gate is content
-    drift between matching pairs, not what the just-completed merge touched —
-    this is self-healing (catches any stale state, not only this merge's) and
-    works regardless of which merge path ran (ff, rebase, PR squash, no-checkout).
+    Source-repo only: silent no-op unless both the source `bin/` and deployed
+    cache at `.claude/bin/` exist in the primary checkout. The gate compares
+    matching `bin/tusk-*.py`, `bin/tusk`, and root `pricing.json` files rather
+    than only what the just-completed merge touched. This is self-healing
+    (catches any stale state, not only this merge's) and works regardless of
+    which merge path ran (ff, rebase, PR squash, no-checkout).
 
     Returns True when drift was detected and `tusk dev-sync` was invoked
     (regardless of dev-sync's exit code — a failed refresh still emitted a
@@ -1334,6 +1335,12 @@ def _maybe_refresh_deployed_bin(db_path: str, tusk_bin: str) -> bool:
         if (src_wrapper.is_file() and dst_wrapper.is_file()
                 and src_wrapper.read_bytes() != dst_wrapper.read_bytes()):
             drifted.append("tusk")
+        src_pricing = primary_root / "pricing.json"
+        dst_pricing = dst_bin / "pricing.json"
+        if (src_pricing.is_file()
+                and (not dst_pricing.is_file()
+                     or src_pricing.read_bytes() != dst_pricing.read_bytes())):
+            drifted.append("pricing.json")
     except OSError:
         return False
     if not drifted:

@@ -33,7 +33,7 @@ def tusk_merge_module():
 
 
 def _make_fake_tusk_bin(tmp_path):
-    """Write a shell script that mimics `tusk dev-sync` by copying bin/* to .claude/bin/.
+    """Write a shell script that mimics `tusk dev-sync` in a source repo.
 
     Records invocations to `<tmp_path>/fake-tusk.log` so the test can assert
     the helper actually invoked it.
@@ -54,6 +54,9 @@ def _make_fake_tusk_bin(tmp_path):
         "    if [[ -f \"$src/tusk\" ]]; then\n"
         "      cp \"$src/tusk\" \"$dst/tusk\"\n"
         "    fi\n"
+        "    if [[ -f \"$PWD/pricing.json\" ]]; then\n"
+        "      cp \"$PWD/pricing.json\" \"$dst/pricing.json\"\n"
+        "    fi\n"
         "  fi\n"
         "fi\n"
         "exit 0\n"
@@ -62,12 +65,22 @@ def _make_fake_tusk_bin(tmp_path):
     return str(fake), log
 
 
-def _source_repo_layout(tmp_path, src_content="version 2", dst_content="version 1"):
+def _source_repo_layout(
+    tmp_path,
+    src_content="version 2",
+    dst_content="version 1",
+    src_pricing=None,
+    dst_pricing=None,
+):
     """Create a primary-checkout-shaped layout: bin/, .claude/bin/, tusk/tasks.db."""
     (tmp_path / "bin").mkdir()
     (tmp_path / "bin" / "tusk-foo.py").write_text(src_content)
     (tmp_path / ".claude" / "bin").mkdir(parents=True)
     (tmp_path / ".claude" / "bin" / "tusk-foo.py").write_text(dst_content)
+    if src_pricing is not None:
+        (tmp_path / "pricing.json").write_text(src_pricing)
+    if dst_pricing is not None:
+        (tmp_path / ".claude" / "bin" / "pricing.json").write_text(dst_pricing)
     (tmp_path / "tusk").mkdir()
     (tmp_path / "tusk" / "tasks.db").write_bytes(b"")  # only the path is used
     return str(tmp_path / "tusk" / "tasks.db")
@@ -97,6 +110,41 @@ def test_noop_when_no_drift(tmp_path, tusk_merge_module, capsys):
     assert not log.exists(), "fake tusk-bin must NOT be invoked when no drift"
     captured = capsys.readouterr()
     assert captured.err == "", "no status line when no drift"
+
+
+def test_refreshes_when_only_pricing_drifted(tmp_path, tusk_merge_module, capsys):
+    db_path = _source_repo_layout(
+        tmp_path,
+        src_content="same",
+        dst_content="same",
+        src_pricing='{"models":{"new":{}}}\n',
+        dst_pricing='{"models":{"old":{}}}\n',
+    )
+    tusk_bin, log = _make_fake_tusk_bin(tmp_path)
+
+    tusk_merge_module._maybe_refresh_deployed_bin(db_path, tusk_bin)
+
+    assert log.read_text().strip() == "dev-sync"
+    assert (tmp_path / ".claude" / "bin" / "pricing.json").read_text() == (
+        tmp_path / "pricing.json"
+    ).read_text()
+    assert "pricing.json" in capsys.readouterr().err
+
+
+def test_noop_when_pricing_and_bin_match(tmp_path, tusk_merge_module, capsys):
+    db_path = _source_repo_layout(
+        tmp_path,
+        src_content="same",
+        dst_content="same",
+        src_pricing='{"models":{}}\n',
+        dst_pricing='{"models":{}}\n',
+    )
+    tusk_bin, log = _make_fake_tusk_bin(tmp_path)
+
+    tusk_merge_module._maybe_refresh_deployed_bin(db_path, tusk_bin)
+
+    assert not log.exists()
+    assert capsys.readouterr().err == ""
 
 
 def test_noop_when_consumer_install_missing_claude_bin(tmp_path, tusk_merge_module, capsys):
