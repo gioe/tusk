@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1232] - 2026-07-19
+
+- [TASK-822] Render completed unpriced telemetry without pending or zero-cost attribution
+
 ## [1231] - 2026-07-19
 
 - [TASK-822] Add reliable provider-aware Codex task and skill-run cost attribution

@@ -75,7 +75,7 @@ def conn():
 
 def _fetch(conn, run_id):
     return conn.execute(
-        "SELECT ended_at, cost_dollars, tokens_in, tokens_out, model, metadata"
+        "SELECT ended_at, cost_dollars, tokens_in, tokens_out, model, metadata, telemetry_status"
         " FROM skill_runs WHERE id = ?",
         (run_id,),
     ).fetchone()
@@ -99,6 +99,7 @@ class TestCmdCancel:
         assert row["tokens_in"] == 0
         assert row["tokens_out"] == 0
         assert row["model"] == ""
+        assert row["telemetry_status"] == "cancelled"
         assert row["metadata"] is None
         assert "cancelled" in out.getvalue()
 

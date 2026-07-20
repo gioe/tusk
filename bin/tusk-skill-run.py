@@ -279,7 +279,8 @@ def cmd_cancel(conn, run_id: int) -> None:
                metadata = NULL,
                request_count = 0,
                user_prompt_tokens = 0,
-               user_prompt_count = 0
+               user_prompt_count = 0,
+               telemetry_status = 'cancelled'
            WHERE id = ?""",
         (run_id,),
     )
@@ -303,11 +304,15 @@ def _tokens_per_user_msg(user_prompt_tokens, user_prompt_count):
 
 def cmd_list(conn, skill_name: str | None, limit: int, task_id: int | None = None) -> None:
     """Print recent skill runs, optionally filtered by skill name."""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(skill_runs)")}
+    status_column = (
+        "telemetry_status" if "telemetry_status" in columns else "NULL AS telemetry_status"
+    )
     if skill_name and task_id is not None:
         rows = conn.execute(
-            """SELECT id, skill_name, started_at, ended_at,
+            f"""SELECT id, skill_name, started_at, ended_at,
                       cost_dollars, tokens_in, tokens_out, model, metadata, task_id,
-                      user_prompt_tokens, user_prompt_count
+                      user_prompt_tokens, user_prompt_count, {status_column}
                FROM skill_runs
                WHERE skill_name = ? AND task_id = ?
                ORDER BY id DESC
@@ -316,9 +321,9 @@ def cmd_list(conn, skill_name: str | None, limit: int, task_id: int | None = Non
         ).fetchall()
     elif skill_name:
         rows = conn.execute(
-            """SELECT id, skill_name, started_at, ended_at,
+            f"""SELECT id, skill_name, started_at, ended_at,
                       cost_dollars, tokens_in, tokens_out, model, metadata, task_id,
-                      user_prompt_tokens, user_prompt_count
+                      user_prompt_tokens, user_prompt_count, {status_column}
                FROM skill_runs
                WHERE skill_name = ?
                ORDER BY id DESC
@@ -327,9 +332,9 @@ def cmd_list(conn, skill_name: str | None, limit: int, task_id: int | None = Non
         ).fetchall()
     elif task_id is not None:
         rows = conn.execute(
-            """SELECT id, skill_name, started_at, ended_at,
+            f"""SELECT id, skill_name, started_at, ended_at,
                       cost_dollars, tokens_in, tokens_out, model, metadata, task_id,
-                      user_prompt_tokens, user_prompt_count
+                      user_prompt_tokens, user_prompt_count, {status_column}
                FROM skill_runs
                WHERE task_id = ?
                ORDER BY id DESC
@@ -338,9 +343,9 @@ def cmd_list(conn, skill_name: str | None, limit: int, task_id: int | None = Non
         ).fetchall()
     else:
         rows = conn.execute(
-            """SELECT id, skill_name, started_at, ended_at,
+            f"""SELECT id, skill_name, started_at, ended_at,
                       cost_dollars, tokens_in, tokens_out, model, metadata, task_id,
-                      user_prompt_tokens, user_prompt_count
+                      user_prompt_tokens, user_prompt_count, {status_column}
                FROM skill_runs
                ORDER BY id DESC
                LIMIT ?""",
@@ -358,7 +363,25 @@ def cmd_list(conn, skill_name: str | None, limit: int, task_id: int | None = Non
     print(f"{'ID':<6} {'Task':<10} {'Skill':<20} {'Started':<20} {'Cost':>8}  {'Tokens In':>10}  {'T/Msg':>7}  {'Model':<25}  Metadata")
     print("-" * 120)
     for r in rows:
-        cost_str = f"${r['cost_dollars']:.4f}" if r["cost_dollars"] is not None else "pending"
+        cancelled = (
+            r["telemetry_status"] == "cancelled"
+            or (
+                r["ended_at"]
+                and r["cost_dollars"] == 0
+                and (r["model"] or "") == ""
+                and r["metadata"] is None
+            )
+        )
+        if cancelled:
+            cost_str = "cancelled"
+        elif r["cost_dollars"] is not None:
+            cost_str = f"${r['cost_dollars']:.4f}"
+        elif not r["ended_at"]:
+            cost_str = "pending"
+        elif r["telemetry_status"] == "unpriced_model":
+            cost_str = "unpriced"
+        else:
+            cost_str = "unavailable"
         tokens_str = f"{r['tokens_in']:,}" if r["tokens_in"] is not None else "-"
         meta_str = r["metadata"] or ""
         started = (r["started_at"] or "")[:16]
@@ -367,7 +390,7 @@ def cmd_list(conn, skill_name: str | None, limit: int, task_id: int | None = Non
         per_msg_str = f"{per_msg:,}" if per_msg is not None else "-"
         if not r["ended_at"]:
             status = "(open)"
-        elif r["cost_dollars"] == 0 and (r["model"] or "") == "" and r["metadata"] is None:
+        elif cancelled:
             status = "(cancelled)"
         else:
             status = ""

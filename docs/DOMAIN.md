@@ -352,7 +352,7 @@ A bounded work session on a task, tracking cost and metrics. A task can have mul
 
 **Invariant:** At most one open (unclosed) session per task is allowed. Enforced by a partial UNIQUE index: `UNIQUE INDEX idx_task_sessions_open ON task_sessions(task_id) WHERE ended_at IS NULL`. `tusk task-start` detects a concurrent-insert race via `IntegrityError` and reuses the winning session with a warning rather than failing.
 
-**Provider-aware telemetry attribution.** `task_sessions` and `skill_runs` pin both `transcript_path` and `transcript_provider` when they start. A Codex runtime is identified by `CODEX_THREAD_ID` and resolves only the exact date-partitioned rollout under `~/.codex/sessions`; it never falls back to an unrelated Claude transcript. Claude runtimes retain project-hash discovery. `telemetry_status` records `pending`, `captured`, `transcript_missing`, `no_usage`, `model_missing`, or `unpriced_model`. Missing usage and unavailable prices remain NULL rather than being synthesized as zero.
+**Provider-aware telemetry attribution.** `task_sessions` and `skill_runs` pin both `transcript_path` and `transcript_provider` when they start. A Codex runtime is identified by `CODEX_THREAD_ID` and resolves only the exact date-partitioned rollout under `~/.codex/sessions`; it never falls back to an unrelated Claude transcript. Claude runtimes retain project-hash discovery. `telemetry_status` records `pending`, `captured`, `transcript_missing`, `no_usage`, `model_missing`, `unpriced_model`, or `cancelled`. Missing usage and unavailable prices remain NULL rather than being synthesized as zero; readers use `ended_at` plus this status rather than treating every NULL cost as pending.
 
 ---
 

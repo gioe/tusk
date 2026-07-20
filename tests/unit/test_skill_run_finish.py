@@ -460,3 +460,22 @@ def test_list_task_id_empty_names_filter(db_path, monkeypatch):
     assert exit_code == 0
     assert err == ""
     assert "No skill runs recorded for task_id 2481." in out
+
+
+def test_list_finished_unpriced_run_is_not_pending(db_path, monkeypatch):
+    c = sqlite3.connect(str(db_path))
+    c.execute(
+        """INSERT INTO skill_runs
+           (skill_name, task_id, started_at, ended_at, model, telemetry_status)
+           VALUES ('review-commits', 822, '2026-07-19 10:00:00',
+                   '2026-07-19 10:05:00', 'gpt-test', 'unpriced_model')"""
+    )
+    c.commit()
+    c.close()
+
+    exit_code, out, err = _run_main(db_path, monkeypatch, "list", "--task-id", "822")
+
+    assert exit_code == 0
+    assert err == ""
+    assert "unpriced" in out
+    assert "pending" not in out

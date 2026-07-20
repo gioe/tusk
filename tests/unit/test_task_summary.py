@@ -52,7 +52,8 @@ CREATE TABLE task_sessions (
     started_at TEXT,
     ended_at TEXT,
     duration_seconds INTEGER,
-    cost_dollars REAL
+    cost_dollars REAL,
+    telemetry_status TEXT
 );
 CREATE TABLE task_status_transitions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -87,6 +88,7 @@ CREATE TABLE skill_runs (
     tokens_in INTEGER,
     tokens_out INTEGER,
     request_count INTEGER
+    ,telemetry_status TEXT
 );
 """
 
@@ -421,6 +423,50 @@ class TestOneSessionTask:
 
 
 # ── multi-session task ────────────────────────────────────────────────
+
+
+class TestUnavailableCost:
+    def test_finished_unpriced_windows_are_counted_without_zero_cost(self, tmp_path):
+        _, conn = _make_db(tmp_path)
+        _insert_task(
+            conn,
+            task_id=29,
+            started_at="2026-07-19 10:00:00",
+            closed_at="2026-07-19 12:00:00",
+        )
+        conn.execute(
+            """INSERT INTO task_sessions
+               (task_id, started_at, ended_at, cost_dollars, telemetry_status)
+               VALUES (29, '2026-07-19 10:00:00', '2026-07-19 12:00:00',
+                       NULL, 'unpriced_model')"""
+        )
+        conn.executemany(
+            """INSERT INTO skill_runs
+               (skill_name, task_id, started_at, ended_at, cost_dollars, telemetry_status)
+               VALUES (?, 29, ?, ?, NULL, 'unpriced_model')""",
+            [
+                ("tusk", "2026-07-19 10:00:01", "2026-07-19 12:00:00"),
+                ("retro", "2026-07-19 12:05:00", "2026-07-19 12:10:00"),
+            ],
+        )
+        conn.execute(
+            """INSERT INTO skill_runs
+               (skill_name, task_id, started_at, ended_at, cost_dollars, telemetry_status)
+               VALUES ('retro', 29, '2026-07-19 12:11:00', '2026-07-19 12:11:01',
+                       0, 'cancelled')"""
+        )
+        conn.commit()
+
+        data = mod.build_summary(conn, 29, str(tmp_path))
+        markdown = mod.render_markdown(data)
+
+        assert data["cost"] == {
+            "total": 0.0,
+            "skill_run_count": 2,
+            "unavailable_count": 2,
+        }
+        assert "Cost:** unavailable across 2 completed run windows" in markdown
+        assert "$0.0000" not in markdown
 
 
 class TestTokens:

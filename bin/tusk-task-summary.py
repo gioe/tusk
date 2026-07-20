@@ -139,6 +139,25 @@ def _has_cost(value) -> bool:
     return value is not None
 
 
+def _has_unavailable_telemetry(row: sqlite3.Row) -> bool:
+    return bool(
+        row["ended_at"]
+        and row["cost_dollars"] is None
+        and row["telemetry_status"] in {
+            "transcript_missing",
+            "no_usage",
+            "model_missing",
+            "unpriced_model",
+        }
+    )
+
+
+def _has_accounting(row: sqlite3.Row) -> bool:
+    if row["telemetry_status"] in {"pending", "cancelled"}:
+        return False
+    return _has_cost(row["cost_dollars"]) or _has_unavailable_telemetry(row)
+
+
 def _parse_cost_window(ts: str | None):
     if not ts:
         return None
@@ -149,7 +168,7 @@ def _parse_cost_window(ts: str | None):
 
 
 def _skill_run_contained_in_costed_session(sr: sqlite3.Row, sessions: list[sqlite3.Row]) -> bool:
-    if not _has_cost(sr["cost_dollars"]):
+    if not _has_accounting(sr):
         return False
 
     sr_start = _parse_cost_window(sr["started_at"])
@@ -160,7 +179,9 @@ def _skill_run_contained_in_costed_session(sr: sqlite3.Row, sessions: list[sqlit
     for session in sessions:
         if sr["task_id"] is not None and session["task_id"] != sr["task_id"]:
             continue
-        if not _has_cost(session["cost_dollars"]):
+        if not _has_accounting(session):
+            continue
+        if _has_cost(sr["cost_dollars"]) and not _has_cost(session["cost_dollars"]):
             continue
         session_start = _parse_cost_window(session["started_at"])
         session_end = _parse_cost_window(session["ended_at"])
@@ -180,14 +201,16 @@ def _is_shadowed_tusk_skill_run(sr: sqlite3.Row, sessions: list[sqlite3.Row]) ->
     """
     if sr["skill_name"] != "tusk":
         return False
-    if not _has_cost(sr["cost_dollars"]):
+    if not _has_accounting(sr):
         return False
 
     sr_start = sr["started_at"] or ""
     for session in sessions:
         if sr["task_id"] is not None and session["task_id"] != sr["task_id"]:
             continue
-        if not _has_cost(session["cost_dollars"]):
+        if not _has_accounting(session):
+            continue
+        if _has_cost(sr["cost_dollars"]) and not _has_cost(session["cost_dollars"]):
             continue
         session_start = session["started_at"] or ""
         if sr_start[:16] == session_start[:16]:
@@ -198,15 +221,22 @@ def _is_shadowed_tusk_skill_run(sr: sqlite3.Row, sessions: list[sqlite3.Row]) ->
 def _fetch_task_sessions_for_cost(conn: sqlite3.Connection, task_id: int) -> list[sqlite3.Row]:
     try:
         return conn.execute(
-            "SELECT id, task_id, started_at, ended_at, cost_dollars "
+            "SELECT id, task_id, started_at, ended_at, cost_dollars, telemetry_status "
             "FROM task_sessions WHERE task_id = ?",
             (task_id,),
         ).fetchall()
     except sqlite3.OperationalError as exc:
-        if "no such column: cost_dollars" not in str(exc):
+        if "telemetry_status" in str(exc):
+            return conn.execute(
+                "SELECT id, task_id, started_at, ended_at, cost_dollars, "
+                "NULL AS telemetry_status FROM task_sessions WHERE task_id = ?",
+                (task_id,),
+            ).fetchall()
+        if "cost_dollars" not in str(exc):
             raise
         return conn.execute(
-            "SELECT id, task_id, started_at, ended_at, NULL AS cost_dollars "
+            "SELECT id, task_id, started_at, ended_at, NULL AS cost_dollars, "
+            "NULL AS telemetry_status "
             "FROM task_sessions WHERE task_id = ?",
             (task_id,),
         ).fetchall()
@@ -215,16 +245,24 @@ def _fetch_task_sessions_for_cost(conn: sqlite3.Connection, task_id: int) -> lis
 def _fetch_skill_runs_for_cost(conn: sqlite3.Connection, task_id: int) -> list[sqlite3.Row]:
     try:
         return conn.execute(
-            "SELECT id, skill_name, task_id, started_at, ended_at, cost_dollars "
+            "SELECT id, skill_name, task_id, started_at, ended_at, cost_dollars, telemetry_status "
             "FROM skill_runs sr "
             f"WHERE {_skill_run_task_match_sql('?')}",
             (task_id, task_id),
         ).fetchall()
     except sqlite3.OperationalError as exc:
-        if "no such column: skill_name" not in str(exc):
+        if "telemetry_status" in str(exc):
+            return conn.execute(
+                "SELECT id, skill_name, task_id, started_at, ended_at, cost_dollars, "
+                "NULL AS telemetry_status FROM skill_runs sr "
+                f"WHERE {_skill_run_task_match_sql('?')}",
+                (task_id, task_id),
+            ).fetchall()
+        if "skill_name" not in str(exc):
             raise
         return conn.execute(
-            "SELECT id, NULL AS skill_name, task_id, started_at, ended_at, cost_dollars "
+            "SELECT id, NULL AS skill_name, task_id, started_at, ended_at, cost_dollars, "
+            "NULL AS telemetry_status "
             "FROM skill_runs sr "
             f"WHERE {_skill_run_task_match_sql('?')}",
             (task_id, task_id),
@@ -246,27 +284,38 @@ def fetch_cost(conn: sqlite3.Connection, task_id: int) -> dict:
 
     total = 0.0
     count = 0
+    unavailable_count = 0
 
     for session in sessions:
-        if not _has_cost(session["cost_dollars"]):
+        if _has_unavailable_telemetry(session):
+            count += 1
+            unavailable_count += 1
+            continue
+        if not _has_accounting(session):
             continue
         total += float(session["cost_dollars"])
         count += 1
 
     for sr in skill_runs:
-        if not _has_cost(sr["cost_dollars"]):
+        if not _has_accounting(sr):
             continue
         if _is_shadowed_tusk_skill_run(sr, sessions):
             continue
         if _skill_run_contained_in_costed_session(sr, sessions):
             continue
-        total += float(sr["cost_dollars"])
         count += 1
+        if _has_unavailable_telemetry(sr):
+            unavailable_count += 1
+        else:
+            total += float(sr["cost_dollars"])
 
-    return {
+    result = {
         "total": round(total, 4),
         "skill_run_count": count,
     }
+    if unavailable_count:
+        result["unavailable_count"] = unavailable_count
+    return result
 
 
 def fetch_baseline_comparison(
@@ -1123,6 +1172,17 @@ def _format_duration(seconds: int | None) -> str:
 
 def _render_cost_line(cost: dict, baseline: dict) -> str:
     plural = "s" if cost["skill_run_count"] != 1 else ""
+    unavailable = cost.get("unavailable_count", 0)
+    if unavailable:
+        if unavailable == cost["skill_run_count"]:
+            return (
+                f"- **Cost:** unavailable across {cost['skill_run_count']} "
+                f"completed run window{plural}"
+            )
+        return (
+            f"- **Cost:** ${cost['total']:.4f} known subtotal across "
+            f"{cost['skill_run_count']} run window{plural}; {unavailable} unavailable"
+        )
     base = (
         f"- **Cost:** ${cost['total']:.4f} across "
         f"{cost['skill_run_count']} skill run{plural}"
