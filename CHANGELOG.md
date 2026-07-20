@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1238] - 2026-07-20
+
+- [TASK-828] Fix source-repo pricing sync after merges
+
 ## [1237] - 2026-07-20
 
 - [TASK-827] Add gpt-5.6-sol pricing support

@@ -264,6 +264,7 @@ Transcript discovery for session, review, criterion, call-breakdown, and skill-r
 | File | CLI command(s) | Reads | Writes |
 |------|---------------|-------|--------|
 | **tusk-changelog-add.py** | `tusk changelog-add [--from-version-file] [<version>] [<task_id>…]` | `tasks` (summaries), `VERSION`, `CHANGELOG.md` | `CHANGELOG.md` (prepends new entry) |
+| **tusk-dev-sync.py** | `tusk dev-sync [--dry-run]` | source `bin/`, root `VERSION` and `pricing.json` | `.claude/bin/` runtime cache, including `tusk-lint.py.hash` |
 | **tusk-generate-manifest.py** | `tusk generate-manifest` (also used by `tusk-lint.py` rule18) | `skills/`, `bin/`, `config.default.json`, `VERSION`, `install.sh` | `MANIFEST` (sorted JSON array) |
 | **tusk-pricing-update.py** | `tusk pricing-update [--dry-run]` | Anthropic pricing page (HTTPS) | `pricing.json` |
 | **tusk-sync-skills.py** | `tusk sync-skills` | `skills/`, `skills-internal/` | `.claude/skills/` (recreates symlinks) |
