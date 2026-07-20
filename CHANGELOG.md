@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1234] - 2026-07-19
+
+- [TASK-824] Align cost rollups with unavailable telemetry semantics
+
 ## [1233] - 2026-07-19
 
 - [TASK-823] Fix legacy unavailable telemetry rendering in task summaries
