@@ -57,14 +57,42 @@ if [ -z "$REVIEW_TUSK_BIN" ]; then
   echo "Review aborted: no executable Tusk wrapper found for this checkout." >&2
   exit 1
 fi
+
+# Command execution follows the checkout-local wrapper above, but install mode
+# describes the installed agent surface that invoked this workflow. Follow its
+# complete symlink chain before looking for the sibling marker; machine-level
+# wrappers commonly live in ~/.local/bin without a marker of their own.
+INSTALL_MODE_SOURCE=$(command -v tusk || true)
+if [ -z "$INSTALL_MODE_SOURCE" ]; then
+  INSTALL_MODE_SOURCE="$REVIEW_TUSK_BIN"
+fi
+while [ -L "$INSTALL_MODE_SOURCE" ]; do
+  INSTALL_MODE_SOURCE_DIR=$(cd -P "$(dirname "$INSTALL_MODE_SOURCE")" && pwd)
+  INSTALL_MODE_SOURCE_TARGET=$(readlink "$INSTALL_MODE_SOURCE")
+  case "$INSTALL_MODE_SOURCE_TARGET" in
+    /*) INSTALL_MODE_SOURCE="$INSTALL_MODE_SOURCE_TARGET" ;;
+    *) INSTALL_MODE_SOURCE="$INSTALL_MODE_SOURCE_DIR/$INSTALL_MODE_SOURCE_TARGET" ;;
+  esac
+done
+INSTALL_MODE_SOURCE_DIR=$(cd -P "$(dirname "$INSTALL_MODE_SOURCE")" && pwd)
+if [ -f "$INSTALL_MODE_SOURCE_DIR/install-mode" ]; then
+  INSTALL_MODE=$(tr -d '[:space:]' < "$INSTALL_MODE_SOURCE_DIR/install-mode")
+else
+  INSTALL_MODE=claude-source
+fi
+case "$INSTALL_MODE" in codex|codex-*) IS_CODEX=1 ;; *) IS_CODEX=0 ;; esac
 printf '%s\n' "$REVIEW_TUSK_BIN"
 ```
 
-Capture the printed absolute path as `REVIEW_TUSK_BIN` in orchestrator state.
+Capture the printed absolute path as `REVIEW_TUSK_BIN`, and capture the resolved
+`INSTALL_MODE` and `IS_CODEX` values, in orchestrator state. The Codex port
+always reviews inline, but retaining the same install-mode contract keeps its
+wrapper guidance aligned with the canonical workflow.
 Every `tusk ...` example below means “invoke that exact resolved path with these
 arguments.” Tool calls may run in separate shells, so do not assume the shell
-variable or a shell function persists between calls. Do not continue using a
-fixed wrapper path supplied by the invocation wrapper after this resolution.
+variables or a shell function persist between calls. Do not continue using a
+fixed wrapper path supplied by the invocation wrapper for Tusk commands after
+this resolution.
 
 First, resolve the task ID. Use the argument if one was passed, otherwise
 parse it from the current branch:

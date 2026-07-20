@@ -46,14 +46,40 @@ if [ -z "$REVIEW_TUSK_BIN" ]; then
   echo "Review aborted: no executable Tusk wrapper found for this checkout." >&2
   exit 1
 fi
+
+# Command execution follows the checkout-local wrapper above, but install mode
+# describes the installed agent surface that invoked this workflow. Follow its
+# complete symlink chain before looking for the sibling marker; machine-level
+# wrappers commonly live in ~/.local/bin without a marker of their own.
+INSTALL_MODE_SOURCE=$(command -v tusk || true)
+if [ -z "$INSTALL_MODE_SOURCE" ]; then
+  INSTALL_MODE_SOURCE="$REVIEW_TUSK_BIN"
+fi
+while [ -L "$INSTALL_MODE_SOURCE" ]; do
+  INSTALL_MODE_SOURCE_DIR=$(cd -P "$(dirname "$INSTALL_MODE_SOURCE")" && pwd)
+  INSTALL_MODE_SOURCE_TARGET=$(readlink "$INSTALL_MODE_SOURCE")
+  case "$INSTALL_MODE_SOURCE_TARGET" in
+    /*) INSTALL_MODE_SOURCE="$INSTALL_MODE_SOURCE_TARGET" ;;
+    *) INSTALL_MODE_SOURCE="$INSTALL_MODE_SOURCE_DIR/$INSTALL_MODE_SOURCE_TARGET" ;;
+  esac
+done
+INSTALL_MODE_SOURCE_DIR=$(cd -P "$(dirname "$INSTALL_MODE_SOURCE")" && pwd)
+if [ -f "$INSTALL_MODE_SOURCE_DIR/install-mode" ]; then
+  INSTALL_MODE=$(tr -d '[:space:]' < "$INSTALL_MODE_SOURCE_DIR/install-mode")
+else
+  INSTALL_MODE=claude-source
+fi
+case "$INSTALL_MODE" in codex|codex-*) IS_CODEX=1 ;; *) IS_CODEX=0 ;; esac
 printf '%s\n' "$REVIEW_TUSK_BIN"
 ```
 
-Capture the printed absolute path as `REVIEW_TUSK_BIN` in orchestrator state.
+Capture the printed absolute path as `REVIEW_TUSK_BIN`, and capture the resolved
+`INSTALL_MODE` and `IS_CODEX` values, in orchestrator state.
 Every `tusk ...` example below means “invoke that exact resolved path with these
 arguments.” Tool calls may run in separate shells, so do not assume the shell
-variable or a shell function persists between calls. Do not continue using a
-fixed wrapper path supplied by the invocation wrapper after this resolution.
+variables or a shell function persist between calls. Do not continue using a
+fixed wrapper path supplied by the invocation wrapper for Tusk commands after
+this resolution.
 
 First, resolve the task ID so the skill run can be attributed to it. Use the argument if one was passed, otherwise parse it from the current branch:
 
@@ -138,13 +164,12 @@ Only when the diff is non-empty and a review has been started in Step 3, proceed
 - `review.reviewer` is absent from config (the review record is unassigned and no agent is configured to handle it).
 - Tusk is running under a Codex install AND the user did not explicitly opt into subagent-based review for this `/review-commits` invocation. Codex session policy disallows spawning subagents unless the operator asks for one, so the inline path is the safe default — it keeps the real-diff review workflow without violating session policy.
 
-**Detecting Codex install mode and the opt-in.** Read the `install-mode` marker stamped by `install.sh` (Claude installs are marked `claude-…`; Codex installs are marked `codex-…`):
-
-```bash
-TUSK_BIN_DIR="$(dirname "$(command -v tusk)")"
-INSTALL_MODE="$(tr -d '[:space:]' < "$TUSK_BIN_DIR/install-mode" 2>/dev/null || echo claude-source)"
-case "$INSTALL_MODE" in codex-*) IS_CODEX=1 ;; *) IS_CODEX=0 ;; esac
-```
+**Detecting Codex install mode and the opt-in.** Reuse the `INSTALL_MODE` and
+`IS_CODEX` values captured in Step 0. That resolver follows a machine-level
+wrapper to the installed target before reading the `install-mode` marker
+stamped by `install.sh` (Claude installs are marked `claude-…`; Codex installs
+are marked `codex-…`). Do not recompute the mode from the checkout-local Tusk
+wrapper: it selects the code under review, not the agent surface running it.
 
 Treat the user as having opted into the agent path only when their `/review-commits` invocation explicitly contains a phrase like `use the reviewer agent`, `delegate review`, `spawn the reviewer`, or `agent review`. A bare `/review-commits` (or one with only a task ID argument) is **not** an opt-in. When `IS_CODEX=1` and no opt-in phrase is present, surface the routing decision before reading the diff — e.g. *"Codex install detected — running inline review. Re-run with `use the reviewer agent` to opt into agent-based review."* — so the operator can re-invoke with the opt-in flag if they want a full agent review.
 
@@ -446,13 +471,11 @@ Otherwise, loop while `can_retry` is true:
 
    **For small or documentation-only diffs (`$DIFF_LINES_MEANINGFUL` below ~200, or only non-code files), when `review.reviewer` is absent from config, or when Tusk is running under a Codex install without an explicit subagent opt-in:** skip agent spawning and perform an inline review. Read the diff yourself, evaluate it against the reviewer focus area, and record the result directly (approve or request-changes + add-comment). The meaningful count subtracts auto-generated lockfile sections (issue #761) so a single `npm install --save-dev` does not push a small feature into agent-based review. After recording the inline decision, skip to step 3.
 
-   To detect the Codex case, read the `install-mode` marker (Claude installs are marked `claude-…`; Codex installs are marked `codex-…`) and check whether the user's `/review-commits` invocation contains an explicit subagent opt-in phrase:
-
-   ```bash
-   TUSK_BIN_DIR="$(dirname "$(command -v tusk)")"
-   INSTALL_MODE="$(tr -d '[:space:]' < "$TUSK_BIN_DIR/install-mode" 2>/dev/null || echo claude-source)"
-   case "$INSTALL_MODE" in codex-*) IS_CODEX=1 ;; *) IS_CODEX=0 ;; esac
-   ```
+   To detect the Codex case, reuse the `INSTALL_MODE` and `IS_CODEX` values
+   captured by the machine-wrapper-aware resolver in Step 0, then check whether
+   the user's `/review-commits` invocation contains an explicit subagent opt-in
+   phrase. Do not recompute install mode during re-review; every pass must use
+   the same agent-surface identity.
 
    The user has opted into the agent path only when their invocation explicitly contains a phrase like `use the reviewer agent`, `delegate review`, `spawn the reviewer`, or `agent review`. A bare `/review-commits` (or one with only a task ID argument) is **not** an opt-in. When `IS_CODEX=1` without an opt-in phrase, take the inline path on this re-review pass too.
 
