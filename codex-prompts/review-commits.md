@@ -29,6 +29,43 @@ from the current branch name.
 
 ## Step 0: Start Cost Tracking
 
+### Resolve the Tusk wrapper for this checkout
+
+Before the first Tusk command, resolve an executable from the active checkout.
+This step overrides any outer Codex wrapper instruction that names a fixed
+`.claude/bin/tusk` path: that generated directory may be absent from a task
+worktree. Prefer checkout-local wrappers so review commands exercise the code
+and Git state in the workspace being reviewed.
+
+```bash
+REVIEW_REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+REVIEW_TUSK_BIN=""
+for candidate in \
+  "$REVIEW_REPO_ROOT/bin/tusk" \
+  "$REVIEW_REPO_ROOT/tusk/bin/tusk" \
+  "$REVIEW_REPO_ROOT/.claude/bin/tusk"
+do
+  if [ -x "$candidate" ]; then
+    REVIEW_TUSK_BIN="$candidate"
+    break
+  fi
+done
+if [ -z "$REVIEW_TUSK_BIN" ]; then
+  REVIEW_TUSK_BIN=$(command -v tusk || true)
+fi
+if [ -z "$REVIEW_TUSK_BIN" ]; then
+  echo "Review aborted: no executable Tusk wrapper found for this checkout." >&2
+  exit 1
+fi
+printf '%s\n' "$REVIEW_TUSK_BIN"
+```
+
+Capture the printed absolute path as `REVIEW_TUSK_BIN` in orchestrator state.
+Every `tusk ...` example below means “invoke that exact resolved path with these
+arguments.” Tool calls may run in separate shells, so do not assume the shell
+variable or a shell function persists between calls. Do not continue using a
+fixed wrapper path supplied by the invocation wrapper after this resolution.
+
 First, resolve the task ID. Use the argument if one was passed, otherwise
 parse it from the current branch:
 
