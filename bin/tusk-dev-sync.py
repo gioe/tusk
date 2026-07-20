@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """tusk dev-sync — refresh .claude/bin/ from source bin/ (source-repo only).
 
-Mirrors install.sh's development-binary and version-metadata copies without
+Mirrors install.sh's development-binary and root-metadata copies without
 re-running the full installer: copies bin/tusk, bin/tusk-*.py, the canonical
-UNDERSCORE_BIN_FILES, and VERSION into .claude/bin/, then refreshes the .hash
-sidecar for tusk-lint.py.
+UNDERSCORE_BIN_FILES, VERSION, and pricing.json into .claude/bin/, then
+refreshes the .hash sidecar for tusk-lint.py.
 
 Source-repo only — refuses to run when REPO_ROOT/bin/ does not exist (a
 consumer install has nothing to sync from). dist-excluded scripts ARE
@@ -72,11 +72,13 @@ def main(argv):
 
     copied = []
 
-    src_version = repo_root / "VERSION"
-    if src_version.is_file():
-        dst = target_bin / "VERSION"
+    for name in ("VERSION", "pricing.json"):
+        src = repo_root / name
+        if not src.is_file():
+            continue
+        dst = target_bin / name
         if not args.dry_run:
-            shutil.copy2(src_version, dst)
+            shutil.copy2(src, dst)
         copied.append(dst.name)
 
     src_tusk = source_bin / "tusk"
