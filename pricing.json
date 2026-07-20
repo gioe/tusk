@@ -1,5 +1,13 @@
 {
   "models": {
+    "gpt-5.6-sol": {
+      "input": 5.0,
+      "cache_write_5m": 6.25,
+      "cache_write_1h": 6.25,
+      "cache_read": 0.5,
+      "output": 30.0,
+      "context_window": 1050000
+    },
     "claude-fable-5": {
       "input": 10.0,
       "cache_write_5m": 12.5,
