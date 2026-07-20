@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1235] - 2026-07-20
+
+- [TASK-825] Fix the review-commits Codex wrapper worktree command
+
 ## [1234] - 2026-07-19
 
 - [TASK-824] Align cost rollups with unavailable telemetry semantics
