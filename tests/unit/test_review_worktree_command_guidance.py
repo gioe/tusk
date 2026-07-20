@@ -91,5 +91,72 @@ def test_review_guidance_overrides_fixed_invocation_wrapper_paths():
         normalized = " ".join(text.split())
 
         assert "Capture the printed absolute path as `REVIEW_TUSK_BIN`" in text
-        assert "do not assume the shell variable or a shell function persists" in normalized
+        assert "do not assume the shell variables or a shell function persist" in normalized
         assert "Do not continue using a fixed wrapper path supplied by the invocation wrapper" in normalized
+
+
+@pytest.mark.parametrize(
+    ("marker", "expected_mode", "expected_is_codex"),
+    (
+        ("codex-consumer\n", "codex-consumer", "1"),
+        ("codex\n", "codex", "1"),
+        ("claude-consumer\n", "claude-consumer", "0"),
+        (None, "claude-source", "0"),
+    ),
+)
+def test_documented_resolver_follows_machine_wrapper_for_install_mode(
+    tmp_path: Path,
+    marker: str | None,
+    expected_mode: str,
+    expected_is_codex: str,
+):
+    repo = tmp_path / "repo"
+    subprocess.run(
+        ["git", "init", "-q", str(repo)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    checkout_wrapper = repo / "bin" / "tusk"
+    _make_executable(checkout_wrapper)
+
+    installed_wrapper = tmp_path / "installed" / "bin" / "tusk"
+    _make_executable(installed_wrapper)
+    if marker is not None:
+        (installed_wrapper.parent / "install-mode").write_text(
+            marker, encoding="utf-8"
+        )
+
+    machine_bin = tmp_path / "machine-bin"
+    machine_bin.mkdir()
+    machine_wrapper = machine_bin / "tusk"
+    machine_wrapper.symlink_to(installed_wrapper)
+    assert not (machine_bin / "install-mode").exists()
+
+    script = _resolver_block(GUIDANCE_PATHS[0]) + (
+        "\nprintf 'MODE=%s\\nIS_CODEX=%s\\n' \"$INSTALL_MODE\" \"$IS_CODEX\""
+    )
+    result = subprocess.run(
+        ["bash", "-c", script],
+        cwd=repo,
+        env={**os.environ, "PATH": f"{machine_bin}:/usr/bin:/bin"},
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.stdout.splitlines() == [
+        str(checkout_wrapper),
+        f"MODE={expected_mode}",
+        f"IS_CODEX={expected_is_codex}",
+    ]
+
+
+def test_canonical_review_reuses_one_install_mode_for_every_pass():
+    text = GUIDANCE_PATHS[0].read_text(encoding="utf-8")
+    normalized = " ".join(text.split())
+
+    assert text.count('< "$INSTALL_MODE_SOURCE_DIR/install-mode"') == 1
+    assert 'dirname "$(command -v tusk)"' not in text
+    assert "Reuse the `INSTALL_MODE` and `IS_CODEX` values captured in Step 0" in normalized
+    assert "Do not recompute install mode during re-review" in normalized
