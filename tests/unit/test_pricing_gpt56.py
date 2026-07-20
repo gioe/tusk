@@ -65,3 +65,18 @@ class TestGpt56SolPricing:
     def test_existing_claude_pricing_is_unchanged(self):
         assert lib.PRICING["claude-opus-4-6"]["input"] == 5.0
         assert lib.PRICING["claude-opus-4-6"]["output"] == 25.0
+
+
+def test_pricing_update_preserves_non_claude_models_only():
+    old_models = {
+        "gpt-5.6-sol": {"input": 5.0, "context_window": 1_050_000},
+        "claude-retired": {"input": 99.0},
+    }
+    new_models = {"claude-current": {"input": 3.0}}
+
+    result = update.preserve_external_models(new_models, old_models)
+
+    assert result == {
+        "claude-current": {"input": 3.0},
+        "gpt-5.6-sol": {"input": 5.0, "context_window": 1_050_000},
+    }

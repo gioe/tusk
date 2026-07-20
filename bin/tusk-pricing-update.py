@@ -219,6 +219,21 @@ def prune_aliases(
     return {k: v for k, v in aliases.items() if v in models}
 
 
+def preserve_external_models(
+    new_models: dict[str, dict], old_models: dict[str, dict]
+) -> dict[str, dict]:
+    """Carry manually configured non-Claude models across an Anthropic refresh.
+
+    The fetched table is Anthropic-only, while pricing.json also supports model
+    families used by other agent surfaces. Replacing the complete table would
+    silently delete those external entries on every pricing-update run.
+    """
+    for model_id, entry in old_models.items():
+        if not model_id.startswith("claude-"):
+            new_models.setdefault(model_id, entry.copy())
+    return new_models
+
+
 def preserve_context_windows(
     new_models: dict[str, dict], old_models: dict[str, dict]
 ) -> dict[str, dict]:
@@ -350,7 +365,7 @@ def main():
 
     print(f"Parsed {len(table) - 1} rows from pricing table")
 
-    new_models = build_models(table)
+    new_models = preserve_external_models(build_models(table), old_models)
 
     if not new_models:
         print("Error: No models parsed from pricing table.", file=sys.stderr)
