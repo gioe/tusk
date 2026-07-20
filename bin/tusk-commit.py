@@ -1924,16 +1924,22 @@ def _run_commit(argv: list[str], state: dict) -> int:
     # Paths already staged as deletions (e.g. via `git rm`) MUST NOT be passed
     # to `git add` (TASK-67): the gitignore-retry branch force-adds with `-f`
     # and would silently re-add the deleted file to the index, defeating the
-    # deletion. Partition them out; they ride along into the commit through
-    # their existing staged state.
+    # deletion. Partition them out only when they were absent during preflight.
+    # A rename source may have been recreated after `git mv`; although the
+    # cached diff still reports it as the R source, that replacement must be
+    # staged with the explicitly listed destination in this commit (#1236).
     staged_deletion_set = _get_staged_deletions(repo_root)
+    preflight_absent_set = {
+        os.path.relpath(resolved, repo_root) if os.path.isabs(resolved) else resolved
+        for _, resolved in not_on_disk
+    }
     rel_for_diff = [
         os.path.relpath(f, repo_root) if os.path.isabs(f) else f
         for f in resolved_files
     ]
     to_add = [
         f for f, rel in zip(resolved_files, rel_for_diff)
-        if rel not in staged_deletion_set
+        if rel not in staged_deletion_set or rel not in preflight_absent_set
     ]
     skipped_deletions = len(resolved_files) - len(to_add)
 

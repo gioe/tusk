@@ -205,18 +205,10 @@ class TestCommitFlowAcceptsRenameSource:
             f"already, not on disk); saw: {staged}"
         )
 
-    def test_recreated_rename_source_missing_from_commit_fails_before_criteria(
-        self, tmp_path, capsys
+    def test_recreated_rename_source_is_added_and_committed_with_destination(
+        self, tmp_path
     ):
-        """Issue #1194: recreated rename source must not be silently omitted.
-
-        After `git mv pkg/__init__.py pkg/service.py`, a replacement
-        pkg/__init__.py may be written at the old path. Because the index still
-        reports `R old new`, the old path is classified as a staged deletion and
-        skipped by the git-add step. The post-commit tree check must catch that
-        the explicitly listed replacement file did not land and must fail before
-        criteria are marked done.
-        """
+        """Issue #1236: a recreated rename source lands in the same commit."""
         mod = _load_module()
 
         pkg = tmp_path / "pkg"
@@ -233,6 +225,7 @@ class TestCommitFlowAcceptsRenameSource:
 
         captured_add_args = []
         criteria_calls = []
+        commit_calls = []
 
         def fake_run(args, **kwargs):
             if args[:5] == ["git", "diff", "--cached", "--name-status", "-z"]:
@@ -250,10 +243,9 @@ class TestCommitFlowAcceptsRenameSource:
                     return _make_completed(0, stdout="bbb222\n")
                 return _make_completed(0, stdout="aaa111\n")
             if args[:2] == ["git", "commit"]:
+                commit_calls.append(list(args))
                 return _make_completed(0, stdout="[main bbb222] move with shim")
             if args[:3] == ["git", "cat-file", "-e"]:
-                if args[3] == "HEAD:pkg/__init__.py":
-                    return _make_completed(1, stderr="missing\n")
                 return _make_completed(0)
             if len(args) >= 3 and args[1:3] == ["criteria", "done"]:
                 criteria_calls.append(list(args))
@@ -264,12 +256,53 @@ class TestCommitFlowAcceptsRenameSource:
              patch("os.getcwd", return_value=str(tmp_path)):
             rc = mod.main(argv)
 
-        assert rc == 3
-        captured = capsys.readouterr()
-        output = captured.out + captured.err
-        assert "pkg/__init__.py" in output
-        assert "missing from the committed tree" in output
+        assert rc == 0
         assert len(captured_add_args) == 1
         assert "pkg/service.py" in captured_add_args[0]
-        assert "pkg/__init__.py" not in captured_add_args[0]
+        assert "pkg/__init__.py" in captured_add_args[0]
+        assert len(commit_calls) == 1
+        assert len(criteria_calls) == 1
+
+    def test_recreated_rename_source_add_failure_aborts_before_commit_and_criteria(
+        self, tmp_path
+    ):
+        """A replacement staging failure cannot leave a partial commit behind."""
+        mod = _load_module()
+
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("from pkg.service import A\n")
+        (pkg / "service.py").write_text("A = 1\n")
+        argv = _argv(
+            tmp_path,
+            ["pkg/service.py", "pkg/__init__.py", "--criteria", "123"],
+        )
+
+        commit_calls = []
+        criteria_calls = []
+
+        def fake_run(args, **kwargs):
+            if args[:5] == ["git", "diff", "--cached", "--name-status", "-z"]:
+                return _make_completed(
+                    0,
+                    stdout="R100\x00pkg/__init__.py\x00pkg/service.py\x00",
+                )
+            if args[:3] == ["git", "ls-files", "--deleted"]:
+                return _make_completed(0, stdout="")
+            if args[:2] == ["git", "add"]:
+                return _make_completed(1, stderr="fatal: replacement disappeared\n")
+            if args[:2] == ["git", "commit"]:
+                commit_calls.append(list(args))
+                return _make_completed(0)
+            if len(args) >= 3 and args[1:3] == ["criteria", "done"]:
+                criteria_calls.append(list(args))
+                return _make_completed(0)
+            return _make_completed(1)
+
+        with patch("subprocess.run", side_effect=fake_run), \
+             patch("os.getcwd", return_value=str(tmp_path)):
+            rc = mod.main(argv)
+
+        assert rc == 3
+        assert commit_calls == []
         assert criteria_calls == []

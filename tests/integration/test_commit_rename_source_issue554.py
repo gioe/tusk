@@ -163,6 +163,62 @@ class TestCommitAcceptsRenameSource:
         assert "LibraryView.swift" in head_files
         assert "ActivityView.swift" not in head_files
 
+    def test_recreated_source_and_destination_land_in_one_commit(self, tmp_path):
+        """Issue #1236: `git mv`, recreate old, and explicitly commit both."""
+        repo = str(tmp_path / "repo")
+        _git_init(repo)
+        old_content = "export function Manager() { return 'manager'; }\n"
+        new_content = "export function Row() { return 'row'; }\n"
+        replacement_content = "export { Row as Manager } from './AdminComedianRow';\n"
+        _commit_file(repo, "AdminComedianManager.tsx", old_content)
+        before = subprocess.run(
+            ["git", "-C", repo, "rev-parse", "HEAD"],
+            capture_output=True, text=True, encoding="utf-8", check=True,
+        ).stdout.strip()
+
+        subprocess.run(
+            [
+                "git", "-C", repo, "mv",
+                "AdminComedianManager.tsx", "AdminComedianRow.tsx",
+            ],
+            check=True,
+        )
+        with open(
+            os.path.join(repo, "AdminComedianRow.tsx"), "w", encoding="utf-8"
+        ) as f:
+            f.write(new_content)
+        with open(
+            os.path.join(repo, "AdminComedianManager.tsx"), "w", encoding="utf-8"
+        ) as f:
+            f.write(replacement_content)
+
+        result = _run_commit(
+            repo,
+            "split comedian manager row",
+            "AdminComedianManager.tsx",
+            "AdminComedianRow.tsx",
+        )
+        assert result.returncode == 0, (
+            f"expected exit 0, got {result.returncode}.\n"
+            f"stdout={result.stdout}\nstderr={result.stderr}"
+        )
+        assert subprocess.run(
+            ["git", "-C", repo, "rev-list", "--count", f"{before}..HEAD"],
+            capture_output=True, text=True, encoding="utf-8", check=True,
+        ).stdout.strip() == "1"
+        assert subprocess.run(
+            ["git", "-C", repo, "show", "HEAD:AdminComedianManager.tsx"],
+            capture_output=True, text=True, encoding="utf-8", check=True,
+        ).stdout == replacement_content
+        assert subprocess.run(
+            ["git", "-C", repo, "show", "HEAD:AdminComedianRow.tsx"],
+            capture_output=True, text=True, encoding="utf-8", check=True,
+        ).stdout == new_content
+        assert subprocess.run(
+            ["git", "-C", repo, "status", "--porcelain"],
+            capture_output=True, text=True, encoding="utf-8", check=True,
+        ).stdout == ""
+
     def test_pure_d_deletion_still_works(self, tmp_path):
         """Regression guard: pure `git rm` deletion path is unaffected by the fix."""
         repo = str(tmp_path / "repo")
