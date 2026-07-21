@@ -37,16 +37,25 @@ CREATE TABLE tasks (
 );
 CREATE TABLE skill_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    skill_name TEXT,
     task_id INTEGER,
     started_at TEXT,
     ended_at TEXT,
-    cost_dollars REAL
+    cost_dollars REAL,
+    telemetry_status TEXT,
+    tokens_in INTEGER,
+    tokens_out INTEGER,
+    request_count INTEGER,
+    model TEXT,
+    metadata TEXT
 );
 CREATE TABLE task_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id INTEGER,
     started_at TEXT,
-    ended_at TEXT
+    ended_at TEXT,
+    cost_dollars REAL,
+    telemetry_status TEXT
 );
 """
 
@@ -155,6 +164,124 @@ class TestCompared:
         assert result["n"] == 3
         assert result["median_cost"] == 0.20
         assert result["ratio"] is None
+
+    def test_large_bucket_uses_constant_query_count(self):
+        conn = _db()
+        conn.executemany(
+            "INSERT INTO tasks (id, status, closed_reason, complexity) "
+            "VALUES (?, 'Done', 'completed', 'S')",
+            [(task_id,) for task_id in range(2, 1202)],
+        )
+        conn.executemany(
+            "INSERT INTO skill_runs (task_id, cost_dollars) VALUES (?, 0.25)",
+            [(task_id,) for task_id in range(2, 1202)],
+        )
+        conn.commit()
+
+        statements = []
+        conn.set_trace_callback(statements.append)
+        result = mod.fetch_baseline_comparison(
+            conn, task_id=1, complexity="S", current_cost=0.5, threshold=10
+        )
+        conn.set_trace_callback(None)
+
+        reads = [
+            statement
+            for statement in statements
+            if statement.lstrip().upper().startswith(("SELECT", "PRAGMA"))
+        ]
+        assert len(reads) == 4
+        assert result == {
+            "bucket": "S",
+            "median_cost": 0.25,
+            "n": 1200,
+            "ratio": 2.0,
+            "threshold": 10,
+            "status": "compared",
+        }
+
+    def test_bulk_accounting_preserves_shadow_containment_and_telemetry_rules(self):
+        conn = _db()
+        for task_id in range(2, 6):
+            conn.execute(
+                "INSERT INTO tasks (id, status, closed_reason, complexity) "
+                "VALUES (?, 'Done', 'completed', 'M')",
+                (task_id,),
+            )
+
+        conn.execute(
+            "INSERT INTO task_sessions "
+            "(task_id, started_at, ended_at, cost_dollars, telemetry_status) "
+            "VALUES (2, '2026-07-20 10:00:00', '2026-07-20 12:00:00', "
+            "1.0, 'captured')"
+        )
+        conn.executemany(
+            "INSERT INTO skill_runs "
+            "(skill_name, task_id, started_at, ended_at, cost_dollars, "
+            " telemetry_status, tokens_in) VALUES (?, 2, ?, ?, ?, 'captured', 1)",
+            [
+                (
+                    "tusk",
+                    "2026-07-20 10:00:05",
+                    "2026-07-20 11:50:00",
+                    1.0,
+                ),
+                (
+                    "review-commits",
+                    "2026-07-20 10:30:00",
+                    "2026-07-20 10:40:00",
+                    0.5,
+                ),
+                (
+                    "retro",
+                    "2026-07-20 12:05:00",
+                    "2026-07-20 12:10:00",
+                    0.25,
+                ),
+            ],
+        )
+
+        conn.execute(
+            "INSERT INTO task_sessions "
+            "(task_id, started_at, ended_at, cost_dollars, telemetry_status) "
+            "VALUES (3, '2026-07-20 13:00:00', '2026-07-20 14:00:00', "
+            "NULL, 'unpriced_model')"
+        )
+        conn.execute(
+            "INSERT INTO skill_runs "
+            "(skill_name, task_id, started_at, ended_at, cost_dollars, "
+            " telemetry_status, tokens_in) VALUES "
+            "('review-commits', NULL, '2026-07-20 13:10:00', "
+            " '2026-07-20 13:20:00', 0.4, 'captured', 1)"
+        )
+
+        conn.execute(
+            "INSERT INTO task_sessions "
+            "(task_id, started_at, ended_at, cost_dollars, telemetry_status) "
+            "VALUES (4, '2026-07-20 15:00:00', '2026-07-20 16:00:00', "
+            "NULL, 'transcript_missing')"
+        )
+        conn.execute(
+            "INSERT INTO skill_runs "
+            "(skill_name, task_id, started_at, ended_at, cost_dollars, "
+            " telemetry_status) VALUES "
+            "('retro', 5, '2026-07-20 17:00:00', '2026-07-20 17:01:00', "
+            " 0, 'cancelled')"
+        )
+        conn.commit()
+
+        result = mod.fetch_baseline_comparison(
+            conn, task_id=1, complexity="M", current_cost=0.825, threshold=2
+        )
+
+        assert result == {
+            "bucket": "M",
+            "median_cost": 0.825,
+            "n": 2,
+            "ratio": 1.0,
+            "threshold": 2,
+            "status": "compared",
+        }
 
 
 # ── status='pending' ──────────────────────────────────────────────────
