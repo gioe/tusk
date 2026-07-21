@@ -20,10 +20,11 @@ would, and assert:
 1. **Range mode produces cumulative stats** — covers criterion 2074 (the
    primary fix) and criterion 2076 (fast-path output matches what the
    recovery chain would have produced from the same git history).
-2. **Single-SHA mode (PR squash) is unchanged** — covers criterion 2075:
-   stamping only ``merge_commit_sha`` (base NULL) returns the single
-   tip commit's stats, identical to migration 70 behavior.
-3. **Recovery-chain parity** — explicitly clears the stamp and asserts
+2. **Tip-chain mode repairs NULL-base fast-forward stamps** — a final
+   unbound review-fix commit still recovers earlier criterion commits.
+3. **PR squash mode is unchanged** — an untagged squash tip remains one
+   commit even when older recycled TASK-N commits exist in its ancestry.
+4. **Recovery-chain parity** — explicitly clears the stamp and asserts
    ``fetch_diff`` returns the same numbers via the cheap-scan path, so
    the new fast-path is a faithful shortcut for the canonical
    ``git log --all --grep`` computation.
@@ -141,22 +142,24 @@ def repo_with_multi_commit_ff_merge(tmp_path):
 
     (repo / "a.txt").write_text("alpha\nbeta\n")
     _run(["git", "add", "a.txt"], cwd=str(repo))
-    _run(["git", "commit", "-q", "-m", "[TASK-99] add a.txt"], cwd=str(repo))
+    _run(["git", "commit", "-q", "-m", "[TASK-99] criterion one"], cwd=str(repo))
+    first_sha = _run(["git", "rev-parse", "HEAD"], cwd=str(repo)).stdout.strip()
 
     (repo / "b.txt").write_text("one\ntwo\nthree\n")
     _run(["git", "add", "b.txt"], cwd=str(repo))
-    _run(["git", "commit", "-q", "-m", "[TASK-99] add b.txt"], cwd=str(repo))
+    _run(["git", "commit", "-q", "-m", "[TASK-99] criterion two"], cwd=str(repo))
+    second_sha = _run(["git", "rev-parse", "HEAD"], cwd=str(repo)).stdout.strip()
 
     (repo / "a.txt").write_text("alpha\nbeta\ngamma\ndelta\n")
     _run(["git", "add", "a.txt"], cwd=str(repo))
-    _run(["git", "commit", "-q", "-m", "[TASK-99] extend a.txt"], cwd=str(repo))
+    _run(["git", "commit", "-q", "-m", "[TASK-99] Apply review fixes"], cwd=str(repo))
 
     # Fast-forward merge onto main (simulates the local-ff path).
     _run(["git", "checkout", "-q", "main"], cwd=str(repo))
     _run(["git", "merge", "-q", "--ff-only", "feature/TASK-99-multi"], cwd=str(repo))
     tip_sha = _run(["git", "rev-parse", "HEAD"], cwd=str(repo)).stdout.strip()
 
-    return str(repo), base_sha, tip_sha
+    return str(repo), base_sha, tip_sha, (first_sha, second_sha)
 
 
 @pytest.fixture()
@@ -203,7 +206,7 @@ class TestMultiCommitFastForwardFastPath:
         """Criterion 2074: stamping both base + tip drives the fast-path
         through ``git log --first-parent --numstat <base>..<tip>``, which
         sums every commit on the feature branch — not just the tip."""
-        repo, base, tip = repo_with_multi_commit_ff_merge
+        repo, base, tip, _criterion_shas = repo_with_multi_commit_ff_merge
         db_path, conn = _make_db_with_task(tmp_path, 99)
         try:
             conn.execute(
@@ -224,18 +227,20 @@ class TestMultiCommitFastForwardFastPath:
         assert diff["lines_removed"] == 0
         assert diff["recovered_via"] == "stamped-sha"
 
-    def test_single_sha_mode_preserves_pr_squash_behavior(
+    def test_null_base_tip_recovers_criterion_commits_and_review_fix(
         self, repo_with_multi_commit_ff_merge, tmp_path
     ):
-        """Criterion 2075: leaving merge_base_sha NULL (the PR squash path)
-        falls through to the migration 70 ``git show --numstat <tip>``
-        behavior unchanged — single commit, last-commit's numstat only.
-
-        Reuses the same repo because the assertion is structural (range
-        vs. single-SHA dispatch), not a separate PR-squash topology."""
-        repo, _base, tip = repo_with_multi_commit_ff_merge
+        """Issue #1239: a bad legacy tip-only stamp must not truncate work."""
+        repo, _base, tip, criterion_shas = repo_with_multi_commit_ff_merge
         db_path, conn = _make_db_with_task(tmp_path, 99)
         try:
+            for index, sha in enumerate(criterion_shas, start=1):
+                conn.execute(
+                    "INSERT INTO acceptance_criteria "
+                    "(task_id, criterion, is_completed, commit_hash) "
+                    "VALUES (?, ?, 1, ?)",
+                    (99, f"Criterion {index}", sha),
+                )
             conn.execute(
                 "UPDATE tasks SET merge_commit_sha = ?, merge_base_sha = NULL "
                 "WHERE id = ?",
@@ -246,9 +251,35 @@ class TestMultiCommitFastForwardFastPath:
         finally:
             conn.close()
 
-        # tip commit ("extend a.txt") is +2/-0 on one file. Migration 70's
-        # exact behavior — this is what regresses to wrong-for-ff stats but
-        # is correct-by-design for PR squash.
+        assert diff["commits"] == 3
+        assert diff["files_changed"] == 2
+        assert diff["lines_added"] == 7
+        assert diff["lines_removed"] == 0
+        assert diff["recovered_via"] == "stamped-sha"
+
+    def test_untagged_pr_squash_does_not_absorb_older_task_commits(
+        self, repo_with_multi_commit_ff_merge, tmp_path
+    ):
+        """An untagged squash tip stays singular above recycled TASK commits."""
+        repo, _base, _tip, _criterion_shas = repo_with_multi_commit_ff_merge
+        with open(os.path.join(repo, "squash.txt"), "w", encoding="utf-8") as f:
+            f.write("squashed\nchange\n")
+        _run(["git", "add", "squash.txt"], cwd=repo)
+        _run(["git", "commit", "-q", "-m", "Squashed pull request"], cwd=repo)
+        squash_tip = _run(["git", "rev-parse", "HEAD"], cwd=repo).stdout.strip()
+
+        _db_path, conn = _make_db_with_task(tmp_path, 99)
+        try:
+            conn.execute(
+                "UPDATE tasks SET merge_commit_sha = ?, merge_base_sha = NULL "
+                "WHERE id = ?",
+                (squash_tip, 99),
+            )
+            conn.commit()
+            diff = mod.fetch_diff(99, repo, conn=conn)
+        finally:
+            conn.close()
+
         assert diff["commits"] == 1
         assert diff["files_changed"] == 1
         assert diff["lines_added"] == 2
@@ -266,7 +297,7 @@ class TestMultiCommitFastForwardFastPath:
         Computes the recovery-chain answer by clearing the stamp so
         ``fetch_diff`` skips the fast-path entirely and walks the same
         scan it would have without migration 70+72."""
-        repo, base, tip = repo_with_multi_commit_ff_merge
+        repo, base, tip, _criterion_shas = repo_with_multi_commit_ff_merge
         db_path, conn = _make_db_with_task(tmp_path, 99)
         try:
             # Fast-path stats (range mode).

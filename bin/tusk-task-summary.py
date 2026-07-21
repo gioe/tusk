@@ -569,6 +569,7 @@ def _task_chain_from_criterion_hash(
     repo_root: str,
     sha: str,
     since: str | None = None,
+    require_tip_match: bool = False,
 ) -> list[str]:
     """Return the contiguous first-parent [TASK-N] chain ending at ``sha``.
 
@@ -604,6 +605,8 @@ def _task_chain_from_criterion_hash(
         if needle in subject:
             chain.append(commit_sha)
             continue
+        if require_tip_match and not chain:
+            return []
         if chain:
             break
     return chain
@@ -793,6 +796,8 @@ def _unreachable_task_commits(task_id: int, repo_root: str) -> tuple[dict, dict]
 def _fetch_diff_from_stamped_sha(
     merge_commit_sha: str, repo_root: str,
     merge_base_sha: str | None = None,
+    task_id: int | None = None,
+    since: str | None = None,
 ) -> dict | None:
     """Summarize the merge's numstat output from stamped SHAs.
 
@@ -814,12 +819,12 @@ def _fetch_diff_from_stamped_sha(
       commit / last-commit numstat (TASK-451's own closeout flagged the
       regression against TASK-454).
 
-    - **Single-SHA mode** (``merge_base_sha`` None, or equal to
-      ``merge_commit_sha``): runs ``git show --first-parent --numstat
-      <merge_commit_sha>`` — correct for PR squash merges (one commit
-      holds all task work) and for legacy pre-migration-72 rows where
-      only the tip was stamped. ``--first-parent`` ensures squash merges
-      don't double-count via the second parent.
+    - **Tip-chain mode** (``merge_base_sha`` None, or equal to
+      ``merge_commit_sha``): expands a stamped ``[TASK-N]`` tip through its
+      contiguous first-parent task chain, then shows every commit. This repairs
+      legacy and interrupted-finalization rows that stored ``(tip, NULL)`` for
+      a multi-commit fast-forward. An untagged PR squash tip does not expand,
+      so the single squash commit remains the complete task diff.
     """
     if merge_base_sha and merge_base_sha != merge_commit_sha:
         cmd = [
@@ -828,9 +833,20 @@ def _fetch_diff_from_stamped_sha(
             f"{merge_base_sha}..{merge_commit_sha}",
         ]
     else:
+        task_chain = (
+            _task_chain_from_criterion_hash(
+                task_id,
+                repo_root,
+                merge_commit_sha,
+                since=since,
+                require_tip_match=True,
+            )
+            if task_id is not None
+            else []
+        )
         cmd = [
             "git", "show", "--first-parent", "--numstat",
-            "--format=__COMMIT__ %H %P", merge_commit_sha,
+            "--format=__COMMIT__ %H %P", *(task_chain or [merge_commit_sha]),
         ]
     try:
         result = subprocess.run(
@@ -983,7 +999,11 @@ def fetch_diff(
             base_sha = row["merge_base_sha"] if "merge_base_sha" in keys else None
             if stamped_sha:
                 fast_path = _fetch_diff_from_stamped_sha(
-                    stamped_sha, repo_root, merge_base_sha=base_sha,
+                    stamped_sha,
+                    repo_root,
+                    merge_base_sha=base_sha,
+                    task_id=task_id,
+                    since=since,
                 )
                 if fast_path is not None:
                     return fast_path
