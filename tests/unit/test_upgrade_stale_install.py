@@ -10,6 +10,7 @@ import importlib.util
 import sqlite3
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -56,6 +57,150 @@ def test_copy_bin_files_overwrites_stale_sync_main_helper(tmp_path):
     upgrade.copy_bin_files(str(src), str(script_dir))
 
     assert (script_dir / "tusk-sync-main.py").read_text(encoding="utf-8") == fixed_helper
+
+
+def test_installed_skills_stale_compares_only_eligible_release_files(
+    tmp_path, monkeypatch
+):
+    upgrade = _load_upgrade()
+
+    src = tmp_path / "src"
+    current_skill = src / "skills" / "tusk"
+    gated_skill = src / "skills" / "ios-only"
+    current_skill.mkdir(parents=True)
+    gated_skill.mkdir(parents=True)
+    (current_skill / "SKILL.md").write_text("current guidance\n", encoding="utf-8")
+    (gated_skill / "SKILL.md").write_text("ios guidance\n", encoding="utf-8")
+
+    repo_root = tmp_path / "project"
+    installed = repo_root / ".claude" / "skills" / "tusk" / "SKILL.md"
+    installed.parent.mkdir(parents=True)
+    installed.write_text("current guidance\n", encoding="utf-8")
+
+    skill_filter = SimpleNamespace(
+        get_project_type=lambda _repo: "python_service",
+        should_install_skill=lambda skill_dir, _project_type: not skill_dir.endswith(
+            "ios-only"
+        ),
+    )
+    monkeypatch.setattr(upgrade, "_import_skill_filter", lambda _src: skill_filter)
+
+    assert upgrade._installed_skills_stale(str(src), str(repo_root)) is False
+
+    installed.write_text("stale guidance\n", encoding="utf-8")
+    assert upgrade._installed_skills_stale(str(src), str(repo_root)) is True
+
+    installed.unlink()
+    assert upgrade._installed_skills_stale(str(src), str(repo_root)) is True
+
+
+def _upgrade_summary():
+    return {
+        "install_mode": "claude",
+        "manifest_rel": "MANIFEST",
+        "hook_summary": {
+            "registered": 0,
+            "dedup_removed": 0,
+            "permissions_added": 0,
+        },
+        "skill_count": 1,
+        "hook_count": 0,
+        "script_count": 0,
+        "added_perms": [],
+        "backfilled_keys": [],
+        "migrate_summary": "skipped",
+        "orphan_count": 0,
+        "pruned_count": 0,
+        "deprecated_count": 0,
+        "newline_fixes": 0,
+    }
+
+
+def _same_version_install(tmp_path):
+    repo_root = tmp_path / "project"
+    script_dir = repo_root / ".claude" / "bin"
+    script_dir.mkdir(parents=True)
+    (script_dir / "install-mode").write_text("claude-consumer\n", encoding="utf-8")
+    (script_dir / "VERSION").write_text("999\n", encoding="utf-8")
+
+    tmp_outer = tmp_path / "download"
+    src = tmp_outer / "tusk-v999"
+    (src / "bin").mkdir(parents=True)
+    (src / "VERSION").write_text("999\n", encoding="utf-8")
+    return repo_root, script_dir, src
+
+
+def test_same_version_refreshes_when_installed_skills_are_stale(
+    tmp_path, monkeypatch, capsys
+):
+    upgrade = _load_upgrade()
+    repo_root, script_dir, src = _same_version_install(tmp_path)
+    calls = []
+
+    monkeypatch.setattr(upgrade, "is_source_repo", lambda _repo: False)
+    monkeypatch.setattr(upgrade, "get_latest_tag", lambda: "v999")
+    monkeypatch.setattr(upgrade, "get_remote_version", lambda _tag: 999)
+    monkeypatch.setattr(upgrade, "_installed_skills_stale", lambda *_args: True)
+    monkeypatch.setattr(
+        upgrade,
+        "_run_upgrade_steps",
+        lambda *args: calls.append(args) or _upgrade_summary(),
+    )
+    monkeypatch.setattr(upgrade, "check_review_commits_permissions", lambda _repo: [])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "tusk-upgrade.py",
+            str(repo_root),
+            str(script_dir),
+            "--no-commit",
+            "--_rexec-src",
+            str(src),
+        ],
+    )
+
+    upgrade.main()
+
+    out = capsys.readouterr().out
+    assert "installed skills differ from the current release" in out
+    assert "Already up to date" not in out
+    assert calls
+
+
+def test_same_version_current_skills_skip_all_upgrade_steps(
+    tmp_path, monkeypatch, capsys
+):
+    upgrade = _load_upgrade()
+    repo_root, script_dir, src = _same_version_install(tmp_path)
+
+    monkeypatch.setattr(upgrade, "is_source_repo", lambda _repo: False)
+    monkeypatch.setattr(upgrade, "get_latest_tag", lambda: "v999")
+    monkeypatch.setattr(upgrade, "get_remote_version", lambda _tag: 999)
+    monkeypatch.setattr(upgrade, "_installed_skills_stale", lambda *_args: False)
+    monkeypatch.setattr(
+        upgrade,
+        "_run_upgrade_steps",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("upgrade steps ran")),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "tusk-upgrade.py",
+            str(repo_root),
+            str(script_dir),
+            "--no-commit",
+            "--_rexec-src",
+            str(src),
+        ],
+    )
+
+    upgrade.main()
+
+    out = capsys.readouterr().out
+    assert "Already up to date (version 999)." in out
+    assert "Upgrade complete" not in out
 
 
 def test_no_commit_does_not_claim_current_when_schema_support_is_stale(

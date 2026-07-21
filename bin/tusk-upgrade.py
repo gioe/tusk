@@ -389,6 +389,37 @@ def copy_skills(src: str, repo_root: str) -> int:
     return count
 
 
+def _installed_skills_stale(src: str, repo_root: str) -> bool:
+    """Return whether an eligible release skill differs from its installed copy.
+
+    Keep this comparison aligned with ``copy_skills``: project-type filtering
+    applies before comparing, and only top-level regular files are installed.
+    """
+    skills_src = os.path.join(src, "skills")
+    if not os.path.isdir(skills_src):
+        return False
+    sf = _import_skill_filter(src)
+    project_type = sf.get_project_type(repo_root)
+    for skill_name in os.listdir(skills_src):
+        skill_dir = os.path.join(skills_src, skill_name)
+        if not os.path.isdir(skill_dir):
+            continue
+        if not sf.should_install_skill(skill_dir, project_type):
+            continue
+        dest_dir = os.path.join(repo_root, ".claude", "skills", skill_name)
+        for fname in os.listdir(skill_dir):
+            src_file = os.path.join(skill_dir, fname)
+            if not os.path.isfile(src_file):
+                continue
+            dest_file = os.path.join(dest_dir, fname)
+            try:
+                if Path(src_file).read_bytes() != Path(dest_file).read_bytes():
+                    return True
+            except OSError:
+                return True
+    return False
+
+
 def copy_prompts(src: str, repo_root: str) -> int:
     prompts_src = os.path.join(src, "codex-prompts")
     if not os.path.isdir(prompts_src):
@@ -1188,23 +1219,23 @@ def main() -> None:
 
     schema_support_stale = _installed_schema_support_stale(repo_root, script_dir)
 
+    same_version = local_version == remote_version
+    install_mode = detect_install_mode(script_dir)
+
     if not args.force:
-        if local_version == remote_version:
+        if same_version:
             if schema_support_stale:
                 print(
                     f"Installed VERSION is {local_version}, but the live DB schema "
                     "is newer than this install's migration registry; reinstalling."
                 )
-            else:
+            elif install_mode not in ("claude", "dual"):
                 print(f"Already up to date (version {local_version}).")
                 return
         if local_version > remote_version:
             print(f"Warning: Local version ({local_version}) is ahead of remote ({remote_version}).")
             print("This may indicate a dev build or an unpublished release.")
             return
-
-    if not args.rexec_src:
-        print(f"Upgrading from version {local_version} → {remote_version}...")
 
     # Own a tempdir that survives a potential os.execv to a newer upgrader.
     # When re-exec'd we inherit ownership of the tempdir created by the outer
@@ -1258,6 +1289,16 @@ def main() -> None:
                 # and will rmtree it inside its own finally block.
                 os.execv(sys.executable, argv)
 
+        if not args.force and same_version and not schema_support_stale:
+            if not _installed_skills_stale(src, repo_root):
+                print(f"Already up to date (version {local_version}).")
+                return
+            print(
+                f"Installed VERSION is {local_version}, but installed skills "
+                "differ from the current release; refreshing."
+            )
+
+        print(f"Upgrading from version {local_version} → {remote_version}...")
         summary = _run_upgrade_steps(src, repo_root, script_dir, tmpdir)
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
