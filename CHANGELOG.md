@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1240] - 2026-07-21
+
+- [TASK-830] Fix task-summary aggregation after review-fix commits
+
 ## [1239] - 2026-07-20
 
 - [TASK-829] Fix replacement-file staging after Git renames
