@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1241] - 2026-07-21
+
+- [TASK-831] Optimize task-summary baseline cost aggregation
+
 ## [1240] - 2026-07-21
 
 - [TASK-830] Fix task-summary aggregation after review-fix commits
