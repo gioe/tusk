@@ -322,19 +322,10 @@ def _fetch_skill_runs_for_cost(conn: sqlite3.Connection, task_id: int) -> list[s
     ).fetchall()
 
 
-def fetch_cost(conn: sqlite3.Connection, task_id: int) -> dict:
-    """All-in cost for the task's main session and extra skill runs.
-
-    This mirrors ``tusk cost`` accounting at task scope: sum costed
-    task_sessions plus non-shadow skill_runs. Modern skill_runs carry task_id
-    directly; older or manually-started rows may lack that attribution, so
-    include completed un-attributed runs that started inside one of the task's
-    recorded sessions. The ``skill_run_count`` field is the number of costed
-    run windows included in the total.
-    """
-    sessions = _fetch_task_sessions_for_cost(conn, task_id)
-    skill_runs = _fetch_skill_runs_for_cost(conn, task_id)
-
+def _summarize_cost_rows(
+    sessions: list[sqlite3.Row], skill_runs: list[sqlite3.Row]
+) -> dict:
+    """Apply task-cost accounting to rows already loaded by any query path."""
     total = 0.0
     count = 0
     unavailable_count = 0
@@ -371,6 +362,138 @@ def fetch_cost(conn: sqlite3.Connection, task_id: int) -> dict:
     return result
 
 
+def fetch_cost(conn: sqlite3.Connection, task_id: int) -> dict:
+    """All-in cost for the task's main session and extra skill runs.
+
+    This mirrors ``tusk cost`` accounting at task scope: sum costed
+    task_sessions plus non-shadow skill_runs. Modern skill_runs carry task_id
+    directly; older or manually-started rows may lack that attribution, so
+    include completed un-attributed runs that started inside one of the task's
+    recorded sessions. The ``skill_run_count`` field is the number of costed
+    run windows included in the total.
+    """
+    return _summarize_cost_rows(
+        _fetch_task_sessions_for_cost(conn, task_id),
+        _fetch_skill_runs_for_cost(conn, task_id),
+    )
+
+
+def _available_select_columns(
+    conn: sqlite3.Connection,
+    table: str,
+    alias: str,
+    columns: tuple[str, ...],
+) -> str:
+    """Return a legacy-safe SELECT list with stable column names."""
+    available = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    return ", ".join(
+        f"{alias}.{column} AS {column}"
+        if column in available
+        else f"NULL AS {column}"
+        for column in columns
+    )
+
+
+def _fetch_peer_costs(
+    conn: sqlite3.Connection,
+    task_id: int,
+    complexity: str,
+) -> list[float]:
+    """Load and account for every baseline peer with a constant query count.
+
+    The former implementation called ``fetch_cost`` once per peer. Each call
+    performed two SELECTs plus a schema PRAGMA, making summary latency grow as
+    roughly three database round trips per completed task. These set queries
+    attach each row to its matching peer, then reuse the exact same accounting
+    helper as the single-task path.
+    """
+    peer_predicate = (
+        "t.status = 'Done' "
+        "AND t.closed_reason = 'completed' "
+        "AND t.complexity = ? "
+        "AND t.id <> ?"
+    )
+    session_columns = _available_select_columns(
+        conn,
+        "task_sessions",
+        "ts",
+        (
+            "id",
+            "task_id",
+            "started_at",
+            "ended_at",
+            "cost_dollars",
+            "telemetry_status",
+        ),
+    )
+    sessions = conn.execute(
+        f"SELECT {session_columns} "
+        "FROM task_sessions ts "
+        "JOIN tasks t ON t.id = ts.task_id "
+        f"WHERE {peer_predicate}",
+        (complexity, task_id),
+    ).fetchall()
+
+    skill_columns = _available_select_columns(
+        conn,
+        "skill_runs",
+        "sr",
+        (
+            "id",
+            "skill_name",
+            "task_id",
+            "started_at",
+            "ended_at",
+            "cost_dollars",
+            "telemetry_status",
+            "tokens_in",
+            "tokens_out",
+            "request_count",
+            "model",
+            "metadata",
+        ),
+    )
+    skill_runs = conn.execute(
+        f"SELECT {skill_columns}, t.id AS matched_task_id "
+        "FROM skill_runs sr "
+        "JOIN tasks t ON t.id = sr.task_id "
+        f"WHERE {peer_predicate} "
+        "UNION ALL "
+        f"SELECT DISTINCT {skill_columns}, t.id AS matched_task_id "
+        "FROM skill_runs sr "
+        "JOIN task_sessions ts "
+        "  ON sr.task_id IS NULL "
+        " AND sr.ended_at IS NOT NULL "
+        " AND sr.started_at IS NOT NULL "
+        " AND ts.started_at <= sr.started_at "
+        " AND (ts.ended_at IS NULL OR ts.ended_at >= sr.started_at) "
+        "JOIN tasks t ON t.id = ts.task_id "
+        f"WHERE {peer_predicate}",
+        (complexity, task_id, complexity, task_id),
+    ).fetchall()
+
+    sessions_by_task: dict[int, list[sqlite3.Row]] = {}
+    for session in sessions:
+        sessions_by_task.setdefault(int(session["task_id"]), []).append(session)
+    skill_runs_by_task: dict[int, list[sqlite3.Row]] = {}
+    for skill_run in skill_runs:
+        skill_runs_by_task.setdefault(
+            int(skill_run["matched_task_id"]), []
+        ).append(skill_run)
+
+    peer_ids = sessions_by_task.keys() | skill_runs_by_task.keys()
+    return sorted(
+        cost["total"]
+        for peer_id in peer_ids
+        if (
+            cost := _summarize_cost_rows(
+                sessions_by_task.get(peer_id, []),
+                skill_runs_by_task.get(peer_id, []),
+            )
+        )["total"] > 0
+    )
+
+
 def fetch_baseline_comparison(
     conn: sqlite3.Connection,
     task_id: int,
@@ -403,21 +526,7 @@ def fetch_baseline_comparison(
             "status": "no_complexity",
         }
 
-    rows = conn.execute(
-        "SELECT id "
-        "FROM tasks t "
-        "WHERE t.status = 'Done' "
-        "  AND t.closed_reason = 'completed' "
-        "  AND t.complexity = ? "
-        "  AND t.id <> ?",
-        (complexity, task_id),
-    ).fetchall()
-
-    peer_costs = sorted(
-        cost["total"]
-        for row in rows
-        if (cost := fetch_cost(conn, int(row["id"])))["total"] > 0
-    )
+    peer_costs = _fetch_peer_costs(conn, task_id, complexity)
     n = len(peer_costs)
 
     if n == 0:
