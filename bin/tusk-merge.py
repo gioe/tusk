@@ -2720,7 +2720,7 @@ def _complete_no_checkout_fast_forward(
     # source of truth). Issue #849.
     merge_commit_sha = (
         None
-        if task_scope_already_published and not branch_fully_published
+        if branch_fully_published or task_scope_already_published
         else _resolve_local_ref_sha(branch_name)
     )
     # Use the pre-push merge-base captured above. Re-resolving here would

@@ -21,8 +21,8 @@ has unpushed commits there). Two distinct edges silently produced wrong
 The fix lives in two co-located pieces. ``_resolve_merge_base`` now resolves
 both candidate refs and uses ``git merge-base --is-ancestor`` to pick the
 descendant of the two. The no-checkout call site in ``_no_checkout_push_path``
-sets ``pre_push_merge_base_sha = None`` inside the
-``_origin_already_contains`` branch so the stamp stays NULL and ``fetch_diff``
+sets both merge stamp values to None inside the
+``_origin_already_contains`` branch so the task row stays unstamped and ``fetch_diff``
 falls through to the recovery chain (which reproduces cumulative stats from
 the actual ``[TASK-N]`` commit history).
 """
@@ -474,7 +474,7 @@ class TestEdge2NoCheckoutStampsNullWhenOriginAlreadyContains:
 
         return _run, calls
 
-    def test_no_checkout_skips_helper_and_stamps_null_base(
+    def test_no_checkout_skips_helper_and_leaves_task_unstamped(
         self, db_path, config_path, monkeypatch
     ):
         task_id, session_id = self._setup_task_session(db_path)
@@ -531,9 +531,8 @@ class TestEdge2NoCheckoutStampsNullWhenOriginAlreadyContains:
         # The actual assertion: when origin already contains the feature
         # tip, ``_resolve_merge_base`` is NOT called (so the synthetic SHA
         # the mock would have returned never reaches the stamper) and the
-        # base stamped on the task row is None. Were the bug to regress,
-        # the stamp would land at SYNTHETIC_BASE and ``fetch_diff`` would
-        # route through single-SHA mode.
+        # stamp values passed for the task are both None. A tip with no base
+        # routes task-summary through tip-only mode and recreates issue #1239.
         assert stamp_calls, (
             "expected _stamp_merge_commit_sha to be invoked during close-out"
         )
@@ -542,6 +541,10 @@ class TestEdge2NoCheckoutStampsNullWhenOriginAlreadyContains:
         task_stamps = [c for c in stamp_calls if c["task_id"] == task_id]
         assert task_stamps, (
             f"expected stamp call for task {task_id}; got: {stamp_calls}"
+        )
+        assert task_stamps[-1]["merge_commit_sha"] is None, (
+            f"expected merge_commit_sha to be None in the "
+            f"origin-already-contains branch; got {task_stamps[-1]!r}"
         )
         assert task_stamps[-1]["merge_base_sha"] is None, (
             f"expected merge_base_sha to be None in the origin-already-contains "
