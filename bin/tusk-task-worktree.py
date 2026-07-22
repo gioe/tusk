@@ -436,6 +436,42 @@ def _is_root_tracked_file(repo_root: str | None, path: str) -> bool:
     )
 
 
+def _normalize_tracked_cone_entries(
+    repo_root: str, entries: set[str]
+) -> list[str]:
+    """Map exact tracked files and symlinks to their containing directories.
+
+    Cone-mode sparse-checkout accepts directory entries, but rejects an exact
+    tracked blob such as the source repo's ``.claude/skills/tusk`` symlink.
+    Preserve tracked trees and untracked future directories unchanged. When
+    git inspection fails, preserve the entry rather than guessing.
+    """
+    ordered = sorted(entries)
+    if not ordered:
+        return []
+    result = _run_git(repo_root, ["ls-tree", "HEAD", "--", *ordered])
+    if result.returncode != 0:
+        return ordered
+    tracked_types: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        if "\t" not in line:
+            continue
+        metadata, path = line.split("\t", 1)
+        fields = metadata.split()
+        if len(fields) >= 2:
+            tracked_types[path] = fields[1]
+
+    normalized: set[str] = set()
+    for entry in ordered:
+        if tracked_types.get(entry) == "blob":
+            parent = _normalize_cone_entry(os.path.dirname(entry))
+            if parent:
+                normalized.add(parent)
+            continue
+        normalized.add(entry)
+    return sorted(normalized)
+
+
 def _task_scope_top_level_cone(
     conn: sqlite3.Connection, task_id: int, repo_root: str | None = None
 ) -> list[str]:
@@ -1537,7 +1573,7 @@ def cmd_create(
                     d = _normalize_cone_entry(raw or "")
                     if d:
                         cone_set.add(d)
-                cone = sorted(cone_set)
+                cone = _normalize_tracked_cone_entries(repo_root, cone_set)
                 sparse_applied, sparse_disabled, sparse_err = (
                     _apply_sparse_checkout(workspace_path, cone)
                 )
