@@ -69,6 +69,12 @@ def _repo_with_tusk(tmp_path, monkeypatch):
     (repo / "MANIFEST").write_text("manifest\n", encoding="utf-8")
     (repo / ".claude").mkdir()
     (repo / ".claude" / "tusk-manifest.json").write_text("{}\n", encoding="utf-8")
+    (repo / ".claude" / "skills").mkdir()
+    (repo / "skills" / "tusk").mkdir(parents=True)
+    (repo / "skills" / "tusk" / "SKILL.md").write_text(
+        "# Tusk skill\n", encoding="utf-8"
+    )
+    os.symlink("../../skills/tusk", repo / ".claude" / "skills" / "tusk")
     (repo / ".github" / "workflows").mkdir(parents=True)
     (repo / ".github" / "workflows" / "web-ci.yml").write_text(
         "name: Web CI\n", encoding="utf-8"
@@ -193,6 +199,47 @@ def test_sparse_cone_set(tmp_path, monkeypatch):
     # Out-of-cone directories must NOT be materialized in the worktree.
     assert not os.path.exists(os.path.join(wt, "docs")), (
         "docs/ is out-of-cone and should not be materialized"
+    )
+
+
+def test_source_skill_symlink_cone_stays_sparse(tmp_path, monkeypatch):
+    """Exact tracked symlinks are normalized to their parent directory.
+
+    The tusk source repo tracks ``.claude/skills/tusk`` as a symlink while
+    also forcing ``.claude`` and ``skills`` into every sparse worktree. Passing
+    the symlink itself to ``git sparse-checkout set`` exits 128 and used to
+    force a full-checkout fallback.
+    """
+    repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+    _set_sparse_always_cone(repo, [".claude", "skills"])
+    task = _insert_task(
+        db_path,
+        "Update .claude/skills/tusk/SKILL.md while preserving sparse checkout",
+    )
+
+    result = _run(
+        [
+            "task-worktree",
+            "create",
+            str(task),
+            "skill-symlink",
+            "--workspace-root",
+            str(tmp_path / "workspaces"),
+        ],
+        cwd=repo,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    worktree = payload["workspace_path"]
+    cone = _sparse_cone(worktree)
+    assert cone is not None, "valid skill symlinks must keep sparse checkout enabled"
+    assert ".claude/skills/tusk" not in cone
+    assert "falls back to a full checkout" not in result.stderr
+    assert os.path.islink(os.path.join(worktree, ".claude", "skills", "tusk"))
+    assert os.path.isfile(
+        os.path.join(worktree, ".claude", "skills", "tusk", "SKILL.md")
     )
 
 

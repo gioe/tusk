@@ -64,6 +64,8 @@ def monorepo(tmp_path):
         full = repo / rel
         full.parent.mkdir(parents=True, exist_ok=True)
         full.write_text("x\n", encoding="utf-8")
+    (repo / "links").mkdir()
+    os.symlink("../docs", repo / "links" / "docs")
     _git(["add", "."], cwd=repo)
     _git(["commit", "-m", "init"], cwd=repo)
     return repo
@@ -170,6 +172,40 @@ class TestTrackedDirs:
         plain = tmp_path / "plain"
         plain.mkdir()
         assert mod._tracked_dirs(str(plain)) is None
+
+
+class TestNormalizeTrackedConeEntries:
+    def test_tracked_directory_is_preserved(self, mod, monorepo):
+        assert mod._normalize_tracked_cone_entries(
+            str(monorepo), {"apps/web/lib"}
+        ) == ["apps/web/lib"]
+
+    def test_nested_regular_file_maps_to_parent(self, mod, monorepo):
+        assert mod._normalize_tracked_cone_entries(
+            str(monorepo), {"apps/web/lib/utils.ts"}
+        ) == ["apps/web/lib"]
+
+    def test_tracked_symlink_maps_to_parent(self, mod, monorepo):
+        assert mod._normalize_tracked_cone_entries(
+            str(monorepo), {"links/docs"}
+        ) == ["links"]
+
+    def test_untracked_future_directory_is_preserved(self, mod, monorepo):
+        assert mod._normalize_tracked_cone_entries(
+            str(monorepo), {"apps/web/future"}
+        ) == ["apps/web/future"]
+
+    def test_root_tracked_file_is_dropped(self, mod, monorepo):
+        assert mod._normalize_tracked_cone_entries(
+            str(monorepo), {".gitignore"}
+        ) == []
+
+    def test_git_failure_preserves_entries(self, mod, tmp_path):
+        plain = tmp_path / "plain"
+        plain.mkdir()
+        assert mod._normalize_tracked_cone_entries(
+            str(plain), {"future/path"}
+        ) == ["future/path"]
 
 
 class TestTaskScopeCone:
