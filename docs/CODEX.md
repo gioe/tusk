@@ -90,7 +90,7 @@ Every Claude skill has a corresponding Codex prompt under [`.codex/prompts/`](..
 
 | Claude skill              | Codex equivalent                                       | Notes |
 | ------------------------- | ------------------------------------------------------ | ----- |
-| `/tusk`                   | `.codex/prompts/tusk.md`                               | Sequential — no parallel sub-agents |
+| `/tusk`                   | `.codex/prompts/tusk.md`                               | Delegated exploration; focused XS/S implementation may remain local |
 | `/create-task`            | `.codex/prompts/create-task.md`                        |       |
 | `/groom-backlog`          | `tusk groom` + `.codex/prompts/groom-backlog.md`       | CLI runs autoclose + scope rederive + backlog-scan + lint; prompt adds analysis |
 | `/retro`                  | `tusk retro` + `.codex/prompts/retro.md`               | CLI emits per-task signals + cross-retro themes |

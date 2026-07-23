@@ -169,10 +169,13 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
    - **`"criteria_complete_no_commits"`** — every non-deferred acceptance criterion is already marked `is_completed=1`, but there are no `[TASK-<id>]` commits anywhere AND no deliverable files on disk. This is a **salvage / converged-work / speculative-mark** signal (issue #578, original incident TASK-1714): a prior session marked criteria done without producing any committed deliverable. Common causes: (1) lost-work — a prior agent did real work but couldn't commit cleanly (dirty worktree, branch protection, bundled unrelated changes on a salvage branch); (2) convergent-evolution — separate tasks effectively achieved the goal, so no fresh commits are needed for THIS task; (3) speculative pre-marking — criteria were marked done at the start of a prior session without backing code. **Do NOT silently proceed as `implement_fresh`.** Instead: (a) read the task's progress notes via `tusk task-get <id>` and inspect any `next_steps` references; (b) `git branch -a | grep TASK-<id>` for stale branches and inspect their diff against the default branch (`git log <branch>..origin/<default>` and `git show <sha>`) to determine whether the work is obsolete vs. still relevant; (c) surface the options to the user — **re-implement** (proceed with Explore → Implement as if `implement_fresh`), **accept-as-converged** (close via `tusk abandon <id> --reason completed --note "<rationale referencing the converging task or commits>"`), or **abandon** (close via `tusk abandon <id> --reason wont_do --note "..."`). Do not pick the path unilaterally.
    - **`"implement_fresh"`** — no commits and either no deliverable files were found, or files exist but every incomplete code/file verification spec still fails (issue #1068: the deliverable is an EDIT to an existing referenced file, so file existence is noise — `files_found` stays `true` and `verifiable_spec_count` > 0 with `passing_spec_count` = 0 records the downgrade). Proceed normally and implement from scratch.
 
-3. **Determine the best subagent(s)** based on:
+3. **Determine the best exploration and implementation subagent(s)** based on:
    - Task domain
    - Task assignee field (often indicates the right agent type)
    - Task description and requirements
+
+   Exploration is always delegated in Step 5. The implementation candidate is
+   used only when Step 6 routes implementation to a subagent.
 
 4. **Confirm failure using relevant evidence** — Before exploring code for a task that fixes an existing failure, confirm the reported failure using the evidence type that actually reproduces it. Tests are authoritative only when they exercise the reported behavior; the mere presence of a focused test does not make it the reproducer.
 
@@ -190,7 +193,8 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
    **State-mutating reproductions:** If the failing command writes to tracked files (e.g. `tusk version-bump`, `tusk changelog-add`, `tusk commit`, `tusk merge --rebase`), do **not** reproduce it against the active task worktree — the writes dirty the working tree and may block `tusk merge` / `tusk abandon` later. Reproduce against a throwaway location instead: `cd` into a fresh `tmp_path` repo (the integration-test pattern) and run the command there, or `git stash` the result immediately after. This is the filesystem analogue of the user-memory guidance to use a `TUSK_DB` throwaway for state-mutating DB reproductions.
 
-5. **Explore the codebase before implementing** — use a sub-agent to research:
+5. **Explore the codebase before implementing** — always delegate this
+   exploration pass to a sub-agent. Have it research:
    - What files will need to change?
    - Are there existing patterns to follow?
    - What tests already exist for this area?
@@ -208,7 +212,25 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
    Externally referenced design docs (e.g. a `docs/PILLARS.md` link in the description) are background context, not scope — do not add them via `scope add` unless you actually plan to edit them.
 
-6. **Delegate the work** to the chosen subagent(s).
+6. **Route implementation after delegated exploration.** Wait for the
+   exploration sub-agent to finish and report its findings before choosing a
+   route. Then apply these rules:
+
+   - **Local implementation is eligible only for XS/S tasks** when the
+     completed exploration identifies the exact files and relevant tests, and
+     the resulting change is focused and unambiguous.
+   - **Delegate implementation for M/L/XL tasks**, or whenever exploration
+     leaves the change broad, ambiguous, or missing exact files or tests.
+   - **Explicit operator requests override the size rule.** If the operator
+     asks for delegation, agents, or parallel work, delegate implementation
+     even for an otherwise focused XS/S task.
+
+   Before writing any implementation code, report the decision using one of
+   these forms: `Implementation routing: local — <basis>` or
+   `Implementation routing: delegated — <basis>`. On the local route, proceed
+   to Step 7 in the current session. On the delegated route, assign the work to
+   the chosen implementation subagent(s), then coordinate their result through
+   Step 7.
 
 7. **Implement, commit, and mark criteria done.** Work through the acceptance criteria from step 1 as your checklist — **one commit per criterion is the default**. For each criterion in order:
     1. Implement the changes that satisfy it

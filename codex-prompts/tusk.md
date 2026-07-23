@@ -386,10 +386,11 @@ JSON blob and the `skill_run.run_id` you already captured.
      > 0 with `passing_spec_count` = 0 records the downgrade).
      Proceed normally and implement from scratch.
 
-3. **Determine the best agent** (informational in Codex — there is no
-   sub-agent dispatch primitive). Note the task's domain, assignee
-   field, and description so the work mirrors the conventions for that
-   area.
+3. **Determine the best exploration and implementation subagent(s)**
+   based on the task's domain, assignee field, description, and
+   requirements. Exploration is always delegated in Step 5. The
+   implementation candidate is used only when Step 6 routes
+   implementation to a subagent.
 
 4. **Confirm failure using relevant evidence** — Before exploring code
    for a task that fixes an existing failure, confirm the reported
@@ -439,8 +440,8 @@ JSON blob and the `skill_run.run_id` you already captured.
    5. **If a relevant reproducer test fails:** capture the failure output.
       Use it as the primary diagnostic anchor in Step 5.
 
-5. **Explore the codebase before implementing.** Use `Read`, `Grep`,
-   `Glob`, and read-only `Bash` to research:
+5. **Explore the codebase before implementing.** Always delegate this
+   exploration pass to a sub-agent. Have it research:
    - What files will need to change?
    - Are there existing patterns to follow?
    - What tests already exist for this area?
@@ -449,7 +450,6 @@ JSON blob and the `skill_run.run_id` you already captured.
      what you're about to write, use it instead of duplicating the
      logic.
 
-   Codex has no parallel sub-agent primitive — do the searches inline.
    Report findings before writing any code.
 
 5b. **Scope check — only implement what the task describes.**
@@ -459,9 +459,26 @@ JSON blob and the `skill_run.run_id` you already captured.
    **background context only** — do not implement items from those
    docs that go beyond what the task's own description asks for.
 
-6. **Begin implementation.** Codex executes work in the current
-   session — there is no delegation to a sub-agent. Apply the patterns
-   surfaced in Step 5.
+6. **Route implementation after delegated exploration.** Wait for the
+   exploration sub-agent to finish and report its findings before
+   choosing a route. Then apply these rules:
+
+   - **Local implementation is eligible only for XS/S tasks** when the
+     completed exploration identifies the exact files and relevant
+     tests, and the resulting change is focused and unambiguous.
+   - **Delegate implementation for M/L/XL tasks**, or whenever
+     exploration leaves the change broad, ambiguous, or missing exact
+     files or tests.
+   - **Explicit operator requests override the size rule.** If the
+     operator asks for delegation, agents, or parallel work, delegate
+     implementation even for an otherwise focused XS/S task.
+
+   Before writing any implementation code, report the decision using
+   one of these forms: `Implementation routing: local — <basis>` or
+   `Implementation routing: delegated — <basis>`. On the local route,
+   proceed to Step 7 in the current session. On the delegated route,
+   assign the work to the chosen implementation subagent(s), then
+   coordinate their result through Step 7.
 
 7. **Implement, commit, and mark criteria done.** Work through the
    acceptance criteria from Step 1 as your checklist — **one commit per
