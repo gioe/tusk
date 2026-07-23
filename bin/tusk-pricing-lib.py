@@ -520,8 +520,12 @@ def _codex_model_from_entry(entry: dict) -> str:
     return resolve_model(model) if isinstance(model, str) and model else ""
 
 
-def _codex_turn_usage(info: dict, previous_total: dict | None) -> tuple[dict, dict | None]:
+def _codex_turn_usage(
+    info: dict | None, previous_total: dict | None
+) -> tuple[dict, dict | None]:
     """Return per-turn Codex usage, deriving deltas when only totals exist."""
+    if not isinstance(info, dict):
+        return {}, previous_total
     total = info.get("total_token_usage")
     last = info.get("last_token_usage")
     if isinstance(last, dict) and last:
@@ -614,6 +618,8 @@ def aggregate_session(
 
             if entry.get("type") == "event_msg" and entry.get("payload", {}).get("type") == "token_count":
                 info = entry.get("payload", {}).get("info", {})
+                if not isinstance(info, dict):
+                    continue
                 usage, previous_codex_total = _codex_turn_usage(info, previous_codex_total)
                 ts_str = entry.get("timestamp")
                 if not ts_str:
@@ -913,6 +919,8 @@ def iter_tool_call_costs(
 
             if entry.get("type") == "event_msg" and entry.get("payload", {}).get("type") == "token_count":
                 info = entry.get("payload", {}).get("info", {})
+                if not isinstance(info, dict):
+                    continue
                 usage, previous_codex_total = _codex_turn_usage(info, previous_codex_total)
                 ts_str = entry.get("timestamp")
                 if not ts_str:

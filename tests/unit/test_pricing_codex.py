@@ -101,6 +101,17 @@ def _token_count(ts, *, input_tokens, cached_input_tokens, output_tokens, reason
     }
 
 
+def _null_token_count(ts):
+    return {
+        "timestamp": ts,
+        "type": "event_msg",
+        "payload": {
+            "type": "token_count",
+            "info": None,
+        },
+    }
+
+
 def _tool_end(ts, payload_type, call_id, *, exit_code=0, stderr="", status="completed"):
     payload = {
         "type": payload_type,
@@ -167,15 +178,58 @@ class TestCodexAggregateSession:
         assert out["last_context_tokens"] == 1500
         assert out["context_window"] == 258400
 
+    def test_null_usage_preserves_previous_cumulative_total(self, tmp_path):
+        path = tmp_path / "codex-null-usage.jsonl"
+        first = _token_count(
+            "2026-04-20T22:50:55.004Z",
+            input_tokens=1000,
+            cached_input_tokens=200,
+            output_tokens=30,
+            reasoning_output_tokens=10,
+        )
+        second = _token_count(
+            "2026-04-20T22:51:02.950Z",
+            input_tokens=1600,
+            cached_input_tokens=500,
+            output_tokens=50,
+            reasoning_output_tokens=20,
+        )
+        del first["payload"]["info"]["last_token_usage"]
+        del second["payload"]["info"]["last_token_usage"]
+        _write_jsonl(
+            path,
+            [
+                _session_meta(),
+                _thread_settings("2026-04-20T22:50:49.000Z"),
+                first,
+                _null_token_count("2026-04-20T22:50:58.000Z"),
+                second,
+            ],
+        )
+
+        out = lib.aggregate_session(
+            str(path),
+            datetime(2026, 4, 20, 22, 50, 0, tzinfo=timezone.utc),
+            None,
+        )
+
+        assert out["request_count"] == 2
+        assert out["input_tokens"] == 1100
+        assert out["cache_read_input_tokens"] == 500
+        assert out["output_tokens"] == 50
+        assert out["first_context_tokens"] == 1000
+        assert out["last_context_tokens"] == 600
+
 
 class TestCodexToolCallCosts:
-    def test_iter_tool_call_costs_splits_turn_usage_across_pending_calls(self, tmp_path, monkeypatch):
+    def test_null_usage_preserves_pending_tool_calls(self, tmp_path, monkeypatch):
         path = tmp_path / "codex-tools.jsonl"
         _write_jsonl(path, [
             _session_meta(),
             _thread_settings("2026-04-20T22:50:49.000Z"),
             _tool_call("2026-04-20T22:50:50.000Z", "exec_command", "call_a"),
             _web_search_call("2026-04-20T22:50:50.100Z", "call_b"),
+            _null_token_count("2026-04-20T22:50:52.000Z"),
             _token_count(
                 "2026-04-20T22:50:55.004Z",
                 input_tokens=1000,
@@ -217,6 +271,15 @@ class TestCodexToolCallCosts:
         )
         assert out[0]["cost"] == pytest.approx(expected_total_cost / 2, rel=1e-9)
         assert out[1]["cost"] == pytest.approx(expected_total_cost / 2, rel=1e-9)
+
+
+def test_codex_turn_usage_ignores_null_info_without_resetting_total():
+    previous = {"input_tokens": 1000}
+
+    usage, total = lib._codex_turn_usage(None, previous)
+
+    assert usage == {}
+    assert total is previous
 
 
 class TestCodexTranscriptDiscovery:
