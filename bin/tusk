@@ -1573,6 +1573,25 @@ cmd_report_issue() {
     exit 1
   fi
 
+  # A literal "\n" immediately before a Markdown H2 can hide a relayed
+  # section from downstream parsers while still looking plausible in the
+  # shell command that supplied it. Reject that ambiguous boundary instead
+  # of decoding all escaped newlines, since arbitrary "\n" text is valid in
+  # shell snippets, JSON, regular expressions, and diagnostics.
+  local body_field body_value
+  for body_field in context observed steps expected; do
+    case "$body_field" in
+      context)  body_value="$context" ;;
+      observed) body_value="$observed" ;;
+      steps)    body_value="$steps" ;;
+      expected) body_value="$expected" ;;
+    esac
+    if [[ "$body_value" == *'\n## '* ]]; then
+      printf 'Error: --%s contains a literal \\n before a Markdown "## " heading; pass real newline characters via a multiline variable or heredoc.\n' "$body_field" >&2
+      exit 1
+    fi
+  done
+
   local cluster_label="cluster:$cluster"
 
   # ── Filing-time guards (issues #1087 / #1040) ─────────────────────

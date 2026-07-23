@@ -19,6 +19,8 @@ import os
 import stat
 import subprocess
 
+import pytest
+
 REPO_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
@@ -30,7 +32,9 @@ OPEN_ISSUES = [
 ]
 
 
-def _write_gh_stub(tmp_path, *, latest_version="", list_exit=0, comment_exit=0):
+def _write_gh_stub(
+    tmp_path, *, latest_version="", list_exit=0, comment_exit=0, log_all=False
+):
     """A fake ``gh`` that serves canned data and logs mutating calls."""
     log = tmp_path / "gh-calls.log"
     issues_json = json.dumps(OPEN_ISSUES)
@@ -40,7 +44,8 @@ def _write_gh_stub(tmp_path, *, latest_version="", list_exit=0, comment_exit=0):
     stub.write_text(
         "#!/bin/bash\n"
         f"LOG={json.dumps(str(log))}\n"
-        'case "$1 $2" in\n'
+        + ('echo "all $*" >> "$LOG"\n' if log_all else "")
+        + 'case "$1 $2" in\n'
         '  "issue list")\n'
         f"    if [ {list_exit} -ne 0 ]; then exit {list_exit}; fi\n"
         f"    printf '%s' {json.dumps(issues_json)}\n"
@@ -84,6 +89,58 @@ def _log_lines(log):
     if not os.path.exists(log):
         return []
     return [l for l in open(log, encoding="utf-8").read().splitlines() if l.strip()]
+
+
+@pytest.mark.parametrize("option", ["--context", "--observed", "--steps", "--expected"])
+def test_escaped_newline_before_markdown_section_is_rejected_before_gh(
+    tmp_path, option
+):
+    stub_bin, log = _write_gh_stub(tmp_path, log_all=True)
+    result = _run(
+        [
+            "--title",
+            "newline regression probe",
+            option,
+            r"before\n\n## Failing Test\n\npytest example",
+        ],
+        stub_bin,
+        tmp_path,
+    )
+
+    assert result.returncode != 0
+    assert option in result.stderr
+    assert r"literal \n" in result.stderr
+    assert "real newline characters" in result.stderr
+    assert _log_lines(log) == [], "invalid input must fail before any gh preflight"
+
+
+def test_unrelated_literal_escaped_newlines_remain_valid(tmp_path):
+    stub_bin, _ = _write_gh_stub(tmp_path)
+    context = r'run printf "\n" and inspect JSON {"line":"a\nb"}'
+    result = _run(
+        ["--title", "literal escape probe", "--context", context, "--force", "--dry-run"],
+        stub_bin,
+        tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    body = result.stdout.split("Body:\n", 1)[1].split("\n\nCommand (would run):", 1)[0]
+    assert context in body
+
+
+def test_real_multiline_context_remains_unchanged_and_section_is_detectable(tmp_path):
+    stub_bin, _ = _write_gh_stub(tmp_path)
+    context = "before\n\n## Failing Test\n\npytest example"
+    result = _run(
+        ["--title", "multiline probe", "--context", context, "--force", "--dry-run"],
+        stub_bin,
+        tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    body = result.stdout.split("Body:\n", 1)[1].split("\n\nCommand (would run):", 1)[0]
+    assert f"## Project context\n\n{context}\n\n## Behavior observed" in body
+    assert "\n## Failing Test\n" in body
 
 
 def test_similar_title_appends_occurrence_comment_instead_of_filing(tmp_path):
