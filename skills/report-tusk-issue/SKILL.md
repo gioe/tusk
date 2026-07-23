@@ -106,6 +106,8 @@ The submission has three tiers — each kicks in only if the previous tier fails
 
 The primary path. `tusk report-issue` calls `gh issue create --repo gioe/tusk --label instance-feedback --label cluster:<cluster>` internally and exits with the issue URL on stdout.
 
+Pass real newline characters in multiline fields. Never relay a Markdown section boundary such as `## Failing Test` using literal `\n` escapes; construct the value with a multiline variable or heredoc. To prevent malformed reports, `tusk report-issue` rejects a literal `\n` immediately before a `## ` heading before making any GitHub calls. Other literal `\n` text remains unchanged.
+
 Two best-effort filing-time guards run first (issues #1087 / #1040); both tolerate gh/network failures silently and never block filing:
 
 - **Dedupe** — when an open instance-feedback issue has a high-similarity title, report-issue appends an occurrence comment to that issue instead of filing a duplicate. The matched issue's URL is printed on stdout (so the `ISSUE_URL=$(...)` capture below still works — it just points at the existing issue) and the match explanation goes to stderr. Pass `--force` to file a separate issue anyway.
