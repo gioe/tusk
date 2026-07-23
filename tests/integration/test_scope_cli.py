@@ -84,6 +84,17 @@ def _insert_progress(db: str, task_id: int) -> None:
     conn.close()
 
 
+def _start_task(db: str, task_id: int) -> None:
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "UPDATE tasks SET status = 'In Progress', started_at = datetime('now') "
+        "WHERE id = ?",
+        (task_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
 def _insert_committed_criterion(db: str, task_id: int) -> None:
     conn = sqlite3.connect(db)
     conn.execute(
@@ -150,6 +161,55 @@ class TestScopeAdd:
         assert result.returncode == 0, result.stderr
         payload = json.loads(result.stdout)
         assert payload["source"] == "expanded_mid_task"
+
+    def test_scope_add_defaults_to_mid_task_immediately_after_task_start(self, db_path):
+        task_id = _seed_task(str(db_path))
+        _start_task(str(db_path), task_id)
+        reason = "research uncovered a retention boundary"
+
+        result = _run([
+            "scope", "add", str(task_id),
+            "bin/tusk-scope.py",
+            "--reason", reason,
+        ])
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["source"] == "expanded_mid_task"
+        assert payload["reason"] == reason
+
+        listed = _run(["scope", "list", str(task_id)])
+        assert listed.returncode == 0, listed.stderr
+        assert {
+            "pattern": "bin/tusk-scope.py",
+            "source": "expanded_mid_task",
+            "reason": reason,
+        }.items() <= json.loads(listed.stdout)[0].items()
+
+        conn = sqlite3.connect(str(db_path))
+        assert conn.execute(
+            "SELECT COUNT(*) FROM task_progress WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()[0] == 0
+        assert conn.execute(
+            "SELECT COUNT(*) FROM acceptance_criteria "
+            "WHERE task_id = ? AND commit_hash IS NOT NULL",
+            (task_id,),
+        ).fetchone()[0] == 0
+        conn.close()
+
+    def test_scope_add_explicit_upfront_source_wins_after_task_start(self, db_path):
+        task_id = _seed_task(str(db_path))
+        _start_task(str(db_path), task_id)
+
+        result = _run([
+            "scope", "add", str(task_id),
+            "bin/tusk-scope.py",
+            "--source", "operator_declared",
+        ])
+
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)["source"] == "operator_declared"
 
     def test_scope_add_defaults_to_mid_task_after_progress(self, db_path):
         task_id = _seed_task(str(db_path))

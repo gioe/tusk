@@ -15,9 +15,10 @@ Arguments received from tusk:
 
 Sources (CHECK constraint on ``task_scope.source``):
     auto_derived       — backfilled from task_referenced_paths
-    operator_declared  — set via `tusk task-insert --scope <pattern>`
+    operator_declared  — set via `tusk task-insert --scope <pattern>` or an
+                         explicit `tusk scope add --source operator_declared`
     creates            — set via `tusk task-insert --creates <path>`
-    expanded_mid_task  — added by `tusk scope add` (default for this CLI)
+    expanded_mid_task  — added by implicit `tusk scope add` after task start
     unbounded          — set via `tusk task-insert --unbounded`; signals
                          "no path restriction" to the commit-time scope
                          guard (scope-paths emits no patterns in that case)
@@ -252,7 +253,14 @@ def _scope_validation_root(conn: sqlite3.Connection, task_id: int) -> str:
 
 
 def _has_task_work_evidence(conn: sqlite3.Connection, task_id: int) -> bool:
-    """Return True once a task has durable progress or committed criteria."""
+    """Return True once a task has started or has other durable work evidence."""
+    task = conn.execute(
+        "SELECT started_at FROM tasks WHERE id = ?",
+        (task_id,),
+    ).fetchone()
+    if task is not None and task["started_at"] is not None:
+        return True
+
     progress = conn.execute(
         "SELECT 1 FROM task_progress WHERE task_id = ? LIMIT 1",
         (task_id,),
