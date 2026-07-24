@@ -559,21 +559,46 @@ If `open_must_fix > 0` and `can_retry` is false because
 
 Otherwise, loop while `can_retry` is true:
 
-1. Start a new review pass:
+1. **Commit the fixes that the next pass must inspect.** The re-review diff
+   ends at committed `HEAD`; do not start another pass with review fixes only
+   in the working tree. Deduplicate the tracked paths, abort if none were
+   recorded, then stage and commit only `REVIEW_FIX_FILES`:
+
+   ```bash
+   REVIEW_FIX_FILES=($(printf '%s\n' "${REVIEW_FIX_FILES[@]}" | sort -u))
+   if [ ${#REVIEW_FIX_FILES[@]} -eq 0 ]; then
+     echo "ERROR: re-review requested but REVIEW_FIX_FILES is empty. Record the review-fix paths before starting another pass." >&2
+     exit 1
+   fi
+
+   git diff --stat
+   git diff --cached --stat
+   git add -- "${REVIEW_FIX_FILES[@]}"
+   git commit -m "[TASK-$TASK_ID] Apply review fixes" -- "${REVIEW_FIX_FILES[@]}"
+   git push --set-upstream origin HEAD
+   REVIEW_FIX_FILES=()
+   ```
+
+   The pathspec on `git commit` prevents unrelated paths that were already
+   staged from leaking into the fix commit. Leave all other tracked or
+   untracked working-tree changes untouched. If staging, committing, or
+   pushing fails, stop before creating the next review row.
+
+2. Start a new review pass:
    ```bash
    tusk review start $TASK_ID --pass-num <current_pass + 1> --diff-summary "Re-review pass <n>"
    ```
 
-2. Recompute the diff range:
+3. Recompute the diff range:
    ```bash
    DIFF_RANGE=$(tusk review-diff-range $TASK_ID | jq -r .range)
    ```
 
-3. Run the inline review again — repeat Step 5 (fetch diff, analyze,
+4. Run the inline review again — repeat Step 5 (fetch diff, analyze,
    verify final state, verification constraints, record findings,
    submit verdict). Then process the new findings via Step 7.
 
-4. Re-check pass status to determine whether to continue:
+5. Re-check pass status to determine whether to continue:
    ```bash
    tusk review-pass-status $TASK_ID
    ```
@@ -635,9 +660,15 @@ Once the list is reconciled, stage, commit, and push in a single pass:
 
 ```bash
 git add -- "${REVIEW_FIX_FILES[@]}"
-git commit -m "[TASK-$TASK_ID] Apply review fixes"
+git commit -m "[TASK-$TASK_ID] Apply review fixes" -- "${REVIEW_FIX_FILES[@]}"
 git push --set-upstream origin HEAD
+REVIEW_FIX_FILES=()
 ```
+
+The path-limited commit is a final safeguard against unrelated paths that
+were already staged before review. It commits only the files recorded in
+`REVIEW_FIX_FILES`; all other tracked or untracked working-tree changes remain
+untouched.
 
 `--set-upstream origin HEAD` is required on the **first** push of a
 brand-new feature branch when `push.autoSetupRemote` is not set in the

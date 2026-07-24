@@ -458,7 +458,34 @@ If `can_retry` is false, do not enter the loop. A clean latest pass (`open_must_
 
 Otherwise, loop while `can_retry` is true:
 
-1. Start a new review pass and capture the diff size in one call. `tusk review begin` resolves the default branch (`tusk git-default-branch`), computes the `<default>...HEAD` primary range, falls back to the `[TASK-<id>]` commit-range recovery when the feature branch has already been merged and deleted, stamps the captured diff summary onto the new `code_reviews` row internally, and prints a single JSON object with `review_id`, `task_id`, `reviewer`, `range`, `diff_lines`, `diff_lines_meaningful`, and `recovered_from_task_commits`. Pass `--pass-num` to bump the pass counter:
+1. **Commit the fixes that the next pass must inspect.** A re-review range ends
+   at committed `HEAD`, so starting the pass while review fixes are still only
+   in the working tree would send the reviewer the pre-fix diff again.
+   Deduplicate `REVIEW_FIX_FILES`, abort if no fix paths were recorded, and
+   commit only those paths before `tusk review begin`:
+
+   ```bash
+   REVIEW_FIX_FILES=($(printf '%s\n' "${REVIEW_FIX_FILES[@]}" | sort -u))
+   if [ ${#REVIEW_FIX_FILES[@]} -eq 0 ]; then
+     echo "ERROR: re-review requested but REVIEW_FIX_FILES is empty. Record the review-fix paths before starting another pass." >&2
+     exit 1
+   fi
+
+   git diff --stat
+   git diff --cached --stat
+   git add -- "${REVIEW_FIX_FILES[@]}"
+   git commit -m "[TASK-<task_id>] Apply review fixes" -- "${REVIEW_FIX_FILES[@]}"
+   git push --set-upstream origin HEAD
+   REVIEW_FIX_FILES=()
+   ```
+
+   The pathspec on `git commit` is required even after the path-limited
+   `git add`: it prevents unrelated paths that were already staged from
+   leaking into the fix commit. Unrelated tracked or untracked working-tree
+   changes must remain untouched. If staging, committing, or pushing fails,
+   stop before creating the next review row.
+
+2. Start a new review pass and capture the diff size in one call. `tusk review begin` resolves the default branch (`tusk git-default-branch`), computes the `<default>...HEAD` primary range, falls back to the `[TASK-<id>]` commit-range recovery when the feature branch has already been merged and deleted, stamps the captured diff summary onto the new `code_reviews` row internally, and prints a single JSON object with `review_id`, `task_id`, `reviewer`, `range`, `diff_lines`, `diff_lines_meaningful`, and `recovered_from_task_commits`. Pass `--pass-num` to bump the pass counter:
    ```bash
    REVIEW_BEGIN_JSON=$(tusk review begin $TASK_ID --pass-num <current_pass + 1>)
    DIFF_LINES=$(printf '%s' "$REVIEW_BEGIN_JSON" | jq -r .diff_lines)
@@ -467,9 +494,9 @@ Otherwise, loop while `can_retry` is true:
 
    If the helper exits non-zero, no diff is recoverable for this pass — surface its stderr verbatim and stop the loop.
 
-2. **Branch on diff size to decide review strategy.**
+3. **Branch on diff size to decide review strategy.**
 
-   **For small or documentation-only diffs (`$DIFF_LINES_MEANINGFUL` below ~200, or only non-code files), when `review.reviewer` is absent from config, or when Tusk is running under a Codex install without an explicit subagent opt-in:** skip agent spawning and perform an inline review. Read the diff yourself, evaluate it against the reviewer focus area, and record the result directly (approve or request-changes + add-comment). The meaningful count subtracts auto-generated lockfile sections (issue #761) so a single `npm install --save-dev` does not push a small feature into agent-based review. After recording the inline decision, skip to step 3.
+   **For small or documentation-only diffs (`$DIFF_LINES_MEANINGFUL` below ~200, or only non-code files), when `review.reviewer` is absent from config, or when Tusk is running under a Codex install without an explicit subagent opt-in:** skip agent spawning and perform an inline review. Read the diff yourself, evaluate it against the reviewer focus area, and record the result directly (approve or request-changes + add-comment). The meaningful count subtracts auto-generated lockfile sections (issue #761) so a single `npm install --save-dev` does not push a small feature into agent-based review. After recording the inline decision, skip to step 4.
 
    To detect the Codex case, reuse the `INSTALL_MODE` and `IS_CODEX` values
    captured by the machine-wrapper-aware resolver in Step 0, then check whether
@@ -479,7 +506,7 @@ Otherwise, loop while `can_retry` is true:
 
    The user has opted into the agent path only when their invocation explicitly contains a phrase like `use the reviewer agent`, `delegate review`, `spawn the reviewer`, or `agent review`. A bare `/review-commits` (or one with only a task ID argument) is **not** an opt-in. When `IS_CODEX=1` without an opt-in phrase, take the inline path on this re-review pass too.
 
-   **Mixed-mode caveat:** a repo with both `.claude/` and `AGENTS.md` is marked `claude-*` by `install.sh` (install-mode is decided at install time, not at runtime, and Codex does not inject a `CODEX_*` env var into subprocess environments that we could read instead). If this re-review pass is running from a Codex session in such a repo, `IS_CODEX=0` and the agent path will be attempted — under Codex's subagent policy that spawn may fail. If it does, perform a manual inline review on this pass: read the diff yourself, then use `tusk review approve` or `tusk review request-changes` + `tusk review add-comment`, and skip to step 3.
+   **Mixed-mode caveat:** a repo with both `.claude/` and `AGENTS.md` is marked `claude-*` by `install.sh` (install-mode is decided at install time, not at runtime, and Codex does not inject a `CODEX_*` env var into subprocess environments that we could read instead). If this re-review pass is running from a Codex session in such a repo, `IS_CODEX=0` and the agent path will be attempted — under Codex's subagent policy that spawn may fail. If it does, perform a manual inline review on this pass: read the diff yourself, then use `tusk review approve` or `tusk review request-changes` + `tusk review add-comment`, and skip to step 4.
 
    **For all other diffs:** verify the required agent sandbox permissions are configured before spawning the re-review agent. Run:
 
@@ -499,9 +526,9 @@ Otherwise, loop while `can_retry` is true:
 
    Both variables shadow the values captured in Step 5.1 — that's intended; each pass writes a fresh `code_reviews` row, and the agent JSONL spawned for this pass is the only one that should attribute to it.
 
-3. Monitor completion (Step 6) and process findings (Step 7).
+4. Monitor completion (Step 6) and process findings (Step 7).
 
-4. Re-check pass status to determine whether to continue:
+5. Re-check pass status to determine whether to continue:
    ```bash
    tusk review-pass-status <task_id>
    ```
@@ -548,9 +575,15 @@ Once the list is reconciled, stage, commit, and push in a single pass:
 
 ```bash
 git add -- "${REVIEW_FIX_FILES[@]}"
-git commit -m "[TASK-<task_id>] Apply review fixes"
+git commit -m "[TASK-<task_id>] Apply review fixes" -- "${REVIEW_FIX_FILES[@]}"
 git push --set-upstream origin HEAD
+REVIEW_FIX_FILES=()
 ```
+
+The path-limited commit is a final safeguard against unrelated paths that
+were already staged before review. It commits only the files recorded in
+`REVIEW_FIX_FILES`; all other tracked or untracked working-tree changes remain
+untouched.
 
 **Do not override identity or signing on this commit.** Do NOT pass `-c user.email=`, `-c user.name=`, or `-c gpg.gpgsign=false` to `git commit` unless the user has explicitly asked. Defensive overrides produce commits authored as `Claude <noreply@anthropic.com>` instead of the operator and pollute the audit trail. If the wrong author already landed on the most recent commit (and only that commit), recover before pushing with `git commit --amend --reset-author --no-edit` — `--amend` only rewrites HEAD, so any earlier commit in the branch with the same defect must be fixed with `git rebase -i` instead.
 
