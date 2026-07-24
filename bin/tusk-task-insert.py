@@ -198,15 +198,19 @@ def run_dupe_check(summary: str, domain: str | None) -> dict | None:
     if domain:
         cmd.extend(["--domain", domain])
     result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+    if result.returncode not in (0, 1):
+        return None
+    try:
+        data = json.loads(result.stdout)
+        matches = [
+            *(data.get("duplicates", []) or []),
+            *(data.get("recently_closed", []) or []),
+        ]
+        if matches:
+            return max(matches, key=lambda match: match.get("similarity", 0))
+    except json.JSONDecodeError:
+        pass
     if result.returncode == 1:
-        # Duplicate found
-        try:
-            data = json.loads(result.stdout)
-            dupes = data.get("duplicates", [])
-            if dupes:
-                return dupes[0]  # highest similarity match
-        except json.JSONDecodeError:
-            pass
         return {"id": "unknown", "similarity": 0}
     return None
 
