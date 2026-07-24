@@ -421,24 +421,33 @@ JSON blob and the `skill_run.run_id` you already captured.
       not cancel the run. Only a test that directly asserts the reported
       rendering defect, such as a screenshot, golden, pixel, or rendering
       assertion, can invalidate that visual evidence.
-   3. **Logic-test evidence:** if specific relevant tests are named, run
-      them directly. Otherwise, use `tusk test-detect` to find the
-      project's test command, then run the most relevant subset.
-   4. **If a relevant reproducer test passes:** before concluding the
-      issue is already fixed, inspect the recorded failure evidence for
-      time/date sensitivity. Signals include date- or year-named tests,
-      local-date versus UTC assertions, and failure timestamps clustered
-      in a narrow wall-clock window (use `run_started_at` / `run_ended_at`
-      from a recorded `tusk test-precheck` verdict when available). When
-      those signals exist, retry under a controlled timezone such as
-      `TZ=UTC` and, when the test framework supports it, a frozen clock at
-      the recorded failure instant. If the controlled reproduction fails,
-      continue to Explore using that output. Only when no time-sensitive
-      signal exists, or controlled retries still pass, run
-      `tusk skill-run cancel <run_id>`, surface that the issue may already
-      be fixed or inaccurate, and stop before investigating further.
-   5. **If a relevant reproducer test fails:** capture the failure output.
-      Use it as the primary diagnostic anchor in Step 5.
+   3. **Logic-test evidence:** if specific tests are named, run them
+      directly. A named test or suite is a baseline, not a reproducer,
+      unless its assertions directly exercise the reported failure.
+      Otherwise, use `tusk test-detect` to find the project's test command,
+      then run the most relevant subset. If a named baseline passes but
+      the bug's acceptance criteria require new regression coverage, add
+      and run a focused regression test before deciding whether to cancel.
+      Its expected pre-fix red result confirms the failure; capture it and
+      continue to Explore. Do not cancel based only on a passing baseline.
+   4. **If a test that directly exercises the reported failure passes:**
+      before concluding the issue is already fixed, inspect the recorded
+      failure evidence for time/date sensitivity. Signals include date- or
+      year-named tests, local-date versus UTC assertions, and failure
+      timestamps clustered in a narrow wall-clock window (use
+      `run_started_at` / `run_ended_at` from a recorded
+      `tusk test-precheck` verdict when available). When those signals
+      exist, retry under a controlled timezone such as `TZ=UTC` and, when
+      the test framework supports it, a frozen clock at the recorded
+      failure instant. If the controlled reproduction fails, continue to
+      Explore using that output. Only when no time-sensitive signal exists,
+      or controlled retries still pass, does that passing evidence directly
+      disprove the report: run `tusk skill-run cancel <run_id>`, surface
+      that the issue may already be fixed or inaccurate, and stop before
+      investigating further.
+   5. **If a test that directly exercises the reported failure fails:**
+      capture the failure output. Use it as the primary diagnostic anchor
+      in Step 5.
 
 5. **Explore the codebase before implementing.** Always delegate this
    exploration pass to a sub-agent. Have it research:
