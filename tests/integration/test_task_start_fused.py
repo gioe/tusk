@@ -260,6 +260,55 @@ class TestFusedTaskStart:
             conn.close()
         assert after == before
 
+    def test_reopened_task_with_legacy_null_criterion_starts_without_warning(
+        self, db_path, config_path
+    ):
+        """A reopened task's legacy NULL defer flag still represents active criteria."""
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            # task-reopen returns a previously closed task to this To Do state
+            # without rewriting its acceptance criteria.
+            task_id = insert_task(conn, "Reopened task with legacy criterion")
+            criterion_id = insert_criterion(conn, task_id, "preserve the criterion")
+            conn.execute(
+                "UPDATE acceptance_criteria SET is_deferred = NULL WHERE id = ?",
+                (criterion_id,),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        rc, result, stderr = call_start(db_path, config_path, str(task_id))
+
+        assert rc == 0
+        assert result is not None
+        assert [row["id"] for row in result["criteria"]] == [criterion_id]
+        assert "no acceptance criteria" not in stderr
+
+    def test_task_with_only_deferred_criteria_still_fails_guard(
+        self, db_path, config_path
+    ):
+        """Explicitly deferred criteria remain excluded from the active count."""
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            task_id = insert_task(conn, "Task with deferred criterion")
+            criterion_id = insert_criterion(conn, task_id, "deferred work")
+            conn.execute(
+                "UPDATE acceptance_criteria SET is_deferred = 1 WHERE id = ?",
+                (criterion_id,),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        rc, result, stderr = call_start(db_path, config_path, str(task_id))
+
+        assert rc == 2
+        assert result is None
+        assert "no acceptance criteria" in stderr
+
     def test_active_session_error_surfaces_abandoned_committed_work(
         self, db_path, config_path, monkeypatch
     ):
