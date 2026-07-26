@@ -484,9 +484,10 @@ def _convergence_recency_hint(
 
     The cheap signal the completed-criteria and convergent-spec checks miss: a
     sibling task's fix for exactly these files may have shipped just before (or
-    after) this task was filed from a stale observation. One `git log` over the
-    cited paths/basenames, bounded to ~7 days before created_at through now,
-    surfaces any such commit so the agent can confirm before sinking a build.
+    after) this task was filed from a stale observation. One `git log` over HEAD
+    plus the remote-tracking default branch and the cited paths/basenames,
+    bounded to ~7 days before created_at through now, surfaces any such commit
+    so the agent can confirm before sinking a build.
 
     Advisory only and fully best-effort: missing repo_root, no created_at, no
     cited paths, no matching commits, or any git/DB error is a silent no-op —
@@ -523,11 +524,26 @@ def _convergence_recency_hint(
         return
     if not since:
         return
-    result = subprocess.run(
-        ["git", "-C", repo_root, "log", f"--since={since}",
-         "--format=%h\t%cI\t%s", "--", *pathspecs],
-        capture_output=True, text=True, encoding="utf-8",
-    )
+    history_refs = ["HEAD"]
+    try:
+        default = _git_helpers.default_branch(repo_root)
+        origin_default = f"origin/{default}"
+        if _git_ref_exists(repo_root, origin_default):
+            history_refs.append(origin_default)
+    except Exception:
+        # Remote/default discovery is advisory. Preserve the historical
+        # HEAD-only scan when the checkout is offline or has unusual git state.
+        pass
+    try:
+        result = subprocess.run(
+            [
+                "git", "-C", repo_root, "log", f"--since={since}",
+                "--format=%h\t%cI\t%s", *history_refs, "--", *pathspecs,
+            ],
+            capture_output=True, text=True, encoding="utf-8",
+        )
+    except (OSError, subprocess.SubprocessError):
+        return
     if result.returncode != 0 or not result.stdout.strip():
         return
     pat = re.compile(r"\[TASK-(\d+)\]")
