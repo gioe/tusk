@@ -596,7 +596,10 @@ class TestRecentlyClosedMatches:
                     "python3 -m pytest tests/ui/test_now_playing.py -q",
                 )
             ],
-            scope=[(90, "apps/android/NowPlaying.kt")],
+            scope=[
+                (90, "apps/android/NowPlaying.kt"),
+                (90, "tests/ui/test_now_playing.py"),
+            ],
         )
         rc, payload = _run_cmd_check(
             monkeypatch,
@@ -606,20 +609,34 @@ class TestRecentlyClosedMatches:
             verification_specs=[
                 "python3 -m pytest tests/ui/test_now_playing.py -q"
             ],
-            scope=["apps/android/NowPlaying.kt"],
+            scope=[
+                "apps/android/NowPlaying.kt",
+                "tests/ui/test_now_playing.py",
+            ],
         )
         assert rc == 0
         assert payload["duplicates"] == []
         match = payload["recently_closed"][0]
         assert match["id"] == 90
         assert match["match_type"] == "recently_closed_semantic"
-        assert match["shared_scope"] == ["apps/android/NowPlaying.kt"]
+        assert match["shared_scope"] == [
+            "apps/android/NowPlaying.kt",
+            "tests/ui/test_now_playing.py",
+        ]
 
     def test_weak_semantic_signals_do_not_match(self, monkeypatch):
         closed_at = _closed_at_days_ago(1)
         conn = _make_dupes_db(
             tasks=[(90, "Unrelated completed work", "Done", "cli", closed_at)],
-            criteria=[(301, 90, "Add regression coverage", 1, None)],
+            criteria=[
+                (
+                    301,
+                    90,
+                    "Unrelated fixture setup",
+                    1,
+                    "python3 -m pytest tests/unit/ -q",
+                )
+            ],
             scope=[(90, "src/common.py"), (90, "**")],
         )
         rc, payload = _run_cmd_check(
@@ -627,6 +644,7 @@ class TestRecentlyClosedMatches:
             conn,
             "Different follow-up",
             criteria=["Add regression coverage"],
+            verification_specs=["python3 -m pytest tests/unit/ -q"],
             scope=["src/common.py", "**"],
         )
         assert rc == 0
@@ -656,6 +674,24 @@ class TestRecentlyClosedMatches:
         assert payload["recently_closed"][0]["match_type"] == (
             "recently_closed_semantic"
         )
+
+    def test_shell_spec_internal_whitespace_is_not_normalized(self, monkeypatch):
+        closed_at = _closed_at_days_ago(1)
+        conn = _make_dupes_db(
+            tasks=[(90, "Completed shell work", "Done", "cli", closed_at)],
+            criteria=[(301, 90, "Unrelated output format", 1, "printf 'a  b'")],
+            scope=[(90, "src/one.py"), (90, "src/two.py")],
+        )
+        rc, payload = _run_cmd_check(
+            monkeypatch,
+            conn,
+            "Different shell follow-up",
+            criteria=["Different behavior"],
+            verification_specs=["printf 'a b'"],
+            scope=["src/one.py", "src/two.py"],
+        )
+        assert rc == 0
+        assert payload["recently_closed"] == []
 
 
 class TestCriterionThresholdConfig:

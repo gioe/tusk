@@ -242,7 +242,9 @@ def get_recently_closed_signals(
 
 
 def _normalize_spec(spec: str) -> str:
-    return re.sub(r"\s+", " ", (spec or "").strip())
+    # Shell whitespace inside quotes can be meaningful; only discard padding
+    # around the stored command before requiring exact equality.
+    return (spec or "").strip()
 
 
 def _normalize_concrete_scope(pattern: str) -> str | None:
@@ -298,7 +300,14 @@ def semantic_closed_match(
             )
             best_criterion = max(best_criterion, score)
 
-    exact_spec_with_scope = bool(shared_specs and shared_scope)
+    exact_spec_with_scope = bool(
+        shared_specs
+        and shared_scope
+        and (
+            best_criterion >= criterion_threshold
+            or len(shared_scope) >= 2
+        )
+    )
     strong_criterion_with_scope = (
         best_criterion >= criterion_threshold and len(shared_scope) >= 2
     )
