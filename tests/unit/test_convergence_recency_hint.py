@@ -85,6 +85,60 @@ def test_hint_fires_for_other_task_commit_on_cited_path(repo, tmp_path, capsys):
     assert "TASK-999" in err
 
 
+def test_hint_includes_remote_default_commit_missing_from_current_branch(
+    repo, tmp_path, capsys
+):
+    mod = _load_module()
+    _git(["checkout", "-b", "feature/diverged"], repo)
+    _git(["checkout", "main"], repo)
+    with open(
+        os.path.join(repo, "src", "foo", "ShowRow.py"), "w", encoding="utf-8"
+    ) as f:
+        f.write("x = 2\n")
+    _git(["add", "."], repo)
+    _git(["commit", "-m", "[TASK-1000] remote-only ShowRow fix"], repo)
+    remote_sha = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True, encoding="utf-8"
+    ).strip()
+    _git(["update-ref", "refs/remotes/origin/main", remote_sha], repo)
+    _git(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], repo)
+    _git(["checkout", "feature/diverged"], repo)
+    _git(["branch", "-f", "main", "feature/diverged"], repo)
+    local_main_sha = subprocess.check_output(
+        ["git", "rev-parse", "main"], cwd=repo, text=True, encoding="utf-8"
+    ).strip()
+    assert local_main_sha != remote_sha
+
+    conn = _make_db(tmp_path, description="The failure is in src/foo/ShowRow.py")
+    mod._convergence_recency_hint(conn, 2746, repo)
+    err = capsys.readouterr().err
+
+    assert "possible convergence" in err
+    assert "TASK-1000" in err
+
+
+@pytest.mark.parametrize("failing_lookup", ["default_branch", "remote_ref"])
+def test_hint_remote_lookup_failure_falls_back_to_head(
+    repo, tmp_path, capsys, monkeypatch, failing_lookup
+):
+    mod = _load_module()
+
+    def fail_lookup(*_args):
+        raise OSError(f"{failing_lookup} unavailable")
+
+    if failing_lookup == "default_branch":
+        monkeypatch.setattr(mod._git_helpers, "default_branch", fail_lookup)
+    else:
+        monkeypatch.setattr(mod, "_git_ref_exists", fail_lookup)
+    conn = _make_db(tmp_path, description="The failure is in src/foo/ShowRow.py")
+
+    mod._convergence_recency_hint(conn, 2746, repo)
+    err = capsys.readouterr().err
+
+    assert "possible convergence" in err
+    assert "TASK-999" in err
+
+
 def test_hint_fires_for_bare_basename_citation(repo, tmp_path, capsys):
     mod = _load_module()
     # Description cites the bare filename (ShowRow.py:12 style), no directory —
