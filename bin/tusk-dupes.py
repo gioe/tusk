@@ -208,6 +208,110 @@ def get_recently_closed_tasks(
     return tasks
 
 
+def get_recently_closed_signals(
+    conn: sqlite3.Connection,
+    task_ids: list[int],
+) -> dict[int, dict[str, list[str]]]:
+    """Load criteria/spec/scope evidence without a multiplicative SQL join."""
+    signals = {
+        task_id: {"criteria": [], "verification_specs": [], "scope": []}
+        for task_id in task_ids
+    }
+    if not task_ids:
+        return signals
+    placeholders = ",".join("?" for _ in task_ids)
+    criteria_rows = conn.execute(
+        "SELECT task_id, criterion, verification_spec "
+        f"FROM acceptance_criteria WHERE task_id IN ({placeholders})",
+        task_ids,
+    ).fetchall()
+    for row in criteria_rows:
+        signals[row["task_id"]]["criteria"].append(row["criterion"] or "")
+        if row["verification_spec"]:
+            signals[row["task_id"]]["verification_specs"].append(
+                row["verification_spec"]
+            )
+    scope_rows = conn.execute(
+        f"SELECT task_id, pattern FROM task_scope WHERE task_id IN ({placeholders})",
+        task_ids,
+    ).fetchall()
+    for row in scope_rows:
+        if row["pattern"]:
+            signals[row["task_id"]]["scope"].append(row["pattern"])
+    return signals
+
+
+def _normalize_spec(spec: str) -> str:
+    return re.sub(r"\s+", " ", (spec or "").strip())
+
+
+def _normalize_concrete_scope(pattern: str) -> str | None:
+    normalized = posix_path = (pattern or "").strip().replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    normalized = re.sub(r"/+", "/", normalized).rstrip("/")
+    if (
+        not normalized
+        or normalized == "**"
+        or any(ch in normalized for ch in "*?[")
+        or normalized.endswith("/")
+    ):
+        return None
+    return posix_path if posix_path == normalized else normalized
+
+
+def semantic_closed_match(
+    proposed_criteria: list[str],
+    proposed_specs: list[str],
+    proposed_scope: list[str],
+    stored: dict[str, list[str]],
+    criterion_threshold: float,
+) -> dict | None:
+    """Return conservative compound evidence for convergent completed work."""
+    proposed_spec_set = {_normalize_spec(spec) for spec in proposed_specs if spec}
+    stored_spec_set = {
+        _normalize_spec(spec) for spec in stored["verification_specs"] if spec
+    }
+    shared_specs = sorted(proposed_spec_set & stored_spec_set)
+
+    proposed_scope_set = {
+        normalized
+        for pattern in proposed_scope
+        if (normalized := _normalize_concrete_scope(pattern)) is not None
+    }
+    stored_scope_set = {
+        normalized
+        for pattern in stored["scope"]
+        if (normalized := _normalize_concrete_scope(pattern)) is not None
+    }
+    shared_scope = sorted(proposed_scope_set & stored_scope_set)
+
+    best_criterion = 0.0
+    for proposed in proposed_criteria:
+        proposed_norm = normalize_summary(proposed)
+        if not proposed_norm:
+            continue
+        for existing in stored["criteria"]:
+            score = combined_similarity(
+                proposed_norm,
+                normalize_summary(existing),
+            )
+            best_criterion = max(best_criterion, score)
+
+    exact_spec_with_scope = bool(shared_specs and shared_scope)
+    strong_criterion_with_scope = (
+        best_criterion >= criterion_threshold and len(shared_scope) >= 2
+    )
+    if not (exact_spec_with_scope or strong_criterion_with_scope):
+        return None
+    return {
+        "shared_verification_specs": shared_specs,
+        "shared_scope": shared_scope,
+        "criterion_similarity": round(best_criterion, 3),
+        "similarity": round(max(best_criterion, 0.99 if shared_specs else 0), 3),
+    }
+
+
 def get_in_progress_criteria(
     conn: sqlite3.Connection,
     domain: str | None = None,
@@ -255,6 +359,17 @@ def cmd_check(args: argparse.Namespace, db_path: str) -> int:
             domain=args.domain,
         )
         criteria = get_in_progress_criteria(conn, domain=args.domain)
+        proposal_criteria = getattr(args, "criteria", []) or []
+        proposal_specs = getattr(args, "verification_specs", []) or []
+        proposal_scope = getattr(args, "scope", []) or []
+        recently_closed_signals = (
+            get_recently_closed_signals(
+                conn,
+                [task["id"] for task in recently_closed_tasks],
+            )
+            if proposal_criteria or proposal_specs or proposal_scope
+            else {}
+        )
     finally:
         conn.close()
 
@@ -332,6 +447,35 @@ def cmd_check(args: argparse.Namespace, db_path: str) -> int:
                 }
             )
 
+    recently_closed.sort(key=lambda m: m["similarity"], reverse=True)
+
+    summary_match_ids = {match["id"] for match in recently_closed}
+    for task in recently_closed_tasks:
+        if task["id"] in summary_match_ids:
+            continue
+        evidence = semantic_closed_match(
+            proposal_criteria,
+            proposal_specs,
+            proposal_scope,
+            recently_closed_signals.get(
+                task["id"],
+                {"criteria": [], "verification_specs": [], "scope": []},
+            ),
+            args.criterion_threshold,
+        )
+        if evidence is None:
+            continue
+        recently_closed.append(
+            {
+                "id": task["id"],
+                "summary": task["summary"],
+                "domain": task["domain"],
+                "similarity": evidence.pop("similarity"),
+                "match_type": "recently_closed_semantic",
+                "closed_at": task["closed_at"],
+                **evidence,
+            }
+        )
     recently_closed.sort(key=lambda m: m["similarity"], reverse=True)
 
     # Near-match surfacing (issue #772): when no above-threshold match exists,
@@ -553,6 +697,14 @@ def main():
             f"{DEFAULT_INCLUDE_CLOSED_DAYS})"
         ),
     )
+    check_p.add_argument("--criterion", action="append", default=[], dest="criteria")
+    check_p.add_argument(
+        "--verification-spec",
+        action="append",
+        default=[],
+        dest="verification_specs",
+    )
+    check_p.add_argument("--scope", action="append", default=[])
     check_p.add_argument("--json", action="store_true", help="Output JSON")
 
     # scan

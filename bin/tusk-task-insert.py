@@ -192,11 +192,27 @@ def _read_text_file_argument(path: str, *, arg_name: str) -> str:
         ) from exc
 
 
-def run_dupe_check(summary: str, domain: str | None) -> dict | None:
+def run_dupe_check(
+    summary: str,
+    domain: str | None,
+    *,
+    criteria: list[str] | None = None,
+    verification_specs: list[str] | None = None,
+    scope_patterns: list[str] | None = None,
+) -> dict | None:
     """Run tusk dupes check and return match info if duplicate found."""
     cmd = [TUSK_BIN, "dupes", "check", summary, "--json"]
     if domain:
         cmd.extend(["--domain", domain])
+    for criterion in criteria or []:
+        if criterion:
+            cmd.append(f"--criterion={criterion}")
+    for spec in verification_specs or []:
+        if spec:
+            cmd.append(f"--verification-spec={spec}")
+    for pattern in scope_patterns or []:
+        if pattern and pattern != "**":
+            cmd.append(f"--scope={pattern}")
     result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
     if result.returncode not in (0, 1):
         return None
@@ -1029,6 +1045,61 @@ def _warn_already_passing_criteria(typed_inserted: list) -> None:
         pass
 
 
+def derive_auto_scope_patterns(
+    *,
+    summary: str,
+    description: str,
+    criteria: list[str],
+    typed_criteria: list[dict],
+    repo_root: str | None,
+    task_type: str,
+    explicit_patterns: set[str] | None = None,
+) -> list[str]:
+    """Return the auto-derived scope rows a task insertion would persist."""
+    explicit_patterns = explicit_patterns or set()
+    text_blocks = [summary or "", description or "", *criteria]
+    for tc in typed_criteria:
+        text_blocks.append(tc.get("text") or "")
+        text_blocks.append(tc.get("spec") or "")
+    intended_creates = {
+        _resolve_auto_derived_scope_pattern(repo_root, path)
+        for path in _git_helpers.extract_explicit_creation_paths(text_blocks)
+    }
+    requires_unit_tests = any(
+        _UNIT_TEST_REQUIREMENT_RE.search(block or "")
+        for block in text_blocks
+    )
+    derived: list[str] = []
+    seen: set[str] = set()
+    for text in text_blocks:
+        for path in _auto_scope_candidates(
+            text,
+            repo_root=repo_root,
+            task_type=task_type,
+            requires_unit_tests=requires_unit_tests,
+        ):
+            resolved = _resolve_auto_derived_scope_pattern(repo_root, path)
+            is_explicit_github_path = path.startswith(".github/") and path != ".github/"
+            if (
+                not is_explicit_github_path
+                and is_prose_identifier_path(path, repo_root)
+            ):
+                continue
+            if resolved in _git_helpers.SCOPE_DERIVE_BOOKKEEPING_DENYLIST:
+                continue
+            if not _git_helpers.is_trackable_scope_pattern(
+                repo_root,
+                resolved,
+                allow_new_under_tracked=resolved in intended_creates,
+            ):
+                continue
+            if resolved in explicit_patterns or resolved in seen:
+                continue
+            seen.add(resolved)
+            derived.append(resolved)
+    return derived
+
+
 def _canonical_enum_value(value: str, valid_values: list[str]) -> str:
     """Return the configured enum spelling for a case-insensitive match."""
     if not valid_values:
@@ -1177,51 +1248,21 @@ def insert_task_record(
         # the migration-73 backfill so fresh tasks land with task_scope rows
         # equivalent to the legacy scope-path fallback.
         explicit_patterns = set(scope_patterns) | set(creates_paths)
-        text_blocks = [summary or "", description or ""]
-        for c in criteria:
-            text_blocks.append(c or "")
-        for tc in typed_criteria:
-            text_blocks.append(tc.get("text") or "")
-            text_blocks.append(tc.get("spec") or "")
-        intended_creates = {
-            _resolve_auto_derived_scope_pattern(repo_root, path)
-            for path in _git_helpers.extract_explicit_creation_paths(text_blocks)
-        }
-        seen_auto: set = set()
-        requires_unit_tests = any(
-            _UNIT_TEST_REQUIREMENT_RE.search(block or "")
-            for block in text_blocks
+        auto_patterns = derive_auto_scope_patterns(
+            summary=summary,
+            description=description,
+            criteria=criteria,
+            typed_criteria=typed_criteria,
+            repo_root=repo_root,
+            task_type=task_type,
+            explicit_patterns=explicit_patterns,
         )
-        for text in text_blocks:
-            for p in _auto_scope_candidates(
-                text,
-                repo_root=repo_root,
-                task_type=task_type,
-                requires_unit_tests=requires_unit_tests,
-            ):
-                resolved = _resolve_auto_derived_scope_pattern(repo_root, p)
-                is_explicit_github_path = p.startswith(".github/") and p != ".github/"
-                if (
-                    not is_explicit_github_path
-                    and is_prose_identifier_path(p, repo_root)
-                ):
-                    continue
-                if resolved in _git_helpers.SCOPE_DERIVE_BOOKKEEPING_DENYLIST:
-                    continue
-                if not _git_helpers.is_trackable_scope_pattern(
-                    repo_root,
-                    resolved,
-                    allow_new_under_tracked=resolved in intended_creates,
-                ):
-                    continue
-                if resolved in explicit_patterns or resolved in seen_auto:
-                    continue
-                seen_auto.add(resolved)
-                conn.execute(
-                    "INSERT INTO task_scope (task_id, pattern, source) "
-                    "VALUES (?, ?, 'auto_derived')",
-                    (task_id, resolved),
-                )
+        for resolved in auto_patterns:
+            conn.execute(
+                "INSERT INTO task_scope (task_id, pattern, source) "
+                "VALUES (?, ?, 'auto_derived')",
+                (task_id, resolved),
+            )
 
     return InsertTaskResult(task_id, criteria_ids, typed_inserted)
 
@@ -1409,7 +1450,28 @@ def main(argv: list[str]) -> int:
     # Run duplicate check (unless the caller deduped on a stable identity key
     # and passed --skip-dupe/--force to bypass the fuzzy summary guard, issue #1127).
     if not args.skip_dupe:
-        dupe = run_dupe_check(summary, domain)
+        explicit_patterns = set(scope_patterns) | set(creates_paths)
+        auto_patterns = derive_auto_scope_patterns(
+            summary=summary,
+            description=description,
+            criteria=criteria,
+            typed_criteria=typed_criteria,
+            repo_root=repo_root,
+            task_type=task_type,
+            explicit_patterns=explicit_patterns,
+        )
+        dupe = run_dupe_check(
+            summary,
+            domain,
+            criteria=[
+                *criteria,
+                *(tc.get("text") or "" for tc in typed_criteria),
+            ],
+            verification_specs=[
+                tc.get("spec") or "" for tc in typed_criteria
+            ],
+            scope_patterns=[*scope_patterns, *creates_paths, *auto_patterns],
+        )
         if dupe:
             result = {
                 "duplicate": True,

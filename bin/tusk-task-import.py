@@ -39,6 +39,7 @@ _parse_not_before = _task_insert._parse_not_before
 _repo_root = _task_insert._repo_root
 _warn_for_missing_declared_paths = _task_insert._warn_for_missing_declared_paths
 _warn_already_passing_criteria = _task_insert._warn_already_passing_criteria
+derive_auto_scope_patterns = _task_insert.derive_auto_scope_patterns
 insert_task_record = _task_insert.insert_task_record
 
 
@@ -729,7 +730,32 @@ def main(argv: list[str]) -> int:
     for plan in list(plans):
         if plan.duplicate_policy == "allow":
             continue
-        dupe = run_dupe_check(plan.summary, plan.domain)
+        explicit_patterns = set(plan.scope_patterns) | set(plan.creates_paths)
+        auto_patterns = derive_auto_scope_patterns(
+            summary=plan.summary,
+            description=plan.description,
+            criteria=plan.criteria,
+            typed_criteria=plan.typed_criteria,
+            repo_root=repo_root,
+            task_type=plan.task_type,
+            explicit_patterns=explicit_patterns,
+        )
+        dupe = run_dupe_check(
+            plan.summary,
+            plan.domain,
+            criteria=[
+                *plan.criteria,
+                *(tc.get("text") or "" for tc in plan.typed_criteria),
+            ],
+            verification_specs=[
+                tc.get("spec") or "" for tc in plan.typed_criteria
+            ],
+            scope_patterns=[
+                *plan.scope_patterns,
+                *plan.creates_paths,
+                *auto_patterns,
+            ],
+        )
         if not dupe:
             continue
         plan.dupe = dupe
