@@ -219,7 +219,7 @@ class TestSimilarity:
 # ── In-progress-criterion match path (Issue #603) ─────────────────────
 
 
-def _make_dupes_db(tasks, criteria):
+def _make_dupes_db(tasks, criteria, scope=()):
     """Build an in-memory DB with the minimal schema cmd_check queries.
 
     tasks: list of (id, summary, status, domain[, closed_at]) tuples.
@@ -235,7 +235,11 @@ def _make_dupes_db(tasks, criteria):
     conn.execute(
         "CREATE TABLE acceptance_criteria ("
         " id INTEGER PRIMARY KEY, task_id INTEGER, criterion TEXT,"
-        " is_completed INTEGER DEFAULT 0)"
+        " is_completed INTEGER DEFAULT 0, verification_spec TEXT)"
+    )
+    conn.execute(
+        "CREATE TABLE task_scope ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER, pattern TEXT)"
     )
     for task in tasks:
         tid, summary, status, domain, *rest = task
@@ -245,11 +249,19 @@ def _make_dupes_db(tasks, criteria):
             " VALUES (?, ?, ?, ?, ?)",
             (tid, summary, status, domain, closed_at),
         )
-    for cid, tid, text, done in criteria:
+    for criterion in criteria:
+        cid, tid, text, done, *rest = criterion
+        verification_spec = rest[0] if rest else None
         conn.execute(
-            "INSERT INTO acceptance_criteria (id, task_id, criterion, is_completed)"
-            " VALUES (?, ?, ?, ?)",
-            (cid, tid, text, done),
+            "INSERT INTO acceptance_criteria "
+            "(id, task_id, criterion, is_completed, verification_spec)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (cid, tid, text, done, verification_spec),
+        )
+    for task_id, pattern in scope:
+        conn.execute(
+            "INSERT INTO task_scope (task_id, pattern) VALUES (?, ?)",
+            (task_id, pattern),
         )
     conn.commit()
     return conn
@@ -257,7 +269,8 @@ def _make_dupes_db(tasks, criteria):
 
 def _run_cmd_check(monkeypatch, conn, summary, *, json_out=True,
                    threshold=None, criterion_threshold=None, domain=None,
-                   include_closed_days=7):
+                   include_closed_days=7, criteria=None,
+                   verification_specs=None, scope=None):
     """Invoke dupes.cmd_check against an in-memory connection and return parsed JSON."""
     monkeypatch.setattr(dupes, "get_connection", lambda _path: conn)
     args = argparse.Namespace(
@@ -269,6 +282,9 @@ def _run_cmd_check(monkeypatch, conn, summary, *, json_out=True,
             if criterion_threshold is None else criterion_threshold
         ),
         include_closed_days=include_closed_days,
+        criteria=criteria or [],
+        verification_specs=verification_specs or [],
+        scope=scope or [],
         json=json_out,
     )
     buf = io.StringIO()
@@ -564,6 +580,82 @@ class TestRecentlyClosedMatches:
         assert rc == 0
         assert "WARN: matches recently-closed TASK-90" in output
         assert "Audit JSON-LD offer parsing for ticket-row gaps" in output
+
+    def test_semantic_match_uses_spec_and_concrete_scope(self, monkeypatch):
+        closed_at = _closed_at_days_ago(1)
+        conn = _make_dupes_db(
+            tasks=[
+                (90, "Render playback badge in compact player", "Done", "cli", closed_at)
+            ],
+            criteria=[
+                (
+                    301,
+                    90,
+                    "Now Playing shows the active playback badge",
+                    1,
+                    "python3 -m pytest tests/ui/test_now_playing.py -q",
+                )
+            ],
+            scope=[(90, "apps/android/NowPlaying.kt")],
+        )
+        rc, payload = _run_cmd_check(
+            monkeypatch,
+            conn,
+            "Add Now Playing status affordance",
+            criteria=["Now Playing displays current playback state"],
+            verification_specs=[
+                "python3 -m pytest tests/ui/test_now_playing.py -q"
+            ],
+            scope=["apps/android/NowPlaying.kt"],
+        )
+        assert rc == 0
+        assert payload["duplicates"] == []
+        match = payload["recently_closed"][0]
+        assert match["id"] == 90
+        assert match["match_type"] == "recently_closed_semantic"
+        assert match["shared_scope"] == ["apps/android/NowPlaying.kt"]
+
+    def test_weak_semantic_signals_do_not_match(self, monkeypatch):
+        closed_at = _closed_at_days_ago(1)
+        conn = _make_dupes_db(
+            tasks=[(90, "Unrelated completed work", "Done", "cli", closed_at)],
+            criteria=[(301, 90, "Add regression coverage", 1, None)],
+            scope=[(90, "src/common.py"), (90, "**")],
+        )
+        rc, payload = _run_cmd_check(
+            monkeypatch,
+            conn,
+            "Different follow-up",
+            criteria=["Add regression coverage"],
+            scope=["src/common.py", "**"],
+        )
+        assert rc == 0
+        assert payload["recently_closed"] == []
+
+    def test_strong_criterion_requires_two_shared_concrete_paths(self, monkeypatch):
+        closed_at = _closed_at_days_ago(1)
+        conn = _make_dupes_db(
+            tasks=[(90, "Completed UI work", "Done", "cli", closed_at)],
+            criteria=[(301, 90, "Render active badge in Now Playing", 1, None)],
+            scope=[
+                (90, "apps/android/NowPlaying.kt"),
+                (90, "tests/ui/test_now_playing.py"),
+            ],
+        )
+        rc, payload = _run_cmd_check(
+            monkeypatch,
+            conn,
+            "Different wording",
+            criteria=["Render active badge in Now Playing"],
+            scope=[
+                "apps/android/NowPlaying.kt",
+                "tests/ui/test_now_playing.py",
+            ],
+        )
+        assert rc == 0
+        assert payload["recently_closed"][0]["match_type"] == (
+            "recently_closed_semantic"
+        )
 
 
 class TestCriterionThresholdConfig:

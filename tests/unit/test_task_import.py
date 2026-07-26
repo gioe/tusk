@@ -131,7 +131,7 @@ def _run_import(db_path, config_path, argv, *, dupes=None):
     out = StringIO()
     err = StringIO()
     with redirect_stdout(out), redirect_stderr(err), \
-            patch.object(import_mod, "run_dupe_check", side_effect=dupes or (lambda summary, domain: None)), \
+            patch.object(import_mod, "run_dupe_check", side_effect=dupes or (lambda summary, domain, **kwargs: None)), \
             patch("subprocess.run"):
         code = import_mod.main([db_path, config_path, *argv])
     payload = json.loads(out.getvalue()) if out.getvalue().strip() else None
@@ -224,7 +224,7 @@ def test_dry_run_validates_without_writing_rows_and_reports_duplicates(tmp_path)
         encoding="utf-8",
     )
 
-    def dupes(summary, domain):
+    def dupes(summary, domain, **kwargs):
         if summary == "Duplicate import task":
             return {"id": 42, "summary": "Matched", "similarity": 0.91}
         return None
@@ -659,7 +659,7 @@ def test_best_effort_records_created_skipped_and_failed_outcomes(tmp_path):
         encoding="utf-8",
     )
 
-    def dupes(summary, domain):
+    def dupes(summary, domain, **kwargs):
         if summary == "Duplicate failure import task":
             return {"id": 41, "summary": "Existing fail", "similarity": 0.9}
         if summary == "Duplicate skip import task":

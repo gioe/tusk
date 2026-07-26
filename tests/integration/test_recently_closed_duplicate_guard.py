@@ -145,3 +145,88 @@ def test_task_import_applies_policies_to_recently_closed_matches(db_path, tmp_pa
     assert allowed.returncode == 0, allowed.stdout + allowed.stderr
     assert "task_id" in json.loads(allowed.stdout)["created"]["0"]
     assert _task_count(db_path) == baseline_count + 1
+
+
+def test_semantic_recent_match_blocks_divergent_insert_and_import(db_path, tmp_path):
+    env = os.environ.copy()
+    env["TUSK_DB"] = str(db_path)
+    spec = "python3 -m pytest tests/unit/test_dupes.py -q"
+    typed = json.dumps(
+        {
+            "text": "Now Playing badge regression passes",
+            "type": "test",
+            "spec": spec,
+        }
+    )
+    shared_args = (
+        "--typed-criteria",
+        typed,
+        "--scope",
+        "bin/tusk-dupes.py",
+        "--scope",
+        "tests/unit/test_dupes.py",
+    )
+
+    seeded = _insert(
+        env,
+        "Render playback badge in compact player",
+        *shared_args,
+    )
+    assert seeded.returncode == 0, seeded.stdout + seeded.stderr
+    seeded_id = json.loads(seeded.stdout)["task_id"]
+    _close_task(db_path, seeded_id, "0 days")
+    baseline_count = _task_count(db_path)
+
+    blocked = _insert(
+        env,
+        "Add Now Playing status affordance",
+        *shared_args,
+    )
+    assert blocked.returncode == 1, blocked.stdout + blocked.stderr
+    assert json.loads(blocked.stdout)["matched_task_id"] == seeded_id
+    assert _task_count(db_path) == baseline_count
+
+    plan = tmp_path / "semantic.json"
+    plan.write_text(
+        json.dumps(
+            {
+                "tasks": [
+                    {
+                        "summary": "Expose active media state in player chrome",
+                        "description": "Different prose for equivalent work",
+                        "criteria": [
+                            {
+                                "text": "Now Playing badge regression passes",
+                                "type": "test",
+                                "spec": spec,
+                            }
+                        ],
+                        "scope": [
+                            "bin/tusk-dupes.py",
+                            "tests/unit/test_dupes.py",
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    for extra in (("--dry-run",), ()):
+        imported = _run(env, "task-import", "--file", str(plan), *extra)
+        assert imported.returncode == 2, imported.stdout + imported.stderr
+        payload = json.loads(imported.stdout)
+        assert payload["failed"]["0"]["errors"] == [
+            {
+                "field": "duplicate_policy",
+                "message": f"duplicate of TASK-{seeded_id}",
+            }
+        ]
+        assert _task_count(db_path) == baseline_count
+
+    overridden = _insert(
+        env,
+        "Intentional replay of Now Playing work",
+        *shared_args,
+        "--skip-dupe",
+    )
+    assert overridden.returncode == 0, overridden.stdout + overridden.stderr
