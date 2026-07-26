@@ -489,6 +489,21 @@ JSON blob and the `skill_run.run_id` you already captured.
    assign the work to the chosen implementation subagent(s), then
    coordinate their result through Step 7.
 
+   **Bounded recovery for a stalled implementation subagent.** Do not wait
+   indefinitely for delegated implementation. After a reasonable interval with
+   no material progress, inspect the task worktree and the subagent's latest
+   report. Material progress includes a worktree diff, completed command or test
+   output, or a substantive report of finished work or a concrete blocker; an
+   active/running status alone is not progress. On the first no-progress check,
+   send one focused nudge that restates or narrows the assignment. If the next
+   progress check still shows no material progress, interrupt the subagent. Then
+   either delegate a narrower replacement assignment or continue locally. A
+   local fallback is allowed for any task size only after this bounded recovery
+   sequence; surface the route change and evidence using `Implementation routing:
+   local fallback — <stalled evidence; reason for continuing locally>`. Do not
+   interrupt an actively producing command or test before it finishes or reaches
+   its own timeout.
+
 7. **Implement, commit, and mark criteria done.** Work through the
    acceptance criteria from Step 1 as your checklist — **one commit per
    criterion is the default**. For each criterion in order:

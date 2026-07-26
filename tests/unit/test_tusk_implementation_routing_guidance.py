@@ -17,6 +17,12 @@ def _routing_block(path: Path) -> str:
     return " ".join(text[start:end].split())
 
 
+def _stalled_fallback_block(path: Path) -> str:
+    block = _routing_block(path)
+    start = block.index("**Bounded recovery for a stalled implementation subagent.**")
+    return block[start:]
+
+
 def test_tusk_workflows_always_delegate_exploration_before_routing():
     for path in WORKFLOW_PATHS:
         block = _routing_block(path)
@@ -57,6 +63,41 @@ def test_tusk_workflows_report_routing_before_implementation():
 
         assert report_index < local_index < step_seven_index
         assert report_index < delegated_index < step_seven_index
+
+
+def test_tusk_workflows_bound_and_report_stalled_delegation_recovery():
+    for path in WORKFLOW_PATHS:
+        block = _stalled_fallback_block(path)
+
+        inspect_index = block.index(
+            "inspect the task worktree and the subagent's latest report"
+        )
+        nudge_index = block.index("send one focused nudge")
+        interrupt_index = block.index("interrupt the subagent")
+        replacement_index = block.index("delegate a narrower replacement assignment")
+        fallback_index = block.index("continue locally")
+
+        assert "reasonable interval with no material progress" in block
+        assert "worktree diff, completed command or test output" in block
+        assert "substantive report of finished work or a concrete blocker" in block
+        assert "active/running status alone is not progress" in block
+        assert "first no-progress check" in block
+        assert "next progress check still shows no material progress" in block
+        assert inspect_index < nudge_index < interrupt_index
+        assert interrupt_index < replacement_index
+        assert interrupt_index < fallback_index
+        assert "allowed for any task size only after this bounded recovery sequence" in block
+        assert (
+            "Implementation routing: local fallback — "
+            "<stalled evidence; reason for continuing locally>"
+        ) in block
+        assert "Do not interrupt an actively producing command or test" in block
+
+
+def test_codex_prompt_mirrors_stalled_delegation_recovery_guidance():
+    canonical, codex_prompt = WORKFLOW_PATHS
+
+    assert _stalled_fallback_block(canonical) == _stalled_fallback_block(codex_prompt)
 
 
 def test_codex_prompt_does_not_claim_subagents_are_unavailable():
