@@ -140,6 +140,15 @@ def _materialize_web_paths(tmp_path):
     route_test.write_text("// test\n", encoding="utf-8")
 
 
+def _materialize_scraper_dot_paths(tmp_path):
+    python = tmp_path / "apps" / "scraper" / ".venv" / "bin" / "python3"
+    python.parent.mkdir(parents=True)
+    python.write_text("#!/bin/sh\n", encoding="utf-8")
+    test_file = tmp_path / "apps" / "scraper" / "tests" / "unit" / "test_example.py"
+    test_file.parent.mkdir(parents=True)
+    test_file.write_text("# test\n", encoding="utf-8")
+
+
 def test_task_brief_json_returns_compiled_context_packet(tmp_path, monkeypatch):
     db_path = _init_db(tmp_path, monkeypatch)
     _materialize_valid_paths(tmp_path)
@@ -227,6 +236,42 @@ def test_task_brief_resolves_leading_cd_paths_from_project_root(tmp_path, monkey
     assert valid_id not in stale_by_criterion
     assert stale_by_criterion[missing_id]["details"]["missing_paths"] == [
         "apps/web/app/api/health/missing.test.ts"
+    ]
+
+
+def test_task_brief_dot_prefixed_verification_path(tmp_path, monkeypatch):
+    db_path = _init_db(tmp_path, monkeypatch)
+    _materialize_valid_paths(tmp_path)
+    _materialize_scraper_dot_paths(tmp_path)
+    (tmp_path / ".git").mkdir()
+    task_id = _insert_task_bundle(db_path)
+    valid_id = _insert_verification_spec(
+        db_path,
+        task_id,
+        "Valid scraper venv spec",
+        "cd apps/scraper && "
+        ".venv/bin/python3 -m pytest tests/unit/test_example.py",
+    )
+    missing_id = _insert_verification_spec(
+        db_path,
+        task_id,
+        "Missing scraper venv spec",
+        "cd apps/scraper && "
+        ".missing/bin/python3 -m pytest tests/unit/test_example.py",
+    )
+
+    result = _run_brief(tmp_path, db_path, task_id, "--format", "json")
+
+    assert result.returncode == 0, result.stderr
+    warnings = json.loads(result.stdout)["context_health_warnings"]
+    stale_by_criterion = {
+        warning["details"]["criterion_id"]: warning
+        for warning in warnings
+        if warning["code"] == "stale_verification_spec"
+    }
+    assert valid_id not in stale_by_criterion
+    assert stale_by_criterion[missing_id]["details"]["missing_paths"] == [
+        "apps/scraper/.missing/bin/python3"
     ]
 
 
