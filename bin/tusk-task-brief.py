@@ -48,9 +48,6 @@ PATH_SUFFIX_RE = re.compile(
     r"\.(py|sh|md|json|toml|yaml|yml|txt|swift|js|jsx|ts|tsx|css|html|sql)$"
 )
 GLOB_CHARS = frozenset("*?[")
-LEADING_LITERAL_CD_RE = re.compile(
-    r"^\s*cd\s+(?:'([^']+)'|\"([^\"]+)\"|([^\s;&|]+))\s*(?:&&|;)"
-)
 SHELL_EXPANSION_CHARS = frozenset("$`\\~*?[{")
 
 
@@ -80,40 +77,74 @@ def _clean_path_token(token: str) -> str | None:
     return token
 
 
-def _spec_paths(spec: str) -> list[str]:
-    command = spec
-    cd_dir = None
-    match = LEADING_LITERAL_CD_RE.match(spec)
-    if match:
-        target = next((group for group in match.groups() if group), "").strip().rstrip("/")
-        if target.startswith("./"):
-            target = target[2:]
-        parts = target.split("/")
-        if (
-            target
-            and not target.startswith(("-", "/"))
-            and ".." not in parts
-            and not any(char in target for char in SHELL_EXPANSION_CHARS)
-        ):
-            cd_dir = posixpath.normpath(target)
-            command = spec[match.end():]
-
+def _shell_scan_tokens(command: str) -> list[str]:
+    """Return shell-ish tokens suitable for conservative cwd/path scanning."""
     try:
-        tokens = shlex.split(command)
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+        lexer.whitespace_split = True
+        return list(lexer)
     except ValueError:
-        tokens = command.split()
+        return command.split()
+
+
+def _is_control_operator(token: str) -> bool:
+    return bool(token) and all(char in ";&|" for char in token)
+
+
+def _resolve_literal_cd(target: str, current_dir: str | None) -> str | None:
+    """Resolve a safe repo-relative cd target, or return None when uncertain."""
+    target = target.strip().rstrip("/")
+    if target.startswith("./"):
+        target = target[2:]
+    parts = target.split("/")
+    if (
+        current_dir is None
+        or not target
+        or target.startswith(("-", "/"))
+        or ".." in parts
+        or any(char in target for char in SHELL_EXPANSION_CHARS)
+    ):
+        return None
+    return posixpath.normpath(posixpath.join(current_dir, target))
+
+
+def _spec_paths(spec: str) -> list[str]:
+    tokens = _shell_scan_tokens(spec)
     seen: set[str] = set()
     paths: list[str] = []
-    if cd_dir:
-        seen.add(cd_dir)
-        paths.append(cd_dir)
-    for token in tokens:
+
+    current_dir: str | None = ""
+    at_command_start = True
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if _is_control_operator(token):
+            at_command_start = True
+            index += 1
+            continue
+
+        if at_command_start and token == "cd":
+            target = (
+                tokens[index + 1]
+                if index + 1 < len(tokens) and not _is_control_operator(tokens[index + 1])
+                else ""
+            )
+            current_dir = _resolve_literal_cd(target, current_dir)
+            if current_dir and current_dir not in seen:
+                seen.add(current_dir)
+                paths.append(current_dir)
+            at_command_start = False
+            index += 2 if target else 1
+            continue
+
         path = _clean_path_token(token)
-        if path and cd_dir:
-            path = posixpath.normpath(posixpath.join(cd_dir, path))
+        if path and current_dir is not None:
+            path = posixpath.normpath(posixpath.join(current_dir, path))
         if path and path not in seen:
             seen.add(path)
             paths.append(path)
+        at_command_start = False
+        index += 1
     return paths
 
 
