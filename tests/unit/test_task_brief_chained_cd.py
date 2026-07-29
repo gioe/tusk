@@ -1,0 +1,117 @@
+"""Regression coverage for task-brief verification paths across chained cd."""
+
+import importlib.util
+import os
+
+import pytest
+
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SCRIPT = os.path.join(REPO_ROOT, "bin", "tusk-task-brief.py")
+
+
+def _load_module():
+    spec = importlib.util.spec_from_file_location("tusk_task_brief_chained_cd", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+brief = _load_module()
+
+TRENDING_SPEC = (
+    "rg -Fq 'prefers an active avatar over legacy image state' "
+    "apps/web/lib/data/home/getTrendingComedians.test.ts && "
+    "cd apps/web && npm test -- lib/data/home/getTrendingComedians.test.ts "
+    "-t 'prefers an active avatar over legacy image state'"
+)
+ZIP_SPEC = (
+    "rg -Fq 'prefers an active avatar over legacy image state' "
+    "apps/web/lib/data/home/getComediansByZip.test.ts && "
+    "cd apps/web && npm test -- lib/data/home/getComediansByZip.test.ts "
+    "-t 'prefers an active avatar over legacy image state'"
+)
+BOTH_SPEC = (
+    "rg -Fq 'resolves active avatars without per-row queries' "
+    "apps/web/lib/data/home/getTrendingComedians.test.ts && "
+    "rg -Fq 'resolves active avatars without per-row queries' "
+    "apps/web/lib/data/home/getComediansByZip.test.ts && "
+    "cd apps/web && npm test -- "
+    "lib/data/home/getTrendingComedians.test.ts "
+    "lib/data/home/getComediansByZip.test.ts "
+    "-t 'resolves active avatars without per-row queries'"
+)
+
+
+@pytest.mark.parametrize(
+    ("verification_spec", "expected_paths"),
+    [
+        (
+            TRENDING_SPEC,
+            [
+                "apps/web/lib/data/home/getTrendingComedians.test.ts",
+                "apps/web",
+            ],
+        ),
+        (
+            ZIP_SPEC,
+            [
+                "apps/web/lib/data/home/getComediansByZip.test.ts",
+                "apps/web",
+            ],
+        ),
+        (
+            BOTH_SPEC,
+            [
+                "apps/web/lib/data/home/getTrendingComedians.test.ts",
+                "apps/web/lib/data/home/getComediansByZip.test.ts",
+                "apps/web",
+            ],
+        ),
+    ],
+)
+def test_spec_paths_track_cd_after_root_relative_checks(
+    verification_spec, expected_paths
+):
+    assert brief._spec_paths(verification_spec) == expected_paths
+
+
+def test_exact_laughtrack_specs_do_not_emit_stale_warnings(tmp_path):
+    home_dir = tmp_path / "apps" / "web" / "lib" / "data" / "home"
+    home_dir.mkdir(parents=True)
+    (home_dir / "getTrendingComedians.test.ts").touch()
+    (home_dir / "getComediansByZip.test.ts").touch()
+    rows = [
+        {"id": 12512, "verification_spec": TRENDING_SPEC},
+        {"id": 12513, "verification_spec": ZIP_SPEC},
+        {"id": 12514, "verification_spec": BOTH_SPEC},
+    ]
+
+    assert brief._stale_spec_warnings(str(tmp_path), rows) == []
+
+
+def test_missing_paths_respect_working_directory_at_each_command(tmp_path):
+    (tmp_path / "apps" / "web").mkdir(parents=True)
+    rows = [
+        {
+            "id": 1,
+            "verification_spec": (
+                "rg -Fq marker missing/root.test.ts && "
+                "cd apps/web && npm test -- missing/nested.test.ts"
+            ),
+        }
+    ]
+
+    warnings = brief._stale_spec_warnings(str(tmp_path), rows)
+
+    assert warnings[0]["details"]["missing_paths"] == [
+        "missing/root.test.ts",
+        "apps/web/missing/nested.test.ts",
+    ]
+
+
+def test_leading_literal_cd_behavior_is_preserved():
+    assert brief._spec_paths("cd apps/web && pytest lib/example.test.ts") == [
+        "apps/web",
+        "apps/web/lib/example.test.ts",
+    ]
