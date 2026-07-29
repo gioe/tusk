@@ -44,6 +44,18 @@ BOTH_SPEC = (
 
 
 @pytest.mark.parametrize(
+    ("token", "expected"),
+    [
+        (".venv/bin/python3", ".venv/bin/python3"),
+        ("(.venv/bin/python3).", ".venv/bin/python3"),
+        ("./scripts/test.sh", "scripts/test.sh"),
+    ],
+)
+def test_clean_path_token_preserves_meaningful_leading_dots(token, expected):
+    assert brief._clean_path_token(token) == expected
+
+
+@pytest.mark.parametrize(
     ("verification_spec", "expected_paths"),
     [
         (
@@ -114,4 +126,15 @@ def test_leading_literal_cd_behavior_is_preserved():
     assert brief._spec_paths("cd apps/web && pytest lib/example.test.ts") == [
         "apps/web",
         "apps/web/lib/example.test.ts",
+    ]
+
+
+def test_dot_prefixed_executable_resolves_after_chained_cd():
+    assert brief._spec_paths(
+        "cd apps/scraper && "
+        ".venv/bin/python3 -m pytest tests/unit/test_example.py"
+    ) == [
+        "apps/scraper",
+        "apps/scraper/.venv/bin/python3",
+        "apps/scraper/tests/unit/test_example.py",
     ]

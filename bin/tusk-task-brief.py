@@ -64,7 +64,7 @@ def _rows(rows) -> list[dict]:
 
 
 def _clean_path_token(token: str) -> str | None:
-    token = token.strip().strip("\"'`.,:;()[]{}")
+    token = token.strip().lstrip("\"'`,:;()[]{}").rstrip("\"'`.,:;()[]{}")
     if not token or token.startswith("-"):
         return None
     token = token.split("::", 1)[0]
