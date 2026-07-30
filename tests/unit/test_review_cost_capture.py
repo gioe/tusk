@@ -125,6 +125,27 @@ class TestApproveAutoComputeFromTranscript:
         assert row["tokens_in"] is None
         assert row["tokens_out"] is None
 
+    def test_approve_cost_failure_is_controlled_and_leaves_review_pending(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        db = _make_db(tmp_path)
+
+        def fail_cost_capture(created_at):
+            raise AttributeError("null usage info")
+
+        monkeypatch.setattr(review, "_compute_review_cost_from_window", fail_cost_capture)
+
+        assert review.cmd_approve(_ns(), db) == 1
+
+        captured = capsys.readouterr()
+        row = _fetch_cost(db)
+        assert "review approve cost capture failed with AttributeError" in captured.err
+        assert "Review status is unchanged" in captured.err
+        assert row["status"] == "pending"
+        assert row["cost_dollars"] is None
+        assert row["tokens_in"] is None
+        assert row["tokens_out"] is None
+
 
 class TestApproveExplicitOverrides:
     def test_explicit_cost_dollars_replaces_auto_computed(self, tmp_path, monkeypatch):
@@ -221,6 +242,25 @@ class TestRequestChangesParity:
         assert row["cost_dollars"] is None
         assert row["tokens_in"] is None
         assert row["tokens_out"] is None
+
+    def test_request_changes_cost_failure_is_controlled_and_leaves_review_pending(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        db = _make_db(tmp_path)
+
+        def fail_cost_capture(created_at):
+            raise ValueError("malformed transcript")
+
+        monkeypatch.setattr(review, "_compute_review_cost_from_window", fail_cost_capture)
+
+        assert review.cmd_request_changes(_ns(), db) == 1
+
+        captured = capsys.readouterr()
+        row = _fetch_cost(db)
+        assert "review request-changes cost capture failed with ValueError" in captured.err
+        assert "Review status is unchanged" in captured.err
+        assert row["status"] == "pending"
+        assert row["cost_dollars"] is None
 
 
 class TestBackwardsCompatibleNamespace:

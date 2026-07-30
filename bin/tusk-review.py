@@ -966,7 +966,18 @@ def cmd_approve(args: argparse.Namespace, db_path: str) -> int:
             print(f"Error: Review {args.review_id} not found", file=sys.stderr)
             return 2
 
-        cost_dollars, tokens_in, tokens_out = _resolve_cost_columns(args, review["created_at"])
+        try:
+            cost_dollars, tokens_in, tokens_out = _resolve_cost_columns(
+                args, review["created_at"]
+            )
+        except Exception as exc:
+            print(
+                f"Error: review approve cost capture failed with "
+                f"{type(exc).__name__}: {exc}. Review status is unchanged; "
+                "retry with --skip-cost to finalize without telemetry.",
+                file=sys.stderr,
+            )
+            return 1
 
         set_clauses = ["status = 'approved'", "updated_at = datetime('now')"]
         params: list = []
@@ -1022,7 +1033,18 @@ def cmd_request_changes(args: argparse.Namespace, db_path: str) -> int:
             print(f"Error: Review {args.review_id} not found", file=sys.stderr)
             return 2
 
-        cost_dollars, tokens_in, tokens_out = _resolve_cost_columns(args, review["created_at"])
+        try:
+            cost_dollars, tokens_in, tokens_out = _resolve_cost_columns(
+                args, review["created_at"]
+            )
+        except Exception as exc:
+            print(
+                f"Error: review request-changes cost capture failed with "
+                f"{type(exc).__name__}: {exc}. Review status is unchanged; "
+                "retry with --skip-cost to finalize without telemetry.",
+                file=sys.stderr,
+            )
+            return 1
 
         set_clauses = ["status = 'changes_requested'", "updated_at = datetime('now')"]
         params: list = []
