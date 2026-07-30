@@ -298,6 +298,22 @@ Use at most **3 tool calls** total (Grep, Read, or Bash read-only) regardless of
 
 **Staleness recovery — one-liner.** When the staleness check above detects local default branch behind origin, run `tusk sync-main` instead of doing the four-step manual recovery (stash, fetch, ff-pull, stash pop, migrate) by hand. The helper resolves the default branch, fetches it, stashes by unique-name reference (mirroring `tusk test-precheck`'s pattern so concurrent invocations cannot collide and a pop never lands on a stale unrelated entry), fast-forwards via `git merge --ff-only origin/<default>`, pops the stash by ref, and runs `tusk migrate` to apply any schema migrations the new commits brought in. Emits a single JSON object: `{success, default_branch, fetched_commits, stashed, migrated}` — exit 0 on success, exit 1 on a recoverable failure (stderr names the failed step). If the helper exits non-zero with a diverged-branch hint (the ff-only merge refused), surface the message verbatim — local commits cannot be auto-rebased through this path.
 
+<!-- release-boundary-check:start -->
+**Distinguish source-resolved from upgrade-available.** When the evidence above identifies one or more candidate implementation fix SHAs for behavior shipped through Tusk's `VERSION`-gated upgrade path, include this release-boundary check in the same read-only history Bash call so the whole Step 4.6 check stays within its three-tool-call budget:
+
+1. Resolve `RELEASE_REF` to the refreshed `origin/<default>` when that ref exists, otherwise the local `<default>`.
+2. Resolve `RELEASE_COMMIT` with `git log -1 --format=%H "$RELEASE_REF" -- VERSION`. This is the commit that defines the current distribution boundary.
+3. For every required `FIX_COMMIT`, run `git merge-base --is-ancestor "$FIX_COMMIT" "$RELEASE_REF"` first, then `git merge-base --is-ancestor "$FIX_COMMIT" "$RELEASE_COMMIT"`.
+
+Classify from ancestry, never commit dates or linear log position:
+
+- Every fix is an ancestor of both refs → **upgrade-available**. The fix is included in the current `VERSION` release, including when a fix and version bump share a commit. The normal already-resolved note may describe it as available to consumers.
+- Every fix is on `RELEASE_REF`, but any fix is not an ancestor of `RELEASE_COMMIT` → **source-resolved but undistributed**. Do **not** describe the issue as consumer-available. Warn that the fix is present on `main` but absent from the current distribution, and recommend a `VERSION` bump/release before asking whether to create a task.
+- Missing `VERSION`, refs, SHAs, or `RELEASE_COMMIT`; an uncommitted/branch-only fix; or a Git error other than the expected `merge-base --is-ancestor` exit 1 → **availability indeterminate**. Fail closed: do not infer that consumers can upgrade to the fix.
+
+A current direct invocation that still reproduces the failure overrides historical ancestry. A later revert or incomplete multi-commit fix must not be called resolved merely because an earlier candidate SHA is inside the release boundary.
+<!-- release-boundary-check:end -->
+
 If you find clear evidence the issue is already addressed (the bug is fixed, the proposed feature is already shipped and wired up, or the code path described no longer exists), surface this before proceeding:
 
 > **Already-resolved note:** This issue may already be addressed — [brief explanation]. Do you still want to create a task?

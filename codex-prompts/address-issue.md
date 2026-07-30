@@ -310,29 +310,38 @@ Treat any non-`yes` response as skip. On **yes**:
    or `domain` unless the investigation reveals a fundamental
    misclassification.
 
-## Step 4.6: Reproducibility Check (bug-type only)
+## Step 4.6: Already-Resolved Check (all task types)
 
-**Run this step only when `task_type = bug`.** Skip for all other task
-types.
+Always run this step. For bugs, confirm the failure is still
+reproducible. For other task types, confirm the implementation is not
+already shipped and wired up on `main`.
 
-Before presenting the proposal, quickly scan the codebase to confirm
-the bug is still present. Use at most 3 tool calls (Grep, Read, or
-Bash read-only). **Prefer invoking the affected code path directly**
-(e.g. running the actual command with a known input) over grepping
-for static markers — a live invocation surfaces regex bugs, off-by-one
-errors, and silent failures that grep-and-read miss. **Confirm local
-default branch isn't stale relative to origin** (`git fetch origin
-<default> 2>/dev/null && git log <default>..origin/<default>
---oneline | head`) — recent fixes may already be on origin. If you
-find clear evidence the bug is already fixed, surface this before
-proceeding:
+Use at most 3 read-only tool calls. Prefer invoking the affected path
+directly over static grep. Before trusting local source, inspect recent
+task commits touching the affected files, fetch the default branch, and
+check whether local default is behind `origin/<default>`.
 
-> **Reproducibility note:** The issue may already be fixed —
-> [brief explanation]. Do you still want to create a task?
+<!-- release-boundary-check:start -->
+**Distinguish source-resolved from upgrade-available.** When the evidence above identifies one or more candidate implementation fix SHAs for behavior shipped through Tusk's `VERSION`-gated upgrade path, include this release-boundary check in the same read-only history Bash call so the whole Step 4.6 check stays within its three-tool-call budget:
 
-Wait for user confirmation before proceeding to Step 5. If the bug is
-confirmed still present, or you cannot determine either way within 3
-calls, proceed without comment.
+1. Resolve `RELEASE_REF` to the refreshed `origin/<default>` when that ref exists, otherwise the local `<default>`.
+2. Resolve `RELEASE_COMMIT` with `git log -1 --format=%H "$RELEASE_REF" -- VERSION`. This is the commit that defines the current distribution boundary.
+3. For every required `FIX_COMMIT`, run `git merge-base --is-ancestor "$FIX_COMMIT" "$RELEASE_REF"` first, then `git merge-base --is-ancestor "$FIX_COMMIT" "$RELEASE_COMMIT"`.
+
+Classify from ancestry, never commit dates or linear log position:
+
+- Every fix is an ancestor of both refs → **upgrade-available**. The fix is included in the current `VERSION` release, including when a fix and version bump share a commit. The normal already-resolved note may describe it as available to consumers.
+- Every fix is on `RELEASE_REF`, but any fix is not an ancestor of `RELEASE_COMMIT` → **source-resolved but undistributed**. Do **not** describe the issue as consumer-available. Warn that the fix is present on `main` but absent from the current distribution, and recommend a `VERSION` bump/release before asking whether to create a task.
+- Missing `VERSION`, refs, SHAs, or `RELEASE_COMMIT`; an uncommitted/branch-only fix; or a Git error other than the expected `merge-base --is-ancestor` exit 1 → **availability indeterminate**. Fail closed: do not infer that consumers can upgrade to the fix.
+
+A current direct invocation that still reproduces the failure overrides historical ancestry. A later revert or incomplete multi-commit fix must not be called resolved merely because an earlier candidate SHA is inside the release boundary.
+<!-- release-boundary-check:end -->
+
+If clear evidence shows the issue is already addressed, surface the
+appropriate source-resolved or upgrade-available note and ask whether
+to create a task. If the issue is still present or availability is
+indeterminate within the tool-call budget, proceed without claiming it
+is resolved.
 
 ## Step 4.7: Model Recommendation (Config-Driven Scoring)
 
