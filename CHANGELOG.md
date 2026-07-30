@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1246] - 2026-07-30
+
+- [TASK-851] Prevent merge schema fallback from crossing repositories
+
 ## [1245] - 2026-07-30
 
 - [TASK-850] Replay the exact failed path-based commit gate in test-precheck
