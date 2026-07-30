@@ -630,6 +630,11 @@ class TestTaskUpdateWorkflow:
             "INSERT INTO task_scope (task_id, pattern, source, reason) "
             "VALUES (1, 'manual/keep.py', 'operator_declared', 'explicit')"
         )
+        conn.execute(
+            "INSERT INTO acceptance_criteria "
+            "(task_id, criterion, criterion_type, verification_spec) "
+            "VALUES (1, 'Selector passes', 'test', 'tests/from_spec.py')"
+        )
         conn.commit()
         conn.close()
 

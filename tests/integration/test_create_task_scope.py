@@ -4,7 +4,7 @@
 Two behaviors are under test:
 
 1. ``tusk task-insert`` auto-extracts file paths from the description and
-   criterion specs at insert time and records them in ``task_scope`` as
+   criterion text at insert time and records them in ``task_scope`` as
    ``source='auto_derived'`` — so /create-task does not have to enumerate
    every path the prose already names (criterion 2200).
 
@@ -180,24 +180,22 @@ def test_task_insert_auto_extracts_bare_github_subdirectories(db_path):
     assert ".github/actions/**" in auto
 
 
-def test_auto_extract_from_criteria(db_path):
-    """Paths inside typed-criteria ``spec`` text become ``auto_derived``
-    rows on ``task_scope`` at insert time — without the operator having
-    to repeat them via ``--scope``."""
+def test_auto_extract_from_typed_text_but_not_verification_specs(db_path):
+    """Typed criterion text can authorize paths; verification specs cannot."""
     task_id = _insert(
         str(db_path),
         "no paths in summary",
         "no paths in description either",
         typed_criteria=[
             json.dumps({
-                "text": "Migration test passes",
+                "text": "Update bin/tusk-scope-hint.py",
                 "type": "test",
                 "spec": "python3 -m pytest tests/integration/test_create_task_scope.py -q",
             }),
             json.dumps({
-                "text": "Helper exists",
+                "text": "Helper still exists",
                 "type": "file",
-                "spec": "bin/tusk-scope-hint.py",
+                "spec": "tests/unit/test_scope_rederive.py",
             }),
         ],
     )
@@ -205,16 +203,15 @@ def test_auto_extract_from_criteria(db_path):
     rows = _scope_rows(str(db_path), task_id)
     auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
 
-    assert "tests/integration/test_create_task_scope.py" in auto, (
-        f"test-criterion path should be auto-extracted: {rows}"
-    )
     assert "bin/tusk-scope-hint.py" in auto, (
-        f"file-criterion spec path should be auto-extracted: {rows}"
+        f"typed criterion text path should be auto-extracted: {rows}"
     )
+    assert "tests/integration/test_create_task_scope.py" not in auto, rows
+    assert "tests/unit/test_scope_rederive.py" not in auto, rows
 
 
-def test_auto_extract_prefixes_relative_paths_after_cd_and(db_path):
-    """A leading ``cd <dir> &&`` makes later spec paths relative to that dir."""
+def test_auto_extract_ignores_relative_paths_in_verification_specs(db_path):
+    """Command paths remain validation metadata even after a leading cd."""
     task_id = _insert(
         str(db_path),
         "cd spec path",
@@ -231,12 +228,11 @@ def test_auto_extract_prefixes_relative_paths_after_cd_and(db_path):
     rows = _scope_rows(str(db_path), task_id)
     auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
 
-    assert "apps/web/app/api/health/route.test.ts" in auto, rows
-    assert "app/api/health/route.test.ts" not in auto, rows
+    assert auto == set(), rows
 
 
-def test_auto_extract_prefixes_relative_paths_after_cd_semicolon(db_path):
-    """The same path prefixing applies to ``cd <dir>;`` command sequences."""
+def test_auto_extract_ignores_semicolon_cd_verification_specs(db_path):
+    """The metadata boundary also applies to semicolon command sequences."""
     task_id = _insert(
         str(db_path),
         "semicolon cd spec path",
@@ -253,8 +249,7 @@ def test_auto_extract_prefixes_relative_paths_after_cd_semicolon(db_path):
     rows = _scope_rows(str(db_path), task_id)
     auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
 
-    assert "apps/web/app/api/health/route.test.ts" in auto, rows
-    assert "app/api/health/route.test.ts" not in auto, rows
+    assert auto == set(), rows
 
 
 def test_auto_extract_skipped_when_unbounded(db_path):
@@ -345,7 +340,7 @@ def test_bookkeeping_files_still_land_when_explicitly_declared(db_path):
 
 
 def test_auto_extract_dedups_prefixed_spec_against_explicit_scope(db_path):
-    """A cd-relative spec path should not duplicate its declared root path."""
+    """An explicit path remains operator scope when a spec names it too."""
     task_id = _insert(
         str(db_path),
         "explicit prefixed overlap",
@@ -370,6 +365,55 @@ def test_auto_extract_dedups_prefixed_spec_against_explicit_scope(db_path):
     }, rows
     assert "apps/web/app/api/health/route.test.ts" not in by_source.get(
         "auto_derived", set()
+    )
+
+
+def test_task_import_ios_selector_does_not_expand_scope(db_path, tmp_path):
+    """Issue #1257: an iOS suite selector must not authorize sibling tests."""
+    plan = tmp_path / "ios-selector-task.json"
+    plan.write_text(
+        json.dumps({
+            "tasks": [{
+                "summary": "Update home content section",
+                "description": "Adjust the explicitly scoped iOS test.",
+                "task_type": "feature",
+                "complexity": "S",
+                "duplicate_policy": "allow",
+                "scope": [
+                    "ios/Tests/LaughTrackTests/HomeContentSectionTests.swift"
+                ],
+                "criteria": [{
+                    "text": "Home content section test passes",
+                    "type": "test",
+                    "spec": (
+                        "ios/bin/test-sim "
+                        "LaughTrackTests/HomeContentSectionTests"
+                    ),
+                }],
+            }]
+        }),
+        encoding="utf-8",
+    )
+
+    result = _run(["task-import", "--file", str(plan)])
+
+    assert result.returncode == 0, result.stderr
+    task_id = json.loads(result.stdout)["created"]["0"]["task_id"]
+    rows = _scope_rows(str(db_path), task_id)
+    patterns = {row["pattern"] for row in rows}
+    assert patterns == {
+        "ios/Tests/LaughTrackTests/HomeContentSectionTests.swift"
+    }, rows
+    assert not any("FooTests.swift" in pattern for pattern in patterns)
+
+    conn = sqlite3.connect(str(db_path))
+    stored_spec = conn.execute(
+        "SELECT verification_spec FROM acceptance_criteria WHERE task_id = ?",
+        (task_id,),
+    ).fetchone()[0]
+    conn.close()
+    assert stored_spec == (
+        "ios/bin/test-sim LaughTrackTests/HomeContentSectionTests"
     )
 
 
@@ -901,6 +945,26 @@ def test_scope_hint_uses_auto_scope_path_heuristics(db_path, tmp_path):
     assert "apps/web/app/admin/page.tsx" in payload["scope"], payload
     assert ".github/workflows/scraper-schedule.yml" in payload["scope"], payload
     assert ".github/workflows/scraper-verify.yml" in payload["scope"], payload
+
+
+def test_scope_hint_treats_typed_specs_as_validation_metadata(db_path):
+    result = _run([
+        "scope-hint",
+        "--typed-spec",
+        "python3 -m pytest tests/integration/test_create_task_scope.py -q",
+        "--typed-spec",
+        "ios/bin/test-sim LaughTrackTests/HomeContentSectionTests",
+        "--task-type",
+        "feature",
+    ])
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "scope": [],
+        "creates": [],
+        "unbounded": False,
+        "rationale": {},
+    }
 
 
 def test_scope_hint_extracts_bare_github_subdirectories(db_path, tmp_path):

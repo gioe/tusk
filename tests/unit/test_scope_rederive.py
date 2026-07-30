@@ -163,6 +163,33 @@ def test_scope_list_surfaces_effective_auto_scope_without_mutating(monkeypatch, 
     assert _patterns_by_source(conn, "auto_derived") == set()
 
 
+def test_scope_list_effective_fallback_ignores_verification_spec(
+    monkeypatch, capsys
+):
+    conn = _make_conn()
+    conn.execute(
+        "INSERT INTO tasks (id, summary, description, task_type, scope_enforced) "
+        "VALUES (1, 'No paths', 'No paths here.', 'feature', 1)"
+    )
+    conn.execute(
+        "INSERT INTO acceptance_criteria "
+        "(task_id, criterion, verification_spec) VALUES (1, ?, ?)",
+        ("Selector passes", DERIVED),
+    )
+    conn.commit()
+    _patch_derivation(monkeypatch)
+    monkeypatch.setattr(scope_mod, "get_connection", lambda db_path: conn)
+
+    class _Args:
+        task_id = "1"
+
+    rc = scope_mod.cmd_list(_Args(), ":memory:", "/repo/tusk/config.json")
+
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out) == []
+    assert _patterns_by_source(conn, "auto_derived") == set()
+
+
 def test_scope_list_prefers_persisted_rows_over_effective_fallback(monkeypatch, capsys):
     conn = _make_conn()
     _seed_task(conn)
@@ -195,6 +222,29 @@ def test_rederive_rebuilds_auto_and_preserves_non_auto(monkeypatch):
     # operator_declared / creates rows are untouched.
     assert _patterns_by_source(conn, "operator_declared") == {"custom/op.py"}
     assert _patterns_by_source(conn, "creates") == {"future/created.py"}
+
+
+def test_rederive_drops_spec_derived_scope_and_preserves_operator_scope(monkeypatch):
+    conn = _make_conn()
+    conn.execute(
+        "INSERT INTO tasks (id, summary, description, task_type) "
+        "VALUES (1, 'No paths', 'No paths here.', 'feature')"
+    )
+    conn.execute(
+        "INSERT INTO acceptance_criteria "
+        "(task_id, criterion, verification_spec) VALUES (1, ?, ?)",
+        ("Selector passes", DERIVED),
+    )
+    _add_scope(conn, 1, DERIVED, "auto_derived")
+    _add_scope(conn, 1, "custom/op.py", "operator_declared")
+    conn.commit()
+    _patch_derivation(monkeypatch)
+
+    scope_mod.rederive_auto_scope(conn, 1, "/repo/tusk/config.json")
+    conn.commit()
+
+    assert _patterns_by_source(conn, "auto_derived") == set()
+    assert _patterns_by_source(conn, "operator_declared") == {"custom/op.py"}
 
 
 def test_rederive_preserves_unbounded_and_drops_auto(monkeypatch):
