@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1244] - 2026-07-30
+
+- [TASK-849] Fix task-brief cwd tracking across pipeline and background boundaries
+
 ## [1243] - 2026-07-30
 
 - [TASK-848] Detect undistributed fixes in address-issue resolution checks
