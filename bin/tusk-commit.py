@@ -1869,6 +1869,11 @@ def _run_commit(argv: list[str], state: dict) -> int:
             test_cmd,
             repo_root,
         )
+        # A bare post-failure ``tusk test-precheck`` cannot reconstruct this
+        # invocation's explicit file list from the broader dirty worktree.
+        # Reset the per-worktree handoff before every real gate run; an
+        # unbypassed exit-2 failure below records the exact command that ran.
+        _worktree_command.clear_failed_test_gate(repo_root)
         db_path = _resolve_db_path(repo_root)
         timeout_sec, timeout_source = load_test_command_timeout(
             config_path, db_path, test_cmd,
@@ -1902,6 +1907,9 @@ def _run_commit(argv: list[str], state: dict) -> int:
                 db_path, repo_root, test_cmd, test.returncode,
             )
             if gate_bypass_note is None:
+                _worktree_command.record_failed_test_gate(
+                    repo_root, task_id, test_cmd, test.returncode,
+                )
                 _print_test_command_failure(test, test_cmd, elapsed, repo_root)
                 return 2
             print(

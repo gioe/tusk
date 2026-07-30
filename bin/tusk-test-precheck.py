@@ -19,14 +19,16 @@ This CLI wraps the logic safely:
 
 Resolution order for the test command:
   1. ``--command <cmd>`` argument
-  2. ``config["path_test_commands"]`` — first pattern matching every path
+  2. the exact command from the current task/HEAD's failed commit gate, but
+     only for a bare invocation (no ``--paths`` or ``--domain`` selector)
+  3. ``config["path_test_commands"]`` — first pattern matching every path
      or, when ``path_test_commands_skip_unmatched`` is true, skip when no
      changed path touches any configured path-test surface
-  3. ``config["domain_test_commands"][--domain]`` when ``--domain`` is set;
+  4. ``config["domain_test_commands"][--domain]`` when ``--domain`` is set;
      when ``--domain`` is omitted, auto-detect the active task's domain from
      the current branch (``tusk branch-parse`` → task_id → tasks.domain)
-  4. ``config["test_command"]``
-  5. ``tusk test-detect`` result (when confidence != "none")
+  5. ``config["test_command"]``
+  6. ``tusk test-detect`` result (when confidence != "none")
 
 Output JSON (stdout):
     {
@@ -74,6 +76,7 @@ _json_lib = tusk_loader.load("tusk-json-lib")
 dumps = _json_lib.dumps
 _db_lib = tusk_loader.load("tusk-db-lib")
 open_sqlite = _db_lib.open_sqlite
+_worktree_command = tusk_loader.load("tusk-worktree-command")
 
 TEST_COMMAND_SKIPPED = "__tusk_test_command_skipped__"
 
@@ -335,6 +338,21 @@ def _detect_active_task_id(repo_root: str, script_dir: str):
     return task_id if isinstance(task_id, int) and task_id > 0 else None
 
 
+def _failed_gate_replay_command(
+    repo_root: str,
+    script_dir: str,
+    *,
+    explicit: str,
+    paths,
+    domain: str,
+) -> str:
+    """Load a failed-gate handoff only for a selector-free invocation."""
+    if explicit or paths is not None or domain:
+        return ""
+    task_id = _detect_active_task_id(repo_root, script_dir)
+    return _worktree_command.load_failed_test_gate_command(repo_root, task_id)
+
+
 def _record_precheck_verdict(repo_root: str, script_dir: str,
                              test_command: str, pre_existing: bool,
                              exit_code: int) -> None:
@@ -567,18 +585,28 @@ def _emit_verdict(repo_root: str, script_dir: str, test_command: str,
     return 0
 
 
-def resolve_test_command(explicit: str, config_path: str, repo_root: str,
-                         script_dir: str, paths=None, domain: str = "") -> str:
+def resolve_test_command(
+    explicit: str,
+    config_path: str,
+    repo_root: str,
+    script_dir: str,
+    paths=None,
+    domain: str = "",
+    failed_gate_command: str = "",
+) -> str:
     """Resolve the test command.
 
     Resolution order:
       1. ``--command <cmd>`` (explicit override).
-      2. ``path_test_commands`` — first pattern where every path in ``paths``
+      2. ``failed_gate_command`` from the current task and HEAD. Callers pass
+         this only for a bare precheck, so explicit path/domain selectors keep
+         their existing semantics.
+      3. ``path_test_commands`` — first pattern where every path in ``paths``
          matches.  When ``paths`` is None, we auto-detect from
          ``git diff --name-only HEAD`` + untracked files so the precheck flow
          lines up with the commit-time resolver without callers needing to
          replay the path list.
-      3. ``domain_test_commands[domain]`` — when ``domain`` is set and a
+      4. ``domain_test_commands[domain]`` — when ``domain`` is set and a
          matching entry exists.  When ``domain`` is empty (the argparse
          default), auto-detect the active task's domain from the current
          branch via ``_detect_active_task_domain`` so the precheck command
@@ -587,11 +615,13 @@ def resolve_test_command(explicit: str, config_path: str, repo_root: str,
          ``bin/tusk-commit.py::load_test_command`` so a frontend-only commit
          doesn't trigger the full multi-suite global command on the
          pre-existing-failure check.
-      4. ``config["test_command"]`` (global).
-      5. ``tusk test-detect`` when confidence is not "none".
+      5. ``config["test_command"]`` (global).
+      6. ``tusk test-detect`` when confidence is not "none".
     """
     if explicit:
         return explicit
+    if failed_gate_command:
+        return failed_gate_command
 
     cfg = None
     try:
@@ -770,6 +800,14 @@ def main(argv):
     config_path = argv[1]
     script_dir = os.path.dirname(os.path.abspath(__file__))
 
+    failed_gate_command = _failed_gate_replay_command(
+        repo_root,
+        script_dir,
+        explicit=args.command,
+        paths=args.paths,
+        domain=args.domain,
+    )
+
     test_command = resolve_test_command(
         explicit=args.command,
         config_path=config_path,
@@ -777,6 +815,7 @@ def main(argv):
         script_dir=script_dir,
         paths=args.paths,
         domain=args.domain,
+        failed_gate_command=failed_gate_command,
     )
     if test_command == TEST_COMMAND_SKIPPED:
         payload = {

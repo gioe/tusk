@@ -1,6 +1,7 @@
 """Unit tests for linked-worktree command rewriting."""
 
 import importlib.util
+import json
 import os
 import subprocess
 from unittest.mock import MagicMock
@@ -115,3 +116,59 @@ def test_command_is_unchanged_in_primary_checkout():
 
     assert did_rewrite is False
     assert rewritten == command
+
+
+def _state_runner(module, state_path, head="abc123"):
+    def fake_run(args, check=True, cwd=None, **_kwargs):
+        if args[-2:] == ["--git-path", module.FAILED_TEST_GATE_STATE]:
+            return _cp(0, stdout=f"{state_path}\n")
+        if args[-2:] == ["rev-parse", "HEAD"]:
+            return _cp(0, stdout=f"{head}\n")
+        return _cp(1)
+
+    return fake_run
+
+
+def test_failed_gate_round_trip_is_keyed_to_task_and_head(tmp_path):
+    mod = _load_module()
+    state_path = tmp_path / "git-meta" / mod.FAILED_TEST_GATE_STATE
+    runner = _state_runner(mod, state_path)
+
+    mod.record_failed_test_gate(
+        "/repo", 850, "android/gradlew test", 1, runner=runner,
+    )
+
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert payload["task_id"] == 850
+    assert payload["head_sha"] == "abc123"
+    assert payload["test_command"] == "android/gradlew test"
+    assert payload["exit_code"] == 1
+    assert mod.load_failed_test_gate_command(
+        "/repo", 850, runner=runner,
+    ) == "android/gradlew test"
+    assert mod.load_failed_test_gate_command("/repo", 849, runner=runner) == ""
+    assert mod.load_failed_test_gate_command(
+        "/repo", 850, runner=_state_runner(mod, state_path, head="new-head"),
+    ) == ""
+
+
+def test_failed_gate_malformed_state_fails_closed(tmp_path):
+    mod = _load_module()
+    state_path = tmp_path / mod.FAILED_TEST_GATE_STATE
+    state_path.write_text("{bad json", encoding="utf-8")
+
+    assert mod.load_failed_test_gate_command(
+        "/repo", 850, runner=_state_runner(mod, state_path),
+    ) == ""
+
+
+def test_clear_failed_gate_is_idempotent(tmp_path):
+    mod = _load_module()
+    state_path = tmp_path / mod.FAILED_TEST_GATE_STATE
+    state_path.write_text("{}\n", encoding="utf-8")
+    runner = _state_runner(mod, state_path)
+
+    mod.clear_failed_test_gate("/repo", runner=runner)
+    mod.clear_failed_test_gate("/repo", runner=runner)
+
+    assert not state_path.exists()

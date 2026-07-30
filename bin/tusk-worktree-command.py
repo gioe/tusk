@@ -1,12 +1,16 @@
 """Helpers for making shell commands portable across linked worktrees."""
 
+from datetime import datetime, timezone
+import json
 import os
 import re
 import shlex
 import subprocess
+import tempfile
 from collections.abc import Callable
 
 
+FAILED_TEST_GATE_STATE = "tusk-failed-test-gate.json"
 _PYTHON_VENV_RE = re.compile(r"\.venv/bin/python(?:3(?:\.\d+)?)?\b")
 _CD_VENV_RE = re.compile(
     r"(?P<prefix>(?:^|&&|\|\||;)\s*cd\s+"
@@ -63,6 +67,134 @@ def primary_checkout_root(
     if os.path.basename(common_dir_path) != ".git":
         return None
     return os.path.dirname(common_dir_path)
+
+
+def _failed_test_gate_state_path(
+    repo_root: str,
+    *,
+    runner: Callable = _run,
+) -> str:
+    """Return a worktree-local Git metadata path for the failed-gate handoff."""
+    try:
+        result = runner(
+            [
+                "git", "rev-parse", "--path-format=absolute", "--git-path",
+                FAILED_TEST_GATE_STATE,
+            ],
+            check=False,
+            cwd=repo_root,
+        )
+    except Exception:
+        return ""
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def _head_sha(repo_root: str, *, runner: Callable = _run) -> str:
+    try:
+        result = runner(
+            ["git", "rev-parse", "HEAD"],
+            check=False,
+            cwd=repo_root,
+        )
+    except Exception:
+        return ""
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def clear_failed_test_gate(
+    repo_root: str,
+    *,
+    runner: Callable = _run,
+) -> None:
+    """Best-effort removal of this worktree's previous failed-gate handoff."""
+    path = _failed_test_gate_state_path(repo_root, runner=runner)
+    if not path:
+        return
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass
+
+
+def record_failed_test_gate(
+    repo_root: str,
+    task_id: int,
+    test_command: str,
+    exit_code: int,
+    *,
+    runner: Callable = _run,
+) -> None:
+    """Atomically record the exact command rejected by this worktree's gate."""
+    path = _failed_test_gate_state_path(repo_root, runner=runner)
+    head_sha = _head_sha(repo_root, runner=runner)
+    if not path or not head_sha or not test_command:
+        return
+    payload = {
+        "version": 1,
+        "task_id": int(task_id),
+        "head_sha": head_sha,
+        "test_command": test_command,
+        "exit_code": int(exit_code),
+        "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+    tmp_path = ""
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=os.path.dirname(path),
+            prefix=f".{os.path.basename(path)}.",
+            delete=False,
+        ) as tmp:
+            json.dump(payload, tmp, sort_keys=True)
+            tmp.write("\n")
+            tmp_path = tmp.name
+        os.replace(tmp_path, path)
+    except (OSError, TypeError, ValueError):
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
+def load_failed_test_gate_command(
+    repo_root: str,
+    task_id: int | None,
+    *,
+    runner: Callable = _run,
+) -> str:
+    """Return the exact failed command for the current task and HEAD.
+
+    Malformed, foreign-task, and stale-HEAD records fail closed so standalone
+    prechecks retain their ordinary path/domain/global command resolution.
+    """
+    if task_id is None:
+        return ""
+    path = _failed_test_gate_state_path(repo_root, runner=runner)
+    current_head = _head_sha(repo_root, runner=runner)
+    if not path or not current_head:
+        return ""
+    try:
+        with open(path, encoding="utf-8") as state_file:
+            payload = json.load(state_file)
+    except (OSError, json.JSONDecodeError):
+        return ""
+    if (
+        payload.get("version") != 1
+        or payload.get("task_id") != task_id
+        or payload.get("head_sha") != current_head
+    ):
+        return ""
+    command = payload.get("test_command")
+    return command if isinstance(command, str) and command else ""
 
 
 def _strip_shell_quotes(value: str) -> str:

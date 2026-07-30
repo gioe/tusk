@@ -593,6 +593,17 @@ A single observed elapsed time for a `test_command` invocation. Populated by `tu
 
 A recorded `tusk test-precheck` result keyed by the HEAD commit and the exact `test_command`. Populated by `tusk-test-precheck.py` on every run (against HEAD with local changes stashed). Read by `tusk-commit.py`'s test gate: when the gate's own test run fails, it looks up the most recent same-HEAD, same-command verdict and — when that verdict is `pre_existing = 1` and within the 24h reuse window — bypasses the exit-2 refusal, lands the commit through the normal staging/lint/criterion path, and stamps a `[test-precheck-bypass]` note into the commit message body (issue #1083). The HEAD sha pins the exact committed state, so a same-HEAD verdict stays valid as long as HEAD has not moved; the window only bounds how stale a verdict the gate will trust.
 
+An unbypassed exit-2 commit gate also writes a worktree-local
+`tusk-failed-test-gate.json` file under that linked worktree's Git metadata.
+It contains the task ID, HEAD, exit code, and exact post-worktree-rewrite
+command that ran. A subsequent bare `tusk test-precheck` replays that command
+only when the task and HEAD still match, so unrelated dirty or untracked paths
+cannot redirect diagnosis to another path/domain suite. Explicit `--command`,
+`--paths`, and `--domain` selectors bypass the handoff. The file is cleared
+before every real commit-gate run; malformed or stale state fails closed to
+normal precheck resolution. This state is operational handoff metadata, not
+durable domain data, so it does not live in SQLite.
+
 | Attribute | Type | Constraints | Description |
 |-----------|------|-------------|-------------|
 | `id` | INTEGER | PK, autoincrement | |
@@ -889,7 +900,7 @@ Non-enum config keys that control runtime behavior (not column validation). All 
 | `project_libs` | `object` | (examples) | Maps selected utility-pack keys to `{ repo, ref }` objects. `repo` is an owner/name GitHub repo path; `ref` is a branch, tag, or commit SHA pinning which `tusk-bootstrap.json` to fetch. |
 | `test_command` | `string` | `""` | Shell command used by `tusk commit` to run tests before committing. Empty string disables test gating. |
 | `domain_test_commands` | `object` | `{}` | Map of `task.domain → shell command`. When the active task has a domain and a matching entry, `tusk commit` uses that command instead of the global `test_command`. |
-| `path_test_commands` | `object` | `{}` | Map of `glob pattern → shell command`. Insertion order matters. Before falling back to `domain_test_commands` / `test_command`, `tusk commit` and `tusk test-precheck` pick the first pattern whose glob matches *every* staged/changed path. Users order patterns most-specific-first and append a `"*"` entry as an explicit catch-all. When staged paths span multiple patterns and no single pattern covers them all, resolution falls through (deterministic). Patterns use `fnmatch` semantics — `*` already matches across `/`. Absolute paths are normalized to repo-root-relative form before matching, so the configured patterns stay repo-relative regardless of how the caller spelled the path. An empty-string command disables that pattern — resolution falls through as if the entry were absent (same idiom as `domain_test_commands`). Resolution order: `path_test_commands` → `domain_test_commands` → `test_command`. |
+| `path_test_commands` | `object` | `{}` | Map of `glob pattern → shell command`. Insertion order matters. Before falling back to `domain_test_commands` / `test_command`, `tusk commit` and standalone `tusk test-precheck` resolution pick the first pattern whose glob matches *every* staged/changed path. A bare precheck immediately following an exit-2 commit gate instead replays that gate's exact worktree-local command when task and HEAD still match; explicit selectors bypass the replay. Users order patterns most-specific-first and append a `"*"` entry as an explicit catch-all. When staged paths span multiple patterns and no single pattern covers them all, resolution falls through (deterministic). Patterns use `fnmatch` semantics — `*` already matches across `/`. Absolute paths are normalized to repo-root-relative form before matching, so the configured patterns stay repo-relative regardless of how the caller spelled the path. An empty-string command disables that pattern — resolution falls through as if the entry were absent (same idiom as `domain_test_commands`). Standalone resolution order: `path_test_commands` → `domain_test_commands` → `test_command`. |
 | `path_test_commands_skip_unmatched` | `boolean` | `false` | When `true`, and `path_test_commands` is non-empty, commits or prechecks whose staged/changed paths do not touch any configured path-test surface skip the test gate instead of falling through to `domain_test_commands` / `test_command`. Mixed changes where at least one path touches a configured surface still fall through unless a single pattern covers every path, so relevant tests are not silently skipped. |
 | `review.mode` | `string` | `"ai_only"` | Controls AI code review. `"disabled"` skips review entirely; `"ai_only"` runs the configured reviewer. |
 | `review.max_passes` | `integer` | `2` | Maximum review-fix cycles before `/review-commits` surfaces unresolved findings to the user. |

@@ -257,6 +257,27 @@ class TestResolveTestCommandDomain:
         )
         assert cmd == "pytest -x"
 
+    def test_failed_gate_command_beats_automatic_path_and_domain(self, tmp_path):
+        cfg = self._write_cfg(tmp_path, {
+            "test_command": "global",
+            "path_test_commands": {"android/**": "android-test"},
+            "domain_test_commands": {"frontend": "npm test"},
+        })
+        cmd = mod.resolve_test_command(
+            explicit="", config_path=cfg, repo_root=str(tmp_path),
+            script_dir="/nonexistent", paths=None, domain="",
+            failed_gate_command="exact-failed-command",
+        )
+        assert cmd == "exact-failed-command"
+
+    def test_explicit_command_beats_failed_gate_command(self, tmp_path):
+        cfg = self._write_cfg(tmp_path, {"test_command": "global"})
+        cmd = mod.resolve_test_command(
+            explicit="explicit-command", config_path=cfg, repo_root=str(tmp_path),
+            script_dir="/nonexistent", failed_gate_command="failed-command",
+        )
+        assert cmd == "explicit-command"
+
     def test_empty_domain_string_skips_lookup(self, tmp_path):
         # Regression guard: argparse default is "" — must behave identically
         # to omitting the kwarg so every existing caller is regression-safe.
@@ -269,6 +290,43 @@ class TestResolveTestCommandDomain:
             script_dir="/nonexistent", paths=None, domain="",
         )
         assert cmd == "global"
+
+
+class TestFailedGateReplaySelection:
+    def test_bare_invocation_loads_current_task_handoff(self, monkeypatch):
+        monkeypatch.setattr(mod, "_detect_active_task_id", lambda _r, _s: 850)
+        monkeypatch.setattr(
+            mod._worktree_command,
+            "load_failed_test_gate_command",
+            lambda repo_root, task_id: (
+                "android-test" if (repo_root, task_id) == ("/repo", 850) else ""
+            ),
+        )
+
+        assert mod._failed_gate_replay_command(
+            "/repo", "/bin", explicit="", paths=None, domain="",
+        ) == "android-test"
+
+    @pytest.mark.parametrize(
+        ("explicit", "paths", "domain"),
+        [
+            ("manual-test", None, ""),
+            ("", ["android/Main.kt"], ""),
+            ("", None, "frontend"),
+        ],
+    )
+    def test_explicit_selectors_bypass_handoff(
+        self, monkeypatch, explicit, paths, domain
+    ):
+        monkeypatch.setattr(
+            mod._worktree_command,
+            "load_failed_test_gate_command",
+            lambda *_args: pytest.fail("handoff must not be loaded"),
+        )
+
+        assert mod._failed_gate_replay_command(
+            "/repo", "/bin", explicit=explicit, paths=paths, domain=domain,
+        ) == ""
 
 
 class TestAutoDetectActiveTaskDomain:

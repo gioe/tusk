@@ -178,6 +178,8 @@ USER / /loop
     │         │     resolution order: path_test_commands (insertion-order glob match
     │         │     where every staged path matches; optional skip when no staged path
     │         │     touches a configured surface) → domain_test_commands[task.domain] → test_command
+    │         │     unbypassed failure records exact command in worktree-local Git metadata
+    │         │       └── bare test-precheck replays it when task + HEAD still match
     │         ├── lint                  (advisory)
     │         ├── git stage + commit    [TASK-<id>] format
     │         └── criteria done <cid>  (binds commit hash)
