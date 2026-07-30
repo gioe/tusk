@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1247] - 2026-07-30
+
+- [TASK-852] Make task-start stale-default guidance branch-aware
+
 ## [1246] - 2026-07-30
 
 - [TASK-851] Prevent merge schema fallback from crossing repositories
