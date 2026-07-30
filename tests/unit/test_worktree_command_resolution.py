@@ -6,6 +6,8 @@ import os
 import subprocess
 from unittest.mock import MagicMock
 
+import pytest
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SCRIPT = os.path.join(REPO_ROOT, "bin", "tusk-worktree-command.py")
 
@@ -152,10 +154,11 @@ def test_failed_gate_round_trip_is_keyed_to_task_and_head(tmp_path):
     ) == ""
 
 
-def test_failed_gate_malformed_state_fails_closed(tmp_path):
+@pytest.mark.parametrize("content", ["{bad json", "[]", '"unexpected"'])
+def test_failed_gate_malformed_state_fails_closed(tmp_path, content):
     mod = _load_module()
     state_path = tmp_path / mod.FAILED_TEST_GATE_STATE
-    state_path.write_text("{bad json", encoding="utf-8")
+    state_path.write_text(content, encoding="utf-8")
 
     assert mod.load_failed_test_gate_command(
         "/repo", 850, runner=_state_runner(mod, state_path),

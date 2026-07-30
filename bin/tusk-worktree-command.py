@@ -187,6 +187,8 @@ def load_failed_test_gate_command(
             payload = json.load(state_file)
     except (OSError, json.JSONDecodeError):
         return ""
+    if not isinstance(payload, dict):
+        return ""
     if (
         payload.get("version") != 1
         or payload.get("task_id") != task_id
