@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1248] - 2026-07-30
+
+- [TASK-853] Keep typed test selectors out of auto-derived scope
+
 ## [1247] - 2026-07-30
 
 - [TASK-852] Make task-start stale-default guidance branch-aware
