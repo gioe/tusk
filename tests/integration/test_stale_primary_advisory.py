@@ -589,6 +589,30 @@ def _seed_repo_on_feature_main_behind(tmp_path):
     return primary
 
 
+def test_task_start_on_feature_branch_recommends_force_stale(
+    tmp_path, monkeypatch
+):
+    """Issue #1258: task-start must not recommend syncing a sibling feature
+    checkout when the local default branch is stale."""
+    primary = _seed_repo_on_feature_main_behind(tmp_path)
+    db_path, env = _init_tusk(primary, monkeypatch)
+    task_id = _insert_task(db_path)
+
+    result = _run(
+        ["task-start", str(task_id), "--force"],
+        cwd=primary,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    warning = json.loads(result.stdout)["warnings"]["stale_default_branch"]
+    assert warning["current_branch"] == "feature/SOME-OTHER-TASK"
+    assert "feature/SOME-OTHER-TASK" in warning["message"]
+    assert "tusk task-worktree create --force-stale" in warning["message"]
+    assert "origin/main" in warning["message"]
+    assert "sync-main" not in warning["message"]
+
+
 def test_on_feature_branch_main_current_does_not_refuse(tmp_path, monkeypatch):
     """issue #1123: when primary is on a sibling feature branch but its local
     default branch equals origin/<default>, task-worktree create must NOT

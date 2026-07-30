@@ -630,7 +630,7 @@ def _default_branch_staleness_warning(repo_root: str | None) -> dict | None:
         return None
     if behind_count <= 0:
         return None
-    return {
+    warning = {
         "type": "stale_default_branch",
         "default_branch": default,
         "behind_count": behind_count,
@@ -639,6 +639,34 @@ def _default_branch_staleness_warning(repo_root: str | None) -> dict | None:
             f"origin/{default}; consider syncing before investigating"
         ),
     }
+    try:
+        branch_res = subprocess.run(
+            [
+                "git", "-C", repo_root,
+                "symbolic-ref", "--quiet", "--short", "HEAD",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return warning
+
+    current_branch = (
+        branch_res.stdout.strip() if branch_res.returncode == 0 else ""
+    )
+    if current_branch and current_branch != default:
+        warning["current_branch"] = current_branch
+        warning["message"] = (
+            f"local {default} is {behind_count} commit(s) behind "
+            f"origin/{default}, but the primary checkout is currently on "
+            f"'{current_branch}', not {default}; create the task workspace with "
+            "tusk task-worktree create --force-stale to base it on "
+            f"origin/{default} directly"
+        )
+    return warning
 
 
 def _current_repo_root() -> str | None:

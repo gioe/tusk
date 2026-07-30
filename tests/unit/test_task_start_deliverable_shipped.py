@@ -234,6 +234,8 @@ def test_default_branch_staleness_warning_when_local_default_behind(monkeypatch)
             return _completed()
         if args[:4] == ["git", "-C", "/repo", "rev-list"]:
             return _completed(stdout="3\n")
+        if args[:4] == ["git", "-C", "/repo", "symbolic-ref"]:
+            return _completed(stdout="main\n")
         return _completed(returncode=1, stderr="unexpected")
 
     monkeypatch.setattr(mod.subprocess, "run", fake_run)
@@ -252,7 +254,54 @@ def test_default_branch_staleness_warning_when_local_default_behind(monkeypatch)
     assert calls == [
         ["git", "-C", "/repo", "fetch", "origin", "main", "--quiet"],
         ["git", "-C", "/repo", "rev-list", "--count", "main..origin/main"],
+        [
+            "git", "-C", "/repo",
+            "symbolic-ref", "--quiet", "--short", "HEAD",
+        ],
     ]
+
+
+def test_default_branch_staleness_warning_on_feature_recommends_force_stale(
+    monkeypatch,
+):
+    monkeypatch.setattr(mod._git_helpers, "default_branch", lambda repo: "main")
+
+    def fake_run(args, **kwargs):
+        if args[:4] == ["git", "-C", "/repo", "rev-list"]:
+            return _completed(stdout="2\n")
+        if args[:4] == ["git", "-C", "/repo", "symbolic-ref"]:
+            return _completed(stdout="feature/TASK-99-other-work\n")
+        return _completed()
+
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+    warning = mod._default_branch_staleness_warning("/repo")
+
+    assert warning["current_branch"] == "feature/TASK-99-other-work"
+    assert "feature/TASK-99-other-work" in warning["message"]
+    assert "tusk task-worktree create --force-stale" in warning["message"]
+    assert "origin/main" in warning["message"]
+    assert "sync-main" not in warning["message"]
+
+
+def test_default_branch_staleness_warning_detached_head_keeps_generic_guidance(
+    monkeypatch,
+):
+    monkeypatch.setattr(mod._git_helpers, "default_branch", lambda repo: "main")
+
+    def fake_run(args, **kwargs):
+        if args[:4] == ["git", "-C", "/repo", "rev-list"]:
+            return _completed(stdout="1\n")
+        if args[:4] == ["git", "-C", "/repo", "symbolic-ref"]:
+            return _completed(returncode=1)
+        return _completed()
+
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+
+    warning = mod._default_branch_staleness_warning("/repo")
+
+    assert "current_branch" not in warning
+    assert warning["message"].endswith("consider syncing before investigating")
 
 
 def test_default_branch_staleness_warning_silent_when_current(monkeypatch):
