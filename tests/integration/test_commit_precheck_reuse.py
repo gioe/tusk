@@ -14,6 +14,7 @@ prior `tusk test-precheck` run.
 
 import json
 import os
+import shlex
 import sqlite3
 import subprocess
 
@@ -74,6 +75,11 @@ def _make_db_with_verdict(repo: str, head_sha, pre_existing) -> None:
                 exit_code INTEGER NOT NULL,
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
+            CREATE TABLE tasks (
+                id INTEGER PRIMARY KEY,
+                domain TEXT
+            );
+            INSERT INTO tasks (id, domain) VALUES (999, 'frontend');
             """
         )
         if head_sha is not None:
@@ -215,3 +221,92 @@ def test_precheck_records_verdict_for_commit_reuse(tmp_path):
         f"stdout={result.stdout}\nstderr={result.stderr}"
     )
     assert "[test-precheck-bypass]" in _last_message(repo)
+
+
+def test_failed_path_gate_is_replayed_despite_unrelated_untracked_file(tmp_path):
+    """A bare precheck replays the exact failed commit gate, not a broader
+    dirty-tree path/domain fallback (issue #1261)."""
+    repo = str(tmp_path / "repo")
+    _git_init(repo)
+    subprocess.run(
+        ["git", "-C", repo, "checkout", "-q", "-b", "feature/TASK-999-android"],
+        check=True,
+    )
+    _make_db_with_verdict(repo, head_sha=None, pre_existing=0)
+
+    android_count = tmp_path / "android-count.txt"
+    frontend_count = tmp_path / "frontend-count.txt"
+    android_gate = tmp_path / "android-gate.sh"
+    frontend_gate = tmp_path / "frontend-gate.sh"
+    android_gate.write_text(
+        f"#!/bin/sh\nprintf 'run\\n' >> {shlex.quote(str(android_count))}\nexit 1\n",
+        encoding="utf-8",
+    )
+    frontend_gate.write_text(
+        f"#!/bin/sh\nprintf 'run\\n' >> {shlex.quote(str(frontend_count))}\nexit 1\n",
+        encoding="utf-8",
+    )
+    android_gate.chmod(0o755)
+    frontend_gate.chmod(0o755)
+
+    with open(CONFIG_DEFAULT, encoding="utf-8") as f:
+        cfg = json.load(f)
+    android_command = shlex.quote(str(android_gate))
+    cfg["test_command"] = "false"
+    cfg["path_test_commands"] = {"android/**": android_command}
+    cfg["domain_test_commands"] = {
+        "frontend": shlex.quote(str(frontend_gate)),
+    }
+    config_path = tmp_path / "path-config.json"
+    config_path.write_text(json.dumps(cfg), encoding="utf-8")
+
+    os.makedirs(os.path.join(repo, "android"), exist_ok=True)
+    with open(os.path.join(repo, "android", "Main.kt"), "w", encoding="utf-8") as f:
+        f.write("class Main\n")
+
+    failed_commit = _run_commit(repo, str(config_path), "android/Main.kt")
+    assert failed_commit.returncode == 2, failed_commit.stderr
+    assert android_count.read_text(encoding="utf-8").splitlines() == ["run"]
+
+    with open(os.path.join(repo, "notes.txt"), "w", encoding="utf-8") as f:
+        f.write("unrelated\n")
+
+    env = os.environ.copy()
+    env["TUSK_PROJECT"] = repo
+    env["TUSK_QUIET"] = "1"
+    precheck = subprocess.run(
+        [
+            "python3",
+            os.path.join(REPO_ROOT, "bin", "tusk-test-precheck.py"),
+            repo,
+            str(config_path),
+            "--flake-retries",
+            "2",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=repo,
+        env=env,
+    )
+    assert precheck.returncode == 0, precheck.stderr
+    verdict = json.loads(precheck.stdout)
+    assert verdict["test_command"] == android_command
+    assert verdict["pre_existing"] is True
+    assert verdict["flake_runs_total"] == 3
+    assert verdict["flake_failures"] == 3
+    assert not frontend_count.exists()
+    assert len(android_count.read_text(encoding="utf-8").splitlines()) == 4
+
+    db = os.path.join(repo, "tusk", "tasks.db")
+    with sqlite3.connect(db) as conn:
+        row = conn.execute(
+            "SELECT test_command, pre_existing, exit_code "
+            "FROM precheck_verdicts ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    assert row == (android_command, 1, 1)
+
+    retried_commit = _run_commit(repo, str(config_path), "android/Main.kt")
+    assert retried_commit.returncode == 0, retried_commit.stderr
+    assert "[test-precheck-bypass]" in _last_message(repo)
+    assert len(android_count.read_text(encoding="utf-8").splitlines()) == 5

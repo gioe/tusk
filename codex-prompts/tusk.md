@@ -646,9 +646,14 @@ JSON blob and the `skill_run.run_id` you already captured.
    ```bash
    tusk test-precheck --command "<test_command>" --flake-retries 2
    ```
-   `tusk test-precheck` resolves the test command, stashes any local
-   changes safely under a uniquely-named entry, runs the test against
-   HEAD, and pops that entry by reference. Output is JSON:
+   After an exit-2 commit gate, a bare `tusk test-precheck` replays the
+   exact failed command recorded for the current task and HEAD, so unrelated
+   dirty paths cannot redirect diagnosis to another path/domain suite.
+   `--command`, `--paths`, and `--domain` explicitly bypass that replay.
+   Without an eligible replay, it resolves path command → domain command →
+   global command → test-detect. It stashes any local changes safely under a
+   uniquely-named entry, runs the test against HEAD, and pops that entry by
+   reference. Output is JSON:
    `{pre_existing, exit_code, test_command, stashed,
    diverged_from_default, diverged_paths}`, plus
    `{flake_runs_total, flake_failures, flaky_suspect}` when
