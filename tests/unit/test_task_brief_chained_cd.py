@@ -129,6 +129,41 @@ def test_leading_literal_cd_behavior_is_preserved():
     ]
 
 
+@pytest.mark.parametrize(
+    ("verification_spec", "expected_paths"),
+    [
+        (
+            "cd apps | rg -Fq marker lib/example.test.ts",
+            ["apps", "lib/example.test.ts"],
+        ),
+        (
+            "cd apps & rg -Fq marker lib/example.test.ts",
+            ["apps", "lib/example.test.ts"],
+        ),
+        (
+            "cd apps ; rg -Fq marker lib/example.test.ts",
+            ["apps", "apps/lib/example.test.ts"],
+        ),
+        (
+            "cd apps || rg -Fq marker lib/example.test.ts",
+            ["apps", "apps/lib/example.test.ts"],
+        ),
+        (
+            "cd apps && command | rg -Fq marker lib/example.test.ts",
+            ["apps", "apps/lib/example.test.ts"],
+        ),
+        (
+            "cd apps && command & rg -Fq marker lib/example.test.ts",
+            ["apps", "lib/example.test.ts"],
+        ),
+    ],
+)
+def test_spec_paths_respect_shell_cwd_boundaries(
+    verification_spec, expected_paths
+):
+    assert brief._spec_paths(verification_spec) == expected_paths
+
+
 def test_dot_prefixed_executable_resolves_after_chained_cd():
     assert brief._spec_paths(
         "cd apps/scraper && "

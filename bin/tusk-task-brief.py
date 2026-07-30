@@ -114,11 +114,29 @@ def _spec_paths(spec: str) -> list[str]:
     paths: list[str] = []
 
     current_dir: str | None = ""
+    command_base: str | None = current_dir
+    and_or_base: str | None = current_dir
+    pipeline_base: str | None = None
+    in_pipeline = False
     at_command_start = True
     index = 0
     while index < len(tokens):
         token = tokens[index]
         if _is_control_operator(token):
+            if token in {"|", "|&"}:
+                if not in_pipeline:
+                    pipeline_base = command_base
+                    in_pipeline = True
+                current_dir = pipeline_base
+            else:
+                if in_pipeline:
+                    current_dir = pipeline_base
+                    in_pipeline = False
+                if token == "&":
+                    current_dir = and_or_base
+                if token in {";", "&"}:
+                    and_or_base = current_dir
+            command_base = current_dir
             at_command_start = True
             index += 1
             continue
