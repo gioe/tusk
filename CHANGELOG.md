@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1242] - 2026-07-29
+
+- [TASK-847] Fix: Make null Codex usage finalization atomic
+
 ## [1241] - 2026-07-21
 
 - [TASK-831] Optimize task-summary baseline cost aggregation

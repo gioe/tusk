@@ -273,7 +273,7 @@ class TestCodexToolCallCosts:
         assert out[1]["cost"] == pytest.approx(expected_total_cost / 2, rel=1e-9)
 
 
-def test_codex_turn_usage_ignores_null_info_without_resetting_total():
+def test_codex_turn_with_null_info_preserves_previous_total():
     previous = {"input_tokens": 1000}
 
     usage, total = lib._codex_turn_usage(None, previous)
