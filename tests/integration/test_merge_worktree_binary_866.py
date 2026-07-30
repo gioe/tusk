@@ -58,6 +58,24 @@ def _write_migrate_py(path, max_version: int) -> None:
     path.write_text("".join(lines), encoding="utf-8")
 
 
+def _git(repo, *args) -> subprocess.CompletedProcess:
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert result.returncode == 0, result.stderr
+    return result
+
+
+def _init_repo(repo) -> None:
+    repo.mkdir(parents=True, exist_ok=True)
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "test@example.com")
+    _git(repo, "config", "user.name", "Test User")
+
+
 class TestBinSupportsSchema:
     """Unit coverage of the helper that mirrors bin/tusk's preflight parsing."""
 
@@ -171,12 +189,17 @@ class TestResolveStableTuskBinSchemaAware:
 
         return str(db_path), str(primary_bin), str(fallback_bin)
 
-    def test_falls_back_to_worktree_when_primary_schema_stale(self, tmp_path, capsys):
+    def test_falls_back_to_worktree_when_primary_schema_stale(
+        self, tmp_path, capsys, monkeypatch
+    ):
         """The canonical issue #866 scenario: primary is at vN, worktree authored
         migration N+1, DB is at vN+1. Returns the worktree's binary and prints a
         single-line diagnostic to stderr."""
         db_path, primary_bin, fallback_bin = self._make_layout(
             tmp_path, primary_max=69, fallback_max=70, db_version=70
+        )
+        monkeypatch.setattr(
+            tusk_merge, "_fallback_belongs_to_db_repository", lambda *_args: True
         )
 
         result = tusk_merge._resolve_stable_tusk_bin(db_path, fallback_bin)
@@ -186,6 +209,77 @@ class TestResolveStableTuskBinSchemaAware:
         assert "issue #866" in err
         assert primary_bin in err
         assert fallback_bin in err
+
+    def test_rejects_schema_capable_fallback_from_unrelated_repo(
+        self, tmp_path, capsys
+    ):
+        project = tmp_path / "project"
+        foreign = tmp_path / "foreign"
+        _init_repo(project)
+        _init_repo(foreign)
+
+        primary_bin_dir = project / "bin"
+        primary_bin_dir.mkdir()
+        primary_bin = primary_bin_dir / "tusk"
+        primary_bin.write_text("")
+        _write_migrate_py(primary_bin_dir / "tusk-migrate.py", 69)
+
+        fallback_bin_dir = foreign / "bin"
+        fallback_bin_dir.mkdir()
+        fallback_bin = fallback_bin_dir / "tusk"
+        fallback_bin.write_text("")
+        _write_migrate_py(fallback_bin_dir / "tusk-migrate.py", 70)
+
+        db_dir = project / "tusk"
+        db_dir.mkdir()
+        db_path = db_dir / "tasks.db"
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.execute("PRAGMA user_version = 70")
+
+        result = tusk_merge._resolve_stable_tusk_bin(
+            str(db_path), str(fallback_bin)
+        )
+
+        assert result == str(primary_bin)
+        err = capsys.readouterr().err
+        assert "refusing schema-capable fallback binary" in err
+        assert str(fallback_bin) in err
+        assert "Upgrade or sync the primary Tusk install" in err
+
+    def test_accepts_schema_capable_fallback_from_linked_worktree(
+        self, tmp_path, capsys
+    ):
+        project = tmp_path / "project"
+        linked = tmp_path / "linked"
+        _init_repo(project)
+
+        primary_bin_dir = project / "bin"
+        primary_bin_dir.mkdir()
+        primary_bin = primary_bin_dir / "tusk"
+        primary_bin.write_text("")
+        _write_migrate_py(primary_bin_dir / "tusk-migrate.py", 69)
+        _git(project, "add", "bin")
+        _git(project, "commit", "-m", "initial")
+        _git(project, "worktree", "add", "-b", "feature/schema", str(linked))
+
+        fallback_bin_dir = linked / "bin"
+        fallback_bin = fallback_bin_dir / "tusk"
+        _write_migrate_py(fallback_bin_dir / "tusk-migrate.py", 70)
+
+        db_dir = project / "tusk"
+        db_dir.mkdir()
+        db_path = db_dir / "tasks.db"
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.execute("PRAGMA user_version = 70")
+
+        result = tusk_merge._resolve_stable_tusk_bin(
+            str(db_path), str(fallback_bin)
+        )
+
+        assert result == str(fallback_bin)
+        err = capsys.readouterr().err
+        assert "issue #866" in err
+        assert "refusing schema-capable fallback binary" not in err
 
     def test_uses_primary_when_both_support_schema(self, tmp_path, capsys):
         """The common case: primary and worktree are both current. Existing
@@ -265,7 +359,9 @@ class TestResolveStableTuskBinSchemaAwareClaudeBranch:
     Source-repo branch is covered by TestResolveStableTuskBinSchemaAware above.
     """
 
-    def test_falls_back_to_worktree_from_claude_bin_branch(self, tmp_path, capsys):
+    def test_falls_back_to_worktree_from_claude_bin_branch(
+        self, tmp_path, capsys, monkeypatch
+    ):
         # Target project layout: .claude/bin/ but no bin/ + bin/tusk-migrate.py.
         claude_bin_dir = tmp_path / ".claude" / "bin"
         claude_bin_dir.mkdir(parents=True)
@@ -288,6 +384,9 @@ class TestResolveStableTuskBinSchemaAwareClaudeBranch:
         fallback_bin = fallback_bin_dir / "tusk"
         fallback_bin.write_text("")
         _write_migrate_py(fallback_bin_dir / "tusk-migrate.py", max_version=70)
+        monkeypatch.setattr(
+            tusk_merge, "_fallback_belongs_to_db_repository", lambda *_args: True
+        )
 
         result = tusk_merge._resolve_stable_tusk_bin(str(db_path), str(fallback_bin))
 
@@ -371,6 +470,9 @@ class TestNoCheckoutMergeUsesWorktreeBinaryOnSchemaMismatch:
         )
         monkeypatch.setattr(tusk_merge, "detect_default_branch", lambda: "main")
         monkeypatch.setattr(tusk_merge, "checkpoint_wal", lambda db: None)
+        monkeypatch.setattr(
+            tusk_merge, "_fallback_belongs_to_db_repository", lambda *_args: True
+        )
 
         # Build a worktree-local fallback whose tusk-migrate.py advertises v70
         # — i.e. the worktree just authored migration N+1.

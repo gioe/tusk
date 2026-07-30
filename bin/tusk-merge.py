@@ -155,6 +155,46 @@ def _db_user_version(db_path: str) -> int | None:
     return int(row[0])
 
 
+def _git_common_dir(path: str) -> str | None:
+    """Return the normalized Git common directory for ``path``.
+
+    Linked worktrees have different checkout roots and per-worktree git dirs,
+    but share one common directory. That makes common-dir identity the stable
+    repository provenance check for schema-capable merge fallbacks.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", path, "rev-parse", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    common_dir = result.stdout.strip()
+    if not common_dir:
+        return None
+    if not os.path.isabs(common_dir):
+        common_dir = os.path.join(path, common_dir)
+    return os.path.realpath(common_dir)
+
+
+def _fallback_belongs_to_db_repository(db_path: str, fallback: str) -> bool:
+    """Return True only when ``fallback`` can be proven to share the DB repo."""
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+    fallback_dir = os.path.dirname(os.path.realpath(fallback))
+    db_common_dir = _git_common_dir(repo_root)
+    fallback_common_dir = _git_common_dir(fallback_dir)
+    return bool(
+        db_common_dir
+        and fallback_common_dir
+        and db_common_dir == fallback_common_dir
+    )
+
+
 def _resolve_stable_tusk_bin(db_path: str, fallback: str) -> str:
     """Resolve a primary-install tusk binary that survives task-worktree cleanup.
 
@@ -215,6 +255,16 @@ def _maybe_fall_back_on_schema_mismatch(primary: str, fallback: str, db_path: st
     if _bin_supports_schema(primary, required):
         return primary
     if not _bin_supports_schema(fallback, required):
+        return primary
+    if not _fallback_belongs_to_db_repository(db_path, fallback):
+        print(
+            f"tusk: refusing schema-capable fallback binary {fallback} because "
+            "it cannot be verified as belonging to the repository that owns "
+            f"{db_path}; keeping primary binary {primary} so schema preflight "
+            "fails safely. Upgrade or sync the primary Tusk install, or rerun "
+            "merge from a task worktree of this repository.",
+            file=sys.stderr,
+        )
         return primary
     print(
         f"tusk: primary install binary {primary} does not support DB schema "
