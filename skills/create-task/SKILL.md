@@ -238,9 +238,13 @@ tusk scope-hint \
   --description "<description>" \
   --task-type "<task_type>" \
   --domain "<domain>" \
-  --criterion "<criterion 1 text>" [--criterion "<criterion 2 text>" ...] \
-  --typed-spec "<typed-criterion spec 1>" [--typed-spec "<typed-criterion spec 2>" ...]
+  --criterion "<criterion 1 text>" [--criterion "<criterion 2 text>" ...]
 ```
+
+Typed verification specs are validation metadata, not authorization to edit
+the files or selector targets they mention, so they are deliberately omitted
+from scope-hint. Typed criterion text is passed through `--criterion` and can
+still contribute genuine path references.
 
 The command returns JSON of the shape:
 
@@ -250,7 +254,7 @@ The command returns JSON of the shape:
   "creates": ["bin/foo.py"],
   "unbounded": false,
   "rationale": {
-    "scope": "extracted from summary/description/criteria/specs",
+    "scope": "extracted from summary/description/criteria",
     "creates": "description names a path as a new file/script"
   }
 }

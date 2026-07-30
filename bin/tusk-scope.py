@@ -315,13 +315,12 @@ def _effective_auto_derived_rows(
     explicit_patterns = {row["pattern"] for row in explicit_rows}
 
     criteria = conn.execute(
-        "SELECT criterion, verification_spec FROM acceptance_criteria WHERE task_id = ?",
+        "SELECT criterion FROM acceptance_criteria WHERE task_id = ?",
         (task_id,),
     ).fetchall()
     text_blocks = [task["summary"] or "", task["description"] or ""]
     for criterion in criteria:
         text_blocks.append(criterion["criterion"] or "")
-        text_blocks.append(criterion["verification_spec"] or "")
 
     ti = _task_update._task_insert
     gh = _task_update._git_helpers

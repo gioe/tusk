@@ -79,12 +79,11 @@ def _rederive_auto_scope(
 
     text_blocks = [task["summary"] or "", task["description"] or ""]
     criteria = conn.execute(
-        "SELECT criterion, verification_spec FROM acceptance_criteria WHERE task_id = ?",
+        "SELECT criterion FROM acceptance_criteria WHERE task_id = ?",
         (task_id,),
     ).fetchall()
     for criterion in criteria:
         text_blocks.append(criterion["criterion"] or "")
-        text_blocks.append(criterion["verification_spec"] or "")
 
     repo_root = _task_insert._repo_root(config_path)
     task_type = task["task_type"] if "task_type" in task.keys() else None

@@ -81,8 +81,6 @@ def _collect_text_blocks(args: argparse.Namespace) -> list[str]:
         blocks.append(args.description)
     for c in args.criterion:
         blocks.append(c)
-    for spec in args.typed_spec:
-        blocks.append(spec)
     return blocks
 
 
@@ -162,7 +160,7 @@ def main(argv: list) -> int:
     )
     parser.add_argument(
         "--typed-spec", action="append", default=[], dest="typed_spec", metavar="SPEC",
-        help="Typed-criterion verification spec (repeatable)",
+        help="Typed-criterion verification metadata; ignored for scope (repeatable)",
     )
     parser.add_argument(
         "--task-type", default=None, dest="task_type",
@@ -180,7 +178,7 @@ def main(argv: list) -> int:
 
     rationale: dict = {}
     if scope:
-        rationale["scope"] = "extracted from summary/description/criteria/specs"
+        rationale["scope"] = "extracted from summary/description/criteria"
     if creates:
         rationale["creates"] = "description names a path as a new file/script"
     if unbounded_flag:

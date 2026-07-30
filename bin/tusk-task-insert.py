@@ -1060,7 +1060,6 @@ def derive_auto_scope_patterns(
     text_blocks = [summary or "", description or "", *criteria]
     for tc in typed_criteria:
         text_blocks.append(tc.get("text") or "")
-        text_blocks.append(tc.get("spec") or "")
     intended_creates = {
         _resolve_auto_derived_scope_pattern(repo_root, path)
         for path in _git_helpers.extract_explicit_creation_paths(text_blocks)
