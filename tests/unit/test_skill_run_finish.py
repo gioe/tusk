@@ -171,6 +171,53 @@ def test_finish_without_transcript_records_missing_transcript_sentinel(db_path, 
     assert row["model"] == "(transcript missing)"
 
 
+def test_finish_aggregation_failure_leaves_run_open_and_metadata_unchanged(
+    db_path, monkeypatch
+):
+    transcript = db_path.parent / "codex.jsonl"
+    transcript.write_text("{}\n")
+    c = sqlite3.connect(str(db_path))
+    c.execute(
+        "INSERT INTO skill_runs"
+        " (skill_name, started_at, metadata, transcript_path, transcript_provider)"
+        " VALUES (?, ?, ?, ?, ?)",
+        (
+            "tusk",
+            "2026-05-01 10:00:00",
+            "before",
+            str(transcript),
+            "codex",
+        ),
+    )
+    c.commit()
+    c.close()
+
+    monkeypatch.setattr(skill_run.lib, "load_pricing", lambda: None)
+
+    def fail_aggregation(*args, **kwargs):
+        raise AttributeError("null usage info")
+
+    monkeypatch.setattr(skill_run.lib, "aggregate_session", fail_aggregation)
+
+    exit_code, out, err = _run_main(
+        db_path, monkeypatch, "finish", "1", "--metadata", "after"
+    )
+
+    c = sqlite3.connect(str(db_path))
+    c.row_factory = sqlite3.Row
+    row = c.execute(
+        "SELECT ended_at, metadata, telemetry_status FROM skill_runs WHERE id = 1"
+    ).fetchone()
+    c.close()
+
+    assert exit_code == 1
+    assert out == ""
+    assert "skill-run finish crashed with AttributeError: null usage info" in err
+    assert row["ended_at"] is None
+    assert row["metadata"] == "before"
+    assert row["telemetry_status"] is None
+
+
 def test_finish_uses_sibling_tusk_for_call_breakdown(db_path, monkeypatch):
     c = sqlite3.connect(str(db_path))
     c.execute(

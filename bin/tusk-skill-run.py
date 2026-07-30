@@ -111,24 +111,17 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
             print(f"  Metadata:      {row['metadata']}")
         return
 
-    # Set ended_at
-    conn.execute(
-        "UPDATE skill_runs SET ended_at = datetime('now') WHERE id = ?",
-        (run_id,),
-    )
-    conn.commit()
-
-    # Re-fetch with ended_at populated
-    row = conn.execute(
-        "SELECT id, skill_name, started_at, ended_at, transcript_path, transcript_provider "
-        "FROM skill_runs WHERE id = ?",
-        (run_id,),
-    ).fetchone()
+    # Snapshot the end of the attribution window without mutating the row.
+    # Transcript discovery and aggregation can fail, so ended_at must be
+    # persisted atomically with the telemetry fields below.
+    ended_at_text = conn.execute(
+        "SELECT datetime('now') AS ended_at"
+    ).fetchone()["ended_at"]
 
     lib.load_pricing()
 
     started_at = lib.parse_sqlite_timestamp(row["started_at"])
-    ended_at = lib.parse_sqlite_timestamp(row["ended_at"])
+    ended_at = lib.parse_sqlite_timestamp(ended_at_text)
 
     pinned_transcript_path = row["transcript_path"] or ""
     transcript_provider = row["transcript_provider"] or lib.active_transcript_provider()
@@ -195,19 +188,27 @@ def cmd_finish(conn, run_id: int, metadata: str | None, db_path: str) -> None:
             file=sys.stderr,
         )
 
-    conn.execute(
+    update = conn.execute(
         """UPDATE skill_runs
-           SET cost_dollars = ?, tokens_in = ?, tokens_out = ?, model = ?,
+           SET ended_at = ?,
+               cost_dollars = ?, tokens_in = ?, tokens_out = ?, model = ?,
                metadata = ?, request_count = ?,
                user_prompt_tokens = ?, user_prompt_count = ?,
                cache_read_tokens_in = ?, cache_write_tokens_in = ?, uncached_tokens_in = ?,
                telemetry_status = ?, transcript_path = ?, transcript_provider = ?
-           WHERE id = ?""",
-        (cost, tokens_in, tokens_out, model, metadata, request_count,
+           WHERE id = ? AND ended_at IS NULL""",
+        (ended_at_text, cost, tokens_in, tokens_out, model, metadata, request_count,
          user_prompt_tokens, user_prompt_count,
          cache_read_tokens_in, cache_write_tokens_in, uncached_tokens_in, status,
          transcript_path, transcript_provider, run_id),
     )
+    if update.rowcount == 0:
+        conn.rollback()
+        print(
+            f"Warning: Run {run_id} was finished concurrently; computed telemetry was not overwritten.",
+            file=sys.stderr,
+        )
+        return
     conn.commit()
     # Close connection before spawning subprocess to avoid SQLITE_BUSY (two write
     # connections to the same DB file under the default journal mode).
