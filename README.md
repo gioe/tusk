@@ -127,7 +127,7 @@ Tusk ships parallel Claude Code skills and Codex prompt ports for its major work
 | `create-task` | Convert requirements, bugs, notes, or investigations into structured, deduplicated tasks |
 | `resume-task` | Recover interrupted work from task state, branch history, and progress checkpoints |
 | `chain` | Execute a dependency sub-DAG in ready order |
-| `objective` | Decompose and drive a multi-task initiative through completion |
+| `objective` | Plan an objective without execution, run an existing plan, or perform the full lifecycle |
 | `loop` | Continue through ready backlog work until a stop condition or empty backlog |
 | `groom-backlog` | Close stale work, detect duplicates, repair scope, and normalize priority |
 | `review-commits` | Review task commits, fix blocking findings, and preserve follow-ups |
