@@ -467,6 +467,14 @@ def test_import_reuses_skipped_duplicate_for_objective_and_dependency_keys(tmp_p
         "INSERT INTO tasks (summary, description, status) VALUES (?, ?, 'To Do')",
         ("Existing plan task", "Already in backlog"),
     )
+    conn.execute(
+        "INSERT INTO tasks (summary, description, status) VALUES (?, ?, 'To Do')",
+        ("Concurrent unrelated task A", "Must not be linked"),
+    )
+    conn.execute(
+        "INSERT INTO tasks (summary, description, status) VALUES (?, ?, 'To Do')",
+        ("Concurrent unrelated task B", "Must not be linked"),
+    )
     conn.execute("INSERT INTO objectives (summary) VALUES (?)", ("Plan objective",))
     conn.commit()
     conn.close()
@@ -506,18 +514,18 @@ def test_import_reuses_skipped_duplicate_for_objective_and_dependency_keys(tmp_p
 
     assert code == 0
     assert payload["skipped"]["0"]["matched_task_id"] == 1
-    assert payload["created"]["1"]["task_id"] == 2
+    assert payload["created"]["1"]["task_id"] == 4
     conn = sqlite3.connect(db_path)
     assert conn.execute(
         "SELECT objective_id, task_id, relationship_type "
         "FROM objective_tasks ORDER BY task_id"
     ).fetchall() == [
         (1, 1, "primary"),
-        (1, 2, "contributes_to"),
+        (1, 4, "contributes_to"),
     ]
     assert conn.execute(
         "SELECT task_id, depends_on_id FROM task_dependencies"
-    ).fetchall() == [(2, 1)]
+    ).fetchall() == [(4, 1)]
     conn.close()
 
 
