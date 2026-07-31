@@ -213,7 +213,7 @@ class TestResolveStableTuskBinSchemaAware:
     def test_rejects_schema_capable_fallback_from_unrelated_repo(
         self, tmp_path, capsys
     ):
-        project = tmp_path / "project"
+        project = tmp_path / "project with spaces"
         foreign = tmp_path / "foreign"
         _init_repo(project)
         _init_repo(foreign)
@@ -245,7 +245,7 @@ class TestResolveStableTuskBinSchemaAware:
         assert "refusing schema-capable fallback binary" in err
         assert str(fallback_bin) in err
         assert str(primary_bin) in err
-        assert f"Recovery: {primary_bin} upgrade --no-commit" in err
+        assert f"Recovery: '{primary_bin}' upgrade --no-commit" in err
 
     @staticmethod
     def _make_machine_runtime_layout(tmp_path, *, marker="codex-consumer"):
