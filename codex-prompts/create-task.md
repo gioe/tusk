@@ -390,6 +390,8 @@ Step 6 was merged into Step 5 here.)
 
 Skip this step when:
 
+- `OBJECTIVE_ID` is present — dependencies were analyzed and approved before
+  Step 6 so they could be included in the atomic import payload, OR
 - Zero tasks were created (all duplicates), OR
 - Exactly one task was created.
 
@@ -425,8 +427,9 @@ Don't propose more than necessary — most independent tasks need no edges.
 | 16 | Add rate limiting middleware | Medium | api |
 ```
 
-Show the **Dependencies added** line only when Step 7 inserted edges —
-omit when skipped or when the user removed all proposals.
+Show the **Dependencies added** line when Step 7 inserted edges or when
+objective-planning context inserted approved edges atomically in Step 6.
+Omit it when dependency planning was skipped.
 
 ### Zero-criteria check
 

@@ -44,3 +44,6 @@ def test_create_task_surfaces_define_objective_planning_persistence_contract():
         assert "skipped.*.matched_task_id" in body
         assert "`--best-effort`" in body
         assert "maximum-ID" in body
+        assert "dependencies were analyzed and approved before" in body or (
+            "dependency analysis and approval already happened before" in body
+        )

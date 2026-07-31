@@ -572,6 +572,7 @@ Report the error and skip.
 ## Step 7: Propose Dependencies
 
 Skip this step if:
+- `OBJECTIVE_ID` is present — dependency analysis and approval already happened before Step 6 so the edges could be included in the atomic import payload, OR
 - Zero tasks were created (all were duplicates), OR
 - Exactly **one** task was created (single-task fast path — no inter-task dependencies to propose, and checking against the backlog adds ceremony for the most common use case)
 
@@ -601,7 +602,10 @@ After processing all tasks, show a summary:
 | 16 | Add rate limiting middleware | Medium | api |
 ```
 
-Include the **Dependencies added** line only when Step 7 was executed (i.e., two or more tasks were created). If Step 7 was skipped (all duplicates, single-task fast path, or user skipped all dependencies), omit the line. If dependencies were proposed but the user removed some, only list the ones actually inserted.
+Include the **Dependencies added** line when Step 7 inserted edges or when
+objective-planning context inserted approved edges atomically in Step 6. If
+dependency planning was skipped, omit the line. If the user removed some
+proposals, only list the edges actually inserted.
 
 ### Zero-criteria check
 
