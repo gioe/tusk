@@ -141,10 +141,10 @@ In `--dry-run`, `created` entries contain `{"dry_run": true}` plus `key` when pr
 Duplicate policy is per task:
 
 - `fail` rejects a fuzzy duplicate as a failure (`duplicate_policy: duplicate of TASK-N`).
-- `skip` records the item under `skipped` with `reason`, `matched_task_id`, `matched_summary`, and `similarity`.
+- `skip` records the item under `skipped` with `reason`, `matched_task_id`, `matched_summary`, and `similarity`. A standalone skipped item remains write-free. When it has explicit objective/dependency relationships or its local `key` is referenced by another item, the matched task ID is reused inside the same transaction: local dependencies can resolve to it, its declared edges are applied, and its objective links are upserted atomically with newly created tasks.
 - `allow` bypasses the duplicate check for that item.
 
-Transaction mode is batch-atomic by default: any validation or write failure exits 2 and rolls back the whole import, clearing prior `created` entries. `--best-effort` commits each valid task as it succeeds and reports later invalid tasks under `failed`; use it only when partial backlog creation is acceptable.
+Transaction mode is batch-atomic by default: any validation or write failure exits 2 and rolls back the whole import, clearing prior `created` entries. This includes edges and objective links applied to reused duplicate matches, so an objective plan cannot partially link existing tasks when a later row fails. `--best-effort` commits each valid task as it succeeds and reports later invalid tasks under `failed`; use it only when partial backlog creation is acceptable.
 
 Dependency keys are resolved after task rows exist. `depends_on` entries may be:
 

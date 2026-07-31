@@ -89,6 +89,7 @@ class TaskPlan:
     deps: list[DependencyRef] = field(default_factory=list)
     objectives: list[ObjectiveRef] = field(default_factory=list)
     dupe: dict[str, Any] | None = None
+    reused_task_id: int | None = None
 
 
 def _result_shell() -> dict[str, dict[str, Any]]:
@@ -510,10 +511,10 @@ def _materialize_task(
     return inserted.task_id, inserted.criteria_ids, inserted.typed_inserted
 
 
-def _resolve_dep_id(dep: DependencyRef, key_to_created_id: dict[str, int]) -> int:
+def _resolve_dep_id(dep: DependencyRef, key_to_task_id: dict[str, int]) -> int:
     if dep.task_id is not None:
         return dep.task_id
-    return key_to_created_id[dep.key or ""]
+    return key_to_task_id[dep.key or ""]
 
 
 def _would_create_dependency_cycle(
@@ -549,25 +550,48 @@ def _execute_import(
 ) -> int:
     if dry_run:
         for plan in plans:
+            if plan.reused_task_id is not None:
+                continue
             result["created"][str(plan.index)] = {"dry_run": True}
             if plan.key is not None:
                 result["created"][str(plan.index)]["key"] = plan.key
         return 2 if result["failed"] else 0
 
     typed_inserted: list[tuple[int, str, str | None]] = []
-    key_to_created_id: dict[str, int] = {}
-    index_to_created_id: dict[int, int] = {}
+    key_to_task_id: dict[str, int] = {}
+    index_to_task_id: dict[int, int] = {}
     conn = get_connection(db_path)
     try:
         for plan in plans:
+            if plan.reused_task_id is not None:
+                if not _task_exists(conn, plan.reused_task_id):
+                    result["skipped"].pop(str(plan.index), None)
+                    result["failed"][str(plan.index)] = _failure_entry(
+                        plan.key,
+                        [
+                            ImportErrorItem(
+                                "duplicate_policy",
+                                f"matched task id {plan.reused_task_id} no longer exists",
+                            )
+                        ],
+                    )
+                    if not best_effort:
+                        conn.rollback()
+                        result["created"].clear()
+                        return 2
+                    continue
+                index_to_task_id[plan.index] = plan.reused_task_id
+                if plan.key is not None:
+                    key_to_task_id[plan.key] = plan.reused_task_id
+                continue
             try:
                 task_id, criteria_ids, typed = _materialize_task(conn, plan, repo_root)
                 if best_effort:
                     conn.commit()
                 typed_inserted.extend(typed)
-                index_to_created_id[plan.index] = task_id
+                index_to_task_id[plan.index] = task_id
                 if plan.key is not None:
-                    key_to_created_id[plan.key] = task_id
+                    key_to_task_id[plan.key] = task_id
                 entry = {"task_id": task_id, "criteria_ids": criteria_ids}
                 if plan.key is not None:
                     entry["key"] = plan.key
@@ -592,12 +616,12 @@ def _execute_import(
                     return 2
 
         for plan in plans:
-            if plan.index not in index_to_created_id:
+            if plan.index not in index_to_task_id:
                 continue
-            task_id = index_to_created_id[plan.index]
+            task_id = index_to_task_id[plan.index]
             try:
                 for dep in plan.deps:
-                    depends_on_id = _resolve_dep_id(dep, key_to_created_id)
+                    depends_on_id = _resolve_dep_id(dep, key_to_task_id)
                     if task_id == depends_on_id:
                         raise ValueError(f"depends_on[{dep.raw_index}]: task cannot depend on itself")
                     if _would_create_dependency_cycle(conn, task_id, depends_on_id):
@@ -727,6 +751,12 @@ def main(argv: list[str]) -> int:
         )
     plans = [p for p in plans if str(p.index) not in result["failed"]]
 
+    referenced_keys = {
+        dep.key
+        for candidate in plans
+        for dep in candidate.deps
+        if dep.key is not None
+    }
     for plan in list(plans):
         if plan.duplicate_policy == "allow":
             continue
@@ -760,16 +790,36 @@ def main(argv: list[str]) -> int:
             continue
         plan.dupe = dupe
         if plan.duplicate_policy == "skip":
+            matched_task_id = dupe.get("id")
             entry = {
                 "reason": "duplicate",
-                "matched_task_id": dupe.get("id"),
+                "matched_task_id": matched_task_id,
                 "matched_summary": dupe.get("summary", ""),
                 "similarity": dupe.get("similarity", 0),
             }
             if plan.key is not None:
                 entry["key"] = plan.key
             result["skipped"][str(plan.index)] = entry
-            plans.remove(plan)
+            # A relationship-bearing skipped duplicate is still a resolved
+            # task identity. Keep it in the transaction so local keys,
+            # dependency edges, and objective links can target the matched
+            # task without ID-window discovery or follow-up writes.
+            reuse_requested = bool(
+                plan.objectives
+                or plan.deps
+                or (plan.key is not None and plan.key in referenced_keys)
+            )
+            if not isinstance(matched_task_id, int) or matched_task_id <= 0:
+                result["failed"][str(plan.index)] = _failure_entry(
+                    plan.key,
+                    [ImportErrorItem("duplicate_policy", "duplicate match did not include a valid task id")],
+                )
+                del result["skipped"][str(plan.index)]
+                plans.remove(plan)
+            elif reuse_requested:
+                plan.reused_task_id = matched_task_id
+            else:
+                plans.remove(plan)
         else:
             result["failed"][str(plan.index)] = _failure_entry(
                 plan.key,
@@ -778,26 +828,20 @@ def main(argv: list[str]) -> int:
             plans.remove(plan)
 
     remaining_keys = {plan.key for plan in plans if plan.key is not None}
-    skipped_keys = {
-        entry.get("key")
-        for entry in result["skipped"].values()
-        if entry.get("key") is not None
-    }
     for plan in list(plans):
         errors: list[ImportErrorItem] = []
         for dep in plan.deps:
             if dep.key is None or dep.key in remaining_keys:
                 continue
             field = f"depends_on[{dep.raw_index}]"
-            if dep.key in skipped_keys:
-                errors.append(ImportErrorItem(field, f"dependency key '{dep.key}' was skipped"))
-            else:
-                errors.append(ImportErrorItem(field, f"unknown task key '{dep.key}'"))
+            errors.append(ImportErrorItem(field, f"unknown task key '{dep.key}'"))
         if errors:
             result["failed"][str(plan.index)] = _failure_entry(plan.key, errors)
             plans.remove(plan)
 
     for plan in plans:
+        if plan.reused_task_id is not None:
+            continue
         _warn_for_missing_declared_paths(repo_root, plan.scope_patterns, plan.typed_criteria)
 
     if result["failed"] and not args.best_effort:

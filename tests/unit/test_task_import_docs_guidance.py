@@ -34,6 +34,8 @@ def test_scripts_document_task_import_contract():
     assert "`duplicate_policy`" in body
     assert "`depends_on`" in body
     assert "`objectives`" in body
+    assert "matched task ID is reused inside the same transaction" in body
+    assert "objective links are upserted atomically" in body
 
 
 def _assert_create_task_prefers_import_for_multi_task_materialization(body: str) -> None:

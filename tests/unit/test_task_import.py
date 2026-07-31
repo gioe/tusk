@@ -459,6 +459,178 @@ def test_import_links_created_tasks_to_existing_objectives(tmp_path):
     conn.close()
 
 
+def test_import_reuses_skipped_duplicate_for_objective_and_dependency_keys(tmp_path):
+    db_path = _make_db(tmp_path)
+    config_path = _write_config(tmp_path / "config.json")
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO tasks (summary, description, status) VALUES (?, ?, 'To Do')",
+        ("Existing plan task", "Already in backlog"),
+    )
+    conn.execute("INSERT INTO objectives (summary) VALUES (?)", ("Plan objective",))
+    conn.commit()
+    conn.close()
+    plan = tmp_path / "tasks.json"
+    plan.write_text(
+        json.dumps({
+            "tasks": [
+                {
+                    "key": "existing",
+                    "summary": "Duplicate plan task",
+                    "description": "Description",
+                    "criteria": ["Manual criterion"],
+                    "duplicate_policy": "skip",
+                    "objectives": [{"id": "OBJ-1", "type": "primary"}],
+                },
+                {
+                    "key": "new",
+                    "summary": "New dependent plan task",
+                    "description": "Description",
+                    "criteria": ["Manual criterion"],
+                    "depends_on": ["existing"],
+                    "objectives": [1],
+                },
+            ]
+        }),
+        encoding="utf-8",
+    )
+
+    def dupes(summary, domain, **kwargs):
+        if summary == "Duplicate plan task":
+            return {"id": 1, "summary": "Existing plan task", "similarity": 0.94}
+        return None
+
+    code, payload, _err = _run_import(
+        db_path, config_path, ["--file", str(plan)], dupes=dupes
+    )
+
+    assert code == 0
+    assert payload["skipped"]["0"]["matched_task_id"] == 1
+    assert payload["created"]["1"]["task_id"] == 2
+    conn = sqlite3.connect(db_path)
+    assert conn.execute(
+        "SELECT objective_id, task_id, relationship_type "
+        "FROM objective_tasks ORDER BY task_id"
+    ).fetchall() == [
+        (1, 1, "primary"),
+        (1, 2, "contributes_to"),
+    ]
+    assert conn.execute(
+        "SELECT task_id, depends_on_id FROM task_dependencies"
+    ).fetchall() == [(2, 1)]
+    conn.close()
+
+
+def test_import_applies_dependencies_declared_on_reused_tasks(tmp_path):
+    db_path = _make_db(tmp_path)
+    config_path = _write_config(tmp_path / "config.json")
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO tasks (summary, description, status) VALUES (?, ?, 'To Do')",
+        ("Existing reused task", "Already in backlog"),
+    )
+    conn.commit()
+    conn.close()
+    plan = tmp_path / "tasks.json"
+    plan.write_text(
+        json.dumps({
+            "tasks": [
+                {
+                    "key": "new",
+                    "summary": "New prerequisite",
+                    "description": "Description",
+                    "criteria": ["Manual criterion"],
+                },
+                {
+                    "key": "reused",
+                    "summary": "Duplicate reused task",
+                    "description": "Description",
+                    "criteria": ["Manual criterion"],
+                    "duplicate_policy": "skip",
+                    "depends_on": ["new"],
+                },
+            ]
+        }),
+        encoding="utf-8",
+    )
+
+    def dupes(summary, domain, **kwargs):
+        if summary == "Duplicate reused task":
+            return {"id": 1, "summary": "Existing reused task", "similarity": 0.95}
+        return None
+
+    code, payload, _err = _run_import(
+        db_path, config_path, ["--file", str(plan)], dupes=dupes
+    )
+
+    assert code == 0
+    assert payload["created"]["0"]["task_id"] == 2
+    assert payload["skipped"]["1"]["matched_task_id"] == 1
+    conn = sqlite3.connect(db_path)
+    assert conn.execute(
+        "SELECT task_id, depends_on_id FROM task_dependencies"
+    ).fetchall() == [(1, 2)]
+    conn.close()
+
+
+def test_import_rolls_back_created_and_reused_plan_relationships_on_cycle(tmp_path):
+    db_path = _make_db(tmp_path)
+    config_path = _write_config(tmp_path / "config.json")
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO tasks (summary, description, status) VALUES (?, ?, 'To Do')",
+        ("Existing cycle task", "Already in backlog"),
+    )
+    conn.execute("INSERT INTO objectives (summary) VALUES (?)", ("Atomic objective",))
+    conn.commit()
+    conn.close()
+    plan = tmp_path / "tasks.json"
+    plan.write_text(
+        json.dumps({
+            "tasks": [
+                {
+                    "key": "reused",
+                    "summary": "Duplicate cycle task",
+                    "description": "Description",
+                    "criteria": ["Manual criterion"],
+                    "duplicate_policy": "skip",
+                    "depends_on": ["new"],
+                    "objectives": [1],
+                },
+                {
+                    "key": "new",
+                    "summary": "New cycle task",
+                    "description": "Description",
+                    "criteria": ["Manual criterion"],
+                    "depends_on": ["reused"],
+                    "objectives": [1],
+                },
+            ]
+        }),
+        encoding="utf-8",
+    )
+
+    def dupes(summary, domain, **kwargs):
+        if summary == "Duplicate cycle task":
+            return {"id": 1, "summary": "Existing cycle task", "similarity": 0.95}
+        return None
+
+    code, payload, _err = _run_import(
+        db_path, config_path, ["--file", str(plan)], dupes=dupes
+    )
+
+    assert code == 2
+    assert payload["created"] == {}
+    assert payload["failed"]["1"]["errors"][0]["message"] == (
+        "dependency would create a cycle"
+    )
+    conn = sqlite3.connect(db_path)
+    assert conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM task_dependencies").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM objective_tasks").fetchone()[0] == 0
+    conn.close()
+
+
 def test_import_rejects_missing_objective_links_and_rolls_back(tmp_path):
     db_path = _make_db(tmp_path)
     config_path = _write_config(tmp_path / "config.json")
