@@ -76,6 +76,42 @@ def _init_repo(repo) -> None:
     _git(repo, "config", "user.name", "Test User")
 
 
+def test_symlinked_wrapper_exports_leaf_entrypoint_and_overrides_inherited_value(
+    tmp_path,
+):
+    machine_bin = tmp_path / "machine-bin"
+    machine_bin.mkdir()
+    wrapper = machine_bin / "tusk"
+    wrapper.symlink_to(os.path.join(REPO_ROOT, "bin", "tusk"))
+
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    fake_python = fake_bin / "python3"
+    fake_python.write_text(
+        "#!/bin/sh\nprintf '%s\\n' \"$TUSK_ORIGINAL_ENTRYPOINT\"\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+
+    result = subprocess.run(
+        ["/bin/bash", str(wrapper), "config", "domains"],
+        cwd=REPO_ROOT,
+        env={
+            **os.environ,
+            "PATH": f"{fake_bin}:/usr/bin:/bin",
+            "TUSK_ORIGINAL_ENTRYPOINT": "/tmp/spoofed-tusk",
+            "TUSK_SILENT_EXIT_GUARD": "0",
+        },
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == str(wrapper)
+
+
 class TestBinSupportsSchema:
     """Unit coverage of the helper that mirrors bin/tusk's preflight parsing."""
 
@@ -229,6 +265,9 @@ class TestResolveStableTuskBinSchemaAware:
         fallback_bin = fallback_bin_dir / "tusk"
         fallback_bin.write_text("")
         _write_migrate_py(fallback_bin_dir / "tusk-migrate.py", 70)
+        (fallback_bin_dir / "install-mode").write_text(
+            "codex-consumer", encoding="utf-8"
+        )
 
         db_dir = project / "tusk"
         db_dir.mkdir()

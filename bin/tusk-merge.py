@@ -223,13 +223,28 @@ def _fallback_is_active_machine_runtime(fallback: str) -> bool:
     if install_mode not in _CONSUMER_INSTALL_MODES:
         return False
 
-    wrapper_dir = os.path.dirname(os.path.abspath(entrypoint))
-    return _git_common_dir(wrapper_dir) is None
+    return _entrypoint_is_outside_git_repository(entrypoint)
 
 
 def _primary_upgrade_command(primary: str) -> str:
     """Return an exact recovery command targeting the selected primary binary."""
     return shlex.join([primary, "upgrade", "--no-commit"])
+
+
+def _entrypoint_is_outside_git_repository(entrypoint: str) -> bool:
+    """Prove the wrapper is outside Git; fail closed on every other error."""
+    wrapper_dir = os.path.dirname(os.path.abspath(entrypoint))
+    try:
+        result = subprocess.run(
+            ["git", "-C", wrapper_dir, "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+    except OSError:
+        return False
+    return result.returncode != 0 and "not a git repository" in result.stderr.lower()
 
 
 def _resolve_stable_tusk_bin(db_path: str, fallback: str) -> str:
