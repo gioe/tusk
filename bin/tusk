@@ -51,6 +51,20 @@
 
 set -euo pipefail
 
+# Preserve the leaf entrypoint before resolving machine-level symlinks. Merge
+# uses this provenance to distinguish the runtime the operator actually invoked
+# from an arbitrary schema-capable binary discovered elsewhere (issue #1268).
+# Keep the first value across the silent-exit guard's self re-exec and nested
+# tusk subprocesses.
+if [[ -z "${TUSK_ORIGINAL_ENTRYPOINT:-}" ]]; then
+  if [[ "${BASH_SOURCE[0]}" = /* ]]; then
+    TUSK_ORIGINAL_ENTRYPOINT="${BASH_SOURCE[0]}"
+  else
+    TUSK_ORIGINAL_ENTRYPOINT="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  fi
+  export TUSK_ORIGINAL_ENTRYPOINT
+fi
+
 # ── --pretty flag → TUSK_PRETTY env var ──────────────────────────────
 # Agents consume JSON stdout; compact is the default. --pretty restores
 # indented output for humans. Strip the flag before dispatch so subcommands

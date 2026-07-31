@@ -34,6 +34,7 @@ import fnmatch
 import json
 import os
 import re
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -195,6 +196,42 @@ def _fallback_belongs_to_db_repository(db_path: str, fallback: str) -> bool:
     )
 
 
+_CONSUMER_INSTALL_MODES = {"claude-consumer", "codex-consumer", "dual-consumer"}
+
+
+def _fallback_is_active_machine_runtime(fallback: str) -> bool:
+    """Return True only for the external wrapper that launched this runtime.
+
+    ``bin/tusk`` captures its original leaf entrypoint before following symlinks.
+    A machine wrapper is explicit operator provenance only when it is an actual
+    symlink outside every Git repository, resolves to this exact fallback, and
+    targets a stamped consumer install. This does not discover or trust PATH
+    candidates and therefore preserves TASK-851's foreign-runtime boundary.
+    """
+    entrypoint = os.environ.get("TUSK_ORIGINAL_ENTRYPOINT")
+    if not entrypoint or not os.path.isabs(entrypoint) or not os.path.islink(entrypoint):
+        return False
+    if os.path.realpath(entrypoint) != os.path.realpath(fallback):
+        return False
+
+    marker_path = os.path.join(os.path.dirname(os.path.realpath(fallback)), "install-mode")
+    try:
+        with open(marker_path, encoding="utf-8") as marker_file:
+            install_mode = marker_file.read().strip()
+    except OSError:
+        return False
+    if install_mode not in _CONSUMER_INSTALL_MODES:
+        return False
+
+    wrapper_dir = os.path.dirname(os.path.abspath(entrypoint))
+    return _git_common_dir(wrapper_dir) is None
+
+
+def _primary_upgrade_command(primary: str) -> str:
+    """Return an exact recovery command targeting the selected primary binary."""
+    return shlex.join([primary, "upgrade", "--no-commit"])
+
+
 def _resolve_stable_tusk_bin(db_path: str, fallback: str) -> str:
     """Resolve a primary-install tusk binary that survives task-worktree cleanup.
 
@@ -256,23 +293,32 @@ def _maybe_fall_back_on_schema_mismatch(primary: str, fallback: str, db_path: st
         return primary
     if not _bin_supports_schema(fallback, required):
         return primary
-    if not _fallback_belongs_to_db_repository(db_path, fallback):
+    if _fallback_belongs_to_db_repository(db_path, fallback):
         print(
-            f"tusk: refusing schema-capable fallback binary {fallback} because "
-            "it cannot be verified as belonging to the repository that owns "
-            f"{db_path}; keeping primary binary {primary} so schema preflight "
-            "fails safely. Upgrade or sync the primary Tusk install, or rerun "
-            "merge from a task worktree of this repository.",
+            f"tusk: primary install binary {primary} does not support DB schema "
+            f"v{required}; using worktree-local binary {fallback} for post-merge "
+            "subprocess calls (issue #866).",
             file=sys.stderr,
         )
-        return primary
+        return fallback
+    if _fallback_is_active_machine_runtime(fallback):
+        print(
+            f"tusk: primary install binary {primary} does not support DB schema "
+            f"v{required}; using active machine runtime binary {fallback} for "
+            "post-merge subprocess calls (issue #1268).",
+            file=sys.stderr,
+        )
+        return fallback
+
+    recovery = _primary_upgrade_command(primary)
     print(
-        f"tusk: primary install binary {primary} does not support DB schema "
-        f"v{required}; using worktree-local binary {fallback} for post-merge "
-        "subprocess calls (issue #866).",
+        f"tusk: refusing schema-capable fallback binary {fallback} because "
+        "it is neither a same-repository worktree nor the verified active "
+        f"machine runtime for {db_path}; keeping primary binary {primary} so "
+        f"schema preflight fails safely. Recovery: {recovery}",
         file=sys.stderr,
     )
-    return fallback
+    return primary
 
 
 _INDEX_LOCK_RE = re.compile(r"Unable to create '[^']*\.git/index\.lock'")
