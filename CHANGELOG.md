@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1250] - 2026-07-31
+
+- [TASK-856] Fix merge runtime selection when the repo-local Tusk is stale
+
 ## [1249] - 2026-07-31
 
 - [TASK-855] Add plan and run modes to the objective workflow
