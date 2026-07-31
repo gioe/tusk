@@ -284,6 +284,43 @@ class TestResolveStableTuskBinSchemaAware:
         assert "refusing schema-capable fallback binary" in err
         assert str(fallback_bin) in err
         assert str(primary_bin) in err
+        assert f"Recovery: git -C '{project}' pull --ff-only" in err
+
+    def test_rejected_consumer_primary_names_exact_upgrade_command(
+        self, tmp_path, capsys
+    ):
+        project = tmp_path / "project with spaces"
+        foreign = tmp_path / "foreign"
+        _init_repo(project)
+        _init_repo(foreign)
+
+        primary_bin_dir = project / ".claude" / "bin"
+        primary_bin_dir.mkdir(parents=True)
+        primary_bin = primary_bin_dir / "tusk"
+        primary_bin.write_text("")
+        _write_migrate_py(primary_bin_dir / "tusk-migrate.py", 69)
+        (primary_bin_dir / "install-mode").write_text(
+            "claude-consumer", encoding="utf-8"
+        )
+
+        fallback_bin_dir = foreign / "bin"
+        fallback_bin_dir.mkdir()
+        fallback_bin = fallback_bin_dir / "tusk"
+        fallback_bin.write_text("")
+        _write_migrate_py(fallback_bin_dir / "tusk-migrate.py", 70)
+
+        db_dir = project / "tusk"
+        db_dir.mkdir()
+        db_path = db_dir / "tasks.db"
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.execute("PRAGMA user_version = 70")
+
+        result = tusk_merge._resolve_stable_tusk_bin(
+            str(db_path), str(fallback_bin)
+        )
+
+        assert result == str(primary_bin)
+        err = capsys.readouterr().err
         assert f"Recovery: '{primary_bin}' upgrade --no-commit" in err
 
     @staticmethod

@@ -226,8 +226,15 @@ def _fallback_is_active_machine_runtime(fallback: str) -> bool:
     return _entrypoint_is_outside_git_repository(entrypoint)
 
 
-def _primary_upgrade_command(primary: str) -> str:
-    """Return an exact recovery command targeting the selected primary binary."""
+def _primary_recovery_command(primary: str, db_path: str) -> str:
+    """Return a recovery command that actually refreshes the selected primary."""
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(db_path)))
+    source_bin = os.path.join(repo_root, "bin", "tusk")
+    source_migrate = os.path.join(repo_root, "bin", "tusk-migrate.py")
+    if os.path.exists(source_migrate) and os.path.realpath(primary) == os.path.realpath(
+        source_bin
+    ):
+        return shlex.join(["git", "-C", repo_root, "pull", "--ff-only"])
     return shlex.join([primary, "upgrade", "--no-commit"])
 
 
@@ -325,7 +332,7 @@ def _maybe_fall_back_on_schema_mismatch(primary: str, fallback: str, db_path: st
         )
         return fallback
 
-    recovery = _primary_upgrade_command(primary)
+    recovery = _primary_recovery_command(primary, db_path)
     print(
         f"tusk: refusing schema-capable fallback binary {fallback} because "
         "it is neither a same-repository worktree nor the verified active "
