@@ -244,7 +244,117 @@ class TestResolveStableTuskBinSchemaAware:
         err = capsys.readouterr().err
         assert "refusing schema-capable fallback binary" in err
         assert str(fallback_bin) in err
-        assert "Upgrade or sync the primary Tusk install" in err
+        assert str(primary_bin) in err
+        assert f"Recovery: {primary_bin} upgrade --no-commit" in err
+
+    @staticmethod
+    def _make_machine_runtime_layout(tmp_path, *, marker="codex-consumer"):
+        project = tmp_path / "project"
+        runtime_repo = tmp_path / "runtime-repo"
+        _init_repo(project)
+        _init_repo(runtime_repo)
+
+        primary_bin_dir = project / "bin"
+        primary_bin_dir.mkdir()
+        primary_bin = primary_bin_dir / "tusk"
+        primary_bin.write_text("")
+        _write_migrate_py(primary_bin_dir / "tusk-migrate.py", 69)
+
+        fallback_bin_dir = runtime_repo / "tusk" / "bin"
+        fallback_bin_dir.mkdir(parents=True)
+        fallback_bin = fallback_bin_dir / "tusk"
+        fallback_bin.write_text("")
+        _write_migrate_py(fallback_bin_dir / "tusk-migrate.py", 70)
+        if marker is not None:
+            (fallback_bin_dir / "install-mode").write_text(marker, encoding="utf-8")
+
+        db_dir = project / "tusk"
+        db_dir.mkdir()
+        db_path = db_dir / "tasks.db"
+        with sqlite3.connect(str(db_path)) as conn:
+            conn.execute("PRAGMA user_version = 70")
+
+        return project, db_path, primary_bin, fallback_bin
+
+    def test_accepts_verified_active_machine_consumer_runtime(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        _, db_path, _, fallback_bin = self._make_machine_runtime_layout(tmp_path)
+        wrapper_dir = tmp_path / "machine-bin"
+        wrapper_dir.mkdir()
+        wrapper = wrapper_dir / "tusk"
+        wrapper.symlink_to(fallback_bin)
+        monkeypatch.setenv("TUSK_ORIGINAL_ENTRYPOINT", str(wrapper))
+
+        result = tusk_merge._resolve_stable_tusk_bin(
+            str(db_path), str(fallback_bin)
+        )
+
+        assert result == str(fallback_bin)
+        err = capsys.readouterr().err
+        assert "using active machine runtime binary" in err
+        assert str(fallback_bin) in err
+        assert "issue #1268" in err
+
+    @pytest.mark.parametrize("marker", [None, "codex", "claude-source"])
+    def test_rejects_machine_wrapper_without_consumer_install_marker(
+        self, tmp_path, capsys, monkeypatch, marker
+    ):
+        _, db_path, primary_bin, fallback_bin = self._make_machine_runtime_layout(
+            tmp_path, marker=marker
+        )
+        wrapper_dir = tmp_path / "machine-bin"
+        wrapper_dir.mkdir()
+        wrapper = wrapper_dir / "tusk"
+        wrapper.symlink_to(fallback_bin)
+        monkeypatch.setenv("TUSK_ORIGINAL_ENTRYPOINT", str(wrapper))
+
+        result = tusk_merge._resolve_stable_tusk_bin(
+            str(db_path), str(fallback_bin)
+        )
+
+        assert result == str(primary_bin)
+        assert "refusing schema-capable fallback binary" in capsys.readouterr().err
+
+    def test_rejects_machine_wrapper_inside_a_git_repository(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        project, db_path, primary_bin, fallback_bin = self._make_machine_runtime_layout(
+            tmp_path
+        )
+        wrapper_dir = project / "machine-bin"
+        wrapper_dir.mkdir()
+        wrapper = wrapper_dir / "tusk"
+        wrapper.symlink_to(fallback_bin)
+        monkeypatch.setenv("TUSK_ORIGINAL_ENTRYPOINT", str(wrapper))
+
+        result = tusk_merge._resolve_stable_tusk_bin(
+            str(db_path), str(fallback_bin)
+        )
+
+        assert result == str(primary_bin)
+        assert "refusing schema-capable fallback binary" in capsys.readouterr().err
+
+    def test_rejects_machine_wrapper_whose_target_does_not_match_fallback(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        _, db_path, primary_bin, fallback_bin = self._make_machine_runtime_layout(
+            tmp_path
+        )
+        other = tmp_path / "other-tusk"
+        other.write_text("")
+        wrapper_dir = tmp_path / "machine-bin"
+        wrapper_dir.mkdir()
+        wrapper = wrapper_dir / "tusk"
+        wrapper.symlink_to(other)
+        monkeypatch.setenv("TUSK_ORIGINAL_ENTRYPOINT", str(wrapper))
+
+        result = tusk_merge._resolve_stable_tusk_bin(
+            str(db_path), str(fallback_bin)
+        )
+
+        assert result == str(primary_bin)
+        assert "refusing schema-capable fallback binary" in capsys.readouterr().err
 
     def test_accepts_schema_capable_fallback_from_linked_worktree(
         self, tmp_path, capsys
