@@ -17,6 +17,12 @@ The user provides freeform text after `/create-task`. This could be:
 - A pasted document or spec
 - A simple one-liner for a single task
 
+The caller may also provide an **objective-planning context** containing an
+existing `OBJECTIVE_ID`. Preserve that context through approval and
+materialization. It changes persistence, not task-boundary reasoning: every
+approved task must be linked to that objective in the same atomic import that
+creates dependencies.
+
 If the user didn't provide any text after the command, ask:
 
 > What would you like to turn into tasks? Paste any text — feature specs, meeting notes, bug reports, requirements, etc.
@@ -471,6 +477,24 @@ Before inserting, apply these rules to every generated criterion:
 Revise the criterion and present it to the user for approval before proceeding to insertion.
 
 When two or more tasks are approved, materialize them with `tusk task-import`, not repeated `tusk task-insert` calls. Build one JSON plan with a top-level `tasks` array, run `tusk task-import --stdin --dry-run` first, show and fix any `failed` or `skipped` outcomes, then run the same JSON without `--dry-run` after approval. Include stable local `key` values and `depends_on` entries for any ordering relationships; import creates rows first, then resolves local dependency keys, objective links, duplicate policies, and rollback in one batch.
+
+When `OBJECTIVE_ID` is present, use `task-import` even for one approved task.
+Before persistence, choose each task's objective relationship (`primary` for
+the clear lead deliverable, otherwise `contributes_to`, or `follow_up` for
+deferred cleanup), give every task a stable `key`, set
+`duplicate_policy: "skip"`, and include:
+
+```json
+"objectives": [{"id": "OBJ-<OBJECTIVE_ID>", "type": "primary|contributes_to|follow_up"}]
+```
+
+Plan all `depends_on` edges before materialization and send one payload without
+`--best-effort`. The default transaction then covers new tasks, dependencies,
+objective links, and relationship-bearing duplicate matches. Resolve the
+objective's task IDs from both `created.*.task_id` and
+`skipped.*.matched_task_id`; never discover them from a maximum-ID snapshot or
+an ID window. Outside objective-planning context, retain the normal single-task
+fast path below.
 
 For a single approved task, or when the operator explicitly asks for one row only, insert the task with criteria in a single call using `tusk task-insert`. This validates enum values against config, runs a heuristic duplicate check internally, and inserts the task + criteria in one transaction. Pass the scope decisions confirmed in Step 4 as `--scope` / `--creates` / `--unbounded` flags — the operator's review is the gate, not the heuristic:
 

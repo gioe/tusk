@@ -1,22 +1,30 @@
 ---
 name: objective
-description: Run an objective end to end — create it, decompose into tasks via /create-task, execute the linked sub-DAG in parallel waves via /chain, roll up, and close
+description: Plan an objective, run an existing objective plan, or perform the full objective lifecycle
 allowed-tools: Bash, Task, Read, Glob, Grep
 ---
 
 # Objective
 
-Runs the full objective lifecycle from a single freeform intent: creates an objective, hands the intent to `/create-task` for decomposition, links each created task to the objective, drives the linked tasks' dependency sub-DAG to Done in parallel background-agent waves by **reusing `/chain`'s wave-execution machinery** (never reimplementing background-agent orchestration), reads `tusk objective brief` for the aggregate picture, summarizes, decides next steps, and closes the objective.
+Separates objective planning from execution while preserving the original
+end-to-end workflow. Planning delegates task-boundary reasoning to
+`/create-task` and persists the approved DAG through one objective-aware,
+atomic `task-import`. Execution reuses `/chain`; this skill never reimplements
+background-agent orchestration.
 
 > Use `/create-task` for task creation — it handles decomposition, deduplication, criteria, and deps. This skill never inserts tasks directly with `tusk task-insert`; it always routes decomposition through `/create-task`.
 
-## Arguments
+## Arguments and modes
 
-`/objective <freeform intent describing the larger goal>`
+- `/objective plan OBJ-N` — decompose an existing active objective, persist
+  and display its linked task DAG, then stop before execution.
+- `/objective run OBJ-N` — execute an already-planned active objective.
+- `/objective full <freeform intent>` — create, plan, run, roll up, and close.
+- `/objective <freeform intent>` — backward-compatible alias for `full`.
 
-The argument is the initiative-level intent — a paragraph or a few sentences describing the larger goal that spans more than one shippable task. If no argument is given, prompt the user:
-
-> What objective would you like to run? Describe the larger goal — I'll decompose it into tasks, execute them in parallel, and close the objective when they're done.
+Parse the mode before starting. `plan` and `run` require an `OBJ-N` argument.
+`full` requires initiative-level intent. If no argument is given, explain the
+three modes and ask for an intent to run in `full` mode.
 
 Wait for the answer before continuing.
 
@@ -32,9 +40,18 @@ This prints `{"run_id": N, "started_at": "...", "task_id": null}`. Capture `run_
 
 > **Early-exit cleanup:** If any step below causes the skill to stop before the final report in Step 7, first call `tusk skill-run cancel <run_id>` to close the open row, then stop. Otherwise the row lingers as `(open)` in `tusk skill-run list` forever. The explicit cancel calls below cover the known early-exit paths; if you hit an unexpected bail-out, cancel before returning.
 
-## Step 1: Create the Objective
+## Step 1: Resolve or Create the Objective
 
-Distill the intent into a one-line summary and create the objective:
+For `plan` or `run`, load the supplied objective:
+
+```bash
+tusk objective get <OBJECTIVE_ID>
+```
+
+Require `status=active`. Capture its summary and description as the intent.
+For `run`, require at least one linked task, then skip directly to Step 4.
+
+For `full`, distill the intent into a one-line summary and create it:
 
 ```bash
 tusk objective insert "<one-line summary of the intent>" --description "<the full freeform intent>"
@@ -44,49 +61,39 @@ This prints `{"id": N, "summary": "...", "status": "active", ...}`. Capture `id`
 
 > The objective summary/description go through the shared shell-metacharacter guard (issue #1106) — do not embed backticks, `$(...)`, `${...}`, or bare `$IDENT` in either string; rewrite with plain words.
 
-## Step 2: Decompose the Intent via /create-task
+## Step 2: Plan Atomically via /create-task
 
-`/create-task` is the only task-creation path. Before handing off, snapshot the current max task id so the tasks it creates can be discovered reliably regardless of how many it produces:
-
-```bash
-BEFORE_MAX=$(tusk "SELECT COALESCE(MAX(id), 0) FROM tasks")
-```
-
-Then run `/create-task` against the **same intent**, following its instructions inline:
+Run `/create-task` against the objective intent in objective-planning context:
 
 ```
 Read file: .claude/skills/create-task/SKILL.md
 ```
 
-Pass the objective's freeform intent as the `/create-task` input and follow that skill's steps (decomposition, dedup, criteria, deps) to completion. `/create-task` may create one task or several, and may dedup some findings into existing tasks — that is expected.
+Pass both the intent and `OBJECTIVE_ID`. Follow `/create-task` through
+decomposition, deduplication, approval, criteria, dependency planning, and its
+objective-aware `task-import` materialization. It must use stable local keys,
+objective relationships on every item, `duplicate_policy: "skip"`, and one
+default atomic import without `--best-effort`. Capture planned task IDs from
+both `created.*.task_id` and `skipped.*.matched_task_id`. Never infer task
+identity from task-number order or perform post-hoc per-task link writes.
 
-After `/create-task` finishes, discover the newly-created tasks by id window:
+## Step 3: Verify and Display the Plan
 
-```bash
-tusk -header -column "SELECT id, summary, status, complexity FROM tasks WHERE id > $BEFORE_MAX AND status = 'To Do' ORDER BY id"
-```
-
-Store these as `NEW_TASK_IDS`. If `/create-task` deduped the entire intent into existing backlog tasks (no new rows), ask the user whether to link those pre-existing tasks to the objective instead — capture their ids as `NEW_TASK_IDS` if they agree. If there are still **zero** tasks to link, the objective has nothing to execute: run `tusk skill-run cancel <run_id>`, tell the user the intent did not decompose into any tasks, and stop (leave the empty objective for the user to populate or close manually).
-
-## Step 3: Link the Tasks to the Objective
-
-Link every task in `NEW_TASK_IDS` to the objective. Choose `relationship_type` per task:
-
-- **`primary`** — the single most central deliverable for the objective (the task the objective is really about). Pick exactly one when there is a clear lead deliverable; otherwise skip `primary`.
-- **`contributes_to`** — the default for supporting tasks that advance the objective.
-- **`follow_up`** — a task explicitly framed as cleanup or a deferred follow-on rather than core work.
-
-```bash
-tusk objective link <OBJECTIVE_ID> <task_id> --type primary|contributes_to|follow_up
-```
-
-Run one `objective link` per task (serialize these calls — do not run tusk DB-write commands in parallel). After linking, confirm at least one task is linked:
+Confirm at least one task is linked:
 
 ```bash
 tusk objective get <OBJECTIVE_ID>
 ```
 
-The `tasks` array must be non-empty (acceptance criterion: "an objective with at least one linked task"). If it is empty, linking failed — surface the error, run `tusk skill-run cancel <run_id>`, and stop.
+The `tasks` array must be non-empty. Display a linked-task table and the
+dependency-edge DAG using the confirmed import payload or `tusk deps list`
+for the linked tasks.
+
+For `plan`, report that the objective remains active, finish the objective
+skill run, and **stop here**. Do not invoke `/chain`, `/tusk`, rollup closure,
+or `tusk objective done`.
+
+For `full`, continue immediately to Step 4.
 
 ## Step 4: Execute the Linked Sub-DAG in Parallel Waves (reuse /chain)
 
@@ -175,7 +182,7 @@ tusk skill-run finish <run_id>
 
 ## Error Handling
 
-- **`/create-task` produced no new tasks** — it deduped the whole intent into existing tasks; offer to link those instead, else cancel the run and stop (Step 2).
-- **Linking failed / objective has no linked tasks** — surface the error, cancel the run, stop (Step 3).
+- **The atomic plan resolved no task IDs** — cancel the run and leave the objective active for correction (Step 2).
+- **Plan verification found no linked tasks** — surface the import result, cancel the run, and stop (Step 3).
 - **Wave execution stalled or a task could not complete** — honor `/chain`'s Resume/Skip/Abort recovery; leave the objective open and report remaining work (Steps 4 and 6).
 - **VERSION/CHANGELOG conflicts** — never bump from this skill; the single consolidated bump lives in `/chain`'s Step 5. If a parallel agent bumped independently and caused a conflict, resolve it down to one bump for the whole objective.

@@ -17,6 +17,11 @@ ask:
 > What would you like to turn into tasks? Paste any text — feature specs,
 > meeting notes, bug reports, requirements, etc.
 
+The caller may also provide an objective-planning context with an existing
+`OBJECTIVE_ID`. Keep that context through approval and materialization. It
+changes persistence, not decomposition: every approved task must be linked to
+that objective in the same atomic import that creates dependencies.
+
 ## Step 2: Fetch Config and Backlog
 
 ```bash
@@ -311,7 +316,17 @@ user, and revise before inserting:
 
 When two or more tasks are approved, prefer `tusk task-import`, not repeated `tusk task-insert` calls. Build one JSON plan with a top-level `tasks` array, run `tusk task-import --stdin --dry-run` first, show and fix any `failed` or `skipped` outcomes, then run the same JSON without `--dry-run` after approval. Use local `key` values and `depends_on` entries when the approved tasks have ordering relationships; this lets import create the rows first and then resolve dependencies in one transaction.
 
-For single-task creation, or when an operator explicitly asks for one row only, use `tusk task-insert` as before.
+When `OBJECTIVE_ID` is present, use `task-import` even for one approved
+task. Give every task a stable `key`, set `duplicate_policy` to `skip`, plan
+all dependency edges before persistence, and add an `objectives` entry with
+`OBJ-<OBJECTIVE_ID>` plus the selected `primary`, `contributes_to`, or
+`follow_up` relationship. Run one default atomic import without
+`--best-effort`. Resolve the planned task IDs from both
+`created.*.task_id` and `skipped.*.matched_task_id`; never use a maximum-ID
+snapshot or ID window.
+
+For single-task creation outside objective-planning context, or when an
+operator explicitly asks for one row only, use `tusk task-insert` as before.
 
 ```bash
 tusk task-insert "<summary>" "<description>" \
