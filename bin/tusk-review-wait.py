@@ -14,7 +14,7 @@ runtime does not police.
 
 Usage:
     tusk review-wait <review_id> [--interval 30] [--timeout-seconds 150]
-        [--diff-lines-meaningful N]
+        [--diff-lines-meaningful N] [--permissions-verified]
 
 Arguments received from tusk:
     sys.argv[1] — DB path
@@ -28,6 +28,14 @@ Output JSON (stdout, exit 0):
         "status": "approved" | "changes_requested" | "superseded" | "pending",
         "review_pass": <int> | null,
         "reviewer": <str> | null,
+        "comment_count": <int>,
+        "permissions_verified": <bool>,
+        "progress_state": "verdict_posted" | "waiting" |
+            "no_review_output" | "comments_without_verdict",
+        "diagnostic": <str> | null,
+        "recommended_action": "continue" | "continue_waiting" |
+            "inspect_agent_state" | "stop_agent_and_review_inline" |
+            "wait_until_hard_cap",
         "timed_out": <bool>,
         "elapsed_seconds": <float>,
         "polls": <int>
@@ -71,8 +79,10 @@ def _fetch_review(db_path: str, review_id: int) -> dict | None:
     conn = get_connection(db_path)
     try:
         row = conn.execute(
-            "SELECT id, task_id, reviewer, status, review_pass"
-            " FROM code_reviews WHERE id = ?",
+            "SELECT r.id, r.task_id, r.reviewer, r.status, r.review_pass,"
+            " (SELECT COUNT(*) FROM review_comments c WHERE c.review_id = r.id)"
+            " AS comment_count"
+            " FROM code_reviews r WHERE r.id = ?",
             (review_id,),
         ).fetchone()
     finally:
@@ -85,6 +95,59 @@ def _fetch_review(db_path: str, review_id: int) -> dict | None:
         "reviewer": row["reviewer"],
         "status": row["status"],
         "review_pass": row["review_pass"],
+        "comment_count": row["comment_count"],
+    }
+
+
+def _progress_fields(
+    review: dict, *, timed_out: bool, permissions_verified: bool
+) -> dict:
+    """Classify durable reviewer output and recommend the orchestrator action."""
+    if review["status"] in TERMINAL_STATUSES:
+        return {
+            "permissions_verified": permissions_verified,
+            "progress_state": "verdict_posted",
+            "diagnostic": None,
+            "recommended_action": "continue",
+        }
+
+    if not timed_out:
+        return {
+            "permissions_verified": permissions_verified,
+            "progress_state": "waiting",
+            "diagnostic": None,
+            "recommended_action": "continue_waiting",
+        }
+
+    if review["comment_count"] > 0:
+        return {
+            "permissions_verified": permissions_verified,
+            "progress_state": "comments_without_verdict",
+            "diagnostic": (
+                f"Reviewer posted {review['comment_count']} comment(s) but no verdict "
+                "before the adaptive deadline."
+            ),
+            "recommended_action": "wait_until_hard_cap",
+        }
+
+    if permissions_verified:
+        diagnostic = (
+            "Reviewer permissions were verified, but the reviewer posted neither "
+            "comments nor a verdict before the adaptive deadline."
+        )
+        action = "stop_agent_and_review_inline"
+    else:
+        diagnostic = (
+            "Reviewer posted neither comments nor a verdict before the adaptive "
+            "deadline; permission readiness was not verified."
+        )
+        action = "inspect_agent_state"
+
+    return {
+        "permissions_verified": permissions_verified,
+        "progress_state": "no_review_output",
+        "diagnostic": diagnostic,
+        "recommended_action": action,
     }
 
 
@@ -104,6 +167,7 @@ def wait_for_terminal(
     interval_seconds: float,
     timeout_seconds: float,
     *,
+    permissions_verified: bool = False,
     sleep_fn=time.sleep,
     monotonic_fn=time.monotonic,
 ) -> dict:
@@ -122,6 +186,11 @@ def wait_for_terminal(
         if review["status"] in TERMINAL_STATUSES:
             return {
                 **review,
+                **_progress_fields(
+                    review,
+                    timed_out=False,
+                    permissions_verified=permissions_verified,
+                ),
                 "timed_out": False,
                 "elapsed_seconds": round(elapsed, 3),
                 "polls": polls,
@@ -130,6 +199,11 @@ def wait_for_terminal(
         if elapsed >= timeout_seconds:
             return {
                 **review,
+                **_progress_fields(
+                    review,
+                    timed_out=True,
+                    permissions_verified=permissions_verified,
+                ),
                 "timed_out": True,
                 "elapsed_seconds": round(elapsed, 3),
                 "polls": polls,
@@ -178,6 +252,14 @@ def main(argv: list) -> int:
         default=None,
         help="meaningful diff line count used to scale the default timeout",
     )
+    parser.add_argument(
+        "--permissions-verified",
+        action="store_true",
+        help=(
+            "record that review-check-perms succeeded before the reviewer was "
+            "spawned"
+        ),
+    )
     args = parser.parse_args(argv[2:])
 
     if args.interval <= 0:
@@ -198,6 +280,7 @@ def main(argv: list) -> int:
             args.review_id,
             args.interval,
             timeout_seconds,
+            permissions_verified=args.permissions_verified,
         )
     except SystemExit as e:
         print(str(e), file=sys.stderr)

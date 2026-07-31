@@ -6,7 +6,7 @@ The helper replaces the /review-commits Step 6 bash poll loop (``sleep 30`` +
 - Terminal status (approved, changes_requested, superseded) returns
   immediately with ``timed_out: false``.
 - Still-pending status polls at ``interval`` until the timeout fires, then
-  returns with ``timed_out: true`` and the final ``pending`` status.
+  returns with ``timed_out: true`` and classifies durable review output.
 - Status that transitions mid-wait (pending → approved at poll N) exits on
   that poll with the terminal payload.
 - Nonexistent review_id exits 1 with a stderr message.
@@ -63,6 +63,11 @@ def _make_db(tmp_path):
             created_at TEXT,
             updated_at TEXT
         );
+        CREATE TABLE review_comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            review_id INTEGER NOT NULL,
+            description TEXT
+        );
         INSERT INTO tasks (id, summary) VALUES (1, 'sample');
         """
     )
@@ -82,6 +87,16 @@ def _insert_review(db_path, *, status="pending", reviewer="general", review_pass
     conn.commit()
     conn.close()
     return review_id
+
+
+def _insert_comment(db_path, review_id, description="finding"):
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "INSERT INTO review_comments (review_id, description) VALUES (?, ?)",
+        (review_id, description),
+    )
+    conn.commit()
+    conn.close()
 
 
 class _FakeClock:
@@ -131,6 +146,10 @@ class TestTerminalStatuses:
         assert result["task_id"] == 1
         assert result["reviewer"] == "general"
         assert result["review_pass"] == 1
+        assert result["comment_count"] == 0
+        assert result["progress_state"] == "verdict_posted"
+        assert result["recommended_action"] == "continue"
+        assert result["diagnostic"] is None
         # No sleeps on the fast path
         assert clock.sleeps == []
 
@@ -158,6 +177,55 @@ class TestTimeout:
         assert sum(clock.sleeps) == pytest.approx(150.0)
         assert result["elapsed_seconds"] == pytest.approx(150.0)
         assert result["polls"] >= 2
+        assert result["progress_state"] == "no_review_output"
+        assert result["recommended_action"] == "inspect_agent_state"
+
+    def test_verified_permissions_with_no_output_recommends_inline_fallback(
+        self, tmp_path
+    ):
+        db_path = _make_db(tmp_path)
+        review_id = _insert_review(db_path, status="pending")
+        clock = _FakeClock()
+
+        result = mod.wait_for_terminal(
+            db_path,
+            review_id,
+            interval_seconds=30,
+            timeout_seconds=150,
+            permissions_verified=True,
+            sleep_fn=clock.sleep,
+            monotonic_fn=clock.monotonic,
+        )
+
+        assert result["timed_out"] is True
+        assert result["comment_count"] == 0
+        assert result["permissions_verified"] is True
+        assert result["progress_state"] == "no_review_output"
+        assert result["recommended_action"] == "stop_agent_and_review_inline"
+        assert "permissions were verified" in result["diagnostic"]
+        assert "neither comments nor a verdict" in result["diagnostic"]
+
+    def test_comments_without_verdict_preserve_bounded_wait(self, tmp_path):
+        db_path = _make_db(tmp_path)
+        review_id = _insert_review(db_path, status="pending")
+        _insert_comment(db_path, review_id)
+        clock = _FakeClock()
+
+        result = mod.wait_for_terminal(
+            db_path,
+            review_id,
+            interval_seconds=30,
+            timeout_seconds=150,
+            permissions_verified=True,
+            sleep_fn=clock.sleep,
+            monotonic_fn=clock.monotonic,
+        )
+
+        assert result["timed_out"] is True
+        assert result["comment_count"] == 1
+        assert result["progress_state"] == "comments_without_verdict"
+        assert result["recommended_action"] == "wait_until_hard_cap"
+        assert "1 comment(s)" in result["diagnostic"]
 
     def test_final_sleep_capped_to_remaining_time(self, tmp_path):
         """If interval > remaining, sleep should be clamped to remaining so
@@ -268,8 +336,38 @@ class TestCLI:
         assert payload["timed_out"] is False
         assert set(payload.keys()) == {
             "review_id", "task_id", "status", "review_pass", "reviewer",
-            "timed_out", "elapsed_seconds", "polls",
+            "comment_count", "permissions_verified", "progress_state",
+            "diagnostic", "recommended_action", "timed_out",
+            "elapsed_seconds", "polls",
         }
+
+    def test_cli_reports_verified_no_output_action(self, tmp_path):
+        db_path = _make_db(tmp_path)
+        review_id = _insert_review(db_path, status="pending")
+
+        r = subprocess.run(
+            [
+                sys.executable,
+                SCRIPT,
+                db_path,
+                "fake.json",
+                str(review_id),
+                "--interval",
+                "0.01",
+                "--timeout-seconds",
+                "0.01",
+                "--permissions-verified",
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        assert r.returncode == 0, r.stderr
+        payload = json.loads(r.stdout)
+        assert payload["timed_out"] is True
+        assert payload["permissions_verified"] is True
+        assert payload["progress_state"] == "no_review_output"
+        assert payload["recommended_action"] == "stop_agent_and_review_inline"
 
     def test_cli_rejects_missing_review(self, tmp_path):
         db_path = _make_db(tmp_path)
