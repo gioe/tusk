@@ -68,11 +68,18 @@ def test_spec_paths_exclude_xctest_target_and_test_case_selector():
         "fixtures/data",
         "Tests/FooTests",
         "TargetTests/fixtures",
+        "FooTests/BarTests",
         "ios/Tests/FooTests.swift",
     ],
 )
 def test_spec_paths_preserve_non_xctest_two_segment_paths(path):
     assert brief._spec_paths(path) == [path]
+
+
+def test_xctest_shaped_path_is_preserved_for_other_commands():
+    assert brief._spec_paths("cat FooTests/BarTests") == [
+        "FooTests/BarTests"
+    ]
 
 
 def test_xctest_selector_does_not_emit_stale_warning(tmp_path):

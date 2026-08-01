@@ -80,8 +80,6 @@ def _clean_path_token(token: str) -> str | None:
     if not token or token.startswith("-"):
         return None
     token = token.split("::", 1)[0]
-    if _is_xctest_selector(token):
-        return None
     if token.startswith("./"):
         token = token[2:]
     if token.startswith("/") or ".." in token.split("/"):
@@ -133,6 +131,7 @@ def _spec_paths(spec: str) -> list[str]:
     pipeline_base: str | None = None
     in_pipeline = False
     at_command_start = True
+    command_name: str | None = None
     index = 0
     while index < len(tokens):
         token = tokens[index]
@@ -152,6 +151,7 @@ def _spec_paths(spec: str) -> list[str]:
                     and_or_base = current_dir
             command_base = current_dir
             at_command_start = True
+            command_name = None
             index += 1
             continue
 
@@ -169,7 +169,16 @@ def _spec_paths(spec: str) -> list[str]:
             index += 2 if target else 1
             continue
 
-        path = _clean_path_token(token)
+        is_command_token = at_command_start
+        if is_command_token:
+            command_name = posixpath.basename(token)
+        path = (
+            None
+            if not is_command_token
+            and command_name == "test-sim"
+            and _is_xctest_selector(token)
+            else _clean_path_token(token)
+        )
         if path and current_dir is not None:
             path = posixpath.normpath(posixpath.join(current_dir, path))
         if path and path not in seen:
