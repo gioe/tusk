@@ -49,6 +49,7 @@ PATH_SUFFIX_RE = re.compile(
 )
 GLOB_CHARS = frozenset("*?[")
 SHELL_EXPANSION_CHARS = frozenset("$`\\~*?[{")
+SWIFT_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def _task_id_type(value: str) -> int:
@@ -57,6 +58,17 @@ def _task_id_type(value: str) -> int:
         return int(raw)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"Invalid task ID: {value}") from exc
+
+
+def _is_xctest_selector(token: str) -> bool:
+    """Return True for XCTest target/test-case selectors, not repo paths."""
+    parts = token.split("/")
+    return len(parts) == 2 and all(
+        part != "Tests"
+        and part.endswith("Tests")
+        and SWIFT_IDENTIFIER_RE.fullmatch(part)
+        for part in parts
+    )
 
 
 def _rows(rows) -> list[dict]:
@@ -68,6 +80,8 @@ def _clean_path_token(token: str) -> str | None:
     if not token or token.startswith("-"):
         return None
     token = token.split("::", 1)[0]
+    if _is_xctest_selector(token):
+        return None
     if token.startswith("./"):
         token = token[2:]
     if token.startswith("/") or ".." in token.split("/"):

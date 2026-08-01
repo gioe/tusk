@@ -55,6 +55,69 @@ def test_clean_path_token_preserves_meaningful_leading_dots(token, expected):
     assert brief._clean_path_token(token) == expected
 
 
+def test_spec_paths_exclude_xctest_target_and_test_case_selector():
+    assert brief._spec_paths(
+        "ios/bin/test-sim LaughTrackTests/SoftPushPromptCoordinatorTests"
+    ) == ["ios/bin/test-sim"]
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "apps/web",
+        "fixtures/data",
+        "Tests/FooTests",
+        "TargetTests/fixtures",
+        "ios/Tests/FooTests.swift",
+    ],
+)
+def test_spec_paths_preserve_non_xctest_two_segment_paths(path):
+    assert brief._spec_paths(path) == [path]
+
+
+def test_xctest_selector_does_not_emit_stale_warning(tmp_path):
+    runner = tmp_path / "ios" / "bin" / "test-sim"
+    runner.parent.mkdir(parents=True)
+    runner.touch()
+    rows = [
+        {
+            "id": 1,
+            "verification_spec": (
+                "ios/bin/test-sim "
+                "LaughTrackTests/SoftPushPromptCoordinatorTests"
+            ),
+        }
+    ]
+
+    assert brief._stale_spec_warnings(str(tmp_path), rows) == []
+
+
+def test_xctest_selector_filter_keeps_real_missing_operands(tmp_path):
+    runner = tmp_path / "ios" / "bin" / "test-sim"
+    runner.parent.mkdir(parents=True)
+    runner.touch()
+    swift_file = tmp_path / "ios" / "Tests" / "ExistingTests.swift"
+    swift_file.parent.mkdir(parents=True)
+    swift_file.touch()
+    rows = [
+        {
+            "id": 2,
+            "verification_spec": (
+                "ios/bin/test-sim "
+                "LaughTrackTests/SoftPushPromptCoordinatorTests "
+                "ios/Tests/ExistingTests.swift "
+                "missing/ExpectedTests.swift"
+            ),
+        }
+    ]
+
+    warnings = brief._stale_spec_warnings(str(tmp_path), rows)
+
+    assert warnings[0]["details"]["missing_paths"] == [
+        "missing/ExpectedTests.swift"
+    ]
+
+
 @pytest.mark.parametrize(
     ("verification_spec", "expected_paths"),
     [

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1252] - 2026-07-31
+
+- [TASK-858] Recognize XCTest selectors in verification specifications
+
 ## [1251] - 2026-07-31
 
 - [TASK-857] Surface reviewer-agent stalls before the hard cap
