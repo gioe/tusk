@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1253] - 2026-07-31
+
+- [TASK-859] Prevent prose XCTest selectors from generating auto-derived scope
+
 ## [1252] - 2026-07-31
 
 - [TASK-858] Recognize XCTest selectors in verification specifications
