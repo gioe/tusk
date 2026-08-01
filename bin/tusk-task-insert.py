@@ -48,6 +48,7 @@ validate_enum = _db_lib.validate_enum
 extract_paths = _git_helpers.extract_paths
 extract_referenced_basenames = _git_helpers.extract_referenced_basenames
 is_prose_identifier_path = _git_helpers.is_prose_identifier_path
+is_xctest_selector = _git_helpers.is_xctest_selector
 path_exists_in_repo = _git_helpers.path_exists_in_repo
 warn_file_spec_glob_metachars = _git_helpers.warn_file_spec_glob_metachars
 reject_shell_metacharacters = _git_helpers.reject_shell_metacharacters
@@ -84,6 +85,10 @@ _ROUTE_SHORTFORM_RE = re.compile(
     r"(?<![\w:/.@-])/(?P<path>[A-Za-z0-9][\w./\[\]-]*\.[A-Za-z][\w]{1,9})"
 )
 _TEST_TARGET_TOKEN_RE = re.compile(r"\b([A-Z][A-Za-z0-9]*(?:UI)?Tests)\b")
+_TEST_SIM_SELECTOR_RE = re.compile(
+    r"(?<![\w.-])(?:[A-Za-z0-9_.-]+/)*test-sim\s+"
+    r"(?P<selector>[^\s;&|]+)"
+)
 _TASK_COMMIT_SHA_RE = re.compile(
     r"(?:\[?TASK-[A-Za-z0-9_-]+\]?)\b.{0,120}?\bcommit\s+([0-9a-fA-F]{7,40})\b",
     re.IGNORECASE | re.DOTALL,
@@ -370,6 +375,15 @@ def _resolve_unique_repo_basename(repo_root: str | None, name: str) -> str | Non
     return None
 
 
+def _test_sim_selector_spans(text: str) -> list[tuple[int, int]]:
+    """Return spans for XCTest selectors used as test-sim arguments."""
+    return [
+        (match.start("selector"), match.end("selector"))
+        for match in _TEST_SIM_SELECTOR_RE.finditer(text or "")
+        if is_xctest_selector(match.group("selector"))
+    ]
+
+
 def _test_target_scope_paths(repo_root: str | None, text: str) -> list[str]:
     """Infer tracked files from target-shaped test identifiers.
 
@@ -381,9 +395,15 @@ def _test_target_scope_paths(repo_root: str | None, text: str) -> list[str]:
     """
     if not repo_root or not text:
         return []
+    selector_spans = _test_sim_selector_spans(text)
     tokens = []
     seen_tokens: set[str] = set()
     for match in _TEST_TARGET_TOKEN_RE.finditer(text):
+        if any(
+            start <= match.start() and match.end() <= end
+            for start, end in selector_spans
+        ):
+            continue
         token = match.group(1)
         if token not in seen_tokens:
             seen_tokens.add(token)

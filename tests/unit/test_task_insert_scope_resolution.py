@@ -154,6 +154,48 @@ def test_auto_scope_candidates_drop_target_noise_from_different_app_stack(monkey
     assert "apps/web/ios/Tests/ComedianDetailViewTests.swift" not in candidates
 
 
+def test_auto_scope_candidates_ignore_test_sim_xctest_selector(monkeypatch):
+    tracked = [
+        "tests/fixtures/ios/Tests/LaughTrackTests/FooTests.swift",
+        "tests/fixtures/ios/Tests/LaughTrackTests/HomeContentSectionTests.swift",
+        "bin/tusk-task-insert.py",
+    ]
+    monkeypatch.setattr(mod, "_tracked_repo_files", lambda repo: tracked)
+    monkeypatch.setattr(
+        mod,
+        "path_exists_in_repo",
+        lambda repo, path: path == "bin/tusk-task-insert.py",
+    )
+    text = (
+        "Run ios/bin/test-sim "
+        "LaughTrackTests/SoftPushPromptCoordinatorTests, then edit "
+        "bin/tusk-task-insert.py."
+    )
+
+    candidates = mod._auto_scope_candidates(
+        text, repo_root="repo", task_type="feature"
+    )
+
+    assert "bin/tusk-task-insert.py" in candidates
+    assert not any("LaughTrackTests" in path for path in candidates)
+
+
+def test_auto_scope_candidates_keep_standalone_test_target_mentions(monkeypatch):
+    tracked = [
+        "tests/fixtures/ios/Tests/LaughTrackTests/FooTests.swift",
+        "tests/fixtures/ios/Tests/LaughTrackTests/HomeContentSectionTests.swift",
+    ]
+    monkeypatch.setattr(mod, "_tracked_repo_files", lambda repo: tracked)
+
+    candidates = mod._auto_scope_candidates(
+        "Investigate the LaughTrackTests target.",
+        repo_root="repo",
+        task_type="feature",
+    )
+
+    assert candidates == tracked
+
+
 def test_auto_scope_candidates_include_git_rm_directory_operand():
     text = (
         "git rm -r --cached .claude/bin and commit; "

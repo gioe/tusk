@@ -210,6 +210,26 @@ def test_auto_extract_from_typed_text_but_not_verification_specs(db_path):
     assert "tests/unit/test_scope_rederive.py" not in auto, rows
 
 
+def test_prose_test_sim_selector_does_not_expand_fixture_scope(db_path):
+    task_id = _insert(
+        str(db_path),
+        "Recognize XCTest selectors in verification specifications",
+        (
+            "LaughTrack iOS verification specifications use ios/bin/test-sim "
+            "followed by XCTest target and test-case selectors. Add a "
+            "verification command such as ios/bin/test-sim "
+            "LaughTrackTests/SoftPushPromptCoordinatorTests. Update "
+            "bin/tusk-task-insert.py."
+        ),
+    )
+
+    rows = _scope_rows(str(db_path), task_id)
+    auto = {row["pattern"] for row in rows if row["source"] == "auto_derived"}
+
+    assert "bin/tusk-task-insert.py" in auto, rows
+    assert not any("tests/fixtures/ios/Tests/LaughTrackTests" in path for path in auto)
+
+
 def test_auto_extract_ignores_relative_paths_in_verification_specs(db_path):
     """Command paths remain validation metadata even after a leading cd."""
     task_id = _insert(

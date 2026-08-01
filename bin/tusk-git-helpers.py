@@ -61,6 +61,19 @@ _UNREACHABLE_REMOTE_REGEX = re.compile(r"repository '[^']*' not found", re.IGNOR
 _BRANCH_AUTOSTASH_LINE_RE = re.compile(
     r"^stash@\{(\d+)\}: .*: tusk-branch: auto-stash for TASK-(\d+)$"
 )
+_SWIFT_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def is_xctest_selector(token: str | None) -> bool:
+    """Return True for an XCTest target/test-case selector token."""
+    raw = (token or "").strip().strip("\"'`.,:;()[]{}")
+    parts = raw.split("/")
+    return len(parts) == 2 and all(
+        part != "Tests"
+        and part.endswith("Tests")
+        and _SWIFT_IDENTIFIER_RE.fullmatch(part)
+        for part in parts
+    )
 
 
 def _is_remote_unreachable(stderr: str) -> bool:

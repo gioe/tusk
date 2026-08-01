@@ -39,9 +39,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tusk_loader  # noqa: E402
 
 _db_lib = tusk_loader.load("tusk-db-lib")
+_git_helpers = tusk_loader.load("tusk-git-helpers")
 _json_lib = tusk_loader.load("tusk-json-lib")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
+_is_xctest_selector = _git_helpers.is_xctest_selector
 
 
 PATH_SUFFIX_RE = re.compile(
@@ -49,7 +51,6 @@ PATH_SUFFIX_RE = re.compile(
 )
 GLOB_CHARS = frozenset("*?[")
 SHELL_EXPANSION_CHARS = frozenset("$`\\~*?[{")
-SWIFT_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def _task_id_type(value: str) -> int:
@@ -58,17 +59,6 @@ def _task_id_type(value: str) -> int:
         return int(raw)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"Invalid task ID: {value}") from exc
-
-
-def _is_xctest_selector(token: str) -> bool:
-    """Return True for XCTest target/test-case selectors, not repo paths."""
-    parts = token.split("/")
-    return len(parts) == 2 and all(
-        part != "Tests"
-        and part.endswith("Tests")
-        and SWIFT_IDENTIFIER_RE.fullmatch(part)
-        for part in parts
-    )
 
 
 def _rows(rows) -> list[dict]:
