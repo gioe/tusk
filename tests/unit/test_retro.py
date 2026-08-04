@@ -202,6 +202,31 @@ class TestCombinedShape:
                 f"single-letter theme leaked: {entry['theme']!r}"
             )
 
+    def test_bundled_retro_inherits_ranked_theme_cap(self, tmp_path):
+        db_path, conn = _make_db(tmp_path)
+        conn.execute(
+            "INSERT INTO tasks (id, summary, status, complexity) "
+            "VALUES (1, 'subject', 'Done', 'M')"
+        )
+        conn.execute("INSERT INTO skill_runs (id, skill_name) VALUES (1, 'retro')")
+        conn.executemany(
+            "INSERT INTO retro_findings (skill_run_id, category, summary) "
+            "VALUES (1, 'A', ?)",
+            [(f"term{index:02d}",) for index in range(25)],
+        )
+        conn.commit()
+        conn.close()
+
+        rc, stdout, stderr = _run_cli(db_path, "1", "--min-recurrence", "1")
+
+        assert rc == 0, stderr
+        themes = json.loads(stdout)["themes"]["themes"]
+        assert themes == [
+            {"theme": f"term{index:02d}", "count": 1}
+            for index in range(20)
+        ]
+        assert all(set(entry) == {"theme", "count"} for entry in themes)
+
     def test_task_prefix_form_resolves(self, tmp_path):
         db_path, conn = _make_db(tmp_path)
         conn.execute("INSERT INTO tasks (id, summary, status) VALUES (42, 's', 'Done')")
