@@ -162,6 +162,19 @@ class TestExtractTerms:
         assert mod._extract_terms("") == set()
         assert mod._extract_terms(None) == set()
 
+    def test_suppresses_generic_unigrams_but_preserves_coherent_phrases(self):
+        terms = mod._extract_terms(
+            "Android test coverage added at the local entry point for task work"
+        )
+
+        for generic in (
+            "android", "test", "added", "local", "entry", "point", "task", "work"
+        ):
+            assert generic not in terms
+        assert "test coverage" in terms
+        assert "entry point" in terms
+        assert "task work" in terms
+
 
 class TestFetchThemes:
     """Direct unit tests against fetch_themes() — no subprocess overhead."""
@@ -273,6 +286,39 @@ class TestFetchThemes:
         # intentionally NOT affected by min_recurrence so callers can tell
         # "6 findings, only 1 recurring theme" at a glance.
         assert result["total_findings"] == 6
+
+    def test_realistic_noise_is_suppressed_while_phrases_recur(self, tmp_path):
+        db_path, conn = _make_db(tmp_path)
+        _seed_findings(conn, [
+            ("Android test coverage added at the local entry point", 0),
+            ("Android test coverage filed from the local entry point", 1),
+            ("Android test coverage work at the local entry point", 2),
+        ])
+
+        result = mod.fetch_themes(conn, window_days=30, min_recurrence=3)
+
+        themes = {entry["theme"]: entry["count"] for entry in result["themes"]}
+        for generic in ("android", "test", "local", "entry", "point"):
+            assert generic not in themes
+        assert themes["test coverage"] == 3
+        assert themes["entry point"] == 3
+
+    def test_caps_themes_after_deterministic_ranking(self, tmp_path):
+        db_path, conn = _make_db(tmp_path)
+        specs = [(f"term{index:02d}", 0) for index in range(25) for _ in range(3)]
+        specs.extend([("zzpriority", 0)] * 4)
+        _seed_findings(conn, specs)
+
+        first = mod.fetch_themes(conn, window_days=30, min_recurrence=3)
+        second = mod.fetch_themes(conn, window_days=30, min_recurrence=3)
+
+        expected = [{"theme": "zzpriority", "count": 4}] + [
+            {"theme": f"term{index:02d}", "count": 3}
+            for index in range(mod.MAX_THEMES - 1)
+        ]
+        assert first["themes"] == expected
+        assert second["themes"] == expected
+        assert len(first["themes"]) == mod.MAX_THEMES
 
     def test_empty_db_returns_empty_themes_with_shape(self, tmp_path):
         db_path, conn = _make_db(tmp_path)

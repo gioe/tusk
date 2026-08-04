@@ -35,7 +35,8 @@ Output JSON shape (pre-aggregated tuples only — no raw row escape hatch):
                                       # min_recurrence is applied so callers
                                       # can tell "6 findings, only 1 recurring
                                       # theme" at a glance
-        "themes": [                   # sorted by count desc, then theme asc
+        "themes": [                   # top 20, sorted by count desc, then
+                                      # theme asc
             {"theme": "<topic>", "count": N},
             ...
         ]
@@ -65,9 +66,9 @@ get_connection = _db_lib.get_connection
 DEFAULT_WINDOW_DAYS = 30
 DEFAULT_MIN_RECURRENCE = 1
 MIN_TERM_LENGTH = 4
+MAX_THEMES = 20
 
-# Common English stop-words plus a few tusk-domain noise terms that recur
-# across most findings without conveying a topic ("task", "tusk", etc).
+# Common English stop-words that do not add meaning even inside a phrase.
 STOP_WORDS = frozenset({
     "a", "about", "above", "across", "after", "again", "against", "all",
     "also", "an", "and", "any", "are", "as", "at", "back", "be", "been",
@@ -86,11 +87,19 @@ STOP_WORDS = frozenset({
     "uses", "using", "very", "via", "was", "we", "were", "what", "when",
     "where", "which", "while", "who", "whom", "why", "will", "with",
     "within", "without", "would", "yet", "you", "your", "yours", "yourself",
-    # tusk-domain noise — these appear in nearly every finding summary and
-    # would otherwise dominate the recurrence ranking without naming a
-    # specific theme.
-    "task", "tusk", "skill", "skills", "step", "steps", "issue", "issues",
-    "session", "make", "made", "need", "needs",
+})
+
+# Generic process and domain words carry useful meaning inside phrases such as
+# "test coverage" and "entry point", but are too broad to be useful as bare
+# themes. Keep them in the token stream for bigrams while suppressing only the
+# unigram form.
+UNIGRAM_NOISE = frozenset({
+    "action", "added", "agent", "agents", "android", "code", "commit",
+    "document", "entry", "failure", "filed", "guidance", "implementation",
+    "issue", "issues", "local", "make", "made", "merge", "need", "needs",
+    "point", "process", "resolved", "review", "risk", "session", "shipped",
+    "skill", "skills", "step", "steps", "successful", "task", "test",
+    "tracking", "tusk", "update", "updated", "work", "workflow",
 })
 
 
@@ -99,7 +108,9 @@ def _extract_terms(summary: str) -> set:
 
     A term is either a single content word or a bigram of consecutive content
     words. Tokens are lowercased, stripped of non-alphanumerics, and dropped
-    if they are stop-words or shorter than MIN_TERM_LENGTH characters.
+    if they are stop-words or shorter than MIN_TERM_LENGTH characters. Generic
+    process and domain tokens remain available to bigrams but are omitted as
+    bare unigrams.
 
     Each term is counted once per finding (set semantics) regardless of how
     many times it appears within a single summary — recurrence is at the
@@ -112,7 +123,7 @@ def _extract_terms(summary: str) -> set:
         t for t in cleaned.split()
         if t not in STOP_WORDS and len(t) >= MIN_TERM_LENGTH
     ]
-    terms: set = set(tokens)
+    terms: set = {token for token in tokens if token not in UNIGRAM_NOISE}
     for first, second in zip(tokens, tokens[1:]):
         terms.add(f"{first} {second}")
     return terms
@@ -132,6 +143,7 @@ def fetch_themes(
       `_extract_terms`) to a Counter; recurrence counts the number of
       findings each term appears in.
     - Themes whose recurrence is below `min_recurrence` are dropped.
+    - At most MAX_THEMES themes are emitted after deterministic ranking.
     - total_findings is the raw row count in the window, computed before
       the recurrence filter, so callers can compare "rows in window" vs
       "themes that survived the floor".
@@ -157,6 +169,7 @@ def fetch_themes(
         if count >= min_recurrence
     ]
     themes.sort(key=lambda t: (-t["count"], t["theme"]))
+    themes = themes[:MAX_THEMES]
 
     return {
         "window_days": window_days,
