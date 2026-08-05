@@ -368,6 +368,98 @@ class TestCapturedOutputBehavior:
         assert "--skip-verify" in combined
         assert "test_command failed" not in combined
 
+    @pytest.mark.parametrize(
+        ("fixture", "reported_path"),
+        [
+            (
+                ".github/workflows/scraper-schedule.yml",
+                "absolute",
+            ),
+            (
+                ".github/actions/record-pipeline-run/action.yml",
+                "../../.github/actions/record-pipeline-run/action.yml",
+            ),
+        ],
+    )
+    def test_sparse_tracked_fixture_failure_prints_recovery(
+        self, fixture, reported_path, tmp_path, monkeypatch, capsys
+    ):
+        mod = _load_module()
+        primary, _target = _make_repo(tmp_path)
+        fixture_path = primary / fixture
+        fixture_path.parent.mkdir(parents=True, exist_ok=True)
+        fixture_path.write_text("fixture\n")
+        subprocess.run(["git", "-C", str(primary), "add", fixture], check=True)
+        subprocess.run(
+            ["git", "-C", str(primary), "commit", "-q", "-m", "fixture"],
+            check=True,
+        )
+        worktree = tmp_path / "worktree"
+        worktree.mkdir()
+        missing = worktree / fixture if reported_path == "absolute" else reported_path
+        result = subprocess.CompletedProcess(
+            ["pytest"],
+            1,
+            stdout=(
+                "FAILED tests/test_integrity.py::test_repository_fixture\n"
+                f"E FileNotFoundError: [Errno 2] No such file or directory: '{missing}'\n"
+                "1 failed in 0.10s\n"
+            ),
+            stderr="",
+        )
+
+        monkeypatch.setattr(mod, "_sparse_checkout_active", lambda _root: True)
+        monkeypatch.setattr(
+            mod._worktree_command,
+            "primary_checkout_root",
+            lambda _root: str(primary),
+        )
+
+        mod._print_test_command_failure(result, "pytest", 0.1, str(worktree))
+        captured = capsys.readouterr()
+
+        assert f"Missing fixture: {fixture}" in captured.err
+        assert "Recovery: git sparse-checkout add .github" in captured.err
+        assert "test_command failed" not in captured.err
+
+    @pytest.mark.parametrize("primary_state", ["absent", "untracked"])
+    def test_genuine_missing_file_keeps_generic_failure(
+        self, primary_state, tmp_path, monkeypatch, capsys
+    ):
+        mod = _load_module()
+        primary, _target = _make_repo(tmp_path)
+        fixture = ".github/workflows/genuinely-missing.yml"
+        if primary_state == "untracked":
+            primary_fixture = primary / fixture
+            primary_fixture.parent.mkdir(parents=True)
+            primary_fixture.write_text("untracked\n")
+        worktree = tmp_path / "worktree"
+        worktree.mkdir()
+        missing = worktree / fixture
+        result = subprocess.CompletedProcess(
+            ["pytest"],
+            1,
+            stdout=(
+                f"E FileNotFoundError: [Errno 2] No such file or directory: '{missing}'\n"
+                "1 failed in 0.10s\n"
+            ),
+            stderr="",
+        )
+
+        monkeypatch.setattr(mod, "_sparse_checkout_active", lambda _root: True)
+        monkeypatch.setattr(
+            mod._worktree_command,
+            "primary_checkout_root",
+            lambda _root: str(primary),
+        )
+
+        mod._print_test_command_failure(result, "pytest", 0.1, str(worktree))
+        captured = capsys.readouterr()
+
+        assert "test_command failed (exit 1" in captured.err
+        assert "Missing fixture" not in captured.err
+        assert "git sparse-checkout add" not in captured.err
+
     def test_linked_worktree_rewrites_relative_venv_python_from_primary_checkout(
         self, tmp_path, monkeypatch, capsys
     ):

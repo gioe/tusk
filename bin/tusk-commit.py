@@ -1076,6 +1076,89 @@ def _test_command_outside_sparse_cone(
     return True, targets[0]
 
 
+_PYTHON_MISSING_FILE_RE = re.compile(
+    r"(?:FileNotFoundError:\s*)?\[Errno 2\]\s+No such file or directory:\s*"
+    r"(?P<quote>['\"])(?P<path>[^'\"\r\n]+)(?P=quote)"
+)
+
+
+def _missing_sparse_fixture(
+    result: subprocess.CompletedProcess,
+    repo_root: str,
+) -> str | None:
+    """Return a tracked fixture omitted only from this sparse worktree.
+
+    Test commands can name their own target paths, but they cannot advertise
+    repository-integrity fixtures opened indirectly by the tests. Diagnose
+    only Python's precise Errno-2 shape, and only when the missing path maps
+    unambiguously to a tracked file that exists in the primary checkout. This
+    keeps genuine FileNotFoundError regressions on the ordinary failure path.
+    """
+    combined = f"{result.stdout or ''}\n{result.stderr or ''}"
+    missing_paths = [
+        match.group("path")
+        for match in _PYTHON_MISSING_FILE_RE.finditer(combined)
+    ]
+    if not missing_paths:
+        return None
+    if not _sparse_checkout_active(repo_root):
+        return None
+    primary_root = _worktree_command.primary_checkout_root(repo_root)
+    if not primary_root:
+        return None
+
+    tracked_result = run(
+        ["git", "ls-files", "--cached"],
+        check=False,
+        cwd=primary_root,
+    )
+    if tracked_result.returncode != 0:
+        return None
+    tracked = {
+        line.strip().replace("\\", "/")
+        for line in tracked_result.stdout.splitlines()
+        if line.strip()
+    }
+    if not tracked:
+        return None
+
+    real_repo_root = os.path.realpath(repo_root)
+    for raw_path in missing_paths:
+        if "\x00" in raw_path or not any(sep in raw_path for sep in ("/", "\\")):
+            continue
+
+        normalized = raw_path.replace("\\", "/")
+        candidates: set[str] = set()
+        if os.path.isabs(raw_path):
+            real_missing = os.path.realpath(raw_path)
+            if not _escapes_root(real_missing, real_repo_root):
+                candidates.add(
+                    _make_relative(real_missing, real_repo_root).replace(os.sep, "/")
+                )
+        else:
+            direct = os.path.normpath(raw_path).replace(os.sep, "/")
+            if direct and direct != "." and not direct.startswith("../"):
+                candidates.add(direct)
+
+        # Tests may chdir before opening ../../.github/... . Resolve that
+        # shape by unique tracked suffix instead of guessing the test cwd.
+        candidates.update(
+            path
+            for path in tracked
+            if normalized == path or normalized.endswith("/" + path)
+        )
+        matches = sorted(candidates & tracked)
+        if len(matches) != 1:
+            continue
+        relative = matches[0]
+        if os.path.exists(os.path.join(repo_root, *relative.split("/"))):
+            continue
+        if not os.path.isfile(os.path.join(primary_root, *relative.split("/"))):
+            continue
+        return relative
+    return None
+
+
 def _sparse_checkout_recovery_cone(paths: list[str], repo_root: str) -> list[str]:
     """Infer cone entries to add for paths rejected by sparse-checkout."""
     cones: list[str] = []
@@ -1403,6 +1486,29 @@ def _print_test_command_failure(
     repo_root: str,
 ) -> None:
     """Emit the most actionable failure message for the test_command gate."""
+    missing_fixture = _missing_sparse_fixture(result, repo_root)
+    if missing_fixture:
+        cones = _sparse_checkout_recovery_cone([missing_fixture], repo_root)
+        if cones:
+            recovery = " ".join(
+                [
+                    "git",
+                    "sparse-checkout",
+                    "add",
+                    *[shlex.quote(cone) for cone in cones],
+                ]
+            )
+            print(
+                "\nError: test_command accessed a tracked repository fixture "
+                "that is not materialized in this sparse worktree "
+                f"(exit {result.returncode}, {elapsed:.1f}s)",
+                file=sys.stderr,
+            )
+            print(f"  Missing fixture: {missing_fixture}", file=sys.stderr)
+            print(f"  Recovery: {recovery}", file=sys.stderr)
+            print("  Then retry the same tusk commit command.", file=sys.stderr)
+            return
+
     if _test_command_unavailable(result) and is_linked_worktree(repo_root):
         print(
             "\nError: configured test_command is unavailable in this linked worktree "
