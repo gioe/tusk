@@ -202,6 +202,23 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
    Report findings before writing any code.
 
+   **Bounded recovery for a stalled exploration subagent.** Do not wait
+   indefinitely for mandatory exploration. After a reasonable interval with no
+   material progress, inspect the task worktree and the subagent's latest
+   report. Material progress includes a worktree diff, completed command or test
+   output, or a substantive report of finished work or a concrete blocker; an
+   active/running status alone is not progress. On the first no-progress check,
+   send one focused nudge that restates or narrows the exploration assignment.
+   If the next progress check still shows no material progress, interrupt the
+   subagent. Then either delegate one narrower replacement exploration
+   assignment or complete the required exploration locally. A replacement gets
+   the same single-nudge budget; if it also stalls, interrupt it and fall back
+   locally rather than spawning another replacement. On local fallback, complete
+   the same exploration checklist, report findings before writing any code, and
+   surface `Exploration routing: local fallback — <stalled evidence; local
+   findings>`. Do not interrupt an actively producing command or test before it
+   finishes or reaches its own timeout.
+
 5b. **Declare scope before the first commit.** The commit-time scope guard reads from the authoritative `task_scope` table (TASK-471). It falls back to the `task_referenced_paths` hint cache only for legacy `scope_enforced=0` tasks; for current `scope_enforced=1` tasks, no `task_scope` rows means the commit is rejected as missing scope declaration. Before staging the first commit, run `tusk scope list <id>` to see what the table currently authorizes:
 
    - **If the list already covers the files you plan to touch**, proceed to commit; no action needed. Migration 73 backfilled `auto_derived` rows from your description and acceptance criteria; tasks created with `tusk task-insert --scope/--creates` have `operator_declared`/`creates` rows from the start.

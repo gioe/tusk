@@ -23,6 +23,13 @@ def _stalled_fallback_block(path: Path) -> str:
     return block[start:]
 
 
+def _stalled_exploration_block(path: Path) -> str:
+    block = _routing_block(path)
+    start = block.index("**Bounded recovery for a stalled exploration subagent.**")
+    end = block.index("5b.", start)
+    return block[start:end]
+
+
 def test_tusk_workflows_always_delegate_exploration_before_routing():
     for path in WORKFLOW_PATHS:
         block = _routing_block(path)
@@ -30,6 +37,40 @@ def test_tusk_workflows_always_delegate_exploration_before_routing():
         assert "always delegate this exploration pass to a sub-agent" in block.lower()
         assert "Wait for the exploration sub-agent to finish" in block
         assert "report its findings before choosing a route" in block
+
+
+def test_tusk_workflows_bound_stalled_exploration_recovery():
+    for path in WORKFLOW_PATHS:
+        block = _stalled_exploration_block(path)
+
+        inspect_index = block.index(
+            "inspect the task worktree and the subagent's latest report"
+        )
+        nudge_index = block.index("send one focused nudge")
+        interrupt_index = block.index("interrupt the subagent")
+        replacement_index = block.index(
+            "delegate one narrower replacement exploration assignment"
+        )
+        local_index = block.index("complete the required exploration locally")
+
+        assert "reasonable interval with no material progress" in block
+        assert "worktree diff, completed command or test output" in block
+        assert "substantive report of finished work or a concrete blocker" in block
+        assert "active/running status alone is not progress" in block
+        assert "first no-progress check" in block
+        assert "next progress check still shows no material progress" in block
+        assert inspect_index < nudge_index < interrupt_index
+        assert interrupt_index < replacement_index
+        assert interrupt_index < local_index
+        assert "same single-nudge budget" in block
+        assert "rather than spawning another replacement" in block
+        assert "complete the same exploration checklist" in block
+        assert "report findings before writing any code" in block
+        assert (
+            "Exploration routing: local fallback — "
+            "<stalled evidence; local findings>"
+        ) in block
+        assert "Do not interrupt an actively producing command or test" in block
 
 
 def test_tusk_workflows_allow_only_focused_xs_s_work_to_remain_local():
@@ -98,6 +139,14 @@ def test_codex_prompt_mirrors_stalled_delegation_recovery_guidance():
     canonical, codex_prompt = WORKFLOW_PATHS
 
     assert _stalled_fallback_block(canonical) == _stalled_fallback_block(codex_prompt)
+
+
+def test_codex_prompt_mirrors_stalled_exploration_recovery_guidance():
+    canonical, codex_prompt = WORKFLOW_PATHS
+
+    assert _stalled_exploration_block(canonical) == _stalled_exploration_block(
+        codex_prompt
+    )
 
 
 def test_codex_prompt_does_not_claim_subagents_are_unavailable():

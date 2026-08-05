@@ -461,6 +461,23 @@ JSON blob and the `skill_run.run_id` you already captured.
 
    Report findings before writing any code.
 
+   **Bounded recovery for a stalled exploration subagent.** Do not wait
+   indefinitely for mandatory exploration. After a reasonable interval with no
+   material progress, inspect the task worktree and the subagent's latest
+   report. Material progress includes a worktree diff, completed command or test
+   output, or a substantive report of finished work or a concrete blocker; an
+   active/running status alone is not progress. On the first no-progress check,
+   send one focused nudge that restates or narrows the exploration assignment.
+   If the next progress check still shows no material progress, interrupt the
+   subagent. Then either delegate one narrower replacement exploration
+   assignment or complete the required exploration locally. A replacement gets
+   the same single-nudge budget; if it also stalls, interrupt it and fall back
+   locally rather than spawning another replacement. On local fallback, complete
+   the same exploration checklist, report findings before writing any code, and
+   surface `Exploration routing: local fallback — <stalled evidence; local
+   findings>`. Do not interrupt an actively producing command or test before it
+   finishes or reaches its own timeout.
+
 5b. **Scope check — only implement what the task describes.**
    The task's `summary` and `description` define the full scope of
    work for this session. If the description references external
