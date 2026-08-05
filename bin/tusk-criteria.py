@@ -15,6 +15,7 @@ import glob as globmod
 import json
 import os
 import re
+import shlex
 import sqlite3
 import subprocess
 import sys
@@ -229,6 +230,157 @@ _CODE_TIMEOUT_SECS = 120
 # Test suites grow; subprocess.run(capture_output=True) can also slow pytest by
 # ~2.5x vs direct invocation because stdout/stderr pipes are drained serially.
 _TEST_TIMEOUT_SECS = 300
+_SIMULATOR_LIST_TIMEOUT_SECS = 10
+
+_QUOTED_XCODE_DESTINATION_RE = re.compile(
+    r"(?P<prefix>-destination(?:\s+|=))"
+    r"(?P<quote>['\"])(?P<value>[^'\"]+)(?P=quote)"
+)
+_UNQUOTED_IOS_LATEST_DESTINATION_RE = re.compile(
+    r"-destination(?:\s+|=)platform=iOS\s+Simulator,[^\n]*\bOS=latest\b"
+)
+
+
+def _leading_command_is_xcodebuild(command: str) -> bool:
+    """Return whether a spec directly invokes xcodebuild.
+
+    Criterion specs are arbitrary shell, so stay deliberately conservative:
+    quoted mentions, wrappers, and later commands in a compound expression are
+    not rewritten.
+    """
+    try:
+        tokens = shlex.split(command, comments=False, posix=True)
+    except ValueError:
+        return False
+    return bool(tokens) and os.path.basename(tokens[0]) == "xcodebuild"
+
+
+def _destination_fields(value: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for part in value.split(","):
+        key, separator, field_value = part.strip().partition("=")
+        if separator:
+            fields[key] = field_value
+    return fields
+
+
+def _available_simulator_udids() -> tuple[dict[str, set[str]], Optional[str]]:
+    """Return available simulator UDIDs grouped by exact device name."""
+    try:
+        result = subprocess.run(
+            ["xcrun", "simctl", "list", "devices", "available", "--json"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=_SIMULATOR_LIST_TIMEOUT_SECS,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
+        return {}, f"could not list installed simulators: {exc}"
+
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        suffix = f": {detail[:500]}" if detail else ""
+        return {}, f"xcrun simctl list failed with exit {result.returncode}{suffix}"
+
+    try:
+        payload = json.loads(result.stdout)
+    except (json.JSONDecodeError, TypeError) as exc:
+        return {}, f"xcrun simctl returned invalid JSON: {exc}"
+
+    by_name: dict[str, set[str]] = {}
+    devices = payload.get("devices", {}) if isinstance(payload, dict) else {}
+    if not isinstance(devices, dict):
+        return {}, "xcrun simctl JSON did not contain a devices object"
+    for runtime_devices in devices.values():
+        if not isinstance(runtime_devices, list):
+            continue
+        for device in runtime_devices:
+            if not isinstance(device, dict) or device.get("isAvailable") is False:
+                continue
+            name = device.get("name")
+            udid = device.get("udid")
+            if isinstance(name, str) and isinstance(udid, str) and name and udid:
+                by_name.setdefault(name, set()).add(udid)
+    return by_name, None
+
+
+def _preflight_ios_simulator_destination(command: str) -> tuple[str, Optional[str]]:
+    """Resolve one unstable iOS Simulator OS=latest destination to a UDID.
+
+    Returns ``(command, error)``. An error is a fast verification failure; the
+    caller must not launch xcodebuild in that case.
+    """
+    if not _leading_command_is_xcodebuild(command):
+        return command, None
+
+    unstable_matches = []
+    for match in _QUOTED_XCODE_DESTINATION_RE.finditer(command):
+        fields = _destination_fields(match.group("value"))
+        if (
+            fields.get("platform") == "iOS Simulator"
+            and fields.get("OS") == "latest"
+            and "id" not in fields
+        ):
+            unstable_matches.append((match, fields))
+
+    if not unstable_matches:
+        if _UNQUOTED_IOS_LATEST_DESTINATION_RE.search(command):
+            return command, (
+                "the iOS Simulator OS=latest destination is not quoted and cannot "
+                "be safely resolved"
+            )
+        return command, None
+
+    if len(unstable_matches) != 1:
+        return command, (
+            "multiple iOS Simulator OS=latest destinations cannot be resolved "
+            "unambiguously"
+        )
+
+    match, fields = unstable_matches[0]
+    device_name = fields.get("name")
+    if not device_name:
+        return command, "the iOS Simulator OS=latest destination has no device name"
+
+    simulators, error = _available_simulator_udids()
+    if error:
+        return command, error
+    udids = sorted(simulators.get(device_name, set()))
+    if not udids:
+        return command, f"no available simulator is named {device_name!r}"
+    if len(udids) > 1:
+        return command, (
+            f"multiple available simulators are named {device_name!r}: "
+            + ", ".join(udids)
+        )
+
+    replacement_parts = []
+    for part in match.group("value").split(","):
+        key = part.strip().partition("=")[0]
+        if key == "name":
+            replacement_parts.append(f"id={udids[0]}")
+        elif key != "OS":
+            replacement_parts.append(part.strip())
+    replacement_value = ",".join(replacement_parts)
+    rewritten = (
+        command[:match.start("value")]
+        + replacement_value
+        + command[match.end("value"):]
+    )
+    return rewritten, None
+
+
+def _simulator_preflight_failure(reason: str) -> dict:
+    return {
+        "passed": False,
+        "output": (
+            "iOS simulator destination preflight failed: "
+            f"{reason}. Replace OS=latest with an installed simulator UDID or "
+            "use the project's stable simulator test wrapper, then update the "
+            "criterion verification spec."
+        ),
+    }
 
 
 def _get_repo_root() -> Optional[str]:
@@ -272,6 +424,10 @@ def run_verification(criterion_type: str, spec: str) -> dict:
                 spec,
                 repo_root,
             )
+        if criterion_type == "test":
+            command, preflight_error = _preflight_ios_simulator_destination(command)
+            if preflight_error:
+                return _simulator_preflight_failure(preflight_error)
         t0 = time.monotonic()
         try:
             result = subprocess.run(

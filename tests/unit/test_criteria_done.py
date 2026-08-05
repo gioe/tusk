@@ -1,7 +1,7 @@
 """Unit tests for tusk criteria done — bulk close, partial failure, already-completed.
 
-Uses an in-memory SQLite DB — no filesystem or subprocess required.
-Tests the _done_single helper and cmd_done orchestrator directly.
+Uses an in-memory SQLite DB and mocks subprocesses at the verifier boundary.
+Tests run_verification, the _done_single helper, and cmd_done directly.
 """
 
 import argparse
@@ -10,6 +10,7 @@ import io
 import json
 import os
 import sqlite3
+import subprocess
 from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
@@ -50,6 +51,111 @@ _spec = importlib.util.spec_from_file_location(
 )
 criteria_mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(criteria_mod)
+
+
+class TestIosSimulatorDestinationPreflight:
+    unstable_spec = (
+        "xcodebuild test -project ios/App.xcodeproj -scheme App "
+        "-destination 'platform=iOS Simulator,name=iPhone 16 Pro Max,OS=latest'"
+    )
+
+    @staticmethod
+    def _simctl_payload(*devices):
+        return json.dumps({
+            "devices": {
+                "com.apple.CoreSimulator.SimRuntime.iOS": list(devices),
+            },
+        })
+
+    def test_resolves_unique_installed_simulator_before_xcodebuild(self):
+        calls = []
+
+        def fake_run(command, *args, **kwargs):
+            calls.append(command)
+            if isinstance(command, list):
+                return subprocess.CompletedProcess(
+                    command,
+                    0,
+                    stdout=self._simctl_payload({
+                        "name": "iPhone 16 Pro Max",
+                        "udid": "INSTALLED-UDID",
+                        "isAvailable": True,
+                    }),
+                    stderr="",
+                )
+            return subprocess.CompletedProcess(command, 0, stdout="passed", stderr="")
+
+        with patch.object(criteria_mod, "_get_repo_root", return_value=None), \
+             patch.object(criteria_mod.subprocess, "run", side_effect=fake_run):
+            result = criteria_mod.run_verification("test", self.unstable_spec)
+
+        assert result["passed"] is True
+        assert calls[0] == ["xcrun", "simctl", "list", "devices", "available", "--json"]
+        assert "id=INSTALLED-UDID" in calls[1]
+        assert "name=iPhone 16 Pro Max" not in calls[1]
+        assert "OS=latest" not in calls[1]
+
+    def test_unavailable_simulator_fails_without_launching_xcodebuild(self):
+        simctl = subprocess.CompletedProcess(
+            ["xcrun"], 0, stdout=self._simctl_payload(), stderr=""
+        )
+        with patch.object(criteria_mod, "_get_repo_root", return_value=None), \
+             patch.object(criteria_mod.subprocess, "run", return_value=simctl) as run:
+            result = criteria_mod.run_verification("test", self.unstable_spec)
+
+        assert result["passed"] is False
+        assert "no available simulator is named 'iPhone 16 Pro Max'" in result["output"]
+        assert "stable simulator test wrapper" in result["output"]
+        run.assert_called_once()
+
+    def test_ambiguous_simulator_fails_without_launching_xcodebuild(self):
+        simctl = subprocess.CompletedProcess(
+            ["xcrun"],
+            0,
+            stdout=self._simctl_payload(
+                {"name": "iPhone 16 Pro Max", "udid": "UDID-18", "isAvailable": True},
+                {"name": "iPhone 16 Pro Max", "udid": "UDID-19", "isAvailable": True},
+            ),
+            stderr="",
+        )
+        with patch.object(criteria_mod, "_get_repo_root", return_value=None), \
+             patch.object(criteria_mod.subprocess, "run", return_value=simctl) as run:
+            result = criteria_mod.run_verification("test", self.unstable_spec)
+
+        assert result["passed"] is False
+        assert "multiple available simulators" in result["output"]
+        assert "UDID-18, UDID-19" in result["output"]
+        run.assert_called_once()
+
+    @pytest.mark.parametrize("verification_spec", [
+        "xcodebuild test -destination 'platform=iOS Simulator,id=EXPLICIT,OS=latest'",
+        "xcodebuild test -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3'",
+        "python3 -m pytest tests/unit/test_criteria_done.py -q",
+    ])
+    def test_stable_and_non_ios_specs_execute_unchanged(self, verification_spec):
+        completed = subprocess.CompletedProcess(
+            verification_spec, 0, stdout="passed", stderr=""
+        )
+        with patch.object(criteria_mod, "_get_repo_root", return_value=None), \
+             patch.object(criteria_mod.subprocess, "run", return_value=completed) as run:
+            result = criteria_mod.run_verification("test", verification_spec)
+
+        assert result["passed"] is True
+        assert run.call_count == 1
+        assert run.call_args.args[0].endswith(verification_spec)
+
+    def test_unquoted_latest_destination_fails_before_xcodebuild(self):
+        unquoted = (
+            "xcodebuild test -destination "
+            "platform=iOS Simulator,name=iPhone 16 Pro Max,OS=latest"
+        )
+        with patch.object(criteria_mod, "_get_repo_root", return_value=None), \
+             patch.object(criteria_mod.subprocess, "run") as run:
+            result = criteria_mod.run_verification("test", unquoted)
+
+        assert result["passed"] is False
+        assert "not quoted" in result["output"]
+        run.assert_not_called()
 
 
 def make_db(task_count=1, criteria_specs=None):
