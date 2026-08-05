@@ -128,6 +128,19 @@ that another deliverable is done?**
 → task_type. If removing it just removes *verification* of an already-
 complete feature → criterion.
 
+**Classify behavior from its contract, not its verbs.** Use `feature` when
+the request adds behavior or capability that the existing contract does not
+promise, even when it says "fix the gap", "restore", or "reconcile". Use
+`bug` only when current behavior violates an existing requirement or contract,
+or regresses previously working behavior. The word "fix" is not evidence of a
+defect by itself.
+
+If the input does not establish whether the behavior was already promised,
+do not guess from wording. Draft the most likely `task_type` (default
+`feature` for additive behavior) and add a `Classification note:` in Step 4
+explaining the contract evidence or its absence. The operator must be able to
+confirm or edit that proposed type before insertion.
+
 ### Decomposition Guidelines
 
 - One task per deliverable; split features with multiple distinct pieces.
@@ -240,6 +253,11 @@ If exactly one task was produced, use the inline format:
 > token. Include refresh token support.
 ```
 
+For an ambiguous feature-versus-bug decision, add `Classification note:
+proposed <type> because <contract evidence or missing evidence>` below the
+description. The type in the metadata line is the value that will be inserted
+unless the operator edits it.
+
 Ask: **Confirm**, **edit** (e.g. "change priority to Medium"), or
 **remove**.
 
@@ -261,6 +279,10 @@ If two or more tasks were produced, show a numbered table:
 > Implement POST /auth/login that validates credentials and returns a JWT
 > token. Include refresh token support.
 ```
+
+Add the same `Classification note:` beneath every task whose feature-versus-bug
+boundary is ambiguous. The table's **Type** column is the value that will be
+inserted unless the operator edits it.
 
 Ask: **Confirm**, **remove N**, **edit N field=value**, or **add a
 missing task**.

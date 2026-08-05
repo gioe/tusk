@@ -146,6 +146,20 @@ The key question: **Is this type the primary deliverable, or is it proof that an
 
 **Key rule:** If removing the work would leave the *feature itself* incomplete → use as `task_type`. If removing it just removes *verification* of an already-complete feature → use as an acceptance criterion.
 
+**Classify behavior from its contract, not its verbs.** Use `feature` when the
+request adds behavior or capability that the existing contract does not
+promise, even when the request says "fix the gap", "restore", or "reconcile".
+Use `bug` only when the current behavior violates an existing requirement or
+contract, or regresses previously working behavior. The word "fix" is not
+evidence of a defect by itself.
+
+When the input does not establish whether the behavior was already promised,
+do not guess from wording alone. Draft the most likely `task_type` (defaulting
+to `feature` for additive behavior) and flag the ambiguity in Step 4 with a
+`Classification note:` that explains the contract evidence or its absence.
+The operator must be able to confirm or edit that proposed type before
+insertion.
+
 ### Decomposition Guidelines
 
 - **One task per deliverable** — if a feature has multiple distinct pieces of work, split them
@@ -294,6 +308,11 @@ If analysis produced **exactly 1 task**, use the compact inline format instead o
 > - unbounded: no
 ```
 
+For an ambiguous feature-versus-bug decision, add `Classification note:
+proposed <type> because <contract evidence or missing evidence>` below the
+description. The type in the metadata line remains the value that will be
+inserted unless the operator edits it.
+
 Then ask:
 
 > Create this task? You can **confirm**, **edit** (e.g., "change priority to Medium" or "remove tests/integration/test_login.py from scope"), or **remove** it.
@@ -322,6 +341,10 @@ If analysis produced **2 or more tasks**, show the full numbered table:
 >
 > **Proposed scope:** touches `apps/web/signup.tsx`, `tests/integration/test_signup.py` · creates `apps/web/signup.tsx` · unbounded: no
 ```
+
+Add the same `Classification note:` beneath every task whose feature-versus-bug
+boundary is ambiguous. The table's **Type** column remains the proposed value
+that will be inserted unless the operator edits it.
 
 Then ask:
 
