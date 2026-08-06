@@ -167,11 +167,28 @@ def test_task_insert_warns_for_missing_verification_spec_path(db_path):
 # ── task-insert auto-extraction (criterion 2200) ────────────────────────
 
 
-def test_task_insert_auto_extracts_bare_github_subdirectories(db_path):
+def test_task_insert_auto_extracts_bare_github_subdirectories(db_path, tmp_path):
+    repo = tmp_path / "task-insert-github-dir-repo"
+    repo.mkdir()
+    _git(repo, ["init"])
+    _git(repo, ["config", "user.email", "test@example.com"])
+    _git(repo, ["config", "user.name", "Test User"])
+    paths = [
+        ".github/workflows/web-ci.yml",
+        ".github/actions/setup/action.yml",
+    ]
+    for path in paths:
+        full_path = repo / path
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        full_path.write_text(f"# {path}\n", encoding="utf-8")
+    _git(repo, ["add", *paths])
+    _git(repo, ["commit", "-m", "seed github scoped files"])
+
     task_id = _insert(
         str(db_path),
         "bare github directory scope",
         "Sweep .github/workflows/ and .github/actions/ for Node 24 support.",
+        repo_root=repo,
     )
 
     rows = _scope_rows(str(db_path), task_id)
@@ -296,9 +313,9 @@ def test_auto_extract_dedups_against_explicit_scope(db_path):
     task_id = _insert(
         str(db_path),
         "explicit overlap",
-        "touches bin/foo.py and also bin/bar.py",
-        scope=["bin/foo.py"],
-        creates=["bin/baz.py"],
+        "touches bin/tusk and also bin/tusk-task-insert.py",
+        scope=["bin/tusk"],
+        creates=["bin/new-scope-fixture.py"],
     )
 
     rows = _scope_rows(str(db_path), task_id)
@@ -306,14 +323,14 @@ def test_auto_extract_dedups_against_explicit_scope(db_path):
     for r in rows:
         by_source.setdefault(r["source"], set()).add(r["pattern"])
 
-    # bin/foo.py named in description AND --scope → operator_declared, no
+    # bin/tusk named in description AND --scope → operator_declared, no
     # duplicate auto_derived row.
-    assert by_source.get("operator_declared") == {"bin/foo.py"}, rows
-    assert "bin/foo.py" not in by_source.get("auto_derived", set())
-    # bin/bar.py named in description only → auto_derived.
-    assert "bin/bar.py" in by_source.get("auto_derived", set()), rows
-    # bin/baz.py via --creates is a creates row, not auto_derived.
-    assert by_source.get("creates") == {"bin/baz.py"}, rows
+    assert by_source.get("operator_declared") == {"bin/tusk"}, rows
+    assert "bin/tusk" not in by_source.get("auto_derived", set())
+    # The tracked description-only path remains auto-derived.
+    assert "bin/tusk-task-insert.py" in by_source.get("auto_derived", set()), rows
+    # The new path via --creates is a creates row, not auto_derived.
+    assert by_source.get("creates") == {"bin/new-scope-fixture.py"}, rows
 
 
 def test_bookkeeping_files_not_auto_derived_when_merely_discussed(db_path):
@@ -452,8 +469,8 @@ def test_auto_extract_resolves_unique_suffix_match(db_path):
     assert "integration/test_create_task_scope.py" not in auto, rows
 
 
-def test_auto_extract_keeps_missing_suffix_literal(db_path):
-    """A missing path with no suffix match keeps the extracted literal."""
+def test_auto_extract_drops_missing_suffix_without_creation_intent(db_path):
+    """A missing description-only path does not authorize phantom scope."""
     task_id = _insert(
         str(db_path),
         "missing suffix scope",
@@ -463,7 +480,7 @@ def test_auto_extract_keeps_missing_suffix_literal(db_path):
     rows = _scope_rows(str(db_path), task_id)
     auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
 
-    assert "tests/no/such_scope_suffix_file.py" in auto, rows
+    assert "tests/no/such_scope_suffix_file.py" not in auto, rows
 
 
 def test_auto_extract_resolves_pytest_nodeid_to_file_path(db_path):
@@ -484,12 +501,25 @@ def test_auto_extract_resolves_pytest_nodeid_to_file_path(db_path):
     assert not any("::" in p for p in auto), rows
 
 
-def test_auto_extract_keeps_bracketed_dynamic_route_path(db_path):
+def test_auto_extract_keeps_bracketed_dynamic_route_path(db_path, tmp_path):
     """Next.js dynamic route segments are valid path tokens."""
+    repo = tmp_path / "dynamic-route-repo"
+    repo.mkdir()
+    _git(repo, ["init"])
+    _git(repo, ["config", "user.email", "test@example.com"])
+    _git(repo, ["config", "user.name", "Test User"])
+    path = "apps/web/app/admin/clubs/[id]/page.tsx"
+    full_path = repo / path
+    full_path.parent.mkdir(parents=True, exist_ok=True)
+    full_path.write_text("// dynamic route\n", encoding="utf-8")
+    _git(repo, ["add", path])
+    _git(repo, ["commit", "-m", "seed dynamic route"])
+
     task_id = _insert(
         str(db_path),
         "dynamic route scope",
         "Touch apps/web/app/admin/clubs/[id]/page.tsx during the fix.",
+        repo_root=repo,
     )
 
     rows = _scope_rows(str(db_path), task_id)
