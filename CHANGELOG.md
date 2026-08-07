@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1254] - 2026-08-07
+
+- [TASK-865] Add a non-reproduced verdict when test-precheck passes on clean HEAD
+
 ## [1253] - 2026-07-31
 
 - [TASK-859] Prevent prose XCTest selectors from generating auto-derived scope
