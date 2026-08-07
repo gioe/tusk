@@ -32,6 +32,8 @@ Resolution order for the test command:
 
 Output JSON (stdout):
     {
+        "verdict": str,               # non_reproduced, pre_existing, flaky,
+                                       # or skipped when path selection suppresses tests
         "pre_existing": bool,          # did the test fail against HEAD (no local changes)?
         "exit_code": int,              # raw exit code returned by the test command
         "test_command": str,           # the command that was actually executed
@@ -45,7 +47,11 @@ Output JSON (stdout):
         "run_started_at": str,         # UTC ISO-8601 start of the observed run window
         "run_ended_at": str            # UTC ISO-8601 end of the observed run window
     }
-    With --flake-retries N (N > 0) the verdict additionally carries
+    ``verdict`` is ``non_reproduced`` when clean HEAD passes,
+    ``pre_existing`` when every observed HEAD run fails, and ``flaky`` when
+    repeated identical-HEAD runs disagree. ``skipped`` identifies the existing
+    path-selection no-test path. With --flake-retries N (N > 0) the payload
+    additionally carries
     "flake_runs_total" (int), "flake_failures" (int), and "flaky_suspect"
     (bool — true when the N+1 HEAD runs disagree, signalling a flake rather
     than a regression; issue #1076). These keys are omitted with the default
@@ -555,7 +561,25 @@ def _emit_verdict(repo_root: str, script_dir: str, test_command: str,
                 file=sys.stderr,
             )
     observed_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    flaky_suspect = False
+    flake_stats = None
+    if flake_exits and len(flake_exits) > 1:
+        total = len(flake_exits)
+        failures = sum(1 for e in flake_exits if e != 0)
+        passes = total - failures
+        flaky_suspect = failures > 0 and passes > 0
+        flake_stats = {
+            "flake_runs_total": total,
+            "flake_failures": failures,
+            "flaky_suspect": flaky_suspect,
+        }
+
     verdict = {
+        "verdict": (
+            "flaky" if flaky_suspect
+            else "pre_existing" if pre_existing
+            else "non_reproduced"
+        ),
         "pre_existing": pre_existing,
         "exit_code": exit_code,
         "test_command": test_command,
@@ -565,14 +589,8 @@ def _emit_verdict(repo_root: str, script_dir: str, test_command: str,
         "run_started_at": run_started_at or observed_at,
         "run_ended_at": run_ended_at or observed_at,
     }
-    if flake_exits and len(flake_exits) > 1:
-        total = len(flake_exits)
-        failures = sum(1 for e in flake_exits if e != 0)
-        passes = total - failures
-        flaky_suspect = failures > 0 and passes > 0
-        verdict["flake_runs_total"] = total
-        verdict["flake_failures"] = failures
-        verdict["flaky_suspect"] = flaky_suspect
+    if flake_stats is not None:
+        verdict.update(flake_stats)
         if flaky_suspect:
             print(
                 f"Note: test_command produced mixed results across {total} runs "
@@ -819,6 +837,7 @@ def main(argv):
     )
     if test_command == TEST_COMMAND_SKIPPED:
         payload = {
+            "verdict": "skipped",
             "pre_existing": False,
             "exit_code": 0,
             "test_command": "",

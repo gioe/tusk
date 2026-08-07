@@ -544,6 +544,7 @@ class TestDirtyTreeFallback:
         assert payload.pop("run_started_at").endswith("Z")
         assert payload.pop("run_ended_at").endswith("Z")
         assert payload == {
+            "verdict": "non_reproduced",
             "pre_existing": False,
             "exit_code": 0,
             "test_command": "true",

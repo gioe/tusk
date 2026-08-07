@@ -80,6 +80,14 @@ def _parse_payload(stdout: str) -> dict:
         )
 
 
+def _without_run_window(payload: dict) -> dict:
+    """Validate and remove dynamic timestamps before exact-shape assertions."""
+    payload = dict(payload)
+    assert payload.pop("run_started_at").endswith("Z")
+    assert payload.pop("run_ended_at").endswith("Z")
+    return payload
+
+
 # ---------------------------------------------------------------------------
 # Clean tree (criterion 250)
 # ---------------------------------------------------------------------------
@@ -94,7 +102,8 @@ class TestCleanTree:
 
         assert result.returncode == 0, result.stderr
         payload = _parse_payload(result.stdout)
-        assert payload == {
+        assert _without_run_window(payload) == {
+            "verdict": "non_reproduced",
             "pre_existing": False,
             "exit_code": 0,
             "test_command": "true",
@@ -112,6 +121,7 @@ class TestCleanTree:
         assert result.returncode == 0, result.stderr
         payload = _parse_payload(result.stdout)
         assert payload["pre_existing"] is True
+        assert payload["verdict"] == "pre_existing"
         assert payload["exit_code"] == 1
         assert payload["stashed"] is False
 
@@ -247,7 +257,8 @@ class TestDirtyTree:
         assert "foreign-work" in after_entries[0]
 
         payload = _parse_payload(result.stdout)
-        assert payload == {
+        assert _without_run_window(payload) == {
+            "verdict": "pre_existing",
             "pre_existing": True,
             "exit_code": 1,
             "test_command": "false",

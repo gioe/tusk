@@ -61,6 +61,7 @@ def test_mixed_results_flag_flaky_suspect(plain_repo, capsys):
     assert out["flake_runs_total"] == 3
     assert out["flake_failures"] == 2
     assert out["flaky_suspect"] is True
+    assert out["verdict"] == "flaky"
     _assert_utc_run_window(out)
     assert "suspected flake" in captured.err
 
@@ -71,6 +72,7 @@ def test_consistent_pass_is_not_flaky(plain_repo, capsys):
     assert out["flake_runs_total"] == 3
     assert out["flake_failures"] == 0
     assert out["flaky_suspect"] is False
+    assert out["verdict"] == "non_reproduced"
     _assert_utc_run_window(out)
 
 
@@ -80,6 +82,7 @@ def test_consistent_fail_is_not_flaky(plain_repo, capsys):
     assert out["flake_runs_total"] == 2
     assert out["flake_failures"] == 2
     assert out["flaky_suspect"] is False
+    assert out["verdict"] == "pre_existing"
     _assert_utc_run_window(out)
 
 
@@ -89,6 +92,7 @@ def test_default_off_omits_flake_keys(plain_repo, capsys):
     assert "flaky_suspect" not in out
     assert "flake_runs_total" not in out
     assert "flake_failures" not in out
+    assert out["verdict"] == "pre_existing"
     _assert_utc_run_window(out)
 
 
@@ -97,6 +101,7 @@ def test_single_run_list_omits_flake_keys(plain_repo, capsys):
     mod._emit_verdict(plain_repo, BIN, "cmd", 1, False, None, flake_exits=[1])
     out = json.loads(capsys.readouterr().out)
     assert "flaky_suspect" not in out
+    assert out["verdict"] == "pre_existing"
     _assert_utc_run_window(out)
 
 
@@ -140,6 +145,7 @@ def test_flaky_command_end_to_end(plain_repo, tmp_path):
     payload = json.loads(result.stdout)
     assert payload["flake_runs_total"] == 4
     assert payload["flaky_suspect"] is True
+    assert payload["verdict"] == "flaky"
     assert 0 < payload["flake_failures"] < 4
     _assert_utc_run_window(payload)
 
@@ -150,5 +156,6 @@ def test_default_run_has_no_flake_keys_end_to_end(plain_repo, tmp_path):
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["pre_existing"] is True
+    assert payload["verdict"] == "pre_existing"
     assert "flaky_suspect" not in payload
     _assert_utc_run_window(payload)
