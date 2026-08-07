@@ -671,13 +671,14 @@ JSON blob and the `skill_run.run_id` you already captured.
    global command → test-detect. It stashes any local changes safely under a
    uniquely-named entry, runs the test against HEAD, and pops that entry by
    reference. Output is JSON:
-   `{pre_existing, exit_code, test_command, stashed,
-   diverged_from_default, diverged_paths}`, plus
+   `{verdict, pre_existing, exit_code, test_command, stashed,
+   diverged_from_default, diverged_paths}`, where `verdict` is
+   `non_reproduced`, `pre_existing`, `flaky`, or `skipped`, plus
    `{flake_runs_total, flake_failures, flaky_suspect}` when
    `--flake-retries N` (N>0) was passed.
 
    Branch on the verdict in this order — `flaky_suspect` first, then
-   divergence, then the `pre_existing` true/false split:
+   `verdict: non_reproduced`, then divergence, then `pre_existing: true`:
 
    - **If `flaky_suspect` is `true`** — the N+1 HEAD runs disagreed on
      identical code, so the test is flaky, not a regression you
@@ -687,6 +688,15 @@ JSON blob and the `skill_run.run_id` you already captured.
      usually passes on the next attempt. If it keeps flapping, log a
      progress note naming the flaky test and surface it rather than
      force-committing.
+
+   - **If `verdict` is `non_reproduced` (or `exit_code` is `0` in a
+     legacy payload)** — every clean-HEAD run passed, so the original
+     commit-gate failure was not reproduced. Do not infer that the task
+     changes introduced the failure from `pre_existing: false` alone.
+     **Retry the same `tusk commit`** with the same arguments. Retry up
+     to 3 times; if the original gate keeps failing while clean-HEAD
+     prechecks consistently return `non_reproduced`, then use the full
+     original gate output to diagnose the task changes.
 
    - **If `pre_existing` is `true` AND `diverged_from_default` is
      `true`** — `origin/<default>` has commits HEAD lacks that touch
@@ -714,8 +724,9 @@ JSON blob and the `skill_run.run_id` you already captured.
      ```
      Then mark criteria done with `tusk criteria done <cid> --skip-verify`.
 
-   - **If `pre_existing` is `false`** — your changes introduced the
-     failure. Proceed with the diagnosis loop:
+   - **If repeated original gates fail while clean-HEAD prechecks
+     consistently return `non_reproduced`** — the combined evidence now
+     points to the task changes. Proceed with the diagnosis loop:
      1. Read the full test output — scroll through the entire failure
         log. Do not make any code changes until you understand what
         failed and why.
