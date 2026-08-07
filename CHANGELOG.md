@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1256] - 2026-08-07
+
+- [TASK-867] Classify pre-checkpoint scope additions as operator_declared
+
 ## [1255] - 2026-08-07
 
 - [TASK-866] Restore task-start scope provenance guidance in distributed skill
