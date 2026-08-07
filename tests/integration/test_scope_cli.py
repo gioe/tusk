@@ -198,9 +198,10 @@ class TestScopeAdd:
         ).fetchone()[0] == 0
         conn.close()
 
-    def test_scope_add_explicit_upfront_source_wins_after_task_start(self, db_path):
+    def test_scope_add_explicit_source_wins_after_checkpoint(self, db_path):
         task_id = _seed_task(str(db_path))
         _start_task(str(db_path), task_id)
+        _insert_progress(str(db_path), task_id)
 
         result = _run([
             "scope", "add", str(task_id),
@@ -214,22 +215,32 @@ class TestScopeAdd:
     def test_scope_add_defaults_to_mid_task_after_progress(self, db_path):
         task_id = _seed_task(str(db_path))
         _insert_progress(str(db_path), task_id)
+        reason = "progress checkpoint exposed another path"
 
-        result = _run(["scope", "add", str(task_id), "bin/tusk-scope.py"])
+        result = _run([
+            "scope", "add", str(task_id), "bin/tusk-scope.py",
+            "--reason", reason,
+        ])
 
         assert result.returncode == 0, result.stderr
         payload = json.loads(result.stdout)
         assert payload["source"] == "expanded_mid_task"
+        assert payload["reason"] == reason
 
     def test_scope_add_defaults_to_mid_task_after_commit_hash(self, db_path):
         task_id = _seed_task(str(db_path))
         _insert_committed_criterion(str(db_path), task_id)
+        reason = "committed criterion exposed another path"
 
-        result = _run(["scope", "add", str(task_id), "bin/tusk-scope.py"])
+        result = _run([
+            "scope", "add", str(task_id), "bin/tusk-scope.py",
+            "--reason", reason,
+        ])
 
         assert result.returncode == 0, result.stderr
         payload = json.loads(result.stdout)
         assert payload["source"] == "expanded_mid_task"
+        assert payload["reason"] == reason
 
     def test_scope_add_dedupes_normalized_equivalent_paths(self, db_path):
         """Equivalent spellings of the same repo-root path should not create
