@@ -15,10 +15,12 @@ Arguments received from tusk:
 
 Sources (CHECK constraint on ``task_scope.source``):
     auto_derived       — backfilled from task_referenced_paths
-    operator_declared  — set via `tusk task-insert --scope <pattern>` or an
-                         explicit `tusk scope add --source operator_declared`
+    operator_declared  — set via `tusk task-insert --scope <pattern>`, by
+                         implicit `tusk scope add` before the first durable
+                         checkpoint, or by an explicit source override
     creates            — set via `tusk task-insert --creates <path>`
-    expanded_mid_task  — added by implicit `tusk scope add` after task start
+    expanded_mid_task  — added by implicit `tusk scope add` after a progress
+                         checkpoint or committed criterion
     unbounded          — set via `tusk task-insert --unbounded`; signals
                          "no path restriction" to the commit-time scope
                          guard (scope-paths emits no patterns in that case)
@@ -662,7 +664,8 @@ def main(argv: list) -> int:
         "add", allow_abbrev=False,
         help=(
             "Add a scope pattern to a task (default source: operator_declared "
-            "before task work, expanded_mid_task afterward)"
+            "before the first progress/committed-criterion checkpoint, "
+            "expanded_mid_task afterward)"
         ),
     )
     p_add.add_argument("task_id")

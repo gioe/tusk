@@ -272,9 +272,9 @@ Authoritative declaration of which paths a task is allowed to touch. The commit-
 
 **Sources:**
 - `auto_derived` — backfilled from `task_referenced_paths` during migration 73, inserted by task creation auto-extraction, and refreshed by `tusk task-update` when a task's summary or description changes.
-- `operator_declared` — set via `tusk task-insert --scope <pattern>` (repeatable) or by implicit `tusk scope add` before task start. The operator named these paths up-front. The CLI accepts an explicit source as an administrative compatibility override, but normal task workflows do not use it after task start.
+- `operator_declared` — set via `tusk task-insert --scope <pattern>` (repeatable), by implicit `tusk scope add` before the task's first progress checkpoint or committed criterion, or by explicitly passing `--source operator_declared`. The operator named these paths before durable work evidence established the task's working boundary.
 - `creates` — set via `tusk task-insert --creates <path>` (repeatable). Distinguished from `operator_declared` so the guard could in future verify the paths don't yet exist on the default branch.
-- `expanded_mid_task` — added by implicit `tusk scope add <task_id> <pattern> [--reason ...]` after the task has started. Progress checkpoints and committed criteria remain fallback work evidence for older task rows without `started_at`. The reason is the audit trail for "why did scope grow mid-flight" retro questions. Passing `--source expanded_mid_task` remains an explicit override.
+- `expanded_mid_task` — added by implicit `tusk scope add <task_id> <pattern> [--reason ...]` after the first progress checkpoint or committed criterion. The reason is the audit trail for "why did scope grow mid-flight" retro questions. Passing `--source expanded_mid_task` remains an explicit override.
 - `unbounded` — set via `tusk task-insert --unbounded`. The pattern is a sentinel (`**`); `scope-paths` short-circuits and emits nothing when any row has this source, so the commit-time guard silently passes. Used for refactors that legitimately span the repo. When a task already has this sentinel, redundant `tusk scope add` calls exit 0 with a note and do not insert rows.
 
 **Task-insert auto-extraction.** Fresh `tusk task-insert` calls populate `auto_derived` rows from the task summary, description, plain criteria text, and typed criterion text unless the task is explicitly unbounded. Typed `verification_spec` values are validation metadata: they remain available to criteria execution, duplicate detection, deliverable/convergence hints, and sparse-worktree materialization, but never broaden authoritative or proposed task scope. Operator-declared `--scope` and `--creates` rows win first; auto-extraction adds only patterns not already declared. `tusk task-update`, `tusk scope list`'s effective fallback, and `tusk scope rederive` apply the same boundary; rederive can remove historical spec-derived `auto_derived` rows while preserving non-auto scope.
@@ -293,8 +293,8 @@ Auto-derived candidates are normalized before insertion: pytest node ids are red
 
 **Lifecycle.** Tasks start `loose` (no `locked_at`). The intended hardening path is:
 1. `tusk task-insert --scope/--creates` declares initial scope.
-2. Before task start, implicit `tusk scope add ... --reason "..."` records additional up-front declarations as `operator_declared`. Scope omitted before this boundary cannot be retroactively categorized as up-front by a normal task workflow.
-3. After task start, implicit `tusk scope add ... --reason "..."` records every addition as an `expanded_mid_task` row, even before edits, progress checkpoints, criteria completions, or commits.
+2. Before the first progress checkpoint or committed criterion, implicit `tusk scope add ... --reason "..."` records additional declarations as `operator_declared`, including additions made after `task-start`.
+3. After either durable checkpoint exists, implicit `tusk scope add ... --reason "..."` records each addition as an `expanded_mid_task` row.
 4. `tusk scope lock` stamps `locked_at` on every entry once the operator is confident the scope is complete.
 
 The lock column is informational today — the guard does not yet refuse `tusk scope add` against locked tasks — but the audit data is captured for retro analysis.

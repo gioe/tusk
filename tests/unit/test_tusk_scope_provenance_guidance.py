@@ -17,28 +17,29 @@ def _scope_block(path: Path) -> str:
     return " ".join(text[start:end].split())
 
 
-def test_operator_declared_is_limited_to_pre_start_scope():
+def test_operator_declared_uses_the_first_durable_checkpoint_boundary():
     for path in WORKFLOW_PATHS:
         block = _scope_block(path)
 
-        assert "Reserve `operator_declared` for scope supplied during task creation or added before `task-start`" in block
-        assert "already past that provenance boundary" in block
-        assert "--source operator_declared" not in block
+        assert "Reserve `operator_declared` for scope supplied during task creation or added before the task's first durable checkpoint" in block
+        assert "`task-start` alone does not cross this provenance boundary" in block
+        assert "first progress checkpoint or committed criterion" in block
 
 
-def test_post_start_scope_is_expanded_before_other_work_evidence():
+def test_pre_checkpoint_scope_remains_operator_declared_after_start():
     for path in WORKFLOW_PATHS:
         block = _scope_block(path)
 
-        assert "For every missing path after task start" in block
-        assert "implicit source is `expanded_mid_task`" in block
-        assert "even when the path was part of the up-front plan" in block
-        assert "no edits, progress checkpoints, criteria completions, or commits exist yet" in block
+        assert "If the task has no progress checkpoint and no committed criterion" in block
+        assert "implicit source is `operator_declared`" in block
+        assert "even though Step 1 has already started the task" in block
 
 
-def test_unbounded_recovery_does_not_relabel_post_start_scope():
+def test_post_checkpoint_scope_and_unbounded_recovery_use_automatic_provenance():
     for path in WORKFLOW_PATHS:
         block = _scope_block(path)
 
+        assert "Once a progress checkpoint or committed criterion exists" in block
+        assert "records `expanded_mid_task`" in block
         assert 'tusk scope add <id> "**" --reason "..."' in block
-        assert "records the post-start expansion honestly" in block
+        assert "same checkpoint-based provenance as any other addition" in block

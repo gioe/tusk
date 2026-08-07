@@ -488,23 +488,25 @@ JSON blob and the `skill_run.run_id` you already captured.
      `tusk task-insert --scope/--creates` have
      `operator_declared`/`creates` rows from the start.
    - **Reserve `operator_declared` for scope supplied during task creation
-     or added before `task-start`.** This workflow starts the task in Step
-     1, so it is already past that provenance boundary by the time it
-     reaches this scope check.
-   - **For every missing path after task start**, run
-     `tusk scope add <id> <path> --reason "<why>"` before staging. The
-     implicit source is `expanded_mid_task` even when the path was part of
-     the up-front plan and even when no edits, progress checkpoints,
-     criteria completions, or commits exist yet. The rationale preserves
-     an honest audit trail for retro.
+     or added before the task's first durable checkpoint.** `task-start`
+     alone does not cross this provenance boundary; the boundary is the
+     first progress checkpoint or committed criterion.
+   - **If the task has no progress checkpoint and no committed criterion**,
+     run `tusk scope add <id> <path> --reason "<why>"` before staging. The
+     implicit source is `operator_declared` even though Step 1 has already
+     started the task.
+   - **Once a progress checkpoint or committed criterion exists**, the same
+     implicit `tusk scope add` records `expanded_mid_task`. Keep the
+     rationale specific so retro can distinguish healthy exploration from
+     a decomposition miss.
    - **If `tusk scope list` is empty on a `scope_enforced=1` task**,
      declare the files you plan to edit before staging. Empty scope is not
      a vacuous pass for current tasks; the commit guard rejects it.
    - **If the task is a legitimately repo-wide refactor**, it should have
      been created with `tusk task-insert --unbounded`. If it was not,
      `tusk scope add <id> "**" --reason "..."` is a partial workaround and
-     records the post-start expansion honestly; recreating the task with
-     `--unbounded` is the long-term fix.
+     uses the same checkpoint-based provenance as any other addition;
+     recreating the task with `--unbounded` is the long-term fix.
 
    Externally referenced documents (evaluation docs, design specs, RFCs)
    are background context, not scope. Do not add or implement items from
