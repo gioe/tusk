@@ -253,14 +253,7 @@ def _scope_validation_root(conn: sqlite3.Connection, task_id: int) -> str:
 
 
 def _has_task_work_evidence(conn: sqlite3.Connection, task_id: int) -> bool:
-    """Return True once a task has started or has other durable work evidence."""
-    task = conn.execute(
-        "SELECT started_at FROM tasks WHERE id = ?",
-        (task_id,),
-    ).fetchone()
-    if task is not None and task["started_at"] is not None:
-        return True
-
+    """Return True once a task has durable progress or committed criteria."""
     progress = conn.execute(
         "SELECT 1 FROM task_progress WHERE task_id = ? LIMIT 1",
         (task_id,),

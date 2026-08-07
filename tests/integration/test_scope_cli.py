@@ -162,7 +162,7 @@ class TestScopeAdd:
         payload = json.loads(result.stdout)
         assert payload["source"] == "expanded_mid_task"
 
-    def test_scope_add_defaults_to_mid_task_immediately_after_task_start(self, db_path):
+    def test_scope_add_defaults_to_operator_declared_before_first_checkpoint(self, db_path):
         task_id = _seed_task(str(db_path))
         _start_task(str(db_path), task_id)
         reason = "research uncovered a retention boundary"
@@ -175,14 +175,14 @@ class TestScopeAdd:
 
         assert result.returncode == 0, result.stderr
         payload = json.loads(result.stdout)
-        assert payload["source"] == "expanded_mid_task"
+        assert payload["source"] == "operator_declared"
         assert payload["reason"] == reason
 
         listed = _run(["scope", "list", str(task_id)])
         assert listed.returncode == 0, listed.stderr
         assert {
             "pattern": "bin/tusk-scope.py",
-            "source": "expanded_mid_task",
+            "source": "operator_declared",
             "reason": reason,
         }.items() <= json.loads(listed.stdout)[0].items()
 
