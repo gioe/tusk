@@ -478,12 +478,37 @@ JSON blob and the `skill_run.run_id` you already captured.
    findings>`. Do not interrupt an actively producing command or test before it
    finishes or reaches its own timeout.
 
-5b. **Scope check — only implement what the task describes.**
-   The task's `summary` and `description` define the full scope of
-   work for this session. If the description references external
-   documents (evaluation docs, design specs, RFCs), treat them as
-   **background context only** — do not implement items from those
-   docs that go beyond what the task's own description asks for.
+5b. **Declare scope before the first commit.** The commit-time scope
+   guard reads from the authoritative `task_scope` table. Before staging
+   the first commit, run `tusk scope list <id>` to see what the table
+   currently authorizes:
+
+   - **If the list already covers the files you plan to touch**, proceed
+     to commit; no action is needed. Tasks created with
+     `tusk task-insert --scope/--creates` have
+     `operator_declared`/`creates` rows from the start.
+   - **Reserve `operator_declared` for scope supplied during task creation
+     or added before `task-start`.** This workflow starts the task in Step
+     1, so it is already past that provenance boundary by the time it
+     reaches this scope check.
+   - **For every missing path after task start**, run
+     `tusk scope add <id> <path> --reason "<why>"` before staging. The
+     implicit source is `expanded_mid_task` even when the path was part of
+     the up-front plan and even when no edits, progress checkpoints,
+     criteria completions, or commits exist yet. The rationale preserves
+     an honest audit trail for retro.
+   - **If `tusk scope list` is empty on a `scope_enforced=1` task**,
+     declare the files you plan to edit before staging. Empty scope is not
+     a vacuous pass for current tasks; the commit guard rejects it.
+   - **If the task is a legitimately repo-wide refactor**, it should have
+     been created with `tusk task-insert --unbounded`. If it was not,
+     `tusk scope add <id> "**" --reason "..."` is a partial workaround and
+     records the post-start expansion honestly; recreating the task with
+     `--unbounded` is the long-term fix.
+
+   Externally referenced documents (evaluation docs, design specs, RFCs)
+   are background context, not scope. Do not add or implement items from
+   them unless the task itself requires those files to change.
 
 6. **Route implementation after delegated exploration.** Wait for the
    exploration sub-agent to finish and report its findings before
