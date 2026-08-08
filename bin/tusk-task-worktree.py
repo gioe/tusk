@@ -1496,6 +1496,8 @@ def cmd_create(
         #   8. CI workflow prose/scope hints — tasks that ask for GitHub
         #      Actions or workflow_dispatch work need sibling workflows even
         #      when they never spell out `.github/workflows/...` (issue #978).
+        #   9. Tracked Codex skills — repositories that ship generated
+        #      `.agents/skills` materialize them for nested Codex workflows.
         if not os.environ.get("TUSK_NO_SPARSE_WORKTREE"):
             referenced = [
                 p for p in task_referenced_paths(task_id, conn)
@@ -1562,6 +1564,9 @@ def cmd_create(
                         cone_set.add(d)
                 if _task_mentions_ci_workflow(conn, task_id):
                     cone_set.add(".github")
+                tracked_dirs = _tracked_dirs(repo_root)
+                if tracked_dirs is not None and ".agents/skills" in tracked_dirs:
+                    cone_set.add(".agents/skills")
                 # --cone <path> entries are directory-shaped; pass them through
                 # without the dirname() step so `--cone docs` survives the
                 # single-segment drop and `--cone skills/tusk` lands as a
