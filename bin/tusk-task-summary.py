@@ -20,7 +20,12 @@ Output shape (JSON, default):
         "summary": "...",
         "status": "Done",
         "closed_reason": "completed" | "wont_do" | "duplicate" | "expired" | null,
-        "cost": {"total": 0.1234, "skill_run_count": N},
+        "cost": {
+            "total": 0.1234,
+            "skill_run_count": N,
+            "task_session_count": N,
+            "additional_skill_run_count": N
+        },
         "baseline_comparison": {
             "bucket": "M" | null,
             "median_cost": 0.0612 | null,
@@ -328,17 +333,21 @@ def _summarize_cost_rows(
     """Apply task-cost accounting to rows already loaded by any query path."""
     total = 0.0
     count = 0
+    task_session_count = 0
+    additional_skill_run_count = 0
     unavailable_count = 0
 
     for session in sessions:
         if _has_unavailable_telemetry(session):
             count += 1
+            task_session_count += 1
             unavailable_count += 1
             continue
         if not _has_accounting(session):
             continue
         total += float(session["cost_dollars"])
         count += 1
+        task_session_count += 1
 
     for sr in skill_runs:
         if not _has_accounting(sr):
@@ -348,6 +357,7 @@ def _summarize_cost_rows(
         if _skill_run_contained_in_costed_session(sr, sessions):
             continue
         count += 1
+        additional_skill_run_count += 1
         if _has_unavailable_telemetry(sr):
             unavailable_count += 1
         else:
@@ -356,6 +366,8 @@ def _summarize_cost_rows(
     result = {
         "total": round(total, 4),
         "skill_run_count": count,
+        "task_session_count": task_session_count,
+        "additional_skill_run_count": additional_skill_run_count,
     }
     if unavailable_count:
         result["unavailable_count"] = unavailable_count
@@ -369,8 +381,9 @@ def fetch_cost(conn: sqlite3.Connection, task_id: int) -> dict:
     task_sessions plus non-shadow skill_runs. Modern skill_runs carry task_id
     directly; older or manually-started rows may lack that attribution, so
     include completed un-attributed runs that started inside one of the task's
-    recorded sessions. The ``skill_run_count`` field is the number of costed
-    run windows included in the total.
+    recorded sessions. The legacy ``skill_run_count`` field is the total number
+    of included cost windows. ``task_session_count`` and
+    ``additional_skill_run_count`` expose their actual provenance.
     """
     return _summarize_cost_rows(
         _fetch_task_sessions_for_cost(conn, task_id),
@@ -1365,10 +1378,25 @@ def _render_cost_line(cost: dict, baseline: dict) -> str:
             f"- **Cost:** ${cost['total']:.4f} known subtotal across "
             f"{cost['skill_run_count']} run window{plural}; {unavailable} unavailable"
         )
-    base = (
-        f"- **Cost:** ${cost['total']:.4f} across "
-        f"{cost['skill_run_count']} skill run{plural}"
-    )
+    task_sessions = cost.get("task_session_count")
+    additional_skill_runs = cost.get("additional_skill_run_count")
+    if task_sessions is None or additional_skill_runs is None:
+        provenance = f"{cost['skill_run_count']} skill run{plural}"
+    elif task_sessions and additional_skill_runs:
+        session_plural = "s" if task_sessions != 1 else ""
+        skill_plural = "s" if additional_skill_runs != 1 else ""
+        provenance = (
+            f"{cost['skill_run_count']} run window{plural} "
+            f"({task_sessions} task session{session_plural} + "
+            f"{additional_skill_runs} skill run{skill_plural})"
+        )
+    elif task_sessions:
+        session_plural = "s" if task_sessions != 1 else ""
+        provenance = f"{task_sessions} task session{session_plural}"
+    else:
+        skill_plural = "s" if additional_skill_runs != 1 else ""
+        provenance = f"{additional_skill_runs} skill run{skill_plural}"
+    base = f"- **Cost:** ${cost['total']:.4f} across {provenance}"
     status = baseline.get("status")
     if status == "compared":
         bucket_info = (

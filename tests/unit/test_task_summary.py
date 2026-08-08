@@ -273,7 +273,12 @@ class TestOneSessionTask:
 
         data = mod.build_summary(conn, 12, str(tmp_path), baseline_threshold=1)
 
-        assert data["cost"] == {"total": 0.1178, "skill_run_count": 1}
+        assert data["cost"] == {
+            "total": 0.1178,
+            "skill_run_count": 1,
+            "task_session_count": 0,
+            "additional_skill_run_count": 1,
+        }
         assert data["baseline_comparison"] == {
             "bucket": "S",
             "median_cost": 0.2,
@@ -368,7 +373,12 @@ class TestOneSessionTask:
 
         data = mod.build_summary(conn, 14, str(tmp_path), baseline_threshold=1)
 
-        assert data["cost"] == {"total": 1.6856, "skill_run_count": 2}
+        assert data["cost"] == {
+            "total": 1.6856,
+            "skill_run_count": 2,
+            "task_session_count": 1,
+            "additional_skill_run_count": 1,
+        }
         assert data["baseline_comparison"] == {
             "bucket": "M",
             "median_cost": 1.5,
@@ -378,7 +388,10 @@ class TestOneSessionTask:
             "status": "compared",
         }
         markdown = mod.render_markdown(data)
-        assert "- **Cost:** $1.6856 across 2 skill runs" in markdown
+        assert (
+            "- **Cost:** $1.6856 across 2 run windows "
+            "(1 task session + 1 skill run)"
+        ) in markdown
 
     def test_summary_excludes_skill_run_cost_inside_costed_task_session(self, tmp_path):
         db_path, conn = _make_db(tmp_path)
@@ -424,8 +437,17 @@ class TestOneSessionTask:
 
         data = mod.build_summary(conn, 16, str(tmp_path))
 
-        assert data["cost"] == {"total": 1.45, "skill_run_count": 2}
-
+        assert data["cost"] == {
+            "total": 1.45,
+            "skill_run_count": 2,
+            "task_session_count": 1,
+            "additional_skill_run_count": 1,
+        }
+        markdown = mod.render_markdown(data)
+        assert (
+            "- **Cost:** $1.4500 across 2 run windows "
+            "(1 task session + 1 skill run)"
+        ) in markdown
 
 # ── multi-session task ────────────────────────────────────────────────
 
@@ -468,6 +490,8 @@ class TestUnavailableCost:
         assert data["cost"] == {
             "total": 0.0,
             "skill_run_count": 2,
+            "task_session_count": 1,
+            "additional_skill_run_count": 1,
             "unavailable_count": 2,
         }
         assert "Cost:** unavailable across 2 completed run windows" in markdown
@@ -507,6 +531,8 @@ class TestUnavailableCost:
         assert data["cost"] == {
             "total": 0.0,
             "skill_run_count": 1,
+            "task_session_count": 1,
+            "additional_skill_run_count": 0,
             "unavailable_count": 1,
         }
         assert "Cost:** unavailable across 1 completed run window" in markdown
@@ -529,7 +555,12 @@ class TestUnavailableCost:
 
         data = mod.build_summary(conn, 32, str(tmp_path))
 
-        assert data["cost"] == {"total": 0.0, "skill_run_count": 0}
+        assert data["cost"] == {
+            "total": 0.0,
+            "skill_run_count": 0,
+            "task_session_count": 0,
+            "additional_skill_run_count": 0,
+        }
 
     def test_known_zero_requires_positive_usage_evidence(self, tmp_path):
         _, conn = _make_db(tmp_path)
@@ -549,7 +580,12 @@ class TestUnavailableCost:
         data = mod.build_summary(conn, 33, str(tmp_path))
         markdown = mod.render_markdown(data)
 
-        assert data["cost"] == {"total": 0.0, "skill_run_count": 2}
+        assert data["cost"] == {
+            "total": 0.0,
+            "skill_run_count": 2,
+            "task_session_count": 0,
+            "additional_skill_run_count": 2,
+        }
         assert "Cost:** $0.0000 across 2 skill runs" in markdown
 
     def test_mixed_known_and_legacy_unavailable_rows_show_subtotal(self, tmp_path):
@@ -573,6 +609,8 @@ class TestUnavailableCost:
         assert data["cost"] == {
             "total": 0.25,
             "skill_run_count": 2,
+            "task_session_count": 0,
+            "additional_skill_run_count": 2,
             "unavailable_count": 1,
         }
         assert "Cost:** $0.2500 known subtotal across 2 run windows; 1 unavailable" in markdown
