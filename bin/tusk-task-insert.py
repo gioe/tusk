@@ -48,7 +48,6 @@ validate_enum = _db_lib.validate_enum
 extract_paths = _git_helpers.extract_paths
 extract_referenced_basenames = _git_helpers.extract_referenced_basenames
 is_prose_identifier_path = _git_helpers.is_prose_identifier_path
-is_xctest_selector = _git_helpers.is_xctest_selector
 path_exists_in_repo = _git_helpers.path_exists_in_repo
 warn_file_spec_glob_metachars = _git_helpers.warn_file_spec_glob_metachars
 reject_shell_metacharacters = _git_helpers.reject_shell_metacharacters
@@ -84,10 +83,8 @@ _ROUTE_SHORTFORM_RE = re.compile(
     # of an @-segment path that _PATH_RE now captures in full (issue #1047).
     r"(?<![\w:/.@-])/(?P<path>[A-Za-z0-9][\w./\[\]-]*\.[A-Za-z][\w]{1,9})"
 )
-_TEST_TARGET_TOKEN_RE = re.compile(r"\b([A-Z][A-Za-z0-9]*(?:UI)?Tests)\b")
-_TEST_SIM_SELECTOR_RE = re.compile(
-    r"(?<![\w.-])(?:[A-Za-z0-9_.-]+/)*test-sim\s+"
-    r"(?P<selector>[^\s;&|]+)"
+_TEST_SIM_RUNNER_RE = re.compile(
+    r"(?<![\w.-])(?P<runner>(?:[A-Za-z0-9_.-]+/)*test-sim)(?![\w.-])"
 )
 _TASK_COMMIT_SHA_RE = re.compile(
     r"(?:\[?TASK-[A-Za-z0-9_-]+\]?)\b.{0,120}?\bcommit\s+([0-9a-fA-F]{7,40})\b",
@@ -375,54 +372,29 @@ def _resolve_unique_repo_basename(repo_root: str | None, name: str) -> str | Non
     return None
 
 
-def _test_sim_selector_spans(text: str) -> list[tuple[int, int]]:
-    """Return spans for XCTest selectors used as test-sim arguments."""
-    return [
-        (match.start("selector"), match.end("selector"))
-        for match in _TEST_SIM_SELECTOR_RE.finditer(text or "")
-        if is_xctest_selector(match.group("selector"))
-    ]
+def _named_runner_scope_paths(repo_root: str | None, text: str) -> list[str]:
+    """Resolve named ``test-sim`` runners without expanding test targets.
 
-
-def _test_target_scope_paths(repo_root: str | None, text: str) -> list[str]:
-    """Infer tracked files from target-shaped test identifiers.
-
-    iOS task reports often mention target or test-class shapes such as
-    ``LaughTrackTests`` or ``SoftPushPromptCoordinatorTests`` without naming
-    concrete files. Keep this intentionally narrow: only capitalized tokens
-    ending in ``Tests``/``UITests`` participate, and only tracked files whose
-    path component or filename stem exactly matches the token are returned.
+    XCTest target and test-case identifiers are conceptual command arguments,
+    not filesystem scope. The runner itself is actionable: keep an explicit
+    path as-is (subject to the normal trackability filter), or resolve a bare
+    ``test-sim`` only when its tracked basename is unique.
     """
     if not repo_root or not text:
         return []
-    selector_spans = _test_sim_selector_spans(text)
-    tokens = []
-    seen_tokens: set[str] = set()
-    for match in _TEST_TARGET_TOKEN_RE.finditer(text):
-        if any(
-            start <= match.start() and match.end() <= end
-            for start, end in selector_spans
-        ):
-            continue
-        token = match.group(1)
-        if token not in seen_tokens:
-            seen_tokens.add(token)
-            tokens.append(token)
-    if not tokens:
-        return []
 
     candidates: list[str] = []
-    seen_paths: set[str] = set()
-    tracked = _tracked_repo_files(repo_root)
-    for token in tokens:
-        for path in tracked:
-            parts = path.split("/")
-            stem, _ext = posixpath.splitext(posixpath.basename(path))
-            if token not in parts and stem != token:
-                continue
-            if path not in seen_paths:
-                seen_paths.add(path)
-                candidates.append(path)
+    seen: set[str] = set()
+    for match in _TEST_SIM_RUNNER_RE.finditer(text):
+        runner = match.group("runner")
+        resolved = (
+            _resolve_auto_derived_scope_pattern(repo_root, runner)
+            if "/" in runner
+            else _resolve_unique_repo_basename(repo_root, runner)
+        )
+        if resolved and resolved not in seen:
+            seen.add(resolved)
+            candidates.append(resolved)
     return candidates
 
 
@@ -545,43 +517,6 @@ def _sibling_shortform_scope_paths(text: str, extracted_paths: list[str]) -> lis
             seen.add(path)
             unique.append(path)
     return unique
-
-
-def _scope_stack_key(path: str) -> str:
-    file_part = _path_file_portion(path)
-    parts = [p for p in file_part.split("/") if p]
-    if len(parts) >= 2 and parts[0] in {"apps", "packages"}:
-        return "/".join(parts[:2])
-    return parts[0] if parts else ""
-
-
-def _non_doc_scope_paths(paths: list[str]) -> list[str]:
-    return [
-        path for path in paths
-        if path and not _path_file_portion(path).lower().endswith((".md", ".markdown"))
-    ]
-
-
-def _filter_target_paths_for_explicit_scope(
-    target_paths: list[str], explicit_scope_paths: list[str]
-) -> list[str]:
-    """Drop weak test-target matches from unrelated stacks.
-
-    Target-shaped tokens such as ``FooTests`` are useful when prose names no
-    concrete files. Once explicit non-doc paths are present, keep only target
-    paths that share their top-level stack, so a random iOS test target does
-    not override a Python/CLI task's named files.
-    """
-    anchors = {
-        _scope_stack_key(path)
-        for path in _non_doc_scope_paths(explicit_scope_paths)
-    }
-    if not anchors:
-        return target_paths
-    return [
-        path for path in target_paths
-        if _scope_stack_key(path) in anchors
-    ]
 
 
 def _directory_list_scope_paths(text: str) -> list[str]:
@@ -967,7 +902,7 @@ def _auto_scope_candidates(
     lives in the description. ``None`` (default) detects from this block only.
     """
     explicit = extract_paths(text)
-    target_paths = _test_target_scope_paths(repo_root, text)
+    runner_paths = _named_runner_scope_paths(repo_root, text)
     sibling_paths = _sibling_shortform_scope_paths(text, explicit)
     directory_paths = _directory_list_scope_paths(text)
     route_paths = _route_shortform_scope_paths(repo_root, text)
@@ -980,27 +915,6 @@ def _auto_scope_candidates(
         if (resolved := _resolve_unique_repo_basename(repo_root, name))
     ]
     bare_paths = _drop_glob_basename_suffixes(bare_paths, glob_paths)
-    explicit_scope_paths = [
-        *explicit,
-        *sibling_paths,
-        *directory_paths,
-        *route_paths,
-        *glob_paths,
-        *command_paths,
-        *bare_paths,
-    ]
-    target_paths = _filter_target_paths_for_explicit_scope(
-        target_paths, explicit_scope_paths
-    )
-    if (
-        target_paths
-        and (task_type or "").lower() != "docs"
-        and not _non_doc_scope_paths(explicit_scope_paths)
-    ):
-        explicit = [
-            p for p in explicit
-            if not p.lower().endswith((".md", ".markdown"))
-        ]
     candidates = [
         *explicit,
         *sibling_paths,
@@ -1009,7 +923,7 @@ def _auto_scope_candidates(
         *glob_paths,
         *command_paths,
         *bare_paths,
-        *target_paths,
+        *runner_paths,
         *_commit_referenced_scope_paths(repo_root, text),
     ]
     # Symbol-to-definition resolution (issue #1080) runs after the

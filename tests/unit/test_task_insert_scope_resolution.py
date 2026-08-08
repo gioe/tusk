@@ -104,7 +104,7 @@ def test_auto_scope_candidates_expand_brace_list_paths_with_item_extensions():
     ]
 
 
-def test_auto_scope_candidates_keep_explicit_single_stack_paths_over_target_noise(monkeypatch):
+def test_auto_scope_candidates_keep_explicit_paths_and_ignore_target_tokens(monkeypatch):
     text = (
         "Files: bin/{tusk-task-insert.py,tusk-task-update.py}, docs/DOMAIN.md. "
         "The unrelated FooTests target should not displace explicit scope."
@@ -130,7 +130,7 @@ def test_auto_scope_candidates_keep_explicit_single_stack_paths_over_target_nois
     assert "tests/fixtures/ios/Tests/LaughTrackTests/FooTests.swift" not in candidates
 
 
-def test_auto_scope_candidates_drop_target_noise_from_different_app_stack(monkeypatch):
+def test_auto_scope_candidates_ignore_target_tokens_from_other_stacks(monkeypatch):
     text = (
         "Files: apps/scraper/scrapers/foo/{scraper.py,extractor.py}. "
         "The weak ComedianDetailViewTests token belongs to a different app."
@@ -154,33 +154,31 @@ def test_auto_scope_candidates_drop_target_noise_from_different_app_stack(monkey
     assert "apps/web/ios/Tests/ComedianDetailViewTests.swift" not in candidates
 
 
-def test_auto_scope_candidates_ignore_test_sim_xctest_selector(monkeypatch):
+def test_auto_scope_candidates_resolve_runner_without_expanding_test_target(monkeypatch):
     tracked = [
-        "tests/fixtures/ios/Tests/LaughTrackTests/FooTests.swift",
-        "tests/fixtures/ios/Tests/LaughTrackTests/HomeContentSectionTests.swift",
-        "bin/tusk-task-insert.py",
+        "ios/bin/test-sim",
+        "ios/bin/tests/test_test_sim.py",
+        "ios/Tests/LaughTrackTests/FooTests.swift",
+        "ios/Tests/LaughTrackTests/HomeContentSectionTests.swift",
+        "ios/UITests/LaughTrackUITests.swift",
     ]
     monkeypatch.setattr(mod, "_tracked_repo_files", lambda repo: tracked)
-    monkeypatch.setattr(
-        mod,
-        "path_exists_in_repo",
-        lambda repo, path: path == "bin/tusk-task-insert.py",
-    )
     text = (
-        "Run ios/bin/test-sim "
-        "LaughTrackTests/SoftPushPromptCoordinatorTests, then edit "
-        "bin/tusk-task-insert.py."
+        "Update test-sim for LaughTrackTests selectors and cover "
+        "ios/bin/tests/test_test_sim.py."
     )
 
     candidates = mod._auto_scope_candidates(
         text, repo_root="repo", task_type="feature"
     )
 
-    assert "bin/tusk-task-insert.py" in candidates
+    assert "ios/bin/test-sim" in candidates
+    assert "ios/bin/tests/test_test_sim.py" in candidates
     assert not any("LaughTrackTests" in path for path in candidates)
+    assert not any("UITests" in path for path in candidates)
 
 
-def test_auto_scope_candidates_keep_standalone_test_target_mentions(monkeypatch):
+def test_auto_scope_candidates_treat_standalone_test_target_as_conceptual(monkeypatch):
     tracked = [
         "tests/fixtures/ios/Tests/LaughTrackTests/FooTests.swift",
         "tests/fixtures/ios/Tests/LaughTrackTests/HomeContentSectionTests.swift",
@@ -193,7 +191,7 @@ def test_auto_scope_candidates_keep_standalone_test_target_mentions(monkeypatch)
         task_type="feature",
     )
 
-    assert candidates == tracked
+    assert candidates == []
 
 
 def test_auto_scope_candidates_include_git_rm_directory_operand():
