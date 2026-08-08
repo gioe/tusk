@@ -227,24 +227,40 @@ def test_auto_extract_from_typed_text_but_not_verification_specs(db_path):
     assert "tests/unit/test_scope_rederive.py" not in auto, rows
 
 
-def test_prose_test_sim_selector_does_not_expand_fixture_scope(db_path):
+def test_prose_test_target_resolves_runner_without_expanding_sources(db_path, tmp_path):
+    repo = tmp_path / "subject"
+    repo.mkdir()
+    _git(repo, ["init"])
+    tracked = [
+        "ios/bin/test-sim",
+        "ios/bin/tests/test_test_sim.py",
+        "ios/Tests/LaughTrackTests/FooTests.swift",
+        "ios/Tests/LaughTrackTests/HomeContentSectionTests.swift",
+        "ios/UITests/LaughTrackUITests.swift",
+    ]
+    for path in tracked:
+        target = repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("fixture\n", encoding="utf-8")
+    _git(repo, ["add", "."])
+
     task_id = _insert(
         str(db_path),
-        "Recognize XCTest selectors in verification specifications",
+        "Detect unmatched selectors in test-sim",
         (
-            "LaughTrack iOS verification specifications use ios/bin/test-sim "
-            "followed by XCTest target and test-case selectors. Add a "
-            "verification command such as ios/bin/test-sim "
-            "LaughTrackTests/SoftPushPromptCoordinatorTests. Update "
-            "bin/tusk-task-insert.py."
+            "Update test-sim for LaughTrackTests selectors and cover "
+            "ios/bin/tests/test_test_sim.py."
         ),
+        repo_root=repo,
     )
 
     rows = _scope_rows(str(db_path), task_id)
     auto = {row["pattern"] for row in rows if row["source"] == "auto_derived"}
 
-    assert "bin/tusk-task-insert.py" in auto, rows
-    assert not any("tests/fixtures/ios/Tests/LaughTrackTests" in path for path in auto)
+    assert "ios/bin/test-sim" in auto, rows
+    assert "ios/bin/tests/test_test_sim.py" in auto, rows
+    assert not any("LaughTrackTests" in path for path in auto), rows
+    assert not any("UITests" in path for path in auto), rows
 
 
 def test_auto_extract_ignores_relative_paths_in_verification_specs(db_path):
@@ -647,8 +663,8 @@ def test_auto_extract_skips_ambiguous_bare_filename_line_citation(db_path):
     assert not any(path.endswith("/conftest.py") for path in auto), rows
 
 
-def test_auto_extract_infers_ios_test_target_shape(db_path):
-    """Target-shaped iOS test names can seed the matching tracked path."""
+def test_auto_extract_treats_ios_test_target_shapes_as_conceptual(db_path):
+    """Target-shaped iOS identifiers must not seed matching tracked files."""
     task_id = _insert(
         str(db_path),
         "ios target shape scope",
@@ -661,8 +677,8 @@ def test_auto_extract_infers_ios_test_target_shape(db_path):
     rows = _scope_rows(str(db_path), task_id)
     auto = {r["pattern"] for r in rows if r["source"] == "auto_derived"}
 
-    assert "tests/fixtures/ios/Tests/LaughTrackTests/FooTests.swift" in auto, rows
-    assert "docs/example.md" not in auto, rows
+    assert not any("FooTests" in path for path in auto), rows
+    assert not any("LaughTrackTests" in path for path in auto), rows
 
 
 def test_auto_extract_hydrates_numbered_file_set_from_task_commit(db_path, tmp_path):

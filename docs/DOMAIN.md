@@ -284,7 +284,7 @@ The extraction pass uses the same broad path parser as the legacy `task_referenc
 - sibling shortforms near an explicit path, such as `dir/Alpha.swift and Beta.swift`, `dir/Alpha.swift and {Beta,Gamma}.swift`, and directory-list prose such as `dir/: Alpha.swift, Beta.swift`;
 - route-style shortforms beginning with `/`, resolved by unique tracked suffix when possible;
 - bare filenames resolved only when exactly one tracked repo file has that basename;
-- target-shaped test identifiers such as `FeatureTests` or `FeatureUITests`, resolved to tracked files whose path component or filename stem matches the token. For non-docs tasks, matching test-target signals suppress markdown-only scope hints so implementation tasks do not get scoped just to cited docs;
+- test-target and test-case identifiers such as `FeatureTests` or `FeatureUITests` remain conceptual command arguments and never expand into every matching test source. A named `test-sim` runner is actionable scope: an explicit path is preserved, while a bare runner name resolves only when its tracked basename is unique;
 - referenced TASK commit SHAs, but only when the same text also contains a numbered file-set phrase such as "42 venue scrapers" or "3 files". In that paired signal, task-insert hydrates scope from the commit's changed-file list.
 
 Auto-derived candidates are normalized before insertion: pytest node ids are reduced to their file path, exact existing paths win, and missing paths are resolved by unique tracked suffix when there is exactly one match. Invalid or unreachable SHAs are ignored rather than blocking task insertion. Slash-joined prose identifiers that do not exist in the repo, such as dotted package names rendered with `/`, are filtered out.
