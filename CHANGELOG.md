@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1259] - 2026-08-08
+
+- [TASK-872] Surface required release metadata before task review
+
 ## [1258] - 2026-08-08
 
 - [TASK-871] Include Codex .agents skills in sparse task worktrees
