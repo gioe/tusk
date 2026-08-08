@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1257] - 2026-08-07
+
+- [TASK-868] Keep test-target references from exploding auto-derived scope
+
 ## [1256] - 2026-08-07
 
 - [TASK-867] Classify pre-checkpoint scope additions as operator_declared
