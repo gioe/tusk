@@ -423,6 +423,40 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     ```
     Review the output. This check is **advisory only** — violations are warnings, not blockers. Fix any clear violations in files you've already touched. Do not refactor unrelated code just to satisfy lint.
 
+10b. **Prepare source-repository release metadata before final review.** Run
+    this checkpoint for standalone `/tusk` work only. When `/chain` owns the
+    run, skip it: the chain workflow consolidates one VERSION and CHANGELOG
+    update after every head completes.
+
+    Resolve the active checkout-local Tusk wrapper using this candidate order:
+    `bin/tusk`, `tusk/bin/tusk`, then `.claude/bin/tusk`. Follow its
+    complete symlink chain, and read the sibling `install-mode` marker. A
+    compound marker ending in `-consumer` means this is a consumer project:
+    skip the rest of this checkpoint. A marker ending in `-source`, a legacy
+    plain marker without a role suffix, or a missing marker means this is the
+    Tusk source repository and the checkpoint applies. Do not infer the role
+    from CWD names or the presence of source-looking files.
+
+    For a source run, compare the task branch with `origin/<default>` using
+    `tusk git-default-branch`. If the committed diff changes any path guarded
+    by `hooks/git/version-bump-check.sh` (`bin/*`, `skills/*`,
+    `config.default.json`, or `install.sh`), VERSION and CHANGELOG.md must be
+    part of task scope and committed before Step 11:
+
+    ```bash
+    tusk scope add <id> VERSION --reason "Source release metadata required before review"
+    tusk scope add <id> CHANGELOG.md --reason "Source release metadata required before review"
+    tusk version-bump
+    tusk changelog-add <id>
+    tusk commit <id> "Prepare source release metadata before review" VERSION CHANGELOG.md
+    ```
+
+    First check whether VERSION already differs from `origin/<default>`. If it
+    does, do **not** bump VERSION again; verify that CHANGELOG.md already has
+    the current version and task entry, add only the missing changelog entry if
+    needed, and commit any remaining metadata before review. This keeps retries
+    and resumed sessions to one release bump.
+
 11. **Run `/review-commits`** — check the review mode first:
     ```bash
     tusk config review
