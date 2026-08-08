@@ -202,6 +202,53 @@ def test_sparse_cone_set(tmp_path, monkeypatch):
     )
 
 
+def test_sparse_cone_materializes_tracked_codex_skills(tmp_path, monkeypatch):
+    """Tracked Codex skills are available to nested workflows."""
+    repo, db_path, env = _repo_with_tusk(tmp_path, monkeypatch)
+    skill = repo / ".agents" / "skills" / "review-commits" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("# Review commits\n", encoding="utf-8")
+    _git(["add", ".agents"], cwd=repo)
+    _git(["commit", "-m", "add Codex skills"], cwd=repo)
+    task = _insert_task(
+        db_path,
+        "Update tests/integration/test_a.py and verify behavior",
+    )
+
+    result = _run(
+        [
+            "task-worktree",
+            "create",
+            str(task),
+            "codex-skills",
+            "--workspace-root",
+            str(tmp_path / "workspaces"),
+        ],
+        cwd=repo,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    worktree = payload["workspace_path"]
+    cone = _sparse_cone(worktree)
+    assert cone is not None, "Codex skills must not force a full-checkout fallback"
+    assert ".agents/skills" in cone
+    assert os.path.isfile(
+        os.path.join(
+            worktree,
+            ".agents",
+            "skills",
+            "review-commits",
+            "SKILL.md",
+        )
+    )
+    assert os.path.isfile(
+        os.path.join(worktree, ".claude", "tusk-manifest.json")
+    )
+    assert "falls back to a full checkout" not in result.stderr
+
+
 def test_source_skill_symlink_cone_stays_sparse(tmp_path, monkeypatch):
     """Exact tracked symlinks are normalized to their parent directory.
 
