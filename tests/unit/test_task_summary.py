@@ -449,6 +449,42 @@ class TestOneSessionTask:
             "(1 task session + 1 skill run)"
         ) in markdown
 
+    def test_summary_labels_shadowed_tusk_run_cost_as_task_session(self, tmp_path):
+        _, conn = _make_db(tmp_path)
+        _insert_task(
+            conn, task_id=3902, summary="Reported provenance mismatch",
+            started_at="2026-07-29 10:00:00",
+            closed_at="2026-07-29 12:35:00",
+        )
+        conn.execute(
+            "INSERT INTO task_sessions "
+            "(task_id, started_at, ended_at, duration_seconds, cost_dollars, telemetry_status) "
+            "VALUES (?, ?, ?, ?, ?, 'captured')",
+            (3902, "2026-07-29 10:00:00", "2026-07-29 12:30:00", 9000, 9.2379),
+        )
+        conn.execute(
+            "INSERT INTO skill_runs "
+            "(skill_name, task_id, started_at, ended_at, cost_dollars, telemetry_status) "
+            "VALUES (?, ?, ?, ?, ?, 'captured')",
+            (
+                "tusk",
+                3902,
+                "2026-07-29 10:00:05",
+                "2026-07-29 12:35:00",
+                9.4389,
+            ),
+        )
+        conn.commit()
+
+        data = mod.build_summary(conn, 3902, str(tmp_path))
+        markdown = mod.render_markdown(data)
+
+        assert data["cost"]["total"] == 9.2379
+        assert data["cost"]["task_session_count"] == 1
+        assert data["cost"]["additional_skill_run_count"] == 0
+        assert "- **Cost:** $9.2379 across 1 task session" in markdown
+        assert "across 1 skill run" not in markdown
+
 # ── multi-session task ────────────────────────────────────────────────
 
 
