@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1260] - 2026-08-09
+
+- [TASK-873] Deduplicate identical verification specs across acceptance criteria
+
 ## [1259] - 2026-08-08
 
 - [TASK-872] Surface required release metadata before task review
