@@ -493,6 +493,87 @@ class TestDoneSingle:
         run_verification.assert_called_once_with("test", "cd apps/web && npm run lint")
         assert json.loads(out.getvalue())["verification"] == "passed"
 
+    def test_commit_cache_reuses_success_but_runs_distinct_specs(self):
+        shared_spec = "python3 -m pytest tests/shared.py"
+        distinct_spec = "python3 -m pytest tests/distinct.py"
+        conn = make_db(criteria_specs=[
+            {"criterion_type": "test", "verification_spec": shared_spec},
+            {"criterion_type": "test", "verification_spec": shared_spec},
+            {"criterion_type": "test", "verification_spec": distinct_spec},
+        ])
+        cache = {}
+        out = io.StringIO()
+        with redirect_stdout(out), \
+             patch.object(
+                 criteria_mod,
+                 "run_verification",
+                 return_value={"passed": True, "output": "ran spec"},
+             ) as run_verification, \
+             patch.object(criteria_mod, "capture_criterion_cost"):
+            results = [
+                criteria_mod._done_single(
+                    conn,
+                    criterion_id,
+                    skip_verify=False,
+                    suppress_shared_commit=True,
+                    commit_hash="abc1234",
+                    committed_at=None,
+                    head_task_id=1,
+                    successful_verifications=cache,
+                )
+                for criterion_id in (1, 2, 3)
+            ]
+
+        assert results == [0, 0, 0]
+        assert [args.args for args in run_verification.call_args_list] == [
+            ("test", shared_spec),
+            ("test", distinct_spec),
+        ]
+        payloads = _parse_json_lines(out.getvalue())
+        assert payloads[1]["verification_contract"]["evidence"] == (
+            "reused_commit_verification"
+        )
+        assert _ids_marked_done(out.getvalue()) == {1, 2, 3}
+
+    def test_commit_cache_does_not_reuse_failed_result(self):
+        shared_spec = "python3 -m pytest tests/flaky.py"
+        conn = make_db(criteria_specs=[
+            {"criterion_type": "test", "verification_spec": shared_spec},
+            {"criterion_type": "test", "verification_spec": shared_spec},
+        ])
+        cache = {}
+        out = io.StringIO()
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err), \
+             patch.object(
+                 criteria_mod,
+                 "run_verification",
+                 side_effect=[
+                     {"passed": False, "output": "first failed"},
+                     {"passed": True, "output": "second passed"},
+                 ],
+             ) as run_verification, \
+             patch.object(criteria_mod, "capture_criterion_cost"):
+            first = criteria_mod._done_single(
+                conn, 1, False, True, "abc1234", None,
+                head_task_id=1, successful_verifications=cache,
+            )
+            second = criteria_mod._done_single(
+                conn, 2, False, True, "abc1234", None,
+                head_task_id=1, successful_verifications=cache,
+            )
+
+        assert first == 1
+        assert second == 0
+        assert run_verification.call_count == 2
+        rows = conn.execute(
+            "SELECT id, is_completed FROM acceptance_criteria ORDER BY id"
+        ).fetchall()
+        assert [(row["id"], row["is_completed"]) for row in rows] == [
+            (1, 0),
+            (2, 1),
+        ]
+
     def test_shared_commit_warning_when_not_suppressed(self):
         conn = make_db(criteria_specs=[
             {"criterion_type": "manual", "verification_spec": None, "is_completed": 1},

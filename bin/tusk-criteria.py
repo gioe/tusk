@@ -767,7 +767,10 @@ def cmd_update(args: argparse.Namespace, db_path: str, config: dict) -> int:
 def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
                   suppress_shared_commit: bool, commit_hash: Optional[str],
                   committed_at: Optional[str], note: Optional[str] = None,
-                  head_task_id: Optional[int] = None) -> int:
+                  head_task_id: Optional[int] = None,
+                  successful_verifications: Optional[
+                      dict[tuple[str, str, str], dict]
+                  ] = None) -> int:
     """Mark a single criterion as done. Returns 0 on success, 1 on verification failure, 2 on not-found."""
     row = conn.execute(
         "SELECT id, task_id, criterion, is_completed, criterion_type, verification_spec, "
@@ -815,9 +818,31 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
     verification_result = None
     verification_payload = None
     if criterion_type != "manual" and spec and not skip_verify:
-        result = _reuse_commit_gate_verification(criterion_type, spec, commit_hash)
-        if result is None:
-            result = run_verification(criterion_type, spec)
+        cache_key = (
+            (commit_hash, criterion_type, spec)
+            if successful_verifications is not None and commit_hash
+            else None
+        )
+        cached_result = (
+            successful_verifications.get(cache_key)
+            if cache_key is not None
+            else None
+        )
+        if cached_result is not None:
+            result = dict(cached_result)
+            result["output"] = (
+                "reused successful verification from this tusk commit for "
+                f"criterion #{criterion_id}: {spec}"
+            )
+            result["reused_commit_verification"] = True
+        else:
+            result = _reuse_commit_gate_verification(
+                criterion_type, spec, commit_hash
+            )
+            if result is None:
+                result = run_verification(criterion_type, spec)
+            if result["passed"] and cache_key is not None:
+                successful_verifications[cache_key] = dict(result)
         verification_payload = result
         verification_result = json.dumps(result)
 
@@ -1014,6 +1039,8 @@ def _verification_contract(
     evidence = "executed"
     if result and result.get("reused_commit_gate"):
         evidence = "reused_commit_gate"
+    elif result and result.get("reused_commit_verification"):
+        evidence = "reused_commit_verification"
     return {
         "type": criterion_type,
         "strength": "automated",
@@ -1161,6 +1188,21 @@ def cmd_done(args: argparse.Namespace, db_path: str, config: dict) -> int:
         # differs from the criterion's task.
         head_task_id = _head_task_id(commit_cwd) if commit_hash is not None else None
 
+        # tusk commit batches its criteria into this process and stamps the
+        # landed SHA in the environment. Keep successful exact specs in memory
+        # only for that commit operation; ordinary bulk criteria completion
+        # retains its historical per-criterion execution behavior.
+        commit_cache_sha = os.environ.get("TUSK_COMMIT_VERIFICATION_CACHE_SHA", "")
+        cache_matches_head = bool(
+            commit_cache_sha
+            and commit_hash
+            and (
+                commit_cache_sha.startswith(commit_hash)
+                or commit_hash.startswith(commit_cache_sha)
+            )
+        )
+        successful_verifications = {} if cache_matches_head else None
+
         allow_shared = getattr(args, "allow_shared_commit", False)
         batch = getattr(args, "batch", False)
         note = getattr(args, "note", None)
@@ -1173,6 +1215,7 @@ def cmd_done(args: argparse.Namespace, db_path: str, config: dict) -> int:
                 conn, cid, args.skip_verify, suppress,
                 commit_hash, committed_at, note=note,
                 head_task_id=head_task_id,
+                successful_verifications=successful_verifications,
             )
             if rc > worst_exit:
                 worst_exit = rc

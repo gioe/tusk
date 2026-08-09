@@ -30,7 +30,8 @@ Steps:
        outcomes (issue #950).
     2. Stage files: git add for all files (handles additions, modifications, and deletions)
     3. git commit with [TASK-<id>] <message> format and Co-Authored-By trailer
-    4. For each criterion ID passed via --criteria, call tusk criteria done <id> (captures HEAD automatically)
+    4. Mark every criterion ID passed via --criteria done in one subprocess
+       (captures HEAD automatically and deduplicates successful exact specs).
 
 Output contract (GitHub Issue #450):
     - test_command output is captured by default (not streamed) so background-task
@@ -2348,16 +2349,19 @@ def _run_commit(argv: list[str], state: dict) -> int:
     # When multiple criteria are batched in one commit call, suppress the
     # shared-commit warning for criteria[1:] — the user intentionally grouped them.
     criteria_failed = False
-    for idx, cid in enumerate(criteria_ids):
+    if criteria_ids:
         if announce_status:
-            print(f"\n=== Marking criterion {cid} done ===")
+            joined_ids = ", ".join(criteria_ids)
+            print(f"\n=== Marking criteria {joined_ids} done ===")
             sys.stdout.flush()
-        cmd = [tusk_bin, "criteria", "done", cid]
+        cmd = [tusk_bin, "criteria", "done", *criteria_ids]
         if skip_verify:
             cmd.append("--skip-verify")
-        if idx > 0 and len(criteria_ids) > 1:
+        if len(criteria_ids) > 1:
             cmd.append("--batch")
         criteria_env = os.environ.copy()
+        if state.get("sha"):
+            criteria_env["TUSK_COMMIT_VERIFICATION_CACHE_SHA"] = state["sha"]
         if test_cmd and not skip_verify and state.get("sha"):
             criteria_env["TUSK_COMMIT_GATE_COMMAND"] = test_cmd
             criteria_env["TUSK_COMMIT_GATE_SHA"] = state["sha"]
@@ -2369,7 +2373,8 @@ def _run_commit(argv: list[str], state: dict) -> int:
         )
         if result.returncode != 0:
             print(
-                f"Warning: Failed to mark criterion {cid} done",
+                "Warning: Failed to mark one or more criteria done: "
+                + ", ".join(criteria_ids),
                 file=sys.stderr,
             )
             criteria_failed = True
