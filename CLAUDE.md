@@ -200,7 +200,7 @@ The config also includes a `review` block: `mode` (`"disabled"` or `"ai_only"`),
 
 **Adding a new top-level key to `config.default.json`:** You must also add the key to `KNOWN_KEYS` in `bin/tusk-config-tools.py` (line ~34). Rule 7 of the config linter validates that every key in `config.default.json` is present in `KNOWN_KEYS` — if it's missing, `tusk init` and `tusk validate` will both fail with a Rule 7 violation.
 
-**Worktree config-edit verification (issue #767):** `tusk config` and `tusk validate` always read the **primary checkout's** `tusk/config.json` even when invoked from a task worktree — this is the deliberate shared-config invariant that mirrors the shared DB. Each invocation now prints `Config: <resolved-path>` to stderr so operators can confirm which file was read. To verify branch-local edits to `tusk/config.json` in a worktree, `cat tusk/config.json` from the worktree directly; the tusk subcommands are not aware of unmerged worktree config changes.
+**Worktree config-edit verification (issues #767 and #1288):** `tusk config` reads the **primary checkout's** `tusk/config.json` even when invoked from a task worktree — this deliberate shared-config invariant mirrors the shared DB, and the command prints `Config: <resolved-path>` to stderr so operators can see which file was read. `tusk validate` is the exception: from a linked worktree it validates that worktree's `tusk/config.json` when present, then compares the resulting expected triggers with the shared primary database. An explicit `TUSK_PROJECT` pin keeps validation rooted at the pinned project.
 
 ### Project Bootstrap
 

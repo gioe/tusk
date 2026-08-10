@@ -441,6 +441,15 @@ resolve_config() {
   fi
 }
 
+resolve_validate_config() {
+  local worktree_config="$CWD_REPO_ROOT/tusk/config.json"
+  if [[ -z "${TUSK_PROJECT:-}" && "$CWD_REPO_ROOT" != "$CWD_PROJECT_ROOT" && -f "$worktree_config" ]]; then
+    echo "$worktree_config"
+  else
+    resolve_config
+  fi
+}
+
 read_config_key() {
   local key="$1"
   local config
@@ -472,7 +481,11 @@ read_config_json() {
 }
 
 validate_config() {
-  python3 "$SCRIPT_DIR/tusk-config-tools.py" validate "$(resolve_config)"
+  local config="${1:-}"
+  if [[ -z "$config" ]]; then
+    config="$(resolve_config)"
+  fi
+  python3 "$SCRIPT_DIR/tusk-config-tools.py" validate "$config"
 }
 
 # ── SQL quoting helper ────────────────────────────────────────────────
@@ -525,8 +538,10 @@ cmd_validate() {
     echo "tusk validate: takes no arguments — validates the project's tusk config" >&2
     return 1
   fi
-  validate_config
-  echo "Config is valid ($(resolve_config))."
+  local config
+  config="$(resolve_validate_config)"
+  validate_config "$config"
+  echo "Config is valid ($config)."
 
   # Check that all three DB gitignore patterns are present
   local gitignore="$PROJECT_ROOT/.gitignore"
@@ -545,12 +560,12 @@ cmd_validate() {
   # Detect trigger drift: live SQLite triggers must match what config says
   # they should be. Skip when the DB does not exist yet (e.g. pre-init).
   if [[ -f "$DB_PATH" ]]; then
-    if python3 "$SCRIPT_DIR/tusk-config-tools.py" validate-triggers "$(resolve_config)" "$DB_PATH"; then
+    if python3 "$SCRIPT_DIR/tusk-config-tools.py" validate-triggers "$config" "$DB_PATH"; then
       echo "  Validation triggers OK."
     else
       return 1
     fi
-    python3 "$SCRIPT_DIR/tusk-config-tools.py" validate-journal-mode "$(resolve_config)" "$DB_PATH"
+    python3 "$SCRIPT_DIR/tusk-config-tools.py" validate-journal-mode "$config" "$DB_PATH"
   fi
 
   # Detect skill/CLI subcommand drift: installed skills must not reference

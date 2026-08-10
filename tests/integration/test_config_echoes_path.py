@@ -1,10 +1,14 @@
-"""Integration test for `tusk config` echoing resolved config path to stderr (issue #767).
+"""Integration tests for config-path resolution from linked worktrees.
 
 When invoked from a task worktree, `tusk config` reads the **primary checkout's**
 config (the deliberate shared-config invariant). Operators editing
 `tusk/config.json` in a worktree previously had no way to tell which file was
 being read. The fix prints `Config: <resolved-path>` to stderr on every
 invocation, keeping the diagnostic out of JSON / value consumers' stdout pipes.
+
+`tusk validate` instead validates a worktree-local config when one exists so
+the command checks the file that a task is about to commit, while retaining the
+primary checkout's shared database for trigger-drift validation (issue #1288).
 """
 
 import json
@@ -156,3 +160,37 @@ def test_config_stderr_path_matches_resolve_config_from_worktree(tmp_path):
     assert "WORKTREE_LOCAL_MARKER" not in payload.get("domains", []), (
         "stdout payload must come from the primary's config, not the worktree's"
     )
+
+
+def test_validate_uses_worktree_config_with_primary_shared_database(tmp_path):
+    repo = _init_repo(tmp_path)
+    env = _tusk_init(repo)
+    env.pop("TUSK_DB", None)
+    env.pop("TUSK_PROJECT", None)
+
+    worktree = tmp_path / "wt"
+    _git(["worktree", "add", str(worktree), "-b", "feature/validate-test"], cwd=repo)
+
+    primary_config = repo / "tusk" / "config.json"
+    worktree_config = worktree / "tusk" / "config.json"
+    worktree_config.parent.mkdir(parents=True, exist_ok=True)
+    config = json.loads(primary_config.read_text(encoding="utf-8"))
+    config["domains"] = ["WORKTREE_LOCAL_MARKER"]
+    worktree_config.write_text(json.dumps(config), encoding="utf-8")
+
+    worktree_result = _run_tusk(["validate"], cwd=worktree, env=env)
+
+    assert worktree_result.returncode == 1, worktree_result.stderr
+    assert f"Config is valid ({worktree_config})." in worktree_result.stdout
+    assert str(primary_config) not in worktree_result.stdout
+    shared_db = repo / "tusk" / "tasks.db"
+    assert f"Trigger drift detected ({shared_db}):" in worktree_result.stderr
+    assert "missing trigger: validate_domain_insert" in worktree_result.stderr
+    assert "missing trigger: validate_domain_update" in worktree_result.stderr
+    assert str(worktree / "tusk" / "tasks.db") not in worktree_result.stderr
+
+    primary_result = _run_tusk(["validate"], cwd=repo, env=env)
+
+    assert primary_result.returncode == 0, primary_result.stderr
+    assert f"Config is valid ({primary_config})." in primary_result.stdout
+    assert "Validation triggers OK." in primary_result.stdout
