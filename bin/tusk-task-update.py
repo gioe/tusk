@@ -58,6 +58,12 @@ def _rederive_auto_scope(
     config_path: str,
 ) -> None:
     if conn.execute(
+        "SELECT 1 FROM task_scope_checkpoints WHERE task_id = ? LIMIT 1",
+        (task_id,),
+    ).fetchone():
+        return
+
+    if conn.execute(
         "SELECT 1 FROM task_scope WHERE task_id = ? AND source = 'unbounded' LIMIT 1",
         (task_id,),
     ).fetchone():

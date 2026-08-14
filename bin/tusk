@@ -843,6 +843,17 @@ CREATE TABLE task_scope (
 );
 CREATE INDEX idx_task_scope_task_id ON task_scope(task_id);
 
+-- task_scope_checkpoints (one immutable checkpoint per task). Keeping the
+-- checkpoint separate from task_scope rows makes zero-row locks durable and
+-- lets audited expansion rows retain their own provenance without erasing the
+-- original lock ceremony.
+CREATE TABLE task_scope_checkpoints (
+    task_id INTEGER PRIMARY KEY,
+    locked_at TEXT NOT NULL,
+    locked_by TEXT NOT NULL,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+
 -- objectives (initiative-level intent spanning one or more shippable tasks)
 CREATE TABLE objectives (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1399,7 +1410,7 @@ PRECHECK_VERDICTS_SCHEMA
   fi
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 87;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 88;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."
@@ -1995,7 +2006,7 @@ is_readonly_subcmd() {
   # a snapshot. When in doubt, omit from this list — a redundant backup is
   # cheaper than a missed one.
   # `scope` is dispatched at the second positional: only `scope list` is
-  # read-only — `scope add`, `scope remove`, and `scope lock` mutate
+  # read-only — `scope add`, `scope expand`, `scope remove`, and `scope lock` mutate
   # task_scope rows.
   if [[ "${1:-}" == "scope" ]]; then
     [[ "${2:-}" == "list" ]] && return 0

@@ -3680,6 +3680,47 @@ def migrate_87(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 87: added provider-aware telemetry attribution")
 
 
+def migrate_88(db_path: str, config_path: str, script_dir: str) -> None:
+    """Persist one immutable scope checkpoint per task.
+
+    Historical row-level locks are backfilled from the earliest locked scope
+    row for each task.  A separate table makes a lock durable even when a task
+    has no scope rows and preserves the original checkpoint while later,
+    audited expansion rows carry their own lock provenance.
+    """
+    if get_version(db_path) >= 88:
+        _progress("  Migration 88: added task_scope_checkpoints")
+        return
+
+    run_script(
+        db_path,
+        """
+        CREATE TABLE IF NOT EXISTS task_scope_checkpoints (
+            task_id INTEGER PRIMARY KEY,
+            locked_at TEXT NOT NULL,
+            locked_by TEXT NOT NULL,
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+        );
+
+        INSERT OR IGNORE INTO task_scope_checkpoints (task_id, locked_at, locked_by)
+        SELECT ts.task_id, ts.locked_at, COALESCE(ts.locked_by, 'unknown')
+        FROM task_scope ts
+        WHERE ts.locked_at IS NOT NULL
+          AND ts.id = (
+              SELECT earliest.id
+              FROM task_scope earliest
+              WHERE earliest.task_id = ts.task_id
+                AND earliest.locked_at IS NOT NULL
+              ORDER BY earliest.locked_at, earliest.id
+              LIMIT 1
+          );
+
+        PRAGMA user_version = 88;
+        """,
+    )
+    _progress("  Migration 88: added task_scope_checkpoints")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -3770,6 +3811,7 @@ MIGRATIONS = [
     (85, migrate_85),
     (86, migrate_86),
     (87, migrate_87),
+    (88, migrate_88),
 ]
 
 

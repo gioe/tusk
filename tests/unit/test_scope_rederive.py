@@ -68,6 +68,11 @@ def _make_conn():
             locked_by TEXT,
             created_at TEXT DEFAULT ''
         );
+        CREATE TABLE task_scope_checkpoints (
+            task_id INTEGER PRIMARY KEY,
+            locked_at TEXT NOT NULL,
+            locked_by TEXT NOT NULL
+        );
         CREATE TABLE acceptance_criteria (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             task_id INTEGER,
@@ -118,6 +123,31 @@ def _seed_task(conn, *, unbounded=False):
     if unbounded:
         _add_scope(conn, 1, "**", "unbounded")
     conn.commit()
+
+
+def _lock_scope(conn, task_id, locked_by="tester"):
+    conn.execute(
+        "INSERT INTO task_scope_checkpoints (task_id, locked_at, locked_by) "
+        "VALUES (?, '2026-08-14 12:00:00', ?)",
+        (task_id, locked_by),
+    )
+    conn.execute(
+        "UPDATE task_scope SET locked_at = '2026-08-14 12:00:00', locked_by = ? "
+        "WHERE task_id = ?",
+        (locked_by, task_id),
+    )
+    conn.commit()
+
+
+def _auto_patterns(conn, task_id=1):
+    return {
+        row["pattern"]
+        for row in conn.execute(
+            "SELECT pattern FROM task_scope "
+            "WHERE task_id = ? AND source = 'auto_derived'",
+            (task_id,),
+        ).fetchall()
+    }
 
 
 def _patterns_by_source(conn, source):
@@ -430,3 +460,63 @@ def test_rederive_clears_missing_scope_path_warning(monkeypatch):
 
     # After: the phantom row is gone, so its warning is cleared.
     assert _phantom_warnings() == []
+
+
+def test_task_update_rederive_preserves_checkpointed_scope(monkeypatch):
+    conn = _make_conn()
+    _seed_task(conn)
+    _lock_scope(conn, 1)
+    before = conn.execute(
+        "SELECT pattern, source, locked_at, locked_by FROM task_scope "
+        "WHERE task_id = 1 ORDER BY id"
+    ).fetchall()
+    _patch_derivation(monkeypatch)
+
+    scope_mod.rederive_auto_scope(conn, 1, "/repo/tusk/config.json")
+    conn.commit()
+
+    after = conn.execute(
+        "SELECT pattern, source, locked_at, locked_by FROM task_scope "
+        "WHERE task_id = 1 ORDER BY id"
+    ).fetchall()
+    assert [tuple(row) for row in after] == [tuple(row) for row in before]
+
+
+def test_cmd_rederive_refuses_checkpointed_task(monkeypatch, capsys):
+    conn = _make_conn()
+    _seed_task(conn)
+    _lock_scope(conn, 1)
+    monkeypatch.setattr(scope_mod, "get_connection", lambda db_path: conn)
+
+    class _Args:
+        task_id = "1"
+        all = False
+        include_closed = False
+
+    rc = scope_mod.cmd_rederive(_Args(), ":memory:", "/repo/tusk/config.json")
+
+    assert rc == 2
+    assert "scope is locked" in capsys.readouterr().err
+    assert _auto_patterns(conn) == {PHANTOM}
+
+
+def test_cmd_rederive_all_skips_checkpointed_tasks(monkeypatch, capsys):
+    conn = _make_conn()
+    _seed_bulk(conn)
+    _lock_scope(conn, 1)
+    _patch_derivation(monkeypatch)
+    monkeypatch.setattr(scope_mod, "get_connection", lambda db_path: conn)
+
+    class _Args:
+        task_id = None
+        all = True
+        include_closed = False
+
+    rc = scope_mod.cmd_rederive(_Args(), ":memory:", "/repo/tusk/config.json")
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    locked = next(row for row in payload["results"] if row["task_id"] == 1)
+    assert locked["skipped"] is True
+    assert locked["skip_reason"] == "scope is locked"
+    assert _auto_patterns(conn) == {PHANTOM}

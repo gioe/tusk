@@ -138,6 +138,13 @@ def _make_db_with_workflow(tmp_path):
             created_at TEXT DEFAULT (datetime('now'))
         )
     """)
+    conn.execute("""
+        CREATE TABLE task_scope_checkpoints (
+            task_id INTEGER PRIMARY KEY,
+            locked_at TEXT NOT NULL,
+            locked_by TEXT NOT NULL
+        )
+    """)
     conn.commit()
     conn.close()
     return db_path

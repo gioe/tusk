@@ -50,6 +50,18 @@ if [ -z "$task_id" ]; then
   exit 0
 fi
 
+# Query the task-level checkpoint separately from the row list so diagnostics
+# can direct loose tasks to `scope add` and immutable tasks to audited
+# `scope expand`, including checkpointed tasks with zero rows.
+scope_status="$(tusk scope list "$task_id" --with-status 2>/dev/null)"
+scope_locked="$(printf '%s' "$scope_status" | python3 -c '
+import json, sys
+try:
+    print("1" if json.load(sys.stdin).get("checkpoint") else "0")
+except Exception:
+    print("0")
+' 2>/dev/null)"
+
 # Pull the inferred scope. Empty output = explicit unbounded or legacy no scope
 # signal -> silent pass. Exit 3 means an enforced task has no authoritative
 # scope rows, which is a declaration gap and must block the commit.
@@ -61,9 +73,14 @@ if [ "$scope_rc" = "3" ]; then
     printf '%s\n' "$scope" | sed 's/^/  /' >&2
   fi
   echo "" >&2
-  echo "Declare the touched paths first, or recreate the task with an explicit unbounded scope." >&2
-  echo "  tusk scope add $task_id <path> --reason \"why this path is in scope\"" >&2
-  echo "  tusk task-insert ... --unbounded" >&2
+  if [ "$scope_locked" = "1" ]; then
+    echo "Expand the immutable checkpoint through the audited path:" >&2
+    echo "  tusk scope expand $task_id <path> --reason \"why this path is now required\"" >&2
+  else
+    echo "Declare the touched paths first, or recreate the task with an explicit unbounded scope." >&2
+    echo "  tusk scope add $task_id <path> --reason \"why this path is in scope\"" >&2
+    echo "  tusk task-insert ... --unbounded" >&2
+  fi
   exit 2
 fi
 if [ "$scope_rc" != "0" ]; then
@@ -115,6 +132,15 @@ if [ -n "$violations" ]; then
     printf '%s\n' "$allowed" | sed 's/^/  /' >&2
   fi
   echo "" >&2
+  if [ "$scope_locked" = "1" ]; then
+    echo "For an intentional scope expansion, record it before committing:" >&2
+    echo "  tusk scope expand $task_id <path> --reason \"why this path is now required\"" >&2
+    echo "" >&2
+  else
+    echo "For an intentional loose-scope addition, declare it before committing:" >&2
+    echo "  tusk scope add $task_id <path> --reason \"why this path is in scope\"" >&2
+    echo "" >&2
+  fi
   echo "If this is intentional, bypass with one of:" >&2
   echo "  tusk commit ... --skip-verify   (skips lint + pre-commit hooks)" >&2
   echo "  git commit --no-verify ...       (skips pre-commit hooks)" >&2

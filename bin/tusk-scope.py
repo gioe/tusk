@@ -5,6 +5,7 @@
 Called by the tusk wrapper:
     tusk scope list <task_id>
     tusk scope add <task_id> <pattern> [--reason TEXT] [--source S]
+    tusk scope expand <task_id> <pattern> --reason TEXT [--by NAME] [--source S]
     tusk scope remove <row_id>
     tusk scope lock <task_id> [--by NAME]
 
@@ -33,7 +34,7 @@ the effective text-derived scope without mutating old tasks.
 Exit codes:
     0 — success (JSON payload on stdout)
     1 — usage error / task not found / DB error
-    2 — validation error (bad --source)
+    2 — validation error or immutable-checkpoint refusal
 """
 
 import argparse
@@ -59,6 +60,7 @@ rederive_auto_scope = _task_update._rederive_auto_scope
 
 
 VALID_SOURCES_ADD = ("expanded_mid_task", "operator_declared", "creates")
+VALID_SOURCES_EXPAND = ("expanded_mid_task", "creates")
 _GLOB_CHARS = frozenset("*?[")
 
 
@@ -292,6 +294,22 @@ def _task_has_unbounded_scope(conn: sqlite3.Connection, task_id: int) -> bool:
     return row is not None
 
 
+def _scope_checkpoint(conn: sqlite3.Connection, task_id: int) -> "sqlite3.Row | None":
+    return conn.execute(
+        "SELECT task_id, locked_at, locked_by FROM task_scope_checkpoints "
+        "WHERE task_id = ?",
+        (task_id,),
+    ).fetchone()
+
+
+def _checkpoint_refusal(task_id: int, operation: str) -> str:
+    return (
+        f"Error: task {task_id} scope is locked; cannot {operation}. "
+        "Use `tusk scope expand <task_id> <pattern> --reason <why>` "
+        "for an audited post-lock expansion."
+    )
+
+
 def _task_scope_enforced(task: sqlite3.Row) -> bool:
     return "scope_enforced" in task.keys() and bool(task["scope_enforced"])
 
@@ -368,15 +386,28 @@ def cmd_list(args: argparse.Namespace, db_path: str, config_path: str) -> int:
     with get_connection(db_path) as conn:
         _ensure_task_exists(conn, task_id)
         task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        checkpoint = _scope_checkpoint(conn, task_id)
         rows = conn.execute(
             "SELECT id, task_id, pattern, source, reason, locked_at, locked_by, created_at "
             "FROM task_scope WHERE task_id = ? ORDER BY id",
             (task_id,),
         ).fetchall()
         payload = [_row_to_dict(r) for r in rows]
-        if not payload and task is not None and _task_scope_enforced(task):
+        if (
+            not payload
+            and checkpoint is None
+            and task is not None
+            and _task_scope_enforced(task)
+        ):
             payload = _effective_auto_derived_rows(conn, task, config_path)
-    print(dumps(payload))
+    if getattr(args, "with_status", False):
+        print(dumps({
+            "task_id": task_id,
+            "checkpoint": _row_to_dict(checkpoint) if checkpoint is not None else None,
+            "rows": payload,
+        }))
+    else:
+        print(dumps(payload))
     return 0
 
 
@@ -435,10 +466,18 @@ def cmd_add(args: argparse.Namespace, db_path: str) -> int:
             (task_id, normalized_pattern),
         ).fetchone()
         if existing is not None:
+            checkpoint = _scope_checkpoint(conn, task_id)
+            if checkpoint is None or existing["locked_at"] is not None:
+                return {
+                    "returncode": 0,
+                    "payload": _row_to_dict(existing),
+                    "materialize": materialize,
+                }
+
+        if _scope_checkpoint(conn, task_id) is not None:
             return {
-                "returncode": 0,
-                "payload": _row_to_dict(existing),
-                "materialize": materialize,
+                "returncode": 2,
+                "error": _checkpoint_refusal(task_id, "add a scope pattern"),
             }
 
         conn.execute(
@@ -477,31 +516,153 @@ def cmd_add(args: argparse.Namespace, db_path: str) -> int:
     return result["returncode"]
 
 
+def cmd_expand(args: argparse.Namespace, db_path: str) -> int:
+    """Add one immediately-locked, audited row to checkpointed task scope."""
+    task_id = _parse_task_id(args.task_id)
+    pattern = (args.pattern or "").strip()
+    reason = (args.reason or "").strip()
+    if not pattern:
+        print("Error: <pattern> required", file=sys.stderr)
+        return 1
+    if not reason:
+        print("Error: --reason is required for audited scope expansion", file=sys.stderr)
+        return 2
+    err = _validate_pattern(pattern)
+    if err is not None:
+        print(err, file=sys.stderr)
+        return 2
+
+    source = args.source or "expanded_mid_task"
+    expanded_by = args.by or os.environ.get("USER") or "unknown"
+
+    def _expand(conn: sqlite3.Connection) -> dict:
+        conn.execute("BEGIN IMMEDIATE")
+        _ensure_task_exists(conn, task_id)
+        if _task_has_unbounded_scope(conn, task_id):
+            return {
+                "returncode": 0,
+                "payload": {
+                    "task_id": task_id,
+                    "pattern": pattern,
+                    "source": "unbounded",
+                    "unbounded": True,
+                    "note": "task scope is unbounded; no further authorization needed",
+                },
+            }
+
+        checkpoint = _scope_checkpoint(conn, task_id)
+        if checkpoint is None:
+            return {
+                "returncode": 2,
+                "error": (
+                    f"Error: task {task_id} scope is not locked; "
+                    "use `tusk scope add` before the checkpoint"
+                ),
+            }
+
+        worktree_root = _scope_validation_root(conn, task_id)
+        normalized_pattern, normalize_err = _normalize_pattern(
+            pattern, worktree_root, source
+        )
+        if normalize_err is not None:
+            return {"returncode": 2, "error": normalize_err}
+
+        materialize = None
+        if source != "creates":
+            materialize = (normalized_pattern, worktree_root)
+
+        existing = conn.execute(
+            "SELECT id, task_id, pattern, source, reason, locked_at, locked_by, created_at "
+            "FROM task_scope WHERE task_id = ? AND pattern = ? "
+            "AND locked_at IS NOT NULL ORDER BY id LIMIT 1",
+            (task_id, normalized_pattern),
+        ).fetchone()
+        if existing is not None:
+            return {
+                "returncode": 0,
+                "payload": _row_to_dict(existing),
+                "materialize": materialize,
+            }
+
+        expanded_at = conn.execute("SELECT datetime('now')").fetchone()[0]
+        conn.execute(
+            "INSERT INTO task_scope "
+            "(task_id, pattern, source, reason, locked_at, locked_by) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (task_id, normalized_pattern, source, reason, expanded_at, expanded_by),
+        )
+        new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        row = conn.execute(
+            "SELECT id, task_id, pattern, source, reason, locked_at, locked_by, created_at "
+            "FROM task_scope WHERE id = ?",
+            (new_id,),
+        ).fetchone()
+        conn.commit()
+        return {
+            "returncode": 0,
+            "payload": _row_to_dict(row),
+            "materialize": materialize,
+        }
+
+    try:
+        result = run_write(db_path, _expand, label="scope expand")
+    except sqlite3.OperationalError as exc:
+        if _is_locked_error(exc):
+            return 1
+        raise
+
+    if result.get("error") is not None:
+        print(result["error"], file=sys.stderr)
+    else:
+        materialize = result.get("materialize")
+        if materialize is not None:
+            _materialize_sparse_path(*materialize)
+        print(dumps(result["payload"]))
+    return result["returncode"]
+
+
 def cmd_lock(args: argparse.Namespace, db_path: str) -> int:
     task_id = _parse_task_id(args.task_id)
     locked_by = args.by or os.environ.get("USER") or "unknown"
-    with get_connection(db_path) as conn:
+    def _lock(conn: sqlite3.Connection) -> dict:
+        conn.execute("BEGIN IMMEDIATE")
         _ensure_task_exists(conn, task_id)
-        # Lock only rows that aren't already locked — re-running is a no-op
-        # for previously-locked entries.
+        checkpoint = _scope_checkpoint(conn, task_id)
+        if checkpoint is not None:
+            return {
+                "task_id": task_id,
+                "locked_at": checkpoint["locked_at"],
+                "locked_by": checkpoint["locked_by"],
+                "rows_locked": 0,
+            }
+
+        locked_at = conn.execute("SELECT datetime('now')").fetchone()[0]
+        conn.execute(
+            "INSERT INTO task_scope_checkpoints (task_id, locked_at, locked_by) "
+            "VALUES (?, ?, ?)",
+            (task_id, locked_at, locked_by),
+        )
         cur = conn.execute(
             "UPDATE task_scope "
-            "SET locked_at = datetime('now'), locked_by = ? "
+            "SET locked_at = ?, locked_by = ? "
             "WHERE task_id = ? AND locked_at IS NULL",
-            (locked_by, task_id),
+            (locked_at, locked_by, task_id),
         )
-        rows_locked = cur.rowcount
         conn.commit()
-        locked_at_row = conn.execute(
-            "SELECT MAX(locked_at) AS locked_at FROM task_scope WHERE task_id = ?",
-            (task_id,),
-        ).fetchone()
-    print(dumps({
-        "task_id": task_id,
-        "locked_at": locked_at_row["locked_at"],
-        "locked_by": locked_by,
-        "rows_locked": rows_locked,
-    }))
+        return {
+            "task_id": task_id,
+            "locked_at": locked_at,
+            "locked_by": locked_by,
+            "rows_locked": cur.rowcount,
+        }
+
+    try:
+        payload = run_write(db_path, _lock, label="scope lock")
+    except sqlite3.OperationalError as exc:
+        if _is_locked_error(exc):
+            return 1
+        raise
+    print(dumps(payload))
     return 0
 
 
@@ -512,26 +673,45 @@ def cmd_remove(args: argparse.Namespace, db_path: str) -> int:
         print(f"Error: invalid row_id: {args.row_id!r}", file=sys.stderr)
         return 1
 
-    with get_connection(db_path) as conn:
+    def _remove(conn: sqlite3.Connection) -> dict:
+        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             "SELECT id, task_id, pattern, source FROM task_scope WHERE id = ?",
             (row_id,),
         ).fetchone()
         if row is None:
-            print(f"Error: scope row {row_id} not found", file=sys.stderr)
-            return 1
+            return {"returncode": 1, "error": f"Error: scope row {row_id} not found"}
+
+        if _scope_checkpoint(conn, row["task_id"]) is not None:
+            return {
+                "returncode": 2,
+                "error": _checkpoint_refusal(row["task_id"], "remove a scope pattern"),
+            }
 
         conn.execute("DELETE FROM task_scope WHERE id = ?", (row_id,))
         conn.commit()
+        return {
+            "returncode": 0,
+            "payload": {
+                "removed": True,
+                "id": row["id"],
+                "task_id": row["task_id"],
+                "pattern": row["pattern"],
+                "source": row["source"],
+            },
+        }
 
-    print(dumps({
-        "removed": True,
-        "id": row["id"],
-        "task_id": row["task_id"],
-        "pattern": row["pattern"],
-        "source": row["source"],
-    }))
-    return 0
+    try:
+        result = run_write(db_path, _remove, label="scope remove")
+    except sqlite3.OperationalError as exc:
+        if _is_locked_error(exc):
+            return 1
+        raise
+    if result.get("error") is not None:
+        print(result["error"], file=sys.stderr)
+    else:
+        print(dumps(result["payload"]))
+    return result["returncode"]
 
 
 def _auto_derived_patterns(conn: sqlite3.Connection, task_id: int) -> set:
@@ -552,12 +732,23 @@ def _rederive_one(conn: sqlite3.Connection, task_id: int, config_path: str) -> d
     ``operator_declared`` / ``creates`` / ``unbounded`` rows untouched, and
     returns the JSON-serializable per-task summary. The caller owns the
     transaction (so the bulk path can commit per task)."""
-    before = _auto_derived_patterns(conn, task_id)
     preserved = conn.execute(
         "SELECT id, pattern, source FROM task_scope "
         "WHERE task_id = ? AND source <> 'auto_derived' ORDER BY id",
         (task_id,),
     ).fetchall()
+    if _scope_checkpoint(conn, task_id) is not None:
+        return {
+            "task_id": task_id,
+            "removed": [],
+            "added": [],
+            "auto_derived": sorted(_auto_derived_patterns(conn, task_id)),
+            "preserved": [_row_to_dict(r) for r in preserved],
+            "skipped": True,
+            "skip_reason": "scope is locked",
+        }
+
+    before = _auto_derived_patterns(conn, task_id)
     rederive_auto_scope(conn, task_id, config_path)
     after = _auto_derived_patterns(conn, task_id)
     return {
@@ -630,8 +821,12 @@ def cmd_rederive(args: argparse.Namespace, db_path: str, config_path: str) -> in
     task_id = _parse_task_id(args.task_id)
     with get_connection(db_path) as conn:
         _ensure_task_exists(conn, task_id)
-        result = _rederive_one(conn, task_id, config_path)
-        conn.commit()
+    result = _rederive_one(conn, task_id, config_path)
+    conn.commit()
+
+    if result.get("skipped"):
+        print(_checkpoint_refusal(task_id, "rederive scope"), file=sys.stderr)
+        return 2
 
     print(dumps(result))
     return 0
@@ -640,7 +835,7 @@ def cmd_rederive(args: argparse.Namespace, db_path: str, config_path: str) -> in
 def main(argv: list) -> int:
     if len(argv) < 3:
         print(
-            "Usage: tusk-scope.py <db_path> <config_path> <list|add|remove|lock|rederive> ...",
+            "Usage: tusk-scope.py <db_path> <config_path> <list|add|expand|remove|lock|rederive> ...",
             file=sys.stderr,
         )
         return 1
@@ -659,6 +854,11 @@ def main(argv: list) -> int:
 
     p_list = sub.add_parser("list", allow_abbrev=False, help="List scope entries for a task")
     p_list.add_argument("task_id")
+    p_list.add_argument(
+        "--with-status",
+        action="store_true",
+        help="Include the task-level immutable checkpoint with the row list",
+    )
 
     p_add = sub.add_parser(
         "add", allow_abbrev=False,
@@ -675,6 +875,20 @@ def main(argv: list) -> int:
         "--source",
         default=None,
         choices=VALID_SOURCES_ADD,
+    )
+
+    p_expand = sub.add_parser(
+        "expand", allow_abbrev=False,
+        help="Add an audited, immediately locked pattern after scope lock",
+    )
+    p_expand.add_argument("task_id")
+    p_expand.add_argument("pattern")
+    p_expand.add_argument("--reason", required=True)
+    p_expand.add_argument("--by", default=None, help="Expansion attribution (defaults to $USER)")
+    p_expand.add_argument(
+        "--source",
+        default=None,
+        choices=VALID_SOURCES_EXPAND,
     )
 
     p_lock = sub.add_parser(
@@ -726,6 +940,8 @@ def main(argv: list) -> int:
             return cmd_list(args, db_path, config_path)
         if args.cmd == "add":
             return cmd_add(args, db_path)
+        if args.cmd == "expand":
+            return cmd_expand(args, db_path)
         if args.cmd in ("remove", "rm"):
             return cmd_remove(args, db_path)
         if args.cmd == "lock":

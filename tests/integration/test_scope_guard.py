@@ -283,6 +283,42 @@ def test_enforced_empty_scope_rejects(codex_sandbox):
     assert "tusk scope add" in result.stderr
 
 
+def test_locked_empty_scope_directs_to_audited_expansion(codex_sandbox):
+    task_id = _seed_task(
+        codex_sandbox,
+        "Vague locked task with no paths",
+        "No concrete repository paths were declared.",
+    )
+    env = _sandbox_env(codex_sandbox)
+
+    locked = _run(
+        ["tusk", "scope", "lock", str(task_id), "--by", "tester"],
+        codex_sandbox,
+        env=env,
+    )
+    assert locked.returncode == 0, locked.stderr
+
+    result = _run(
+        ["tusk", "scope-paths", str(task_id)],
+        codex_sandbox,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 3
+    assert "scope is locked" in result.stderr
+    assert "tusk scope expand" in result.stderr
+    assert "immediately locked" in result.stderr
+
+    _git(["checkout", "-b", f"feature/TASK-{task_id}-locked"], codex_sandbox)
+    (codex_sandbox / "anything.txt").write_text("anything\n")
+    _git(["add", "anything.txt"], codex_sandbox)
+    hook_result = _invoke_pre_commit(codex_sandbox, env=env)
+    assert hook_result.returncode == 2
+    assert f"tusk scope expand {task_id}" in hook_result.stderr
+    assert f"tusk scope add {task_id}" not in hook_result.stderr
+
+
 # ── TASK-471: scope-paths prefers task_scope over task_referenced_paths ────
 
 

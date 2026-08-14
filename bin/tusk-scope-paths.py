@@ -135,6 +135,11 @@ def main(argv: list) -> int:
             "SELECT pattern, source FROM task_scope WHERE task_id = ? ORDER BY id",
             (task_id,),
         ).fetchall()
+        checkpoint = conn.execute(
+            "SELECT locked_at, locked_by FROM task_scope_checkpoints "
+            "WHERE task_id = ?",
+            (task_id,),
+        ).fetchone()
         if scope_rows:
             if any(r["source"] == "unbounded" for r in scope_rows):
                 return 0
@@ -147,12 +152,20 @@ def main(argv: list) -> int:
                     seen.append(pattern)
             paths = seen
         elif row["scope_enforced"]:
-            print(
-                f"Error: task {task_id} has scope_enforced=1 but no task_scope rows. "
-                "Declare scope with `tusk scope add <task_id> <path> --reason ...` "
-                "or mark it explicitly unbounded at task creation.",
-                file=sys.stderr,
-            )
+            if checkpoint is not None:
+                print(
+                    f"Error: task {task_id} scope is locked but has no task_scope rows. "
+                    "Use `tusk scope expand <task_id> <path> --reason ...` "
+                    "to add an audited, immediately locked path.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"Error: task {task_id} has scope_enforced=1 but no task_scope rows. "
+                    "Declare scope with `tusk scope add <task_id> <path> --reason ...` "
+                    "or mark it explicitly unbounded at task creation.",
+                    file=sys.stderr,
+                )
             return 3
         else:
             paths = list(task_referenced_paths(task_id, conn))

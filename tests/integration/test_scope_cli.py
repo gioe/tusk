@@ -523,9 +523,154 @@ class TestScopeLock:
 
         second = _run(["scope", "lock", str(task_id), "--by", "second"])
         assert json.loads(second.stdout)["rows_locked"] == 0
+        assert json.loads(second.stdout)["locked_by"] == "first"
 
         row = _scope_rows(str(db_path), task_id)[0]
         assert row["locked_by"] == "first", "already-locked rows must keep their original locked_by"
+
+
+class TestImmutableScopeCheckpoint:
+
+    def test_zero_row_lock_is_visible_and_rejects_new_addition(self, db_path):
+        task_id = _seed_task(str(db_path))
+
+        locked = _run(["scope", "lock", str(task_id), "--by", "checkpoint-owner"])
+        assert locked.returncode == 0, locked.stderr
+        assert json.loads(locked.stdout)["rows_locked"] == 0
+
+        status = _run(["scope", "list", str(task_id), "--with-status"])
+        assert status.returncode == 0, status.stderr
+        payload = json.loads(status.stdout)
+        assert payload["checkpoint"]["locked_by"] == "checkpoint-owner"
+        assert payload["rows"] == []
+
+        refused = _run(["scope", "add", str(task_id), "bin/tusk-scope.py"])
+        assert refused.returncode == 2
+        assert "scope is locked" in refused.stderr
+        assert "scope expand" in refused.stderr
+        assert _scope_rows(str(db_path), task_id) == []
+
+    def test_add_after_lock_refuses_without_mutating_rows(self, db_path):
+        task_id = _seed_task(str(db_path))
+        first = _run(["scope", "add", str(task_id), "bin/tusk-scope.py"])
+        assert first.returncode == 0, first.stderr
+        _run(["scope", "lock", str(task_id), "--by", "locker"])
+        before = _scope_rows(str(db_path), task_id)
+
+        refused = _run([
+            "scope", "add", str(task_id), "bin/tusk-scope-paths.py",
+            "--reason", "should require audit",
+        ])
+
+        assert refused.returncode == 2
+        assert "scope expand" in refused.stderr
+        assert _scope_rows(str(db_path), task_id) == before
+
+    def test_existing_locked_pattern_remains_an_idempotent_add(self, db_path):
+        task_id = _seed_task(str(db_path))
+        _run(["scope", "add", str(task_id), "bin/tusk-scope.py"])
+        _run(["scope", "lock", str(task_id), "--by", "locker"])
+
+        duplicate = _run(["scope", "add", str(task_id), "bin/./tusk-scope.py"])
+
+        assert duplicate.returncode == 0, duplicate.stderr
+        assert json.loads(duplicate.stdout)["locked_by"] == "locker"
+        assert len(_scope_rows(str(db_path), task_id)) == 1
+
+    def test_expand_requires_checkpoint_and_records_locked_audit_row(self, db_path):
+        task_id = _seed_task(str(db_path))
+        no_checkpoint = _run([
+            "scope", "expand", str(task_id), "bin/tusk-scope.py",
+            "--reason", "not locked yet",
+        ])
+        assert no_checkpoint.returncode == 2
+        assert "not locked" in no_checkpoint.stderr
+
+        _run(["scope", "add", str(task_id), "bin/tusk-scope.py"])
+        locked = _run(["scope", "lock", str(task_id), "--by", "locker"])
+        checkpoint = json.loads(locked.stdout)
+
+        expanded = _run([
+            "scope", "expand", str(task_id), "bin/tusk-scope-paths.py",
+            "--reason", "exploration found the guard helper",
+            "--by", "expander",
+        ])
+
+        assert expanded.returncode == 0, expanded.stderr
+        row = json.loads(expanded.stdout)
+        assert row["source"] == "expanded_mid_task"
+        assert row["reason"] == "exploration found the guard helper"
+        assert row["locked_at"] is not None
+        assert row["locked_by"] == "expander"
+
+        status = json.loads(
+            _run(["scope", "list", str(task_id), "--with-status"]).stdout
+        )
+        assert status["checkpoint"]["locked_at"] == checkpoint["locked_at"]
+        assert status["checkpoint"]["locked_by"] == "locker"
+
+    def test_expand_creates_allows_future_path_and_requires_reason(self, db_path):
+        task_id = _seed_task(str(db_path))
+        _run(["scope", "lock", str(task_id), "--by", "locker"])
+
+        missing_reason = _run([
+            "scope", "expand", str(task_id), "future/new-helper.py",
+            "--source", "creates",
+        ])
+        assert missing_reason.returncode == 2
+
+        expanded = _run([
+            "scope", "expand", str(task_id), "future/new-helper.py",
+            "--source", "creates", "--reason", "new generated helper",
+            "--by", "expander",
+        ])
+        assert expanded.returncode == 0, expanded.stderr
+        payload = json.loads(expanded.stdout)
+        assert payload["source"] == "creates"
+        assert payload["locked_at"] is not None
+        assert payload["locked_by"] == "expander"
+
+    def test_remove_and_rederive_refuse_after_checkpoint(self, db_path):
+        task_id = _seed_task(str(db_path), description="bin/tusk-scope.py")
+        added = _run(["scope", "add", str(task_id), "bin/tusk-scope.py"])
+        row_id = json.loads(added.stdout)["id"]
+        _run(["scope", "lock", str(task_id), "--by", "locker"])
+        before = _scope_rows(str(db_path), task_id)
+
+        removed = _run(["scope", "remove", str(row_id)])
+        rederived = _run(["scope", "rederive", str(task_id)])
+
+        assert removed.returncode == 2
+        assert rederived.returncode == 2
+        assert "scope is locked" in removed.stderr
+        assert "scope is locked" in rederived.stderr
+        assert _scope_rows(str(db_path), task_id) == before
+
+    def test_concurrent_lock_and_add_never_leave_an_unlocked_row(self, db_path):
+        task_id = _seed_task(str(db_path))
+        lock_proc = subprocess.Popen(
+            [TUSK_BIN, "scope", "lock", str(task_id), "--by", "locker"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+        )
+        add_proc = subprocess.Popen(
+            [TUSK_BIN, "scope", "add", str(task_id), "bin/tusk-scope.py"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+        )
+
+        lock_out, lock_err = lock_proc.communicate(timeout=30)
+        add_out, add_err = add_proc.communicate(timeout=30)
+
+        assert lock_proc.returncode == 0, (lock_out, lock_err)
+        assert add_proc.returncode in {0, 2}, (add_out, add_err)
+        rows = _scope_rows(str(db_path), task_id)
+        assert all(row["locked_at"] is not None for row in rows)
+        assert all(row["locked_by"] == "locker" for row in rows)
 
 
 # ── task-insert flags (criterion 2198) ──────────────────────────────────────
