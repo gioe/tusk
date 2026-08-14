@@ -157,6 +157,26 @@ def test_no_verdict_still_refuses_with_exit_2(tmp_path):
     assert _commit_count(repo) == 1, "no commit should land"
     assert "[test-precheck-bypass]" not in _last_message(repo)
 
+    git_dir = os.path.join(repo, ".git")
+    lock_path = os.path.join(git_dir, "tusk-commit.lock")
+    failed_gate_path = os.path.join(git_dir, "tusk-failed-test-gate.json")
+    assert not os.path.exists(lock_path), "terminal failure must remove its lock path"
+    assert os.path.exists(failed_gate_path), "failed-gate retry state must survive"
+    with open(failed_gate_path, encoding="utf-8") as f:
+        failed_gate = json.load(f)
+    assert failed_gate["task_id"] == 999
+    assert failed_gate["test_command"] == FAILING_CMD
+    assert failed_gate["exit_code"] == 1
+
+    retry = _run_commit(repo, config_path, "code.py")
+    assert retry.returncode == 2, (
+        "an immediate retry must reach the normal failed-gate path, not the "
+        f"active-invocation exit; stdout={retry.stdout}\nstderr={retry.stderr}"
+    )
+    assert "another tusk commit invocation is active" not in retry.stderr
+    assert not os.path.exists(lock_path)
+    assert os.path.exists(failed_gate_path)
+
 
 def test_pre_existing_false_verdict_refuses_with_exit_2(tmp_path):
     repo = str(tmp_path / "repo")

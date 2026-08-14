@@ -183,62 +183,100 @@ def _git_index_lock_path(repo_root: str) -> str:
 
 def _acquire_commit_operation_lock(
     repo_root: str,
-) -> tuple[int | None, int, str]:
+) -> tuple[int | None, str, int, str]:
     """Serialize the full commit and criterion operation per worktree.
 
     Git's index lock protects individual index mutations, but a tusk commit
-    spans tests, staging, commit creation, and criterion bookkeeping. A
-    persistent advisory lock file needs no stale-lock cleanup because the
-    kernel releases the lock when its owning process exits.
+    spans tests, staging, commit creation, and criterion bookkeeping. The lock
+    pathname is removed at release, so acquisition validates that the opened
+    descriptor still names the current path before proceeding. That prevents
+    an opener delayed across unlink/recreate from locking a detached inode.
     """
     index_lock_path = _git_index_lock_path(repo_root)
     if not index_lock_path:
-        return None, 0, ""
+        return None, "", 0, ""
     lock_path = os.path.join(os.path.dirname(index_lock_path), "tusk-commit.lock")
-    try:
-        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o666)
-    except OSError as exc:
-        return (
-            None,
-            3,
-            "Error: tusk commit operation lock is not writable — aborting "
-            "before test_command.\n"
-            f"  Lock path: {lock_path}\n"
-            f"  {exc.strerror or exc}",
-        )
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        os.close(fd)
-        return (
-            None,
-            9,
-            "Error: another tusk commit invocation is active for this "
-            "worktree — this process did not run git commit.\n"
-            f"  Lock path: {lock_path}\n"
-            "  Hint: wait for the active invocation to finish, then inspect "
-            "its TUSK_COMMIT_RESULT before retrying.",
-        )
-    except OSError as exc:
-        os.close(fd)
-        return (
-            None,
-            3,
-            "Error: tusk commit operation lock could not be acquired — "
-            "aborting before test_command.\n"
-            f"  Lock path: {lock_path}\n"
-            f"  {exc.strerror or exc}",
-        )
-    return fd, 0, ""
+    for _attempt in range(8):
+        try:
+            fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o666)
+        except OSError as exc:
+            return (
+                None,
+                lock_path,
+                3,
+                "Error: tusk commit operation lock is not writable — aborting "
+                "before test_command.\n"
+                f"  Lock path: {lock_path}\n"
+                f"  {exc.strerror or exc}",
+            )
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            current_path = _commit_lock_path_matches_fd(fd, lock_path)
+            os.close(fd)
+            if not current_path:
+                continue
+            return (
+                None,
+                lock_path,
+                9,
+                "Error: another tusk commit invocation is active for this "
+                "worktree — this process did not run git commit.\n"
+                f"  Lock path: {lock_path}\n"
+                "  Hint: wait for the active invocation to finish, then inspect "
+                "its TUSK_COMMIT_RESULT before retrying.",
+            )
+        except OSError as exc:
+            os.close(fd)
+            return (
+                None,
+                lock_path,
+                3,
+                "Error: tusk commit operation lock could not be acquired — "
+                "aborting before test_command.\n"
+                f"  Lock path: {lock_path}\n"
+                f"  {exc.strerror or exc}",
+            )
+        if _commit_lock_path_matches_fd(fd, lock_path):
+            return fd, lock_path, 0, ""
+        _release_commit_operation_lock(fd, lock_path)
+
+    return (
+        None,
+        lock_path,
+        3,
+        "Error: tusk commit operation lock changed repeatedly during "
+        "acquisition — aborting before test_command.\n"
+        f"  Lock path: {lock_path}\n"
+        "  Hint: retry after competing tusk commit invocations finish.",
+    )
 
 
-def _release_commit_operation_lock(fd: int | None) -> None:
+def _commit_lock_path_matches_fd(fd: int, lock_path: str) -> bool:
+    try:
+        opened = os.fstat(fd)
+        current = os.stat(lock_path)
+    except OSError:
+        return False
+    return (opened.st_dev, opened.st_ino) == (current.st_dev, current.st_ino)
+
+
+def _release_commit_operation_lock(fd: int | None, lock_path: str) -> None:
     if fd is None:
         return
     try:
-        fcntl.flock(fd, fcntl.LOCK_UN)
+        if lock_path and _commit_lock_path_matches_fd(fd, lock_path):
+            try:
+                os.unlink(lock_path)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
     finally:
-        os.close(fd)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
 
 def _preflight_git_index_writable(repo_root: str) -> tuple[bool, str]:
@@ -1585,7 +1623,9 @@ def main(argv: list[str]) -> int:
         try:
             _emit_final_summary(exit_code, state)
         finally:
-            _release_commit_operation_lock(state.get("commit_lock_fd"))
+            _release_commit_operation_lock(
+                state.get("commit_lock_fd"), state.get("commit_lock_path", "")
+            )
 
 
 def _run_commit(argv: list[str], state: dict) -> int:
@@ -1888,13 +1928,14 @@ def _run_commit(argv: list[str], state: dict) -> int:
         print("Note: --skip-lint is ignored by tusk commit; lint runs at merge time.")
 
     # ── Step 1a: Serialize the full operation, then preflight the git index ─
-    commit_lock_fd, lock_exit_code, lock_diagnostic = (
+    commit_lock_fd, commit_lock_path, lock_exit_code, lock_diagnostic = (
         _acquire_commit_operation_lock(repo_root)
     )
     if lock_diagnostic:
         _print_error(lock_diagnostic)
         return lock_exit_code
     state["commit_lock_fd"] = commit_lock_fd
+    state["commit_lock_path"] = commit_lock_path
 
     index_ok, index_diagnostic = _preflight_git_index_writable(repo_root)
     if not index_ok:
