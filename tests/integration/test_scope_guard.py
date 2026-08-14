@@ -61,11 +61,14 @@ def _sandbox_env(sandbox):
     return env
 
 
-def _seed_task(sandbox, summary, description):
+def _seed_task(sandbox, summary, description, *, creates=()):
     """Insert a task and return its integer ID."""
     env = _sandbox_env(sandbox)
+    args = ["tusk", "task-insert", summary, description, "--criteria", "seed"]
+    for pattern in creates:
+        args.extend(["--creates", pattern])
     result = _run(
-        ["tusk", "task-insert", summary, description, "--criteria", "seed"],
+        args,
         sandbox,
         env=env,
     )
@@ -117,11 +120,12 @@ def _invoke_pre_commit(sandbox, env=None):
 
 def test_rejects_out_of_scope(codex_sandbox):
     """A staged path outside (scope ∪ always_allowed) trips the guard."""
-    # Task whose description references in/scope.txt -> scope = {"in/scope.txt"}
+    # The intended file does not exist yet, so declare it as created scope.
     task_id = _seed_task(
         codex_sandbox,
         "Touch in/scope.txt only",
         "This task only modifies the file at in/scope.txt and nothing else.",
+        creates=("in/scope.txt",),
     )
     _git(["checkout", "-b", f"feature/TASK-{task_id}-x"], codex_sandbox)
 
@@ -145,6 +149,7 @@ def test_allows_in_scope(codex_sandbox):
         codex_sandbox,
         "Touch in/scope.txt only",
         "This task only modifies the file at in/scope.txt and nothing else.",
+        creates=("in/scope.txt",),
     )
     _git(["checkout", "-b", f"feature/TASK-{task_id}-x"], codex_sandbox)
 
@@ -490,6 +495,7 @@ def test_scope_paths_auto_unions_rule42_companions_for_new_tusk_script(codex_san
             "Add bin/tusk-fresh-script.py",
             "Create bin/tusk-fresh-script.py to do the thing.",
             "--criteria", "seed",
+            "--creates", "bin/tusk-fresh-script.py",
         ],
         codex_sandbox,
         env=env,
