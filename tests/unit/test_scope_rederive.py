@@ -298,6 +298,11 @@ def test_cmd_rederive_emits_removed_added_preserved(monkeypatch, capsys):
     # cmd_rederive opens its own connection via get_connection; hand it the
     # shared in-memory conn (a sqlite3.Connection is a no-close context manager).
     monkeypatch.setattr(scope_mod, "get_connection", lambda db_path: conn)
+    monkeypatch.setattr(
+        scope_mod,
+        "run_write",
+        lambda db_path, operation, **kwargs: operation(conn),
+    )
 
     class _Args:
         task_id = "1"
@@ -319,6 +324,11 @@ def test_cmd_rederive_emits_removed_added_preserved(monkeypatch, capsys):
 def test_cmd_rederive_unknown_task_exits_1(monkeypatch, capsys):
     conn = _make_conn()
     monkeypatch.setattr(scope_mod, "get_connection", lambda db_path: conn)
+    monkeypatch.setattr(
+        scope_mod,
+        "run_write",
+        lambda db_path, operation, **kwargs: operation(conn),
+    )
 
     class _Args:
         task_id = "999"
@@ -487,6 +497,11 @@ def test_cmd_rederive_refuses_checkpointed_task(monkeypatch, capsys):
     _seed_task(conn)
     _lock_scope(conn, 1)
     monkeypatch.setattr(scope_mod, "get_connection", lambda db_path: conn)
+    monkeypatch.setattr(
+        scope_mod,
+        "run_write",
+        lambda db_path, operation, **kwargs: operation(conn),
+    )
 
     class _Args:
         task_id = "1"

@@ -305,8 +305,9 @@ def _scope_checkpoint(conn: sqlite3.Connection, task_id: int) -> "sqlite3.Row | 
 def _checkpoint_refusal(task_id: int, operation: str) -> str:
     return (
         f"Error: task {task_id} scope is locked; cannot {operation}. "
-        "Use `tusk scope expand <task_id> <pattern> --reason <why>` "
-        "for an audited post-lock expansion."
+        "The checkpoint is immutable. To add a newly required path, use "
+        "`tusk scope expand <task_id> <pattern> --reason <why>` for an "
+        "audited post-lock expansion."
     )
 
 
@@ -778,6 +779,7 @@ def _cmd_rederive_all(args: argparse.Namespace, db_path: str, config_path: str) 
             ).fetchall()
         results = []
         for row in rows:
+            conn.execute("BEGIN IMMEDIATE")
             results.append(_rederive_one(conn, row["id"], config_path))
             conn.commit()
 
@@ -819,10 +821,20 @@ def cmd_rederive(args: argparse.Namespace, db_path: str, config_path: str) -> in
         return _cmd_rederive_all(args, db_path, config_path)
 
     task_id = _parse_task_id(args.task_id)
-    with get_connection(db_path) as conn:
+    def _rederive(conn: sqlite3.Connection) -> dict:
+        conn.execute("BEGIN IMMEDIATE")
         _ensure_task_exists(conn, task_id)
-    result = _rederive_one(conn, task_id, config_path)
-    conn.commit()
+        result = _rederive_one(conn, task_id, config_path)
+        if not result.get("skipped"):
+            conn.commit()
+        return result
+
+    try:
+        result = run_write(db_path, _rederive, label="scope rederive")
+    except sqlite3.OperationalError as exc:
+        if _is_locked_error(exc):
+            return 1
+        raise
 
     if result.get("skipped"):
         print(_checkpoint_refusal(task_id, "rederive scope"), file=sys.stderr)
@@ -893,7 +905,7 @@ def main(argv: list) -> int:
 
     p_lock = sub.add_parser(
         "lock", allow_abbrev=False,
-        help="Stamp locked_at on every scope entry for a task",
+        help="Create an immutable task checkpoint and lock every current row",
     )
     p_lock.add_argument("task_id")
     p_lock.add_argument("--by", default=None, help="Lock attribution (defaults to $USER)")
@@ -911,7 +923,8 @@ def main(argv: list) -> int:
             "Recompute auto_derived scope rows from the task's current "
             "summary/description/criteria (preserves operator_declared/"
             "creates/unbounded rows). Pass --all to rebuild every open task "
-            "fleet-wide instead of a single task_id."
+            "fleet-wide instead of a single task_id. Checkpointed tasks are "
+            "immutable and are refused (single) or reported as skipped (bulk)."
         ),
     )
     p_rederive.add_argument("task_id", nargs="?", default=None)
