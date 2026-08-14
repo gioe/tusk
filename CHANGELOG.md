@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1262] - 2026-08-14
+
+- [TASK-875] Remove tusk commit lock after a failed test gate
+
 ## [1261] - 2026-08-09
 
 - [TASK-874] Fix: Validate worktree-local config from task worktrees
