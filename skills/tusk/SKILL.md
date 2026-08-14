@@ -225,6 +225,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
    - **Reserve `operator_declared` for scope supplied during task creation or added before the task's first durable checkpoint.** `task-start` alone does not cross this provenance boundary; the boundary is the first progress checkpoint or committed criterion.
    - **If the task has no progress checkpoint and no committed criterion**, run `tusk scope add <id> <path> --reason "<why>"` before staging. The implicit source is `operator_declared` even though Step 1 has already started the task.
    - **Once a progress checkpoint or committed criterion exists**, the same implicit `tusk scope add` records `expanded_mid_task`. Keep the rationale specific so retro can distinguish healthy exploration from a decomposition miss.
+   - **Once `tusk scope lock` has created the immutable scope checkpoint**, ordinary add/remove/rederive operations are refused. Use `tusk scope expand <id> <path> --reason "<why>"` for a discovered existing path, or add `--source creates` for a path this task will create. The expansion row is immediately locked and preserves its actor, time, and reason without erasing the original checkpoint. Use `tusk scope list <id> --with-status` when you need to distinguish a loose empty scope from a locked zero-row scope.
    - **If `tusk scope list` is empty on a `scope_enforced=1` task**, declare the files you plan to edit before staging. Empty scope is not a vacuous pass for current tasks; it is a metadata gap that the guard rejects before commit.
    - **If the task is a legitimately repo-wide refactor** (e.g. a rename across every skill or every Python file), it should have been created with `tusk task-insert --unbounded`. If it wasn't, `tusk scope add <id> "**" --reason "..."` is a partial workaround and uses the same checkpoint-based provenance as any other addition, but the long-term fix is to recreate the task with `--unbounded` so the guard silently passes any staged file. On tasks that already have unbounded `**` scope, redundant `tusk scope add` calls no-op with a note instead of adding dead rows.
 
@@ -450,6 +451,9 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     tusk changelog-add <id>
     tusk commit <id> "Prepare source release metadata before review" VERSION CHANGELOG.md
     ```
+
+    If `tusk scope list <id> --with-status` reports a checkpoint, replace each
+    `scope add` above with `scope expand` and keep the same required reason.
 
     First check whether VERSION already differs from `origin/<default>`. If it
     does, do **not** bump VERSION again; verify that CHANGELOG.md already has

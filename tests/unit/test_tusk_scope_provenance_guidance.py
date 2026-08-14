@@ -43,3 +43,14 @@ def test_post_checkpoint_scope_and_unbounded_recovery_use_automatic_provenance()
         assert "records `expanded_mid_task`" in block
         assert 'tusk scope add <id> "**" --reason "..."' in block
         assert "same checkpoint-based provenance as any other addition" in block
+
+
+def test_locked_scope_uses_audited_expansion_in_both_workflows():
+    for path in WORKFLOW_PATHS:
+        block = _scope_block(path)
+
+        assert "Once `tusk scope lock` has created the immutable scope checkpoint" in block
+        assert 'tusk scope expand <id> <path> --reason "<why>"' in block
+        assert "--source creates" in block
+        assert "without erasing the original checkpoint" in block
+        assert "tusk scope list <id> --with-status" in block

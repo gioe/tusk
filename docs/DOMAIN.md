@@ -255,7 +255,7 @@ A recorded git worktree owned by a normal task. Bakeoff attempts use shadow task
 
 Authoritative declaration of which paths a task is allowed to touch. The commit-time scope guard (`hooks/git/scope-guard.sh` → `tusk scope-paths <id>`) reads `task_scope` when any rows exist for the current task. It falls back to the legacy `task_referenced_paths` hint cache only for legacy rows with `tasks.scope_enforced = 0`. For enforced tasks (`scope_enforced = 1`), an empty `task_scope` table is a declaration gap: the guard rejects the commit before path matching and tells the operator to add scope rows or create the task as explicitly unbounded.
 
-`tusk scope list <id>` normally reports persisted `task_scope` rows. For enforced tasks that have no persisted rows but whose current task text still contains derivable, trackable paths, it may report read-only effective `auto_derived` fallback rows with `id: null`; this helps retro/reporting distinguish stale missing rows from genuinely absent scope without mutating closed tasks. Commit enforcement still uses `tusk scope-paths`, not this fallback display.
+`tusk scope list <id>` normally reports persisted `task_scope` rows. For enforced tasks that have no persisted rows but whose current task text still contains derivable, trackable paths, it may report read-only effective `auto_derived` fallback rows with `id: null`; this helps retro/reporting distinguish stale missing rows from genuinely absent scope without mutating closed tasks. A checkpointed zero-row task suppresses that fallback because the derived paths were not part of its immutable snapshot. Pass `--with-status` to receive `{task_id, checkpoint, rows}` and inspect the checkpoint even when `rows` is empty. Commit enforcement still uses `tusk scope-paths`, not this fallback display.
 
 | Attribute | Type | Constraints | Description |
 |-----------|------|-------------|-------------|
@@ -264,8 +264,8 @@ Authoritative declaration of which paths a task is allowed to touch. The commit-
 | `pattern` | TEXT | NOT NULL | Repo-root-relative path (literal match today; glob expansion is a future extension) |
 | `source` | TEXT | CHECK IN (auto_derived, operator_declared, expanded_mid_task, creates, unbounded) | How this row was added |
 | `reason` | TEXT | nullable | Free-text rationale; required-by-convention on `expanded_mid_task` rows so retros can see *why* a scope grew mid-task |
-| `locked_at` | TEXT | nullable | When `tusk scope lock` was called; future scope guard hardening may refuse mid-task additions after this is set |
-| `locked_by` | TEXT | nullable | Lock attribution (defaults to `$USER` when not passed via `--by`) |
+| `locked_at` | TEXT | nullable | Initial-lock time for declared rows, or the audited expansion time for rows added by `tusk scope expand` |
+| `locked_by` | TEXT | nullable | Initial lock or audited expansion actor (defaults to `$USER` when `--by` is omitted) |
 | `created_at` | TEXT | NOT NULL, default now | Row creation timestamp |
 
 **Indexes:** `idx_task_scope_task_id`.
@@ -276,6 +276,18 @@ Authoritative declaration of which paths a task is allowed to touch. The commit-
 - `creates` — set via `tusk task-insert --creates <path>` (repeatable). Distinguished from `operator_declared` so the guard could in future verify the paths don't yet exist on the default branch.
 - `expanded_mid_task` — added by implicit `tusk scope add <task_id> <pattern> [--reason ...]` after the first progress checkpoint or committed criterion. The reason is the audit trail for "why did scope grow mid-flight" retro questions. Passing `--source expanded_mid_task` remains an explicit override.
 - `unbounded` — set via `tusk task-insert --unbounded`. The pattern is a sentinel (`**`); `scope-paths` short-circuits and emits nothing when any row has this source, so the commit-time guard silently passes. Used for refactors that legitimately span the repo. When a task already has this sentinel, redundant `tusk scope add` calls exit 0 with a note and do not insert rows.
+
+#### Task Scope Checkpoint
+
+`task_scope_checkpoints` stores the immutable, task-level checkpoint separately from individual scope rows. One row exists per locked task, including tasks that had zero declared paths when locked.
+
+| Attribute | Type | Constraints | Description |
+|-----------|------|-------------|-------------|
+| `task_id` | INTEGER | PK, FK → tasks(id) ON DELETE CASCADE | Checkpointed task |
+| `locked_at` | TEXT | NOT NULL | Original checkpoint timestamp |
+| `locked_by` | TEXT | NOT NULL | Original checkpoint actor |
+
+Migration 88 backfills the earliest historical locked `task_scope` row per task. It cannot reconstruct pre-migration zero-row locks, so it does not invent them. Re-running `tusk scope lock` preserves the original checkpoint actor and timestamp.
 
 **Task-insert auto-extraction.** Fresh `tusk task-insert` calls populate `auto_derived` rows from the task summary, description, plain criteria text, and typed criterion text unless the task is explicitly unbounded. Typed `verification_spec` values are validation metadata: they remain available to criteria execution, duplicate detection, deliverable/convergence hints, and sparse-worktree materialization, but never broaden authoritative or proposed task scope. Operator-declared `--scope` and `--creates` rows win first; auto-extraction adds only patterns not already declared. `tusk task-update`, `tusk scope list`'s effective fallback, and `tusk scope rederive` apply the same boundary; rederive can remove historical spec-derived `auto_derived` rows while preserving non-auto scope.
 
@@ -294,10 +306,11 @@ Auto-derived candidates are normalized before insertion: pytest node ids are red
 **Lifecycle.** Tasks start `loose` (no `locked_at`). The intended hardening path is:
 1. `tusk task-insert --scope/--creates` declares initial scope.
 2. Before the first progress checkpoint or committed criterion, implicit `tusk scope add ... --reason "..."` records additional declarations as `operator_declared`, including additions made after `task-start`.
-3. After either durable checkpoint exists, implicit `tusk scope add ... --reason "..."` records each addition as an `expanded_mid_task` row.
-4. `tusk scope lock` stamps `locked_at` on every entry once the operator is confident the scope is complete.
+3. After either work-evidence checkpoint exists, implicit `tusk scope add ... --reason "..."` records each loose-scope addition as an `expanded_mid_task` row.
+4. `tusk scope lock` creates the immutable task-level checkpoint and stamps every current unlocked row with the same actor and timestamp. The command is idempotent and also locks a task with zero rows.
+5. After the scope checkpoint, ordinary additions, removals, and re-derivation are refused. `tusk scope expand <task_id> <pattern> --reason "..." [--by NAME]` is the explicit expansion ceremony: it requires an existing checkpoint and inserts an `expanded_mid_task` row already locked with its own actor, timestamp, and reason. Use `--source creates` for a future path.
 
-The lock column is informational today — the guard does not yet refuse `tusk scope add` against locked tasks — but the audit data is captured for retro analysis.
+The checkpoint check and each mutation use one immediate write transaction, so concurrent lock/add operations cannot create a post-checkpoint unlocked row.
 
 ---
 

@@ -499,6 +499,14 @@ JSON blob and the `skill_run.run_id` you already captured.
      implicit `tusk scope add` records `expanded_mid_task`. Keep the
      rationale specific so retro can distinguish healthy exploration from
      a decomposition miss.
+   - **Once `tusk scope lock` has created the immutable scope checkpoint**,
+     ordinary add/remove/rederive operations are refused. Use
+     `tusk scope expand <id> <path> --reason "<why>"` for a discovered
+     existing path, or add `--source creates` for a path this task will
+     create. The expansion row is immediately locked and preserves its
+     actor, time, and reason without erasing the original checkpoint. Use
+     `tusk scope list <id> --with-status` to distinguish a loose empty scope
+     from a locked zero-row scope.
    - **If `tusk scope list` is empty on a `scope_enforced=1` task**,
      declare the files you plan to edit before staging. Empty scope is not
      a vacuous pass for current tasks; the commit guard rejects it.
@@ -854,6 +862,10 @@ JSON blob and the `skill_run.run_id` you already captured.
     tusk changelog-add <id>
     tusk commit <id> "Prepare source release metadata before review" VERSION CHANGELOG.md
     ```
+
+    If `tusk scope list <id> --with-status` reports a checkpoint, replace
+    each `scope add` above with `scope expand` and keep the same required
+    reason.
 
     First check whether VERSION already differs from
     `origin/<default>`. If it does, do **not** bump VERSION again; verify

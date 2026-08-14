@@ -77,17 +77,17 @@ The output is an array of `{id, skill_run_id, task_id, category, note, file_hint
 **Read scope-quality signals next.** Fetch the task's declared scope (TASK-471):
 
 ```bash
-tusk scope list $RETRO_TASK_ID
+tusk scope list $RETRO_TASK_ID --with-status
 ```
 
-The output is an array of `{id, task_id, pattern, source, reason, locked_at, locked_by, created_at}` rows. Inspect for the following signals — they are independent of jots and may surface findings the operator never wrote down:
+The output is `{task_id, checkpoint, rows}`, where `checkpoint` is null or `{task_id, locked_at, locked_by}` and `rows` is the declared-scope array. Inspect `rows` for the following signals — they are independent of jots and may surface findings the operator never wrote down:
 
 - **`expanded_mid_task` rows** — each one is the operator answering "I had to grow scope and here's why". Quote the `pattern` and `reason` verbatim. If multiple expansions cite the same root cause (e.g. "missed during decomposition"), that's a Category A finding when tusk's task-creation or scope workflow failed to capture the real work. If expansions cite genuine exploration discoveries, no finding — scope growth from new information is healthy.
 - **`auto_derived`-only tasks that ended up needing `TUSK_SCOPE_GUARD_BYPASS=1`** — the legacy hint cache wasn't precise enough. Category A: tusk's scope workflow needs a better safeguard or handoff.
 - **`unbounded` rows on tasks that turned out to touch < 5 files** — the operator opted out of the guard for a task that didn't actually need it. Category A if tusk made declaring scope too hard or unclear.
-- **Locked-but-still-grew tasks** — a `locked_at` timestamp followed by a later `expanded_mid_task` row means the lock was an aspirational ceremony, not a hard checkpoint. Category A: consider whether `tusk scope add` should refuse after lock, or whether lock should require an explicit `--unlock` for further growth.
+- **Unaudited post-checkpoint growth** — a non-null checkpoint followed by a later `expanded_mid_task` row whose `locked_at` is null is legacy evidence that the checkpoint was bypassed. Category A. A later row with non-null `locked_at`, `locked_by`, and `reason` is an audited `tusk scope expand` operation and is not a lock failure; evaluate its reason using the normal expansion guidance above.
 
-Empty array on a task that has commits → first check `task.scope_enforced` from `tusk task-get $RETRO_TASK_ID`. If `scope_enforced=1` and the task has task-scoped commits, do **not** infer a guard bypass from `scope list` alone: the commit-time guard and task-scoped commits are the source of truth for the shipped diff, and older installed wrappers or pre-rederive rows can make `scope list` empty after the fact. Only record a Category A finding when there is direct evidence that scope enforcement was bypassed (for example `TUSK_SCOPE_GUARD_BYPASS=1`, commit output saying the guard was skipped, or off-scope files that the guard should have rejected). For `scope_enforced=0` legacy tasks, an empty list is expected when scope was never declared and produces no finding.
+Empty `rows` on a task that has commits → first check `task.scope_enforced` from `tusk task-get $RETRO_TASK_ID`. If `scope_enforced=1` and the task has task-scoped commits, do **not** infer a guard bypass from `scope list` alone: a non-null checkpoint can legitimately represent a zero-row lock, and the commit-time guard and task-scoped commits are the source of truth for the shipped diff. Only record a Category A finding when there is direct evidence that scope enforcement was bypassed (for example `TUSK_SCOPE_GUARD_BYPASS=1`, commit output saying the guard was skipped, or off-scope files that the guard should have rejected). For `scope_enforced=0` legacy tasks, empty rows are expected when scope was never declared and produce no finding.
 
 **Check for custom focus areas first.** Attempt to read `<base_directory>/FOCUS.md`.
 - If the file exists: use the categories defined in it for the analysis below.
