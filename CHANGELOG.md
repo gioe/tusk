@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1263] - 2026-08-14
+
+- [TASK-876] Enforce an immutable task-scope checkpoint with audited expansion
+
 ## [1262] - 2026-08-14
 
 - [TASK-875] Remove tusk commit lock after a failed test gate
