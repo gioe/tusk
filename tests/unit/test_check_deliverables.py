@@ -1210,6 +1210,34 @@ class TestMarkDoneSpecGate:
         assert data["verifiable_spec_count"] == 1
         assert data["passing_spec_count"] == 1
 
+    def test_main_threads_config_to_verifiable_test_specs(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        db_path, _ = self._make_test_type_task(tmp_path, 13030)
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({"test_command_timeout_sec": 600}))
+        captured = {}
+
+        def fake_spec_results(task_id, conn, config=None):
+            captured["task_id"] = task_id
+            captured["config"] = config
+            return (1, 1, 1, 1, 0, 0)
+
+        monkeypatch.setattr(mod, "resolve_repo_root", lambda _db: str(tmp_path))
+        monkeypatch.setattr(mod, "find_task_commits", lambda *args, **kwargs: [])
+        monkeypatch.setattr(mod, "check_commits", lambda *args, **kwargs: False)
+        monkeypatch.setattr(mod, "default_branch_of", lambda _root: "main")
+        monkeypatch.setattr(mod, "verifiable_spec_results", fake_spec_results)
+
+        rc = mod.main([db_path, str(config_path), "13030"])
+
+        assert rc == 0
+        assert json.loads(capsys.readouterr().out)["recommendation"] == "mark_done"
+        assert captured == {
+            "task_id": 13030,
+            "config": {"test_command_timeout_sec": 600},
+        }
+
     def _make_test_type_task(self, tmp_path, task_id):
         """An edit task whose only criterion is criterion_type='test'."""
         present = tmp_path / "skills" / "editme"

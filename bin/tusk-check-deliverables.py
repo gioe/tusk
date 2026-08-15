@@ -49,6 +49,7 @@ _json_lib = tusk_loader.load("tusk-json-lib")
 _git_helpers = tusk_loader.load("tusk-git-helpers")
 dumps = _json_lib.dumps
 get_connection = _db_lib.get_connection
+load_config = _db_lib.load_config
 find_task_commits = _git_helpers.find_task_commits
 extract_paths = _git_helpers.extract_paths
 default_branch_of = _git_helpers.default_branch
@@ -212,7 +213,7 @@ def _is_negative_spec(spec: str) -> bool:
 
 
 def verifiable_spec_results(
-    task_id: int, conn: sqlite3.Connection
+    task_id: int, conn: sqlite3.Connection, config: dict | None = None
 ) -> tuple[int, int, int, int, int, int]:
     """Return total, positive, and negative runnable/passing spec counts.
 
@@ -247,7 +248,7 @@ def verifiable_spec_results(
             return (0, 0, 0, 0, 0, 0)
         run_verification = tusk_loader.load("tusk-criteria").run_verification
         results = [
-            (row[1], run_verification(row[0], row[1])["passed"])
+            (row[1], run_verification(row[0], row[1], config=config)["passed"])
             for row in rows
         ]
         positive_results = [passed for spec, passed in results if not _is_negative_spec(spec)]
@@ -330,7 +331,10 @@ def main(argv: list) -> int:
         return 1
 
     db_path = argv[0]
-    # argv[1] is config_path — reserved for future use
+    try:
+        config = load_config(argv[1])
+    except (OSError, TypeError, ValueError):
+        config = {}
     task_id_raw = re.sub(r"^TASK-", "", argv[2], flags=re.IGNORECASE)
     try:
         task_id = int(task_id_raw)
@@ -428,7 +432,7 @@ def main(argv: list) -> int:
                         passing_positive_specs,
                         negative_specs,
                         passing_negative_specs,
-                    ) = verifiable_spec_results(task_id, conn)
+                    ) = verifiable_spec_results(task_id, conn, config=config)
                     if creates_paths_missing:
                         recommendation = "implement_fresh"
                     elif verifiable_specs > 0 and (

@@ -653,6 +653,31 @@ class TestCmdDoneBulk:
         assert rc == 0
         assert _ids_marked_done(out.getvalue()) == {1, 2, 3}
 
+    def test_configured_timeout_reaches_test_verifier(self):
+        conn = make_db(criteria_specs=[{
+            "criterion_type": "test",
+            "verification_spec": "python3 -m pytest tests/targeted.py",
+            "is_completed": 0,
+        }])
+        args = self._make_args([1])
+        config = {"test_command_timeout_sec": 600}
+        with patch.object(criteria_mod, "get_connection", return_value=conn), \
+             patch.object(criteria_mod, "_git_head_metadata", return_value=(None, None)), \
+             patch.object(criteria_mod, "capture_criterion_cost"), \
+             patch.object(
+                 criteria_mod,
+                 "run_verification",
+                 return_value={"passed": True, "output": ""},
+             ) as run_verification:
+            rc = criteria_mod.cmd_done(args, ":memory:", config)
+
+        assert rc == 0
+        run_verification.assert_called_once_with(
+            "test",
+            "python3 -m pytest tests/targeted.py",
+            config=config,
+        )
+
     def test_bulk_partial_failure(self):
         """Second criterion fails verification; first and third still marked done."""
         conn = make_db(criteria_specs=[
