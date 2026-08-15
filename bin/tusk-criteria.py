@@ -406,7 +406,37 @@ def _get_repo_root() -> Optional[str]:
     return root or None
 
 
-def run_verification(criterion_type: str, spec: str) -> dict:
+def _test_verification_timeout(config: Optional[dict] = None) -> int:
+    """Resolve the timeout for a test-type criterion verification.
+
+    Keep the acceptance-criterion fallback at its historical 300 seconds, but
+    honor the same explicit environment/configuration controls as the commit
+    test gate. Invalid advisory values fall through instead of aborting the
+    verification command.
+    """
+    values = [
+        os.environ.get("TUSK_TEST_COMMAND_TIMEOUT"),
+        config.get("test_command_timeout_sec") if isinstance(config, dict) else None,
+    ]
+    for value in values:
+        if value is None or isinstance(value, bool):
+            continue
+        try:
+            timeout = int(value)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(value, float) and not value.is_integer():
+            continue
+        if timeout > 0:
+            return timeout
+    return _TEST_TIMEOUT_SECS
+
+
+def run_verification(
+    criterion_type: str,
+    spec: str,
+    config: Optional[dict] = None,
+) -> dict:
     """Run automated verification based on criterion type.
 
     Returns {"passed": bool, "output": str}.
@@ -417,7 +447,11 @@ def run_verification(criterion_type: str, spec: str) -> dict:
     repo_root = _get_repo_root()
 
     if criterion_type in ("code", "test"):
-        timeout = _TEST_TIMEOUT_SECS if criterion_type == "test" else _CODE_TIMEOUT_SECS
+        timeout = (
+            _test_verification_timeout(config)
+            if criterion_type == "test"
+            else _CODE_TIMEOUT_SECS
+        )
         command = spec
         if repo_root:
             command, _ = _worktree_command.rewrite_linked_worktree_venv_command(
@@ -770,7 +804,8 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
                   head_task_id: Optional[int] = None,
                   successful_verifications: Optional[
                       dict[tuple[str, str, str], dict]
-                  ] = None) -> int:
+                  ] = None,
+                  config: Optional[dict] = None) -> int:
     """Mark a single criterion as done. Returns 0 on success, 1 on verification failure, 2 on not-found."""
     row = conn.execute(
         "SELECT id, task_id, criterion, is_completed, criterion_type, verification_spec, "
@@ -840,7 +875,10 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
                 criterion_type, spec, commit_hash
             )
             if result is None:
-                result = run_verification(criterion_type, spec)
+                if isinstance(config, dict) and "test_command_timeout_sec" in config:
+                    result = run_verification(criterion_type, spec, config=config)
+                else:
+                    result = run_verification(criterion_type, spec)
             if result["passed"] and cache_key is not None:
                 successful_verifications[cache_key] = dict(result)
         verification_payload = result
@@ -1216,6 +1254,7 @@ def cmd_done(args: argparse.Namespace, db_path: str, config: dict) -> int:
                 commit_hash, committed_at, note=note,
                 head_task_id=head_task_id,
                 successful_verifications=successful_verifications,
+                config=config,
             )
             if rc > worst_exit:
                 worst_exit = rc

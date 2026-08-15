@@ -2,8 +2,8 @@
 
 On failure, the output must start with `exit_code=<N>, elapsed=<Xs>` so users
 can distinguish a genuine non-zero exit from a subprocess timeout. Test-type
-criteria also get a longer timeout (300s) than code-type (120s), since
-subprocess.run(capture_output=True) slows pytest substantially.
+criteria honor the project test timeout with a 300s fallback; code-type
+criteria retain their fixed 120s timeout.
 """
 
 import importlib.util
@@ -43,9 +43,56 @@ def test_failure_header_survives_truncation():
     assert result["output"].endswith("... (truncated)")
 
 
-def test_test_type_has_longer_timeout_than_code_type():
-    assert criteria_mod._TEST_TIMEOUT_SECS >= 300
-    assert criteria_mod._TEST_TIMEOUT_SECS > criteria_mod._CODE_TIMEOUT_SECS
+def _captured_timeout(monkeypatch, criterion_type, config=None):
+    calls = []
+
+    def fake_run(*args, **kwargs):
+        calls.append(kwargs)
+        return criteria_mod.subprocess.CompletedProcess(
+            args=args[0], returncode=0, stdout="", stderr=""
+        )
+
+    monkeypatch.setattr(criteria_mod, "_get_repo_root", lambda: None)
+    monkeypatch.setattr(criteria_mod.subprocess, "run", fake_run)
+    result = criteria_mod.run_verification(criterion_type, "true", config=config)
+    assert result["passed"] is True
+    return calls[0]["timeout"]
+
+
+def test_test_type_honors_configured_timeout(monkeypatch):
+    monkeypatch.delenv("TUSK_TEST_COMMAND_TIMEOUT", raising=False)
+    assert _captured_timeout(
+        monkeypatch, "test", {"test_command_timeout_sec": 600}
+    ) == 600
+
+
+def test_test_type_missing_or_invalid_config_uses_legacy_default(monkeypatch):
+    monkeypatch.delenv("TUSK_TEST_COMMAND_TIMEOUT", raising=False)
+    for config in (None, {}, {"test_command_timeout_sec": 0},
+                   {"test_command_timeout_sec": True},
+                   {"test_command_timeout_sec": "invalid"}):
+        assert criteria_mod._test_verification_timeout(config) == 300
+
+
+def test_test_type_environment_override_precedes_config(monkeypatch):
+    monkeypatch.setenv("TUSK_TEST_COMMAND_TIMEOUT", "720")
+    assert criteria_mod._test_verification_timeout(
+        {"test_command_timeout_sec": 600}
+    ) == 720
+
+
+def test_invalid_environment_override_falls_through_to_config(monkeypatch):
+    monkeypatch.setenv("TUSK_TEST_COMMAND_TIMEOUT", "invalid")
+    assert criteria_mod._test_verification_timeout(
+        {"test_command_timeout_sec": 600}
+    ) == 600
+
+
+def test_code_type_keeps_fixed_timeout_when_test_timeout_is_configured(monkeypatch):
+    monkeypatch.setenv("TUSK_TEST_COMMAND_TIMEOUT", "720")
+    assert _captured_timeout(
+        monkeypatch, "code", {"test_command_timeout_sec": 600}
+    ) == criteria_mod._CODE_TIMEOUT_SECS
 
 
 def test_timeout_output_reports_timeout_marker(monkeypatch):
