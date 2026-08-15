@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1264] - 2026-08-15
+
+- [TASK-878] Honor configured timeout for acceptance-criterion verification
+
 ## [1263] - 2026-08-14
 
 - [TASK-876] Enforce an immutable task-scope checkpoint with audited expansion
