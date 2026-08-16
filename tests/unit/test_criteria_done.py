@@ -418,6 +418,35 @@ class TestDoneSingle:
             "url": evidence_url,
         }
 
+    def test_reset_clears_external_verification_evidence(self):
+        conn = make_db(criteria_specs=[{
+            "criterion_type": "test",
+            "verification_spec": "false",
+            "is_completed": 0,
+        }])
+        with patch.object(criteria_mod, "capture_criterion_cost"):
+            criteria_mod._done_single(
+                conn, 1, skip_verify=False, suppress_shared_commit=True,
+                commit_hash=None, committed_at=None,
+                external_verification_url="https://ci.example.com/runs/123",
+            )
+
+        with patch.object(
+            criteria_mod, "get_connection", return_value=_NoCloseConn(conn)
+        ):
+            rc = criteria_mod.cmd_reset(
+                argparse.Namespace(criterion_id=1), ":memory:", {}
+            )
+
+        assert rc == 0
+        row = conn.execute(
+            "SELECT is_completed, completed_at, verification_result "
+            "FROM acceptance_criteria WHERE id = 1"
+        ).fetchone()
+        assert row["is_completed"] == 0
+        assert row["completed_at"] is None
+        assert row["verification_result"] is None
+
     def test_reuses_matching_commit_gate_verification(self, monkeypatch):
         conn = make_db(criteria_specs=[
             {
