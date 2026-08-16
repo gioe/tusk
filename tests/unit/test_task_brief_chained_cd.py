@@ -267,9 +267,11 @@ def test_nested_command_substitution_inherits_and_restores_working_directory():
 def test_command_substitution_detection_respects_literal_and_escaped_dollars():
     literal = brief._shell_scan_tokens("printf '%s' '$(rg marker missing/fake.py)'")
     escaped = brief._shell_scan_tokens(r"printf '%s' \$(rg marker missing/fake.py)")
+    arithmetic = brief._shell_scan_tokens(r'printf "%s" "$((items/total))"')
 
     assert brief.COMMAND_SUB_START not in literal
     assert brief.COMMAND_SUB_START not in escaped
+    assert brief.COMMAND_SUB_START not in arithmetic
 
 
 def test_dynamic_cd_substitution_does_not_change_outer_working_directory():

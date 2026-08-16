@@ -81,6 +81,10 @@ def _clean_path_token(token: str) -> str | None:
     return token
 
 
+def _is_command_substitution_start(command: str, index: int) -> bool:
+    return command.startswith("$(", index) and not command.startswith("$((", index)
+
+
 def _command_substitution_end(command: str, start: int) -> int | None:
     """Return the closing-paren index for a command substitution at start."""
     depth = 1
@@ -101,7 +105,7 @@ def _command_substitution_end(command: str, start: int) -> int | None:
                 quote = None
                 index += 1
                 continue
-            if command.startswith("$(", index):
+            if _is_command_substitution_start(command, index):
                 nested_end = _command_substitution_end(command, index)
                 if nested_end is None:
                     return None
@@ -111,7 +115,7 @@ def _command_substitution_end(command: str, start: int) -> int | None:
             continue
         if char in {"'", '"'}:
             quote = char
-        elif command.startswith("$(", index):
+        elif _is_command_substitution_start(command, index):
             nested_end = _command_substitution_end(command, index)
             if nested_end is None:
                 return None
@@ -155,7 +159,7 @@ def _command_substitutions(command: str) -> tuple[str, dict[str, str]]:
                 rendered.append(char)
                 index += 1
                 continue
-            if command.startswith("$(", index):
+            if _is_command_substitution_start(command, index):
                 end = _command_substitution_end(command, index)
                 if end is not None:
                     marker = f"{marker_prefix}{len(substitutions)}__"
@@ -176,7 +180,7 @@ def _command_substitutions(command: str) -> tuple[str, dict[str, str]]:
             rendered.append(char)
             index += 1
             continue
-        if command.startswith("$(", index):
+        if _is_command_substitution_start(command, index):
             end = _command_substitution_end(command, index)
             if end is not None:
                 marker = f"{marker_prefix}{len(substitutions)}__"
