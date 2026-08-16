@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1268] - 2026-08-16
+
+- [TASK-882] Use the current delivery cycle in check-deliverables after reopen
+
 ## [1267] - 2026-08-16
 
 - [TASK-881] Record external verification evidence on acceptance criteria
