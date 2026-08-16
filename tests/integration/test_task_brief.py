@@ -275,6 +275,53 @@ def test_task_brief_dot_prefixed_verification_path(tmp_path, monkeypatch):
     ]
 
 
+def test_task_brief_command_substitutions_keep_only_literal_paths(
+    tmp_path, monkeypatch
+):
+    db_path = _init_db(tmp_path, monkeypatch)
+    _materialize_valid_paths(tmp_path)
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    for name in ("web-ci.yml", "scraper-ci.yml"):
+        (workflows / name).write_text("# workflow\n", encoding="utf-8")
+    task_id = _insert_task_bundle(db_path)
+    valid_ids = [
+        _insert_verification_spec(
+            db_path,
+            task_id,
+            "Web workflow is referenced",
+            "test \"$(rg -F '.github/workflows/web-ci.yml' "
+            ".github/workflows/web-ci.yml | wc -l | tr -d '[:space:]')\" -ge 3",
+        ),
+        _insert_verification_spec(
+            db_path,
+            task_id,
+            "Scraper workflow is referenced",
+            "test \"$(rg -F '.github/workflows/scraper-ci.yml' "
+            ".github/workflows/scraper-ci.yml | wc -l | tr -d '[:space:]')\" -ge 3",
+        ),
+    ]
+    missing_id = _insert_verification_spec(
+        db_path,
+        task_id,
+        "Missing workflow is warned",
+        "test \"$(rg marker .github/workflows/missing.yml | wc -l)\" -ge 1",
+    )
+
+    result = _run_brief(tmp_path, db_path, task_id, "--format", "json")
+
+    assert result.returncode == 0, result.stderr
+    stale_by_criterion = {
+        warning["details"]["criterion_id"]: warning
+        for warning in json.loads(result.stdout)["context_health_warnings"]
+        if warning["code"] == "stale_verification_spec"
+    }
+    assert all(criterion_id not in stale_by_criterion for criterion_id in valid_ids)
+    assert stale_by_criterion[missing_id]["details"]["missing_paths"] == [
+        ".github/workflows/missing.yml"
+    ]
+
+
 def test_task_brief_help_documents_json_format():
     result = subprocess.run(
         [TUSK_BIN, "task-brief", "--help"],
