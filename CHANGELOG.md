@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1266] - 2026-08-16
+
+- [TASK-880] Fix false missing-path warnings for shell verification specs
+
 ## [1265] - 2026-08-16
 
 - [TASK-879] Align jot write parsing with its advertised syntax
