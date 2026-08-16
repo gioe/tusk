@@ -2255,11 +2255,30 @@ case "${1:-}" in
   jot)
     shift
     # Accept the documented `tusk jot write <category> <note>` form while
-    # preserving the original `tusk jot <category> <note>` shorthand. Require
-    # both operands before consuming `write` so it can remain a legacy category.
-    if [[ "${1:-}" == "write" && "$#" -ge 3 ]]; then
+    # preserving the original `tusk jot <category> <note>` shorthand. Count
+    # positional operands without option/value pairs so `write` can remain a
+    # legacy category even when the shorthand includes --file or --skill.
+    _jot_positional_count=0
+    _jot_skip_option_value=0
+    _jot_after_separator=0
+    for _jot_arg in "$@"; do
+      if (( _jot_after_separator )); then
+        ((_jot_positional_count += 1))
+      elif (( _jot_skip_option_value )); then
+        _jot_skip_option_value=0
+      else
+        case "$_jot_arg" in
+          --) _jot_after_separator=1 ;;
+          --file|--skill) _jot_skip_option_value=1 ;;
+          --file=*|--skill=*|-*) ;;
+          *) ((_jot_positional_count += 1)) ;;
+        esac
+      fi
+    done
+    if [[ "${1:-}" == "write" && "$_jot_positional_count" -ge 3 ]]; then
       shift
     fi
+    unset _jot_arg _jot_positional_count _jot_skip_option_value _jot_after_separator
     exec python3 "$SCRIPT_DIR/tusk-jot.py" "$DB_PATH" "$(resolve_config)" write "$@" ;;
   jots) shift; exec python3 "$SCRIPT_DIR/tusk-jot.py" "$DB_PATH" "$(resolve_config)" list "$@" ;;
   call-breakdown) shift; exec python3 "$SCRIPT_DIR/tusk-call-breakdown.py" "$DB_PATH" "$(resolve_config)" "$@" ;;

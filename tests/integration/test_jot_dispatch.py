@@ -60,12 +60,15 @@ def test_explicit_write_and_shorthand_store_and_list_the_same_fields(db_path):
 def test_write_remains_available_as_a_legacy_category(db_path):
     _seed_open_skill_run(db_path)
 
-    result = _run("jot", "write", "category named write")
+    result = _run(
+        "jot", "write", "category named write", "--file", "bin/tusk"
+    )
 
     assert result.returncode == 0, result.stderr
     row = json.loads(result.stdout)
     assert row["category"] == "write"
     assert row["note"] == "category named write"
+    assert row["file_hint"] == "bin/tusk"
 
 
 def test_jot_help_advertises_the_explicit_write_form(db_path):
