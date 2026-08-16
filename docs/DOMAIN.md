@@ -513,7 +513,7 @@ One row per approved finding emitted by `/retro` on close. Populated by the skil
 
 ### Jot
 
-One row per mid-task friction note captured via `tusk jot`. Solves the problem that retro fidelity decays with task length: by close time on M/L/XL tasks, the implementer has to reconstruct hours-old friction from working memory. A `tusk jot <category> "<note>"` call writes the observation at the moment it happens, keyed to the currently-active `skill_runs` row (most-recent with `ended_at IS NULL`). `/retro` reads jots for the parent /tusk run via `tusk jots --task-id $RETRO_TASK_ID` before doing its own conversation analysis, treating each row as a pre-classified finding candidate (issue #541).
+One row per mid-task friction note captured via `tusk jot`. Solves the problem that retro fidelity decays with task length: by close time on M/L/XL tasks, the implementer has to reconstruct hours-old friction from working memory. A `tusk jot write <category> "<note>"` call writes the observation at the moment it happens, keyed to the currently-active `skill_runs` row (most-recent with `ended_at IS NULL`); the original `tusk jot <category> "<note>"` form remains a compatibility shorthand. `/retro` reads jots for the parent /tusk run via `tusk jots --task-id $RETRO_TASK_ID` before doing its own conversation analysis, treating each row as a pre-classified finding candidate (issue #541).
 
 | Attribute | Type | Constraints | Description |
 |-----------|------|-------------|-------------|

@@ -8,7 +8,8 @@ old conversation memory at retro time. /retro reads jots for the parent
 
 Two subcommands share this script. The bin/tusk dispatcher routes:
 
-    tusk jot <category> "<note>" [--file <path>] [--skill <name>]
+    tusk jot write <category> "<note>" [--file <path>] [--skill <name>]
+    tusk jot <category> "<note>" [--file <path>] [--skill <name>]  # shorthand
         → tusk-jot.py write <category> <note> [--file ...] [--skill ...]
 
     tusk jots [--skill-run-id <id>] [--task-id <id>] [--limit N]
@@ -214,7 +215,8 @@ def main(argv: list) -> int:
 if __name__ == "__main__":
     if len(sys.argv) < 2 or not sys.argv[1].endswith(".db"):
         print("Error: This script must be invoked via the tusk wrapper.", file=sys.stderr)
-        print("Use: tusk jot <category> \"<note>\" [--file <path>] [--skill <name>]", file=sys.stderr)
+        print("Use: tusk jot write <category> \"<note>\" [--file <path>] [--skill <name>]", file=sys.stderr)
+        print("     tusk jot <category> \"<note>\" [--file <path>] [--skill <name>]  # shorthand", file=sys.stderr)
         print("     tusk jots [--skill-run-id <id>] [--task-id <id>] [--limit N]", file=sys.stderr)
         sys.exit(1)
     # Retry the whole command (a fresh connection per attempt) on transient

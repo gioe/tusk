@@ -34,8 +34,8 @@ def _seed_open_skill_run(db_path) -> int:
         conn.close()
 
 
-def test_explicit_write_and_shorthand_store_the_same_fields(db_path):
-    _seed_open_skill_run(db_path)
+def test_explicit_write_and_shorthand_store_and_list_the_same_fields(db_path):
+    task_id = _seed_open_skill_run(db_path)
 
     explicit = _run("jot", "write", "workflow", "explicit note")
     assert explicit.returncode == 0, explicit.stderr
@@ -47,6 +47,16 @@ def test_explicit_write_and_shorthand_store_the_same_fields(db_path):
     assert json.loads(shorthand.stdout)["category"] == "process"
     assert json.loads(shorthand.stdout)["note"] == "shorthand note"
 
+    listed = _run("jots", "--task-id", str(task_id))
+    assert listed.returncode == 0, listed.stderr
+    assert [
+        (row["category"], row["note"]) for row in json.loads(listed.stdout)
+    ] == [
+        ("process", "shorthand note"),
+        ("workflow", "explicit note"),
+    ]
+
+
 def test_write_remains_available_as_a_legacy_category(db_path):
     _seed_open_skill_run(db_path)
 
@@ -56,3 +66,10 @@ def test_write_remains_available_as_a_legacy_category(db_path):
     row = json.loads(result.stdout)
     assert row["category"] == "write"
     assert row["note"] == "category named write"
+
+
+def test_jot_help_advertises_the_explicit_write_form(db_path):
+    result = _run("jot", "--help")
+
+    assert result.returncode == 0, result.stderr
+    assert "usage: tusk jot write" in result.stdout
