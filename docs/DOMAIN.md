@@ -187,7 +187,7 @@ A verifiable condition that must be satisfied before a task is considered done. 
 | `tokens_out` | INTEGER | nullable | Output tokens used |
 | `criterion_type` | TEXT | CHECK IN (manual, code, test, file) | Verification method |
 | `verification_spec` | TEXT | nullable | Shell command (code/test) or glob pattern (file) |
-| `verification_result` | TEXT | nullable | Output captured from verification run |
+| `verification_result` | TEXT | nullable | JSON result captured from a local, reused, skipped, or externally verified run |
 | `commit_hash` | TEXT | nullable | Commit that satisfied this criterion |
 | `committed_at` | TEXT | nullable | When that commit was made |
 | `is_deferred` | INTEGER | CHECK IN (0, 1); default 0 | Criterion deferred to a downstream chain task |
@@ -203,6 +203,8 @@ A verifiable condition that must be satisfied before a task is considered done. 
 - `file` — verified by checking a glob pattern exists on disk; a leading `!` inverts the check so verification passes when the glob matches zero files (absence assertion, e.g. `!ios/Fonts/Chivo*.ttf` — added for issue #1041)
 
 **Verification contract:** `tusk criteria done` returns a `verification_contract` object in its JSON success payload. Manual criteria report `strength: "weak"` and `evidence: "operator_judgment"` because no executable proof exists. `code`, `test`, and `file` criteria report the stored `verification_spec` and either `strength: "automated"` with `evidence: "executed"` / `evidence: "reused_commit_gate"`, or `strength: "bypassed"` with `evidence: "explicit_skip"` when completed via `--skip-verify`. Skipped typed criteria also persist a JSON `verification_result` that records the explicit bypass, so the audit trail distinguishes a passed check from an acknowledged manual override.
+
+When a typed criterion passes on a remote runner that is unavailable locally, `tusk criteria done <id> --external-verification-url <http-or-https-url>` records that successful external run without executing the stored spec. The persisted `verification_result` contains `passed: true`, `external: true`, and the evidence URL; the returned contract remains `strength: "automated"` with `evidence: "external_verification"` and the same URL. This flag is mutually exclusive with `--skip-verify`, rejects manual criteria and invalid URLs before mutating any criterion in a bulk call, and applies one evidence URL to every typed criterion named in that call. Default `tusk criteria list` JSON decodes `verification_result` into a structured object; malformed legacy values remain available verbatim.
 
 **`code`/`test` auto-exclusions for grep.** Every `code`/`test` spec is prefixed with a POSIX shell function that redefines `grep` to add `--exclude-dir=__pycache__ --exclude-dir=.pytest_cache --exclude-dir=node_modules`. `grep -r` ignores `.gitignore`, so a spec like `! grep -rE "foo" skills/` would otherwise match `foo` inside compiled `.pyc` bytecode or cached dependency trees and fail the negation. The exclusions are a no-op for non-recursive grep and don't affect non-grep specs. If you need to grep *inside* one of those dirs, call `command grep` directly to bypass the wrapper.
 

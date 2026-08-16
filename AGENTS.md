@@ -63,7 +63,7 @@ bin/tusk bakeoff discard <bakeoff_id>            # throw every shadow for this b
 # Criteria
 bin/tusk criteria add <task_id> "criterion" [--source original|subsumption|pr_review] [--type manual|code|test|file] [--spec "..."]
 bin/tusk criteria list <task_id>
-bin/tusk criteria done <criterion_id> [--skip-verify]
+bin/tusk criteria done <criterion_id> [--skip-verify | --external-verification-url <url>]
 bin/tusk criteria skip <criterion_id> --reason <reason>
 bin/tusk criteria reset <criterion_id>
 bin/tusk criteria delete <criterion_id> [--force]  # --force allows deleting completed criteria
