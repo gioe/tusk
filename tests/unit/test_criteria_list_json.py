@@ -39,6 +39,7 @@ def _make_conn():
         "  is_completed INTEGER DEFAULT 0, is_deferred INTEGER DEFAULT 0,"
         "  deferred_reason TEXT,"
         "  criterion_type TEXT DEFAULT 'manual', verification_spec TEXT,"
+        "  verification_result TEXT,"
         "  commit_hash TEXT, committed_at TEXT,"
         "  cost_dollars REAL, tokens_in INTEGER, tokens_out INTEGER,"
         "  skip_note TEXT, created_at TEXT"
@@ -46,8 +47,13 @@ def _make_conn():
     )
     conn.execute("INSERT INTO tasks (id, summary) VALUES (1, 'Test task')")
     conn.execute(
-        "INSERT INTO acceptance_criteria (task_id, criterion, criterion_type, is_completed, cost_dollars, commit_hash, committed_at) "
-        "VALUES (1, 'first criterion', 'manual', 1, 0.05, 'abc1234', '2026-05-04T10:00:00')"
+        "INSERT INTO acceptance_criteria (task_id, criterion, criterion_type, is_completed, cost_dollars, commit_hash, committed_at, verification_result) "
+        "VALUES (1, 'first criterion', 'test', 1, 0.05, 'abc1234', '2026-05-04T10:00:00', ?) ",
+        (json.dumps({
+            "passed": True,
+            "external": True,
+            "url": "https://ci.example.com/runs/123",
+        }),),
     )
     conn.execute(
         "INSERT INTO acceptance_criteria (task_id, criterion, criterion_type) "
@@ -95,6 +101,11 @@ class TestCriteriaListJson:
         assert first["criterion"] == "first criterion"
         assert first["is_completed"] == 1
         assert first["commit_hash"] == "abc1234"
+        assert first["verification_result"] == {
+            "passed": True,
+            "external": True,
+            "url": "https://ci.example.com/runs/123",
+        }
 
     def test_json_default_is_compact(self):
         rc, stdout = _run_list(1)
@@ -115,6 +126,7 @@ class TestCriteriaListJson:
             "  is_completed INTEGER, is_deferred INTEGER, deferred_reason TEXT,"
             "  cost_dollars REAL, tokens_in INTEGER, tokens_out INTEGER,"
             "  criterion_type TEXT, verification_spec TEXT,"
+            "  verification_result TEXT,"
             "  commit_hash TEXT, committed_at TEXT,"
             "  skip_note TEXT, created_at TEXT"
             ")"

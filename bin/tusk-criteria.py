@@ -21,6 +21,7 @@ import subprocess
 import sys
 import time
 from typing import Optional
+from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tusk_loader  # loads tusk-pricing-lib.py, tusk-db-lib.py, tusk-json-lib.py, tusk-git-helpers.py, tusk-worktree-command.py
@@ -664,7 +665,7 @@ def cmd_list(args: argparse.Namespace, db_path: str, config: dict) -> int:
             "SELECT id, criterion, source, is_completed, is_deferred, deferred_reason, "
             "cost_dollars, tokens_in, tokens_out, "
             "criterion_type, verification_spec, commit_hash, committed_at, "
-            "skip_note, created_at "
+            "verification_result, skip_note, created_at "
             "FROM acceptance_criteria WHERE task_id = ? ORDER BY id",
             (args.task_id,),
         ).fetchall()
@@ -672,7 +673,18 @@ def cmd_list(args: argparse.Namespace, db_path: str, config: dict) -> int:
         conn.close()
 
     if not pretty_requested():
-        payload = [dict(r) for r in rows]
+        payload = []
+        for row in rows:
+            item = dict(row)
+            raw_result = item.get("verification_result")
+            if raw_result:
+                try:
+                    item["verification_result"] = json.loads(raw_result)
+                except (json.JSONDecodeError, TypeError):
+                    # Preserve malformed legacy values verbatim rather than
+                    # making criteria list itself fail.
+                    pass
+            payload.append(item)
         print(dumps(payload))
         return 0
 
@@ -805,7 +817,8 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
                   successful_verifications: Optional[
                       dict[tuple[str, str, str], dict]
                   ] = None,
-                  config: Optional[dict] = None) -> int:
+                  config: Optional[dict] = None,
+                  external_verification_url: Optional[str] = None) -> int:
     """Mark a single criterion as done. Returns 0 on success, 1 on verification failure, 2 on not-found."""
     row = conn.execute(
         "SELECT id, task_id, criterion, is_completed, criterion_type, verification_spec, "
@@ -849,10 +862,19 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
     criterion_type = row["criterion_type"] or "manual"
     spec = row["verification_spec"]
 
-    # Run verification for non-manual types (unless --skip-verify)
+    # Run verification for non-manual types unless the caller supplied
+    # successful external evidence or explicitly bypassed verification.
     verification_result = None
     verification_payload = None
-    if criterion_type != "manual" and spec and not skip_verify:
+    if external_verification_url:
+        verification_payload = {
+            "passed": True,
+            "external": True,
+            "url": external_verification_url,
+            "output": f"external verification passed: {external_verification_url}",
+        }
+        verification_result = json.dumps(verification_payload)
+    elif criterion_type != "manual" and spec and not skip_verify:
         cache_key = (
             (commit_hash, criterion_type, spec)
             if successful_verifications is not None and commit_hash
@@ -985,6 +1007,7 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
             spec,
             skip_verify=skip_verify,
             result=verification_payload,
+            external_verification_url=external_verification_url,
         ),
     }
     if deferral_cleared:
@@ -1058,6 +1081,7 @@ def _verification_contract(
     *,
     skip_verify: bool,
     result: Optional[dict] = None,
+    external_verification_url: Optional[str] = None,
 ) -> dict:
     if criterion_type == "manual":
         return {
@@ -1072,6 +1096,15 @@ def _verification_contract(
             "strength": "bypassed",
             "spec": spec,
             "evidence": "explicit_skip",
+        }
+
+    if external_verification_url:
+        return {
+            "type": criterion_type,
+            "strength": "automated",
+            "spec": spec,
+            "evidence": "external_verification",
+            "url": external_verification_url,
         }
 
     evidence = "executed"
@@ -1204,6 +1237,17 @@ def _has_new_commits_over_default() -> bool:
 def cmd_done(args: argparse.Namespace, db_path: str, config: dict) -> int:
     conn = get_connection(db_path)
     try:
+        external_verification_url = getattr(
+            args, "external_verification_url", None
+        )
+        if external_verification_url:
+            error = _external_verification_error(
+                conn, args.criterion_ids, external_verification_url
+            )
+            if error:
+                print(f"Error: {error}", file=sys.stderr)
+                return 2
+
         # Best-effort: capture current git HEAD short hash and commit timestamp (once for all)
         criterion_ids = args.criterion_ids
         batch_task_id = _single_task_id_for_criteria(conn, criterion_ids)
@@ -1255,12 +1299,55 @@ def cmd_done(args: argparse.Namespace, db_path: str, config: dict) -> int:
                 head_task_id=head_task_id,
                 successful_verifications=successful_verifications,
                 config=config,
+                external_verification_url=external_verification_url,
             )
             if rc > worst_exit:
                 worst_exit = rc
         return worst_exit
     finally:
         conn.close()
+
+
+def _external_verification_error(
+    conn: sqlite3.Connection,
+    criterion_ids: list[int],
+    url: str,
+) -> Optional[str]:
+    """Validate external evidence before any criterion in the batch mutates."""
+    parsed = None
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        parsed.port
+    except ValueError:
+        hostname = None
+    if (
+        url != url.strip()
+        or any(char.isspace() for char in url)
+        or parsed is None
+        or parsed.scheme not in {"http", "https"}
+        or not hostname
+    ):
+        return "--external-verification-url must be a valid HTTP or HTTPS URL"
+
+    placeholders = ",".join("?" for _ in criterion_ids)
+    rows = conn.execute(
+        "SELECT id, COALESCE(criterion_type, 'manual') AS criterion_type "
+        f"FROM acceptance_criteria WHERE id IN ({placeholders})",
+        criterion_ids,
+    ).fetchall()
+    found = {row["id"] for row in rows}
+    missing = [criterion_id for criterion_id in criterion_ids if criterion_id not in found]
+    if missing:
+        return "criterion not found: " + ", ".join(str(value) for value in missing)
+
+    manual = [row["id"] for row in rows if row["criterion_type"] == "manual"]
+    if manual:
+        return (
+            "external verification evidence requires typed criteria; manual "
+            "criterion IDs: " + ", ".join(str(value) for value in manual)
+        )
+    return None
 
 
 def cmd_skip(args: argparse.Namespace, db_path: str, config: dict) -> int:
@@ -1496,6 +1583,13 @@ def main():
         help="Skip automated verification for non-manual criteria",
     )
     done_p.add_argument(
+        "--external-verification-url",
+        help=(
+            "Record a successful external verification run at URL instead of "
+            "executing the stored specification locally (typed criteria only)"
+        ),
+    )
+    done_p.add_argument(
         "--allow-shared-commit", action="store_true",
         help="Suppress the shared-commit warning (use when intentionally marking multiple criteria on the same commit)",
     )
@@ -1553,6 +1647,14 @@ def main():
 
     if args.command == "done" and getattr(args, "note", None) and not args.skip_verify:
         done_p.error("--note requires --skip-verify")
+    if (
+        args.command == "done"
+        and args.skip_verify
+        and getattr(args, "external_verification_url", None)
+    ):
+        done_p.error(
+            "--external-verification-url cannot be combined with --skip-verify"
+        )
 
     # Catch-all so transient DB contention or another unexpected failure leaves
     # command-specific stderr. Without this, the outer bin/tusk silent-exit guard

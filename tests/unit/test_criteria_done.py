@@ -378,6 +378,46 @@ class TestDoneSingle:
             "evidence": "explicit_skip",
         }
 
+    def test_external_verification_records_success_without_running_local_spec(self):
+        conn = make_db(criteria_specs=[{
+            "criterion_type": "test",
+            "verification_spec": "false",
+            "is_completed": 0,
+        }])
+        out = io.StringIO()
+        evidence_url = "https://github.com/acme/app/actions/runs/123"
+
+        with redirect_stdout(out), \
+             patch.object(criteria_mod, "capture_criterion_cost"), \
+             patch.object(criteria_mod, "run_verification") as run_verification:
+            rc = criteria_mod._done_single(
+                conn, 1, skip_verify=False, suppress_shared_commit=True,
+                commit_hash=None, committed_at=None,
+                external_verification_url=evidence_url,
+            )
+
+        assert rc == 0
+        run_verification.assert_not_called()
+        row = conn.execute(
+            "SELECT is_completed, verification_result FROM acceptance_criteria WHERE id = 1"
+        ).fetchone()
+        assert row["is_completed"] == 1
+        assert json.loads(row["verification_result"]) == {
+            "passed": True,
+            "external": True,
+            "url": evidence_url,
+            "output": f"external verification passed: {evidence_url}",
+        }
+        payload = json.loads(out.getvalue())
+        assert payload["verification"] == "passed"
+        assert payload["verification_contract"] == {
+            "type": "test",
+            "strength": "automated",
+            "spec": "false",
+            "evidence": "external_verification",
+            "url": evidence_url,
+        }
+
     def test_reuses_matching_commit_gate_verification(self, monkeypatch):
         conn = make_db(criteria_specs=[
             {
@@ -631,14 +671,88 @@ class TestCmdDoneBulk:
     For tests that need DB-level assertions, we test _done_single directly.
     """
 
-    def _make_args(self, ids, skip_verify=False, batch=False, allow_shared=False, note=None):
+    def _make_args(
+        self, ids, skip_verify=False, batch=False, allow_shared=False, note=None,
+        external_verification_url=None,
+    ):
         return argparse.Namespace(
             criterion_ids=ids,
             skip_verify=skip_verify,
             batch=batch,
             allow_shared_commit=allow_shared,
             note=note,
+            external_verification_url=external_verification_url,
         )
+
+    def test_external_verification_bulk_completes_typed_criteria(self):
+        conn = make_db(criteria_specs=[
+            {"criterion_type": "test", "verification_spec": "false", "is_completed": 0},
+            {"criterion_type": "code", "verification_spec": "false", "is_completed": 0},
+        ])
+        args = self._make_args(
+            [1, 2],
+            external_verification_url="https://ci.example.com/runs/456",
+        )
+        out = io.StringIO()
+        with redirect_stdout(out), \
+             patch.object(criteria_mod, "get_connection", return_value=_NoCloseConn(conn)), \
+             patch.object(criteria_mod, "capture_criterion_cost"), \
+             patch.object(criteria_mod, "run_verification") as run_verification, \
+             patch("subprocess.check_output", side_effect=Exception("no git")):
+            rc = criteria_mod.cmd_done(args, ":memory:", {})
+
+        assert rc == 0
+        assert _ids_marked_done(out.getvalue()) == {1, 2}
+        run_verification.assert_not_called()
+        rows = conn.execute(
+            "SELECT verification_result FROM acceptance_criteria ORDER BY id"
+        ).fetchall()
+        assert all(json.loads(row["verification_result"])["external"] for row in rows)
+
+    @pytest.mark.parametrize(
+        "url",
+        ["not-a-url", "ftp://ci.example.com/run/1", "https://", " https://ci.example.com/run/1"],
+    )
+    def test_external_verification_rejects_invalid_url_without_mutation(self, url):
+        conn = make_db(criteria_specs=[{
+            "criterion_type": "test",
+            "verification_spec": "false",
+            "is_completed": 0,
+        }])
+        args = self._make_args([1], external_verification_url=url)
+        err = io.StringIO()
+        with redirect_stderr(err), \
+             patch.object(criteria_mod, "get_connection", return_value=_NoCloseConn(conn)):
+            rc = criteria_mod.cmd_done(args, ":memory:", {})
+
+        assert rc == 2
+        row = conn.execute(
+            "SELECT is_completed, verification_result FROM acceptance_criteria WHERE id = 1"
+        ).fetchone()
+        assert row["is_completed"] == 0
+        assert row["verification_result"] is None
+        assert "valid HTTP or HTTPS URL" in err.getvalue()
+
+    def test_external_verification_rejects_manual_batch_without_mutation(self):
+        conn = make_db(criteria_specs=[
+            {"criterion_type": "test", "verification_spec": "false", "is_completed": 0},
+            {"criterion_type": "manual", "verification_spec": None, "is_completed": 0},
+        ])
+        args = self._make_args(
+            [1, 2], external_verification_url="https://ci.example.com/runs/789"
+        )
+        err = io.StringIO()
+        with redirect_stderr(err), \
+             patch.object(criteria_mod, "get_connection", return_value=_NoCloseConn(conn)):
+            rc = criteria_mod.cmd_done(args, ":memory:", {})
+
+        assert rc == 2
+        rows = conn.execute(
+            "SELECT is_completed, verification_result FROM acceptance_criteria ORDER BY id"
+        ).fetchall()
+        assert all(row["is_completed"] == 0 for row in rows)
+        assert all(row["verification_result"] is None for row in rows)
+        assert "requires typed criteria" in err.getvalue()
 
     def test_bulk_happy_path(self):
         """All three criteria marked done, exit 0."""
@@ -923,6 +1037,51 @@ class TestSkipNote:
                 criteria_mod.main()
         assert exc.value.code != 0
         assert "--note requires --skip-verify" in err.getvalue()
+
+    def test_external_verification_and_skip_verify_are_mutually_exclusive(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False
+        ) as cfg:
+            cfg.write("{}")
+            cfg_path = cfg.name
+
+        err = io.StringIO()
+        with patch.object(
+            criteria_mod.sys, "argv",
+            [
+                "tusk-criteria", ":memory:", cfg_path, "done", "1",
+                "--skip-verify", "--external-verification-url",
+                "https://ci.example.com/runs/1",
+            ],
+        ), redirect_stderr(err):
+            with pytest.raises(SystemExit) as exc:
+                criteria_mod.main()
+
+        assert exc.value.code != 0
+        assert "cannot be combined" in err.getvalue()
+
+    def test_external_verification_url_requires_a_value(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False
+        ) as cfg:
+            cfg.write("{}")
+            cfg_path = cfg.name
+
+        err = io.StringIO()
+        with patch.object(
+            criteria_mod.sys, "argv",
+            [
+                "tusk-criteria", ":memory:", cfg_path, "done", "1",
+                "--external-verification-url",
+            ],
+        ), redirect_stderr(err):
+            with pytest.raises(SystemExit) as exc:
+                criteria_mod.main()
+
+        assert exc.value.code != 0
+        assert "expected one argument" in err.getvalue()
 
     def test_list_shows_skip_note(self):
         """cmd_list surfaces skip_note when set on a completed criterion (JSON default)."""
