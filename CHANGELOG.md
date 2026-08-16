@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1265] - 2026-08-16
+
+- [TASK-879] Align jot write parsing with its advertised syntax
+
 ## [1264] - 2026-08-15
 
 - [TASK-878] Honor configured timeout for acceptance-criterion verification
