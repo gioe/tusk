@@ -310,7 +310,18 @@ def _emit_scope_enforced_bypass(task_id: int) -> None:
     )
 
 
-def _task_started_at(conn: sqlite3.Connection, task_id: int) -> str | None:
+def _task_delivery_cycle_started_at(
+    conn: sqlite3.Connection, task_id: int
+) -> str | None:
+    """Return the cutoff for commits belonging to the current delivery cycle.
+
+    ``tasks.started_at`` remains the lower bound that prevents an old commit
+    from a previous database incarnation with the same task ID being
+    attributed to the current task.  A reopened task starts a new delivery
+    cycle, however, so its latest transition back to ``To Do`` is a stronger
+    (later) boundary.  Legacy databases without the transition table retain
+    the ``started_at`` behavior.
+    """
     try:
         row = conn.execute(
             "SELECT started_at FROM tasks WHERE id = ?",
@@ -321,8 +332,25 @@ def _task_started_at(conn: sqlite3.Connection, task_id: int) -> str | None:
     if not row:
         return None
     if isinstance(row, sqlite3.Row) and "started_at" in row.keys():
-        return row["started_at"]
-    return row[0]
+        started_at = row["started_at"]
+    else:
+        started_at = row[0]
+
+    try:
+        reopen_row = conn.execute(
+            "SELECT MAX(changed_at) FROM task_status_transitions "
+            "WHERE task_id = ? AND to_status = 'To Do'",
+            (task_id,),
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return started_at
+
+    reopened_at = reopen_row[0] if reopen_row else None
+    if not started_at:
+        return reopened_at
+    if not reopened_at:
+        return started_at
+    return max(started_at, reopened_at)
 
 
 def main(argv: list) -> int:
@@ -350,17 +378,17 @@ def main(argv: list) -> int:
             print(f"Task {task_id} not found", file=sys.stderr)
             return 1
 
-        started_at = _task_started_at(conn, task_id)
+        delivery_cycle_started_at = _task_delivery_cycle_started_at(conn, task_id)
         creates_paths_missing = missing_creates_paths(task_id, conn, repo_root)
         default_branch = default_branch_of(repo_root)
         default_commits = find_task_commits(
-            task_id, repo_root, [default_branch], since=started_at
+            task_id, repo_root, [default_branch], since=delivery_cycle_started_at
         )
         if default_commits:
             default_files = commit_changed_files(default_commits, repo_root)
             task_paths = set(task_referenced_paths(task_id, conn))
             feature_commits = _feature_branch_commits(
-                task_id, repo_root, default_branch, since=started_at
+                task_id, repo_root, default_branch, since=delivery_cycle_started_at
             )
             feature_files = commit_changed_files(feature_commits, repo_root)
             scope = task_paths | feature_files
@@ -395,7 +423,7 @@ def main(argv: list) -> int:
                 "missing_creates_paths": creates_paths_missing,
                 "recommendation": recommendation,
             }
-        elif check_commits(task_id, repo_root, since=started_at):
+        elif check_commits(task_id, repo_root, since=delivery_cycle_started_at):
             output = {
                 "commits_found": True,
                 "files_found": False,
