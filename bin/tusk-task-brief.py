@@ -51,6 +51,8 @@ PATH_SUFFIX_RE = re.compile(
 )
 GLOB_CHARS = frozenset("*?[")
 SHELL_EXPANSION_CHARS = frozenset("$`\\~*?[{")
+COMMAND_SUB_START = "\0tusk-command-substitution-start\0"
+COMMAND_SUB_END = "\0tusk-command-substitution-end\0"
 
 
 def _task_id_type(value: str) -> int:
@@ -79,14 +81,139 @@ def _clean_path_token(token: str) -> str | None:
     return token
 
 
+def _command_substitution_end(command: str, start: int) -> int | None:
+    """Return the closing-paren index for a command substitution at start."""
+    depth = 1
+    quote: str | None = None
+    index = start + 2
+    while index < len(command):
+        char = command[index]
+        if quote == "'":
+            if char == "'":
+                quote = None
+            index += 1
+            continue
+        if char == "\\":
+            index += 2
+            continue
+        if quote == '"':
+            if char == '"':
+                quote = None
+                index += 1
+                continue
+            if command.startswith("$(", index):
+                nested_end = _command_substitution_end(command, index)
+                if nested_end is None:
+                    return None
+                index = nested_end + 1
+                continue
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+        elif command.startswith("$(", index):
+            nested_end = _command_substitution_end(command, index)
+            if nested_end is None:
+                return None
+            index = nested_end + 1
+            continue
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return None
+
+
+def _command_substitutions(command: str) -> tuple[str, dict[str, str]]:
+    """Replace balanced command substitutions with collision-safe markers."""
+    marker_prefix = "__TUSK_COMMAND_SUBSTITUTION_"
+    while marker_prefix in command:
+        marker_prefix += "_"
+
+    substitutions: dict[str, str] = {}
+    rendered: list[str] = []
+    quote: str | None = None
+    index = 0
+    while index < len(command):
+        char = command[index]
+        if quote == "'":
+            rendered.append(char)
+            if char == "'":
+                quote = None
+            index += 1
+            continue
+        if char == "\\":
+            rendered.append(command[index:index + 2])
+            index += 2
+            continue
+        if quote == '"':
+            if char == '"':
+                quote = None
+                rendered.append(char)
+                index += 1
+                continue
+            if command.startswith("$(", index):
+                end = _command_substitution_end(command, index)
+                if end is not None:
+                    marker = f"{marker_prefix}{len(substitutions)}__"
+                    substitutions[marker] = command[index + 2:end]
+                    rendered.append(marker)
+                    index = end + 1
+                    continue
+            rendered.append(char)
+            index += 1
+            continue
+        if char == "'":
+            quote = char
+            rendered.append(char)
+            index += 1
+            continue
+        if char == '"':
+            quote = '"'
+            rendered.append(char)
+            index += 1
+            continue
+        if command.startswith("$(", index):
+            end = _command_substitution_end(command, index)
+            if end is not None:
+                marker = f"{marker_prefix}{len(substitutions)}__"
+                substitutions[marker] = command[index + 2:end]
+                rendered.append(marker)
+                index = end + 1
+                continue
+        rendered.append(char)
+        index += 1
+    return "".join(rendered), substitutions
+
+
 def _shell_scan_tokens(command: str) -> list[str]:
     """Return shell-ish tokens suitable for conservative cwd/path scanning."""
+    rendered, substitutions = _command_substitutions(command)
     try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+        lexer = shlex.shlex(rendered, posix=True, punctuation_chars=";&|")
         lexer.whitespace_split = True
-        return list(lexer)
+        outer_tokens = list(lexer)
     except ValueError:
-        return command.split()
+        outer_tokens = rendered.split()
+
+    tokens: list[str] = []
+    for token in outer_tokens:
+        markers = [
+            (token.find(marker), body)
+            for marker, body in substitutions.items()
+            if marker in token
+        ]
+        if not markers:
+            tokens.append(token)
+            continue
+        for _, body in sorted(markers):
+            tokens.append(COMMAND_SUB_START)
+            tokens.extend(_shell_scan_tokens(body))
+            tokens.append(COMMAND_SUB_END)
+    return tokens
 
 
 def _is_control_operator(token: str) -> bool:
@@ -122,9 +249,45 @@ def _spec_paths(spec: str) -> list[str]:
     in_pipeline = False
     at_command_start = True
     command_name: str | None = None
+    substitution_states: list[tuple] = []
     index = 0
     while index < len(tokens):
         token = tokens[index]
+        if token == COMMAND_SUB_START:
+            substitution_states.append(
+                (
+                    current_dir,
+                    command_base,
+                    and_or_base,
+                    pipeline_base,
+                    in_pipeline,
+                    at_command_start,
+                    command_name,
+                )
+            )
+            command_base = current_dir
+            and_or_base = current_dir
+            pipeline_base = None
+            in_pipeline = False
+            at_command_start = True
+            command_name = None
+            index += 1
+            continue
+        if token == COMMAND_SUB_END and substitution_states:
+            (
+                current_dir,
+                command_base,
+                and_or_base,
+                pipeline_base,
+                in_pipeline,
+                outer_at_command_start,
+                command_name,
+            ) = substitution_states.pop()
+            at_command_start = False
+            if outer_at_command_start:
+                command_name = None
+            index += 1
+            continue
         if _is_control_operator(token):
             if token in {"|", "|&"}:
                 if not in_pipeline:
@@ -148,7 +311,9 @@ def _spec_paths(spec: str) -> list[str]:
         if at_command_start and token == "cd":
             target = (
                 tokens[index + 1]
-                if index + 1 < len(tokens) and not _is_control_operator(tokens[index + 1])
+                if index + 1 < len(tokens)
+                and tokens[index + 1] not in {COMMAND_SUB_START, COMMAND_SUB_END}
+                and not _is_control_operator(tokens[index + 1])
                 else ""
             )
             current_dir = _resolve_literal_cd(target, current_dir)

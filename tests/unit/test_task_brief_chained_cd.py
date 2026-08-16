@@ -243,3 +243,36 @@ def test_dot_prefixed_executable_resolves_after_chained_cd():
         "apps/scraper/.venv/bin/python3",
         "apps/scraper/tests/unit/test_example.py",
     ]
+
+
+def test_spec_paths_extract_file_from_quoted_command_substitution():
+    assert brief._spec_paths(
+        "test \"$(rg -F '.github/workflows/web-ci.yml' "
+        ".github/workflows/web-ci.yml | wc -l | tr -d '[:space:]')\" -ge 3"
+    ) == [".github/workflows/web-ci.yml"]
+
+
+def test_nested_command_substitution_inherits_and_restores_working_directory():
+    assert brief._spec_paths(
+        "cd apps && test \"$(printf '%s' \"$(cd web && "
+        "rg marker tests/inside.test.ts)\")\" && cat tests/after.test.ts"
+    ) == [
+        "apps",
+        "apps/web",
+        "apps/web/tests/inside.test.ts",
+        "apps/tests/after.test.ts",
+    ]
+
+
+def test_command_substitution_detection_respects_literal_and_escaped_dollars():
+    literal = brief._shell_scan_tokens("printf '%s' '$(rg marker missing/fake.py)'")
+    escaped = brief._shell_scan_tokens(r"printf '%s' \$(rg marker missing/fake.py)")
+
+    assert brief.COMMAND_SUB_START not in literal
+    assert brief.COMMAND_SUB_START not in escaped
+
+
+def test_dynamic_cd_substitution_does_not_change_outer_working_directory():
+    assert brief._spec_paths(
+        "cd \"$(printf apps/web)\" && cat tests/after.test.ts"
+    ) == ["apps/web", "tests/after.test.ts"]
