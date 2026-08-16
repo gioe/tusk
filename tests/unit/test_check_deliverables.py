@@ -717,6 +717,63 @@ class TestMergedNotClosed:
         assert data["default_branch_commits"] == []
         assert data["recommendation"] == "implement_fresh"
 
+    def test_reopen_uses_only_current_delivery_cycle_commits(self, tmp_path):
+        """A superseded merge cannot close a reopened task, while a later
+        corrective merge is reported using only its SHA and changed files."""
+        _init_git_repo(tmp_path)
+        superseded_sha = _git_commit_with_files_at(
+            tmp_path,
+            "[TASK-7778] initial implementation",
+            [("src/superseded.py", "old behavior\n")],
+            "2026-01-15 10:00:00 +0000",
+        )
+        db_path = _make_db(
+            tmp_path,
+            task_id=7778,
+            summary="Correct src/current.py after reopen",
+        )
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE task_status_transitions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                from_status TEXT,
+                to_status TEXT NOT NULL,
+                changed_at TEXT NOT NULL
+            );
+            UPDATE tasks
+            SET started_at = '2026-01-01 10:00:00'
+            WHERE id = 7778;
+            INSERT INTO task_status_transitions
+                (task_id, from_status, to_status, changed_at)
+            VALUES
+                (7778, 'Done', 'To Do', '2026-02-01 10:00:00');
+        """)
+        conn.commit()
+        conn.close()
+
+        rc, stdout, _ = _run_main(db_path, 7778)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "implement_fresh"
+        assert data["commits_found"] is False
+        assert superseded_sha not in data["default_branch_commits"]
+
+        corrective_sha = _git_commit_with_files_at(
+            tmp_path,
+            "[TASK-7778] corrective implementation",
+            [("src/current.py", "corrected behavior\n")],
+            "2026-03-01 10:00:00 +0000",
+        )
+        rc, stdout, _ = _run_main(db_path, 7778)
+        assert rc == 0
+        data = json.loads(stdout)
+        assert data["recommendation"] == "merged_not_closed"
+        assert data["default_branch_commits"] == [corrective_sha]
+        assert data["default_branch_commit_files"] == ["src/current.py"]
+        assert superseded_sha not in data["default_branch_commits"]
+        assert "src/superseded.py" not in data["default_branch_commit_files"]
+
 
 # ── merged_not_closed_low_confidence (prefix-match false-positive case) ──
 
