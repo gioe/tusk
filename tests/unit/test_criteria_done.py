@@ -740,7 +740,7 @@ class TestCmdDoneBulk:
 
     @pytest.mark.parametrize(
         "url",
-        ["not-a-url", "ftp://ci.example.com/run/1", "https://", " https://ci.example.com/run/1"],
+        ["", "not-a-url", "ftp://ci.example.com/run/1", "https://", " https://ci.example.com/run/1"],
     )
     def test_external_verification_rejects_invalid_url_without_mutation(self, url):
         conn = make_db(criteria_specs=[{
@@ -782,6 +782,30 @@ class TestCmdDoneBulk:
         assert all(row["is_completed"] == 0 for row in rows)
         assert all(row["verification_result"] is None for row in rows)
         assert "requires typed criteria" in err.getvalue()
+
+    def test_external_verification_and_skip_reject_before_handler_mutation(self):
+        conn = make_db(criteria_specs=[{
+            "criterion_type": "test",
+            "verification_spec": "true",
+            "is_completed": 0,
+        }])
+        args = self._make_args(
+            [1], skip_verify=True,
+            external_verification_url="https://ci.example.com/runs/1",
+        )
+        err = io.StringIO()
+        with redirect_stderr(err), patch.object(
+            criteria_mod, "get_connection", return_value=_NoCloseConn(conn)
+        ):
+            rc = criteria_mod.cmd_done(args, ":memory:", {})
+
+        assert rc == 2
+        row = conn.execute(
+            "SELECT is_completed, verification_result FROM acceptance_criteria WHERE id = 1"
+        ).fetchone()
+        assert row["is_completed"] == 0
+        assert row["verification_result"] is None
+        assert "cannot be combined" in err.getvalue()
 
     def test_bulk_happy_path(self):
         """All three criteria marked done, exit 0."""

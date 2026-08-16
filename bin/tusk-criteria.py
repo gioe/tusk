@@ -866,7 +866,7 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
     # successful external evidence or explicitly bypassed verification.
     verification_result = None
     verification_payload = None
-    if external_verification_url:
+    if external_verification_url is not None:
         verification_payload = {
             "passed": True,
             "external": True,
@@ -1098,7 +1098,7 @@ def _verification_contract(
             "evidence": "explicit_skip",
         }
 
-    if external_verification_url:
+    if external_verification_url is not None:
         return {
             "type": criterion_type,
             "strength": "automated",
@@ -1240,7 +1240,14 @@ def cmd_done(args: argparse.Namespace, db_path: str, config: dict) -> int:
         external_verification_url = getattr(
             args, "external_verification_url", None
         )
-        if external_verification_url:
+        if external_verification_url is not None and args.skip_verify:
+            print(
+                "Error: --external-verification-url cannot be combined with "
+                "--skip-verify",
+                file=sys.stderr,
+            )
+            return 2
+        if external_verification_url is not None:
             error = _external_verification_error(
                 conn, args.criterion_ids, external_verification_url
             )
@@ -1650,7 +1657,7 @@ def main():
     if (
         args.command == "done"
         and args.skip_verify
-        and getattr(args, "external_verification_url", None)
+        and getattr(args, "external_verification_url", None) is not None
     ):
         done_p.error(
             "--external-verification-url cannot be combined with --skip-verify"
