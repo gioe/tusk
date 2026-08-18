@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1269] - 2026-08-18
+
+- [TASK-883] Target jot writes to the caller under parallel skill runs
+
 ## [1268] - 2026-08-16
 
 - [TASK-882] Use the current delivery cycle in check-deliverables after reopen
