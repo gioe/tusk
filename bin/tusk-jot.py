@@ -9,15 +9,19 @@ old conversation memory at retro time. /retro reads jots for the parent
 Two subcommands share this script. The bin/tusk dispatcher routes:
 
     tusk jot write <category> "<note>" [--file <path>] [--skill <name>]
-    tusk jot <category> "<note>" [--file <path>] [--skill <name>]  # shorthand
+        [--task-id <id>] [--skill-run-id <id>]
+    tusk jot <category> "<note>" [--file <path>] [--skill <name>]
+        [--task-id <id>] [--skill-run-id <id>]  # shorthand
         → tusk-jot.py write <category> <note> [--file ...] [--skill ...]
 
     tusk jots [--skill-run-id <id>] [--task-id <id>] [--limit N]
         → tusk-jot.py list [--skill-run-id ...] [--task-id ...] [--limit N]
 
-`write` resolves the currently-active skill_run via the most-recent row
-with ended_at IS NULL; the jot's task_id is copied from that row so the
-retro reader can filter by either run or task.
+`write` accepts an explicit skill-run or task identity. Without one, it uses
+the caller's recorded task workspace when available. A single globally-open
+run remains the compatibility fallback; ambiguous targets are rejected. The
+jot's task_id is copied from the selected run so the retro reader can filter
+by either run or task.
 
 Arguments received from tusk:
     sys.argv[1] — DB path
@@ -48,13 +52,101 @@ get_connection = _db_lib.get_connection
 reject_shell_metacharacters = _git_helpers.reject_shell_metacharacters
 
 
-def resolve_active_run(conn: sqlite3.Connection) -> sqlite3.Row | None:
-    """Return the most-recent open skill_runs row, or None if none open."""
+def _open_runs(
+    conn: sqlite3.Connection, *, task_id: int | None = None
+) -> list[sqlite3.Row]:
+    where = "WHERE ended_at IS NULL"
+    params: tuple = ()
+    if task_id is not None:
+        where += " AND task_id = ?"
+        params = (task_id,)
     return conn.execute(
         "SELECT id, task_id FROM skill_runs "
-        "WHERE ended_at IS NULL "
-        "ORDER BY started_at DESC LIMIT 1"
-    ).fetchone()
+        f"{where} ORDER BY started_at DESC, id DESC",
+        params,
+    ).fetchall()
+
+
+def _workspace_task_id(
+    conn: sqlite3.Connection, caller_root: str | None
+) -> int | None:
+    if not caller_root:
+        return None
+    caller = os.path.realpath(caller_root)
+    rows = conn.execute(
+        "SELECT task_id, workspace_path FROM task_workspaces"
+    ).fetchall()
+    for row in rows:
+        path = row["workspace_path"]
+        if path and os.path.realpath(path) == caller:
+            return row["task_id"]
+    return None
+
+
+def _require_unique_open_run(
+    conn: sqlite3.Connection, task_id: int
+) -> sqlite3.Row:
+    rows = _open_runs(conn, task_id=task_id)
+    if not rows:
+        raise ValueError(
+            f"No open skill_run for task {task_id} — start one with "
+            f"'tusk task-start {task_id} --skill <name>' first"
+        )
+    if len(rows) > 1:
+        ids = ", ".join(str(row["id"]) for row in rows)
+        raise ValueError(
+            f"Ambiguous jot target: task {task_id} has multiple open skill runs "
+            f"({ids}). Re-run with --skill-run-id <id>."
+        )
+    return rows[0]
+
+
+def resolve_active_run(
+    conn: sqlite3.Connection,
+    *,
+    skill_run_id: int | None = None,
+    task_id: int | None = None,
+    caller_root: str | None = None,
+) -> sqlite3.Row | None:
+    """Resolve one open run from explicit identity, caller workspace, or fallback."""
+    if skill_run_id is not None:
+        row = conn.execute(
+            "SELECT id, task_id, ended_at FROM skill_runs WHERE id = ?",
+            (skill_run_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Skill run {skill_run_id} does not exist.")
+        if row["ended_at"] is not None:
+            raise ValueError(
+                f"Skill run {skill_run_id} is closed; select an open skill run."
+            )
+        if task_id is not None and row["task_id"] != task_id:
+            raise ValueError(
+                f"Skill run {skill_run_id} belongs to task {row['task_id']}, "
+                f"not requested task {task_id}."
+            )
+        return row
+
+    if task_id is not None:
+        return _require_unique_open_run(conn, task_id)
+
+    workspace_task_id = _workspace_task_id(conn, caller_root)
+    if workspace_task_id is not None:
+        return _require_unique_open_run(conn, workspace_task_id)
+
+    rows = _open_runs(conn)
+    if not rows:
+        return None
+    if len(rows) > 1:
+        targets = ", ".join(
+            f"{row['id']} (task {row['task_id']})" for row in rows
+        )
+        raise ValueError(
+            "Ambiguous jot target: multiple skill runs are open "
+            f"({targets}) and the caller is not a recorded task workspace. "
+            "Re-run with --skill-run-id <id> or --task-id <id>."
+        )
+    return rows[0]
 
 
 def write_jot(
@@ -64,13 +156,21 @@ def write_jot(
     note: str,
     file_hint: str | None,
     skill_hint: str | None,
+    skill_run_id: int | None = None,
+    task_id: int | None = None,
+    caller_root: str | None = None,
 ) -> dict:
     """Insert one jots row keyed to the active skill_run.
 
     Raises ValueError when no skill_run is currently open — the caller
     surfaces it as exit 1 with a recovery hint.
     """
-    active = resolve_active_run(conn)
+    active = resolve_active_run(
+        conn,
+        skill_run_id=skill_run_id,
+        task_id=task_id,
+        caller_root=caller_root,
+    )
     if active is None:
         raise ValueError(
             "No active skill_run — start one with "
@@ -136,6 +236,7 @@ def main(argv: list) -> int:
         prog="tusk jot",
         description="Mid-task friction notes consumed by /retro.",
     )
+    parser.add_argument("--caller-root", default=None, help=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest="mode", required=True)
 
     w = sub.add_parser(
@@ -148,6 +249,10 @@ def main(argv: list) -> int:
                    help="Optional file path the jot is about (pre-classify hint).")
     w.add_argument("--skill", dest="skill_hint", default=None,
                    help="Optional skill name the jot is about (pre-classify hint).")
+    w.add_argument("--task-id", type=int, default=None,
+                   help="Target the unique open skill run for this task.")
+    w.add_argument("--skill-run-id", type=int, default=None,
+                   help="Target this exact open skill run.")
 
     ls = sub.add_parser(
         "list", allow_abbrev=False,
@@ -190,6 +295,9 @@ def main(argv: list) -> int:
                     note=args.note,
                     file_hint=args.file_hint,
                     skill_hint=args.skill_hint,
+                    skill_run_id=args.skill_run_id,
+                    task_id=args.task_id,
+                    caller_root=args.caller_root,
                 )
             except ValueError as e:
                 print(str(e), file=sys.stderr)
@@ -215,8 +323,8 @@ def main(argv: list) -> int:
 if __name__ == "__main__":
     if len(sys.argv) < 2 or not sys.argv[1].endswith(".db"):
         print("Error: This script must be invoked via the tusk wrapper.", file=sys.stderr)
-        print("Use: tusk jot write <category> \"<note>\" [--file <path>] [--skill <name>]", file=sys.stderr)
-        print("     tusk jot <category> \"<note>\" [--file <path>] [--skill <name>]  # shorthand", file=sys.stderr)
+        print("Use: tusk jot write <category> \"<note>\" [--file <path>] [--skill <name>] [--task-id <id>] [--skill-run-id <id>]", file=sys.stderr)
+        print("     tusk jot <category> \"<note>\" [--file <path>] [--skill <name>] [--task-id <id>] [--skill-run-id <id>]  # shorthand", file=sys.stderr)
         print("     tusk jots [--skill-run-id <id>] [--task-id <id>] [--limit N]", file=sys.stderr)
         sys.exit(1)
     # Retry the whole command (a fresh connection per attempt) on transient

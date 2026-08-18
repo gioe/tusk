@@ -48,6 +48,13 @@ CREATE TABLE tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     summary TEXT
 );
+CREATE TABLE task_workspaces (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    branch TEXT NOT NULL UNIQUE,
+    workspace_path TEXT NOT NULL UNIQUE,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
 CREATE TABLE jots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     skill_run_id INTEGER NOT NULL,
@@ -123,6 +130,153 @@ def test_write_no_hints_stores_real_nulls(tmp_path):
     row = json.loads(out)
     assert row["file_hint"] is None
     assert row["skill_hint"] is None
+
+
+def _add_open_run(conn, *, run_id, task_id, started_at):
+    conn.execute(
+        "INSERT INTO tasks (id, summary) VALUES (?, ?)",
+        (task_id, f"task {task_id}"),
+    )
+    conn.execute(
+        "INSERT INTO skill_runs (id, skill_name, task_id, started_at) "
+        "VALUES (?, 'tusk', ?, ?)",
+        (run_id, task_id, started_at),
+    )
+    conn.commit()
+
+
+def test_write_explicit_skill_run_targets_requested_parallel_run(tmp_path):
+    db_path, conn = _make_db(tmp_path)
+    _add_open_run(
+        conn, run_id=2, task_id=43, started_at="2099-01-01 00:00:00"
+    )
+
+    rc, out, err = _run_cli(
+        db_path, "write", "process", "belongs to run one", "--skill-run-id", "1"
+    )
+
+    assert rc == 0, err
+    row = json.loads(out)
+    assert row["skill_run_id"] == 1
+    assert row["task_id"] == 42
+
+
+def test_write_explicit_task_targets_its_unique_open_run(tmp_path):
+    db_path, conn = _make_db(tmp_path)
+    _add_open_run(
+        conn, run_id=2, task_id=43, started_at="2099-01-01 00:00:00"
+    )
+
+    rc, out, err = _run_cli(
+        db_path, "write", "process", "belongs to task 42", "--task-id", "42"
+    )
+
+    assert rc == 0, err
+    row = json.loads(out)
+    assert row["skill_run_id"] == 1
+    assert row["task_id"] == 42
+
+
+def test_write_explicit_run_and_task_must_agree(tmp_path):
+    db_path, conn = _make_db(tmp_path)
+    _add_open_run(
+        conn, run_id=2, task_id=43, started_at="2099-01-01 00:00:00"
+    )
+
+    rc, out, err = _run_cli(
+        db_path,
+        "write",
+        "process",
+        "must not be stored",
+        "--skill-run-id",
+        "2",
+        "--task-id",
+        "42",
+    )
+
+    assert rc == 1
+    assert out == ""
+    assert "belongs to task 43, not requested task 42" in err
+    assert conn.execute("SELECT COUNT(*) FROM jots").fetchone()[0] == 0
+
+
+def test_write_explicit_run_must_be_open(tmp_path):
+    db_path, conn = _make_db(tmp_path)
+    conn.execute(
+        "UPDATE skill_runs SET ended_at = '2099-01-01 00:00:00' WHERE id = 1"
+    )
+    conn.commit()
+
+    rc, out, err = _run_cli(
+        db_path, "write", "process", "must not be stored", "--skill-run-id", "1"
+    )
+
+    assert rc == 1
+    assert out == ""
+    assert "Skill run 1 is closed" in err
+    assert conn.execute("SELECT COUNT(*) FROM jots").fetchone()[0] == 0
+
+
+def test_write_caller_workspace_targets_its_task(tmp_path):
+    db_path, conn = _make_db(tmp_path)
+    caller_root = tmp_path / "task-42-worktree"
+    caller_root.mkdir()
+    conn.execute(
+        "INSERT INTO task_workspaces (task_id, branch, workspace_path) "
+        "VALUES (42, 'feature/TASK-42-test', ?)",
+        (str(caller_root),),
+    )
+    _add_open_run(
+        conn, run_id=2, task_id=43, started_at="2099-01-01 00:00:00"
+    )
+
+    rc, out, err = _run_cli(
+        db_path,
+        "--caller-root",
+        str(caller_root),
+        "write",
+        "process",
+        "belongs to task 42",
+    )
+
+    assert rc == 0, err
+    row = json.loads(out)
+    assert row["skill_run_id"] == 1
+    assert row["task_id"] == 42
+
+
+def test_write_unmapped_parallel_runs_refuses_ambiguity(tmp_path):
+    db_path, conn = _make_db(tmp_path)
+    _add_open_run(
+        conn, run_id=2, task_id=43, started_at="2099-01-01 00:00:00"
+    )
+
+    rc, out, err = _run_cli(db_path, "write", "process", "must not be stored")
+
+    assert rc == 1
+    assert out == ""
+    assert "Ambiguous jot target" in err
+    assert "--skill-run-id <id> or --task-id <id>" in err
+    assert conn.execute("SELECT COUNT(*) FROM jots").fetchone()[0] == 0
+
+
+def test_write_task_with_multiple_open_runs_requires_exact_run(tmp_path):
+    db_path, conn = _make_db(tmp_path)
+    conn.execute(
+        "INSERT INTO skill_runs (id, skill_name, task_id, started_at) "
+        "VALUES (2, 'review-commits', 42, '2099-01-01 00:00:00')"
+    )
+    conn.commit()
+
+    rc, out, err = _run_cli(
+        db_path, "write", "process", "must not be stored", "--task-id", "42"
+    )
+
+    assert rc == 1
+    assert out == ""
+    assert "task 42 has multiple open skill runs" in err
+    assert "--skill-run-id <id>" in err
+    assert conn.execute("SELECT COUNT(*) FROM jots").fetchone()[0] == 0
 
 
 def test_write_no_active_run_errors(tmp_path):
