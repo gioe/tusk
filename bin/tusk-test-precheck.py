@@ -70,6 +70,7 @@ import os
 import re
 import shutil
 import sqlite3
+import stat
 import subprocess
 import sys
 import tempfile
@@ -744,25 +745,218 @@ def run_test_in_temporary_worktree(repo_root: str, test_command: str) -> int:
 
 
 def _is_untracked(repo_root: str, path: str) -> bool:
-    result = _run(["git", "ls-files", "--error-unmatch", path], cwd=repo_root)
-    return result.returncode != 0
+    """Return whether ``path`` is absent from the index, failing closed."""
+    result = _run(["git", "ls-files", "--stage", "--", path], cwd=repo_root)
+    return result.returncode == 0 and not result.stdout.strip()
 
 
-def _remove_generated_pop_blockers(repo_root: str, stderr: str) -> list[str]:
-    """Remove known generated untracked files that block stash pop."""
+_UNTRACKED_POP_BLOCKER_SUFFIX = " already exists, no checkout"
+
+
+def _parse_untracked_pop_blockers(output: str) -> list[str]:
+    """Parse the paths Git reports when stash untracked restore is blocked.
+
+    Only Git's plain ``<path> already exists, no checkout`` form is accepted.
+    Quoted/control-character paths are deliberately left unparseable so the
+    recovery path cannot delete a file based on an ambiguous diagnostic.
+    """
+    blockers: list[str] = []
+    for line in output.splitlines():
+        if not line.endswith(_UNTRACKED_POP_BLOCKER_SUFFIX):
+            continue
+        path = line[: -len(_UNTRACKED_POP_BLOCKER_SUFFIX)]
+        if (
+            not path
+            or path != path.strip()
+            or path[0] in "'\""
+            or any(ord(char) < 32 for char in path)
+        ):
+            continue
+        if path not in blockers:
+            blockers.append(path)
+    return blockers
+
+
+def _safe_repo_path(repo_root: str, rel_path: str, *, must_exist: bool) -> str | None:
+    """Return a contained regular-file path, or ``None`` when unsafe.
+
+    For a path that does not exist yet, its real parent must remain inside the
+    repository. Existing symlinks and non-regular files are never accepted.
+    """
+    if (
+        not rel_path
+        or os.path.isabs(rel_path)
+        or "\x00" in rel_path
+        or "\n" in rel_path
+        or "\r" in rel_path
+    ):
+        return None
+    parts = rel_path.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        return None
+    root_abs = os.path.abspath(repo_root)
+    root_real = os.path.realpath(root_abs)
+    abs_path = os.path.abspath(os.path.join(root_abs, *parts))
+    try:
+        if os.path.commonpath((root_abs, abs_path)) != root_abs:
+            return None
+    except ValueError:
+        return None
+    if os.path.lexists(abs_path):
+        try:
+            if not stat.S_ISREG(os.lstat(abs_path).st_mode):
+                return None
+            if os.path.commonpath((root_real, os.path.realpath(abs_path))) != root_real:
+                return None
+        except (OSError, ValueError):
+            return None
+    elif must_exist:
+        return None
+    else:
+        try:
+            parent_real = os.path.realpath(os.path.dirname(abs_path))
+            if os.path.commonpath((root_real, parent_real)) != root_real:
+                return None
+        except ValueError:
+            return None
+    return abs_path
+
+
+def _stash_untracked_entries(repo_root: str, stash_ref: str) -> dict[str, str]:
+    """Return safe regular-file paths and blob ids from a stash's third parent."""
+    result = _run(
+        ["git", "ls-tree", "-rz", "--full-tree", f"{stash_ref}^3"],
+        cwd=repo_root,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            "could not inspect the stash's untracked tree: "
+            f"{result.stderr.strip() or result.stdout.strip()}"
+        )
+    entries: dict[str, str] = {}
+    for record in result.stdout.split("\0"):
+        if not record:
+            continue
+        metadata, separator, rel_path = record.partition("\t")
+        fields = metadata.split()
+        if not separator or len(fields) != 3:
+            raise RuntimeError("stash untracked tree contained an unparseable entry")
+        mode, object_type, blob_id = fields
+        if mode not in ("100644", "100755") or object_type != "blob":
+            raise RuntimeError(
+                f"stash untracked entry {rel_path!r} is not a regular file"
+            )
+        if _safe_repo_path(repo_root, rel_path, must_exist=False) is None:
+            raise RuntimeError(
+                f"stash untracked entry {rel_path!r} is outside the safe repository scope"
+            )
+        entries[rel_path] = blob_id
+    return entries
+
+
+def _working_file_blob(repo_root: str, rel_path: str) -> str:
+    result = _run(
+        ["git", "hash-object", "--no-filters", "--", rel_path], cwd=repo_root
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _recover_untracked_pop_conflict(
+    repo_root: str,
+    stash_ref: str,
+    pop_output: str,
+) -> tuple[bool, str, list[str]]:
+    """Finish a partial stash pop without applying the tracked patch twice.
+
+    Git applies tracked changes before attempting the stash's third-parent
+    untracked tree. If a test recreated an untracked file, the pop therefore
+    fails after a partial restore. Recovery validates every reported blocker,
+    restores the third-parent files directly, verifies both tracked and
+    untracked state, then drops exactly ``stash_ref``. Any uncertainty retains
+    the stash and leaves changed/unsafe blockers untouched.
+    """
+    blockers = _parse_untracked_pop_blockers(pop_output)
+    if not blockers:
+        return False, "stash pop did not report parseable untracked blockers", []
+
+    try:
+        entries = _stash_untracked_entries(repo_root, stash_ref)
+    except RuntimeError as exc:
+        return False, str(exc), []
+
+    blocker_set = set(blockers)
+    if not blocker_set.issubset(entries):
+        unknown = ", ".join(sorted(blocker_set.difference(entries)))
+        return False, f"reported blocker(s) are absent from the stash: {unknown}", []
+
+    # Validate the whole plan before deleting anything. Files already restored
+    # by Git must also be identical and safe, because `git restore` below will
+    # address the complete third-parent tree.
+    for rel_path, stash_blob in entries.items():
+        abs_path = _safe_repo_path(
+            repo_root, rel_path, must_exist=os.path.lexists(os.path.join(repo_root, rel_path))
+        )
+        if abs_path is None:
+            return False, f"untracked restore path is unsafe: {rel_path}", []
+        if not os.path.lexists(abs_path):
+            continue
+        if not _is_untracked(repo_root, rel_path):
+            return False, f"restore path is tracked and will not be overwritten: {rel_path}", []
+        if (
+            rel_path not in GENERATED_POP_CONFLICT_PATHS
+            and _working_file_blob(repo_root, rel_path) != stash_blob
+        ):
+            return False, f"untracked blocker content changed; not deleting: {rel_path}", []
+
     removed: list[str] = []
-    for rel_path in GENERATED_POP_CONFLICT_PATHS:
-        if rel_path not in stderr:
-            continue
-        abs_path = os.path.join(repo_root, rel_path)
-        if not os.path.exists(abs_path) or not _is_untracked(repo_root, rel_path):
-            continue
+    for rel_path in blockers:
+        abs_path = _safe_repo_path(repo_root, rel_path, must_exist=True)
+        if abs_path is None or not _is_untracked(repo_root, rel_path):
+            return False, f"untracked blocker became unsafe: {rel_path}", removed
         try:
             os.remove(abs_path)
-            removed.append(rel_path)
-        except OSError:
-            pass
-    return removed
+        except OSError as exc:
+            return False, f"could not remove validated blocker {rel_path}: {exc}", removed
+        removed.append(rel_path)
+
+    restore = _run(
+        [
+            "git", "restore", f"--source={stash_ref}^3", "--worktree", "--",
+            *entries.keys(),
+        ],
+        cwd=repo_root,
+    )
+    if restore.returncode != 0:
+        return (
+            False,
+            "could not restore stash untracked files: "
+            f"{restore.stderr.strip() or restore.stdout.strip()}",
+            removed,
+        )
+
+    for rel_path, stash_blob in entries.items():
+        if (
+            _safe_repo_path(repo_root, rel_path, must_exist=True) is None
+            or not _is_untracked(repo_root, rel_path)
+            or _working_file_blob(repo_root, rel_path) != stash_blob
+        ):
+            return False, f"restored untracked file failed verification: {rel_path}", removed
+
+    unmerged = _run(
+        ["git", "diff", "--quiet", "--diff-filter=U", "--"], cwd=repo_root
+    )
+    tracked = _run(["git", "diff", "--quiet", stash_ref, "--"], cwd=repo_root)
+    if unmerged.returncode != 0 or tracked.returncode != 0:
+        return False, "restored tracked state did not match the named stash", removed
+
+    drop = _run(["git", "stash", "drop", stash_ref], cwd=repo_root)
+    if drop.returncode != 0:
+        return (
+            False,
+            f"restored state verified but stash drop failed: {drop.stderr.strip()}",
+            removed,
+        )
+    return True, "", removed
 
 
 def main(argv):
@@ -967,23 +1161,24 @@ def main(argv):
                 return 1
             pop_res = _run(["git", "stash", "pop", stash_ref], cwd=repo_root)
             if pop_res.returncode != 0:
-                removed = _remove_generated_pop_blockers(repo_root, pop_res.stderr)
-                if removed:
-                    for rel_path in removed:
-                        print(
-                            "Removed generated file blocking stash restore: "
-                            f"{rel_path}",
-                            file=sys.stderr,
-                        )
-                    pop_res = _run(["git", "stash", "pop", stash_ref], cwd=repo_root)
-                    if pop_res.returncode == 0:
-                        pop_res = None
-                if pop_res is not None and pop_res.returncode != 0:
+                recovered, recovery_error, removed = _recover_untracked_pop_conflict(
+                    repo_root,
+                    stash_ref,
+                    (pop_res.stdout or "") + "\n" + (pop_res.stderr or ""),
+                )
+                for rel_path in removed:
+                    print(
+                        "Removed validated file blocking stash restore: "
+                        f"{rel_path}",
+                        file=sys.stderr,
+                    )
+                if not recovered:
                     print(
                         f"Error: `git stash pop {stash_ref}` failed — your changes "
                         f"remain in the stash list (message: {stash_message}).  "
-                        f"Resolve conflicts and run `git stash pop {stash_ref}` "
-                        f"manually.\n{pop_res.stderr}",
+                        f"Automatic untracked-file recovery stopped safely: "
+                        f"{recovery_error}. Resolve conflicts and recover "
+                        f"`{stash_ref}` manually.\n{pop_res.stderr}",
                         file=sys.stderr,
                     )
                     return 1

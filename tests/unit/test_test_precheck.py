@@ -16,6 +16,7 @@ import importlib.util
 import io
 import json
 import os
+import shlex
 import subprocess
 import sys
 from unittest import mock
@@ -111,6 +112,42 @@ def _completed(returncode: int = 0, stdout: str = "", stderr: str = "") -> subpr
     return subprocess.CompletedProcess(
         args=[], returncode=returncode, stdout=stdout, stderr=stderr,
     )
+
+
+def _git(repo, *args, check=True):
+    result = subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    if check:
+        assert result.returncode == 0, result.stderr or result.stdout
+    return result
+
+
+def _init_git_repo(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.name", "Tusk Test")
+    _git(repo, "config", "user.email", "test@example.invalid")
+    tracked = repo / "tracked.txt"
+    tracked.write_text("baseline\n", encoding="utf-8")
+    _git(repo, "add", "tracked.txt")
+    _git(repo, "commit", "-qm", "baseline")
+    return repo, tracked
+
+
+def _write_file_command(rel_path: str, content: str) -> str:
+    code = (
+        "from pathlib import Path; "
+        f"path = Path({rel_path!r}); "
+        "path.parent.mkdir(parents=True, exist_ok=True); "
+        f"path.write_text({content!r}, encoding='utf-8')"
+    )
+    return f"{shlex.quote(sys.executable)} -c {shlex.quote(code)}"
 
 
 class TestSilentDataLossRegression:
@@ -584,50 +621,120 @@ class TestDirtyTreeFallback:
 
 
 class TestGeneratedLockfilePopConflict:
-    def test_recreated_scheduled_tasks_lock_is_removed_and_pop_retried(
-        self, tmp_path, monkeypatch, capsys
+    def test_recreated_scheduled_tasks_lock_is_replaced_from_stash(
+        self, tmp_path, capsys
     ):
-        repo = tmp_path / "repo"
-        repo.mkdir()
+        repo, tracked = _init_git_repo(tmp_path)
         lock_path = repo / ".claude" / "scheduled_tasks.lock"
-        lock_path.parent.mkdir()
-        lock_path.write_text("runtime lock\n")
+        lock_path.parent.mkdir(parents=True)
+        lock_path.write_text("caller lock\n", encoding="utf-8")
+        tracked.write_text("dirty tracked edit\n", encoding="utf-8")
         cfg = tmp_path / "config.json"
-        cfg.write_text('{"test_command": "true"}')
+        cfg.write_text("{}", encoding="utf-8")
 
-        monkeypatch.setattr(mod, "detect_dirty", lambda _r: True)
-        monkeypatch.setattr(
-            mod, "find_stash_ref_by_message", lambda _r, _m: "stash@{0}"
-        )
-        monkeypatch.setattr(mod, "run_test", lambda _c, _r: 0)
-
-        pop_count = {"count": 0}
-
-        def fake_run(cmd_args, cwd, capture=True):
-            if cmd_args[:3] == ["git", "stash", "push"]:
-                return _completed(returncode=0)
-            if cmd_args[:3] == ["git", "stash", "pop"]:
-                pop_count["count"] += 1
-                if pop_count["count"] == 1:
-                    return _completed(
-                        returncode=1,
-                        stderr=(
-                            ".claude/scheduled_tasks.lock already exists, no checkout\n"
-                            "error: could not restore untracked files from stash\n"
-                        ),
-                    )
-                return _completed(returncode=0)
-            if cmd_args[:3] == ["git", "ls-files", "--error-unmatch"]:
-                return _completed(returncode=1)
-            return _completed(returncode=0)
-
-        monkeypatch.setattr(mod, "_run", fake_run)
-
-        rc = mod.main([str(repo), str(cfg), "--command", "true"])
+        rc = mod.main([
+            str(repo),
+            str(cfg),
+            "--command",
+            _write_file_command(
+                ".claude/scheduled_tasks.lock", "runtime lock\n"
+            ),
+        ])
         captured = capsys.readouterr()
 
         assert rc == 0
-        assert pop_count["count"] == 2
-        assert not lock_path.exists()
-        assert "Removed generated file blocking stash restore" in captured.err
+        assert tracked.read_text(encoding="utf-8") == "dirty tracked edit\n"
+        assert lock_path.read_text(encoding="utf-8") == "caller lock\n"
+        assert _git(repo, "stash", "list").stdout == ""
+        assert "Removed validated file blocking stash restore" in captured.err
         assert json.loads(captured.out)["stashed"] is True
+
+
+class TestRegeneratedUntrackedPopConflict:
+    ARTIFACT = "generated/__pycache__/fixture.cpython-311.pyc"
+
+    def test_identical_artifact_restores_dirty_state_and_drops_named_stash(
+        self, tmp_path, capsys
+    ):
+        repo, tracked = _init_git_repo(tmp_path)
+        artifact = repo / self.ARTIFACT
+        artifact.parent.mkdir(parents=True)
+        artifact.write_bytes(b"caller artifact\x00\xff\n")
+        tracked.write_text("dirty tracked edit\n", encoding="utf-8")
+        cfg = tmp_path / "config.json"
+        cfg.write_text("{}", encoding="utf-8")
+        command = (
+            f"{shlex.quote(sys.executable)} -c "
+            + shlex.quote(
+                "from pathlib import Path; "
+                f"path = Path({self.ARTIFACT!r}); "
+                "path.parent.mkdir(parents=True, exist_ok=True); "
+                "path.write_bytes(b'caller artifact\\x00\\xff\\n')"
+            )
+        )
+
+        rc = mod.main([str(repo), str(cfg), "--command", command])
+        captured = capsys.readouterr()
+
+        assert rc == 0
+        assert tracked.read_text(encoding="utf-8") == "dirty tracked edit\n"
+        assert artifact.read_bytes() == b"caller artifact\x00\xff\n"
+        assert _git(repo, "stash", "list").stdout == ""
+        assert "Removed validated file blocking stash restore" in captured.err
+        payload = json.loads(captured.out)
+        assert payload["stashed"] is True
+        assert payload["verdict"] == "non_reproduced"
+
+    def test_changed_artifact_is_retained_and_named_stash_stays_recoverable(
+        self, tmp_path, capsys
+    ):
+        repo, tracked = _init_git_repo(tmp_path)
+        artifact = repo / self.ARTIFACT
+        artifact.parent.mkdir(parents=True)
+        artifact.write_text("caller artifact\n", encoding="utf-8")
+        tracked.write_text("dirty tracked edit\n", encoding="utf-8")
+        cfg = tmp_path / "config.json"
+        cfg.write_text("{}", encoding="utf-8")
+
+        rc = mod.main([
+            str(repo),
+            str(cfg),
+            "--command",
+            _write_file_command(self.ARTIFACT, "changed artifact\n"),
+        ])
+        captured = capsys.readouterr()
+
+        assert rc == 1
+        assert tracked.read_text(encoding="utf-8") == "dirty tracked edit\n"
+        assert artifact.read_text(encoding="utf-8") == "changed artifact\n"
+        stashes = _git(repo, "stash", "list").stdout
+        assert "tusk-test-precheck/" in stashes
+        assert "content changed; not deleting" in captured.err
+        assert captured.out == ""
+
+
+class TestUntrackedPopBlockerSafety:
+    def test_parser_accepts_only_plain_git_blocker_lines(self):
+        assert mod._parse_untracked_pop_blockers(
+            "generated/cache.pyc already exists, no checkout\n"
+            "generated/cache.pyc already exists, no checkout\n"
+            '"quoted path" already exists, no checkout\n'
+            "\tindented already exists, no checkout\n"
+            "error: could not restore untracked files from stash\n"
+        ) == ["generated/cache.pyc"]
+
+    def test_safe_repo_path_rejects_escape_symlink_and_directory(self, tmp_path):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        outside = tmp_path / "outside.txt"
+        outside.write_text("outside\n", encoding="utf-8")
+        (repo / "escape").symlink_to(outside)
+        (repo / "directory").mkdir()
+
+        assert mod._safe_repo_path(
+            str(repo), "../outside.txt", must_exist=True
+        ) is None
+        assert mod._safe_repo_path(str(repo), "escape", must_exist=True) is None
+        assert mod._safe_repo_path(
+            str(repo), "directory", must_exist=True
+        ) is None
