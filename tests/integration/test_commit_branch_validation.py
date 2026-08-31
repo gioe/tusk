@@ -81,8 +81,15 @@ def _insert_task(db_path, summary="branch validation task"):
             "(?, 'desc', 'In Progress', 'bug', 'High', 'M', 30)",
             (summary,),
         )
+        task_id = cur.lastrowid
+        conn.execute(
+            "INSERT INTO task_scope (task_id, pattern, source, reason) "
+            "VALUES (?, 'feature.txt', 'operator_declared', "
+            "'branch validation fixture')",
+            (task_id,),
+        )
         conn.commit()
-        return cur.lastrowid
+        return task_id
 
 
 def _record_workspace(db_path, task_id, branch, workspace_path):

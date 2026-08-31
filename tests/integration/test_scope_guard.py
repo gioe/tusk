@@ -115,6 +115,12 @@ def _invoke_pre_commit(sandbox, env=None):
     )
 
 
+def _seed_git_head(sandbox):
+    """Give direct tusk-commit tests a stable HEAD to compare."""
+    _git(["add", "AGENTS.md"], sandbox)
+    _git(["commit", "-m", "baseline"], sandbox)
+
+
 # ── 2167: rejects out-of-scope staged paths ─────────────────────────────
 
 
@@ -166,6 +172,25 @@ def test_allows_in_scope(codex_sandbox):
     )
 
 
+def test_hook_allows_directory_and_glob_scope_patterns(codex_sandbox):
+    task_id = _seed_task(
+        codex_sandbox,
+        "Update scoped source and docs",
+        "Only the declared source and documentation patterns are in scope.",
+        creates=("src", "docs/*.md"),
+    )
+    _git(["checkout", "-b", f"feature/TASK-{task_id}-patterns"], codex_sandbox)
+    (codex_sandbox / "src").mkdir()
+    (codex_sandbox / "docs").mkdir()
+    (codex_sandbox / "src" / "code.py").write_text("value = 1\n")
+    (codex_sandbox / "docs" / "guide.md").write_text("# Guide\n")
+    _git(["add", "src/code.py", "docs/guide.md"], codex_sandbox)
+
+    result = _invoke_pre_commit(codex_sandbox)
+
+    assert result.returncode == 0, result.stderr
+
+
 # ── 2169: silent pass when current branch has no task id ────────────────
 
 
@@ -215,6 +240,135 @@ def test_skip_verify_bypass(codex_sandbox):
     # Override is logged to stderr
     assert "scope-guard: bypassed" in result.stderr
     assert "TUSK_SCOPE_GUARD_BYPASS" in result.stderr
+
+
+def test_tusk_commit_skip_verify_still_rejects_all_undeclared_paths(
+    codex_sandbox,
+):
+    """The CLI blocks before staging even when Git hooks are skipped."""
+    _seed_git_head(codex_sandbox)
+    task_id = _seed_task(
+        codex_sandbox,
+        "Only touch declared.txt",
+        "The task is limited to declared.txt.",
+        creates=("declared.txt",),
+    )
+    _git(["checkout", "-b", f"feature/TASK-{task_id}-direct-guard"], codex_sandbox)
+    (codex_sandbox / "outside-one.txt").write_text("one\n")
+    (codex_sandbox / "outside-two.txt").write_text("two\n")
+    before = _git(["rev-parse", "HEAD"], codex_sandbox).stdout.strip()
+
+    result = _run(
+        [
+            "tusk",
+            "commit",
+            str(task_id),
+            "Attempt undeclared paths",
+            "outside-one.txt",
+            "outside-two.txt",
+            "--skip-verify",
+        ],
+        codex_sandbox,
+        check=False,
+        env=_sandbox_env(codex_sandbox),
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "outside-one.txt" in output
+    assert "outside-two.txt" in output
+    assert f"tusk scope add {task_id} <path>" in output
+    assert "TUSK_COMMIT_RESULT" in output
+    after = _git(["rev-parse", "HEAD"], codex_sandbox).stdout.strip()
+    assert after == before
+    assert _git(["diff", "--cached", "--name-only"], codex_sandbox).stdout == ""
+
+
+def test_tusk_commit_checkpointed_rejection_recommends_expand(codex_sandbox):
+    _seed_git_head(codex_sandbox)
+    task_id = _seed_task(
+        codex_sandbox,
+        "Only touch declared.txt",
+        "The task is limited to declared.txt.",
+        creates=("declared.txt",),
+    )
+    env = _sandbox_env(codex_sandbox)
+    _run(["tusk", "scope", "lock", str(task_id)], codex_sandbox, env=env)
+    _git(["checkout", "-b", f"feature/TASK-{task_id}-locked-guard"], codex_sandbox)
+    (codex_sandbox / "outside.txt").write_text("outside\n")
+
+    result = _run(
+        [
+            "tusk",
+            "commit",
+            str(task_id),
+            "Attempt locked undeclared path",
+            "outside.txt",
+            "--skip-verify",
+        ],
+        codex_sandbox,
+        check=False,
+        env=env,
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert f"tusk scope expand {task_id} <path>" in output
+
+
+def test_tusk_commit_preserves_declared_pattern_and_legacy_behavior(codex_sandbox):
+    _seed_git_head(codex_sandbox)
+    env = _sandbox_env(codex_sandbox)
+    task_id = _seed_task(
+        codex_sandbox,
+        "Update source and docs",
+        "The task owns source and documentation paths.",
+        creates=("src", "docs/*.md"),
+    )
+    _git(["checkout", "-b", f"feature/TASK-{task_id}-patterns"], codex_sandbox)
+    (codex_sandbox / "src").mkdir()
+    (codex_sandbox / "docs").mkdir()
+    (codex_sandbox / "src" / "code.py").write_text("value = 1\n")
+    (codex_sandbox / "docs" / "guide.md").write_text("# Guide\n")
+
+    declared = _run(
+        [
+            "tusk",
+            "commit",
+            str(task_id),
+            "Commit declared patterns",
+            "src/code.py",
+            "docs/guide.md",
+            "--skip-verify",
+        ],
+        codex_sandbox,
+        check=False,
+        env=env,
+    )
+    assert declared.returncode == 0, declared.stdout + declared.stderr
+
+    legacy_id = _seed_task(
+        codex_sandbox,
+        "Legacy unscoped task",
+        "No authoritative scope signal.",
+    )
+    _set_scope_enforced(codex_sandbox, legacy_id, 0)
+    _git(["checkout", "-b", f"feature/TASK-{legacy_id}-legacy"], codex_sandbox)
+    (codex_sandbox / "legacy.txt").write_text("legacy\n")
+    legacy = _run(
+        [
+            "tusk",
+            "commit",
+            str(legacy_id),
+            "Commit legacy path",
+            "legacy.txt",
+            "--skip-verify",
+        ],
+        codex_sandbox,
+        check=False,
+        env=env,
+    )
+    assert legacy.returncode == 0, legacy.stdout + legacy.stderr
 
 
 # ── kill-switch (TUSK_NO_SCOPE_GUARD=1) ─────────────────────────────────
