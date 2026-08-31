@@ -20,7 +20,9 @@ Steps:
         the task's recorded workspace branch, or when no workspace is recorded and HEAD
         is the default branch (issue #794). Bypass with --allow-branch-mismatch.
     0. Validate file paths — fail fast before lint/tests if any path is missing or escapes repo root
-    1. Preflight git index lock creation, then run test_command gate:
+    1. Acquire the commit-operation lock, reject pending paths outside an
+       enforced task's declared scope, preflight git index lock creation, then
+       run the test_command gate:
        use path_test_commands when one pattern covers every staged path, else
        domain_test_commands[task.domain], else test_command (hard-blocks on failure).
        When path_test_commands_skip_unmatched is true and no staged path touches
@@ -50,7 +52,7 @@ Exit codes:
     0 — success
     1 — usage or validation error (bad arguments, invalid task ID, etc.)
     2 — test_command failed (nothing was staged or committed)
-    3 — git add or git commit failed
+    3 — path/scope validation, git add, or git commit failed
     4 — one or more criteria could not be marked done (commit itself succeeded)
     5 — test_command exceeded its configured timeout (see test_command_timeout_sec)
     6 — reserved for the former commit-time lint gate.
@@ -1313,6 +1315,28 @@ def _resolve_non_code_allowlist(config_path: str) -> set[str]:
     return {v.replace(os.sep, "/") for v in vals}
 
 
+def _resolve_scope_allowlist(config_path: str) -> set[str]:
+    """Return the configured scope allowlist without non-code fallbacks."""
+    if not config_path or not os.path.exists(config_path):
+        return set()
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            config = json.load(f)
+        scope_config = config.get("scope")
+        if not isinstance(scope_config, dict):
+            return set()
+        raw = scope_config.get("always_allowed")
+        if not isinstance(raw, list):
+            return set()
+        return {
+            value.replace(os.sep, "/")
+            for value in raw
+            if isinstance(value, str) and value
+        }
+    except (OSError, json.JSONDecodeError):
+        return set()
+
+
 def _pending_commit_paths(repo_root: str, resolved_files) -> list[str]:
     """Return the repo-root-relative paths this commit will actually contain.
 
@@ -1336,6 +1360,128 @@ def _pending_commit_paths(repo_root: str, resolved_files) -> list[str]:
     if res.returncode == 0 and res.stdout:
         paths.update(p for p in res.stdout.split("\0") if p)
     return list(paths)
+
+
+def _scope_fix_command(task_id: int, checkpointed: bool) -> str:
+    if checkpointed:
+        return (
+            f"tusk scope expand {task_id} <path> --reason "
+            '"why this path is now required"'
+        )
+    return (
+        f"tusk scope add {task_id} <path> --reason "
+        '"why this path is in scope"'
+    )
+
+
+def _validate_commit_scope(
+    repo_root: str,
+    config_path: str,
+    task_id: int,
+    resolved_files,
+) -> tuple[bool, str]:
+    """Validate every path the path-less Git commit would contain.
+
+    Current tasks (``scope_enforced=1``) use only authoritative ``task_scope``
+    rows. Legacy tasks retain their existing permissive behavior. Missing or
+    pre-scope schemas fail open so upgrading tusk does not strand old installs;
+    a healthy current schema with an enforced task and zero rows fails closed.
+    """
+    if os.environ.get("TUSK_NO_SCOPE_GUARD") == "1":
+        return True, ""
+    if os.environ.get("TUSK_SCOPE_GUARD_BYPASS") == "1":
+        print(
+            "scope-guard: bypassed (TUSK_SCOPE_GUARD_BYPASS=1)",
+            file=sys.stderr,
+        )
+        return True, ""
+
+    db_path = _resolve_db_path(repo_root)
+    if not os.path.exists(db_path):
+        return True, ""
+
+    try:
+        conn = open_sqlite(db_path, timeout=2.0)
+        try:
+            task_row = conn.execute(
+                "SELECT scope_enforced FROM tasks WHERE id = ?", (task_id,)
+            ).fetchone()
+            if task_row is None or not bool(task_row[0]):
+                return True, ""
+            scope_rows = conn.execute(
+                "SELECT pattern, source FROM task_scope "
+                "WHERE task_id = ? ORDER BY id",
+                (task_id,),
+            ).fetchall()
+            checkpointed = (
+                conn.execute(
+                    "SELECT 1 FROM task_scope_checkpoints "
+                    "WHERE task_id = ? LIMIT 1",
+                    (task_id,),
+                ).fetchone()
+                is not None
+            )
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return True, ""
+
+    if any(row[1] == "unbounded" for row in scope_rows):
+        return True, ""
+
+    patterns = [row[0] for row in scope_rows if row[0] and row[0].strip()]
+    fix_command = _scope_fix_command(task_id, checkpointed)
+    if not patterns:
+        return False, (
+            f"Error: scope-guard rejected commit — TASK-{task_id} has no "
+            "declared scope.\n"
+            "  Declare the touched paths before committing:\n"
+            f"    {fix_command}\n"
+            "  Or declare the task explicitly unbounded when creating it."
+        )
+
+    pending_paths = sorted(_pending_commit_paths(repo_root, resolved_files))
+    always_allowed = sorted(_resolve_scope_allowlist(config_path))
+    allowed_patterns = patterns + always_allowed
+    violations = [
+        path
+        for path in pending_paths
+        if not _git_helpers.path_matches_scope(path, allowed_patterns)
+    ]
+    if not violations:
+        return True, ""
+
+    lines = [
+        f"Error: scope-guard rejected commit — paths outside task scope "
+        f"(TASK-{task_id}):",
+        *(f"  {path}" for path in violations),
+        "",
+        "Task scope:",
+        *(f"  {pattern}" for pattern in patterns),
+    ]
+    if always_allowed:
+        lines.extend(
+            [
+                "",
+                "Always-allowed paths (scope.always_allowed):",
+                *(f"  {path}" for path in always_allowed),
+            ]
+        )
+    action = (
+        "For an intentional scope expansion, record it before committing:"
+        if checkpointed
+        else "For an intentional scope addition, declare it before committing:"
+    )
+    lines.extend(
+        [
+            "",
+            action,
+            f"  {fix_command}",
+            "",
+            "Explicit override: TUSK_SCOPE_GUARD_BYPASS=1 tusk commit ...",
+        ]
+    )
+    return False, "\n".join(lines)
 
 
 def _listed_paths_missing_from_head(repo_root: str, resolved_files) -> list[str]:
@@ -1764,6 +1910,7 @@ def _run_commit(argv: list[str], state: dict) -> int:
     #                                          with --allow-branch-mismatch)
     #   Step 0  (path validation)   → exit 3  (escapes root or path not found)
     #   Step 1a (operation lock)    → exit 9  (another tusk commit is active)
+    #   Step 1a (scope validation)  → exit 3  (pending paths are undeclared)
     #   Step 1a (index preflight)   → exit 3  (git index lock unavailable)
     #   Step 1b (test_command gate) → exit 2  (test_command failed)
     #   Step 2  (git add)           → exit 3  (git add failed)
@@ -1936,6 +2083,13 @@ def _run_commit(argv: list[str], state: dict) -> int:
         return lock_exit_code
     state["commit_lock_fd"] = commit_lock_fd
     state["commit_lock_path"] = commit_lock_path
+
+    scope_ok, scope_diagnostic = _validate_commit_scope(
+        repo_root, config_path, task_id, resolved_files
+    )
+    if not scope_ok:
+        _print_error(scope_diagnostic)
+        return 3
 
     index_ok, index_diagnostic = _preflight_git_index_writable(repo_root)
     if not index_ok:

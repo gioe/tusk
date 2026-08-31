@@ -32,6 +32,7 @@ Loaded via tusk_loader:
     iter_branch_auto_stashes = _git_helpers.iter_branch_auto_stashes
 """
 
+import fnmatch
 import os
 import posixpath
 import re
@@ -62,6 +63,27 @@ _BRANCH_AUTOSTASH_LINE_RE = re.compile(
     r"^stash@\{(\d+)\}: .*: tusk-branch: auto-stash for TASK-(\d+)$"
 )
 _SWIFT_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def path_matches_scope(path: str, patterns: list[str]) -> bool:
+    """Return whether a repo-relative path is covered by a scope pattern.
+
+    Scope entries may name one file, a directory prefix, or a glob. Keep this
+    policy shared between the blocking commit guard and merge-time drift
+    reporting so a path cannot pass one boundary and fail the other.
+    """
+    normalized_path = path.replace(os.sep, "/")
+    for pattern in patterns:
+        normalized = pattern.strip().replace(os.sep, "/").rstrip("/")
+        if not normalized:
+            continue
+        if normalized_path == normalized or normalized_path.startswith(
+            f"{normalized}/"
+        ):
+            return True
+        if fnmatch.fnmatchcase(normalized_path, normalized):
+            return True
+    return False
 
 
 def is_xctest_selector(token: str | None) -> bool:

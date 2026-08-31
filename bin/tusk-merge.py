@@ -30,7 +30,6 @@ Default behavior (merge.mode = local):
   Requires --pr-number.
 """
 
-import fnmatch
 import json
 import os
 import re
@@ -63,6 +62,7 @@ task_referenced_paths = _git_helpers.task_referenced_paths
 task_referenced_basenames = _git_helpers.task_referenced_basenames
 filter_commits_by_block_overlap = _git_helpers.filter_commits_by_block_overlap
 iter_branch_auto_stashes = _git_helpers.iter_branch_auto_stashes
+path_matches_scope = _git_helpers.path_matches_scope
 _GENERATED_LOCKFILES = _git_helpers.GENERATED_LOCKFILES
 
 DEFAULT_LINT_TIMEOUT_SEC = 60
@@ -2130,15 +2130,8 @@ def _recorded_scope_patterns(
 
 
 def _path_matches_scope(path: str, patterns: list[str]) -> bool:
-    for pattern in patterns:
-        normalized = pattern.strip().rstrip("/")
-        if not normalized:
-            continue
-        if path == normalized or path.startswith(f"{normalized}/"):
-            return True
-        if fnmatch.fnmatch(path, normalized):
-            return True
-    return False
+    """Compatibility wrapper for tests and callers of the former local helper."""
+    return path_matches_scope(path, patterns)
 
 
 def _spec_drift_advisory_lines(

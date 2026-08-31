@@ -11,7 +11,11 @@
 #
 # Bypass when:
 #   - TUSK_SCOPE_GUARD_BYPASS=1        (explicit override; logged to stderr)
-#   - git is invoked with --no-verify  (e.g. `tusk commit ... --skip-verify`)
+#   - raw git is invoked with --no-verify (skips this hook only)
+#
+# `tusk commit --skip-verify` skips Git hooks but still runs tusk's direct
+# commit-time scope validation. Use TUSK_SCOPE_GUARD_BYPASS=1 when an explicit
+# override of both enforcement paths is required.
 #
 # Always-allowed paths come from `tusk config scope` -> always_allowed
 # (defaults to VERSION, CHANGELOG.md, MANIFEST, .claude/tusk-manifest.json).
@@ -110,13 +114,25 @@ if [ -z "$staged" ]; then
 fi
 
 violations="$(SCOPE="$scope" ALLOWED="$allowed" STAGED="$staged" python3 -c '
-import os, sys
-scope = set(filter(None, (os.environ.get("SCOPE", "") or "").splitlines()))
-allowed = set(filter(None, (os.environ.get("ALLOWED", "") or "").splitlines()))
+import fnmatch, os, sys
+scope = list(filter(None, (os.environ.get("SCOPE", "") or "").splitlines()))
+allowed = list(filter(None, (os.environ.get("ALLOWED", "") or "").splitlines()))
 staged = list(filter(None, (os.environ.get("STAGED", "") or "").splitlines()))
-allow_set = scope | allowed
+
+def matches(path, patterns):
+    for pattern in patterns:
+        normalized = pattern.strip().rstrip("/")
+        if not normalized:
+            continue
+        if path == normalized or path.startswith(normalized + "/"):
+            return True
+        if fnmatch.fnmatchcase(path, normalized):
+            return True
+    return False
+
+patterns = scope + allowed
 for f in staged:
-    if f not in allow_set:
+    if not matches(f, patterns):
         print(f)
 ' 2>/dev/null)"
 
@@ -141,10 +157,10 @@ if [ -n "$violations" ]; then
     echo "  tusk scope add $task_id <path> --reason \"why this path is in scope\"" >&2
     echo "" >&2
   fi
-  echo "If this is intentional, bypass with one of:" >&2
-  echo "  tusk commit ... --skip-verify   (skips lint + pre-commit hooks)" >&2
-  echo "  git commit --no-verify ...       (skips pre-commit hooks)" >&2
-  echo "  TUSK_SCOPE_GUARD_BYPASS=1 ...   (override only this guard)" >&2
+  echo "If this is intentional, bypass with:" >&2
+  echo "  TUSK_SCOPE_GUARD_BYPASS=1 tusk commit ..." >&2
+  echo "Raw git commit --no-verify skips this hook only; tusk commit --skip-verify" >&2
+  echo "still enforces declared task scope." >&2
   exit 2
 fi
 
