@@ -253,6 +253,7 @@ def _spec_paths(spec: str) -> list[str]:
     in_pipeline = False
     at_command_start = True
     command_name: str | None = None
+    python_phase: str | None = None
     substitution_states: list[tuple] = []
     index = 0
     while index < len(tokens):
@@ -267,6 +268,10 @@ def _spec_paths(spec: str) -> list[str]:
                     in_pipeline,
                     at_command_start,
                     command_name,
+                    # A substitution occupies the pending argument, but its
+                    # shell commands still need their own path scan.
+                    "options" if python_phase == "option_value" else
+                    None if python_phase == "source" else python_phase,
                 )
             )
             command_base = current_dir
@@ -275,6 +280,7 @@ def _spec_paths(spec: str) -> list[str]:
             in_pipeline = False
             at_command_start = True
             command_name = None
+            python_phase = None
             index += 1
             continue
         if token == COMMAND_SUB_END and substitution_states:
@@ -286,6 +292,7 @@ def _spec_paths(spec: str) -> list[str]:
                 in_pipeline,
                 outer_at_command_start,
                 command_name,
+                python_phase,
             ) = substitution_states.pop()
             at_command_start = False
             if outer_at_command_start:
@@ -309,6 +316,7 @@ def _spec_paths(spec: str) -> list[str]:
             command_base = current_dir
             at_command_start = True
             command_name = None
+            python_phase = None
             index += 1
             continue
 
@@ -331,6 +339,23 @@ def _spec_paths(spec: str) -> list[str]:
         is_command_token = at_command_start
         if is_command_token:
             command_name = posixpath.basename(token)
+            python_phase = (
+                "options" if re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", command_name)
+                else None
+            )
+        elif python_phase in {"source", "option_value"}:
+            # Inline source is code, not a filesystem operand. Deliberately
+            # avoid interpreting or executing Python to infer embedded paths.
+            python_phase = "options" if python_phase == "option_value" else None
+            index += 1
+            continue
+        elif python_phase == "options":
+            if token == "-c":
+                python_phase = "source"
+            elif token in {"-W", "-X"}:
+                python_phase = "option_value"
+            elif token in {"-m", "--", "-"} or not token.startswith("-"):
+                python_phase = None
         path = (
             None
             if not is_command_token

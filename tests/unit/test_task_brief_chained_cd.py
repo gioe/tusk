@@ -2,6 +2,7 @@
 
 import importlib.util
 import os
+import shlex
 
 import pytest
 
@@ -18,6 +19,57 @@ def _load_module():
 
 
 brief = _load_module()
+
+
+@pytest.mark.parametrize("python", ["python", "python3", "python3.12", "/usr/bin/python3"])
+def test_inline_python_source_does_not_emit_stale_warning(tmp_path, python):
+    target = tmp_path / "android/app/src/androidTest/AppStoreScreenshotTest.kt"
+    target.parent.mkdir(parents=True)
+    target.touch()
+    source = f'from pathlib import Path; Path("{target.relative_to(tmp_path)}").read_text()'
+    rows = [{"id": 1, "verification_spec": f"{python} -c {shlex.quote(source)}"}]
+
+    assert brief._stale_spec_warnings(str(tmp_path), rows) == []
+
+
+@pytest.mark.parametrize("flags", ["", "-I -B", "-W ignore -X dev"])
+def test_inline_python_keeps_argv_and_chained_shell_paths(flags):
+    source = shlex.quote('from pathlib import Path; Path("ignored/source.kt").read_text()')
+    assert brief._spec_paths(
+        f"python3 {flags} -c {source} missing/argument.kt && "
+        "cd apps && cat missing/after.kt"
+    ) == ["missing/argument.kt", "apps", "apps/missing/after.kt"]
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["python3 script.py", "python3 -m module", "python3 -- script.py", "rg"],
+)
+def test_non_interpreter_c_option_keeps_real_missing_paths(command):
+    assert "missing/file.py" in brief._spec_paths(f"{command} -c missing/file.py")
+
+
+def test_inline_python_inside_command_substitution_preserves_shell_scan():
+    source = shlex.quote('print("ignored/source.kt")')
+    assert brief._spec_paths(
+        f'cd apps && test "$(python3 -c {source})" && cat missing/after.kt'
+    ) == ["apps", "apps/missing/after.kt"]
+
+
+def test_python_source_substitution_does_not_hide_following_operands():
+    assert brief._spec_paths(
+        '.venv/bin/python3 -c "$(cat scripts/check.py)" missing/argument.kt'
+    ) == [".venv/bin/python3", "scripts/check.py", "missing/argument.kt"]
+
+
+def test_inline_python_warning_contains_only_real_missing_shell_path(tmp_path):
+    source = shlex.quote('print("not/a/path")')
+    rows = [{"id": 1, "verification_spec": f"python3 -c {source} && cat missing/file.kt"}]
+
+    warnings = brief._stale_spec_warnings(str(tmp_path), rows)
+
+    assert len(warnings) == 1
+    assert warnings[0]["details"]["missing_paths"] == ["missing/file.kt"]
 
 TRENDING_SPEC = (
     "rg -Fq 'prefers an active avatar over legacy image state' "
