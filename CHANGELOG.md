@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1272] - 2026-09-27
+
+- [TASK-886] Fix inline Python path detection in task-brief
+
 ## [1271] - 2026-08-31
 
 - [TASK-885] Block undeclared paths in scope-enforced task commits
