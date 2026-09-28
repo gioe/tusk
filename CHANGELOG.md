@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1273] - 2026-09-28
+
+- [TASK-887] Refresh existing Tusk-managed Codex skill mirrors during upgrade
+
 ## [1272] - 2026-09-27
 
 - [TASK-886] Fix inline Python path detection in task-brief
