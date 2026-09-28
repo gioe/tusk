@@ -320,3 +320,120 @@ class TestDualAgentUpgradeEndToEnd:
 
         codex_entries = json.loads((repo_root / "tusk" / "tusk-manifest.json").read_text())
         assert codex_entries == entries
+
+
+def test_upgrade_refreshes_only_verified_codex_mirrors(tmp_path, upgrade_mod, monkeypatch):
+    repo_root, script_dir = _make_codex_install(tmp_path)
+    src = _make_fake_src(tmp_path)
+    tmpdir = tmp_path / 'scratch'
+    tmpdir.mkdir()
+    canonical = repo_root / '.claude/skills/tusk/SKILL.md'
+    canonical.parent.mkdir(parents=True)
+    canonical.write_text('old CLAUDE.md guidance\n')
+    mirror = repo_root / '.agents/skills/tusk/SKILL.md'
+    mirror.parent.mkdir(parents=True)
+    mirror.write_text('old AGENTS.md guidance\n')
+    custom = mirror.with_name('custom.md')
+    custom.write_text('project-specific\n')
+    (src / 'skills/tusk/custom.md').write_text('release-specific\n')
+    (src / 'skills/tusk/new.md').write_text('do not create new mirrors\n')
+    _stub_side_effects(monkeypatch, upgrade_mod)
+    summary = upgrade_mod._run_upgrade_steps(str(src), str(repo_root), str(script_dir), str(tmpdir))
+    assert mirror.read_text() == '# placeholder skill\n'
+    assert custom.read_text() == 'project-specific\n'
+    assert not mirror.with_name('new.md').exists()
+    assert summary['mirror_count'] == 1
+    manifest = repo_root / 'tusk/tusk-manifest.json'
+    entries = json.loads(manifest.read_text())
+    assert '.agents/skills/tusk/SKILL.md' in entries
+    assert '.agents/skills/tusk/custom.md' not in entries
+    staged = []
+    monkeypatch.setattr(upgrade_mod.subprocess, 'run', lambda args, **kwargs: staged.append(args) or type('Result', (), {'returncode': 0})())
+    upgrade_mod.stage_and_commit(str(repo_root), str(manifest), 999)
+    assert '.agents/skills/tusk/SKILL.md' in staged[0]
+
+    # A previously managed mirror can become custom. It is not an orphan to delete.
+    mirror.write_text('customized after upgrade\n')
+    _stub_side_effects(monkeypatch, upgrade_mod)
+    upgrade_mod._run_upgrade_steps(str(src), str(repo_root), str(script_dir), str(tmpdir))
+    assert mirror.read_text() == 'customized after upgrade\n'
+    assert '.agents/skills/tusk/SKILL.md' not in json.loads(manifest.read_text())
+
+
+def test_dry_run_reports_mirror_refresh_without_writing(tmp_path, upgrade_mod, monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    repo_root, script_dir = _make_codex_install(tmp_path)
+    src = _make_fake_src(tmp_path)
+    canonical = repo_root / '.claude/skills/tusk/SKILL.md'
+    canonical.parent.mkdir(parents=True)
+    canonical.write_text('old guidance\n')
+    mirror = repo_root / '.agents/skills/tusk/SKILL.md'
+    mirror.parent.mkdir(parents=True)
+    mirror.write_text('old guidance\n')
+    monkeypatch.setattr(upgrade_mod, '_import_migrate_module', lambda _src: SimpleNamespace(MIGRATIONS=[]))
+    upgrade_mod._run_dry_run_report(str(src), str(repo_root), str(script_dir), 998, 999)
+    assert '~ .agents/skills/tusk/SKILL.md' in capsys.readouterr().out
+    assert mirror.read_text() == 'old guidance\n'
+    assert not (repo_root / 'tusk/tusk-manifest.json').exists()
+
+
+def test_successive_codex_upgrades_keep_historically_owned_mirror_current(tmp_path, upgrade_mod, monkeypatch):
+    import subprocess
+
+    repo_root, script_dir = _make_codex_install(tmp_path)
+    src = _make_fake_src(tmp_path)
+    tmpdir = tmp_path / 'scratch'
+    tmpdir.mkdir()
+    canonical = repo_root / '.claude/skills/tusk/SKILL.md'
+    canonical.parent.mkdir(parents=True)
+    canonical.write_text('---\nname: tusk\nallowed-tools: Bash\n---\nRead CLAUDE.md.\n')
+    subprocess.run(['git', 'init', '-q', str(repo_root)], check=True)
+    subprocess.run(['git', '-C', str(repo_root), 'add', '.'], check=True)
+    subprocess.run(['git', '-C', str(repo_root), '-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'old canonical'], check=True)
+    canonical.unlink()
+    mirror = repo_root / '.agents/skills/tusk/SKILL.md'
+    mirror.parent.mkdir(parents=True)
+    mirror.write_text('---\nname: tusk\n---\nRead AGENTS.md.\n')
+    release_skill = src / 'skills/tusk/SKILL.md'
+    release_skill.write_text('tusk commit 1 "retro" "docs/notes.md" --allow-branch-mismatch\n')
+    monkeypatch.setattr(upgrade_mod, 'update_gitignore', lambda _script: None)
+    upgrade_mod._run_upgrade_steps(str(src), str(repo_root), str(script_dir), str(tmpdir))
+    assert mirror.read_text() == release_skill.read_text()
+    assert not canonical.exists()
+
+    release_skill.write_text('next release guidance\n')
+    upgrade_mod._run_upgrade_steps(str(src), str(repo_root), str(script_dir), str(tmpdir))
+    assert mirror.read_text() == 'next release guidance\n'
+    manifest = json.loads((repo_root / 'tusk/tusk-manifest.json').read_text())
+    assert 'tusk/codex-skill-mirrors.json' in manifest
+
+    mirror.write_text('local custom changes\n')
+    release_skill.write_text('third release guidance\n')
+    upgrade_mod._run_upgrade_steps(str(src), str(repo_root), str(script_dir), str(tmpdir))
+    assert mirror.read_text() == 'local custom changes\n'
+
+
+@pytest.mark.parametrize('kind', ['custom', 'symlink'])
+def test_upgrade_preserves_unrecognized_ownership_state(tmp_path, upgrade_mod, monkeypatch, kind):
+    repo_root, script_dir = _make_codex_install(tmp_path)
+    src = _make_fake_src(tmp_path)
+    tmpdir = tmp_path / 'scratch'
+    tmpdir.mkdir()
+    mirror = repo_root / '.agents/skills/tusk/SKILL.md'
+    mirror.parent.mkdir(parents=True)
+    mirror.write_text('# placeholder skill\n')
+    state = repo_root / 'tusk/codex-skill-mirrors.json'
+    if kind == 'symlink':
+        outside = tmp_path / 'outside-state.json'
+        outside.write_text('custom state\n')
+        state.symlink_to(outside)
+    else:
+        state.write_text('custom state\n')
+    manifest = repo_root / 'tusk/tusk-manifest.json'
+    manifest.write_text(json.dumps(['tusk/codex-skill-mirrors.json']))
+    _stub_side_effects(monkeypatch, upgrade_mod)
+    upgrade_mod._run_upgrade_steps(str(src), str(repo_root), str(script_dir), str(tmpdir))
+    assert state.read_text() == 'custom state\n'
+    assert state.is_symlink() == (kind == 'symlink')
+    assert 'tusk/codex-skill-mirrors.json' not in json.loads(manifest.read_text())

@@ -121,6 +121,30 @@ Everything else works identically: the `tusk` CLI, task database, criteria track
 3. Copies `codex-prompts/*.md` from the tarball to `<repo_root>/.codex/prompts/<name>.md` (Codex-only step; mirrors how Claude mode copies `skills/`).
 4. Writes the translated manifest to `tusk/tusk-manifest.json` so future upgrades see the correct baseline.
 
+### Existing generated skill mirrors
+
+Some projects already generate `.agents/skills/` from their Claude skill tree.
+Upgrades refresh existing Tusk mirror files in any install mode, including when
+the distribution version is unchanged. They do not create a new mirror tree or
+run a project's generation script.
+
+A mirror is eligible only when the release contains the corresponding skill and
+its content exactly matches the known Codex transformation of the current
+canonical file, the release file, or one of the latest 30 Git revisions of the
+project's `.claude/skills/` file. This historical check can recover a stale mirror
+even after the canonical file has changed or been removed. The transformation
+removes Claude-only frontmatter and adapts runtime references for Codex.
+
+After recognizing a mirror, the upgrade records its generated content hash in
+`tusk/codex-skill-mirrors.json`. Later upgrades can recognize that file even when
+the old canonical source is no longer available. Local edits that change the
+recorded content are not treated as an unchanged generated copy.
+
+Unrecognized custom content and symlink destinations are left untouched. Projects
+with a different transformation or insufficient local Git history should use
+their own generator to refresh those files. Eligible mirrors appear in upgrade
+dry-run output and are included in the upgrade manifest and automatic commit.
+
 ## Limitations
 
 - Migrating an existing Claude install to Codex (or vice versa) is not supported. Remove the old install dir, delete the install-mode marker, and re-run `install.sh`.

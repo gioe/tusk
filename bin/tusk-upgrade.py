@@ -55,6 +55,7 @@ INSTALL_MODES = {
 
 
 INSTALL_ROLES = ("source", "consumer")
+CODEX_MIRROR_STATE = "tusk/codex-skill-mirrors.json"
 
 
 def _read_marker(script_dir: str) -> str:
@@ -267,6 +268,9 @@ def remove_orphans(old_manifest_path: str, new_manifest_path: str, repo_root: st
     orphans = old_files - new_files
     removed = 0
     for rel_path in sorted(orphans):
+        # Existing mirrors may have become custom or lost their provenance.
+        if rel_path.startswith(".agents/skills/") or rel_path == CODEX_MIRROR_STATE:
+            continue
         full_path = os.path.join(repo_root, rel_path)
         if os.path.isfile(full_path):
             os.remove(full_path)
@@ -418,6 +422,160 @@ def _installed_skills_stale(src: str, repo_root: str) -> bool:
             except OSError:
                 return True
     return False
+
+
+# Compatibility with the generated runtime skills used by existing consumers.
+# Never execute a project's generator: some also remove unrelated local files.
+def _codex_skill_text(text: str) -> str:
+    for old, new in (
+        (".Codex/skills", ".agents/skills"),
+        (".claude/skills", ".agents/skills"),
+        ("CLAUDE.md", "AGENTS.md"),
+        ("Co-Authored-By: Claude ", "Co-Authored-By: Codex "),
+        ("Playwright MCP", "the runtime's browser automation tooling"),
+    ):
+        text = text.replace(old, new)
+    replacements = {
+        "browser_navigate → <url>": "Use browser automation to navigate to `<url>`.",
+        "browser_snapshot": "Inspect the rendered page to find the relevant navigation or embedded event data.",
+        "browser_click → <events link ref>": "Open the discovered events page link.",
+        "browser_network_requests": "Capture the page's network requests.",
+    }
+    lines = []
+    for line in text.splitlines():
+        replacement = replacements.get(line.strip())
+        lines.append(line if replacement is None else line[:len(line) - len(line.lstrip())] + replacement)
+    text = "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+    if text.startswith("---\n"):
+        parts = text.split("---\n", 2)
+        if len(parts) == 3:
+            lines = [line for line in parts[1].splitlines()
+                     if not re.match(r"^(allowed-tools|trigger):", line)]
+            text = "---\n" + "\n".join(lines) + "\n---\n" + parts[2]
+    return text
+
+
+def _mirror_regular_file(root: Path, path: Path) -> bool:
+    """Do not follow a mirror file or ancestor symlink, even within the repo."""
+    return path.is_file() and not any(
+        part.is_symlink() for part in (path, *path.parents) if part != root and root in part.parents
+    )
+
+
+def _read_codex_mirror_state(repo_root: str) -> dict[str, str] | None:
+    """None means an existing state location is unsafe or not ours to replace."""
+    root = Path(repo_root)
+    path = root / CODEX_MIRROR_STATE
+    if any(part.is_symlink() for part in (path, *path.parents)
+           if part != root and root in part.parents):
+        return None
+    if not path.exists():
+        return {}
+    if not path.is_file():
+        return None
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError):
+        return None
+    if not isinstance(state, dict) or state.get("version") != 1:
+        return None
+    files = state.get("files")
+    if not isinstance(files, dict) or not all(
+        isinstance(rel, str) and rel.startswith(".agents/skills/")
+        and isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest)
+        for rel, digest in files.items()
+    ):
+        return None
+    return files
+
+
+def _codex_mirror_state_text(updates: dict[str, str], repo_root: str) -> str | None:
+    files = _read_codex_mirror_state(repo_root)
+    if files is None or not (files or updates):
+        return None
+    files.update({rel: hashlib.sha256(content.encode("utf-8")).hexdigest()
+                  for rel, content in updates.items()})
+    return json.dumps({"version": 1, "files": files}, indent=2, sort_keys=True) + "\n"
+
+
+def _historical_skill_texts(repo_root: str, rel: str):
+    """Bounded, read-only fallback for mirrors whose canonical copy was replaced."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", repo_root, "log", "-30", "--format=%H", "--", rel],
+            capture_output=True, text=True, encoding="utf-8", timeout=10,
+        )
+        if result.returncode:
+            return
+        for revision in result.stdout.splitlines():
+            if not re.fullmatch(r"[0-9a-f]{40,64}", revision):
+                continue
+            blob = subprocess.run(
+                ["git", "-C", repo_root, "show", f"{revision}:{rel}"],
+                capture_output=True, text=True, encoding="utf-8", timeout=10,
+            )
+            if blob.returncode == 0:
+                yield blob.stdout
+    except (OSError, UnicodeError, subprocess.TimeoutExpired):
+        return
+
+
+def _codex_mirror_updates(src: str, repo_root: str) -> dict[str, str]:
+    """Plan existing mirrors proven by exact canonical-generation matches.
+
+    A shared skill name is not ownership. Unrecognized edits, unrelated files,
+    and symlinks remain untouched. Include already-current matches so manifest
+    ownership remains stable on subsequent upgrades.
+    """
+    root = Path(repo_root)
+    source_root = Path(src) / "skills"
+    mirror_root = root / ".agents" / "skills"
+    updates = {}
+    recorded = _read_codex_mirror_state(repo_root) or {}
+    if not mirror_root.is_dir() or not source_root.is_dir():
+        return updates
+    sf = _import_skill_filter(src)
+    project_type = sf.get_project_type(repo_root)
+    for skill in sorted(source_root.iterdir()):
+        if not skill.is_dir() or not sf.should_install_skill(str(skill), project_type):
+            continue
+        for source in sorted(skill.rglob("*")):
+            if (not source.is_file() or source.is_symlink()
+                    or "__pycache__" in source.parts or source.suffix == ".pyc"):
+                continue
+            rel = source.relative_to(source_root)
+            target = mirror_root / rel
+            if not _mirror_regular_file(root, target):
+                continue
+            try:
+                current = target.read_text(encoding="utf-8")
+                generated = _codex_skill_text(source.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError):
+                continue
+            owned = (current == generated or recorded.get(target.relative_to(root).as_posix())
+                     == hashlib.sha256(target.read_bytes()).hexdigest())
+            canonical_rel = ".claude/skills/" + rel.as_posix()
+            canonical = root / canonical_rel
+            if not owned and _mirror_regular_file(root, canonical):
+                try:
+                    owned = current == _codex_skill_text(canonical.read_text(encoding="utf-8"))
+                except (OSError, UnicodeError):
+                    pass
+            if not owned:
+                owned = any(current == _codex_skill_text(old)
+                            for old in _historical_skill_texts(repo_root, canonical_rel))
+            if owned:
+                updates[target.relative_to(root).as_posix()] = generated
+    return updates
+
+
+def _codex_mirrors_stale(updates: dict[str, str], repo_root: str) -> bool:
+    state = _codex_mirror_state_text(updates, repo_root)
+    state_path = Path(repo_root) / CODEX_MIRROR_STATE
+    if state is not None and (not state_path.exists() or state_path.read_text(encoding="utf-8") != state):
+        return True
+    return any((Path(repo_root) / rel).read_text(encoding="utf-8") != content
+               for rel, content in updates.items())
 
 
 def copy_prompts(src: str, repo_root: str) -> int:
@@ -887,10 +1045,25 @@ def _run_dry_run_report(src: str, repo_root: str, script_dir: str,
         files = sf.filter_manifest(raw_files, os.path.join(src, "skills"), project_type)
         files = translate_manifest_for_mode(files, install_mode, install_role=install_role)
 
+    mirror_updates = _codex_mirror_updates(src, repo_root)
+    state_text = _codex_mirror_state_text(mirror_updates, repo_root)
+    if state_text is not None:
+        mirror_updates[CODEX_MIRROR_STATE] = state_text
+    files = list(dict.fromkeys([*files, *mirror_updates]))
+
     new_entries: list = []      # (rel, src_size)
     overwrite_entries: list = []  # (rel, src_size, target_size, delta)
     missing_in_tarball: list = []
     for rel in files:
+        if rel in mirror_updates:
+            src_size = len(mirror_updates[rel].encode("utf-8"))
+            target_path = os.path.join(repo_root, rel)
+            if os.path.isfile(target_path):
+                target_size = os.path.getsize(target_path)
+                overwrite_entries.append((rel, src_size, target_size, src_size - target_size))
+            else:
+                new_entries.append((rel, src_size))
+            continue
         src_path = _resolve_src_path(rel, src)
         if src_path is None:
             missing_in_tarball.append(rel)
@@ -946,6 +1119,8 @@ def _run_dry_run_report(src: str, repo_root: str, script_dir: str,
             old_files = set()
         new_files_set = set(files)
         for rel in sorted(old_files - new_files_set):
+            if rel.startswith(".agents/skills/") or rel == CODEX_MIRROR_STATE:
+                continue
             full_path = os.path.join(repo_root, rel)
             if os.path.isfile(full_path):
                 orphan_removals.append(rel)
@@ -1021,6 +1196,8 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
     # In claude mode, filter the manifest by applies_to_project_types so the
     # local tusk-manifest.json reflects only the skills that actually shipped
     # — keeps rule18/19 and orphan removal honest after a project_type change.
+    mirror_updates = _codex_mirror_updates(src, repo_root)
+    state_text = _codex_mirror_state_text(mirror_updates, repo_root)
     translated_new_manifest = new_manifest
     if os.path.isfile(new_manifest):
         with open(new_manifest, encoding="utf-8") as _f:
@@ -1038,6 +1215,9 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
             translated_files = translate_manifest_for_mode(
                 translated_files, install_mode, install_role=install_role
             )
+        translated_files = list(dict.fromkeys([*translated_files, *mirror_updates]))
+        if state_text is not None:
+            translated_files.append(CODEX_MIRROR_STATE)
         if translated_files != _raw_files:
             translated_new_manifest = os.path.join(tmpdir, "MANIFEST.translated")
             with open(translated_new_manifest, "w", encoding="utf-8") as _f:
@@ -1078,6 +1258,20 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
         prompt_count = copy_prompts(src, repo_root)
     else:
         prompt_count = 0
+    mirror_count = 0
+    for rel, content in mirror_updates.items():
+        target = Path(repo_root) / rel
+        if _mirror_regular_file(Path(repo_root), target):
+            if target.read_text(encoding="utf-8") != content:
+                target.write_text(content, encoding="utf-8")
+                mirror_count += 1
+                _vprint(f"  Updated Codex skill mirror: {rel}")
+    if state_text is not None:
+        state_path = Path(repo_root) / CODEX_MIRROR_STATE
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(state_text, encoding="utf-8")
+    elif mirror_updates:
+        print(f"  Preserved unrecognized or symlinked {CODEX_MIRROR_STATE}; mirror ownership was not recorded.")
     script_count = copy_scripts(src, repo_root)
     backfilled_keys = merge_config_defaults(src, repo_root, script_dir)
 
@@ -1120,6 +1314,7 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
         "hook_summary": hook_summary,
         "added_perms": added_perms,
         "prompt_count": prompt_count,
+        "mirror_count": mirror_count,
         "script_count": script_count,
         "backfilled_keys": backfilled_keys,
         "migrate_summary": migrate_summary,
@@ -1229,7 +1424,9 @@ def main() -> None:
                     f"Installed VERSION is {local_version}, but the live DB schema "
                     "is newer than this install's migration registry; reinstalling."
                 )
-            elif install_mode not in ("claude", "dual"):
+            elif install_mode not in ("claude", "dual") and not os.path.isdir(
+                os.path.join(repo_root, ".agents", "skills")
+            ):
                 print(f"Already up to date (version {local_version}).")
                 return
         if local_version > remote_version:
@@ -1290,7 +1487,9 @@ def main() -> None:
                 os.execv(sys.executable, argv)
 
         if not args.force and same_version and not schema_support_stale:
-            if not _installed_skills_stale(src, repo_root):
+            canonical_stale = install_mode in ("claude", "dual") and _installed_skills_stale(src, repo_root)
+            mirror_stale = _codex_mirrors_stale(_codex_mirror_updates(src, repo_root), repo_root)
+            if not canonical_stale and not mirror_stale:
                 print(f"Already up to date (version {local_version}).")
                 return
             print(
@@ -1309,6 +1508,8 @@ def main() -> None:
     if not _verbose:
         hook_summary = summary["hook_summary"]
         print(f"  Skills       {summary['skill_count']} updated")
+        if summary.get("mirror_count"):
+            print(f"  Codex mirrors {summary['mirror_count']} updated")
         print(f"  Hooks        {summary['hook_count']} updated"
               + (f", {hook_summary['registered']} registered" if hook_summary["registered"] else "")
               + (f", {hook_summary['dedup_removed']} dedup'd" if hook_summary["dedup_removed"] else ""))

@@ -12,6 +12,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UPGRADE_PATH = REPO_ROOT / "bin" / "tusk-upgrade.py"
@@ -272,3 +274,89 @@ def test_no_commit_does_not_claim_current_when_schema_support_is_stale(
     assert "Already up to date" not in out
     assert "Upgrade complete (version 999)." in out
     assert calls, "stale schema support must force the upgrade path"
+
+
+def test_codex_mirrors_preserve_unknown_files_and_symlink_targets(tmp_path):
+    upgrade = _load_upgrade()
+    project = tmp_path / 'project'
+    source = tmp_path / 'release/skills/retro'
+    source.mkdir(parents=True)
+    canonical = project / '.claude/skills/retro'
+    canonical.mkdir(parents=True)
+    mirror = project / '.agents/skills/retro'
+    mirror.mkdir(parents=True)
+    for name in ('SKILL.md', 'FULL-RETRO.md', 'CUSTOM.md'):
+        (source / name).write_text('new guidance\n')
+        (canonical / name).write_text('old guidance\n')
+    (mirror / 'SKILL.md').write_text('old guidance\n')
+    (mirror / 'CUSTOM.md').write_text('my custom guidance\n')
+    outside = tmp_path / 'outside.md'
+    outside.write_text('old guidance\n')
+    (mirror / 'FULL-RETRO.md').symlink_to(outside)
+    (mirror / 'LOCAL.md').write_text('unrelated\n')
+    assert upgrade._codex_mirror_updates(str(source.parents[1]), str(project)) == {
+        '.agents/skills/retro/SKILL.md': 'new guidance\n',
+    }
+    mirror.rename(mirror.with_name('elsewhere'))
+    mirror.symlink_to(mirror.with_name('elsewhere'), target_is_directory=True)
+    assert upgrade._codex_mirror_updates(str(source.parents[1]), str(project)) == {}
+    assert outside.read_text() == 'old guidance\n'
+
+
+@pytest.mark.parametrize("mode", ["claude", "codex", "dual"])
+def test_same_version_checks_existing_mirrors(tmp_path, monkeypatch, capsys, mode):
+    upgrade = _load_upgrade()
+    repo_root, script_dir, src = _same_version_install(tmp_path)
+    (script_dir / 'install-mode').write_text(mode + '\n')
+    source = src / 'skills/retro/SKILL.md'
+    source.parent.mkdir(parents=True)
+    source.write_text('new guidance\n')
+    canonical = repo_root / '.claude/skills/retro/SKILL.md'
+    canonical.parent.mkdir(parents=True)
+    canonical.write_text('old guidance\n')
+    mirror = repo_root / '.agents/skills/retro/SKILL.md'
+    mirror.parent.mkdir(parents=True)
+    mirror.write_text('old guidance\n')
+    calls = []
+    monkeypatch.setattr(upgrade, '_installed_skills_stale', lambda *_args: False)
+    monkeypatch.setattr(upgrade, 'is_source_repo', lambda _repo: False)
+    monkeypatch.setattr(upgrade, 'get_latest_tag', lambda: 'v999')
+    monkeypatch.setattr(upgrade, 'get_remote_version', lambda _tag: 999)
+    monkeypatch.setattr(upgrade, '_run_upgrade_steps', lambda *args: calls.append(args) or _upgrade_summary())
+    monkeypatch.setattr(upgrade, 'check_review_commits_permissions', lambda _repo: [])
+    monkeypatch.setattr(sys, 'argv', ['tusk-upgrade.py', str(repo_root), str(script_dir), '--no-commit', '--_rexec-src', str(src)])
+    upgrade.main()
+    assert calls
+    assert 'Already up to date' not in capsys.readouterr().out
+
+
+def test_same_version_current_codex_mirror_does_not_require_claude_tree(tmp_path, monkeypatch, capsys):
+    upgrade = _load_upgrade()
+    repo_root, script_dir, src = _same_version_install(tmp_path)
+    (script_dir / 'install-mode').write_text('codex\n')
+    source = src / 'skills/retro/SKILL.md'
+    source.parent.mkdir(parents=True)
+    source.write_text('current guidance\n')
+    mirror = repo_root / '.agents/skills/retro/SKILL.md'
+    mirror.parent.mkdir(parents=True)
+    mirror.write_text('current guidance\n')
+    state = upgrade._codex_mirror_state_text({'.agents/skills/retro/SKILL.md': 'current guidance\n'}, str(repo_root))
+    state_path = repo_root / upgrade.CODEX_MIRROR_STATE
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(state)
+    monkeypatch.setattr(upgrade, 'is_source_repo', lambda _repo: False)
+    monkeypatch.setattr(upgrade, 'get_latest_tag', lambda: 'v999')
+    monkeypatch.setattr(upgrade, 'get_remote_version', lambda _tag: 999)
+    monkeypatch.setattr(upgrade, '_run_upgrade_steps', lambda *_args: pytest.fail('unnecessary upgrade'))
+    monkeypatch.setattr(sys, 'argv', ['tusk-upgrade.py', str(repo_root), str(script_dir), '--no-commit', '--_rexec-src', str(src)])
+    upgrade.main()
+    assert 'Already up to date' in capsys.readouterr().out
+
+
+def test_current_mirror_without_ownership_record_needs_refresh(tmp_path):
+    upgrade = _load_upgrade()
+    mirror = tmp_path / '.agents/skills/retro/SKILL.md'
+    mirror.parent.mkdir(parents=True)
+    mirror.write_text('current\n')
+    updates = {'.agents/skills/retro/SKILL.md': 'current\n'}
+    assert upgrade._codex_mirrors_stale(updates, str(tmp_path))
