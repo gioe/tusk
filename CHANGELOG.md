@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1274] - 2026-09-29
+
+- [TASK-888] Reject zero-execution Vitest criterion results
+
 ## [1273] - 2026-09-28
 
 - [TASK-887] Refresh existing Tusk-managed Codex skill mirrors during upgrade
