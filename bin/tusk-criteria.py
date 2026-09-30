@@ -433,6 +433,38 @@ def _test_verification_timeout(config: Optional[dict] = None) -> int:
     return _TEST_TIMEOUT_SECS
 
 
+def zero_executed_test_error(output: str) -> Optional[str]:
+    """Recognize empty Vitest summaries without guessing about other runners."""
+    plain = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", output)
+    # Match each summary separately: an earlier passing invocation must not
+    # conceal a later filtered invocation that only skipped tests.
+    summaries = re.finditer(
+        r"^[ \t]*Test Files[ \t]+[^\r\n]+\r?\n"
+        r"[ \t]*Tests[ \t]+([^\r\n]+)", plain, re.MULTILINE,
+    )
+    diagnostic = (
+        "Vitest reported zero tests executed; skipped/todo tests do not verify a criterion. "
+        "Check the test-name filter and selected files, then rerun verification."
+    )
+    for summary in summaries:
+        if summary.group(1).strip() == "no tests":
+            return diagnostic
+        match = re.fullmatch(r"(.+?)\s+\((\d+)\)\s*", summary.group(1))
+        if not match:
+            continue
+        counts = []
+        for part in match.group(1).split("|"):
+            count = re.fullmatch(r"\s*(\d+)\s+(passed|failed|skipped|todo)\s*", part)
+            if count is None:
+                break
+            counts.append((int(count.group(1)), count.group(2)))
+        else:
+            if (sum(count for count, _ in counts) == int(match.group(2))
+                    and not any(count for count, status in counts if status in {"passed", "failed"})):
+                return diagnostic
+    return None
+
+
 def run_verification(
     criterion_type: str,
     spec: str,
@@ -475,6 +507,13 @@ def run_verification(
             if result.stderr.strip():
                 output += ("\n" if output else "") + result.stderr.strip()
             passed = result.returncode == 0
+            empty_test_error = (
+                zero_executed_test_error(output)
+                if passed and criterion_type == "test" else None
+            )
+            if empty_test_error:
+                passed = False
+                output = empty_test_error + "\n" + output
             if not passed:
                 header = f"exit_code={result.returncode}, elapsed={elapsed:.1f}s\n"
                 output = header + output
@@ -1056,6 +1095,8 @@ def _reuse_commit_gate_verification(
     if criterion_type != "test" or not spec or not commit_hash:
         return None
 
+    if os.environ.get("TUSK_COMMIT_GATE_VALIDATED") != "1":
+        return None
     gate_command = os.environ.get("TUSK_COMMIT_GATE_COMMAND", "")
     gate_sha = os.environ.get("TUSK_COMMIT_GATE_SHA", "")
     if not gate_command or not gate_sha:

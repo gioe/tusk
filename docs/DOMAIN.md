@@ -210,6 +210,19 @@ When a typed criterion passes on a remote runner that is unavailable locally, `t
 
 **Verification subprocess timeouts.** `code`-type specs run under a fixed 120s subprocess timeout. `test`-type specs resolve their timeout from a valid positive-integer `TUSK_TEST_COMMAND_TIMEOUT` environment override, then `test_command_timeout_sec` in project config, then the historical 300s fallback. Direct `tusk criteria done`, the criteria phase launched by `tusk commit`, and deliverable-convergence checks use this same resolution; the commit's main test-command gate retains its separate auto-scaling fallback. Missing or invalid advisory values fall through safely. On failure, the captured output is prepended with `exit_code=<N>, elapsed=<Xs>\n` so non-zero exits are distinguishable from timeouts (which report `exit_code=timeout`). The metadata header survives the 2000-char output truncation.
 
+**Zero-test Vitest results.** Test verification inspects complete, ANSI-stripped
+Vitest summaries before truncating captured output. A summary with zero executed
+tests (only skipped or todo tests) fails even when the command exits zero. The
+diagnostic asks the operator to check the test-name filter and selected files.
+Passing tests mixed with skipped tests still pass; code criteria and output from
+unrecognized runners keep their exit-code behavior. Recognition is based on the
+summary, so Vitest invoked through an npm script receives the same check.
+
+Commit gates apply the same check to captured output. A criterion can reuse the
+gate only when it actually ran, passed, and supplied validated captured output
+for the current commit. Skipped, bypassed, or uncaptured verbose gates do not
+supply reusable evidence; criterion verification runs normally instead.
+
 **Sources:**
 - `original` — specified when task was created
 - `subsumption` — added when a duplicate task was merged in

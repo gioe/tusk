@@ -126,3 +126,29 @@ class TestEnvironmentalFailuresStayUnavailable:
         mod = _load_module()
         stderr = "sh: line 0: cd: apps/web: No such file or directory\n"
         assert mod._test_command_unavailable(_result(1, stderr=stderr)) is True
+
+
+def test_gate_evidence_rejects_skipped_only_hidden_test_runner():
+    mod = _load_module()
+    skipped = 'Test Files 1 skipped (1)\nTests 10 skipped (10)\n'
+    validated, error = mod._test_gate_evidence(_result(0, stderr=skipped))
+    assert validated is False
+    assert 'zero tests executed' in error
+    assert mod._test_gate_evidence(_result(7, stderr=skipped)) == (False, None)
+    assert mod._test_gate_evidence(_result(0, stdout=None, stderr=None)) == (False, None)
+    assert mod._test_gate_evidence(_result(0, stdout='Test Files 1 passed (1)\nTests 1 passed | 9 skipped (10)')) == (True, None)
+
+
+def test_gate_handoff_clears_inherited_evidence_and_requires_validated_output(monkeypatch):
+    mod = _load_module()
+    for key in ('TUSK_COMMIT_GATE_COMMAND', 'TUSK_COMMIT_GATE_SHA',
+                'TUSK_COMMIT_GATE_VALIDATED', 'TUSK_COMMIT_VERIFICATION_CACHE_SHA'):
+        monkeypatch.setenv(key, 'stale')
+    for validated, sha, command in ((False, 'newsha', 'npm test'), (True, None, 'npm test'), (True, 'newsha', None)):
+        env = mod._criteria_verification_env(sha, command, validated)
+        assert not any(key.startswith('TUSK_COMMIT_GATE_') for key in env)
+        assert env.get('TUSK_COMMIT_VERIFICATION_CACHE_SHA') == sha
+    env = mod._criteria_verification_env('newsha', 'npm test', True)
+    assert env['TUSK_COMMIT_GATE_COMMAND'] == 'npm test'
+    assert env['TUSK_COMMIT_GATE_SHA'] == 'newsha'
+    assert env['TUSK_COMMIT_GATE_VALIDATED'] == '1'

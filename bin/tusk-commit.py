@@ -988,6 +988,30 @@ _SHELL_EXEC_ERROR_RE = re.compile(
 )
 
 
+def _test_gate_evidence(result: subprocess.CompletedProcess) -> tuple[bool, str | None]:
+    """Only captured successful gates can provide reusable criterion evidence."""
+    if result.returncode != 0 or result.stdout is None or result.stderr is None:
+        return False, None
+    criteria = tusk_loader.load("tusk-criteria")
+    error = criteria.zero_executed_test_error(result.stdout + "\n" + result.stderr)
+    return error is None, error
+
+
+def _criteria_verification_env(commit_sha: str | None, test_cmd: str | None,
+                               gate_validated: bool) -> dict:
+    env = os.environ.copy()
+    for key in ("TUSK_COMMIT_GATE_COMMAND", "TUSK_COMMIT_GATE_SHA",
+                "TUSK_COMMIT_GATE_VALIDATED", "TUSK_COMMIT_VERIFICATION_CACHE_SHA"):
+        env.pop(key, None)
+    if commit_sha:
+        env["TUSK_COMMIT_VERIFICATION_CACHE_SHA"] = commit_sha
+        if gate_validated and test_cmd:
+            env["TUSK_COMMIT_GATE_COMMAND"] = test_cmd
+            env["TUSK_COMMIT_GATE_SHA"] = commit_sha
+            env["TUSK_COMMIT_GATE_VALIDATED"] = "1"
+    return env
+
+
 def _test_command_unavailable(result: subprocess.CompletedProcess) -> bool:
     """Return True when the shell could not execute the configured command.
 
@@ -2166,6 +2190,7 @@ def _run_commit(argv: list[str], state: dict) -> int:
     # the failures pre-existing — stamped into the commit message body so the
     # bypass is durable in git history (issue #1083).
     gate_bypass_note: str | None = None
+    gate_validated = False
     if test_cmd and not skip_verify and not sparse_skip_test and not noncode_skip_test:
         test_cmd, _ = _worktree_command.rewrite_linked_worktree_venv_command(
             test_cmd,
@@ -2194,6 +2219,10 @@ def _run_commit(argv: list[str], state: dict) -> int:
             # Terminal timeout (after the optional auto-retry); the diagnostic
             # was already printed by _run_test_with_retry.
             return 5
+        gate_validated, empty_test_error = _test_gate_evidence(test)
+        if empty_test_error:
+            _print_error(f"Error: test_command reported zero tests executed — aborting commit.\n{empty_test_error}")
+            return 2
         if test.returncode != 0:
             # Dump the captured output so the failure is diagnosable even in
             # quiet mode.  In verbose mode the output already streamed live, so
@@ -2554,12 +2583,7 @@ def _run_commit(argv: list[str], state: dict) -> int:
             cmd.append("--skip-verify")
         if len(criteria_ids) > 1:
             cmd.append("--batch")
-        criteria_env = os.environ.copy()
-        if state.get("sha"):
-            criteria_env["TUSK_COMMIT_VERIFICATION_CACHE_SHA"] = state["sha"]
-        if test_cmd and not skip_verify and state.get("sha"):
-            criteria_env["TUSK_COMMIT_GATE_COMMAND"] = test_cmd
-            criteria_env["TUSK_COMMIT_GATE_SHA"] = state["sha"]
+        criteria_env = _criteria_verification_env(state.get("sha"), test_cmd, gate_validated)
         result = subprocess.run(
             cmd,
             capture_output=False,

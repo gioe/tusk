@@ -102,3 +102,56 @@ def test_timeout_output_reports_timeout_marker(monkeypatch):
     assert result["passed"] is False
     assert result["output"].startswith("exit_code=timeout, elapsed="), result["output"]
     assert "Verification timed out (1s)" in result["output"]
+
+
+def test_skipped_only_vitest_is_not_success(monkeypatch):
+    monkeypatch.setattr(criteria_mod, '_get_repo_root', lambda: None)
+    monkeypatch.setattr(criteria_mod.subprocess, 'run', lambda *a, **kw: criteria_mod.subprocess.CompletedProcess(a, 0, stdout=' Test Files  1 skipped (1)\n      Tests  10 skipped (10)\n', stderr=''))
+    result = criteria_mod.run_verification('test', 'npm test')
+    assert result['passed'] is False
+    assert 'zero tests executed' in result['output']
+
+
+def test_empty_vitest_failure_inspects_stderr_before_truncation(monkeypatch):
+    monkeypatch.setattr(criteria_mod, '_get_repo_root', lambda: None)
+    monkeypatch.setattr(criteria_mod.subprocess, 'run', lambda *a, **kw: criteria_mod.subprocess.CompletedProcess(
+        a, 0, stdout='noise\n' * 600,
+        stderr='\x1b[2m Test Files \x1b[0m 1 skipped (1)\n\x1b[2m      Tests \x1b[0m 10 skipped (10)\n',
+    ))
+    result = criteria_mod.run_verification('test', 'npm test -- -t old-name')
+    assert result['passed'] is False
+    assert result['output'].startswith('exit_code=0, elapsed=')
+    assert 'zero tests executed' in result['output']
+    assert result['output'].endswith('... (truncated)')
+
+
+def test_vitest_detector_checks_each_summary_and_todo():
+    passing = ' Test Files 1 passed (1)\n Tests 1 passed | 9 skipped (10)\n'
+    skipped = ' Test Files 1 skipped (1)\n Tests 9 skipped | 1 todo (10)\n'
+    assert criteria_mod.zero_executed_test_error(passing) is None
+    assert criteria_mod.zero_executed_test_error(passing + skipped)
+    assert criteria_mod.zero_executed_test_error(skipped + passing)
+    assert criteria_mod.zero_executed_test_error(' Test Files 0 passed (0)\n Tests 0 passed (0)\n')
+    for unrelated in ('', '10 skipped', 'Tests 10 skipped (10)', 'Tests: 10 skipped, 10 total',
+                      'Test Files custom log\nTests 1 unknown (1)',
+                      'Test Files 1 skipped (1)\nTests 3 skipped (10)'):
+        assert criteria_mod.zero_executed_test_error(unrelated) is None
+
+
+def test_zero_test_guard_preserves_code_checks_and_nonzero_exit(monkeypatch):
+    monkeypatch.setattr(criteria_mod, '_get_repo_root', lambda: None)
+    skipped = 'Test Files 1 skipped (1)\nTests 10 skipped (10)\n'
+    monkeypatch.setattr(criteria_mod.subprocess, 'run', lambda *a, **kw: criteria_mod.subprocess.CompletedProcess(a, 0, stdout=skipped, stderr=''))
+    assert criteria_mod.run_verification('code', 'npm test')['passed'] is True
+    monkeypatch.setattr(criteria_mod.subprocess, 'run', lambda *a, **kw: criteria_mod.subprocess.CompletedProcess(a, 7, stdout=skipped, stderr='original error'))
+    failed = criteria_mod.run_verification('test', 'npm test')
+    assert failed['passed'] is False
+    assert failed['output'].startswith('exit_code=7, elapsed=')
+    assert 'original error' in failed['output']
+    assert 'zero tests executed' not in failed['output']
+
+
+def test_explicit_paired_no_tests_summary_is_empty_execution():
+    assert criteria_mod.zero_executed_test_error(' Test Files no tests\n Tests no tests\n')
+    assert criteria_mod.zero_executed_test_error('Tests no tests\n') is None
+    assert criteria_mod.zero_executed_test_error('There are no tests for this message') is None

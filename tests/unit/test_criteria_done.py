@@ -459,6 +459,7 @@ class TestDoneSingle:
             "TUSK_COMMIT_GATE_COMMAND",
             "cd apps/web && { [ -e node_modules ] || ln -s ../../node_modules node_modules; } && npm test && npm run type-check",
         )
+        monkeypatch.setenv("TUSK_COMMIT_GATE_VALIDATED", "1")
         monkeypatch.setenv("TUSK_COMMIT_GATE_SHA", "abc1234def56")
         out = io.StringIO()
         with redirect_stdout(out), \
@@ -497,6 +498,7 @@ class TestDoneSingle:
             "TUSK_COMMIT_GATE_COMMAND",
             "cd apps/web && npm test && npm run type-check",
         )
+        monkeypatch.setenv("TUSK_COMMIT_GATE_VALIDATED", "1")
         monkeypatch.setenv("TUSK_COMMIT_GATE_SHA", "abc1234")
         out = io.StringIO()
         with redirect_stdout(out), \
@@ -539,6 +541,7 @@ class TestDoneSingle:
             "TUSK_COMMIT_GATE_COMMAND",
             "cd apps/web && npm test && npm run type-check",
         )
+        monkeypatch.setenv("TUSK_COMMIT_GATE_VALIDATED", "1")
         monkeypatch.setenv("TUSK_COMMIT_GATE_SHA", "abc1234")
         out = io.StringIO()
         with redirect_stdout(out), \
@@ -1215,3 +1218,24 @@ class TestDoneClearsDeferral:
         obj = json.loads(out.getvalue().strip())
         assert "deferral_cleared" not in obj
         assert "clears the deferral" not in err.getvalue()
+
+
+def test_unvalidated_commit_gate_reruns_and_keeps_empty_criterion_open(monkeypatch):
+    conn = make_db(criteria_specs=[{
+        'criterion_type': 'test', 'verification_spec': 'npm test', 'is_completed': 0,
+    }])
+    monkeypatch.setenv('TUSK_COMMIT_GATE_COMMAND', 'npm test')
+    monkeypatch.setenv('TUSK_COMMIT_GATE_SHA', 'abc1234')
+    monkeypatch.delenv('TUSK_COMMIT_GATE_VALIDATED', raising=False)
+    monkeypatch.setattr(criteria_mod, '_get_repo_root', lambda: None)
+    monkeypatch.setattr(criteria_mod.subprocess, 'run', lambda *a, **kw: subprocess.CompletedProcess(
+        a, 0, stdout='Test Files 1 skipped (1)\nTests 10 skipped (10)\n', stderr='',
+    ))
+    rc = criteria_mod._done_single(conn, 1, skip_verify=False, suppress_shared_commit=True,
+                                  commit_hash='abc1234', committed_at=None, head_task_id=1)
+    assert rc == 1
+    row = conn.execute('SELECT is_completed, verification_result FROM acceptance_criteria WHERE id = 1').fetchone()
+    assert row['is_completed'] == 0
+    result = json.loads(row['verification_result'])
+    assert result['passed'] is False
+    assert 'zero tests executed' in result['output']
