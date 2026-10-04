@@ -52,3 +52,30 @@ def test_direct_logic_reproducer_retains_early_stop_in_both_workflows():
         assert "passing evidence directly disprove the report" in block
         assert "tusk skill-run cancel <run_id>" in block
         assert "stop before investigating further" in block
+
+
+def test_empty_test_runs_are_inconclusive_before_the_pass_branch():
+    for path in WORKFLOW_PATHS:
+        block = _confirm_failure_block(path)
+        guard_index = block.index("Verify test execution before interpreting the exit code")
+        pass_index = block.index("If a test that directly exercises the reported failure passes")
+        assert guard_index < pass_index
+        guard = block[guard_index:pass_index]
+        for signal in ("zero tests", "all-skipped", "no matching tests"):
+            assert signal in guard
+        assert "inconclusive" in guard
+        assert "Do not cancel the skill-run or mark the task complete" in guard
+        assert "at least one relevant test actually executed" in guard
+        assert "inspect the selected files and test-name filter" in guard
+
+
+def test_missing_regression_is_authored_without_requiring_an_issue_test():
+    for path in WORKFLOW_PATHS:
+        block = _confirm_failure_block(path)
+        author_index = block.index("If no existing test exercises the reported behavior")
+        pass_index = block.index("If a test that directly exercises the reported failure passes")
+        assert author_index < pass_index
+        guidance = block[author_index:pass_index]
+        assert "write and run a focused regression test" in guidance
+        assert "does not need to supply a failing test" in guidance
+        assert "pre-fix failure" in guidance

@@ -430,6 +430,20 @@ JSON blob and the `skill_run.run_id` you already captured.
       and run a focused regression test before deciding whether to cancel.
       Its expected pre-fix red result confirms the failure; capture it and
       continue to Explore. Do not cancel based only on a passing baseline.
+   **Verify test execution before interpreting the exit code.** Treat zero
+   tests, all-skipped results, or no matching tests as inconclusive even
+   when the runner exits zero. Do not cancel the skill-run or mark the
+   task complete on this evidence. Confirm that at least one relevant test
+   actually executed and that its assertions exercised the reported
+   behavior; inspect the selected files and test-name filter if execution
+   was empty. If no existing test exercises the reported behavior, write
+   and run a focused regression test before deciding whether the report is
+   disproven. The issue author does not need to supply a failing test.
+   Capture the pre-fix failure and continue to Explore; a missing test or
+   unmatched filter is not that failure. If meaningful execution remains
+   unavailable, record the limitation and keep the reproduction
+   inconclusive.
+
    4. **If a test that directly exercises the reported failure passes:**
       before concluding the issue is already fixed, inspect the recorded
       failure evidence for time/date sensitivity. Signals include date- or
