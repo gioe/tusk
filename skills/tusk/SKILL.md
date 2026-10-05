@@ -278,7 +278,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
        ```bash
        tusk commit <id> "<file1>" ["<file2>" ...] -m "<message>" --criteria <cid>
        ```
-       This runs `tusk lint` (advisory — never blocks), stages the listed files, commits with the `[TASK-<id>] <message>` format and Co-Authored-By trailer, and marks the criterion done — all in one call. The criterion is bound to the new commit hash automatically. Duplicate `[TASK-N]` prefixes in the message are stripped automatically, and bare `--` separators are silently ignored.
+       This stages the listed files, commits with the `[TASK-<id>] <message>` format and Co-Authored-By trailer, and marks the criterion done — all in one call. The criterion is bound to the new commit hash automatically. Duplicate `[TASK-N]` prefixes in the message are stripped automatically, and bare `--` separators are silently ignored.
 
        **Always quote file paths** — zsh expands unquoted brackets (`[id]`, `[slug]`) as glob patterns before the shell passes arguments to `tusk commit`. Any path component containing `[`, `]`, `*`, `?`, or spaces must be wrapped in double quotes (e.g., `"apps/api/[id]/route.ts"`).
 
@@ -312,6 +312,8 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
     **If `tusk commit` exits 9 (concurrent commit active)**, another invocation holds the operation lock for the same worktree and this process did not run `git commit`. Wait for the active invocation to finish and inspect its `TUSK_COMMIT_RESULT`. Retry only when that result shows the requested commit did not land. If the result is unavailable, inspect HEAD with `git log -1 --format='%H %s'`, inspect the selected paths with `git status --short -- "<file1>" ["<file2>" ...]`, and inspect criterion bindings with `tusk criteria list <id>` before deciding. If the requested TASK commit and intended criterion bindings landed and the selected requested changes are clean, do not reissue `tusk commit`; if the evidence is inconsistent, investigate instead of retrying blindly. Do not interpret exit 9 as a Git failure or mark criteria directly from the losing invocation.
 
+    **Raw Git fallback attribution:** Replace the attribution placeholder in the examples below with the executing agent's known name and email in Git's standard `Name <email>` form; do not copy a historical model identity or infer it from this prompt's filename. If the identity is unavailable, omit the trailer and report the limitation rather than guessing. This guidance applies to raw Git fallbacks; the normal `tusk commit` command supplies its own trailer.
+
     **If `tusk commit` fails with `pathspec did not match any files`** (exit code 3, git-add error), first check whether the file was already committed in a prior `tusk commit` call for this task (e.g., when all changes go into a single file committed with earlier criteria), or whether the file was removed via `git rm` (which stages the deletion — `tusk commit` then can't find the path to re-add). In either case, `git add && git commit` would also fail — just mark the remaining criteria done directly:
     ```bash
     tusk criteria done <cid> --skip-verify
@@ -319,7 +321,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     If the error is a genuine pathspec mismatch (not an already-committed file), always pass file paths relative to the repo root (e.g., `ios/SomeFile.swift`, not `SomeFile.swift` from inside `ios/`). If the error persists, fall back to a path-limited commit:
     ```bash
     git add -- "<file1>" ["<file2>" ...]
-    git commit -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>" -o -- "<file1>" ["<file2>" ...]
+    git commit -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: <executing agent name and email>" -o -- "<file1>" ["<file2>" ...]
     ```
     `git commit -o -- <files>` limits the commit to the listed paths so unrelated pre-staged changes cannot leak into the task commit. Then mark criteria done with `tusk criteria done <cid> --skip-verify` as usual.
 
@@ -336,15 +338,9 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
     **If the commit removes a file from git tracking** (any staged deletion — `git rm <file>`, `git rm --cached <file>`, or `rm <file>` followed by `git add <file>` — all produce identical `deleted: <path>` index entries), do NOT use `tusk commit` — it retries gitignored paths with `git add -f`, which re-adds the file and defeats the deletion. Use `git commit` directly:
     ```bash
-    git commit -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
+    git commit -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: <executing agent name and email>"
     ```
     Then mark criteria done with `tusk criteria done <cid> --skip-verify`.
-
-    **If `tusk commit` exits 6 (blocking lint violation)** — the commit did NOT land. A non-advisory lint rule fired (Rule 1 raw sqlite3, Rule 3 hardcoded DB path, Rule 11 bad SKILL.md frontmatter, Rule 16 DB-backed blocking rules, Rules 18/19 MANIFEST drift, Rule 21 multi-trailing-newlines, etc.). The violating rule's output is printed verbatim — fix it, then retry `tusk commit`. Advisory-only rules (Rule 13 VERSION bump missing, Rule 15 big-bang commits, Rule 17 DB-backed advisory, etc.) still print WARN lines but do NOT exit non-zero and do NOT block. If the violation is a known false positive or pre-existing state you can't resolve in this commit, bypass with `--skip-lint` (lint only) or widen to `--skip-verify` (lint, tests, and pre-commit hooks):
-    ```bash
-    tusk commit <id> "<message>" "<file>" --skip-lint --criteria <cid>
-    ```
-    Lint output during commit is now filtered: only rules with violations print — passing rules are suppressed. If the last lint pass was clean, you won't see any lint output at all.
 
     **If `tusk commit` exits 5 (test_command timeout)** — the configured `test_command` exceeded its timeout and was killed before producing an exit code. The stderr message names the resolved timeout and source. The resolution chain is `TUSK_TEST_COMMAND_TIMEOUT` env var > `config.test_command_timeout_sec` in `tusk/config.json` > default (240s). If the failure is just slow first-run compilation (cold xcodebuild, Bazel cold cache, large Rust compile), retry with a per-invocation override:
     ```bash
@@ -382,7 +378,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     - **If `pre_existing` is `true`** (and not flaky, and not still-divergent) — the failure is pre-existing and unrelated to your changes. **Skip the diagnosis loop entirely.** Do not attempt to fix tests in files you did not modify during this session. Fall back immediately to:
       ```bash
       git add -- "<file1>" ["<file2>" ...]
-      git commit -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>" -o -- "<file1>" ["<file2>" ...]
+      git commit -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: <executing agent name and email>" -o -- "<file1>" ["<file2>" ...]
       ```
       Then mark criteria done with `tusk criteria done <cid> --skip-verify`. The `-o -- <files>` form is required here too; a plain `git commit` would include any unrelated paths that were staged before this task.
 
@@ -420,11 +416,11 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
     **Recording the outcome after close (issue #1058):** once the deferred check is actually performed (e.g. the push-triggered CI run on the default branch goes green), record it with `tusk criteria done <criterion_id>` — this works even after the task is Done, clears `is_deferred` while keeping `deferred_reason` for history, and emits `deferral_cleared` in the JSON so the audit trail distinguishes "verified post-merge" from "never performed". Do not leave the criterion permanently deferred once the verification has happened.
 
-10. **Run convention lint (advisory)** — `tusk commit` already runs lint before each commit. If you need to check lint independently before pushing:
+10. **Run convention lint when needed.** Lint runs at merge time; `tusk commit` does not run lint, and `--skip-lint` is ignored by `tusk commit`. To inspect lint independently before merging:
     ```bash
     tusk lint
     ```
-    Review the output. This check is **advisory only** — violations are warnings, not blockers. Fix any clear violations in files you've already touched. Do not refactor unrelated code just to satisfy lint.
+    Review the result: advisory warnings do not block, but blocking violations must be resolved before merge. Fix violations in task scope; do not refactor unrelated code just to satisfy lint. Use Step 12's existing exception policy for known false positives or pre-existing issues.
 
 10b. **Prepare source-repository release metadata before final review.** Run
     this checkpoint for standalone `/tusk` work only. When `/chain` owns the
@@ -482,7 +478,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     ```
     `tusk merge` closes the session, merges the feature branch into the default branch, pushes, deletes the feature branch, and marks the task Done. It returns JSON including an `unblocked_tasks` array. If there are newly unblocked tasks, note them in the retro.
 
-    The merge path runs a pre-merge lint gate by default. If that gate blocks on a known false positive or pre-existing issue, use `--skip-lint` to skip only lint. Use `--skip-verify` only when you need the broader bypass; for TASK-586 / GitHub issue #996 it currently skips lint as well, and it is reserved to skip future pre-merge verification gates as they are added.
+    The merge path runs a pre-merge lint gate by default. If `tusk merge` exits 6, blocking lint violations prevented the merge; fix them and retry. A lint timeout exits 8 and also prevents the merge: diagnose the hung check or its timeout before retrying. Advisory warnings do not block. For a known false positive or pre-existing issue, use `--skip-lint` to skip only lint. Use `--skip-verify` only when the broader bypass is required; it also skips the merge lint gate.
 
     `tusk merge` refuses to proceed while ordinary non-deferred criteria are still open. Complete them, or use Step 9's explicit post-merge verification deferral pattern when the check is impossible before merge.
 
@@ -505,7 +501,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
     tusk merge <id> --session $SESSION_ID --rebase
     ```
 
-    **Partial-cleanup exit code 3 (TASK-504):** If `tusk merge` exits **3**, the no-checkout fast-forward push, session-close, and task-done all succeeded — the task is Done and the work is on `origin/<default>` — but the local worktree directory and/or feature branch could not be removed (typically an untracked file outside the auto-symlink set blocked `git worktree remove`). The stderr message names the leftover artifact. Treat exit 3 like exit 0 for workflow purposes: still return to the stable checkout and run `skill-run finish`, `task-summary`, and `/retro` as described below. Clean up the leftover worktree manually (`git worktree remove --force <path>` and `git branch -D <feature-branch>`) after the retro, or surface it to the user.
+    **Partial-cleanup exit code 3:** If `tusk merge` exits **3**, the merge and task completion succeeded, but local synchronization or workspace/branch cleanup remains incomplete. Read the diagnostic to identify the remaining work. Treat this as a completed task with a cleanup warning: return to the stable checkout and run `skill-run finish`, `task-summary`, and retro as described below. Preserve unexpected local files; resolve or report the remaining cleanup separately. Do not repeat implementation or discard local files merely to clear this warning.
 
     **Sibling-worktree DB fallback:** If the default branch is checked out in a sibling worktree and the primary checkout is unusable, run the merge from the sibling worktree while pinning tusk to the primary repo's DB:
     ```bash
@@ -535,7 +531,7 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
     `tusk abandon` switches off the feature branch, deletes it (force), closes the session, and marks the task Done with the given `closed_reason` in one call. **Refuses** if the feature branch has commits not on the default branch — in that case use `tusk merge` to ship the work, or delete the branch manually if you really want to discard it. The optional `--note` records the decision rationale on `task_progress` so the audit trail survives. After `tusk abandon` exits 0, run `/retro` exactly as you would after `tusk merge`.
 
-    Only after `tusk merge` (or `tusk abandon`) exits 0, return to the stable checkout captured before task-worktree handoff, then close out the /tusk skill-run so its cost is captured before `/retro` starts its own run. Do not run these commands after a failed merge or abandon attempt, and do not launch them from the task worktree after cleanup has begun:
+    **Finalization outcome gate:** Continue after merge exit 0, merge exit 3 (partial cleanup), or abandon exit 0. For every other exit code, stop finalization and handle the failed command before retrying; do not emit a success summary. Return to the stable checkout captured before task-worktree handoff, then close the skill-run before retro starts its own run. Never launch these commands from a task worktree after cleanup has begun:
     ```bash
     cd "$TUSK_PRIMARY_CWD"
     "$TUSK_PRIMARY_BIN" skill-run finish <run_id>

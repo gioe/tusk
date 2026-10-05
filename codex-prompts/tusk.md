@@ -584,8 +584,7 @@ JSON blob and the `skill_run.run_id` you already captured.
       ```bash
       tusk commit <id> "<file1>" ["<file2>" ...] -m "<message>" --criteria <cid>
       ```
-      This runs `tusk lint` (advisory — never blocks unless a blocking
-      rule fires), stages the listed files, commits with the
+      This stages the listed files, commits with the
       `[TASK-<id>] <message>` format and Co-Authored-By trailer, and
       marks the criterion done — all in one call. The criterion is
       bound to the new commit hash automatically. Duplicate `[TASK-N]`
@@ -644,6 +643,8 @@ JSON blob and the `skill_run.run_id` you already captured.
    of retrying blindly. Do not interpret exit 9 as a Git failure or mark
    criteria directly from the losing invocation.
 
+   **Raw Git fallback attribution:** Replace the attribution placeholder in the examples below with the executing agent's known name and email in Git's standard `Name <email>` form; do not copy a historical model identity or infer it from this prompt's filename. If the identity is unavailable, omit the trailer and report the limitation rather than guessing. This guidance applies to raw Git fallbacks; the normal `tusk commit` command supplies its own trailer.
+
    **If `tusk commit` fails with `pathspec did not match any files`**
    (exit code 3, git-add error), first check whether the file was
    already committed in a prior `tusk commit` for this task, or
@@ -657,7 +658,7 @@ JSON blob and the `skill_run.run_id` you already captured.
    paths relative to the repo root. If the error persists, fall back
    to:
    ```bash
-   git add "<file1>" ["<file2>" ...] && git commit -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: Codex <noreply@anthropic.com>"
+   git add "<file1>" ["<file2>" ...] && git commit -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: <executing agent name and email>"
    ```
    Then mark criteria done with `tusk criteria done <cid> --skip-verify`.
 
@@ -682,19 +683,9 @@ JSON blob and the `skill_run.run_id` you already captured.
    paths with `git add -f`, which re-adds the file and defeats the
    deletion. Use `git commit` directly:
    ```bash
-   git commit -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: Codex <noreply@anthropic.com>"
+   git commit -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: <executing agent name and email>"
    ```
    Then mark criteria done with `tusk criteria done <cid> --skip-verify`.
-
-   **If `tusk commit` exits 6 (blocking lint violation)** — the commit
-   did NOT land. The violating rule's output is printed verbatim — fix
-   it, then retry `tusk commit`. If the violation is a known false
-   positive or pre-existing state you can't resolve in this commit,
-   bypass with `--skip-lint` (lint only) or widen to `--skip-verify`
-   (lint, tests, and pre-commit hooks):
-   ```bash
-   tusk commit <id> "<message>" "<file>" --skip-lint --criteria <cid>
-   ```
 
    **If `tusk commit` hard-fails because tests fail** (exit code 2 —
    `test_command` is set and returned non-zero), **first verify the
@@ -769,7 +760,7 @@ JSON blob and the `skill_run.run_id` you already captured.
      your changes. Skip the diagnosis loop entirely. Fall back
      immediately to:
      ```bash
-     git add <file1> [file2 ...] && git commit -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: Codex <noreply@anthropic.com>"
+     git add <file1> [file2 ...] && git commit -m "[TASK-<id>] <message>" --trailer "Co-Authored-By: <executing agent name and email>"
      ```
      Then mark criteria done with `tusk criteria done <cid> --skip-verify`.
 
@@ -837,16 +828,11 @@ JSON blob and the `skill_run.run_id` you already captured.
    leave the criterion permanently deferred once the verification has
    happened.
 
-10. **Run convention lint (advisory).** `tusk commit` already runs lint
-    before each commit. If you need to check lint independently before
-    pushing:
+10. **Run convention lint when needed.** Lint runs at merge time; `tusk commit` does not run lint, and `--skip-lint` is ignored by `tusk commit`. To inspect lint independently before merging:
     ```bash
     tusk lint
     ```
-    Review the output. This check is **advisory only** — non-blocking
-    violations are warnings. Fix any clear violations in files you've
-    already touched. Do not refactor unrelated code just to satisfy
-    lint.
+    Review the result: advisory warnings do not block, but blocking violations must be resolved before merge. Fix violations in task scope; do not refactor unrelated code just to satisfy lint. Use Step 12's existing exception policy for known false positives or pre-existing issues.
 
 10b. **Prepare source-repository release metadata before final review.**
     Run this checkpoint for standalone `/tusk` work only. When `/chain`
@@ -914,12 +900,7 @@ JSON blob and the `skill_run.run_id` you already captured.
     the task Done. It returns JSON including an `unblocked_tasks`
     array. If there are newly unblocked tasks, note them in the retro.
 
-    The merge path runs a pre-merge lint gate by default. If that gate
-    blocks on a known false positive or pre-existing issue, use
-    `--skip-lint` to skip only lint. Use `--skip-verify` only when you
-    need the broader bypass; for TASK-586 / GitHub issue #996 it
-    currently skips lint as well, and it is reserved to skip future
-    pre-merge verification gates as they are added.
+    The merge path runs a pre-merge lint gate by default. If `tusk merge` exits 6, blocking lint violations prevented the merge; fix them and retry. A lint timeout exits 8 and also prevents the merge: diagnose the hung check or its timeout before retrying. Advisory warnings do not block. For a known false positive or pre-existing issue, use `--skip-lint` to skip only lint. Use `--skip-verify` only when the broader bypass is required; it also skips the merge lint gate.
 
     `tusk merge` refuses to proceed while ordinary non-deferred
     criteria are still open. Complete them, or use Step 9's explicit
@@ -964,18 +945,7 @@ JSON blob and the `skill_run.run_id` you already captured.
     tusk merge <id> --session $SESSION_ID --rebase
     ```
 
-    **Partial-cleanup exit code 3 (TASK-504):** If `tusk merge` exits
-    **3**, the no-checkout fast-forward push, session-close, and
-    task-done all succeeded — the task is Done and the work is on
-    `origin/<default>` — but the local worktree directory and/or
-    feature branch could not be removed (typically an untracked file
-    outside the auto-symlink set blocked `git worktree remove`). The
-    stderr message names the leftover artifact. Treat exit 3 like
-    exit 0 for workflow purposes: still return to the stable checkout
-    and run `skill-run finish`, `task-summary`, and retro as described
-    below. Clean up the leftover worktree manually (`git worktree
-    remove --force <path>` and `git branch -D <feature-branch>`) after
-    the retro, or surface it to the user.
+    **Partial-cleanup exit code 3:** If `tusk merge` exits **3**, the merge and task completion succeeded, but local synchronization or workspace/branch cleanup remains incomplete. Read the diagnostic to identify the remaining work. Treat this as a completed task with a cleanup warning: return to the stable checkout and run `skill-run finish`, `task-summary`, and retro as described below. Preserve unexpected local files; resolve or report the remaining cleanup separately. Do not repeat implementation or discard local files merely to clear this warning.
 
     **PR mode:** If the project uses PR-based merges
     (`merge.mode = pr` in config, or when passing `--pr`), use:
@@ -1035,12 +1005,7 @@ JSON blob and the `skill_run.run_id` you already captured.
     survives. After `tusk abandon` exits 0, run `retro.md` exactly as
     you would after `tusk merge`.
 
-    Only after `tusk merge` (or `tusk abandon`) exits 0, return to
-    the stable checkout captured before task-worktree handoff, then
-    close out the tusk skill-run so its cost is captured before retro
-    starts its own run. Do not run these commands after a failed merge
-    or abandon attempt, and do not launch them from the task worktree
-    after cleanup has begun:
+    **Finalization outcome gate:** Continue after merge exit 0, merge exit 3 (partial cleanup), or abandon exit 0. For every other exit code, stop finalization and handle the failed command before retrying; do not emit a success summary. Return to the stable checkout captured before task-worktree handoff, then close the skill-run before retro starts its own run. Never launch these commands from a task worktree after cleanup has begun:
     ```bash
     cd "$TUSK_PRIMARY_CWD"
     "$TUSK_PRIMARY_BIN" skill-run finish <run_id>
