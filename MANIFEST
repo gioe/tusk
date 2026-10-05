@@ -146,6 +146,7 @@
   ".claude/skills/tusk-insights/SKILL.md",
   ".claude/skills/tusk-update/SKILL.md",
   ".claude/skills/tusk-update/SMOKE-TEST.md",
+  ".claude/skills/tusk/RECOVERY.md",
   ".claude/skills/tusk/SKILL.md",
   ".claude/skills/tusk/SUBCOMMANDS.md",
   ".claude/hooks/auto-lint.sh",
@@ -183,6 +184,7 @@
   ".codex/prompts/review-commits.md",
   ".codex/prompts/tusk-init.md",
   ".codex/prompts/tusk-insights.md",
+  ".codex/prompts/tusk-recovery.md",
   ".codex/prompts/tusk-update.md",
   ".codex/prompts/tusk.md"
 ]

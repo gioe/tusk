@@ -38,10 +38,20 @@ def test_finalization_accepts_only_documented_success_outcomes(workflow):
     assert "Only after `tusk merge` (or `tusk abandon`) exits 0" not in workflow
 
 
-def test_all_raw_commit_examples_use_runtime_attribution(workflow):
+@pytest.mark.parametrize("relative_path", ("skills/tusk/RECOVERY.md", "codex-prompts/tusk-recovery.md"))
+def test_all_raw_commit_examples_use_runtime_attribution(relative_path):
+    workflow = " ".join((ROOT / relative_path).read_text().split())
     trailers = re.findall(r'--trailer "([^"]+)"', workflow)
     assert trailers, "Exercise actual fallback commit examples"
     assert all(t == "Co-Authored-By: <executing agent name and email>" for t in trailers)
     assert "Replace the attribution placeholder" in workflow
     assert "do not copy a historical model identity" in workflow
     assert "If the identity is unavailable, omit the trailer" in workflow
+
+
+def test_deletion_recovery_is_loaded_before_first_commit(workflow):
+    implementation = workflow.split("7. **Implement, commit, and mark criteria done.**", 1)[1]
+    trigger = implementation.index("**Before committing a file removal or untracking change**")
+    first_commit = implementation.index('tusk commit <id> "<message>"')
+    assert trigger < first_commit
+    assert "#commit-recovery) and apply its staged-deletion branch before invoking `tusk commit`" in implementation[:first_commit]

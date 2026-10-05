@@ -17,17 +17,20 @@ def _routing_block(path: Path) -> str:
     return " ".join(text[start:end].split())
 
 
+def _recovery_block(path: Path, anchor: str) -> str:
+    companion = path.with_name("RECOVERY.md" if path.name == "SKILL.md" else "tusk-recovery.md")
+    text = companion.read_text(encoding="utf-8")
+    section = text.split(f'<a id="{anchor}"></a>', 1)[1].split('<a id="', 1)[0]
+    start = section.index("**Bounded recovery")
+    return " ".join(section[start:].split())
+
+
 def _stalled_fallback_block(path: Path) -> str:
-    block = _routing_block(path)
-    start = block.index("**Bounded recovery for a stalled implementation subagent.**")
-    return block[start:]
+    return _recovery_block(path, "stalled-implementation")
 
 
 def _stalled_exploration_block(path: Path) -> str:
-    block = _routing_block(path)
-    start = block.index("**Bounded recovery for a stalled exploration subagent.**")
-    end = block.index("5b.", start)
-    return block[start:end]
+    return _recovery_block(path, "stalled-exploration")
 
 
 def test_tusk_workflows_always_delegate_exploration_before_routing():

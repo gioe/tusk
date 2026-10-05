@@ -8,7 +8,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.mark.parametrize("relative_path", ["skills/tusk/SKILL.md", "codex-prompts/tusk.md"])
+@pytest.mark.parametrize("relative_path", ["skills/tusk/RECOVERY.md", "codex-prompts/tusk-recovery.md"])
 def test_non_reproduced_precheck_retries_original_gate(relative_path):
     text = (ROOT / relative_path).read_text(encoding="utf-8")
     branch = text.index("If `verdict` is `non_reproduced`")

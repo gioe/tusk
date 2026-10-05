@@ -14,7 +14,7 @@ def _exit9_block(relpath: str) -> str:
 
 
 def test_tusk_workflows_condition_exit9_retry_on_observed_state():
-    for relpath in ("skills/tusk/SKILL.md", "codex-prompts/tusk.md"):
+    for relpath in ("skills/tusk/RECOVERY.md", "codex-prompts/tusk-recovery.md"):
         block = _exit9_block(relpath)
 
         assert "TUSK_COMMIT_RESULT" in block
@@ -25,7 +25,7 @@ def test_tusk_workflows_condition_exit9_retry_on_observed_state():
 
 
 def test_tusk_workflows_document_exit9_fallback_state_checks():
-    for relpath in ("skills/tusk/SKILL.md", "codex-prompts/tusk.md"):
+    for relpath in ("skills/tusk/RECOVERY.md", "codex-prompts/tusk-recovery.md"):
         block = _exit9_block(relpath)
 
         assert "git log -1 --format='%H %s'" in block
