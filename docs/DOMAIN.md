@@ -264,6 +264,21 @@ A recorded git worktree owned by a normal task. Bakeoff attempts use shadow task
 
 `tusk task-worktree list` reconciles these rows with `git worktree list --porcelain`, so rows remain visible even when a workspace directory was removed outside tusk. The list output reports both the recorded path and the live path currently advertised by git for the branch.
 
+Merge cleanup retries transient database locks when deleting a workspace registry
+row. If the retry budget is exhausted after publication and task finalization,
+merge reports partial cleanup (exit 3), leaving the registry row and branch
+available for a later retry. It does not roll back the published work or reopen
+the completed task.
+
+Run the same `tusk merge <task_id> --session <session_id>` command from a surviving
+checkout to retry cleanup. For a non-PR merge, when the recorded directory is already gone, a task
+marked Done/completed can take a cleanup-only path after a successful fetch proves
+the surviving feature branch is entirely contained in the remote default branch.
+This path clears the registry and removes the published branch without checking
+out, rebasing, or pushing anything. Missing publication evidence, a failed fetch,
+or unpublished branch commits do not authorize this recovery path. Existing dirty
+worktree and active-rebase safeguards continue to apply to worktrees on disk.
+
 ---
 
 ### Task Scope

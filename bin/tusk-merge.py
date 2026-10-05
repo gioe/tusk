@@ -3071,12 +3071,28 @@ def _recorded_task_workspace(db_path: str, task_id: int) -> sqlite3.Row | None:
 
 
 def _forget_task_workspace(db_path: str, workspace_id: int) -> None:
-    conn = get_connection(db_path)
-    try:
+    def delete(conn):
         conn.execute("DELETE FROM task_workspaces WHERE id = ?", (workspace_id,))
         conn.commit()
-    finally:
-        conn.close()
+
+    _db_lib.run_write(db_path, delete, label="workspace registry cleanup")
+
+
+def _try_forget_task_workspace(db_path: str, workspace_id: int, task_id: int) -> bool:
+    try:
+        _forget_task_workspace(db_path, workspace_id)
+    except sqlite3.OperationalError as exc:
+        if not _db_lib._is_locked_error(exc):
+            raise
+        print(
+            f"Warning: workspace registry cleanup for TASK-{task_id} could not finish "
+            f"because the database stayed locked. Registry row {workspace_id} and "
+            "the local branch were retained; the worktree may already be removed.\n"
+            f"Retry tusk merge {task_id} after the writer releases its lock.",
+            file=sys.stderr,
+        )
+        return False
+    return True
 
 
 def _all_task_workspaces(db_path: str, task_id: int) -> list[sqlite3.Row]:
@@ -3154,7 +3170,9 @@ def _reconcile_duplicate_task_workspaces(
 
         if not os.path.exists(workspace_path):
             # Stale registry row — the worktree directory is already gone.
-            _forget_task_workspace(db_path, row["id"])
+            if not _try_forget_task_workspace(db_path, row["id"], task_id):
+                all_reconciled = False
+                continue
             if branch_present and merged:
                 run(["git", "branch", "-D", branch], check=False)
                 print(
@@ -3529,8 +3547,7 @@ def _remove_recorded_task_worktree(
             )
             return False
 
-    _forget_task_workspace(db_path, workspace["id"])
-    return True
+    return _try_forget_task_workspace(db_path, workspace["id"], task_id)
 
 
 # Canonical runtime artifacts auto-linked when `worktree.symlink_files` is
@@ -4234,21 +4251,41 @@ def main(argv: list[str]) -> int:
             candidate_branch, task_id, default_branch_probe
         )
         path_exists = os.path.exists(candidate_path)
-        if branch_exists and has_task_commits:
-            if not path_exists:
-                print(
-                    f"Error: recorded task workspace path is missing: {candidate_path}\n"
-                    "This usually means the task worktree was manually removed "
-                    "with git worktree remove --force after an earlier merge "
-                    "cleanup failure. Refusing to checkout "
-                    f"{candidate_branch} in the primary checkout.\n"
-                    "To recover, clear the stale workspace registry row with:\n"
-                    "  tusk task-worktree prune\n"
-                    "Then re-run:\n"
-                    f"  tusk merge {task_id} --session {session_id}",
-                    file=sys.stderr,
+        if branch_exists and not path_exists:
+            # A prior successful publication can remove the physical worktree
+            # before a contended registry DELETE fails. Resume cleanup only;
+            # never checkout/push unrelated primary work to recover this state.
+            if not use_pr and _task_already_finalized(_db_path, task_id):
+                fetched = run(
+                    ["git", "fetch", "origin",
+                     f"+refs/heads/{default_branch_probe}:refs/remotes/origin/{default_branch_probe}"],
+                    check=False,
                 )
-                return 2
+                if fetched.returncode == 0 and _origin_already_contains(candidate_branch, default_branch_probe):
+                    print(
+                        f"Note: TASK-{task_id} is completed and its branch is published; "
+                        "resuming cleanup of the missing worktree registry entry.",
+                        file=sys.stderr,
+                    )
+                    cleanup_ok = _cleanup_no_checkout_workspace(_db_path, task_id, candidate_branch)
+                    siblings_ok = _reconcile_duplicate_task_workspaces(
+                        _db_path, task_id, candidate_branch, default_branch_probe
+                    )
+                    return 0 if cleanup_ok and siblings_ok else 3
+            print(
+                f"Error: recorded task workspace path is missing: {candidate_path}\n"
+                "This usually means the task worktree was manually removed "
+                "with git worktree remove --force after an earlier merge "
+                "cleanup failure. Refusing to checkout "
+                f"{candidate_branch} in the primary checkout.\n"
+                "To recover, clear the stale workspace registry row with:\n"
+                "  tusk task-worktree prune\n"
+                "Then re-run:\n"
+                f"  tusk merge {task_id} --session {session_id}",
+                file=sys.stderr,
+            )
+            return 2
+        if branch_exists and has_task_commits:
             branch_name = candidate_branch
             err = None
             pre_merged = False
