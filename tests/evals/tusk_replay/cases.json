@@ -1,0 +1,29 @@
+{
+  "cases": [
+    {
+      "id": "inline-python",
+      "pre_ref": "e438f50dd89f32841924ca45d54d2a89ef228eb2",
+      "fixed_ref": "418aca522b4749e47db8bbf29c0148496eb4c738",
+      "summary": "Prevent false stale-path warnings for inline Python verification commands",
+      "description": "Task pickup briefs sometimes flag valid verification commands as stale when a command runs Python inline and the source contains path-like strings. Investigate the path scanner and correct the false positives while retaining useful warnings about missing command operands. Preserve ordinary script and shell-command path handling.",
+      "criteria": [
+        "Valid inline Python verification commands do not produce stale-path warnings from their source text, including when interpreter flags are present.",
+        "Actual missing path operands after inline source and in subsequent shell commands still produce warnings; existing paths do not.",
+        "Add regression coverage demonstrating the defect before the production fix and passing afterward."
+      ]
+    },
+    {
+      "id": "nested-cache",
+      "pre_ref": "dfb565054a116ebd9a3dac74afe0e1884646f749",
+      "fixed_ref": "2cee37dfe7c85a51317977aac5958d94debd9ed9",
+      "summary": "Allow safe task-worktree cleanup after tests create nested Python caches",
+      "description": "Task-worktree cleanup can fail after successful tests because Python and pytest leave generated cache directories inside nested projects. Extend the existing generated-cache cleanup to support those locations. Preserve the safety boundary: user files and similarly named directories must remain protected, symlinks must not cause deletion outside the worktree, and unknown leftovers must still prevent ordinary worktree removal.",
+      "criteria": [
+        "Generated Python and pytest cache directories are cleaned at nested project depths so otherwise clean task worktrees can be removed.",
+        "Unrelated files, similarly named directories, symlinks, and external targets remain intact.",
+        "Unknown untracked leftovers still prevent non-forced Git worktree removal.",
+        "Add regression coverage demonstrating the defect before the production fix and passing afterward."
+      ]
+    }
+  ]
+}
