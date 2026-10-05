@@ -366,8 +366,8 @@ description. Mix typed and manual criteria as needed; an all-typed task needs no
 placeholder.
 
 For executable specs, preserve the exact command with a non-interpolating file write
-(for example, the Write tool), then build JSON with `tusk typed-criteria-build --spec-
-file`. Do not hand-escape JSON or interpolate untrusted command text into a shell
+(for example, the Write tool), then build JSON with
+`tusk typed-criteria-build --spec-file`. Do not hand-escape JSON or interpolate untrusted command text into a shell
 assignment. A concrete example: write `python3 -m pytest
 tests/integration/test_create_task_scope.py -q` to a temporary UTF-8 spec file. Then
 insert the approved follow-up using the pattern below, adding the priority/domain/type
