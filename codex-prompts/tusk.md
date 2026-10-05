@@ -20,14 +20,14 @@ linked section in `tusk-recovery.md` when its stated condition occurs; do not lo
 the whole companion during routine startup. Return to the triggering step after
 handling that condition, unless the section explicitly routes elsewhere or stops.
 
-Resolve companion links beside this workflow file. If an existing generated
-`.agents/skills` mirror lacks the adjacent companion, use the same anchor in a
-recovery file under the stable primary checkout: `.codex/prompts/tusk-recovery.md`,
-or the `.claude` directory followed by `skills/tusk/RECOVERY.md`; the source repo
-also provides `skills/tusk/RECOVERY.md`. Resolve these paths before leaving the
-stable checkout without reading their contents, and retain them across worktree
-cleanup. If no companion exists when recovery is needed, report
-the missing reference and stop that recovery branch rather than guessing.
+Resolve companion links beside this workflow file. If the adjacent companion
+is missing, use the same anchor in this variant's recovery file under the stable
+primary checkout: `.codex/prompts/tusk-recovery.md`, then the source repo's
+`codex-prompts/tusk-recovery.md`. Do not substitute a canonical Claude recovery
+companion, whose variant has different rules. Resolve these paths before leaving
+the stable checkout without reading their contents, and retain them across
+worktree cleanup. If no matching companion exists when recovery is needed,
+report the missing reference and stop that recovery branch rather than guessing.
 
 ## Setup: Upgrade and Reload
 

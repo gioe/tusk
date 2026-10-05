@@ -42,9 +42,9 @@ All ten original blocks remain in their companion, compared with whitespace norm
 
 ## Distribution and reference resolution
 
-Claude uses adjacent `RECOVERY.md`; Codex uses adjacent `tusk-recovery.md`. Each core prompt instructs the agent to load only the section whose condition occurred and resume at the triggering step unless routed elsewhere. Both installed paths are registered in MANIFEST. Existing installer loops already copy flat skill files and Codex Markdown prompts; no installer behavior change is needed.
+Claude uses adjacent `RECOVERY.md`; Codex uses adjacent `tusk-recovery.md`. Each core prompt instructs the agent to load only the section whose condition occurred and resume at the triggering step unless routed elsewhere. All three installed companion paths, including the canonical compatibility copy, are registered in MANIFEST. Existing installer loops already copy flat skill files and Codex Markdown prompts; no installer behavior change is needed.
 
-Existing generated agent-skill mirrors may lack newly introduced companion files. The core includes fallback resolution through the stable primary checkout's installed Codex prompt, canonical Claude skill companion, or source companion. These paths are retained across workspace cleanup. An absent reference stops the recovery branch instead of inviting a guessed bypass.
+Existing generated agent-skill mirrors may lack newly introduced companion files. Canonical-generated mirrors first use the installed/source canonical companion, then the byte-identical compatibility copy distributed as codex-prompts/tusk-recovery-canonical.md and installed as .codex/prompts/tusk-recovery-canonical.md. Ordinary Codex prompts use only their own variant. The variants have pre-existing semantic differences (including deliverable checks and timeout/DB recovery), so cross-variant fallback would lose safeguards. An equality test enforces the compatibility copy's fidelity. These paths are retained across workspace cleanup. An absent reference stops the recovery branch instead of inviting a guessed bypass.
 
 ## Size measurements
 
@@ -52,8 +52,10 @@ Counts are whitespace-separated words / UTF-8 bytes. The initial required contex
 
 | Core | Before words / bytes | After words / bytes | Companion words / bytes | Core word reduction |
 |---|---:|---:|---:|---:|
-| skills/tusk/SKILL.md | 9,960 / 68,576 | 7,090 / 49,009 | 3,270 / 22,371 | 28.8% |
-| codex-prompts/tusk.md | 7,948 / 56,239 | 6,013 / 42,507 | 2,335 / 16,218 | 24.3% |
+| skills/tusk/SKILL.md | 9,960 / 68,576 | 7,112 / 49,192 | 3,270 / 22,371 | 28.6% |
+| codex-prompts/tusk.md | 7,948 / 56,239 | 6,016 / 42,514 | 2,335 / 16,218 | 24.3% |
+
+The Codex distribution additionally contains a 3,270-word / 22,371-byte exact canonical compatibility copy for existing generated skill mirrors. It is loaded only for a triggered recovery when the canonical companion is otherwise unavailable.
 
 Combined core-plus-companion size may increase because routing instructions and section anchors are new. The claim is reduced initial loading, not reduced total text or measured dollar savings.
 

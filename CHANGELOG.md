@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1280] - 2026-10-05
+
+- [TASK-894] Extract conditional recovery guidance from the core Tusk workflow
+
 ## [1279] - 2026-10-05
 
 - [TASK-893] Reconcile Tusk workflow contracts across Claude and Codex

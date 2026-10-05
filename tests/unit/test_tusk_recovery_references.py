@@ -63,6 +63,7 @@ def test_manifest_owns_both_installed_companions():
     manifest = json.loads((ROOT / "MANIFEST").read_text())
     assert ".claude/skills/tusk/RECOVERY.md" in manifest
     assert ".codex/prompts/tusk-recovery.md" in manifest
+    assert ".codex/prompts/tusk-recovery-canonical.md" in manifest
 
 
 def test_generated_mirror_keeps_installed_codex_fallback(tmp_path, upgrade):
@@ -71,9 +72,23 @@ def test_generated_mirror_keeps_installed_codex_fallback(tmp_path, upgrade):
     # assuming upgrade creates new mirror-owned files.
     upgrade.copy_prompts(str(ROOT), str(tmp_path))
     transformed = upgrade._codex_skill_text((ROOT / "skills/tusk/SKILL.md").read_text())
-    fallback = ".codex/prompts/tusk-recovery.md"
+    fallback = ".codex/prompts/tusk-recovery-canonical.md"
     assert fallback in transformed
     installed = tmp_path / fallback
+    assert installed.read_bytes() == (ROOT / "skills/tusk/RECOVERY.md").read_bytes()
     content = installed.read_text()
     for anchor in SECTIONS:
         assert f'<a id="{anchor}"></a>' in content
+
+
+def test_canonical_mirror_never_routes_to_codex_variant():
+    canonical = (ROOT / "skills/tusk/SKILL.md").read_text()
+    assert ".codex/prompts/tusk-recovery.md" not in canonical
+    codex = (ROOT / "codex-prompts/tusk.md").read_text()
+    assert ".codex/prompts/tusk-recovery-canonical.md" not in codex
+
+
+def test_canonical_distribution_copy_stays_identical():
+    assert (ROOT / "codex-prompts/tusk-recovery-canonical.md").read_bytes() == (
+        ROOT / "skills/tusk/RECOVERY.md"
+    ).read_bytes()

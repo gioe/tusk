@@ -184,6 +184,7 @@
   ".codex/prompts/review-commits.md",
   ".codex/prompts/tusk-init.md",
   ".codex/prompts/tusk-insights.md",
+  ".codex/prompts/tusk-recovery-canonical.md",
   ".codex/prompts/tusk-recovery.md",
   ".codex/prompts/tusk-update.md",
   ".codex/prompts/tusk.md"

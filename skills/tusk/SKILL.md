@@ -19,12 +19,15 @@ handling that condition, unless the section explicitly routes elsewhere or stops
 
 Resolve companion links beside this workflow file. If an existing generated
 `.agents/skills` mirror lacks the adjacent companion, use the same anchor in a
-recovery file under the stable primary checkout: `.codex/prompts/tusk-recovery.md`,
-or the `.claude` directory followed by `skills/tusk/RECOVERY.md`; the source repo
-also provides `skills/tusk/RECOVERY.md`. Resolve these paths before leaving the
-stable checkout without reading their contents, and retain them across worktree
-cleanup. If no companion exists when recovery is needed, report
-the missing reference and stop that recovery branch rather than guessing.
+canonical recovery file under the stable primary checkout: first the `.claude`
+directory followed by `skills/tusk/RECOVERY.md`, then the source repo's
+`skills/tusk/RECOVERY.md`, then `.codex/prompts/tusk-recovery-canonical.md`.
+The last file distributes the canonical recovery rules for Codex-only mirrors;
+do not substitute `tusk-recovery.md`, whose variant has different rules.
+Resolve these paths before leaving the stable checkout without reading their
+contents, and retain them across worktree cleanup. If no canonical companion
+exists when recovery is needed, report the missing reference and stop that
+recovery branch rather than guessing.
 
 ## Setup: Upgrade and Reload
 
