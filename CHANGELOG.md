@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1277] - 2026-10-05
+
+- [TASK-891] Recover merge cleanup after a locked workspace registry
+
 ## [1276] - 2026-10-05
 
 - [TASK-890] Preserve typed verification criteria in retro follow-up tasks
