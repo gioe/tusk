@@ -3559,13 +3559,13 @@ _CANONICAL_RUNTIME_FILES = ("node_modules", ".venv", ".env", ".env.local")
 # Exact directory basenames that test tools generate and can safely recreate.
 # Keep this deliberately narrow: plain git worktree remove must continue to
 # protect every unknown untracked file and directory.
-_GENERATED_TEST_CACHE_DIRS = frozenset({".pytest_cache"})
+_GENERATED_TEST_CACHE_DIRS = frozenset({".pytest_cache", "__pycache__"})
 
 
 def _clean_generated_test_caches(workspace_path: str) -> int:
     """Remove allowlisted generated cache directories from a task worktree.
 
-    Bare basenames are matched recursively so pytest runs from nested monorepo
+    Bare basenames are matched recursively so Python/pytest runs from nested monorepo
     projects are covered. Symlinks are never followed or removed, and failures
     are best-effort: the subsequent non-force ``git worktree remove`` remains
     the authoritative dirty-worktree safety gate.

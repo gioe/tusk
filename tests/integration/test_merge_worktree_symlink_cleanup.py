@@ -14,6 +14,8 @@ import os
 import sqlite3
 import subprocess
 
+import pytest
+
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TUSK_BIN = os.path.join(REPO_ROOT, "bin", "tusk")
@@ -102,6 +104,10 @@ def _insert_task_and_start_session(db_path, description):
         )
         conn.commit()
         task_id = cur.lastrowid
+        conn.execute(
+            "INSERT INTO task_scope (task_id, pattern, source, reason) VALUES (?, ?, ?, ?)",
+            (task_id, "README.md", "operator_declared", "Fixture commits README.md"),
+        )
         cur = conn.execute(
             "INSERT INTO task_sessions (task_id, started_at) "
             "VALUES (?, datetime('now'))",
@@ -183,8 +189,15 @@ def test_merge_cleans_canonical_fallback_symlinks(tmp_path, monkeypatch):
     )
 
 
-def test_merge_cleans_generated_pytest_cache(tmp_path, monkeypatch):
-    """A generated ``.pytest_cache`` must not strand an otherwise-clean
+@pytest.mark.parametrize("cache_path, protected", [
+    (".pytest_cache/v/cache/nodeids", None),
+    ("scripts/screenshots/tests/__pycache__/test_example.cpython-311.pyc", None),
+    ("scripts/screenshots/tests/__pycache__/test_example.cpython-311.pyc", "notes"),
+    ("scripts/screenshots/tests/__pycache__/test_example.cpython-311.pyc", "cache_symlink"),
+    ("scripts/screenshots/tests/__pycache__/test_example.cpython-311.pyc", "parent_symlink"),
+])
+def test_merge_cleans_generated_caches(tmp_path, monkeypatch, cache_path, protected):
+    """Recognized generated caches must not strand an otherwise-clean
     completed task worktree, even when no auto-symlink cleanup is involved.
     """
     repo, db_path, env = _seed_repo(tmp_path, monkeypatch)
@@ -217,18 +230,41 @@ def test_merge_cleans_generated_pytest_cache(tmp_path, monkeypatch):
     )
     assert commit_result.returncode == 0, commit_result.stderr
 
-    cache_file = os.path.join(wt, ".pytest_cache", "v", "cache", "nodeids")
+    cache_file = os.path.join(wt, cache_path)
     os.makedirs(os.path.dirname(cache_file))
     with open(cache_file, "w", encoding="utf-8") as f:
         f.write("[]\n")
+
+    protected_path = os.path.join(wt, "personal-notes.txt")
+    external = tmp_path / "external-cache"
+    if protected == "notes":
+        with open(protected_path, "w", encoding="utf-8") as f:
+            f.write("keep my notes\n")
+    elif protected in {"cache_symlink", "parent_symlink"}:
+        external.mkdir()
+        (external / "__pycache__").mkdir()
+        (external / "__pycache__" / "keep.pyc").write_bytes(b"external cache")
+        protected_path = os.path.join(wt, "__pycache__" if protected == "cache_symlink" else "external-package")
+        os.symlink(external, protected_path)
 
     merge = _run(
         ["merge", str(task_id), "--session", str(session_id)],
         cwd=wt,
         env=env,
     )
+    assert not os.path.exists(os.path.dirname(cache_file)), "generated cache must be removed"
+    if protected:
+        assert merge.returncode == 3, merge.stderr
+        assert os.path.exists(wt)
+        if protected == "notes":
+            with open(protected_path, encoding="utf-8") as f:
+                assert f.read() == "keep my notes\n"
+        else:
+            assert os.path.islink(protected_path)
+            assert (external / "__pycache__" / "keep.pyc").read_bytes() == b"external cache"
+        return
     assert merge.returncode == 0, (
-        f"generated pytest cache should not block cleanup; "
+        f"generated cache should not block cleanup; "
         f"stdout={merge.stdout} stderr={merge.stderr}"
     )
     assert not os.path.exists(wt), (

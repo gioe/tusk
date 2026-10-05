@@ -264,6 +264,11 @@ A recorded git worktree owned by a normal task. Bakeoff attempts use shadow task
 
 `tusk task-worktree list` reconciles these rows with `git worktree list --porcelain`, so rows remain visible even when a workspace directory was removed outside tusk. The list output reports both the recorded path and the live path currently advertised by git for the branch.
 
+Merge cleanup removes exact-name `.pytest_cache` and `__pycache__` directories
+recursively, including caches generated in nested packages. Cache symlinks are
+not followed or removed by this cache sweep, and unknown untracked files remain
+subject to the normal non-force worktree-removal safety check.
+
 Merge cleanup retries transient database locks when deleting a workspace registry
 row. If the retry budget is exhausted after publication and task finalization,
 merge reports partial cleanup (exit 3), leaving the registry row and branch
