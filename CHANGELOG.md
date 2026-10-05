@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1276] - 2026-10-05
+
+- [TASK-890] Preserve typed verification criteria in retro follow-up tasks
+
 ## [1275] - 2026-10-04
 
 - [TASK-889] Treat zero-test bug reproduction as inconclusive
