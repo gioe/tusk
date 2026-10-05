@@ -183,7 +183,36 @@ Category A findings are always **tusk-issues**. Category D findings are normally
    tusk task-insert "<summary>" "<description>" --priority "<priority>" --domain "<domain>" --task-type "<task_type>" --assignee "<assignee>" --complexity "<complexity>" \
      --criteria "<criterion 1>" [--criteria "<criterion 2>" ...]
    ```
-   Always include at least one `--criteria` flag — derive 1–3 concrete acceptance criteria from the task description. Omit `--domain` or `--assignee` entirely if the value is NULL/empty. Exit code 1 means duplicate — skip. Skip subsumption and dependency proposals.
+   Derive 1–3 concrete acceptance criteria and include at least one `--criteria` or
+   `--typed-criteria` flag. Preserve concrete verification discovered during retro: use
+   `test` for a test-runner command, `code` for an executable assertion, and `file` for
+   a path glob. For test/code specs, exit 0 means the condition is satisfied; a repair
+   task may legitimately fail verification until implemented. Keep manual criteria for
+   requirements that need human judgment or have no reliable executable check. Do not
+   replace a known executable spec with a manual criterion or store the command only in
+   the description. Mix typed and manual criteria as needed; an all-typed task needs no
+   manual placeholder.
+
+   For executable specs, preserve the exact command with a non-interpolating file write
+   (for example, the Write tool), then build JSON with `tusk typed-criteria-build
+   --spec-file`. Do not hand-escape JSON or interpolate untrusted command text into a
+   shell assignment. A concrete example: write `python3 -m pytest
+   tests/integration/test_create_task_scope.py -q` to a temporary UTF-8 spec file. Then
+   insert the approved follow-up using the pattern below, adding the
+   priority/domain/type fields selected above. Replace the example manual criterion with
+   an actual requirement or omit it when all criteria are typed.
+
+   ```bash
+   RETRO_TYPED=$(tusk typed-criteria-build --type test --text "Complete integration file passes" --spec-file /tmp/retro-verification-spec.txt) || exit
+   # Use --type code with the same helper for an executable assertion.
+   tusk task-insert "<summary>" "<description>" \
+     --typed-criteria "$RETRO_TYPED" \
+     --criteria "<requirement needing human judgment>"
+   ```
+
+   Use `--type file` with a glob spec for file checks. Omit `--domain` or `--assignee`
+   when NULL/empty. Exit code 1 means duplicate — skip. Skip subsumption and dependency
+   proposals.
 
    **Auto-prioritize deferred skill-patch tasks.** When a deferred **skill/doc patch** finding (step 3f above — the task description carries a proposed diff against a skill/agent/doc file) is inserted, it would otherwise land at the unmodified default priority and rot in the backlog. Immediately after the `task-insert` returns the new task ID, derive a priority from the task's retro-signals (reopen counts, rework chains, recurring review themes — higher counts yield higher priority) and apply it:
    ```bash
