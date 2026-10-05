@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1278] - 2026-10-05
+
+- [TASK-892] Clean nested Python caches before removing merged task worktrees
+
 ## [1277] - 2026-10-05
 
 - [TASK-891] Recover merge cleanup after a locked workspace registry
