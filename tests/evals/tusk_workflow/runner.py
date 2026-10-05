@@ -8,6 +8,7 @@ the evaluated boundary, isolation requirements and interpretation limits.
 from __future__ import annotations
 
 import argparse
+import ast
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
@@ -153,7 +154,9 @@ def parse_codex(raw: dict) -> dict:
         raise ValueError("model process failed or timed out")
     records = [json.loads(line) for line in raw["stdout"].splitlines() if line.strip()]
     completed = [r for r in records if r.get("type") == "turn.completed"]
-    if len(completed) != 1 or any(r.get("type") in ("turn.failed", "error") for r in records):
+    transport_warnings = [r["message"] for r in records if r.get("type") == "error" and isinstance(r.get("message"), str) and r["message"].startswith("Reconnecting...")]
+    fatal_errors = [r for r in records if r.get("type") == "turn.failed" or (r.get("type") == "error" and r.get("message") not in transport_warnings)]
+    if len(completed) != 1 or fatal_errors:
         raise ValueError("missing, failed or ambiguous completed model turn")
     # Tool invocation would violate this evaluation's tool-free model boundary.
     all_items = [r.get("item", {}) for r in records if r.get("type", "").startswith("item.")]
@@ -171,7 +174,7 @@ def parse_codex(raw: dict) -> dict:
         raise ValueError("malformed model usage")
     if usage is not None and any(type(value) is not int or value < 0 for value in usage.values()):
         raise ValueError("model usage must contain non-negative integer counts")
-    return {"payload": payload, "usage": usage}
+    return {"payload": payload, "usage": usage, "transport_warnings": transport_warnings}
 
 
 class Model:
@@ -193,6 +196,7 @@ class Model:
         try:
             parsed = parse_codex(raw)
             call["usage"] = parsed["usage"]
+            call["transport_warnings"] = parsed["transport_warnings"]
             call["ok"] = True
             save(artifact / "response.json", parsed["payload"])
             return parsed["payload"]
@@ -357,6 +361,50 @@ def hidden_test(f: dict, code: str) -> bool:
     return result["returncode"] == 0 and not result["timed_out"]
 
 
+def regression_retained(red_source, final_source, red_output, green_output):
+    """Permit additive test methods, retaining executed failures and their context.
+
+    Keep imports, helpers, class bases/decorators, setup/teardown and every
+    pre-existing test method unchanged at AST level. New test methods may be
+    added. Require the originally failing unittest ID to execute successfully
+    in the observed green run, not merely exist in the final file.
+    """
+    def normalize(source):
+        tree = ast.parse(source)
+        methods = {}
+        class_names = set()
+        for cls in tree.body:
+            if not isinstance(cls, ast.ClassDef):
+                continue
+            if cls.name in class_names:
+                raise ValueError('duplicate test class')
+            class_names.add(cls.name)
+            retained = []
+            for member in cls.body:
+                if isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef)) and member.name.startswith('test'):
+                    name = f'test_app.{cls.name}.{member.name}'
+                    if name in methods:
+                        raise ValueError('duplicate test method')
+                    methods[name] = ast.dump(member, include_attributes=False)
+                else:
+                    retained.append(member)
+            cls.body = retained
+        return ast.dump(tree, include_attributes=False), methods
+
+    try:
+        red_context, red_methods = normalize(red_source)
+        final_context, final_methods = normalize(final_source)
+    except (SyntaxError, ValueError, TypeError):
+        return False
+    if red_context != final_context or not red_methods:
+        return False
+    if any(final_methods.get(name) != body for name, body in red_methods.items()):
+        return False
+    failed = set(re.findall(r'^FAIL: [^\n]*\((test_app\.[A-Za-z_]\w*\.[A-Za-z_]\w*)\)', red_output, re.MULTILINE))
+    passed = set(re.findall(r'^\w+ \((test_app\.[A-Za-z_]\w*\.[A-Za-z_]\w*)\) \.\.\. ok$', green_output, re.MULTILINE))
+    return bool(failed) and failed <= red_methods.keys() and failed <= passed
+
+
 def grade(f: dict, *, execution_ok: bool) -> dict:
     current, events, case = state(f), f["events"], f["case"]
     tests = [e for e in events if e["action"]["op"] == "test"]
@@ -397,7 +445,27 @@ def grade(f: dict, *, execution_ok: bool) -> dict:
         else:
             checks["correct_behavior"] = hidden_test(f, "from app import greet; assert greet('Ada') == 'Hello, Ada'; assert greet('Bob') == 'Hello, Bob'")
         if case_id == "missing-regression":
-            checks["pre_fix_regression"] = any(meaningful(e) and e["observation"]["returncode"] != 0 and "AssertionError" in e["observation"]["stderr"] and e["observation"]["app_sha"] == sha(case["app"]) and e["observation"]["tests_sha"] != sha(case["tests"]) and prod_writes and e["index"] < prod_writes[0]["index"] and e["observation"]["tests_sha"] == sha(current["files"]["test_app.py"]) and any(p["index"] > e["index"] and p["observation"]["tests_sha"] == e["observation"]["tests_sha"] for p in passing) for e in tests)
+            checks["pre_fix_regression"] = False
+            for red in tests:
+                observation = red["observation"]
+                if not (meaningful(red) and observation["returncode"] != 0
+                        and "AssertionError" in observation.get("stderr", "")
+                        and observation["app_sha"] == sha(case["app"])
+                        and observation["tests_sha"] != sha(case["tests"])
+                        and prod_writes and red["index"] < prod_writes[0]["index"]):
+                    continue
+                previous_writes = [e for e in writes if e["index"] < red["index"]
+                                   and e["action"]["path"] == "test_app.py"]
+                red_source = previous_writes[-1]["action"]["content"] if previous_writes else case["tests"]
+                if sha(red_source) != observation["tests_sha"]:
+                    continue
+                for green in passing:
+                    if (green["index"] > red["index"]
+                            and green["observation"]["tests_sha"] == sha(current["files"]["test_app.py"])
+                            and regression_retained(red_source, current["files"]["test_app.py"],
+                                                    observation.get("stderr", ""),
+                                                    green["observation"].get("stderr", ""))):
+                        checks["pre_fix_regression"] = True
         elif case_id == "interrupted-session":
             checks["handoff_preserved"] = not writes and current["progress"][0]["next_steps"] == case["next_steps"]
         elif case_id == "tiny-fix":
@@ -496,10 +564,77 @@ def disposable_output(path: Path) -> bool:
     return not resolved.exists() and not any((parent / ".git").exists() for parent in resolved.parents)
 
 
+def rescore(directory: Path) -> dict:
+    """Grade every planned saved attempt; never invoke the model or rewrite originals."""
+    directory = directory.resolve()
+    if not directory.is_dir() or any((p / ".git").exists() for p in directory.parents):
+        raise ValueError("rescore requires an existing disposable output outside every checkout")
+    manifest = json.loads((directory / "manifest.json").read_text())
+    if manifest["case_file_sha256"] != sha(CASE_FILE.read_bytes()):
+        raise ValueError("fixture definitions differ from saved evaluation")
+    for variant, digest in manifest["prompt_sha256"].items():
+        if variant not in VARIANTS or sha((directory / f"prompt-{variant}.txt").read_bytes()) != digest:
+            raise ValueError("saved prompt hash mismatch")
+    if not manifest.get("source_sha256"):
+        raise ValueError("saved source hashes required for rescore")
+    for path, digest in manifest["source_sha256"].items():
+        if path not in SOURCE_PATHS or sha((directory / "sources" / path).read_bytes()) != digest:
+            raise ValueError("saved source hash mismatch")
+    if (directory / "results-rescored.json").exists() or (directory / "summary-rescored.json").exists():
+        raise ValueError("rescore outputs already exist; preserve them and use a new artifact copy")
+    originals = json.loads((directory / "results.json").read_text())
+    original_index = {}
+    for row in originals:
+        key = (row["case"], row["variant"], row["repetition"])
+        if key in original_index:
+            raise ValueError("duplicate saved result identity")
+        original_index[key] = row
+    cases = {c["id"]: c for c in json.loads(CASE_FILE.read_text())["cases"]}
+    records = []
+    for cell in manifest["plan"]:
+        key = (cell["case"], cell["variant"], cell["repetition"])
+        if cell["case"] not in cases or cell["variant"] not in VARIANTS or type(cell["repetition"]) is not int or cell["repetition"] < 1:
+            raise ValueError("invalid planned cell")
+        original = original_index.get(key)
+        if original is None:
+            records.append({**cell, "error": "missing original result", "grade": {"correct": False, "false_completion": False}})
+            continue
+        record = dict(original)
+        record["original_grade"] = original.get("grade")
+        record["grader_version"] = 2
+        record["grader_sha256"] = sha(Path(__file__).read_bytes())
+        case = cases[cell["case"]]
+        attempt = directory / f"{cell['repetition']:02d}-{cell['case']}-{cell['variant']}"
+        try:
+            if original.get("fixture_sha256") != sha(json.dumps(case, sort_keys=True)) or original.get("prompt_sha256") != manifest["prompt_sha256"][cell["variant"]]:
+                raise ValueError("attempt fixture/prompt identity mismatch")
+            events = json.loads((attempt / "events.json").read_text())
+            terminals = [e["action"]["op"] for e in events if e["action"]["op"] in ("complete", "clarify", "acknowledge_cleanup")]
+            repo = attempt / "repo"
+            f = {"repo": repo, "db": repo / "tusk/tasks.db", "case": case, "events": events,
+                 "terminal": terminals[-1] if terminals else None,
+                 "initial_head": git(repo, "rev-list", "--max-parents=0", "HEAD")}
+            execution_ok = not original.get("error") and bool(original.get("calls")) and all(c.get("ok") is True for c in original["calls"])
+            record["grade"] = grade(f, execution_ok=execution_ok)
+        except (ValueError, KeyError, OSError, RuntimeError, sqlite3.Error) as exc:
+            record["rescore_error"] = str(exc)
+            record["grade"] = {"correct": False, "false_completion": bool(original.get("grade", {}).get("false_completion"))}
+        records.append(record)
+    summary = summarize(records, manifest["plan"])
+    summary.update(grader_version=2, grader_sha256=sha(Path(__file__).read_bytes()),
+                   original_results_sha256=sha((directory / "results.json").read_bytes()),
+                   original_runner_sha256=manifest["runner_sha256"])
+    save(directory / "results-rescored.json", records)
+    save(directory / "summary-rescored.json", summary)
+    return summary
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--model", required=True)
+    target = parser.add_mutually_exclusive_group(required=True)
+    target.add_argument("--output", type=Path)
+    target.add_argument("--rescore", type=Path)
+    parser.add_argument("--model")
     parser.add_argument("--reasoning", choices=("low", "medium", "high"), default="medium")
     parser.add_argument("--repetitions", type=int, default=2)
     parser.add_argument("--max-turns", type=int, default=6)
@@ -510,6 +645,11 @@ def main(argv=None):
     parser.add_argument("--codex", default="codex")
     parser.add_argument("--auth-file", type=Path, default=Path.home() / ".codex/auth.json")
     args = parser.parse_args(argv)
+    if args.rescore:
+        print(json.dumps(rescore(args.rescore), sort_keys=True))
+        return 0
+    if not args.model:
+        parser.error("--model is required for live runs")
     if args.repetitions < 1 or args.max_turns < 1 or args.timeout <= 0 or not 1 <= args.workers <= 4:
         parser.error("positive repetitions/max-turns/timeout and 1..4 workers required")
     output = args.output.resolve()

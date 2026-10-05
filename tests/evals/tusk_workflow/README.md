@@ -42,7 +42,7 @@ Credentials needed for model inference are not part of saved run artifacts.
 
 ## Run and reproduce
 
-Requirements: Python 3, Git, an authenticated Codex CLI supporting the recorded
+Requirements: Python 3.11 or later, Git, an authenticated Codex CLI supporting the recorded
 flags, and macOS `sandbox-exec`. The runner makes model calls using the selected
 account; it does not estimate an unverified dollar price. Unit tests never call
 models.
@@ -69,6 +69,23 @@ records the CLI version, runner hash, source reference, model settings, prompt
 hashes, fixture hash and complete run plan. Each attempt retains raw requests,
 JSONL responses, observations, initial/final state, grades and usage. Delegated
 calls are included in its duration and token totals. Missing usage remains null.
+
+To audit saved behavior without another model call, unpack a retained bundle
+outside every checkout, then run:
+
+```bash
+python3 tests/evals/tusk_workflow/runner.py --rescore /private/tmp/unpacked-run
+```
+
+Rescoring checks prompt/source/fixture identities, grades every planned attempt,
+and writes separate `results-rescored.json` and `summary-rescored.json` files.
+It records the grader hash/version and preserves the original grades and runtime
+failures. It refuses to overwrite an existing rescore. Do not interpret rescoring
+as rerunning the model or completing an interrupted attempt.
+
+Recognized reconnect warnings are retained in call telemetry and accepted only
+when the process actually completes a successful turn. Failed turns, unknown
+errors, malformed responses and missing completion remain failures.
 
 Read `summary.json` and `results.json`; process completion alone does not mean
 the model passed every fixture. Setup failures, timeouts, invalid actions and

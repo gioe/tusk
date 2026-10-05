@@ -62,7 +62,15 @@ def test_cases_cover_required_behavior_and_failure_outcomes():
 
 
 def test_candidate_changes_only_exploration_policy_and_keeps_implementation_gates():
-    sources = runner.prompt_sources()
+    core = """requirements. Exploration is always delegated in Step 5. The
+5. **Explore the codebase before implementing.** Always delegate this
+   exploration pass to a sub-agent. Have it research:
+6. **Route implementation after delegated exploration.** Wait for the
+   exploration sub-agent to finish and report its findings before
+   choosing a route. Then apply these rules:
+Delegate implementation for M/L/XL tasks
+"""
+    sources = {runner.SOURCE_PATHS[0]: core, runner.SOURCE_PATHS[1]: "recovery sentinel"}
     baseline = runner.build_prompt(sources, "baseline")
     candidate = runner.build_prompt(sources, "conditional-exploration")
     assert baseline != candidate
@@ -104,6 +112,73 @@ def test_real_usage_and_unavailable_usage_are_distinguished():
     for invalid in (True, -1, "12"):
         with pytest.raises(ValueError):
             runner.parse_codex(stream(usage={"input_tokens": invalid}))
+
+
+def test_recovered_reconnect_is_warning_only_after_successful_final_turn():
+    warning = {"type": "error", "message": "Reconnecting... 2/5 (unexpected status 403 Forbidden)"}
+    raw = stream(usage={"input_tokens": 1})
+    raw["stdout"] = json.dumps(warning) + "\n" + raw["stdout"]
+    assert runner.parse_codex(raw)["transport_warnings"] == [warning["message"]]
+    for terminal in ("", '\n{"type":"turn.failed"}'):
+        invalid = stream(completed=bool(terminal))
+        invalid["stdout"] = json.dumps(warning) + "\n" + invalid["stdout"] + terminal
+        with pytest.raises(ValueError):
+            runner.parse_codex(invalid)
+    raw["stdout"] += '\n{"type":"error","message":"unrecognized failure"}'
+    with pytest.raises(ValueError):
+        runner.parse_codex(raw)
+
+
+def test_additive_coverage_preserves_executed_regression_but_not_weakened_context():
+    red = CASES["missing-regression"]["tests"] + "\n    def test_negative(self):\n        self.assertEqual(clamp(-1), 0)\n"
+    final = red + "\n    def test_boundary(self):\n        self.assertEqual(clamp(0), 0)\n"
+    failure = "FAIL: test_negative (test_app.ClampTests.test_negative)\nAssertionError"
+    passed = "test_negative (test_app.ClampTests.test_negative) ... ok\n"
+    assert runner.regression_retained(red, final, failure, passed)
+    assert not runner.regression_retained(red, final.replace("clamp(-1), 0", "1, 1"), failure, passed)
+    assert not runner.regression_retained(red, final + "\nclamp = lambda x: 0\n", failure, passed)
+    assert not runner.regression_retained(red, final, failure, "test_positive (test_app.ClampTests.test_positive) ... ok\n")
+    assert not runner.regression_retained(red, final + "\n    def setUp(self):\n        self.skipTest('skip')\n", failure, passed)
+
+
+def test_rescore_all_saved_cells_preserves_originals_and_never_calls_model(tmp_path, monkeypatch):
+    directory = tmp_path / "saved"
+    directory.mkdir()
+    cell = {"case": "ambiguous-change", "variant": "baseline", "repetition": 1}
+    attempt = directory / "01-ambiguous-change-baseline"
+    attempt.mkdir()
+    f = fake_fixture(attempt, cell["case"])
+    (f["repo"] / "tusk").mkdir()
+    f["db"].rename(f["repo"] / "tusk/tasks.db")
+    f["db"] = f["repo"] / "tusk/tasks.db"
+    act(f, op="clarify", question="What expiry policy is required?")
+    runner.save(attempt / "events.json", f["events"])
+    prompt = "pinned protocol fixture"
+    (directory / "prompt-baseline.txt").write_text(prompt)
+    sources = {}
+    for path in runner.SOURCE_PATHS:
+        target = directory / "sources" / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(path)
+        sources[path] = runner.sha(path)
+    missing = {"case": "tiny-fix", "variant": "baseline", "repetition": 1}
+    manifest = {"case_file_sha256": runner.sha(runner.CASE_FILE.read_bytes()), "prompt_sha256": {"baseline": runner.sha(prompt)}, "source_sha256": sources, "runner_sha256": "a" * 64, "plan": [cell, missing]}
+    runner.save(directory / "manifest.json", manifest)
+    original = {**cell, "fixture_sha256": runner.sha(json.dumps(CASES[cell["case"]], sort_keys=True)), "prompt_sha256": runner.sha(prompt), "model": "fixed", "reasoning": "medium", "duration_seconds": 1, "calls": [{"ok": True}], "error": None, "grade": {"correct": False}}
+    runner.save(directory / "results.json", [original])
+    original_bytes = (directory / "results.json").read_bytes()
+    monkeypatch.setattr(runner.Model, "call", lambda *a, **k: pytest.fail("rescore must never call model"))
+    monkeypatch.setattr(runner, "git", lambda *a: "fixture-head")
+    summary = runner.rescore(directory)
+    assert summary["expected_attempts"] == 2 and summary["correct"] == 1
+    assert not summary["all_correct"]
+    assert (directory / "results.json").read_bytes() == original_bytes
+    rescored = json.loads((directory / "results-rescored.json").read_text())
+    assert rescored[0]["original_grade"] == {"correct": False}
+    assert rescored[0]["grade"]["correct"] is True
+    assert rescored[1]["error"] == "missing original result"
+    with pytest.raises(ValueError, match="already exist"):
+        runner.rescore(directory)
 
 
 def test_missing_or_duplicate_results_do_not_complete_matrix():
@@ -160,9 +235,9 @@ def test_zero_tests_do_not_verify_completion(tmp_path, monkeypatch):
 def test_regression_cannot_be_discarded_between_red_and_green(tmp_path, monkeypatch):
     f = fake_fixture(tmp_path, "missing-regression")
     monkeypatch.setattr(runner, "hidden_test", lambda *_: True)
-    red_tests = f["case"]["tests"] + "\n# focused regression\n"
+    red_tests = f["case"]["tests"] + "\n    def test_negative(self):\n        self.assertEqual(clamp(-1), 0)\n"
     act(f, op="write", path="test_app.py", content=red_tests)
-    f["events"].append({"index": 1, "action": {"op": "test"}, "observation": {"count": 2, "returncode": 1, "stderr": "AssertionError", "app_sha": runner.sha(f["case"]["app"]), "tests_sha": runner.sha(red_tests)}})
+    f["events"].append({"index": 1, "action": {"op": "test"}, "observation": {"count": 2, "returncode": 1, "stderr": "FAIL: test_negative (test_app.ClampTests.test_negative)\nAssertionError", "app_sha": runner.sha(f["case"]["app"]), "tests_sha": runner.sha(red_tests)}})
     fixed = "def clamp(value, maximum=10):\n    return max(0, min(value, maximum))\n"
     act(f, op="write", path="app.py", content=fixed)
     act(f, op="write", path="test_app.py", content=f["case"]["tests"])
@@ -172,6 +247,7 @@ def test_regression_cannot_be_discarded_between_red_and_green(tmp_path, monkeypa
     # Even keeping the red tests cannot launder an earlier production edit.
     (f["repo"] / "test_app.py").write_text(red_tests)
     f["events"][4]["observation"]["tests_sha"] = runner.sha(red_tests)
+    f["events"][4]["observation"]["stderr"] = "test_negative (test_app.ClampTests.test_negative) ... ok\n"
     assert runner.grade(f, execution_ok=True)["checks"]["pre_fix_regression"]
     f["events"][4]["observation"]["target"] = "test_app.ClampTests.test_positive"
     assert not runner.grade(f, execution_ok=True)["checks"]["pre_fix_regression"]

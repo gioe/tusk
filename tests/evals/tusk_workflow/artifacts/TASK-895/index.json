@@ -1,0 +1,31 @@
+{
+  "archives": [
+    {
+      "file": "development-matrix.tar.gz",
+      "sha256": "aa233b7af71e1424e062752ec6ea46a33ba3fe065a79c646cd43d177400d7c91",
+      "bytes": 2000109
+    },
+    {
+      "file": "final-matrix.tar.gz",
+      "sha256": "28ca0d25f890fafefcd9d132cee77f833ed4776b0cea7728e3c8cfb0189b35a2",
+      "bytes": 2331774
+    },
+    {
+      "file": "pilot-1.tar.gz",
+      "sha256": "de39b6092a218415cacac5e0a43432652a3a95425b56cd73388ac4295eea67c5",
+      "bytes": 153025
+    },
+    {
+      "file": "pilot-2.tar.gz",
+      "sha256": "1edae0f8ae8494a5fe3a720c86414acdffe337c83c660852f636160952160363",
+      "bytes": 130349
+    },
+    {
+      "file": "pilot-3.tar.gz",
+      "sha256": "50f8e03c8472bc6577694ed32e9c057d5eb07c482636df9ad9ba27134e37d278",
+      "bytes": 175051
+    }
+  ],
+  "primary": "final-matrix.tar.gz",
+  "pricing": "unavailable"
+}

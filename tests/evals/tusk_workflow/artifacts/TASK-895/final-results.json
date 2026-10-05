@@ -1,0 +1,2112 @@
+[
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 6.049911916954443,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23909,
+          "output_tokens": 67,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-02",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 7.112381707993336,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "input_tokens": 24380,
+          "output_tokens": 128,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-03",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 12.826580916997045,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 25207,
+          "output_tokens": 423,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-04",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 7.586205208091997,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 26720,
+          "output_tokens": 82,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "missing-regression",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 34.93748687498737,
+    "error": null,
+    "fixture_sha256": "c68cc468458e8d6b16ff1880709189743067718cd9797707a09c89cbba8cdc60",
+    "grade": {
+      "checks": {
+        "accurate_test_report": true,
+        "completed": true,
+        "correct_behavior": true,
+        "done_state": true,
+        "execution_ok": true,
+        "meaningful_passing_test": true,
+        "pre_fix_regression": true,
+        "same_session": true,
+        "session_closed": true,
+        "terminal_action": true,
+        "verified_final_files": true
+      },
+      "correct": true,
+      "delegations": 0,
+      "false_completion": false,
+      "interventions": 0,
+      "terminal": "complete"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "4b4f104dbf751e82a68cb212d30a101eaa1dea6f86d5e7a2b4ddf691f8b7c227",
+    "reasoning": "medium",
+    "repetition": 1,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 23040,
+      "input_tokens": 100216,
+      "output_tokens": 700
+    },
+    "variant": "conditional-exploration"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 6.476112207979895,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23849,
+          "output_tokens": 140,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-02",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 11.54197333403863,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 24697,
+          "output_tokens": 109,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "delegate-04",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 10.222813208005391,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23691,
+          "output_tokens": 177,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-03",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 10.285956708015874,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 25239,
+          "output_tokens": 362,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-04",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 7.5133346249349415,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 26597,
+          "output_tokens": 69,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "missing-regression",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 47.05097508407198,
+    "error": null,
+    "fixture_sha256": "c68cc468458e8d6b16ff1880709189743067718cd9797707a09c89cbba8cdc60",
+    "grade": {
+      "checks": {
+        "accurate_test_report": true,
+        "completed": true,
+        "correct_behavior": true,
+        "done_state": true,
+        "execution_ok": true,
+        "meaningful_passing_test": true,
+        "pre_fix_regression": true,
+        "same_session": true,
+        "session_closed": true,
+        "terminal_action": true,
+        "verified_final_files": true
+      },
+      "correct": true,
+      "delegations": 1,
+      "false_completion": false,
+      "interventions": 0,
+      "terminal": "complete"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "fcc7190c124154379b05900a0d025231b462a85c6d1b3abab640f835111a2a12",
+    "reasoning": "medium",
+    "repetition": 1,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 38400,
+      "input_tokens": 124073,
+      "output_tokens": 857
+    },
+    "variant": "baseline"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 5.766571750049479,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23827,
+          "output_tokens": 64,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-02",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 6.56167845800519,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 3456,
+          "input_tokens": 24428,
+          "output_tokens": 76,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "delegate-02",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 6.699075249955058,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23607,
+          "output_tokens": 109,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-03",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 15.446339457994327,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 24759,
+          "output_tokens": 96,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-04",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 5.271161334007047,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 25416,
+          "output_tokens": 50,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "tiny-fix",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 41.21308629203122,
+    "error": null,
+    "fixture_sha256": "de33ac26ad3bdf64dbdd230c63a3fd121dd1946b7361a9d01cf513c7e6624387",
+    "grade": {
+      "checks": {
+        "accurate_test_report": true,
+        "completed": true,
+        "correct_behavior": true,
+        "done_state": true,
+        "execution_ok": true,
+        "meaningful_passing_test": true,
+        "same_session": true,
+        "session_closed": true,
+        "terminal_action": true,
+        "tests_preserved": true,
+        "verified_final_files": true
+      },
+      "correct": true,
+      "delegations": 1,
+      "false_completion": false,
+      "interventions": 0,
+      "terminal": "complete"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "fcc7190c124154379b05900a0d025231b462a85c6d1b3abab640f835111a2a12",
+    "reasoning": "medium",
+    "repetition": 1,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 34176,
+      "input_tokens": 122037,
+      "output_tokens": 395
+    },
+    "variant": "baseline"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 6.4793287080246955,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23887,
+          "output_tokens": 71,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-02",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 14.937133125029504,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 24505,
+          "output_tokens": 110,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-03",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 7.74772262503393,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 25191,
+          "output_tokens": 61,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "tiny-fix",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 31.49413150001783,
+    "error": null,
+    "fixture_sha256": "de33ac26ad3bdf64dbdd230c63a3fd121dd1946b7361a9d01cf513c7e6624387",
+    "grade": {
+      "checks": {
+        "accurate_test_report": true,
+        "completed": true,
+        "correct_behavior": true,
+        "done_state": true,
+        "execution_ok": true,
+        "meaningful_passing_test": true,
+        "same_session": true,
+        "session_closed": true,
+        "terminal_action": true,
+        "tests_preserved": true,
+        "verified_final_files": true
+      },
+      "correct": true,
+      "delegations": 0,
+      "false_completion": false,
+      "interventions": 0,
+      "terminal": "complete"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "4b4f104dbf751e82a68cb212d30a101eaa1dea6f86d5e7a2b4ddf691f8b7c227",
+    "reasoning": "medium",
+    "repetition": 1,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 23040,
+      "input_tokens": 73583,
+      "output_tokens": 242
+    },
+    "variant": "conditional-exploration"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 8.150518916081637,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23795,
+          "output_tokens": 116,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "ambiguous-change",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 9.35112670797389,
+    "error": null,
+    "fixture_sha256": "ec26fad4c9e125dad36e8a3d3c877514e07b034bf368e609bd0357ed1e80c3a5",
+    "grade": {
+      "checks": {
+        "clarification": true,
+        "execution_ok": true,
+        "remains_open": true,
+        "same_session": true,
+        "terminal_action": true,
+        "unchanged": true
+      },
+      "correct": true,
+      "delegations": 0,
+      "false_completion": false,
+      "interventions": 1,
+      "terminal": "clarify"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "fcc7190c124154379b05900a0d025231b462a85c6d1b3abab640f835111a2a12",
+    "reasoning": "medium",
+    "repetition": 1,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 7680,
+      "input_tokens": 23795,
+      "output_tokens": 116
+    },
+    "variant": "baseline"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 7.9649699160363525,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23857,
+          "output_tokens": 103,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "ambiguous-change",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 8.83336283301469,
+    "error": null,
+    "fixture_sha256": "ec26fad4c9e125dad36e8a3d3c877514e07b034bf368e609bd0357ed1e80c3a5",
+    "grade": {
+      "checks": {
+        "clarification": true,
+        "execution_ok": true,
+        "remains_open": true,
+        "same_session": true,
+        "terminal_action": true,
+        "unchanged": true
+      },
+      "correct": true,
+      "delegations": 0,
+      "false_completion": false,
+      "interventions": 1,
+      "terminal": "clarify"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "4b4f104dbf751e82a68cb212d30a101eaa1dea6f86d5e7a2b4ddf691f8b7c227",
+    "reasoning": "medium",
+    "repetition": 1,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 7680,
+      "input_tokens": 23857,
+      "output_tokens": 103
+    },
+    "variant": "conditional-exploration"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 12.965652249986306,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23938,
+          "output_tokens": 65,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-02",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 11.55820645892527,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 24646,
+          "output_tokens": 148,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-03",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 6.6486344169825315,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 25418,
+          "output_tokens": 52,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-04",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 11.441092167049646,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 25964,
+          "output_tokens": 96,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "pre-existing-failure",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 48.061028083902784,
+    "error": null,
+    "fixture_sha256": "527da1444fa33830f1970bde562164da87c167172367bf49dfe73094aa24a217",
+    "grade": {
+      "checks": {
+        "accurate_test_report": true,
+        "baseline_observed": true,
+        "completed": true,
+        "correct_behavior": true,
+        "done_state": true,
+        "execution_ok": true,
+        "failure_disclosed": true,
+        "meaningful_passing_test": true,
+        "same_session": true,
+        "session_closed": true,
+        "terminal_action": true,
+        "tests_preserved": true,
+        "verified_final_files": true
+      },
+      "correct": true,
+      "delegations": 0,
+      "false_completion": false,
+      "interventions": 0,
+      "terminal": "complete"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "4b4f104dbf751e82a68cb212d30a101eaa1dea6f86d5e7a2b4ddf691f8b7c227",
+    "reasoning": "medium",
+    "repetition": 1,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 30720,
+      "input_tokens": 99966,
+      "output_tokens": 361
+    },
+    "variant": "conditional-exploration"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 5.4550272499909624,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23881,
+          "output_tokens": 74,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-02",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 5.614909166004509,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "input_tokens": 24352,
+          "output_tokens": 51,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "interrupted-session",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 12.517453500069678,
+    "error": null,
+    "fixture_sha256": "ce5f3e154e07102abb68c39c9c2f0c1f6ed10805aeef66ab15c18c2944f6095a",
+    "grade": {
+      "checks": {
+        "accurate_test_report": true,
+        "completed": true,
+        "correct_behavior": true,
+        "done_state": true,
+        "execution_ok": true,
+        "handoff_preserved": true,
+        "meaningful_passing_test": true,
+        "same_session": true,
+        "session_closed": true,
+        "terminal_action": true,
+        "verified_final_files": true
+      },
+      "correct": true,
+      "delegations": 0,
+      "false_completion": false,
+      "interventions": 0,
+      "terminal": "complete"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "fcc7190c124154379b05900a0d025231b462a85c6d1b3abab640f835111a2a12",
+    "reasoning": "medium",
+    "repetition": 1,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 7680,
+      "input_tokens": 48233,
+      "output_tokens": 125
+    },
+    "variant": "baseline"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 7.892903083004057,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23877,
+          "output_tokens": 63,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-02",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 18.256861667032354,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 24573,
+          "output_tokens": 143,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "delegate-03",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 13.96061991690658,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "input_tokens": 23737,
+          "output_tokens": 204,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-03",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 7.696611167048104,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "input_tokens": 25221,
+          "output_tokens": 120,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-04",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 6.245405749999918,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 25937,
+          "output_tokens": 63,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-05",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 7.345791458035819,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 26502,
+          "output_tokens": 131,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "pre-existing-failure",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 64.20395645790268,
+    "error": null,
+    "fixture_sha256": "527da1444fa33830f1970bde562164da87c167172367bf49dfe73094aa24a217",
+    "grade": {
+      "checks": {
+        "accurate_test_report": true,
+        "baseline_observed": true,
+        "completed": true,
+        "correct_behavior": true,
+        "done_state": true,
+        "execution_ok": true,
+        "failure_disclosed": true,
+        "meaningful_passing_test": true,
+        "same_session": true,
+        "session_closed": true,
+        "terminal_action": true,
+        "tests_preserved": true,
+        "verified_final_files": true
+      },
+      "correct": true,
+      "delegations": 1,
+      "false_completion": false,
+      "interventions": 0,
+      "terminal": "complete"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "fcc7190c124154379b05900a0d025231b462a85c6d1b3abab640f835111a2a12",
+    "reasoning": "medium",
+    "repetition": 1,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 30720,
+      "input_tokens": 149847,
+      "output_tokens": 724
+    },
+    "variant": "baseline"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 5.4141337079927325,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23890,
+          "output_tokens": 74,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "partial-merge-cleanup",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 6.238390542101115,
+    "error": null,
+    "fixture_sha256": "5ef97d5fb2d55133e797234ebfcd177535926b1ce6471bced6a2d83801c4e87a",
+    "grade": {
+      "checks": {
+        "acknowledged": true,
+        "cleanup_reported": true,
+        "execution_ok": true,
+        "no_reimplementation": true,
+        "notes_preserved": true,
+        "remains_done": true,
+        "same_session": true,
+        "shipment_reported": true,
+        "terminal_action": true
+      },
+      "correct": true,
+      "delegations": 0,
+      "false_completion": false,
+      "interventions": 0,
+      "terminal": "acknowledge_cleanup"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "fcc7190c124154379b05900a0d025231b462a85c6d1b3abab640f835111a2a12",
+    "reasoning": "medium",
+    "repetition": 1,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 7680,
+      "input_tokens": 23890,
+      "output_tokens": 74
+    },
+    "variant": "baseline"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 7.826099292025901,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23941,
+          "output_tokens": 74,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-02",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 7.134508415940218,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 24412,
+          "output_tokens": 51,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "interrupted-session",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 16.136465499992482,
+    "error": null,
+    "fixture_sha256": "ce5f3e154e07102abb68c39c9c2f0c1f6ed10805aeef66ab15c18c2944f6095a",
+    "grade": {
+      "checks": {
+        "accurate_test_report": true,
+        "completed": true,
+        "correct_behavior": true,
+        "done_state": true,
+        "execution_ok": true,
+        "handoff_preserved": true,
+        "meaningful_passing_test": true,
+        "same_session": true,
+        "session_closed": true,
+        "terminal_action": true,
+        "verified_final_files": true
+      },
+      "correct": true,
+      "delegations": 0,
+      "false_completion": false,
+      "interventions": 0,
+      "terminal": "complete"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "4b4f104dbf751e82a68cb212d30a101eaa1dea6f86d5e7a2b4ddf691f8b7c227",
+    "reasoning": "medium",
+    "repetition": 1,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 15360,
+      "input_tokens": 48353,
+      "output_tokens": 125
+    },
+    "variant": "conditional-exploration"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 9.190727708046325,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "input_tokens": 23947,
+          "output_tokens": 72,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "partial-merge-cleanup",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 10.128113040933385,
+    "error": null,
+    "fixture_sha256": "5ef97d5fb2d55133e797234ebfcd177535926b1ce6471bced6a2d83801c4e87a",
+    "grade": {
+      "checks": {
+        "acknowledged": true,
+        "cleanup_reported": true,
+        "execution_ok": true,
+        "no_reimplementation": true,
+        "notes_preserved": true,
+        "remains_done": true,
+        "same_session": true,
+        "shipment_reported": true,
+        "terminal_action": true
+      },
+      "correct": true,
+      "delegations": 0,
+      "false_completion": false,
+      "interventions": 0,
+      "terminal": "acknowledge_cleanup"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "4b4f104dbf751e82a68cb212d30a101eaa1dea6f86d5e7a2b4ddf691f8b7c227",
+    "reasoning": "medium",
+    "repetition": 1,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 0,
+      "input_tokens": 23947,
+      "output_tokens": 72
+    },
+    "variant": "conditional-exploration"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 6.7175947920186445,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23909,
+          "output_tokens": 72,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-02",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 9.822509916964918,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 24390,
+          "output_tokens": 131,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-03",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 12.910304582910612,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 25222,
+          "output_tokens": 401,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-04",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 6.50009308301378,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "input_tokens": 26657,
+          "output_tokens": 76,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "missing-regression",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 37.23726187495049,
+    "error": null,
+    "fixture_sha256": "c68cc468458e8d6b16ff1880709189743067718cd9797707a09c89cbba8cdc60",
+    "grade": {
+      "checks": {
+        "accurate_test_report": true,
+        "completed": true,
+        "correct_behavior": true,
+        "done_state": true,
+        "execution_ok": true,
+        "meaningful_passing_test": true,
+        "pre_fix_regression": true,
+        "same_session": true,
+        "session_closed": true,
+        "terminal_action": true,
+        "verified_final_files": true
+      },
+      "correct": true,
+      "delegations": 0,
+      "false_completion": false,
+      "interventions": 0,
+      "terminal": "complete"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "4b4f104dbf751e82a68cb212d30a101eaa1dea6f86d5e7a2b4ddf691f8b7c227",
+    "reasoning": "medium",
+    "repetition": 2,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 23040,
+      "input_tokens": 100178,
+      "output_tokens": 680
+    },
+    "variant": "conditional-exploration"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 5.24796750000678,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23849,
+          "output_tokens": 72,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-02",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 13.94020425004419,
+        "timed_out": false,
+        "transport_warnings": [
+          "Reconnecting... 2/5 (unexpected status 403 Forbidden: Unknown error, url: wss://chatgpt.com/backend-api/codex/responses, cf-ray: a4601e96ed176b0e-EWR)",
+          "Reconnecting... 3/5 (unexpected status 403 Forbidden: Unknown error, url: wss://chatgpt.com/backend-api/codex/responses, cf-ray: a4601e9c0ac64153-EWR)",
+          "Reconnecting... 4/5 (unexpected status 403 Forbidden: Unknown error, url: wss://chatgpt.com/backend-api/codex/responses, cf-ray: a4601ea2c94c4fb3-EWR)",
+          "Reconnecting... 5/5 (unexpected status 403 Forbidden: Unknown error, url: wss://chatgpt.com/backend-api/codex/responses, cf-ray: a4601eaebc8c0f61-EWR)"
+        ],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 24330,
+          "output_tokens": 96,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-03",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 7.521995833027177,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 25009,
+          "output_tokens": 122,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "delegate-05",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 8.178684000042267,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23710,
+          "output_tokens": 174,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-04",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 11.280776374973357,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 25575,
+          "output_tokens": 377,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-05",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 7.214954124996439,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 26975,
+          "output_tokens": 76,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "missing-regression",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 54.78961850004271,
+    "error": null,
+    "fixture_sha256": "c68cc468458e8d6b16ff1880709189743067718cd9797707a09c89cbba8cdc60",
+    "grade": {
+      "checks": {
+        "accurate_test_report": true,
+        "completed": true,
+        "correct_behavior": true,
+        "done_state": true,
+        "execution_ok": true,
+        "meaningful_passing_test": true,
+        "pre_fix_regression": true,
+        "same_session": true,
+        "session_closed": true,
+        "terminal_action": true,
+        "verified_final_files": true
+      },
+      "correct": true,
+      "delegations": 1,
+      "false_completion": false,
+      "interventions": 0,
+      "terminal": "complete"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "fcc7190c124154379b05900a0d025231b462a85c6d1b3abab640f835111a2a12",
+    "reasoning": "medium",
+    "repetition": 2,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 46080,
+      "input_tokens": 149448,
+      "output_tokens": 917
+    },
+    "variant": "baseline"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 6.121747332974337,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23887,
+          "output_tokens": 63,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-02",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 6.349391874973662,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 24490,
+          "output_tokens": 111,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-03",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 6.2339433749439195,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 23680,
+          "input_tokens": 25179,
+          "output_tokens": 60,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "tiny-fix",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 21.30148320796434,
+    "error": null,
+    "fixture_sha256": "de33ac26ad3bdf64dbdd230c63a3fd121dd1946b7361a9d01cf513c7e6624387",
+    "grade": {
+      "checks": {
+        "accurate_test_report": true,
+        "completed": true,
+        "correct_behavior": true,
+        "done_state": true,
+        "execution_ok": true,
+        "meaningful_passing_test": true,
+        "same_session": true,
+        "session_closed": true,
+        "terminal_action": true,
+        "tests_preserved": true,
+        "verified_final_files": true
+      },
+      "correct": true,
+      "delegations": 0,
+      "false_completion": false,
+      "interventions": 0,
+      "terminal": "complete"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "4b4f104dbf751e82a68cb212d30a101eaa1dea6f86d5e7a2b4ddf691f8b7c227",
+    "reasoning": "medium",
+    "repetition": 2,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 39040,
+      "input_tokens": 73556,
+      "output_tokens": 234
+    },
+    "variant": "conditional-exploration"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 6.862941458006389,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "input_tokens": 23854,
+          "output_tokens": 60,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "ambiguous-change",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 8.579074166947976,
+    "error": null,
+    "fixture_sha256": "ec26fad4c9e125dad36e8a3d3c877514e07b034bf368e609bd0357ed1e80c3a5",
+    "grade": {
+      "checks": {
+        "clarification": true,
+        "execution_ok": true,
+        "remains_open": true,
+        "same_session": true,
+        "terminal_action": true,
+        "unchanged": true
+      },
+      "correct": true,
+      "delegations": 0,
+      "false_completion": false,
+      "interventions": 1,
+      "terminal": "clarify"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "4b4f104dbf751e82a68cb212d30a101eaa1dea6f86d5e7a2b4ddf691f8b7c227",
+    "reasoning": "medium",
+    "repetition": 2,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 0,
+      "input_tokens": 23854,
+      "output_tokens": 60
+    },
+    "variant": "conditional-exploration"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 6.664031040971167,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23796,
+          "output_tokens": 68,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "ambiguous-change",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 8.416775958030485,
+    "error": null,
+    "fixture_sha256": "ec26fad4c9e125dad36e8a3d3c877514e07b034bf368e609bd0357ed1e80c3a5",
+    "grade": {
+      "checks": {
+        "clarification": true,
+        "execution_ok": true,
+        "remains_open": true,
+        "same_session": true,
+        "terminal_action": true,
+        "unchanged": true
+      },
+      "correct": true,
+      "delegations": 0,
+      "false_completion": false,
+      "interventions": 1,
+      "terminal": "clarify"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "fcc7190c124154379b05900a0d025231b462a85c6d1b3abab640f835111a2a12",
+    "reasoning": "medium",
+    "repetition": 2,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 7680,
+      "input_tokens": 23796,
+      "output_tokens": 68
+    },
+    "variant": "baseline"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 7.830915333004668,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23826,
+          "output_tokens": 66,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-02",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 7.3108609589980915,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 24430,
+          "output_tokens": 81,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "delegate-02",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 8.70999295799993,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23613,
+          "output_tokens": 125,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-03",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 8.995002749958076,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 24791,
+          "output_tokens": 104,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-04",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 6.130858417018317,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 0,
+          "input_tokens": 25464,
+          "output_tokens": 48,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "tiny-fix",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 42.796757041011006,
+    "error": null,
+    "fixture_sha256": "de33ac26ad3bdf64dbdd230c63a3fd121dd1946b7361a9d01cf513c7e6624387",
+    "grade": {
+      "checks": {
+        "accurate_test_report": true,
+        "completed": true,
+        "correct_behavior": true,
+        "done_state": true,
+        "execution_ok": true,
+        "meaningful_passing_test": true,
+        "same_session": true,
+        "session_closed": true,
+        "terminal_action": true,
+        "tests_preserved": true,
+        "verified_final_files": true
+      },
+      "correct": true,
+      "delegations": 1,
+      "false_completion": false,
+      "interventions": 0,
+      "terminal": "complete"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "fcc7190c124154379b05900a0d025231b462a85c6d1b3abab640f835111a2a12",
+    "reasoning": "medium",
+    "repetition": 2,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 30720,
+      "input_tokens": 122124,
+      "output_tokens": 424
+    },
+    "variant": "baseline"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 7.416302583063953,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23939,
+          "output_tokens": 73,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-02",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 7.82831983291544,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 24661,
+          "output_tokens": 149,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-03",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 5.4223837500903755,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 25435,
+          "output_tokens": 56,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-04",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 7.872251500026323,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 25991,
+          "output_tokens": 97,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "pre-existing-failure",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 31.128172125085257,
+    "error": null,
+    "fixture_sha256": "527da1444fa33830f1970bde562164da87c167172367bf49dfe73094aa24a217",
+    "grade": {
+      "checks": {
+        "accurate_test_report": true,
+        "baseline_observed": true,
+        "completed": true,
+        "correct_behavior": true,
+        "done_state": true,
+        "execution_ok": true,
+        "failure_disclosed": true,
+        "meaningful_passing_test": true,
+        "same_session": true,
+        "session_closed": true,
+        "terminal_action": true,
+        "tests_preserved": true,
+        "verified_final_files": true
+      },
+      "correct": true,
+      "delegations": 0,
+      "false_completion": false,
+      "interventions": 0,
+      "terminal": "complete"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "4b4f104dbf751e82a68cb212d30a101eaa1dea6f86d5e7a2b4ddf691f8b7c227",
+    "reasoning": "medium",
+    "repetition": 2,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 30720,
+      "input_tokens": 100026,
+      "output_tokens": 375
+    },
+    "variant": "conditional-exploration"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 5.433706916985102,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23940,
+          "output_tokens": 59,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-02",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 6.262303916970268,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 24378,
+          "output_tokens": 53,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "interrupted-session",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 12.67594495904632,
+    "error": null,
+    "fixture_sha256": "ce5f3e154e07102abb68c39c9c2f0c1f6ed10805aeef66ab15c18c2944f6095a",
+    "grade": {
+      "checks": {
+        "accurate_test_report": true,
+        "completed": true,
+        "correct_behavior": true,
+        "done_state": true,
+        "execution_ok": true,
+        "handoff_preserved": true,
+        "meaningful_passing_test": true,
+        "same_session": true,
+        "session_closed": true,
+        "terminal_action": true,
+        "verified_final_files": true
+      },
+      "correct": true,
+      "delegations": 0,
+      "false_completion": false,
+      "interventions": 0,
+      "terminal": "complete"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "4b4f104dbf751e82a68cb212d30a101eaa1dea6f86d5e7a2b4ddf691f8b7c227",
+    "reasoning": "medium",
+    "repetition": 2,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 15360,
+      "input_tokens": 48318,
+      "output_tokens": 112
+    },
+    "variant": "conditional-exploration"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 5.971677000052296,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23882,
+          "output_tokens": 72,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-02",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 5.426469250000082,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 24350,
+          "output_tokens": 57,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "interrupted-session",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 12.820030083996244,
+    "error": null,
+    "fixture_sha256": "ce5f3e154e07102abb68c39c9c2f0c1f6ed10805aeef66ab15c18c2944f6095a",
+    "grade": {
+      "checks": {
+        "accurate_test_report": true,
+        "completed": true,
+        "correct_behavior": true,
+        "done_state": true,
+        "execution_ok": true,
+        "handoff_preserved": true,
+        "meaningful_passing_test": true,
+        "same_session": true,
+        "session_closed": true,
+        "terminal_action": true,
+        "verified_final_files": true
+      },
+      "correct": true,
+      "delegations": 0,
+      "false_completion": false,
+      "interventions": 0,
+      "terminal": "complete"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "fcc7190c124154379b05900a0d025231b462a85c6d1b3abab640f835111a2a12",
+    "reasoning": "medium",
+    "repetition": 2,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 15360,
+      "input_tokens": 48232,
+      "output_tokens": 129
+    },
+    "variant": "baseline"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 6.375631249975413,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23948,
+          "output_tokens": 65,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "partial-merge-cleanup",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 7.732575417030603,
+    "error": null,
+    "fixture_sha256": "5ef97d5fb2d55133e797234ebfcd177535926b1ce6471bced6a2d83801c4e87a",
+    "grade": {
+      "checks": {
+        "acknowledged": true,
+        "cleanup_reported": true,
+        "execution_ok": true,
+        "no_reimplementation": true,
+        "notes_preserved": true,
+        "remains_done": true,
+        "same_session": true,
+        "shipment_reported": true,
+        "terminal_action": true
+      },
+      "correct": true,
+      "delegations": 0,
+      "false_completion": false,
+      "interventions": 0,
+      "terminal": "acknowledge_cleanup"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "4b4f104dbf751e82a68cb212d30a101eaa1dea6f86d5e7a2b4ddf691f8b7c227",
+    "reasoning": "medium",
+    "repetition": 2,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 7680,
+      "input_tokens": 23948,
+      "output_tokens": 65
+    },
+    "variant": "conditional-exploration"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 6.642510417033918,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23889,
+          "output_tokens": 63,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "partial-merge-cleanup",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 7.903748458949849,
+    "error": null,
+    "fixture_sha256": "5ef97d5fb2d55133e797234ebfcd177535926b1ce6471bced6a2d83801c4e87a",
+    "grade": {
+      "checks": {
+        "acknowledged": true,
+        "cleanup_reported": true,
+        "execution_ok": true,
+        "no_reimplementation": true,
+        "notes_preserved": true,
+        "remains_done": true,
+        "same_session": true,
+        "shipment_reported": true,
+        "terminal_action": true
+      },
+      "correct": true,
+      "delegations": 0,
+      "false_completion": false,
+      "interventions": 0,
+      "terminal": "acknowledge_cleanup"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "fcc7190c124154379b05900a0d025231b462a85c6d1b3abab640f835111a2a12",
+    "reasoning": "medium",
+    "repetition": 2,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 7680,
+      "input_tokens": 23889,
+      "output_tokens": 63
+    },
+    "variant": "baseline"
+  },
+  {
+    "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+    "calls": [
+      {
+        "artifact": "turn-01",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 7.72584945790004,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23878,
+          "output_tokens": 58,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-02",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 9.347529457998462,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 24564,
+          "output_tokens": 144,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "delegate-03",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 9.314302290906198,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 23734,
+          "output_tokens": 162,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-03",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 6.9212114160181955,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 25173,
+          "output_tokens": 116,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-04",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 10.047082417062484,
+        "timed_out": false,
+        "transport_warnings": [
+          "Reconnecting... 2/5 (unexpected status 403 Forbidden: Unknown error, url: wss://chatgpt.com/backend-api/codex/responses, cf-ray: a46021ae8feb14ed-EWR)",
+          "Reconnecting... 3/5 (unexpected status 403 Forbidden: Unknown error, url: wss://chatgpt.com/backend-api/codex/responses, cf-ray: a46021b3ce5dcc62-EWR)",
+          "Reconnecting... 4/5 (unexpected status 403 Forbidden: Unknown error, url: wss://chatgpt.com/backend-api/codex/responses, cf-ray: a46021bc0a714f0b-EWR)"
+        ],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 25882,
+          "output_tokens": 52,
+          "reasoning_output_tokens": 0
+        }
+      },
+      {
+        "artifact": "turn-05",
+        "ok": true,
+        "returncode": 0,
+        "seconds": 8.033524291939102,
+        "timed_out": false,
+        "transport_warnings": [],
+        "usage": {
+          "cache_write_input_tokens": 0,
+          "cached_input_tokens": 7680,
+          "input_tokens": 26426,
+          "output_tokens": 129,
+          "reasoning_output_tokens": 0
+        }
+      }
+    ],
+    "case": "pre-existing-failure",
+    "cost_dollars": null,
+    "cost_status": "unavailable: no verified runtime pricing",
+    "duration_seconds": 53.604961250093766,
+    "error": null,
+    "fixture_sha256": "527da1444fa33830f1970bde562164da87c167172367bf49dfe73094aa24a217",
+    "grade": {
+      "checks": {
+        "accurate_test_report": true,
+        "baseline_observed": true,
+        "completed": true,
+        "correct_behavior": true,
+        "done_state": true,
+        "execution_ok": true,
+        "failure_disclosed": true,
+        "meaningful_passing_test": true,
+        "same_session": true,
+        "session_closed": true,
+        "terminal_action": true,
+        "tests_preserved": true,
+        "verified_final_files": true
+      },
+      "correct": true,
+      "delegations": 1,
+      "false_completion": false,
+      "interventions": 0,
+      "terminal": "complete"
+    },
+    "max_turns": 6,
+    "model": "gpt-6-astra",
+    "prompt_sha256": "fcc7190c124154379b05900a0d025231b462a85c6d1b3abab640f835111a2a12",
+    "reasoning": "medium",
+    "repetition": 2,
+    "scope": "bounded action protocol; not end-to-end Tusk CLI",
+    "timeout_seconds": 120.0,
+    "usage": {
+      "cached_input_tokens": 46080,
+      "input_tokens": 149657,
+      "output_tokens": 661
+    },
+    "variant": "baseline"
+  }
+]

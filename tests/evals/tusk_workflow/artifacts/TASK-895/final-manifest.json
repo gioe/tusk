@@ -1,0 +1,187 @@
+{
+  "argv": [
+    "codex",
+    "exec",
+    "--ignore-user-config",
+    "--ignore-rules",
+    "--ephemeral",
+    "--skip-git-repo-check",
+    "-s",
+    "read-only",
+    "-c",
+    "approval_policy=\"never\"",
+    "-c",
+    "web_search=\"disabled\"",
+    "-c",
+    "suppress_unstable_features_warning=true",
+    "--disable",
+    "shell_tool",
+    "--disable",
+    "unified_exec",
+    "--disable",
+    "apps",
+    "--disable",
+    "plugins",
+    "--disable",
+    "browser_use",
+    "--disable",
+    "computer_use",
+    "--disable",
+    "image_generation",
+    "--disable",
+    "multi_agent",
+    "--enable",
+    "skip_host_skill_discovery",
+    "-m",
+    "gpt-6-astra",
+    "-c",
+    "model_reasoning_effort=\"medium\"",
+    "--json",
+    "-"
+  ],
+  "baseline_ref": "060b7b3e0ac6cc004f957252a3b765e4ab29bfe1",
+  "case_file_sha256": "e450a6d380ee1c1bfe8762b73640a07a816de70682fd59860266e90952133149",
+  "cli_version": "codex-cli 0.159.2",
+  "format_version": 1,
+  "limits": {
+    "max_turns": 6,
+    "timeout_seconds": 120.0,
+    "workers": 2
+  },
+  "model": "gpt-6-astra",
+  "plan": [
+    {
+      "case": "missing-regression",
+      "repetition": 1,
+      "variant": "baseline"
+    },
+    {
+      "case": "missing-regression",
+      "repetition": 1,
+      "variant": "conditional-exploration"
+    },
+    {
+      "case": "tiny-fix",
+      "repetition": 1,
+      "variant": "baseline"
+    },
+    {
+      "case": "tiny-fix",
+      "repetition": 1,
+      "variant": "conditional-exploration"
+    },
+    {
+      "case": "ambiguous-change",
+      "repetition": 1,
+      "variant": "baseline"
+    },
+    {
+      "case": "ambiguous-change",
+      "repetition": 1,
+      "variant": "conditional-exploration"
+    },
+    {
+      "case": "pre-existing-failure",
+      "repetition": 1,
+      "variant": "baseline"
+    },
+    {
+      "case": "pre-existing-failure",
+      "repetition": 1,
+      "variant": "conditional-exploration"
+    },
+    {
+      "case": "interrupted-session",
+      "repetition": 1,
+      "variant": "baseline"
+    },
+    {
+      "case": "interrupted-session",
+      "repetition": 1,
+      "variant": "conditional-exploration"
+    },
+    {
+      "case": "partial-merge-cleanup",
+      "repetition": 1,
+      "variant": "baseline"
+    },
+    {
+      "case": "partial-merge-cleanup",
+      "repetition": 1,
+      "variant": "conditional-exploration"
+    },
+    {
+      "case": "missing-regression",
+      "repetition": 2,
+      "variant": "conditional-exploration"
+    },
+    {
+      "case": "missing-regression",
+      "repetition": 2,
+      "variant": "baseline"
+    },
+    {
+      "case": "tiny-fix",
+      "repetition": 2,
+      "variant": "conditional-exploration"
+    },
+    {
+      "case": "tiny-fix",
+      "repetition": 2,
+      "variant": "baseline"
+    },
+    {
+      "case": "ambiguous-change",
+      "repetition": 2,
+      "variant": "conditional-exploration"
+    },
+    {
+      "case": "ambiguous-change",
+      "repetition": 2,
+      "variant": "baseline"
+    },
+    {
+      "case": "pre-existing-failure",
+      "repetition": 2,
+      "variant": "conditional-exploration"
+    },
+    {
+      "case": "pre-existing-failure",
+      "repetition": 2,
+      "variant": "baseline"
+    },
+    {
+      "case": "interrupted-session",
+      "repetition": 2,
+      "variant": "conditional-exploration"
+    },
+    {
+      "case": "interrupted-session",
+      "repetition": 2,
+      "variant": "baseline"
+    },
+    {
+      "case": "partial-merge-cleanup",
+      "repetition": 2,
+      "variant": "conditional-exploration"
+    },
+    {
+      "case": "partial-merge-cleanup",
+      "repetition": 2,
+      "variant": "baseline"
+    }
+  ],
+  "platform": "darwin",
+  "prompt_sha256": {
+    "baseline": "fcc7190c124154379b05900a0d025231b462a85c6d1b3abab640f835111a2a12",
+    "conditional-exploration": "4b4f104dbf751e82a68cb212d30a101eaa1dea6f86d5e7a2b4ddf691f8b7c227"
+  },
+  "python_version": "3.11.6 (v3.11.6:8b6ee5ba3b, Oct  2 2023, 11:18:21) [Clang 13.0.0 (clang-1300.0.29.30)]",
+  "reasoning": "medium",
+  "runner_sha256": "3a08d9c20a23c79bc417e57a7e2d0acba5dd1075e46d5f9068690ac2e7066d16",
+  "scope": "bounded action protocol; actual Git/SQLite/unittest; no production policy changes",
+  "source_sha256": {
+    "codex-prompts/tusk-recovery.md": "ca94f6abb4a833942090869aa17f9bdff69d7a36cfe2bae8b48722c7c5d9cced",
+    "codex-prompts/tusk.md": "5dae61218a4dad75a380909ce428f10f905a89df29994e24f801c4ade9af241b"
+  }
+}
