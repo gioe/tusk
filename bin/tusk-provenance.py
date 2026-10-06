@@ -335,6 +335,8 @@ def reference(project: str, record_id: str) -> str:
 def record_output(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
     result = dict(row)
     result['ref'] = reference(project_id(conn), row['id'])
+    if row['kind'] == 'action':
+        result['receipt'] = tusk_loader.load('tusk-action-lib').receipt(conn, row['id'])
     if row['kind'] == 'prompt':
         result['prompt'] = prompt_snapshot(conn, row['id'])
     return result
@@ -424,6 +426,8 @@ def link_output(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
 
 
 def dispatch(conn: sqlite3.Connection, args: argparse.Namespace):
+    if args.command == 'receipts':
+        return tusk_loader.load('tusk-action-lib').list_receipts(conn, args.task_id, args.limit)
     if args.command == 'capture-prompt':
         return capture_prompt(conn, args)
     if args.command == 'register':
@@ -459,8 +463,16 @@ def dispatch(conn: sqlite3.Connection, args: argparse.Namespace):
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog='tusk provenance', allow_abbrev=False,
         description='Register durable project-scoped identities and explicit or inferred causal links. '
-                    'Existing domain rows stay authoritative; external registration is not proof.')
+                    'Existing domain rows stay authoritative; external registration is not proof. '
+                    'Covered mutations return receipt_refs; get REF shows transaction effects and '
+                    'execution context. mutation_committed is not verification or command exit status. '
+                    'Explicit context: TUSK_ACTION_TASK_ID, TUSK_ACTION_SESSION_ID, '
+                    'TUSK_ACTION_SKILL_RUN_ID, TUSK_ACTION_WORKSPACE_ID, TUSK_ACTION_SOURCE_REF. ')
     sub = parser.add_subparsers(dest='command', required=True)
+    receipts = sub.add_parser('receipts', allow_abbrev=False,
+        help='List committed transaction receipts, including partial-command work; not verification proof.')
+    receipts.add_argument('--task-id', type=int, help='Filter by affected task (including deleted records).')
+    receipts.add_argument('--limit', type=int, default=20, help='Newest first, 1..1000, default 20.')
     capture = sub.add_parser('capture-prompt', allow_abbrev=False,
         help='Save an explicit UTF-8 excerpt or summary before a task exists; never discovers transcripts.')
     source = capture.add_mutually_exclusive_group(required=True)
@@ -508,7 +520,7 @@ def main(argv: list[str]) -> int:
         try:
             # Acquire writer lock before validating endpoints, closing the
             # registration-vs-deletion and duplicate-registration race windows.
-            if args.command not in ('get', 'links'):
+            if args.command not in ('get', 'links', 'receipts'):
                 conn.execute('BEGIN IMMEDIATE')
             result = dispatch(conn, args)
             conn.commit()

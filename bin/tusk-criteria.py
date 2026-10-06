@@ -28,7 +28,8 @@ import tusk_loader  # loads tusk-pricing-lib.py, tusk-db-lib.py, tusk-json-lib.p
 
 lib = tusk_loader.load("tusk-pricing-lib")
 _db_lib = tusk_loader.load("tusk-db-lib")
-get_connection = _db_lib.get_connection
+_action = tusk_loader.load("tusk-action-lib").CLIAction("criteria")
+get_connection = _action.get_connection
 load_config = _db_lib.load_config
 
 _git_helpers = tusk_loader.load("tusk-git-helpers")
@@ -36,7 +37,7 @@ warn_file_spec_glob_metachars = _git_helpers.warn_file_spec_glob_metachars
 reject_shell_metacharacters = _git_helpers.reject_shell_metacharacters
 
 _json_lib = tusk_loader.load("tusk-json-lib")
-dumps = _json_lib.dumps
+dumps = _action.dumps
 pretty_requested = _json_lib.pretty_requested
 _worktree_command = tusk_loader.load("tusk-worktree-command")
 
@@ -1688,6 +1689,7 @@ def main():
     fd_p.add_argument("task_ids", type=int, nargs="+", help="One or more task IDs")
 
     args = parser.parse_args(sys.argv[3:])
+    _action.command = "criteria " + (args.command or "")
 
     if not args.command:
         parser.print_help()

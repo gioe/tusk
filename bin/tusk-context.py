@@ -27,10 +27,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tusk_loader  # loads tusk-db-lib.py, tusk-json-lib.py, tusk-git-helpers.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
+_action = tusk_loader.load("tusk-action-lib").CLIAction("context")
 _json_lib = tusk_loader.load("tusk-json-lib")
 _git_helpers = tusk_loader.load("tusk-git-helpers")
-dumps = _json_lib.dumps
-get_connection = _db_lib.get_connection
+dumps = _action.dumps
+get_connection = _action.get_connection
 reject_shell_metacharacters = _git_helpers.reject_shell_metacharacters
 
 
@@ -203,6 +204,7 @@ def main(argv: list[str]) -> int:
     supersede.add_argument("context_item_id", type=int)
 
     args = parser.parse_args(argv[2:])
+    _action.command = "context " + args.mode
 
     # Reject shell-substitution metacharacters in --content before any DB write
     # (issue #1107 — extends the issue #881/#1106 guard). zsh/bash expand `,

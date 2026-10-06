@@ -1335,3 +1335,74 @@ These appear alongside the task's normal criteria in `tusk criteria list` and ar
 ```
 
 The first entry omits `mode`, so it defaults to `create_only` — `tusk/conventions/python.md` is written on first integration and skipped on subsequent runs. The second uses `append_if_missing`, so `gioe-libs>=0.4` is added to `requirements.txt` exactly once even if the bootstrap step runs again later. The third uses `marker_block`, so future runs can refresh the managed dependency section without rewriting user-authored `Package.swift` content outside the markers.
+
+### Action receipts (schema 91)
+
+Covered CLI mutations persist a receipt **in the same SQLite transaction** as
+their effects: task-insert, task-import, task-update, task-start, task-done,
+criteria add/update/done/skip/reset/delete/finish-deferred, context
+add/resolve/supersede, and progress. Existing response fields remain; JSON
+objects gain a compact `receipt_refs` array when they report committed work.
+Read-only commands, rejected validation, dry runs, and commits with no tracked
+mutations create no receipts. Schema 90 and older retain their previous behavior
+until migration; no historical actions are backfilled.
+
+`provenance_actions` has an action-kind `record_id` primary key/FK,
+`invocation_id` (opaque UUID shared by this process's transaction receipts),
+`command`, `outcome` (always `mutation_committed`), `context_json`, and
+`created_at`. `provenance_action_effects` links each receipt to affected
+provenance records with `operation` (insert/update/delete) and the affected
+`task_id` snapshot. Its primary key is (action_id, record_id, operation).
+Repeated writes of the same kind to a record within one transaction coalesce.
+Both tables reject update, delete, and replacement. These are mechanical
+mutation associations; they do not create semantic causal or verification edges.
+Native rows remain authoritative; receipts do not copy their content. Deletion
+retains an affected record's tombstone. Import dependency/objective association
+writes record their task endpoints as updates; they do not claim to have changed
+the task's text.
+
+`provenance get <receipt-ref>` returns the receipt, its context and effects,
+and `is_verification: false`. `provenance receipts [--task-id N] [--limit N]`
+lists the newest receipts (default 20, maximum 1000) with a truncation marker.
+The filter selects **affected** tasks, even if the executing task differed.
+Use this lookup when stdout was lost or a command committed work before failing.
+A successful mutation is not successful verification or a successful overall
+CLI exit. For example, criteria done can commit a failed verification result:
+its receipt records that write while the criterion remains incomplete. Receipt
+timestamps alone establish neither causality nor passing evidence.
+
+Commands with multiple commits emit multiple receipts sharing an invocation ID.
+Atomic imports commit all created tasks, criteria, and relationships together;
+best-effort imports retain only receipts for committed phases. A failed later
+phase cannot relabel already committed work as rolled back. Receipt preparation,
+identity registration, and effect collection roll back with the domain mutation.
+Whole-transaction lock retries therefore leave no failed-attempt receipts;
+retrying a failed COMMIT reuses its prepared receipt. A fresh CLI invocation is a
+new action, not an idempotency key for repeating the underlying command.
+
+Execution context accepts optional explicit environment variables:
+`TUSK_ACTION_TASK_ID`, `TUSK_ACTION_SESSION_ID`, `TUSK_ACTION_SKILL_RUN_ID`,
+`TUSK_ACTION_WORKSPACE_ID`, and `TUSK_ACTION_SOURCE_REF` (a full project-scoped
+provenance reference). Explicit IDs must exist and their task ownership must
+agree; they take precedence over inference. The source reference is caller
+assertion, never discovered from a transcript or timestamp. Set these variables
+for the individual command to avoid stale attribution in subsequent work.
+
+Without explicit identity, the caller's recorded workspace identifies the
+executing task, or a single affected task supplies task context. Sessions and
+skill runs are selected only when unique and open for that task; an execution
+record directly affected by the transaction can supply closed-session context.
+Multiple candidates remain unset and appear in `context.ambiguous` rather than
+being assigned to the latest global run. `context.attribution` records each
+selection's basis. Task, session, and skill-run references survive native
+retirement; workspace ID and path are snapshots. Missing context stays absent.
+
+Implementation: `tusk-action-lib.CLIAction` supplies an opted-in connection and
+JSON serializer. Connection-local TEMP triggers collect effects, including
+pre-delete identities; `conn.commit()` flushes the queue before committing.
+Other connections are untouched. Consumers must use the supplied connection's
+commit/rollback methods, not SQL COMMIT or executescript. Unsupported operations
+include raw SQL, non-covered CLI commands, subprocess side effects (including
+WSJF recalculation), files/git/network changes, reviews, jots, and verification
+execution evidence. Those boundaries require separate integrations; receipt
+coverage does not imply a complete task trace.

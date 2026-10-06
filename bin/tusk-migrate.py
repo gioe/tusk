@@ -3745,6 +3745,18 @@ def migrate_90(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 90: added durable prompt snapshots")
 
 
+def migrate_91(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add transactional action receipts without inventing historical actions."""
+    if get_version(db_path) >= 91:
+        return
+    sys.path.insert(0, script_dir)
+    import tusk_loader
+    actions = tusk_loader.load("tusk-action-lib")
+    run_script(db_path, "BEGIN IMMEDIATE;\n" + actions.schema_v91_sql()
+               + "\nPRAGMA user_version = 91;\nCOMMIT;")
+    _progress("  Migration 91: added transactional action receipts")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -3838,6 +3850,7 @@ MIGRATIONS = [
     (88, migrate_88),
     (89, migrate_89),
     (90, migrate_90),
+    (91, migrate_91),
 ]
 
 

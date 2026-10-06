@@ -140,8 +140,13 @@ transcript disappears. Use `--stdin` instead of a file, or label a caller-writte
 summary with `--representation summary`. The default 8192-character limit
 records truncation; absent message identities remain unknown. Complete message
 identities make retries idempotent; otherwise reuse an explicit `--key`.
-Identity-only `register prompt --key ...` remains available. Automatic action
-receipts are separate work. See [the provenance contract](docs/DOMAIN.md#provenance-schema-89)
+Identity-only `register prompt --key ...` remains available. Task mutations,
+criteria, context changes, and progress writes now return `receipt_refs` saved
+atomically with the changes. Inspect one with `tusk provenance get <receipt-ref>`
+or find recent work with `tusk provenance receipts --task-id 42`. A receipt says
+which mutation committed; it does not prove a criterion passed. Optional
+`TUSK_ACTION_SOURCE_REF` connects an action to an explicitly supplied source;
+execution IDs and ambiguity rules are documented in the receipt contract. See [the provenance contract](docs/DOMAIN.md#provenance-schema-89)
 or `tusk provenance --help` for supported kinds, relationships, and retention.
 
 ## Workflows for Agents

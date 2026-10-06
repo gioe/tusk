@@ -42,11 +42,12 @@ import tusk_loader
 TUSK_BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
 
 _db_lib = tusk_loader.load("tusk-db-lib")
+_action = tusk_loader.load("tusk-action-lib").CLIAction("task-update")
 _json_lib = tusk_loader.load("tusk-json-lib")
 _task_insert = tusk_loader.load("tusk-task-insert")
 _git_helpers = tusk_loader.load("tusk-git-helpers")
-dumps = _json_lib.dumps
-get_connection = _db_lib.get_connection
+dumps = _action.dumps
+get_connection = _action.get_connection
 load_config = _db_lib.load_config
 validate_enum = _db_lib.validate_enum
 reject_shell_metacharacters = _git_helpers.reject_shell_metacharacters

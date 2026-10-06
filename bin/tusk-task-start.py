@@ -42,12 +42,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tusk_loader  # loads tusk-db-lib.py, tusk-json-lib.py, tusk-rank-lib.py, tusk-git-helpers.py, tusk-criteria.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
+_action = tusk_loader.load("tusk-action-lib").CLIAction("task-start")
 _json_lib = tusk_loader.load("tusk-json-lib")
 _rank_lib = tusk_loader.load("tusk-rank-lib")
 _git_helpers = tusk_loader.load("tusk-git-helpers")
 _pricing_lib = tusk_loader.load("tusk-pricing-lib")
-dumps = _json_lib.dumps
-get_connection = _db_lib.get_connection
+dumps = _action.dumps
+get_connection = _action.get_connection
 select_top_ready_task = _rank_lib.select_top_ready_task
 empty_backlog_message = _rank_lib.empty_backlog_message
 

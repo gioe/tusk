@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1283] - 2026-10-06
+
+- [TASK-899] Persist automatic action receipts for core task mutations
+
 ## [1282] - 2026-10-06
 
 - [TASK-898] Capture durable prompt sources before task creation

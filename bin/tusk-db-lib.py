@@ -222,7 +222,7 @@ def open_sqlite(db_path: str, **connect_kwargs) -> sqlite3.Connection:
         raise
 
 
-def get_connection(db_path: str) -> sqlite3.Connection:
+def get_connection(db_path: str, *, factory=sqlite3.Connection) -> sqlite3.Connection:
     """Return a SQLite connection with row_factory, foreign keys, and a
     busy_timeout enabled.
 
@@ -243,7 +243,7 @@ def get_connection(db_path: str) -> sqlite3.Connection:
     recognizes a literal ``BEGIN`` and does not auto-open a competing
     transaction.
     """
-    conn = open_sqlite(db_path)
+    conn = open_sqlite(db_path, factory=factory)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute(f"PRAGMA busy_timeout = {_busy_timeout_ms()}")

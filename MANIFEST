@@ -1,6 +1,7 @@
 [
   ".claude/bin/tusk",
   ".claude/bin/tusk-abandon.py",
+  ".claude/bin/tusk-action-lib.py",
   ".claude/bin/tusk-add-lib.py",
   ".claude/bin/tusk-address-issue.py",
   ".claude/bin/tusk-audit.py",

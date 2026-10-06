@@ -39,10 +39,11 @@ import tusk_loader  # loads tusk-db-lib.py, tusk-git-helpers.py, tusk-json-lib.p
 TUSK_BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tusk")
 
 _db_lib = tusk_loader.load("tusk-db-lib")
+_action = tusk_loader.load("tusk-action-lib").CLIAction("task-insert")
 _git_helpers = tusk_loader.load("tusk-git-helpers")
 _json_lib = tusk_loader.load("tusk-json-lib")
-dumps = _json_lib.dumps
-get_connection = _db_lib.get_connection
+dumps = _action.dumps
+get_connection = _action.get_connection
 load_config = _db_lib.load_config
 validate_enum = _db_lib.validate_enum
 extract_paths = _git_helpers.extract_paths
