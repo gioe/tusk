@@ -3721,6 +3721,18 @@ def migrate_88(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 88: added task_scope_checkpoints")
 
 
+def migrate_89(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add project-scoped provenance references, typed links, and tombstones."""
+    if get_version(db_path) >= 89:
+        return
+    sys.path.insert(0, script_dir)
+    import tusk_loader
+    provenance = tusk_loader.load("tusk-provenance")
+    run_script(db_path, "BEGIN IMMEDIATE;\n" + provenance.schema_v89_sql()
+               + "\nPRAGMA user_version = 89;\nCOMMIT;")
+    _progress("  Migration 89: added provenance references and causal links")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -3812,6 +3824,7 @@ MIGRATIONS = [
     (86, migrate_86),
     (87, migrate_87),
     (88, migrate_88),
+    (89, migrate_89),
 ]
 
 

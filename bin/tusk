@@ -28,6 +28,7 @@
 #   tusk criteria reset <cid>    Reset a criterion to incomplete (clears deferred flag too)
 #   tusk criteria finish-deferred --reason <r> <id...>  Mark all deferred criteria with given reason as completed
 #   tusk progress <id> [--note "..."] [--next-steps "..."]  Log a progress checkpoint from HEAD
+#   tusk provenance {register|get|link|links|unavailable}  Addressable records and causal relationships
 #   tusk lint [--verbose|--quiet] Run convention checks; default: one-line OK summary on pass
 #   tusk dag [--all]           Generate and open an HTML dependency DAG
 #   tusk dashboard             Generate and open an HTML dashboard
@@ -1409,8 +1410,22 @@ PRECHECK_VERDICTS_SCHEMA
     python3 "$SCRIPT_DIR/tusk-glossary.py" "$DB_PATH" "$(resolve_config)" sync-from-md >/dev/null 2>&1 || true
   fi
 
+  # Share the frozen provenance DDL with migration 89.
+  python3 - "$DB_PATH" "$SCRIPT_DIR" <<'PROVENANCE_SCHEMA'
+import sys
+sys.path.insert(0, sys.argv[2])
+import tusk_loader
+db = tusk_loader.load("tusk-db-lib")
+provenance = tusk_loader.load("tusk-provenance")
+conn = db.get_connection(sys.argv[1])
+try:
+    conn.executescript("BEGIN IMMEDIATE;\n" + provenance.schema_v89_sql() + "\nCOMMIT;")
+finally:
+    conn.close()
+PROVENANCE_SCHEMA
+
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 88;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 89;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."
@@ -1519,7 +1534,7 @@ import difflib, sys
 candidates = [
   'init','path','config','validate','skill-drift','sql-quote','typed-criteria-build','resolve-schema-bin','branch','commit',
   'lint','lint-rule','dupes','conventions','pillars','glossary','plans','criteria','dashboard','cost','chain','blockers',
-  'context','objective',
+  'context','objective','provenance',
   'review','review-verdict','review-pass-status','review-final-summary','review-diff-range','review-wait','review-check-perms','review-agent-cost',
   'deps','session-stats','session-recalc','session-close','skill-run','jot','jots','call-breakdown',
   'active-project','git-default-branch','branch-parse',
@@ -2008,6 +2023,10 @@ is_readonly_subcmd() {
   # `scope` is dispatched at the second positional: only `scope list` is
   # read-only — `scope add`, `scope expand`, `scope remove`, and `scope lock` mutate
   # task_scope rows.
+  if [[ "${1:-}" == "provenance" ]]; then
+    [[ "${2:-}" == "get" || "${2:-}" == "links" || "${2:-}" == "--help" ]] && return 0
+    return 1
+  fi
   if [[ "${1:-}" == "scope" ]]; then
     [[ "${2:-}" == "list" ]] && return 0
     return 1
@@ -2237,6 +2256,7 @@ case "${1:-}" in
   plans)       shift; exec python3 "$SCRIPT_DIR/tusk-plans.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   criteria) shift; exec python3 "$SCRIPT_DIR/tusk-criteria.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   context) shift; exec python3 "$SCRIPT_DIR/tusk-context.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  provenance) shift; exec python3 "$SCRIPT_DIR/tusk-provenance.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   objective) shift; exec python3 "$SCRIPT_DIR/tusk-objective.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   dashboard) shift; exec python3 "$SCRIPT_DIR/tusk-dashboard.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   cost) shift; exec python3 "$SCRIPT_DIR/tusk-cost.py" "$DB_PATH" "$(resolve_config)" "$@" ;;

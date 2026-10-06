@@ -170,6 +170,90 @@ A typed context atom attached to a task, optionally scoped to an objective. Cont
 
 ---
 
+### Provenance (schema 89)
+
+Provenance adds addressable identities and declared causal relationships around
+existing domain rows. Registration does not copy domain content or status.
+Writes acquire a transaction before validating endpoints, preventing concurrent
+registration or deletion from racing those checks.
+
+**`provenance_project`:** `singleton` (primary key, always 1) and `project_id`
+(unique random 128-bit lowercase hex). Identity is generated once on init or
+migration and cannot be updated or deleted. Worktrees and moved databases keep
+the same identity; independent initialization creates a different identity.
+Database backups/copies remain the *same* project. References have the form
+`tusk:<project_id>:<record_id>`; commands reject foreign-project references.
+
+**`provenance_records`:**
+
+| Column | Contract |
+|---|---|
+| `id` | Immutable random 128-bit hex primary key |
+| `kind` | Native: objective, task, criterion, context, review, finding, session, skill_run, progress, jot, retro; external: prompt, action, evidence, artifact |
+| `native_id` | Existing positive domain row ID for native kinds; otherwise NULL |
+| `external_key` | Nonempty opaque namespaced/versioned external identity; otherwise NULL |
+| `locator` | Optional external locator, never fetched; native rows have NULL |
+| `availability` | available or unavailable; registration/retention state, not proof or remote reachability |
+| `created_at`, `unavailable_at` | Creation and tombstone timestamps; unavailable_at is NULL while available |
+
+Native mappings are respectively `objectives`, `tasks`, `acceptance_criteria`,
+`task_context_items`, `code_reviews`, `review_comments`, `task_sessions`,
+`skill_runs`, `task_progress`, `jots`, and `retro_findings`. A partial unique
+index identifies each available native `(kind, native_id)`. External
+`(kind, external_key)` pairs remain unique even after becoming unavailable.
+
+Deletion triggers retain native references as tombstones, including cascading
+deletions. Reusing a deleted domain row ID produces a new reference; old links
+keep their tombstone. Updating a referenced native primary key is refused.
+Existing domain foreign-key restrictions still apply. External records can be
+explicitly marked unavailable; this is irreversible. A replacement needs a new
+versioned key. References cannot be deleted or rebound; identity, locator, and
+creation time are immutable.
+
+**`provenance_links`:** `id` (autoincrement primary key), `source_id` and
+`target_id` (FKs to provenance_records, deletion restricted), `relationship`,
+`attribution` (explicit or inferred), optional `reason`, and `created_at`.
+Inferred edges require a nonempty reason. Explicit means declared by an
+operator/agent, **not independently verified truth**. Edges are immutable and
+unique by `(source_id, relationship, target_id, attribution)`; explicit
+confirmation can coexist with an earlier inferred edge. Repeating an edge is
+idempotent even after endpoint deletion. Conflicting reasons are refused.
+
+Direction reads **source relationship target**. Allowed kind pairs are the
+Cartesian product of each row; self-links are forbidden:
+
+| Relationship | Sources | Targets |
+|---|---|---|
+| derived_from | objective, task, criterion, context, prompt, action, evidence, artifact, jot, retro | prompt, objective, task, criterion, context, finding, action, evidence, artifact, progress, jot, retro |
+| responds_to | task, criterion, context, action, artifact, review, finding, prompt, retro | prompt, finding, context, criterion, review, retro |
+| supports | context, evidence, finding, artifact, progress, jot, retro | objective, task, criterion, context |
+| implements | artifact, action, task | objective, task, criterion, context |
+| verifies | evidence, review | criterion, artifact |
+| supersedes | context, prompt, artifact, criterion, review | Same kind only; replacement points to old record |
+
+Schema triggers enforce available endpoints and allowed pairs for new links,
+including direct database writes. Supersession cycles are refused; other
+relationships can cycle, so readers must bound traversal. Supersession does not
+change domain status: retire context/reviews through their existing lifecycle
+commands. No links are inferred from task membership, sessions, or timestamps.
+
+`tusk provenance register <kind> [native_id] [--key <key>] [--locator <locator>]`
+returns a stable reference and identity metadata. `get <ref>` reads it.
+`link <source-ref> <relationship> <target-ref>` accepts
+`--attribution explicit|inferred` and `--reason`. `links <ref>` returns adjacent
+edges ordered by ID, with `--direction incoming|outgoing|both`, `--limit 1..1000`
+(default 100), and an explicit `truncated` flag. `unavailable <ref>` tombstones
+an external record. Reads never register records or change state.
+
+**Compatibility and boundaries:** legacy domain commands work without any
+registration. Migration creates empty reference/link tables and invents no
+historical causality. External registration stores identity and locator only.
+Prompt snapshots, automatic receipts, revision-bound evidence, recursive trace,
+and task-brief hydration are subsequent tasks. A verifies link alone does not
+mark a criterion complete or prove that a test passed.
+
+---
+
 ### Acceptance Criterion
 
 A verifiable condition that must be satisfied before a task is considered done. Tasks have zero or more criteria.

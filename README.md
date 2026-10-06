@@ -38,7 +38,7 @@ Agents read only the relevant slice at pickup and write back what the next sessi
 
 | Capability | What it provides |
 |---|---|
-| Durable handoff | Compiled task briefs, progress checkpoints, next steps, context atoms, and objective rollups |
+| Durable handoff | Compiled task briefs, progress checkpoints, next steps, context atoms, objective rollups, and provenance links |
 | Isolated execution | Task-owned Git worktrees and short-lived feature branches for concurrent agent work |
 | Verifiable completion | Manual, test, code, and file criteria with recorded completion evidence |
 | Workflow control | Readiness, dependency DAGs, scope guards, duplicate detection, review gates, and merge semantics |
@@ -116,6 +116,28 @@ select → start → create worktree → implement → verify → commit → rev
 8. Retrospectives turn friction and recurring patterns into durable improvements.
 
 Branches remain the version-control handle; pull requests are optional. This keeps the default workflow lightweight while preserving a CI or human-review path when a project needs one.
+
+## Provenance References
+
+Register a task and its source, then use their returned `ref` values to record
+why the task exists:
+
+```bash
+tusk provenance register task 42
+tusk provenance register prompt --key 'provider:conversation:message'
+tusk provenance link <task-ref> derived_from <prompt-ref>
+tusk provenance get <task-ref>
+tusk provenance links <task-ref> --direction outgoing --limit 20
+```
+
+References are scoped to the project database. Existing domain records remain
+authoritative; deleted records leave tombstones so history cannot silently
+attach to a reused ID. Links distinguish explicit declarations from inferences
+(`--attribution inferred --reason '...'`). Neither registration nor a link
+proves successful verification. External registration currently stores only an
+identity and optional locator; prompt snapshots and automatic action receipts
+are separate capabilities. See [the provenance contract](docs/DOMAIN.md#provenance-schema-89)
+or `tusk provenance --help` for supported kinds, relationships, and retention.
 
 ## Workflows for Agents
 
