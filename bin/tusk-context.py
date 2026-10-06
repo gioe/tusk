@@ -129,8 +129,11 @@ def cmd_add(args: argparse.Namespace, conn: sqlite3.Connection) -> dict:
         "VALUES (?, ?, ?, ?, ?)",
         (task_id, args.objective_id, args.item_type, content, args.source),
     )
+    # Read the response before committing: a read lock failure must roll back
+    # the insert before the whole-command retry can repeat it.
+    result = _row_to_dict(_fetch_context_item(conn, int(cursor.lastrowid)))
     conn.commit()
-    return _row_to_dict(_fetch_context_item(conn, int(cursor.lastrowid)))
+    return result
 
 
 def cmd_list(args: argparse.Namespace, conn: sqlite3.Connection) -> list[dict]:
@@ -171,8 +174,9 @@ def _update_status(
         " WHERE id = ?",
         (status, item_id),
     )
+    result = _row_to_dict(_fetch_context_item(conn, item_id))
     conn.commit()
-    return _row_to_dict(_fetch_context_item(conn, item_id))
+    return result
 
 
 def main(argv: list[str]) -> int:

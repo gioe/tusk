@@ -145,7 +145,7 @@ def test_execution_attribution(db_path, tmp_path):
     assert count(db_path) == before
 
 
-def test_retry_and_output_contract(db_path):
+def test_retry_and_output_contract(db_path, monkeypatch):
     result = insert(db_path)
     task = result['task_id']
     assert set(result) == {'task_id', 'summary', 'criteria_ids', 'receipt_refs'}
@@ -216,6 +216,26 @@ def test_retry_and_output_contract(db_path):
         reader.close()
         conn.close()
     assert count(journal_path) == before + 2
+
+    # A lock error while assembling the context response must not retry an
+    # already-committed insertion. This exercises the real command handler.
+    context = tusk_loader.load('tusk-context')
+    fetch = context._fetch_context_item
+    fetched = []
+    def fail_first_response(conn, item_id):
+        fetched.append(item_id)
+        if len(fetched) == 1:
+            raise sqlite3.OperationalError('database is locked')
+        return fetch(conn, item_id)
+    monkeypatch.setattr(context, '_fetch_context_item', fail_first_response)
+    baseline = count(db_path)
+    assert db.retry_on_locked(lambda: context.main([
+        str(db_path), str(ROOT / 'config.default.json'), 'add', str(task),
+        '--type', 'memory', '--content', 'One context despite a read retry',
+    ]), retries=1, base_ms=0) == 0
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute('SELECT count(*) FROM task_context_items WHERE task_id = ?', (task,)).fetchone()[0] == 1
+    assert count(db_path) == baseline + 1
 
 
 def test_receipt_is_not_proof(db_path):
