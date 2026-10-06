@@ -28,6 +28,7 @@
 #   tusk criteria reset <cid>    Reset a criterion to incomplete (clears deferred flag too)
 #   tusk criteria finish-deferred --reason <r> <id...>  Mark all deferred criteria with given reason as completed
 #   tusk progress <id> [--note "..."] [--next-steps "..."]  Log a progress checkpoint from HEAD
+#   tusk trace <ref> [--direction ancestors|dependents|both]  Bounded recorded-link history
 #   tusk provenance {capture-prompt|register|get|link|links|unavailable}  Prompt snapshots and causal relationships
 #   tusk lint [--verbose|--quiet] Run convention checks; default: one-line OK summary on pass
 #   tusk dag [--all]           Generate and open an HTML dependency DAG
@@ -1537,7 +1538,7 @@ import difflib, sys
 candidates = [
   'init','path','config','validate','skill-drift','sql-quote','typed-criteria-build','resolve-schema-bin','branch','commit',
   'lint','lint-rule','dupes','conventions','pillars','glossary','plans','criteria','dashboard','cost','chain','blockers',
-  'context','objective','provenance',
+  'context','objective','provenance','trace',
   'review','review-verdict','review-pass-status','review-final-summary','review-diff-range','review-wait','review-check-perms','review-agent-cost',
   'deps','session-stats','session-recalc','session-close','skill-run','jot','jots','call-breakdown',
   'active-project','git-default-branch','branch-parse',
@@ -2048,7 +2049,7 @@ is_readonly_subcmd() {
     ""|path|config|validate|skill-drift|sql-quote|typed-criteria-build|version|version-bump|\
     git-default-branch|branch-parse|report-issue|\
     sync-skills|reconcile-skills|generate-manifest|pricing-update|dev-sync|token-audit|\
-    task-get|task-get-multi|task-list|task-select|task-summary|task-brief|setup|cost|\
+    task-get|task-get-multi|task-list|task-select|task-summary|task-brief|trace|setup|cost|\
     backlog-scan|blockers|check-deliverables|scope-paths|scope-hint|test-detect|test-precheck|review-check-perms|review-diff-range|review-final-summary|review-agent-cost|jots|retro|retro-signals|retro-themes|retro-patches|propose-work|insights|\
     init-fetch-bootstrap|init-scan-codebase|init-scan-todos)
       return 0 ;;
@@ -2259,6 +2260,7 @@ case "${1:-}" in
   plans)       shift; exec python3 "$SCRIPT_DIR/tusk-plans.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   criteria) shift; exec python3 "$SCRIPT_DIR/tusk-criteria.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   context) shift; exec python3 "$SCRIPT_DIR/tusk-context.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+  trace) shift; exec python3 "$SCRIPT_DIR/tusk-trace.py" "$DB_PATH" "$@" ;;
   provenance) shift; exec python3 "$SCRIPT_DIR/tusk-provenance.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   objective) shift; exec python3 "$SCRIPT_DIR/tusk-objective.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   dashboard) shift; exec python3 "$SCRIPT_DIR/tusk-dashboard.py" "$DB_PATH" "$(resolve_config)" "$@" ;;

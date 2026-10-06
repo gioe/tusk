@@ -156,6 +156,48 @@ deployment, or external run; `provenance declare-evidence` records a sourced
 claim without treating it as an observed test. See the
 [revision-bound evidence contract](docs/DOMAIN.md#revision-bound-evidence-schema-92).
 
+### Trace a recorded source or deliverable
+
+```bash
+tusk trace <tusk-reference> --direction ancestors --depth 3 --limit 50
+tusk trace <tusk-reference> --direction dependents --format text
+tusk trace <tusk-reference> --direction both --depth 2
+```
+
+Pass a full project-scoped reference returned by provenance capture/register or
+an evidence/receipt response. Trace never registers identities on read.
+`ancestors` follows derived_from, responds_to, implements, verifies, and supersedes
+from source → target. It follows supports from target → source, so a criterion
+finds the decision supporting it. `dependents` reverses those directions, so a
+changed assumption finds the criteria it supports; `both` walks either way. Each edge retains its relationship, explicit or
+inferred attribution, and reason. Traversal identifies recorded bases and dependents, not independently proven
+causation: an artifact can implement a criterion,
+evidence can verify an artifact, and a replacement can supersede an old decision.
+Use dependent results to identify what to reconsider, not to automatically mark
+work invalid.
+
+JSON is the default; `--format text` renders the same nodes and links. Results
+include current native context status, retained prompt excerpts, artifact
+versions/digests, and verification outcomes with their checked targets. Historical
+supersession links remain visible alongside active/superseded context status.
+Unregistered/missing or foreign-project roots produce an explicit error;
+reachable deleted or externally unavailable records remain labelled tombstones.
+External availability describes the recorded state, not a live network check.
+
+Traversal is deterministic breadth-first, ordered by link ID, deduplicates
+shared nodes, and terminates cycles. Depth defaults to 3 (0–20); limit defaults
+to 50 (1–1000) and independently caps nodes and links, with the root counting as a
+node. `truncated` and `truncation_reasons` report omitted links at depth/result
+boundaries. Detail strings are capped at 400 characters with a separate
+`content_truncated` marker; use `provenance get` for full payloads. Trace executes
+in a read-only database snapshot and does not alter task state or create receipts.
+
+Only recorded semantic links are traversed. Session/task membership, timestamps,
+and receipt effect associations do not create extra edges. Action summaries
+retain attribution metadata without traversing every record in that session;
+receipts still describe database mutations, not verification. Empty traces mean
+no recorded links, not proof of independence. Ordinary task commands stay compact.
+
 ## Workflows for Agents
 
 Tusk ships parallel Claude Code skills and Codex prompt ports for its major workflows.
