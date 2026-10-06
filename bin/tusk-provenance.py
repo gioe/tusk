@@ -335,6 +335,8 @@ def reference(project: str, record_id: str) -> str:
 def record_output(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
     result = dict(row)
     result['ref'] = reference(project_id(conn), row['id'])
+    if row['kind'] in ('artifact', 'evidence'):
+        result[row['kind']] = tusk_loader.load('tusk-evidence-lib').output(conn, row)
     if row['kind'] == 'action':
         result['receipt'] = tusk_loader.load('tusk-action-lib').receipt(conn, row['id'])
     if row['kind'] == 'prompt':
@@ -426,6 +428,42 @@ def link_output(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
 
 
 def dispatch(conn: sqlite3.Connection, args: argparse.Namespace):
+    evidence = tusk_loader.load('tusk-evidence-lib')
+    if args.command in ('capture-artifact', 'declare-evidence', 'evidence') and not evidence.enabled(conn):
+        raise ValueError('evidence requires schema 92; run tusk migrate')
+    if args.command == 'capture-artifact':
+        ref = evidence.artifact(conn, args.kind, args.uri, args.version, args.digest, unavailable=args.unavailable)
+        return record_output(conn, fetch_record(conn, ref))
+    if args.command == 'declare-evidence':
+        if not args.source_uri.strip():
+            raise ValueError('--source-uri must be nonempty')
+        artifact_row = fetch_record(conn, args.artifact) if args.artifact else None
+        if artifact_row is not None and (artifact_row['kind'] != 'artifact' or evidence.output(conn, artifact_row) is None):
+            raise ValueError('--artifact must identify a captured artifact')
+        task_id = None
+        if args.criterion_id:
+            row = conn.execute('SELECT task_id FROM acceptance_criteria WHERE id=?', (args.criterion_id,)).fetchone()
+            if row is None:
+                raise ValueError('criterion not found')
+            task_id = row[0]
+        if args.source_ref:
+            fetch_record(conn, args.source_ref)
+        ref = evidence.start(conn, conn.action, task_id=task_id, criterion_id=args.criterion_id,
+                             mode='external', spec=args.command_text, artifact_ref=args.artifact,
+                             source_ref=args.source_ref, details={'source_uri': args.source_uri}, commit=False)
+        evidence.finish(conn, conn.action, ref, {'passed': args.outcome == 'passed', 'source_uri': args.source_uri})
+        return record_output(conn, fetch_record(conn, ref))
+    if args.command == 'evidence':
+        if not 1 <= args.limit <= 1000:
+            raise ValueError('--limit must be between 1 and 1000')
+        criterion = None
+        if args.criterion_id:
+            found = conn.execute("SELECT id FROM provenance_records WHERE kind='criterion' AND native_id=?", (args.criterion_id,)).fetchone()
+            if found is None:
+                return {'evidence': [], 'truncated': False}
+            criterion = found[0]
+        rows = conn.execute('SELECT r.* FROM provenance_records r JOIN provenance_attempts a ON a.record_id=r.id WHERE (? IS NULL OR a.criterion_id=?) ORDER BY a.rowid DESC LIMIT ?', (criterion, criterion, args.limit + 1)).fetchall()
+        return {'evidence': [record_output(conn, r) for r in rows[:args.limit]], 'truncated': len(rows) > args.limit}
     if args.command == 'receipts':
         return tusk_loader.load('tusk-action-lib').list_receipts(conn, args.task_id, args.limit)
     if args.command == 'capture-prompt':
@@ -473,7 +511,23 @@ def main(argv: list[str]) -> int:
         help='List committed transaction receipts, including partial-command work; not verification proof.')
     receipts.add_argument('--task-id', type=int, help='Filter by affected task (including deleted records).')
     receipts.add_argument('--limit', type=int, default=20, help='Newest first, 1..1000, default 20.')
-    capture = sub.add_parser('capture-prompt', allow_abbrev=False,
+    artifact = sub.add_parser('capture-artifact', allow_abbrev=False, help='Declare an immutable document, deployment, or external-run revision; never fetches its URI.')
+    artifact.add_argument('--kind', choices=('document','deployment','external_run','commit'), required=True)
+    artifact.add_argument('--uri', required=True)
+    artifact.add_argument('--version')
+    artifact.add_argument('--digest')
+    artifact.add_argument('--unavailable', action='store_true')
+    declaration = sub.add_parser('declare-evidence', allow_abbrev=False, help='Record caller-declared success/failure; never automated proof.')
+    declaration.add_argument('--criterion-id', type=int)
+    declaration.add_argument('--artifact')
+    declaration.add_argument('--source-ref')
+    declaration.add_argument('--source-uri', required=True)
+    declaration.add_argument('--outcome', choices=('passed','failed'), required=True)
+    declaration.add_argument('--command', dest='command_text')
+    history = sub.add_parser('evidence', allow_abbrev=False, help='Read immutable attempts, including pending interruptions and unknown revisions.')
+    history.add_argument('--criterion-id', type=int)
+    history.add_argument('--limit', type=int, default=20)
+    capture = sub.add_parser('capture-prompt' , allow_abbrev=False,
         help='Save an explicit UTF-8 excerpt or summary before a task exists; never discovers transcripts.')
     source = capture.add_mutually_exclusive_group(required=True)
     source.add_argument('--file', help='File containing only the selected excerpt/summary to save.')
@@ -515,12 +569,14 @@ def main(argv: list[str]) -> int:
             return 1
         args.capture_key = 'capture:' + uuid.uuid4().hex
 
+    action = tusk_loader.load('tusk-action-lib').CLIAction('provenance ' + args.command)
+
     def run():
-        conn = _db.get_connection(argv[0])
+        conn = action.get_connection(argv[0]) if args.command == 'declare-evidence' else _db.get_connection(argv[0])
         try:
             # Acquire writer lock before validating endpoints, closing the
             # registration-vs-deletion and duplicate-registration race windows.
-            if args.command not in ('get', 'links', 'receipts'):
+            if args.command not in ('get', 'links', 'receipts', 'evidence'):
                 conn.execute('BEGIN IMMEDIATE')
             result = dispatch(conn, args)
             conn.commit()

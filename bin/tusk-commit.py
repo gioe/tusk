@@ -1001,7 +1001,7 @@ def _criteria_verification_env(commit_sha: str | None, test_cmd: str | None,
                                gate_validated: bool) -> dict:
     env = os.environ.copy()
     for key in ("TUSK_COMMIT_GATE_COMMAND", "TUSK_COMMIT_GATE_SHA",
-                "TUSK_COMMIT_GATE_VALIDATED", "TUSK_COMMIT_VERIFICATION_CACHE_SHA"):
+                "TUSK_COMMIT_GATE_VALIDATED", "TUSK_COMMIT_VERIFICATION_CACHE_SHA", "TUSK_COMMIT_GATE_EVIDENCE_REF"):
         env.pop(key, None)
     if commit_sha:
         env["TUSK_COMMIT_VERIFICATION_CACHE_SHA"] = commit_sha
@@ -1613,6 +1613,7 @@ def _run_test_with_retry(
     timeout_sec: int,
     timeout_source: str,
     verbose: bool,
+    gate_evidence=None,
 ) -> tuple[subprocess.CompletedProcess | None, float | None]:
     """Run ``test_cmd`` once, auto-retrying a progressing auto-timeout once.
 
@@ -1653,6 +1654,15 @@ def _run_test_with_retry(
                 file=sys.stderr,
             )
             sys.stderr.flush()
+            if gate_evidence:
+                evidence_lib = tusk_loader.load("tusk-evidence-lib")
+                evidence_lib.finish_gate(gate_evidence, None)
+                retry_evidence = evidence_lib.begin_gate(
+                    gate_evidence["db_path"], gate_evidence["task_id"], repo_root,
+                    test_cmd, action=gate_evidence["action"],
+                )
+                gate_evidence.clear()
+                gate_evidence.update(retry_evidence)
             started = time.monotonic()
             try:
                 test = subprocess.run(
@@ -2191,6 +2201,7 @@ def _run_commit(argv: list[str], state: dict) -> int:
     # bypass is durable in git history (issue #1083).
     gate_bypass_note: str | None = None
     gate_validated = False
+    gate_evidence = None
     if test_cmd and not skip_verify and not sparse_skip_test and not noncode_skip_test:
         test_cmd, _ = _worktree_command.rewrite_linked_worktree_venv_command(
             test_cmd,
@@ -2212,14 +2223,19 @@ def _run_commit(argv: list[str], state: dict) -> int:
         if verbose:
             print(f"=== Running test_command: {test_cmd} (timeout {timeout_sec}s) ===")
             sys.stdout.flush()
+        evidence_lib = tusk_loader.load("tusk-evidence-lib")
+        gate_evidence = evidence_lib.begin_gate(db_path, task_id, repo_root, test_cmd)
+        gate_kwargs = {"gate_evidence": gate_evidence} if gate_evidence else {}
         test, elapsed = _run_test_with_retry(
-            test_cmd, repo_root, timeout_sec, timeout_source, verbose,
+            test_cmd, repo_root, timeout_sec, timeout_source, verbose, **gate_kwargs,
         )
         if test is None:
+            evidence_lib.finish_gate(gate_evidence, None)
             # Terminal timeout (after the optional auto-retry); the diagnostic
             # was already printed by _run_test_with_retry.
             return 5
         gate_validated, empty_test_error = _test_gate_evidence(test)
+        evidence_lib.finish_gate(gate_evidence, test, gate_validated)
         if empty_test_error:
             _print_error(f"Error: test_command reported zero tests executed — aborting commit.\n{empty_test_error}")
             return 2
@@ -2584,6 +2600,8 @@ def _run_commit(argv: list[str], state: dict) -> int:
         if len(criteria_ids) > 1:
             cmd.append("--batch")
         criteria_env = _criteria_verification_env(state.get("sha"), test_cmd, gate_validated)
+        if gate_evidence:
+            criteria_env["TUSK_COMMIT_GATE_EVIDENCE_REF"] = gate_evidence["ref"]
         result = subprocess.run(
             cmd,
             capture_output=False,

@@ -384,6 +384,93 @@ coverage does not imply a complete task trace.
 
 ---
 
+### Revision-bound evidence (schema 92)
+
+A receipt records a committed database change. Evidence separately records an
+attempt, its checked target, and an optional terminal result. No existing
+criterion, review, or receipt is backfilled as proof during migration.
+
+- `provenance_artifacts`: immutable artifact-kind reference, type, URI, optional
+  version and digest, and observed/declared attribution. The identity includes
+  these fields; a new version produces a new reference. Missing version/digest
+  stays explicitly unknown. Unavailable content can retain its reference.
+- `provenance_attempts`: immutable evidence-kind reference, task ID, criterion,
+  review, action, artifact, and source references, mode, command/spec snapshot,
+  target details, criterion text/type/spec snapshot, and start timestamp.
+- `provenance_results`: one immutable terminal result per attempt, completion
+  action reference, outcome, automated-proof flag, target-match flag, bounded
+  result payload, and completion timestamp. No result means pending/unknown.
+- `provenance_review_targets`: immutable review reference, captured artifact
+  reference (or NULL), and original target details. Review verdict attempts use
+  this target even if branches or the mutable review row later change.
+
+All four tables reject updates, deletion, and replacement. Native rows remain
+current-state views; criterion reset/update and later verification cannot erase
+old attempts. A repeated done on an already-complete criterion may refresh its
+legacy commit attribution without claiming that a new verification occurred.
+
+Typed criteria record executed, failed, reused, bypassed, and external attempts;
+manual completion records operator judgment. A start and its action receipt
+commit **before** launching a command. The result, criterion mutation, and
+completion receipt commit together. In-process database retries reuse an already
+observed result rather than rerunning the external command. Commit test gates
+also record starts and results, including failed gates and each timeout retry.
+Git commits and external effects are not SQLite transactions: interruption can
+leave a pending attempt, never a fabricated success. Inspect pending attempts
+and rerun intentionally, or record a separate declaration citing the original
+reference; a declaration cannot turn an unknown run into observed proof.
+
+The checked target comes from the verifier's actual execution checkout, rather
+than the criterion's legacy short commit attribution. Clean checkouts use a full
+commit SHA. Dirty checkouts use a SHA-256 digest of Git-visible paths, executable
+bits, regular-file contents, and symlink targets. This fingerprint excludes
+ignored files and runtime/dependency state, and is a before/after observation,
+not a filesystem-atomic snapshot. Missing Git/content or unsupported entries
+leave the target unknown. Results whose content or HEAD changes during execution
+remain recorded but do not verify the initial artifact. No command output is
+retained beyond 8192 characters; truncated output is labelled.
+
+Only an observed passing run with a stable known target creates `verifies`
+links. Reuse additionally requires saved automated source evidence, the exact
+same command/spec, and the same source content digest. A pre-commit gate can
+therefore be reused at the resulting commit if the actual checked content is
+unchanged. Existing commit-gate selection and criterion response contracts
+remain compatible; a legacy environment-only reuse claim with no saved source,
+a broader command heuristic, or changed content is not promoted to automated
+proof by the new evidence model.
+
+Review begin freezes both ends of its diff to full commit hashes and captures a
+diff digest. Its returned and stored range uses those immutable endpoints.
+Review approve/request-changes append declared verdict evidence against that
+frozen target. Review start without a computed range, and pre-migration reviews,
+retain an unknown target. Reviewer/model details and notes are captured, but a
+review judgment is not a locally executed automated test.
+
+CLI:
+
+```bash
+tusk provenance evidence --criterion-id 42 --limit 20
+tusk provenance get <evidence-ref>
+tusk provenance capture-artifact --kind document --uri https://example.test/spec --version v3
+tusk provenance capture-artifact --kind deployment --uri https://example.test/app --digest sha256:...
+tusk provenance capture-artifact --kind external_run --uri https://ci.example.test/run/7 --unavailable
+tusk provenance declare-evidence --criterion-id 42 --artifact <artifact-ref> --source-uri https://ci.example.test/run/7 --outcome passed
+```
+
+Evidence history is newest-first and bounded (default 20, maximum 1000), with a
+truncation marker. Successful criterion responses gain `evidence_ref` alongside
+existing fields; history also exposes failed and interrupted attempts. Artifact
+capture never fetches a URI. Declare-evidence optionally accepts `--source-ref`
+and `--command`, records caller-declared success/failure, and does not complete a
+criterion. An external-verification URL supplied to criteria done remains a
+legacy completion declaration; the new evidence has `declared_passed` and
+`automated: 0`, regardless of the legacy response's strength label. Bypass,
+manual judgment, unknown targets, receipt-only outcomes, and timestamps never
+become automated proof. New evidence commands require schema 92; older schemas
+retain existing criterion/review behavior until migrated.
+
+---
+
 ### Acceptance Criterion
 
 A verifiable condition that must be satisfied before a task is considered done. Tasks have zero or more criteria.

@@ -1418,16 +1418,17 @@ import tusk_loader
 db = tusk_loader.load("tusk-db-lib")
 provenance = tusk_loader.load("tusk-provenance")
 actions = tusk_loader.load("tusk-action-lib")  # tusk-action-lib.py owns schema 91
+evidence = tusk_loader.load("tusk-evidence-lib")  # tusk-evidence-lib.py owns schema 92
 conn = db.get_connection(sys.argv[1])
 try:
     conn.executescript("BEGIN IMMEDIATE;\n" + provenance.schema_v89_sql()
-                       + provenance.schema_v90_sql() + actions.schema_v91_sql() + "\nCOMMIT;")
+                       + provenance.schema_v90_sql() + actions.schema_v91_sql() + evidence.schema_v92_sql() + "\nCOMMIT;")
 finally:
     conn.close()
 PROVENANCE_SCHEMA
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 91;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 92;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."

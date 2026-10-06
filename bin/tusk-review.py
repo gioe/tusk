@@ -22,10 +22,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tusk_loader  # loads tusk-db-lib.py, tusk-json-lib.py, tusk-review-diff-range.py, tusk-pricing-lib.py, tusk-git-helpers.py
 
 _db_lib = tusk_loader.load("tusk-db-lib")
+_action = tusk_loader.load("tusk-action-lib").CLIAction("review")
+_evidence = tusk_loader.load("tusk-evidence-lib")
 _json_lib = tusk_loader.load("tusk-json-lib")
 _git_helpers = tusk_loader.load("tusk-git-helpers")
 dumps = _json_lib.dumps
-get_connection = _db_lib.get_connection
+get_connection = _action.get_connection
 reject_shell_metacharacters = _git_helpers.reject_shell_metacharacters
 
 _pricing_lib = None  # populated lazily by _load_pricing_lib()
@@ -227,8 +229,9 @@ def cmd_start(args: argparse.Namespace, db_path: str, config_path: str) -> int:
             " VALUES (?, ?, 'pending', ?, ?, ?)",
             (args.task_id, reviewer_name, args.pass_num, args.diff_summary, args.agent),
         )
-        conn.commit()
         rid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        _evidence.freeze_review(conn, rid)
+        conn.commit()
     finally:
         conn.close()
 
@@ -305,8 +308,12 @@ def cmd_begin(args: argparse.Namespace, db_path: str, config_path: str) -> int:
                 args.agent,
             ),
         )
-        conn.commit()
         rid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        frozen = _evidence.freeze_review(conn, rid, repo_root, diff_payload["range"])
+        if frozen != diff_payload["range"]:
+            diff_payload["range"] = frozen
+            conn.execute("UPDATE code_reviews SET diff_range=? WHERE id=?", (frozen, rid))
+        conn.commit()
     finally:
         conn.close()
 
@@ -1001,6 +1008,7 @@ def cmd_approve(args: argparse.Namespace, db_path: str) -> int:
             f"UPDATE code_reviews SET {', '.join(set_clauses)} WHERE id = ?",
             params,
         )
+        _evidence.review_verdict(conn, _action, args.review_id, review["task_id"], "approved", args.note)
         conn.commit()
     finally:
         conn.close()
@@ -1068,6 +1076,7 @@ def cmd_request_changes(args: argparse.Namespace, db_path: str) -> int:
             f"UPDATE code_reviews SET {', '.join(set_clauses)} WHERE id = ?",
             params,
         )
+        _evidence.review_verdict(conn, _action, args.review_id, review["task_id"], "changes_requested", args.note)
         conn.commit()
     finally:
         conn.close()

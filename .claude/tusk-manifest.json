@@ -29,6 +29,7 @@
   ".claude/bin/tusk-deps.py",
   ".claude/bin/tusk-dev-sync.py",
   ".claude/bin/tusk-dupes.py",
+  ".claude/bin/tusk-evidence-lib.py",
   ".claude/bin/tusk-git-helpers.py",
   ".claude/bin/tusk-glossary.py",
   ".claude/bin/tusk-groom.py",

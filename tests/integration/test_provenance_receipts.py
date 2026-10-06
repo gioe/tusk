@@ -247,12 +247,12 @@ def test_receipt_is_not_proof(db_path):
     assert run(db_path, 'provenance', 'links', result['receipt_refs'][0])['links'] == []
     before = count(db_path)
     run(db_path, 'criteria', 'done', criterion, ok=False)
-    assert count(db_path) == before + 1  # records the failed verification result's mutation
+    assert count(db_path) == before + 2  # durable attempt start and failed-result mutation
     with sqlite3.connect(db_path) as conn:
         row = conn.execute('SELECT is_completed,verification_result FROM acceptance_criteria WHERE id = ?', (criterion,)).fetchone()
         assert row[0] == 0 and json.loads(row[1])['passed'] is False
         assert conn.execute("SELECT count(*) FROM provenance_links WHERE relationship = 'verifies'").fetchone()[0] == 0
-        assert conn.execute("SELECT count(*) FROM provenance_records WHERE kind = 'evidence'").fetchone()[0] == 0
+        assert conn.execute('SELECT count(*) FROM provenance_results WHERE automated = 1').fetchone()[0] == 0
         with pytest.raises(sqlite3.IntegrityError, match='immutable'):
             conn.execute("UPDATE provenance_actions SET outcome = 'mutation_committed'")
 

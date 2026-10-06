@@ -3757,6 +3757,18 @@ def migrate_91(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 91: added transactional action receipts")
 
 
+def migrate_92(db_path: str, config_path: str, script_dir: str) -> None:
+    """Add immutable artifact revisions and append-only evidence attempts."""
+    if get_version(db_path) >= 92:
+        return
+    sys.path.insert(0, script_dir)
+    import tusk_loader
+    evidence = tusk_loader.load("tusk-evidence-lib")
+    run_script(db_path, "BEGIN IMMEDIATE;\n" + evidence.schema_v92_sql()
+               + "\nPRAGMA user_version = 92;\nCOMMIT;")
+    _progress("  Migration 92: added revision-bound evidence")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -3851,6 +3863,7 @@ MIGRATIONS = [
     (89, migrate_89),
     (90, migrate_90),
     (91, migrate_91),
+    (92, migrate_92),
 ]
 
 

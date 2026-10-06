@@ -29,6 +29,7 @@ import tusk_loader  # loads tusk-pricing-lib.py, tusk-db-lib.py, tusk-json-lib.p
 lib = tusk_loader.load("tusk-pricing-lib")
 _db_lib = tusk_loader.load("tusk-db-lib")
 _action = tusk_loader.load("tusk-action-lib").CLIAction("criteria")
+_evidence = tusk_loader.load("tusk-evidence-lib")
 get_connection = _action.get_connection
 load_config = _db_lib.load_config
 
@@ -906,6 +907,8 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
     # successful external evidence or explicitly bypassed verification.
     verification_result = None
     verification_payload = None
+    observation = None
+    evidence_ref = None
     if external_verification_url is not None:
         verification_payload = {
             "passed": True,
@@ -937,14 +940,29 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
                 criterion_type, spec, commit_hash
             )
             if result is None:
-                if isinstance(config, dict) and "test_command_timeout_sec" in config:
-                    result = run_verification(criterion_type, spec, config=config)
-                else:
-                    result = run_verification(criterion_type, spec)
+                def execute_check():
+                    if isinstance(config, dict) and "test_command_timeout_sec" in config:
+                        return run_verification(criterion_type, spec, config=config)
+                    return run_verification(criterion_type, spec)
+                result, observation = _evidence.observe(
+                    conn, _action, task_id=row["task_id"], criterion_id=criterion_id,
+                    spec=spec, call=execute_check, root=_get_repo_root(),
+                )
+                if observation:
+                    result["evidence_ref"] = observation["ref"]
             if result["passed"] and cache_key is not None:
                 successful_verifications[cache_key] = dict(result)
         verification_payload = result
         verification_result = json.dumps(result)
+        if _evidence.enabled(conn):
+            if observation:
+                evidence_ref = observation["ref"]
+            else:
+                target = _evidence.snapshot(_get_repo_root())
+                source_ref = result.get("evidence_ref") or os.environ.get("TUSK_COMMIT_GATE_EVIDENCE_REF")
+                evidence_ref = _evidence.start(conn, _action, task_id=row["task_id"],
+                    criterion_id=criterion_id, mode="reused", spec=spec, target=target, source_ref=source_ref)
+                observation = {"ref": evidence_ref, "after": target}
 
         if not result["passed"]:
             # Store the failed result
@@ -953,6 +971,8 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
                 "updated_at = datetime('now') WHERE id = ?",
                 (verification_result, criterion_id),
             )
+            _evidence.finish(conn, _action, evidence_ref, result,
+                             observation["after"] if observation else None)
             conn.commit()
 
             print(f"Verification FAILED for criterion #{criterion_id} ({criterion_type}):",
@@ -970,6 +990,17 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
         if note:
             verification_payload["skip_note"] = note
         verification_result = json.dumps(verification_payload)
+
+    if evidence_ref is None and _evidence.enabled(conn):
+        mode = ("manual" if criterion_type == "manual" else
+                "external" if external_verification_url else "bypassed")
+        target = _evidence.snapshot(_get_repo_root()) if mode != "external" else {"state": "unknown"}
+        artifact_ref = (_evidence.artifact(conn, "external_run", external_verification_url)
+                        if external_verification_url else None)
+        evidence_ref = _evidence.start(conn, _action, task_id=row["task_id"], criterion_id=criterion_id,
+            mode=mode, spec=spec, target=target, artifact_ref=artifact_ref,
+            details={"source_uri": external_verification_url, "criterion_type": criterion_type})
+        observation = {"ref": evidence_ref, "after": target}
 
     # Warn if another completed criterion on this task already has this commit hash.
     # Suppress when flag is set (batch/allow-shared-commit).
@@ -1007,6 +1038,8 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
         "updated_at = datetime('now') WHERE id = ?",
         (commit_hash, committed_at, verification_result, note, criterion_id),
     )
+    _evidence.finish(conn, _action, evidence_ref, verification_payload or {"passed": True},
+                     observation["after"] if observation else None)
     conn.commit()
     if deferral_cleared:
         reason = row["deferred_reason"] or "no reason recorded"
@@ -1050,6 +1083,8 @@ def _done_single(conn: sqlite3.Connection, criterion_id: int, skip_verify: bool,
             external_verification_url=external_verification_url,
         ),
     }
+    if evidence_ref:
+        payload["evidence_ref"] = evidence_ref
     if deferral_cleared:
         payload["deferral_cleared"] = True
         payload["deferred_reason"] = row["deferred_reason"]

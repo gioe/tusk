@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1284] - 2026-10-06
+
+- [TASK-900] Bind verification and review evidence to immutable deliverable revisions
+
 ## [1283] - 2026-10-06
 
 - [TASK-899] Persist automatic action receipts for core task mutations

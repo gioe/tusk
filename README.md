@@ -149,6 +149,13 @@ which mutation committed; it does not prove a criterion passed. Optional
 execution IDs and ambiguity rules are documented in the receipt contract. See [the provenance contract](docs/DOMAIN.md#provenance-schema-89)
 or `tusk provenance --help` for supported kinds, relationships, and retention.
 
+Verification attempts now retain their checked revision and history:
+`provenance evidence --criterion-id 42` shows executed, reused, bypassed, and
+externally declared results. `provenance capture-artifact` registers a document,
+deployment, or external run; `provenance declare-evidence` records a sourced
+claim without treating it as an observed test. See the
+[revision-bound evidence contract](docs/DOMAIN.md#revision-bound-evidence-schema-92).
+
 ## Workflows for Agents
 
 Tusk ships parallel Claude Code skills and Codex prompt ports for its major workflows.

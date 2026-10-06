@@ -294,13 +294,21 @@ class CLIAction:
         if not effects:
             return pending
         provenance = tusk_loader.load('tusk-provenance')
-        action = provenance.register(conn, 'action', key='receipt:' + uuid.uuid4().hex)
-        conn.execute('INSERT INTO provenance_actions(record_id,invocation_id,command,outcome,context_json) '
-                     "VALUES (?,?,?,'mutation_committed',?)",
-                     (action['id'], self.invocation_id, self.command,
-                      json.dumps(self.context(conn, effects), separators=(',', ':'))))
-        conn.executemany('INSERT INTO provenance_action_effects VALUES (?,?,?,?)',
-                         [(action['id'], r['record_id'], r['operation'], r['task_id']) for r in effects])
+        if pending:
+            action = {'id': pending.rsplit(':', 1)[1], 'ref': pending}
+        else:
+            action = provenance.register(conn, 'action', key='receipt:' + uuid.uuid4().hex)
+            conn.execute('INSERT INTO provenance_actions(record_id,invocation_id,command,outcome,context_json) '
+                         "VALUES (?,?,?,'mutation_committed',?)",
+                         (action['id'], self.invocation_id, self.command,
+                          json.dumps(self.context(conn, effects), separators=(',', ':'))))
+        # Evidence can prepare a receipt before the transaction's final write.
+        # Extend that uncommitted receipt rather than creating another action.
+        for effect in effects:
+            if not conn.execute('SELECT 1 FROM provenance_action_effects WHERE action_id=? AND record_id=? AND operation=?',
+                                (action['id'], effect['record_id'], effect['operation'])).fetchone():
+                conn.execute('INSERT INTO provenance_action_effects VALUES (?,?,?,?)',
+                             (action['id'], effect['record_id'], effect['operation'], effect['task_id']))
         conn.execute('DELETE FROM action_effects')
         conn.pending_ref = action['ref']
         return action['ref']
