@@ -8,6 +8,64 @@ allowed-tools: Bash, Read
 
 Takes arbitrary text input — feature specs, meeting notes, brainstorm lists, bug reports, requirements docs — and decomposes it into structured, deduplicated tasks in the tusk database.
 
+## Provenance handoff
+
+Before materializing approved tasks, save only the relevant user-supplied
+excerpt or a labelled agent-authored summary to a UTF-8 file using a file-writing
+tool (never interpolate prompt text into a shell command). If a supplied source
+reference already contains the relevant snapshot, reuse it. Otherwise:
+
+```bash
+tusk provenance capture-prompt --file <selected-input-file> --representation excerpt
+```
+
+Use `--representation summary` for a summary. Supply `--provider`,
+`--conversation-id`, and `--message-id` only when explicitly known. Preserve the
+returned `ref` and `external_key` for retries; retry with `--key` and the same
+content/metadata. Capture needs no task. Do not save unrelated turns or secrets.
+If the input came from a review/retro record, preserve that native reference
+instead of inventing a user message.
+
+After successful insert/import, use the actual returned task and criterion IDs
+(including local-key mappings for batches). Register only the relevant endpoints
+and link each task/criterion whose intent came from this source:
+
+```bash
+tusk provenance register task <task-id>
+tusk provenance register criterion <criterion-id>
+tusk provenance link <task-ref> derived_from <source-ref>
+tusk provenance link <criterion-ref> derived_from <source-ref>
+```
+
+Capture approved decisions/questions with the existing context commands;
+register their `context` IDs and add `derived_from` links to their actual source.
+Do not attach the batch's source to unrelated duplicate matches automatically.
+Record source references in the handoff. If a later link fails, retain successful
+IDs/receipts and retry the missing link, not task insertion.
+
+### Attribution boundaries
+
+Use the current checkout's Tusk wrapper. Keep IDs returned by the current
+operation; never select the latest global prompt, session, or skill run.
+For each covered mutation, pass only known, matching execution identities as
+command-local environment variables: `TUSK_ACTION_TASK_ID`,
+`TUSK_ACTION_SESSION_ID`, `TUSK_ACTION_SKILL_RUN_ID`,
+`TUSK_ACTION_WORKSPACE_ID`, and `TUSK_ACTION_SOURCE_REF`. Omit unknown values;
+do not export them across tasks. A source reference is the actual source for
+that operation, not automatically the task's original prompt. Nested review or
+retro runs use their own returned skill-run ID. When creating a different task,
+omit incompatible session/workspace IDs. Retain returned `receipt_refs`; recover
+lost responses with `tusk provenance receipts --task-id <id> --limit 20`.
+The CLI supplies mechanical receipts; agents supply only justified semantic
+links. A receipt proves a mutation committed, not that verification passed.
+
+Missing sources stay unknown and do not block legacy tasks. Check
+`tusk provenance --help` once if capability is uncertain; on an older CLI,
+continue the existing context/progress workflow and report the missing feature.
+Do not fabricate historical captures, infer causation from timestamps, or read
+whole transcripts to fill gaps. Supersession links alone do not retire context.
+
+
 ## Step 1: Capture Input
 
 The user provides freeform text after `/create-task`. This could be:

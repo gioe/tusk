@@ -10,6 +10,53 @@ Reviews the current conversation history to capture process learnings, instructi
 
 > Use `/create-task` for task creation — handles decomposition, deduplication, criteria, and deps. Use `tusk task-insert` only for bulk/automated inserts.
 
+## Provenance handoff
+
+Use the completed task ID and this retro's returned skill-run ID. Preserve
+useful findings through the existing retro workflow; register each persisted
+finding with `tusk provenance register retro <retro-finding-id>`. For a new
+context atom or follow-up task actually derived from it:
+
+```bash
+tusk provenance register context <context-id>
+tusk provenance link <context-ref> derived_from <retro-ref>
+tusk provenance register task <follow-up-task-id>
+tusk provenance link <follow-up-task-ref> responds_to <retro-ref>
+```
+
+Pass the retro reference into create-task as the source; do not recapture the
+entire session as a prompt. If the finding is persisted after materialization,
+retain its returned ID and add the missing links then. Preserve existing
+fixes-task/dependency links and action_taken bookkeeping; semantic edges do not
+replace them. For revised decisions, link the new context `supersedes` the old
+context, then call `tusk context supersede <old-context-id>`. Retire a question
+with `context resolve` only when answered; preserve the answer and its source.
+A finding associated with a task by membership alone is not evidence that every
+prompt in that session caused it. Missing source identity remains unknown.
+
+### Attribution boundaries
+
+Use the current checkout's Tusk wrapper. Keep IDs returned by the current
+operation; never select the latest global prompt, session, or skill run.
+For each covered mutation, pass only known, matching execution identities as
+command-local environment variables: `TUSK_ACTION_TASK_ID`,
+`TUSK_ACTION_SESSION_ID`, `TUSK_ACTION_SKILL_RUN_ID`,
+`TUSK_ACTION_WORKSPACE_ID`, and `TUSK_ACTION_SOURCE_REF`. Omit unknown values;
+do not export them across tasks. A source reference is the actual source for
+that operation, not automatically the task's original prompt. Nested review or
+retro runs use their own returned skill-run ID. When creating a different task,
+omit incompatible session/workspace IDs. Retain returned `receipt_refs`; recover
+lost responses with `tusk provenance receipts --task-id <id> --limit 20`.
+The CLI supplies mechanical receipts; agents supply only justified semantic
+links. A receipt proves a mutation committed, not that verification passed.
+
+Missing sources stay unknown and do not block legacy tasks. Check
+`tusk provenance --help` once if capability is uncertain; on an older CLI,
+continue the existing context/progress workflow and report the missing feature.
+Do not fabricate historical captures, infer causation from timestamps, or read
+whole transcripts to fill gaps. Supersession links alone do not retire context.
+
+
 ## Step 0: Setup
 
 `RETRO_TASK_ID` identifies the single just-closed task this retro is reviewing. Resolve it in this order (issue #805, original incident: with parallel worktrees finalizing tasks within seconds of each other, the most-recent-Done heuristic returns whichever sibling closed last — not the task `/tusk` just finalized):

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1285] - 2026-10-06
+
+- [TASK-901] Carry prompt and decision provenance through task authoring and execution workflows
+
 ## [1284] - 2026-10-06
 
 - [TASK-900] Bind verification and review evidence to immutable deliverable revisions

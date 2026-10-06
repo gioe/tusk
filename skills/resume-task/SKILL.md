@@ -8,6 +8,59 @@ allowed-tools: Bash, Task, Read, Edit, Write, Grep, Glob
 
 Recovers context after a session crash/timeout and continues the implementation workflow.
 
+## Provenance handoff
+
+After Step 2, recover durable intent before reading code:
+
+```bash
+tusk task-brief <task-id>
+tusk context list <task-id> --status active
+tusk provenance register task <task-id>
+tusk provenance links <task-ref> --direction outgoing --limit 20
+tusk provenance get <source-ref>
+tusk provenance evidence --criterion-id <criterion-id> --limit 20
+```
+
+The brief supplies criteria, dependencies, progress, and current context; this
+workflow does not assume the brief already embeds provenance. Register returns
+a stable task reference but invents no source links. Follow only sources linked
+to this task or the selected criterion/active context atom. Use `register context`
+and `register criterion` for those endpoints when needed, then `links`/`get`.
+Keep a visited-reference set, at most two hops and 20 edges per lookup; surface
+`truncated` rather than claiming complete recovery. Do not scan all prompts or
+load a transcript. Empty links mean unknown source, not the newest message.
+
+Include active decisions, unresolved questions, source references, and exact
+proof targets in the recovery summary. Evidence history can contain old targets,
+pending attempts, failures, bypasses, and declarations: compare the checked
+artifact to the current deliverable before relying on it. Missing proof calls
+for fresh verification. Preserve superseded decisions as history; read inactive
+context only when an explicit supersession/source link makes it relevant.
+Use the session returned by this resume, not stale IDs from progress text.
+
+### Attribution boundaries
+
+Use the current checkout's Tusk wrapper. Keep IDs returned by the current
+operation; never select the latest global prompt, session, or skill run.
+For each covered mutation, pass only known, matching execution identities as
+command-local environment variables: `TUSK_ACTION_TASK_ID`,
+`TUSK_ACTION_SESSION_ID`, `TUSK_ACTION_SKILL_RUN_ID`,
+`TUSK_ACTION_WORKSPACE_ID`, and `TUSK_ACTION_SOURCE_REF`. Omit unknown values;
+do not export them across tasks. A source reference is the actual source for
+that operation, not automatically the task's original prompt. Nested review or
+retro runs use their own returned skill-run ID. When creating a different task,
+omit incompatible session/workspace IDs. Retain returned `receipt_refs`; recover
+lost responses with `tusk provenance receipts --task-id <id> --limit 20`.
+The CLI supplies mechanical receipts; agents supply only justified semantic
+links. A receipt proves a mutation committed, not that verification passed.
+
+Missing sources stay unknown and do not block legacy tasks. Check
+`tusk provenance --help` once if capability is uncertain; on an older CLI,
+continue the existing context/progress workflow and report the missing feature.
+Do not fabricate historical captures, infer causation from timestamps, or read
+whole transcripts to fill gaps. Supersession links alone do not retire context.
+
+
 ## Step 1: Detect the Task ID
 
 ```bash

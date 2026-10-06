@@ -189,3 +189,57 @@ tusk init-wizard --non-interactive \
 Use `--plan-action skip-materialization` when you want config changes but no scaffold directories, starter files, durable memory, or generated tasks. Use `--plan-remove-module`, `--plan-add-module`, `--plan-task-mode pick`, `--plan-task-id`, `--plan-remove-task`, and `--plan-add-task` to edit the plan before accepting it.
 
 Bootstrap materialization is intentionally conservative. File specs use `create_only` for new files, `append_if_missing` for idempotent snippets, and `marker_block` for replacing only a managed section between explicit markers. Template values are resolved from the confirmed init intent, and missing values fail as conflicts. Re-running accepted init should report existing files, tasks, context atoms, pillars, and glossary entries as skipped rather than duplicating them.
+
+## Provenance across a task
+
+Claude skills and Codex prompts use the same provenance handoff in create-task,
+tusk, resume-task, review-commits, and retro. A typical flow is:
+
+1. Capture a selected request with `tusk provenance capture-prompt --file
+   <selected-input-file> --representation excerpt` before creating tasks. Use
+   `summary` for an agent-authored summary. Write the file with a file-writing
+   tool; do not interpolate arbitrary prompt text into shell arguments. Keep the
+   returned reference and retry key. Supply provider/thread/message IDs only
+   when known; missing IDs are explicitly unknown.
+2. After task creation, register the returned task and criterion IDs using
+   `tusk provenance register task <id>` and `register criterion <id>`. Add
+   `provenance link <task-ref> derived_from <prompt-ref>` and the corresponding
+   criterion link only where the source actually supplied that intent. Batch
+   imports use their returned local-key mapping, never an assumed ID range.
+3. Pass known task/session/skill-run/workspace IDs and the operation's actual
+   source reference through command-local `TUSK_ACTION_*` variables. The CLI
+   saves covered mutation receipts automatically. Save returned `receipt_refs`;
+   `provenance receipts --task-id <id> --limit 20` recovers them after lost output.
+   Do not reuse another task's execution IDs or export attribution globally.
+4. Save decisions and questions with `context add`. Register each context ID
+   and link its actual source with `derived_from`, or a review response with
+   `responds_to`. A replacement decision `supersedes` the old reference;
+   separately run `context supersede <old-id>` to retire its active status.
+   Follow-up tasks can `responds_to` a finding or retro reference while retaining
+   their existing dependency/fixes-task relationships.
+5. Commit gates and criteria verification retain attempts and exact checked
+   revisions. `provenance evidence --criterion-id <id> --limit 20` exposes them;
+   `provenance get <artifact-ref>` exposes the target. Review begin freezes its
+   diff, and verdicts refer to that frozen target. Register external deliverables
+   with `provenance capture-artifact --kind document --uri <uri> --version <version>`;
+   link artifacts `implements` to the promises they deliver. Use
+   `provenance declare-evidence --artifact <artifact-ref> --source-uri <uri>
+   --outcome passed` for an external declaration, never for fabricated local proof.
+6. On resume, start with task-brief, active context, and progress. Register the
+   task identity and read `provenance links <task-ref> --direction outgoing
+   --limit 20`, then `get` only the relevant sources. Repeat for selected criteria
+   or decisions with a visited set and a two-hop limit. Surface truncation and
+   missing links. Compare proof targets to the current deliverable; an older
+   success does not verify new content. This works without the original chat.
+
+These are separate durable writes, not one workflow-wide transaction. If a
+later link fails, retry that link using saved IDs instead of recreating the task.
+Registration identifies a record; membership and timestamps do not establish
+causality. Semantic links are agent/operator assertions. Receipts prove database
+mutations, not command success. Bypasses, unknown targets, review judgments, and
+external declarations remain distinct from observed automated verification.
+No workflow archives whole transcripts or selects the newest global prompt.
+Legacy tasks without sources continue normally; older CLIs fall back to existing
+context/progress commands and report unavailable provenance support. Automatic
+trace traversal and provenance-enriched briefs are separate capabilities; the
+workflow above uses supported bounded links/get/evidence reads.
