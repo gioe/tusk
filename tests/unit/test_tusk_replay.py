@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tomllib
+from types import SimpleNamespace
 
 import pytest
 
@@ -270,3 +271,40 @@ def test_summary_accepts_complete_evidence_and_counts_absent_cells(runner):
     assert report["correct"] == 1
     assert report["failed_or_incomplete"] == 1
     assert report["complete_matrix"] is False
+
+
+def test_real_tool_runner_keeps_native_thread_context(runner, tmp_path):
+    execution = tmp_path.resolve()
+    args = SimpleNamespace(codex="codex", model="test-model", reasoning="medium")
+    fixture = {"execution": execution, "cwd": execution,
+               "env": runner.fixture_env(execution, execution, execution)}
+    command = runner.codex_argv(args, fixture)
+    assert "--ephemeral" not in command
+    assert "--ignore-user-config" in command
+    assert "--ignore-rules" in command
+    assert "default_permissions=\"replay\"" in command
+    assert "multi_agent" in command
+    assert "--sandbox" not in command  # Would override restricted-read profile.
+
+
+def test_tool_ledger_excludes_credentials_instructions_reasoning_and_previous_runs(runner, tmp_path):
+    credentials = tmp_path / "credentials"
+    sessions = credentials / "sessions"
+    sessions.mkdir(parents=True)
+    (credentials / "auth.json").write_text('{"secret":"never export"}')
+    previous = sessions / "previous.jsonl"
+    previous.write_text(json.dumps({"type": "response_item", "payload": {
+        "type": "function_call", "name": "prior_run", "arguments": "{}"}}) + "\n")
+    allowed = {"type": "function_call_output", "call_id": "one", "output": "child started"}
+    rows = [
+        {"type": "response_item", "payload": allowed},
+        {"type": "response_item", "payload": {"type": "reasoning", "text": "private"}},
+        {"type": "response_item", "payload": {"type": "message", "role": "developer", "content": "instructions"}},
+        {"type": "session_meta", "payload": {"instructions": "private"}},
+    ]
+    (sessions / "current.jsonl").write_text("\n".join(json.dumps(row) for row in rows))
+    output = tmp_path / "artifact"
+    assert runner.capture_tool_ledger(credentials, {previous}, output) == 1
+    result = json.loads((output / "tool-ledger.json").read_text())
+    assert result[0]["payload"] == allowed
+    assert "secret" not in (output / "tool-ledger.json").read_text()

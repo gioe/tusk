@@ -1,0 +1,20 @@
+{
+  "complete_matrix": true,
+  "correct": 4,
+  "cost": null,
+  "failed_or_incomplete": 0,
+  "planned": 4,
+  "recorded": 4,
+  "scope": "real historical implementation phase; coordinator owns setup and shipment",
+  "total_tokens": null,
+  "variants": {
+    "compact": {
+      "attempts": 2,
+      "correct": 2
+    },
+    "full": {
+      "attempts": 2,
+      "correct": 2
+    }
+  }
+}

@@ -55,7 +55,10 @@ the restricted shell, catching CLI startup failures before consuming model usage
   prove source, user auth, isolated auth, evaluator, and sibling-artifact reads
   are denied, plus outside writes and network connections, before each call.
 - The authenticated CLI supervisor uses a temporary credential directory outside
-  the tool-readable tree. Credentials are never stored in run artifacts.
+  the tool-readable tree. Sessions persist only in that temporary home so native
+  child agents can load their parent context. Do not add `--ephemeral`: the pilot
+  demonstrated that it prevents native delegation on the tested CLI.
+  Credentials are never stored in run artifacts.
 - Hidden behavioral graders run only after agents stop, under their own sandbox
   with the trusted grader readable. Calibration proves failures on pre-fix trees
   and passes on known fixes. Candidate-authored tests do not define these grades.
@@ -64,7 +67,10 @@ the restricted shell, catching CLI startup failures before consuming model usage
 and the complete plan. `sources/` preserves the exact runner, grader, fixtures,
 and compact prompt used in that invocation. Each attempt saves its request, CLI argv, raw event trace,
 stderr, sandbox probe, hidden grader output, final diff, Git status, task state,
-and result. Timeouts kill the complete process group.
+and result. `tool-ledger.json` preserves function/custom-tool calls and results
+from newly created session rollouts because the CLI JSON stream omits some tool
+events. It excludes credentials, system/developer messages, and reasoning.
+Timeouts kill the complete process group.
 
 `grade.correct` describes independent behavioral checks. Overall `correct` also
 requires a successful completed model run, an implementation commit, progress,

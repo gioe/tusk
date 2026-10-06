@@ -1,0 +1,43 @@
+{
+  "specimen-7": {
+    "case": "inline-python",
+    "variant": "full",
+    "acceptable": true,
+    "blocking_defects": [],
+    "nonblocking_concerns": [
+      "Interpreter detection recognizes Python only as the first command token; environment assignments and wrappers can still produce source-text false positives. This is beyond the calibrated direct-interpreter cases."
+    ],
+    "test_quality": "Meaningful coverage of warning output, flags, attached source, actual operands, later commands, script/module arguments, substitutions and cwd. Timing of execution was assessed separately from the blinded patch review."
+  },
+  "specimen-2": {
+    "case": "inline-python",
+    "variant": "compact",
+    "acceptable": false,
+    "blocking_defects": [
+      "Python --check-hash-based-pycs always before -c still causes a stale-path warning from source text, violating the interpreter-flags requirement."
+    ],
+    "nonblocking_concerns": [
+      "Environment assignments and interpreter wrappers remain unrecognized."
+    ],
+    "test_quality": "Meaningful short-option, source, operand, script/module, cwd and substitution tests. Supported long option missing from coverage.",
+    "supplemental_confirmation": "supplemental-long-option.json in each inline-python attempt: full passes; compact fails. Post-hoc discovery; frozen grades unchanged."
+  },
+  "specimen-9": {
+    "case": "nested-cache",
+    "variant": "compact",
+    "acceptable": true,
+    "blocking_defects": [],
+    "nonblocking_concerns": [],
+    "test_quality": "Covers both cache names and depths, actual non-forced worktree removal, unknown-file refusal, similarly named paths, regular files, symlinks, external targets and Git metadata.",
+    "rationale": "Narrow allowlist addition reuses recursive traversal and protections."
+  },
+  "specimen-4": {
+    "case": "nested-cache",
+    "variant": "full",
+    "acceptable": true,
+    "blocking_defects": [],
+    "nonblocking_concerns": [],
+    "test_quality": "Meaningful cache-depth, user-file, lookalike, Git metadata, symlink, external target and actual Git removal coverage.",
+    "rationale": "Minimal allowlist extension preserves recursive cleanup safeguards."
+  }
+}

@@ -308,7 +308,9 @@ def codex_argv(args, fixture):
     env = fixture["env"]
     # Shell inheritance is scrubbed independently from the authenticated parent.
     shell_env = "{" + ",".join(json.dumps(k) + "=" + json.dumps(v) for k, v in env.items()) + "}"
-    argv = [args.codex, "exec", "--ignore-user-config", "--ignore-rules", "--ephemeral",
+    # Native children need the parent's persisted thread context. Its home is
+    # temporary and unreadable by sandboxed tools; do not use --ephemeral here.
+    argv = [args.codex, "exec", "--ignore-user-config", "--ignore-rules",
             "-C", str(fixture["cwd"]), *permission_args(fixture["execution"]),
             "-c", 'approval_policy="never"', "-c", 'web_search="disabled"',
             "-c", 'shell_environment_policy.inherit="none"',
@@ -378,6 +380,26 @@ def parse_events(raw):
             "errors": errors, "malformed_stream": malformed}
 
 
+def capture_tool_ledger(credentials, previous_files, directory):
+    """Retain tool evidence omitted by CLI JSON; exclude auth and reasoning."""
+    records = []
+    allowed = {"function_call", "function_call_output", "custom_tool_call", "custom_tool_call_output"}
+    for path in sorted((credentials / "sessions").rglob("*.jsonl")):
+        if path in previous_files or path.is_symlink():
+            continue
+        for line in path.read_text().splitlines():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            payload = event.get("payload", {})
+            if event.get("type") == "response_item" and payload.get("type") in allowed:
+                records.append({"rollout": path.name, "timestamp": event.get("timestamp"),
+                                "payload": payload})
+    save(directory / "tool-ledger.json", records)
+    return len(records)
+
+
 def postrun_command(args, fixture, credentials, argv):
     result = bounded_process(sandbox_argv(args.codex, fixture["execution"], fixture["cwd"], argv),
                              cwd=fixture["cwd"], env=dict(fixture["env"], CODEX_HOME=str(credentials), PATH=SYSTEM_PATH), timeout=60)
@@ -414,10 +436,12 @@ def run_attempt(args, case, cell, directory, core, recovery, credentials):
     argv = codex_argv(args, fixture)
     save(directory / "argv.json", argv)
     env = dict(fixture["env"], CODEX_HOME=str(credentials))
+    previous_files = set((credentials / "sessions").rglob("*.jsonl"))
     raw = bounded_process(argv, cwd=fixture["cwd"], env=env, timeout=args.timeout, stdin=prompt)
     (directory / "trace.jsonl").write_text(raw["stdout"])
     (directory / "stderr.txt").write_text(raw["stderr"])
     telemetry = parse_events(raw)
+    telemetry["tool_ledger_records"] = capture_tool_ledger(credentials, previous_files, directory)
     result = {**cell, **telemetry, "returncode": raw["returncode"], "timed_out": raw["timed_out"],
               "elapsed_seconds": raw["elapsed_seconds"], "prompt_sha256": sha(prompt),
               "grade": grade(args, case, fixture, directory, credentials)}

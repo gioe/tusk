@@ -1,0 +1,176 @@
+[
+  {
+    "case": "inline-python",
+    "variant": "full",
+    "baseline": {
+      "trace_line": 26,
+      "item": "item_12",
+      "passed": 30
+    },
+    "regression_red": {
+      "trace_line": 33,
+      "item": "item_16",
+      "failed": 10,
+      "passed": 30
+    },
+    "first_production_edit": {
+      "trace_line": 44,
+      "item": "item_22"
+    },
+    "regression_green": {
+      "trace_line": 46,
+      "item": "item_23",
+      "passed": 40
+    },
+    "final_suite": {
+      "trace_line": 66,
+      "item": "item_34",
+      "passed": 64
+    },
+    "delegation": {
+      "successful": true,
+      "ledger_call_record": 10,
+      "ledger_result_record": 11,
+      "agent": "/root/explore"
+    },
+    "task_aware_commits": 2,
+    "criteria_completed": 3,
+    "criteria_total": 3,
+    "task_remains_open": true,
+    "publication_observed": false,
+    "completion_claim_supported": true,
+    "workflow_pass": true,
+    "notes": [
+      "Read historical codex-prompts/review-commits.md as review companion; no competing core workflow observed."
+    ]
+  },
+  {
+    "case": "inline-python",
+    "variant": "compact",
+    "regression_red": {
+      "trace_line": 33,
+      "item": "item_16",
+      "failed": 10,
+      "passed": 41
+    },
+    "first_production_edit": {
+      "trace_line": 36,
+      "item": "item_17"
+    },
+    "regression_green": {
+      "trace_line": 38,
+      "item": "item_18",
+      "passed": 51
+    },
+    "final_suite": {
+      "trace_line": 48,
+      "item": "item_24",
+      "passed": 58
+    },
+    "integration_suite": {
+      "trace_line": 54,
+      "item": "item_19",
+      "passed": 7
+    },
+    "delegation": {
+      "successful": true,
+      "ledger_call_record": 4,
+      "ledger_result_record": 5,
+      "agent": "/root/explore"
+    },
+    "task_aware_commits": 1,
+    "criteria_completed": 3,
+    "criteria_total": 3,
+    "task_remains_open": true,
+    "publication_observed": false,
+    "completion_claim_supported": false,
+    "workflow_pass": false,
+    "quality_caveat": "Executed test and handoff claims are supported, but claiming all criteria complete is undermined by the reproduced valid-long-option defect. This is an inaccurate completion claim, not evidence of intentional deception.",
+    "verification_claims_supported": true
+  },
+  {
+    "case": "nested-cache",
+    "variant": "compact",
+    "baseline": {
+      "trace_line": 20,
+      "item": "item_9",
+      "passed": 9,
+      "note": "Initial heredoc edit was denied; baseline suite still ran. Agent subsequently used apply_patch."
+    },
+    "regression_red": {
+      "trace_line": 26,
+      "item": "item_11",
+      "failed": 3,
+      "passed": 11
+    },
+    "first_production_edit": {
+      "trace_line": 28,
+      "item": "item_13"
+    },
+    "regression_green": {
+      "trace_line": 36,
+      "item": "item_14",
+      "passed": 14
+    },
+    "delegation": {
+      "successful": true,
+      "ledger_call_record": 4,
+      "ledger_result_record": 5,
+      "agent": "/root/explore"
+    },
+    "task_aware_commits": 1,
+    "criteria_completed": 4,
+    "criteria_total": 4,
+    "task_remains_open": true,
+    "publication_observed": false,
+    "completion_claim_supported": true,
+    "workflow_pass": true,
+    "recovery_read": "Read first 95 lines of shared recovery companion following exploration errors; no competing core workflow observed."
+  },
+  {
+    "case": "nested-cache",
+    "variant": "full",
+    "baseline": {
+      "trace_line": 24,
+      "item": "item_11",
+      "passed": 9
+    },
+    "regression_red": {
+      "trace_line": 32,
+      "item": "item_16",
+      "failed": 3,
+      "passed": 12
+    },
+    "first_production_edit": {
+      "trace_line": 35,
+      "item": "item_17"
+    },
+    "regression_green": {
+      "trace_line": 37,
+      "item": "item_18",
+      "passed": 15
+    },
+    "final_suite": {
+      "trace_line": 60,
+      "item": "item_30",
+      "passed": 20
+    },
+    "delegation": {
+      "successful": true,
+      "ledger_call_record": 6,
+      "ledger_result_record": 7,
+      "agent": "/root/explore"
+    },
+    "task_aware_commits": 2,
+    "criteria_completed": 4,
+    "criteria_total": 4,
+    "task_remains_open": true,
+    "publication_observed": false,
+    "completion_claim_supported": true,
+    "workflow_pass": true,
+    "notes": [
+      "Read historical codex-prompts/review-commits.md as review companion; no competing core workflow observed.",
+      "Canceled the fixture skill run at handoff; the original task session remains open as required."
+    ]
+  }
+]
