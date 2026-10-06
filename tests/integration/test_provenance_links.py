@@ -116,11 +116,14 @@ def test_migration_and_retention(db_path, config_path, tmp_path):
     migrated = tmp_path / 'migration.db'
     with sqlite3.connect(db_path) as fresh, sqlite3.connect(migrated) as conn:
         fresh.backup(conn)
-        expected = fresh.execute("SELECT type, name, sql FROM sqlite_master WHERE name LIKE 'provenance_%' OR name LIKE 'idx_provenance_%' ORDER BY name").fetchall()
+        # v90 adds prompt snapshots. Keep this v89 assertion scoped to the
+        # objects that existed at v89 rather than drifting with the live schema.
+        v89_objects = "SELECT type, name, sql FROM sqlite_master WHERE (name LIKE 'provenance_%' OR name LIKE 'idx_provenance_%') AND name <> 'provenance_prompts' AND name NOT LIKE 'provenance_prompt_%' AND name NOT LIKE 'idx_provenance_prompt_%' ORDER BY name"
+        expected = fresh.execute(v89_objects).fetchall()
         # Reconstruct the v88 fixture by removing only this migration's DDL.
         for name, in conn.execute("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'provenance_%'").fetchall():
             conn.execute(f'DROP TRIGGER {name}')
-        for name in ('provenance_links', 'provenance_records', 'provenance_project'):
+        for name in ('provenance_prompts', 'provenance_links', 'provenance_records', 'provenance_project'):
             conn.execute(f'DROP TABLE {name}')
         conn.execute('PRAGMA user_version = 88')
     spec = importlib.util.spec_from_file_location('provenance_migration_test', ROOT / 'bin/tusk-migrate.py')
@@ -130,7 +133,7 @@ def test_migration_and_retention(db_path, config_path, tmp_path):
     with sqlite3.connect(migrated) as conn:
         assert conn.execute('PRAGMA user_version').fetchone()[0] == 89
         assert conn.execute('SELECT summary FROM tasks WHERE id = 1').fetchone()[0] == 'Provenance fixture'
-        assert expected == conn.execute("SELECT type, name, sql FROM sqlite_master WHERE name LIKE 'provenance_%' OR name LIKE 'idx_provenance_%' ORDER BY name").fetchall()
+        assert expected == conn.execute(v89_objects).fetchall()
         identity = conn.execute('SELECT project_id FROM provenance_project').fetchone()[0]
     migration.migrate_89(str(migrated), config_path, str(ROOT / 'bin'))
     with sqlite3.connect(migrated) as conn:

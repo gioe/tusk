@@ -28,7 +28,7 @@
 #   tusk criteria reset <cid>    Reset a criterion to incomplete (clears deferred flag too)
 #   tusk criteria finish-deferred --reason <r> <id...>  Mark all deferred criteria with given reason as completed
 #   tusk progress <id> [--note "..."] [--next-steps "..."]  Log a progress checkpoint from HEAD
-#   tusk provenance {register|get|link|links|unavailable}  Addressable records and causal relationships
+#   tusk provenance {capture-prompt|register|get|link|links|unavailable}  Prompt snapshots and causal relationships
 #   tusk lint [--verbose|--quiet] Run convention checks; default: one-line OK summary on pass
 #   tusk dag [--all]           Generate and open an HTML dependency DAG
 #   tusk dashboard             Generate and open an HTML dashboard
@@ -1410,7 +1410,7 @@ PRECHECK_VERDICTS_SCHEMA
     python3 "$SCRIPT_DIR/tusk-glossary.py" "$DB_PATH" "$(resolve_config)" sync-from-md >/dev/null 2>&1 || true
   fi
 
-  # Share the frozen provenance DDL with migration 89.
+  # Share frozen provenance DDL with migrations 89 and 90.
   python3 - "$DB_PATH" "$SCRIPT_DIR" <<'PROVENANCE_SCHEMA'
 import sys
 sys.path.insert(0, sys.argv[2])
@@ -1419,13 +1419,14 @@ db = tusk_loader.load("tusk-db-lib")
 provenance = tusk_loader.load("tusk-provenance")
 conn = db.get_connection(sys.argv[1])
 try:
-    conn.executescript("BEGIN IMMEDIATE;\n" + provenance.schema_v89_sql() + "\nCOMMIT;")
+    conn.executescript("BEGIN IMMEDIATE;\n" + provenance.schema_v89_sql()
+                       + provenance.schema_v90_sql() + "\nCOMMIT;")
 finally:
     conn.close()
 PROVENANCE_SCHEMA
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 89;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 90;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."

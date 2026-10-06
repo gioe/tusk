@@ -3733,6 +3733,18 @@ def migrate_89(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 89: added provenance references and causal links")
 
 
+def migrate_90(db_path: str, config_path: str, script_dir: str) -> None:
+    """Persist immutable prompt excerpts/summaries independent of transcripts."""
+    if get_version(db_path) >= 90:
+        return
+    sys.path.insert(0, script_dir)
+    import tusk_loader
+    provenance = tusk_loader.load("tusk-provenance")
+    run_script(db_path, "BEGIN IMMEDIATE;\n" + provenance.schema_v90_sql()
+               + "\nPRAGMA user_version = 90;\nCOMMIT;")
+    _progress("  Migration 90: added durable prompt snapshots")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -3825,6 +3837,7 @@ MIGRATIONS = [
     (87, migrate_87),
     (88, migrate_88),
     (89, migrate_89),
+    (90, migrate_90),
 ]
 
 

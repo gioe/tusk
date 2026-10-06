@@ -124,7 +124,8 @@ why the task exists:
 
 ```bash
 tusk provenance register task 42
-tusk provenance register prompt --key 'provider:conversation:message'
+tusk provenance capture-prompt --file selected-prompt.txt --representation excerpt \
+  --provider codex --conversation-id thread-1 --message-id message-1
 tusk provenance link <task-ref> derived_from <prompt-ref>
 tusk provenance get <task-ref>
 tusk provenance links <task-ref> --direction outgoing --limit 20
@@ -134,9 +135,13 @@ References are scoped to the project database. Existing domain records remain
 authoritative; deleted records leave tombstones so history cannot silently
 attach to a reused ID. Links distinguish explicit declarations from inferences
 (`--attribution inferred --reason '...'`). Neither registration nor a link
-proves successful verification. External registration currently stores only an
-identity and optional locator; prompt snapshots and automatic action receipts
-are separate capabilities. See [the provenance contract](docs/DOMAIN.md#provenance-schema-89)
+proves successful verification. Prompt capture saves supplied text even if its
+transcript disappears. Use `--stdin` instead of a file, or label a caller-written
+summary with `--representation summary`. The default 8192-character limit
+records truncation; absent message identities remain unknown. Complete message
+identities make retries idempotent; otherwise reuse an explicit `--key`.
+Identity-only `register prompt --key ...` remains available. Automatic action
+receipts are separate work. See [the provenance contract](docs/DOMAIN.md#provenance-schema-89)
 or `tusk provenance --help` for supported kinds, relationships, and retention.
 
 ## Workflows for Agents

@@ -8,6 +8,7 @@ an optional locator only, not prompt content, action receipts, or proof.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sqlite3
@@ -217,6 +218,116 @@ def project_id(conn: sqlite3.Connection) -> str:
     return row[0]
 
 
+def schema_v90_sql() -> str:
+    """Frozen prompt snapshot DDL; appended to v89 on fresh initialization."""
+    return """
+CREATE TABLE provenance_prompts (
+    record_id TEXT PRIMARY KEY NOT NULL REFERENCES provenance_records(id) ON DELETE RESTRICT,
+    provider TEXT,
+    conversation_id TEXT,
+    message_id TEXT,
+    content TEXT NOT NULL CHECK (length(content) > 0),
+    representation TEXT NOT NULL CHECK (representation IN ('excerpt', 'summary')),
+    truncated INTEGER NOT NULL CHECK (truncated IN (0, 1)),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX idx_provenance_prompt_identity
+    ON provenance_prompts(provider, conversation_id, message_id)
+    WHERE provider IS NOT NULL AND conversation_id IS NOT NULL AND message_id IS NOT NULL;
+CREATE TRIGGER provenance_prompt_endpoint BEFORE INSERT ON provenance_prompts
+WHEN NOT EXISTS (SELECT 1 FROM provenance_records
+    WHERE id = NEW.record_id AND kind = 'prompt' AND availability = 'available')
+BEGIN SELECT RAISE(ABORT, 'prompt snapshot requires an available prompt reference'); END;
+CREATE TRIGGER provenance_prompt_immutable_update BEFORE UPDATE ON provenance_prompts
+BEGIN SELECT RAISE(ABORT, 'prompt snapshots are immutable'); END;
+CREATE TRIGGER provenance_prompt_immutable_delete BEFORE DELETE ON provenance_prompts
+BEGIN SELECT RAISE(ABORT, 'retain durable prompt snapshots'); END;
+CREATE TRIGGER provenance_prompt_no_replace BEFORE INSERT ON provenance_prompts
+WHEN EXISTS (SELECT 1 FROM provenance_prompts WHERE record_id = NEW.record_id
+    OR (provider = NEW.provider AND conversation_id = NEW.conversation_id AND message_id = NEW.message_id))
+BEGIN SELECT RAISE(ABORT, 'prompt snapshots cannot be replaced'); END;
+"""
+
+
+def prompt_snapshot(conn: sqlite3.Connection, record_id: str, *, required: bool = False) -> dict | None:
+    try:
+        row = conn.execute('SELECT * FROM provenance_prompts WHERE record_id = ?', (record_id,)).fetchone()
+    except sqlite3.OperationalError as exc:
+        if 'no such table: provenance_prompts' not in str(exc):
+            raise
+        if required:
+            raise ValueError('prompt capture requires schema 90; run tusk migrate') from exc
+        return None  # Legacy identity-only registrations still work on schema 89.
+    if row is None:
+        return None
+    snapshot = dict(row)
+    snapshot.pop('record_id')
+    snapshot['truncated'] = bool(snapshot['truncated'])
+    fields = [snapshot[k] for k in ('provider', 'conversation_id', 'message_id')]
+    snapshot['identity_status'] = 'complete' if all(fields) else ('partial' if any(fields) else 'unknown')
+    return snapshot
+
+
+def read_prompt_input(args: argparse.Namespace) -> tuple[str, bool]:
+    """Read once before transaction/retry; never seek out a transcript."""
+    if not 1 <= args.max_chars <= 65536:
+        raise ValueError('--max-chars must be between 1 and 65536')
+    if args.file is not None:
+        with open(args.file, encoding='utf-8', newline='') as stream:
+            content = stream.read(args.max_chars + 1)
+    else:
+        # Preserve CRLF and literal shell syntax just as the file path does.
+        sys.stdin.reconfigure(encoding='utf-8', errors='strict', newline='')
+        content = sys.stdin.read(args.max_chars + 1)
+    truncated = args.truncated or len(content) > args.max_chars
+    content = content[:args.max_chars]
+    if not content.strip():
+        raise ValueError('prompt snapshot must contain non-whitespace text')
+    if '\x00' in content:
+        raise ValueError('prompt snapshot must be text without NUL characters')
+    return content, truncated
+
+
+def capture_prompt(conn: sqlite3.Connection, args: argparse.Namespace) -> dict:
+    # Check schema before registering anything. The caller owns one transaction
+    # covering reference registration plus snapshot persistence.
+    prompt_snapshot(conn, '', required=True)
+    identity = (args.provider, args.conversation_id, args.message_id)
+    for value in (*identity, args.key, args.locator):
+        if value is not None and not value.strip():
+            raise ValueError('provided identity fields, key, and locator must not be blank')
+    key = args.key
+    if all(value is not None for value in identity):
+        existing = conn.execute(
+            'SELECT r.external_key FROM provenance_prompts p JOIN provenance_records r ON r.id = p.record_id '
+            'WHERE p.provider = ? AND p.conversation_id = ? AND p.message_id = ?', identity,
+        ).fetchone()
+        if existing:
+            if key is not None and key != existing[0]:
+                raise ValueError('message identity already captured with a different key')
+            key = existing[0]
+        elif key is None:
+            key = 'message:' + json.dumps(identity, ensure_ascii=False, separators=(',', ':'))
+    if key is None:
+        # An opaque capture ID is not a fabricated provider/message identity.
+        # Reuse the returned external_key for retries lacking a complete triple.
+        key = args.capture_key
+    record = register(conn, 'prompt', key=key, locator=args.locator)
+    snapshot = prompt_snapshot(conn, record['id'], required=True)
+    expected = dict(zip(('provider', 'conversation_id', 'message_id'), identity))
+    expected.update(content=args.content, representation=args.representation, truncated=args.input_truncated)
+    if snapshot is not None:
+        if any(snapshot[k] != v for k, v in expected.items()):
+            raise ValueError('prompt already captured with different content or metadata; stored snapshot is immutable')
+    else:
+        conn.execute(
+            'INSERT INTO provenance_prompts(record_id, provider, conversation_id, message_id, content, representation, truncated) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?)',
+            (record['id'], *identity, args.content, args.representation, int(args.input_truncated)),
+        )
+    return record_output(conn, fetch_record(conn, record['ref']))
+
+
 def reference(project: str, record_id: str) -> str:
     return f"tusk:{project}:{record_id}"
 
@@ -224,6 +335,8 @@ def reference(project: str, record_id: str) -> str:
 def record_output(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
     result = dict(row)
     result['ref'] = reference(project_id(conn), row['id'])
+    if row['kind'] == 'prompt':
+        result['prompt'] = prompt_snapshot(conn, row['id'])
     return result
 
 
@@ -311,6 +424,8 @@ def link_output(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
 
 
 def dispatch(conn: sqlite3.Connection, args: argparse.Namespace):
+    if args.command == 'capture-prompt':
+        return capture_prompt(conn, args)
     if args.command == 'register':
         return register(conn, args.kind, args.native_id, key=args.key, locator=args.locator)
     if args.command == 'get':
@@ -346,6 +461,20 @@ def main(argv: list[str]) -> int:
         description='Register durable project-scoped identities and explicit or inferred causal links. '
                     'Existing domain rows stay authoritative; external registration is not proof.')
     sub = parser.add_subparsers(dest='command', required=True)
+    capture = sub.add_parser('capture-prompt', allow_abbrev=False,
+        help='Save an explicit UTF-8 excerpt or summary before a task exists; never discovers transcripts.')
+    source = capture.add_mutually_exclusive_group(required=True)
+    source.add_argument('--file', help='File containing only the selected excerpt/summary to save.')
+    source.add_argument('--stdin', action='store_true', help='Read selected text from standard input.')
+    capture.add_argument('--representation', choices=('excerpt', 'summary'), required=True,
+                         help='Label supplied text; the CLI does not summarize it.')
+    capture.add_argument('--provider', help='Explicit provider name; omitted means unknown.')
+    capture.add_argument('--conversation-id')
+    capture.add_argument('--message-id')
+    capture.add_argument('--key', help='Stable retry key; defaults to full message identity or a generated capture key.')
+    capture.add_argument('--locator', help='Optional source locator; never read or required for retrieval.')
+    capture.add_argument('--max-chars', type=int, default=8192, help='Stored character limit, 1..65536 (default 8192).')
+    capture.add_argument('--truncated', action='store_true', help='Declare supplied text was already truncated before capture.')
     reg = sub.add_parser('register', allow_abbrev=False, help='Register a native row or an external identity; idempotent.')
     reg.add_argument('kind', choices=KINDS)
     reg.add_argument('native_id', type=int, nargs='?')
@@ -366,6 +495,13 @@ def main(argv: list[str]) -> int:
     ls.add_argument('--direction', choices=('incoming', 'outgoing', 'both'), default='both')
     ls.add_argument('--limit', type=int, default=100)
     args = parser.parse_args(argv[2:])
+    if args.command == 'capture-prompt':
+        try:
+            args.content, args.input_truncated = read_prompt_input(args)
+        except (ValueError, OSError, UnicodeError) as exc:
+            print(f'Error: {exc}', file=sys.stderr)
+            return 1
+        args.capture_key = 'capture:' + uuid.uuid4().hex
 
     def run():
         conn = _db.get_connection(argv[0])

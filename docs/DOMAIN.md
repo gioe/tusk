@@ -247,10 +247,67 @@ an external record. Reads never register records or change state.
 
 **Compatibility and boundaries:** legacy domain commands work without any
 registration. Migration creates empty reference/link tables and invents no
-historical causality. External registration stores identity and locator only.
-Prompt snapshots, automatic receipts, revision-bound evidence, recursive trace,
-and task-brief hydration are subsequent tasks. A verifies link alone does not
-mark a criterion complete or prove that a test passed.
+historical causality. Identity-only external registration stores identity and
+locator only; prompt snapshots are described below. Automatic receipts,
+revision-bound evidence, recursive trace, and task-brief hydration remain
+subsequent tasks. A verifies link alone does not mark a criterion complete or
+prove that a test passed.
+
+### Durable Prompt Snapshot (schema 90)
+
+`tusk provenance capture-prompt` saves an explicitly supplied UTF-8 excerpt or
+summary without requiring a task, session, transcript, or runtime hook. Tasks
+and criteria can later register their own references and use `derived_from`
+links to the same prompt. Capture itself creates no task or causal links.
+
+**`provenance_prompts`:**
+
+| Column | Contract |
+|---|---|
+| `record_id` | Primary key and FK to an available prompt-kind provenance record; deletion restricted |
+| `provider` | Explicit provider name, or NULL when unknown |
+| `conversation_id` | Explicit conversation/thread identity, or NULL |
+| `message_id` | Explicit provider message identity, or NULL |
+| `content` | Durable, nonempty selected text; not a transcript pointer |
+| `representation` | excerpt or summary, declared by caller; the CLI does not summarize or rewrite text |
+| `truncated` | 1 when selected input exceeded the capture limit or caller passed --truncated; otherwise 0 |
+| `created_at` | Snapshot creation timestamp |
+
+The input is exactly one of `--file <path>` or `--stdin`; `--representation`
+is required. Quotes, dollar signs, backticks, Unicode, whitespace, and CRLF are
+preserved literally. Blank snapshots, NUL text, invalid UTF-8, and unreadable
+files fail before any write. Only up to `--max-chars` characters are saved
+(default 8192, range 1..65536); at most one extra character is requested to
+detect truncation. A locator passed with `--locator` is opaque and never read.
+Deleting the source file or marking the reference unavailable does not remove
+saved text. No full transcript is discovered or archived automatically.
+
+When provider, conversation ID, and message ID are all supplied, a partial
+unique index enforces the complete tuple as message identity. The default
+external key is `message:` followed by a canonical JSON array of that tuple.
+Otherwise the caller may provide `--key` for retry identity. With neither a
+complete tuple nor a key, each call gets a new opaque `capture:` key; reuse the
+returned `external_key` to retry. Identical text alone does not identify a
+message. Runtime environment variables never fill missing fields. JSON exposes
+`identity_status: complete|partial|unknown` alongside the nullable fields.
+
+Reference registration and snapshot insertion share one write transaction.
+Input and generated retry identity are prepared once outside lock retries.
+Repeated capture returns the same reference if retained text, representation,
+truncation, and identity metadata match. A complete message identity cannot be
+rebound to another key. Conflicting text, metadata, or a supplied locator is
+refused without partial writes; capture does not replace an earlier excerpt
+with a summary. Comparison applies to retained text, not discarded text beyond
+its limit. Use a separately keyed source for a new representation without
+claiming it is a second capture of the same complete message identity.
+
+An existing identity-only prompt can receive its first snapshot using its key,
+provided the reference is available. Snapshots are immutable: UPDATE, DELETE,
+and REPLACE are refused. `provenance get <ref>` and registration responses for
+prompt kinds include a nested `prompt` object, or NULL for an identity-only
+registration. Migration preserves existing identities and links and invents no
+legacy snapshots. Identity-only reads still work on schema 89, while capture
+requests an upgrade to schema 90.
 
 ---
 
