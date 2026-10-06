@@ -438,7 +438,124 @@ def _context_sections(context_items: list[dict]) -> dict:
     return sections
 
 
-def build_brief(conn: sqlite3.Connection, task_id: int, repo_root: str) -> dict | None:
+def provenance_slice(conn, task_id, repo_root, budget):
+    """Select a small current packet, never recursively load a history graph."""
+    import json
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    packet = {'budget_chars': budget, 'items': [], 'omitted_refs': [],
+              'truncated': False, 'selection_truncated': False,
+              'omitted_refs_truncated': False, 'scope': 'direct_task_context',
+              'task_ref': None}
+    if 'provenance_records' not in tables:
+        packet['availability'] = 'legacy_schema'
+        return packet
+    p = tusk_loader.load('tusk-provenance')
+    evidence = tusk_loader.load('tusk-evidence-lib')
+    project = p.project_id(conn)
+
+    def ref(kind, native_id):
+        row = conn.execute("SELECT id FROM provenance_records WHERE kind=? AND native_id=? AND availability='available'", (kind, native_id)).fetchone()
+        return p.reference(project, row[0]) if row else None
+
+    def rows(sql, args=()):
+        found = conn.execute(sql + ' LIMIT 21', args).fetchall()
+        if len(found) > 20:
+            packet['selection_truncated'] = True
+        return found[:20]
+
+    candidates = []
+    packet['task_ref'] = ref('task', task_id)
+    criteria = rows('SELECT id,criterion,criterion_type,verification_spec,is_completed FROM acceptance_criteria WHERE task_id=? ORDER BY is_completed,id', (task_id,))
+    atoms = rows("SELECT id,item_type,content,status FROM task_context_items WHERE task_id=? AND status='active' AND item_type IN ('decision','question','assumption') ORDER BY id DESC", (task_id,))
+    roots = [packet['task_ref']] + [ref('criterion', r['id']) for r in criteria] + [ref('context', r['id']) for r in atoms]
+    roots = [r.rsplit(':', 1)[1] for r in roots if r]
+    if roots:
+        placeholders = ','.join('?' for _ in roots)
+        sources = rows(f"SELECT DISTINCT r.* FROM provenance_links l JOIN provenance_records r ON r.id=l.target_id WHERE l.source_id IN ({placeholders}) AND l.relationship IN ('derived_from','responds_to') AND r.kind='prompt' ORDER BY r.id", roots)
+        for source in sources:
+            source_ref = p.reference(project, source['id'])
+            replacement = conn.execute("SELECT source_id FROM provenance_links WHERE target_id=? AND relationship='supersedes' ORDER BY id DESC LIMIT 1", (source['id'],)).fetchone()
+            snapshot = p.prompt_snapshot(conn, source['id']) if source['availability'] == 'available' else None
+            candidates.append({'type': 'source_intent', 'ref': source_ref,
+                               'state': 'superseded' if replacement else 'available' if snapshot else 'unknown',
+                               'text': snapshot['content'] if snapshot and not replacement else None,
+                               'representation': snapshot['representation'] if snapshot else None,
+                               'source_truncated': snapshot['truncated'] if snapshot else False})
+    for criterion in criteria:
+        if not criterion['is_completed']:
+            candidates.append({'type': 'outstanding_promise', 'ref': ref('criterion', criterion['id']),
+                               'native_id': criterion['id'], 'text': criterion['criterion']})
+    for atom in atoms:
+        candidates.append({'type': atom['item_type'], 'ref': ref('context', atom['id']),
+                           'native_id': atom['id'], 'text': atom['content']})
+    progress = conn.execute("SELECT id,next_steps FROM task_progress WHERE task_id=? AND next_steps IS NOT NULL AND trim(next_steps) <> '' ORDER BY id DESC LIMIT 1", (task_id,)).fetchone()
+    if progress:
+        candidates.append({'type': 'next_steps', 'ref': ref('progress', progress['id']),
+                           'native_id': progress['id'], 'text': progress['next_steps']})
+    if evidence.enabled(conn):
+        # A pinned project from another repository cannot validate this checkout.
+        try:
+            same_project = evidence.git(os.getcwd(), 'rev-parse', '--path-format=absolute', '--git-common-dir') == evidence.git(repo_root, 'rev-parse', '--path-format=absolute', '--git-common-dir')
+        except (OSError, ValueError):
+            same_project = False
+        current = evidence.snapshot() if same_project else {'state': 'unknown'}
+        for criterion in criteria:
+            criterion_ref = ref('criterion', criterion['id'])
+            if not criterion_ref:
+                continue
+            attempt = conn.execute('SELECT r.* FROM provenance_attempts a JOIN provenance_records r ON r.id=a.record_id WHERE a.criterion_id=? ORDER BY a.rowid DESC LIMIT 1', (criterion_ref.rsplit(':', 1)[1],)).fetchone()
+            if not attempt:
+                continue
+            proof = evidence.output(conn, attempt)
+            target = proof['details'].get('target', {})
+            final = proof['result']
+            captured = proof['details'].get('criterion_snapshot', {})
+            same_promise = all(captured.get(k) == criterion[k] for k in ('criterion','criterion_type','verification_spec'))
+            state = 'unknown'
+            if final is None:
+                state = 'pending'
+            elif final['automated']:
+                artifact = p.fetch_record(conn, proof['artifact_ref']) if proof['artifact_ref'] else None
+                available = attempt['availability'] == 'available' and artifact is not None and artifact['availability'] == 'available'
+                if available and current.get('digest') and target.get('digest'):
+                    state = 'current' if same_promise and current['digest'] == target['digest'] and current['head'] == target.get('head') else 'stale'
+            else:
+                state = final['outcome']
+            candidates.append({'type': 'evidence', 'ref': p.reference(project, attempt['id']),
+                               'criterion_ref': criterion_ref, 'artifact_ref': proof['artifact_ref'],
+                               'state': state, 'automated_current': state == 'current',
+                               'checked_head': target.get('head'), 'checked_digest': target.get('digest'),
+                               'mode': proof['mode']})
+    historical = rows("SELECT r.id FROM task_context_items c JOIN provenance_records r ON r.native_id=c.id AND r.kind='context' WHERE c.task_id=? AND c.status <> 'active' ORDER BY c.id DESC", (task_id,))
+    for row in historical:
+        candidates.append({'type': 'historical_context', 'ref': p.reference(project, row['id'])})
+
+    # Budget measures the compact serialized provenance object, not legacy fields.
+    def size():
+        return len(json.dumps(packet, ensure_ascii=True, separators=(',', ':')))
+
+    for candidate in candidates:
+        text = candidate.get('text')
+        if text and len(text) > 600:
+            candidate = dict(candidate, text=text[:600], content_truncated=True)
+            packet['truncated'] = True
+        packet['items'].append(candidate)
+        if size() > budget - 300:  # reserve room for omission metadata
+            packet['items'].pop()
+            packet['truncated'] = True
+            omitted = candidate.get('ref') or f"{candidate['type']}:{candidate.get('native_id', 'unknown')}"
+            if len(packet['omitted_refs']) < 10:
+                packet['omitted_refs'].append(omitted)
+                if size() > budget:
+                    packet['omitted_refs'].pop()
+                    packet['omitted_refs_truncated'] = True
+            else:
+                packet['omitted_refs_truncated'] = True
+    packet['truncated'] = packet['truncated'] or packet['selection_truncated']
+    return packet
+
+
+def build_brief(conn: sqlite3.Connection, task_id: int, repo_root: str, provenance_budget: int = 6000) -> dict | None:
     task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     if not task:
         return None
@@ -535,6 +652,7 @@ def build_brief(conn: sqlite3.Connection, task_id: int, repo_root: str) -> dict 
         "objectives": objectives,
         "context": _context_sections(context_items),
         "context_health_warnings": warnings,
+        "provenance": provenance_slice(conn, task_id, repo_root, provenance_budget),
     }
 
 
@@ -542,6 +660,23 @@ def _markdown_list(items: list[str]) -> str:
     if not items:
         return "- None"
     return "\n".join(f"- {item}" for item in items)
+
+
+def _provenance_markdown(packet: dict) -> str:
+    lines = []
+    for item in packet.get("items", []):
+        detail = item.get("text") or item.get("state") or "historical reference"
+        label = item.get("ref") or str(item.get("native_id", "unknown"))
+        lines.append(f"{item['type']}: {detail} ({label})")
+        if item.get("artifact_ref"):
+            lines.append(f"Checked artifact: {item['artifact_ref']}; revision: {item.get('checked_head') or 'unknown'}")
+        if item.get("content_truncated"):
+            lines.append("Content truncated; inspect the reference for the full record.")
+    if packet.get("truncated"):
+        lines.append("Provenance truncated; use trace and context/criteria/progress reads for omitted history.")
+    if packet.get("omitted_refs"):
+        lines.append("Omitted: " + ", ".join(packet["omitted_refs"]))
+    return _markdown_list(lines)
 
 
 def render_markdown(brief: dict) -> str:
@@ -593,6 +728,9 @@ def render_markdown(brief: dict) -> str:
             "## Recent Progress",
             _markdown_list(progress),
             "",
+            "## Current Provenance",
+            _provenance_markdown(brief.get("provenance", {})),
+            "",
             "## Context Health",
             _markdown_list(warnings),
         ]
@@ -617,11 +755,17 @@ def main(argv: list[str]) -> int:
         dest="fmt",
         help="Output format. json returns the compiled context packet; markdown renders a concise pickup brief.",
     )
+    parser.add_argument("--provenance-budget", type=int, default=6000,
+                        help="Compact provenance JSON character budget, 2000..32000; legacy fields unchanged.")
     args = parser.parse_args(argv[3:])
+    if not 2000 <= args.provenance_budget <= 32000:
+        parser.error("provenance budget must be 2000..32000")
 
     conn = get_connection(db_path)
     try:
-        brief = build_brief(conn, args.task_id, repo_root)
+        conn.execute("PRAGMA query_only=ON")
+        conn.execute("BEGIN")
+        brief = build_brief(conn, args.task_id, repo_root, args.provenance_budget)
         if brief is None:
             print(f"Error: Task {args.task_id} not found", file=sys.stderr)
             return 1

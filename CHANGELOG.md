@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1287] - 2026-10-06
+
+- [TASK-903] Hydrate task briefs with a bounded current provenance slice
+
 ## [1286] - 2026-10-06
 
 - [TASK-902] Expose bounded bidirectional provenance queries with tusk trace

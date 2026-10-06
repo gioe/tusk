@@ -1495,3 +1495,25 @@ These appear alongside the task's normal criteria in `tusk criteria list` and ar
 ```
 
 The first entry omits `mode`, so it defaults to `create_only` — `tusk/conventions/python.md` is written on first integration and skipped on subsequent runs. The second uses `append_if_missing`, so `gioe-libs>=0.4` is added to `requirements.txt` exactly once even if the bootstrap step runs again later. The third uses `marker_block`, so future runs can refresh the managed dependency section without rewriting user-authored `Package.swift` content outside the markers.
+
+### Current provenance in task briefs
+
+Task briefs add a bounded provenance packet without changing their existing
+context, warning, or session contracts. Direct task/criterion/active-context
+prompt links supply intent; active decisions/questions/assumptions supply
+guidance; incomplete criteria supply promises; latest nonempty progress supplies
+next steps. Inactive context retains references without returning obsolete text.
+No session membership or timestamp is interpreted as a causal edge.
+
+The packet uses at most 20 rows per category, up to ten omitted references, and
+a compact JSON character budget controlled by --provenance-budget (default 6000,
+range 2000–32000). Existing brief fields are outside this additive budget.
+Selection/truncation indicators distinguish an incomplete slice from empty
+history; task/native IDs and retained references enable further scoped reads.
+
+The latest attempt for each selected criterion is classified against the actual
+calling checkout, only when it belongs to the pinned repository. Current
+automated proof requires matching full HEAD, source digest, criterion definition,
+and available artifact. Failed, bypassed, externally declared, pending, stale,
+and unknown evidence remain distinct. Brief generation is a read-only snapshot;
+it never registers missing identities or changes task/session state.

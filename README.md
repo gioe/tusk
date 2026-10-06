@@ -156,6 +156,34 @@ deployment, or external run; `provenance declare-evidence` records a sourced
 claim without treating it as an observed test. See the
 [revision-bound evidence contract](docs/DOMAIN.md#revision-bound-evidence-schema-92).
 
+### Pick up a task with current provenance
+
+`task-brief <id>` now includes an additive `provenance` packet in JSON and a
+Current Provenance section in Markdown. It selects direct prompt sources attached
+to the task, selected criteria, and active decisions/questions/assumptions;
+outstanding promises; the latest nonempty next steps; and the latest evidence
+attempt for each selected criterion. It does not scan sessions or recursively
+load the provenance graph. Inactive context appears only as historical references.
+Unavailable or superseded source text is not presented as active intent.
+
+Use `--provenance-budget 2000` to reduce the packet's compact JSON character
+budget (default 6000, range 2000–32000). This budget applies to the new packet;
+existing task, criteria, context, progress, and warning fields remain unchanged.
+Selection is deterministic and capped at 20 rows per category; text is capped at
+600 characters. `truncated`, `selection_truncated`, and `content_truncated` mark
+omissions, with up to ten `omitted_refs` and an `omitted_refs_truncated` flag.
+For more, use the task reference with `tusk trace`, or context/criteria/progress
+reads when membership records lie outside the selected slice. Missing native
+references retain their IDs; reads never create provenance records.
+
+Evidence is current automated proof only when its saved criterion text/type/spec,
+full HEAD and source digest match the calling checkout and its artifact remains
+available. Another pinned project, unknown revisions, declarations, bypasses,
+pending attempts, and stale content cannot become current automated proof.
+Only the latest attempt is selected; a newer failure does not reveal an older
+success as current. Legacy tasks retain the existing useful brief. The command
+reads one database snapshot and does not start or modify a task/session.
+
 ### Trace a recorded source or deliverable
 
 ```bash
