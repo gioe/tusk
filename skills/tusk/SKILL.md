@@ -305,6 +305,15 @@ When called with a task ID (e.g., `/tusk 6`), begin the full development workflo
 
 7. **Implement, commit, and mark criteria done.** Work through the acceptance criteria from step 1 as your checklist — **one commit per criterion is the default**. For each criterion in order:
 
+    Capture mid-task friction with `tusk jot write <category> "<note>" --task-id <id> --skill-run-id <run_id>`.
+    These are pending observations, not active guidance. Preserve returned jot IDs;
+    retro reads task-scoped pending observations and records an approved promotion
+    or dismissal. For a decision/risk needed immediately, create ordinary context
+    and attach it with `tusk jot promote <jot-id> --to <destination-ref>` after
+    registering the destination; do not rewrite the observation. Recover the
+    saved destination before retrying so interruption cannot duplicate work.
+
+
     **Before committing a file removal or untracking change**, read [Commit recovery](RECOVERY.md#commit-recovery) and apply its staged-deletion branch before invoking `tusk commit`.
 
     1. Implement the changes that satisfy it

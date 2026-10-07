@@ -556,6 +556,15 @@ JSON blob and the `skill_run.run_id` you already captured.
    **Stalled implementation:** After a reasonable interval without material progress, read [Stalled implementation](tusk-recovery.md#stalled-implementation) before nudging, replacing, or falling back locally. Local fallback for any task size requires that bounded recovery sequence; do not wait indefinitely.
 
 7. **Implement, commit, and mark criteria done.** Work through the
+
+    Capture mid-task friction with `tusk jot write <category> "<note>" --task-id <id> --skill-run-id <run_id>`.
+    These are pending observations, not active guidance. Preserve returned jot IDs;
+    retro reads task-scoped pending observations and records an approved promotion
+    or dismissal. For a decision/risk needed immediately, create ordinary context
+    and attach it with `tusk jot promote <jot-id> --to <destination-ref>` after
+    registering the destination; do not rewrite the observation. Recover the
+    saved destination before retrying so interruption cannot duplicate work.
+
    acceptance criteria from Step 1 as your checklist — **one commit per
    criterion is the default**. For each criterion in order:
 

@@ -138,6 +138,65 @@ tusk setup
 Parse the JSON: use `config` for metadata assignment (priorities,
 domains, agents, task_types) and `backlog` for duplicate comparison.
 
+## Pending observation triage (both retro paths)
+
+Before selecting lightweight or full retro, when `RETRO_TASK_ID` is set, fetch:
+
+```bash
+tusk jots --task-id $RETRO_TASK_ID --triage-status pending
+```
+
+Never fetch unscoped jots when the task ID is absent. Keep each returned jot `id`
+and `context_id` with its finding; category is a hint and the original `note`
+is evidence. Merge duplicate findings while retaining their source IDs. Only
+pending observations enter proposals; promoted and dismissed observations are
+history and must not be reprocessed. An empty list requires no triage.
+
+Apply this protocol in the existing approved-action step of **both** paths:
+
+1. Include the proposed disposition with the finding: promote to a decision,
+   risk, criterion or task, or dismiss with a concrete reason. Preserve the
+   existing approval rules: use authorization already given for that action,
+   otherwise wait for explicit user approval. Deferred, skipped or unapproved
+   proposals stay pending. A duplicate is not silently consumed: propose
+   linking its existing outcome or dismissal with a reason.
+2. For promotion, use the existing approved context/criteria/task creation
+   route (including task deduplication), then retain its returned destination
+   ID. Create a separate decision/risk atom with `--source retro`; never edit
+   the original observation into guidance. Register the destination:
+   `tusk provenance register context <context-id>`,
+   `tusk provenance register criterion <criterion-id>`, or
+   `tusk provenance register task <task-id>`. Use the returned full `ref`:
+   ```bash
+   tusk jot promote <jot-id> --to <destination-ref>
+   ```
+   This attaches an existing outcome; it does not create one. The CLI validates
+   the destination and commits source links and disposition atomically. The
+   decision/risk becomes active guidance through its own context record; the
+   original observation stays historical evidence outside task/objective briefs.
+3. For an approved dismissal, persist the reason through the CLI:
+   ```bash
+   tusk jot dismiss <jot-id> --reason "<why no further action is needed>"
+   ```
+   For actions outside the four promotion types (for example an issue filed,
+   lint rule or applied patch), propose dismissal after successful completion,
+   naming the concrete outcome/reference in the reason. Do not invent a task
+   merely to obtain a supported destination.
+4. On interruption, first read
+   `tusk jots --task-id $RETRO_TASK_ID --triage-status all`. An identical
+   promotion/dismissal retry is safe; a conflicting disposition is an error to
+   inspect, not overwrite. If creation succeeded but promotion did not, reuse
+   the saved destination ID. If the response was lost, recover it from
+   `tusk provenance receipts --task-id <destination-task-id> --limit 20` and
+   the task backlog, criteria or context listing before any new creation.
+   Use the jot provenance ref as `TUSK_ACTION_SOURCE_REF` when creating the
+   outcome so its receipt carries the source. If recovery is ambiguous, leave
+   the jot pending and report it; never blindly repeat destination creation.
+5. Before closing the run, re-read task-scoped pending jots and report any
+   deferred or failed dispositions. Keep existing retro-finding records for
+   actioned findings; disposition history is separate and does not replace
+   those records. Do not write triage state or context rows with raw SQL.
+
 ## Step 0c: Choose Retro Path
 
 Based on `RETRO_COMPLEXITY` from Step 0:
@@ -157,6 +216,9 @@ Streamlined retro for small tasks. Skips subsumption analysis and
 dependency proposals.
 
 ### LR-1: Review & Categorize
+
+Include the task-scoped pending observations fetched above. Apply the shared
+triage protocol after LR-2 approval and before closing the run.
 
 Use the default categories:
 
@@ -630,6 +692,9 @@ Present proposals to the user. For each confirmed:
 ```bash
 tusk deps add <task_id> <depends_on_id> [--type blocks|contingent]
 ```
+
+Apply the shared pending observation triage protocol to approved full-retro
+outcomes before the final report. Leave deferred or failed actions pending.
 
 ### FR-6: Final Report and Findings Record
 

@@ -98,6 +98,65 @@ The output is pre-aggregated `{theme, count}` tuples — **do not** issue separa
 
 If `themes` is empty, skip — the current session stands alone. If any tuple is returned, store the list as `$RECURRING_THEMES` and use it in LR-1 (or Step 3 in FULL-RETRO) to flag recurrences: when this session surfaces a finding whose summary text contains a recurring theme, note the recurrence (e.g. `theme 'manifest' recurring — seen N times in last 30 days`) next to that finding in the report. Themes are normalized topic terms extracted from `retro_findings.summary` (issue #551), not single-letter category codes.
 
+## Pending observation triage (both retro paths)
+
+Before selecting lightweight or full retro, when `RETRO_TASK_ID` is set, fetch:
+
+```bash
+tusk jots --task-id $RETRO_TASK_ID --triage-status pending
+```
+
+Never fetch unscoped jots when the task ID is absent. Keep each returned jot `id`
+and `context_id` with its finding; category is a hint and the original `note`
+is evidence. Merge duplicate findings while retaining their source IDs. Only
+pending observations enter proposals; promoted and dismissed observations are
+history and must not be reprocessed. An empty list requires no triage.
+
+Apply this protocol in the existing approved-action step of **both** paths:
+
+1. Include the proposed disposition with the finding: promote to a decision,
+   risk, criterion or task, or dismiss with a concrete reason. Preserve the
+   existing approval rules: use authorization already given for that action,
+   otherwise wait for explicit user approval. Deferred, skipped or unapproved
+   proposals stay pending. A duplicate is not silently consumed: propose
+   linking its existing outcome or dismissal with a reason.
+2. For promotion, use the existing approved context/criteria/task creation
+   route (including task deduplication), then retain its returned destination
+   ID. Create a separate decision/risk atom with `--source retro`; never edit
+   the original observation into guidance. Register the destination:
+   `tusk provenance register context <context-id>`,
+   `tusk provenance register criterion <criterion-id>`, or
+   `tusk provenance register task <task-id>`. Use the returned full `ref`:
+   ```bash
+   tusk jot promote <jot-id> --to <destination-ref>
+   ```
+   This attaches an existing outcome; it does not create one. The CLI validates
+   the destination and commits source links and disposition atomically. The
+   decision/risk becomes active guidance through its own context record; the
+   original observation stays historical evidence outside task/objective briefs.
+3. For an approved dismissal, persist the reason through the CLI:
+   ```bash
+   tusk jot dismiss <jot-id> --reason "<why no further action is needed>"
+   ```
+   For actions outside the four promotion types (for example an issue filed,
+   lint rule or applied patch), propose dismissal after successful completion,
+   naming the concrete outcome/reference in the reason. Do not invent a task
+   merely to obtain a supported destination.
+4. On interruption, first read
+   `tusk jots --task-id $RETRO_TASK_ID --triage-status all`. An identical
+   promotion/dismissal retry is safe; a conflicting disposition is an error to
+   inspect, not overwrite. If creation succeeded but promotion did not, reuse
+   the saved destination ID. If the response was lost, recover it from
+   `tusk provenance receipts --task-id <destination-task-id> --limit 20` and
+   the task backlog, criteria or context listing before any new creation.
+   Use the jot provenance ref as `TUSK_ACTION_SOURCE_REF` when creating the
+   outcome so its receipt carries the source. If recovery is ambiguous, leave
+   the jot pending and report it; never blindly repeat destination creation.
+5. Before closing the run, re-read task-scoped pending jots and report any
+   deferred or failed dispositions. Keep existing retro-finding records for
+   actioned findings; disposition history is separate and does not replace
+   those records. Do not write triage state or context rows with raw SQL.
+
 - **XS or S** → follow the **Lightweight Retro** path below
 - **M, L, XL, or NULL** → read the full retro guide:
   ```
@@ -113,13 +172,7 @@ Streamlined retro for small tasks. Skips subsumption analysis and dependency pro
 
 ### LR-1: Review & Categorize
 
-**Read mid-task jots first.** If `RETRO_TASK_ID` is set, fetch any friction notes captured during the task via `tusk jot`:
-
-```bash
-tusk jots --task-id $RETRO_TASK_ID
-```
-
-The output is an array of `{id, skill_run_id, task_id, category, note, file_hint, skill_hint, created_at}` rows. Each jot is a **pre-classified finding candidate** captured at the moment of friction — treat its `category` as a strong hint when bucketing into the categories below, and quote the `note` verbatim in the finding's summary. Jots are the highest-fidelity input to retro because they were not reconstructed from memory at close time. Empty array → no jots were filed; proceed using conversation context alone.
+Use the task-scoped pending observations fetched above as finding candidates. Apply the shared triage protocol after LR-2 approval and before closing the run.
 
 **Read scope-quality signals next.** Fetch the task's declared scope (TASK-471):
 

@@ -169,7 +169,7 @@ A typed context atom attached to a task, optionally scoped to an objective. Cont
 
 **Lifecycle expectations:** context items are append-friendly handoff records. Prefer creating a new `decision` or `memory` atom over rewriting history when the meaning changed. Mark questions, risks, or assumptions `resolved` when addressed; mark any atom `superseded` when newer context replaces it. This keeps the read path cheap: `/tusk` can load active context atoms for the current task and objective without rereading every progress note or overloading the task description.
 
-**Observation boundary (schema 93):** capture observations with `tusk jot write`, which requires an open skill run and begins with `triage_status=pending`. Generic `context add` cannot create observations, and `context resolve`/`supersede` cannot triage them. Use `context list <task_id> --type observation` to inspect their context identities and capture metadata; the default context list and task/objective briefs exclude observations regardless of disposition. A promoted decision or risk is a separate ordinary context atom. Promotion/dismissal commands and retro orchestration are follow-up work (TASK-905); pending-only recurring-work proposals are TASK-906. Existing `jots` listing and proposal readers keep their prior semantics in this release.
+**Observation boundary (schema 93):** capture observations with `tusk jot write`, which requires an open skill run and begins with `triage_status=pending`. Generic `context add` cannot create observations, and `context resolve`/`supersede` cannot triage them. Use `context list <task_id> --type observation` to inspect their context identities and capture metadata; the default context list and task/objective briefs exclude observations regardless of disposition. A promoted decision or risk is a separate ordinary context atom. Schema 94 adds explicit promotion/dismissal through `jot promote` and `jot dismiss` and task-scoped pending triage in both retro variants (see below). Pending-only recurring-work proposals remain TASK-906; unfiltered `jots` and proposal readers retain their compatibility semantics.
 
 **Modeling boundary:** objectives are larger intent units, tasks are shippable work units, acceptance criteria are completion units, verification results are proof units, and task context items are memory units. Use the smallest unit that matches the job: a new requirement belongs in a task or criterion, while a fact that helps the next agent understand the work belongs in `task_context_items`.
 
@@ -856,12 +856,12 @@ One row per approved finding emitted by `/retro` on close. Populated by the skil
 
 ### Jot (compatibility identity and view, schema 93)
 
-One compatibility identity per mid-task friction observation captured via `tusk jot`. Content and capture metadata are stored once in `task_context_items`; `jot_aliases` maps its independent autoincrement `id` to a unique `context_id`, and `jots` projects the existing eight-column interface. Solves the problem that retro fidelity decays with task length: by close time on M/L/XL tasks, the implementer has to reconstruct hours-old friction from working memory. A `tusk jot write <category> "<note>"` call writes the observation at the moment it happens. `--skill-run-id` selects an exact open run; `--task-id` selects the task's unique open run; without either option, a recorded caller worktree selects its owning task's unique open run. The sole globally-open run remains a compatibility fallback, while any ambiguous target fails without inserting a row. The original `tusk jot <category> "<note>"` form remains a compatibility shorthand. `/retro` reads jots for the parent /tusk run via `tusk jots --task-id $RETRO_TASK_ID` before doing its own conversation analysis, treating each row as a pre-classified finding candidate (issues #541 and #1313).
+One compatibility identity per mid-task friction observation captured via `tusk jot`. Content and capture metadata are stored once in `task_context_items`; `jot_aliases` maps its independent autoincrement `id` to a unique `context_id`, and `jots` projects the existing eight-column interface. Solves the problem that retro fidelity decays with task length: by close time on M/L/XL tasks, the implementer has to reconstruct hours-old friction from working memory. A `tusk jot write <category> "<note>"` call writes the observation at the moment it happens. `--skill-run-id` selects an exact open run; `--task-id` selects the task's unique open run; without either option, a recorded caller worktree selects its owning task's unique open run. The sole globally-open run remains a compatibility fallback, while any ambiguous target fails without inserting a row. The original `tusk jot <category> "<note>"` form remains a compatibility shorthand. `/retro` reads jots for the parent /tusk run via `tusk jots --task-id $RETRO_TASK_ID --triage-status pending` before doing its own conversation analysis, treating each row as a pre-classified finding candidate (issues #541 and #1313).
 
 | Attribute | Type | Constraints | Description |
 |-----------|------|-------------|-------------|
 | `id` | INTEGER | PK, autoincrement | |
-| `skill_run_id` | INTEGER | NOT NULL, FK → skill_runs(id) ON DELETE CASCADE | The active skill_run when the jot was captured; cascades so jots disappear if the originating run is deleted |
+| `skill_run_id` | INTEGER | NOT NULL, FK → skill_runs(id) ON DELETE CASCADE | The active skill_run when the jot was captured; pending jots cascade; triaged jots block deletion to retain disposition evidence |
 | `task_id` | INTEGER | nullable, FK → tasks(id) ON DELETE SET NULL | Copied from the parent skill_run's `task_id` at insert time so retro can filter by either run or task. SET NULL on delete — jots outlive task cleanup |
 | `category` | TEXT | NOT NULL | Pre-classification hint (e.g. `process`, `velocity`, `tool`) — free-text so custom retro `FOCUS.md` categories flow through unchanged. /retro uses this as the primary signal when bucketing the jot into its own category set |
 | `note` | TEXT | NOT NULL | The one-line observation as captured at the moment of friction |
@@ -871,9 +871,77 @@ One compatibility identity per mid-task friction observation captured via `tusk 
 
 **Storage and indexes:** `jots` is a view, not another note store. `jot_aliases.context_id` is unique and cascades on context deletion. Context task/type indexes plus `idx_observation_skill_run` and `idx_observation_category_triage` support readers. Compatibility SQL triggers forward inserts, updates and deletes to the underlying observation; the public CLI remains the normal write interface.
 
-**Identity and retention:** a jot ID and context ID are independent, even when their numbers happen to match. Alias identities cannot be rebound. Existing `kind=jot` provenance references continue resolving through `jots`; deleting an observation deletes its alias and tombstones registered identities. Ordinary context still disappears with its task. Observations survive task deletion with null ownership, including observations captured by taskless runs, but disappear when their originating skill run is deleted.
+**Identity and retention:** a jot ID and context ID are independent, even when their numbers happen to match. Alias identities cannot be rebound. Existing `kind=jot` provenance references continue resolving through `jots`; deleting an observation deletes its alias and tombstones registered identities. Ordinary context still disappears with its task. Observations survive task deletion with null ownership, including observations captured by taskless runs, but pending observations disappear when their originating skill run is deleted. Schema 94 retains triaged evidence: deleting its observation or jot alias is refused, including direct SQL with foreign keys disabled. Deleting the originating run is refused when its normal foreign-key cascade reaches triaged evidence. Captured content/category/hints/run/time cannot change after triage. Task/objective deletion can still null ownership; destination deletion leaves its provenance reference as a tombstone.
 
 **Migration 93:** fresh initialization and upgrades use the same transformation. Existing context IDs and historical jot IDs remain intact; notes, hints, attribution and timestamps are copied without reconstructing missing history. The allocator preserves the old jot and context sequence high-water marks, including deleted highest IDs, so subsequent captures cannot reuse those identities. References, causal links and historical receipts are retained unchanged. Migration is transactional and repeat invocation is a no-op after version 93.
+
+
+### Observation disposition (schema 94)
+
+`observation_dispositions` records one terminal outcome per observation. It is
+append-only: identical CLI retries return the existing outcome; conflicting
+promotion, dismissal or reason fails with a diagnostic instead of rewriting
+history. Existing schema-93 captures remain pending after migration.
+
+| Attribute | Type | Meaning |
+|-----------|------|---------|
+| `context_id` | INTEGER PK, FK context | Original observation identity; unique disposition |
+| `disposition` | TEXT | `promoted` or `dismissed` |
+| `reason` | TEXT, nullable | Required nonblank dismissal rationale |
+| `destination_record_id` | TEXT, nullable, FK provenance | Required promoted outcome; active decision/risk context, criterion or task |
+| `created_at` | TEXT | Time triage was committed |
+
+`jots` without a triage filter preserves the eight-column legacy JSON array.
+`jots --triage-status pending|promoted|dismissed|all` adds `context_id`,
+`triage_status` and a `disposition` object (null while pending), including
+`destination_ref`, `reason` and `created_at`. Combine with `--task-id` or
+`--skill-run-id` and `--limit` as usual. Use `all` for disposition history, not
+as input to new retro proposals.
+
+Capture and promote an observation into active guidance (IDs below stand for
+values returned by each command):
+
+```bash
+tusk jot write process "The migration must preserve legacy identity" --task-id 42 --skill-run-id 7
+tusk jots --task-id 42 --triage-status pending
+tusk provenance register jot <jot-id>
+# Set TUSK_ACTION_SOURCE_REF to the returned jot ref for destination creation.
+tusk context add 42 --type decision --source retro --content "Preserve legacy identity during migrations"
+tusk provenance register context <context-id>
+tusk jot promote <jot-id> --to <returned-context-ref>
+tusk jots --task-id 42 --triage-status all
+```
+
+A risk uses `context add --type risk`; a completion condition uses
+`criteria add <task-id> "<criterion>"` then `provenance register criterion
+<criterion-id>`; shippable follow-up work uses the normal deduplicated task
+creation flow then `provenance register task <task-id>`. Promotion links an
+**existing** outcome and does not create another task or copy the note. The
+original observation remains historical evidence, excluded from context
+lists by default and from task/objective briefs even when promoted; the
+separate decision/risk is ordinary active guidance.
+
+Promotion validates the destination's project, availability and native record,
+then atomically stores destination `derived_from` links to both source context
+and legacy jot, the disposition, and final triage state. Inspect the returned
+reference with `provenance get <ref>` or navigate with `provenance links <ref>`.
+Failed validation or transaction rollback leaves the observation pending.
+
+For a dismissal, run `tusk jot dismiss <jot-id> --reason "Already addressed by
+TASK-43"`. The original note and identity survive alongside the reason. Retro
+presents the proposed outcome under its existing approval rules; deferred or
+unapproved proposals stay pending. Addressed jots do not re-enter later retros.
+
+**Interrupted creation:** retain the destination ID before promotion. When
+resuming, first inspect disposition history. Repeating promotion to the same
+reference or dismissal with the same reason is safe. If an outcome was created
+but the response/promotion was lost, recover it using task/criteria/context
+listing and `provenance receipts --task-id <destination-task-id> --limit 20`;
+attributing creation with the jot's `TUSK_ACTION_SOURCE_REF` identifies its
+source. Reuse that outcome rather than creating another. Ambiguous recovery
+stays pending for review. Creation and attachment are separate transactions;
+the CLI's idempotency applies to attachment, not arbitrary repeated creation
+commands.
 
 ---
 

@@ -85,15 +85,28 @@ If `$RECURRING_THEMES` is empty, no recurring pattern has crossed the 3×/30-day
 
 If one or more themes are present, carry the list into Step 3: for every finding whose category matches a recurring theme, append an inline recurrence note (`— recurring theme: seen N times in last 30 days`) next to that finding in both the categorization table and the Step 4 report. This tells the reviewer "this isn't the first time we've surfaced something in this bucket" before they approve a new task for it, which raises the bar for duplicate work.
 
-## Step 2d: Read Mid-task Jots
+## Step 2d: Use Pending Observations
 
-Fetch any friction notes the implementer captured during the task via `tusk jot`:
+Use the task-scoped pending observations already fetched in SKILL.md before
+path selection. Do not fetch all historical jots again. If recovering an
+interrupted run, refresh with:
 
 ```bash
-tusk jots --task-id $RETRO_TASK_ID
+tusk jots --task-id $RETRO_TASK_ID --triage-status pending
 ```
 
-The output is an array of `{id, skill_run_id, task_id, category, note, file_hint, skill_hint, created_at}` rows. Each jot is a **pre-classified finding candidate** captured at the moment of friction — treat its `category` as a strong hint when bucketing into the categories below in Step 3, and quote the `note` verbatim in the resulting finding's summary. Jots are the highest-fidelity input to retro because they were not reconstructed from memory at close time; for M/L/XL tasks where hours of context have elapsed, they are typically more reliable than re-reading the conversation. Empty array → no jots were filed; proceed using conversation context alone.
+Keep jot `id` and `context_id` with each finding, quote its original note as
+evidence, and use category as a classification hint. Empty means no pending
+observations; proceed using the other signals. Apply SKILL.md's shared pending
+observation triage protocol after Step 4 approval and successful Step 5 actions:
+`tusk jot promote <jot-id> --to <destination-ref>` attaches a validated existing
+decision/risk context, criterion or task; `tusk jot dismiss <jot-id> --reason
+"<why>"` records an approved dismissal. Preserve existing approval rules.
+Deferred or unapproved actions stay pending. On interruption, read `tusk jots --task-id $RETRO_TASK_ID --triage-status all`
+and recover the saved destination or creation receipt before retrying; never
+blindly recreate it.
+Promoted and dismissed observations must not be reprocessed. Before closing,
+re-read pending observations and report unresolved dispositions.
 
 ## Step 3: Categorize Findings
 

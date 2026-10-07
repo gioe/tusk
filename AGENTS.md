@@ -55,7 +55,9 @@ bin/tusk commit <task_id> "<file1>" ["<file2>" ...] -m "<message>" [--criteria <
 bin/tusk merge <task_id> [--session <session_id>] [--pr --pr-number <N>] [--rebase] [--skip-lint] [--skip-verify] [--allow-diverged-default]
 bin/tusk progress <task_id> [--note "..."] [--next-steps "..."]  # requires at least one non-whitespace progress field
 bin/tusk jot write <category> "<note>" [--file <path>] [--skill <name>] [--task-id <id>] [--skill-run-id <id>]   # capture mid-task friction at the source; explicit identity wins, then caller worktree, then the sole open run; ambiguous targets fail; `jot <category> <note>` remains a compatibility shorthand
-bin/tusk jots [--skill-run-id <id>] [--task-id <id>] [--limit N]    # list jots filtered by skill_run_id and/or task_id (newest-first JSON array)
+bin/tusk jots [--skill-run-id <id>] [--task-id <id>] [--triage-status pending|promoted|dismissed|all] [--limit N]  # triage filter adds context ID and disposition; no filter preserves legacy output
+bin/tusk jot promote <jot-id> --to <provenance-ref>  # attach an existing decision/risk context, criterion or task; identical retry is safe
+bin/tusk jot dismiss <jot-id> --reason "<rationale>"  # retain original observation and terminal dismissal reason
 bin/tusk bakeoff <task_id> --models m1,m2[,mN] [--workspace-root <path>] [--claude-bin <path>] [--dry-run]  # run the same task under N models in parallel worktrees and emit a side-by-side report
 bin/tusk bakeoff pick <bakeoff_id> <shadow_id> [--rebase]   # merge the chosen shadow's branch into the source task's base branch, close the source session, mark source Done (completed), and delete sibling shadow rows + worktrees. --rebase mirrors `tusk merge --rebase`: rebase chosen shadow onto default before the ff-only merge when the default branch has advanced during the bakeoff
 bin/tusk bakeoff discard <bakeoff_id>            # throw every shadow for this bakeoff away — delete shadow rows + force-remove worktrees; source task left untouched
