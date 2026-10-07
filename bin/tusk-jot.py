@@ -6,7 +6,7 @@ output, a workaround taken, a missing skill — instead of relying on hours-
 old conversation memory at retro time. /retro reads jots for the parent
 /tusk skill_run before doing its own analysis (issue #541).
 
-Two subcommands share this script. The bin/tusk dispatcher routes:
+Capture, listing, and triage share this script. The bin/tusk dispatcher routes:
 
     tusk jot write <category> "<note>" [--file <path>] [--skill <name>]
         [--task-id <id>] [--skill-run-id <id>]
@@ -14,7 +14,10 @@ Two subcommands share this script. The bin/tusk dispatcher routes:
         [--task-id <id>] [--skill-run-id <id>]  # shorthand
         → tusk-jot.py write <category> <note> [--file ...] [--skill ...]
 
+    tusk jot promote <jot-id> --to <existing-provenance-ref>
+    tusk jot dismiss <jot-id> --reason "<reason>"
     tusk jots [--skill-run-id <id>] [--task-id <id>] [--limit N]
+        [--triage-status pending|promoted|dismissed|all]
         → tusk-jot.py list [--skill-run-id ...] [--task-id ...] [--limit N]
 
 `write` accepts an explicit skill-run or task identity. Without one, it uses
@@ -199,6 +202,7 @@ def list_jots(
     skill_run_id: int | None,
     task_id: int | None,
     limit: int,
+    triage_status: str | None = None,
 ) -> list[dict]:
     """Return jots filtered by skill_run_id, task_id, or both.
 
@@ -206,6 +210,22 @@ def list_jots(
     (useful for ad-hoc inspection — /retro should always pass at least
     one filter).
     """
+    if triage_status is not None:
+        clauses, params = [], []
+        for column, value in (("skill_run_id", skill_run_id), ("task_id", task_id)):
+            if value is not None:
+                clauses.append(f"c.{column}=?")
+                params.append(value)
+        if triage_status != "all":
+            clauses.append("c.triage_status=?")
+            params.append(triage_status)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        rows = conn.execute(
+            "SELECT j.*,c.id AS context_id,c.triage_status FROM jots j "
+            "JOIN jot_aliases a ON a.id=j.id JOIN task_context_items c ON c.id=a.context_id"
+            + where + " ORDER BY j.created_at DESC,j.id DESC LIMIT ?", (*params, limit)).fetchall()
+        triage = tusk_loader.load("tusk-observation-triage")
+        return [dict(row, disposition=triage.details(conn, row["context_id"])) for row in rows]
     where_clauses = []
     params: list = []
     if skill_run_id is not None:
@@ -260,10 +280,37 @@ def main(argv: list) -> int:
     ls.add_argument("--task-id", type=int, default=None)
     ls.add_argument("--limit", type=int, default=100)
 
+    ls.add_argument("--triage-status", choices=("pending", "promoted", "dismissed", "all"))
+    promote = sub.add_parser("promote", allow_abbrev=False, help="Bind an existing decision/risk, criterion, or task outcome.")
+    promote.add_argument("jot_id", type=int)
+    promote.add_argument("--to", required=True)
+    dismiss = sub.add_parser("dismiss", allow_abbrev=False, help="Dismiss an observation with a reason.")
+    dismiss.add_argument("jot_id", type=int)
+    dismiss.add_argument("--reason", required=True)
+
+    if argv[2:] in (["--help"], ["-h"]):
+        parser.print_help()
+        print()
+        w.print_help()  # Keep the capture syntax visible alongside triage.
+        return 0
     args = parser.parse_args(argv[2:])
 
     conn = get_connection(db_path)
     try:
+        if args.mode in ("promote", "dismiss"):
+            try:
+                reason = args.reason if args.mode == "dismiss" else None
+                if reason is not None:
+                    ok, diagnostic = reject_shell_metacharacters(reason, subject="dismissal reason")
+                    if not ok:
+                        raise ValueError(diagnostic)
+                result = tusk_loader.load("tusk-observation-triage").apply(
+                    conn, args.jot_id, destination=args.to if args.mode == "promote" else None, reason=reason)
+                print(dumps(result))
+                return 0
+            except (ValueError, sqlite3.IntegrityError) as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
         if args.mode == "write":
             if not args.category.strip():
                 print("category must not be empty", file=sys.stderr)
@@ -309,6 +356,7 @@ def main(argv: list) -> int:
                 skill_run_id=args.skill_run_id,
                 task_id=args.task_id,
                 limit=args.limit,
+                triage_status=args.triage_status,
             )
             print(dumps(rows))
             return 0

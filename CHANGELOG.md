@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1289] - 2026-10-07
+
+- [TASK-905] Add durable observation triage to CLI and Claude/Codex retrospectives
+
 ## [1288] - 2026-10-07
 
 - [TASK-904] Consolidate jot storage into context observations without losing history

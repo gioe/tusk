@@ -55,6 +55,7 @@
   ".claude/bin/tusk-migrate.py",
   ".claude/bin/tusk-objective.py",
   ".claude/bin/tusk-observation-lib.py",
+  ".claude/bin/tusk-observation-triage.py",
   ".claude/bin/tusk-path-lib.py",
   ".claude/bin/tusk-pillars.py",
   ".claude/bin/tusk-plans.py",

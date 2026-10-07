@@ -1425,12 +1425,14 @@ try:
     conn.executescript("BEGIN IMMEDIATE;\n" + provenance.schema_v89_sql()
                        + provenance.schema_v90_sql() + actions.schema_v91_sql() + evidence.schema_v92_sql() + "\nCOMMIT;")
     tusk_loader.load("tusk-observation-lib").upgrade_schema(conn)  # tusk-observation-lib.py owns schema 93
+    # tusk-observation-triage.py owns schema 94.
+    conn.executescript("BEGIN IMMEDIATE;\n" + tusk_loader.load("tusk-observation-triage").schema_v94_sql() + "\nPRAGMA user_version=94;\nCOMMIT;")
 finally:
     conn.close()
 PROVENANCE_SCHEMA
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 93;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 94;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."
@@ -2280,6 +2282,19 @@ case "${1:-}" in
   skill-run) shift; exec python3 "$SCRIPT_DIR/tusk-skill-run.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
   jot)
     shift
+    if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+      exec python3 "$SCRIPT_DIR/tusk-jot.py" "$DB_PATH" "$(resolve_config)" "$@"
+    fi
+    # Outcome flags or explicit help select triage operations; ordinary
+    # legacy categories named promote/dismiss remain writable.
+    if [[ "${1:-}" == "promote" || "${1:-}" == "dismiss" ]]; then
+      for _jot_arg in "${@:2}"; do
+        case "$_jot_arg" in
+          --to|--to=*|--reason|--reason=*|--help)
+            exec python3 "$SCRIPT_DIR/tusk-jot.py" "$DB_PATH" "$(resolve_config)" "$@" ;;
+        esac
+      done
+    fi
     # Accept the documented `tusk jot write <category> <note>` form while
     # preserving the original `tusk jot <category> <note>` shorthand. Count
     # positional operands without option/value pairs so `write` can remain a

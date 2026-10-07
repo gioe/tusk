@@ -3783,6 +3783,18 @@ def migrate_93(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 93: consolidated jots into observation context atoms")
 
 
+def migrate_94(db_path: str, config_path: str, script_dir: str) -> None:
+    """Record immutable promotion/dismissal outcomes for observations."""
+    if get_version(db_path) >= 94:
+        return
+    sys.path.insert(0, script_dir)
+    import tusk_loader
+    triage = tusk_loader.load("tusk-observation-triage")
+    run_script(db_path, "BEGIN IMMEDIATE;\n" + triage.schema_v94_sql()
+               + "\nPRAGMA user_version = 94;\nCOMMIT;")
+    _progress("  Migration 94: added durable observation dispositions")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -3879,6 +3891,7 @@ MIGRATIONS = [
     (91, migrate_91),
     (92, migrate_92),
     (93, migrate_93),
+    (94, migrate_94),
 ]
 
 
