@@ -177,14 +177,10 @@ def write_jot(
             "'tusk skill-run start <skill_name>' or 'tusk task-start <id> --skill <name>' first"
         )
 
-    cursor = conn.execute(
-        "INSERT INTO jots "
-        "  (skill_run_id, task_id, category, note, file_hint, skill_hint) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (active["id"], active["task_id"], category, note, file_hint, skill_hint),
+    new_id = tusk_loader.load("tusk-observation-lib").insert_observation(
+        conn, skill_run_id=active["id"], task_id=active["task_id"],
+        category=category, note=note, file_hint=file_hint, skill_hint=skill_hint,
     )
-    conn.commit()
-    new_id = cursor.lastrowid
 
     row = conn.execute(
         "SELECT id, skill_run_id, task_id, category, note, "
@@ -192,7 +188,9 @@ def write_jot(
         "  FROM jots WHERE id = ?",
         (new_id,),
     ).fetchone()
-    return dict(row)
+    result = dict(row)
+    conn.commit()
+    return result
 
 
 def list_jots(

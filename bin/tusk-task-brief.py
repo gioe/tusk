@@ -585,7 +585,7 @@ def build_brief(conn: sqlite3.Connection, task_id: int, repo_root: str, provenan
         conn.execute(
             "SELECT id, task_id, objective_id, item_type, content, status, source, "
             "created_at, updated_at, resolved_at "
-            "FROM task_context_items WHERE task_id = ? AND status = 'active' "
+            "FROM task_context_items WHERE task_id = ? AND status = 'active' AND item_type <> 'observation' "
             "ORDER BY item_type, id",
             (task_id,),
         ).fetchall()

@@ -1424,12 +1424,13 @@ conn = db.get_connection(sys.argv[1])
 try:
     conn.executescript("BEGIN IMMEDIATE;\n" + provenance.schema_v89_sql()
                        + provenance.schema_v90_sql() + actions.schema_v91_sql() + evidence.schema_v92_sql() + "\nCOMMIT;")
+    tusk_loader.load("tusk-observation-lib").upgrade_schema(conn)  # tusk-observation-lib.py owns schema 93
 finally:
     conn.close()
 PROVENANCE_SCHEMA
 
   # Set schema version so fresh DBs never need migration
-  sqlite3 "$DB_PATH" "PRAGMA user_version = 92;"
+  sqlite3 "$DB_PATH" "PRAGMA user_version = 93;"
 
   echo "Initialized task database at $DB_PATH"
   echo "Note: tusk/tasks.db is local-only — not synced across machines."

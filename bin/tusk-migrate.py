@@ -3769,6 +3769,20 @@ def migrate_92(db_path: str, config_path: str, script_dir: str) -> None:
     _progress("  Migration 92: added revision-bound evidence")
 
 
+def migrate_93(db_path: str, config_path: str, script_dir: str) -> None:
+    """Consolidate jot content into observation atoms with stable aliases."""
+    if get_version(db_path) >= 93:
+        return
+    sys.path.insert(0, script_dir)
+    import tusk_loader
+    conn = db_connect(db_path)
+    try:
+        tusk_loader.load("tusk-observation-lib").upgrade_schema(conn)
+    finally:
+        conn.close()
+    _progress("  Migration 93: consolidated jots into observation context atoms")
+
+
 # ── Migration registry ────────────────────────────────────────────────────────
 
 MIGRATIONS = [
@@ -3864,6 +3878,7 @@ MIGRATIONS = [
     (90, migrate_90),
     (91, migrate_91),
     (92, migrate_92),
+    (93, migrate_93),
 ]
 
 

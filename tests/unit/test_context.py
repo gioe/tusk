@@ -50,7 +50,15 @@ def _make_db(tmp_path):
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.executescript(_SCHEMA)
+    conn.executescript(_SCHEMA + """
+CREATE TABLE skill_runs (id INTEGER PRIMARY KEY);
+CREATE TABLE jots (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,skill_run_id INTEGER NOT NULL,task_id INTEGER,
+ category TEXT NOT NULL,note TEXT NOT NULL,file_hint TEXT,skill_hint TEXT,
+ created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+""")
+    mod.tusk_loader.load("tusk-observation-lib").upgrade_schema(conn)
     conn.execute("INSERT INTO tasks (id, summary) VALUES (42, 'parent task')")
     conn.execute("INSERT INTO objectives (id, summary) VALUES (7, 'larger intent')")
     conn.commit()
@@ -201,3 +209,29 @@ def test_argparse_rejects_invalid_type_and_status(tmp_path):
     assert "invalid choice" in bad_type.stderr
     assert bad_status.returncode == 2
     assert "invalid choice" in bad_status.stderr
+
+
+def test_observation_requires_capture_and_explicit_listing(tmp_path):
+    db_path, conn = _make_db(tmp_path)
+    conn.execute("INSERT INTO skill_runs(id) VALUES (1)")
+    conn.execute("INSERT INTO jots(skill_run_id,task_id,category,note) VALUES (1,42,'friction','Needs triage')")
+    conn.commit()
+    atom = conn.execute("SELECT context_id FROM jot_aliases").fetchone()[0]
+    listed = _run_cli(db_path, "list", "42")
+    assert listed.returncode == 0, listed.stderr
+    assert json.loads(listed.stdout) == []
+    observations = _run_cli(db_path, "list", "42", "--type", "observation")
+    assert observations.returncode == 0, observations.stderr
+    row = json.loads(observations.stdout)[0]
+    assert row["id"] == atom
+    assert row["triage_status"] == "pending"
+    assert row["skill_run_id"] == 1
+    assert row["category"] == "friction"
+    rejected = _run_cli(db_path,"add","42","--type","observation","--content","Bypass")
+    assert rejected.returncode == 1
+    assert "tusk jot write" in rejected.stderr
+    for action in ("resolve", "supersede"):
+        rejected = _run_cli(db_path, action, str(atom))
+        assert rejected.returncode == 1
+        assert "not triage" in rejected.stderr
+    assert conn.execute("SELECT status,triage_status FROM task_context_items WHERE id=?",(atom,)).fetchone()[:] == ("active","pending")

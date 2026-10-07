@@ -218,7 +218,7 @@ def cmd_brief(args: argparse.Namespace, conn: sqlite3.Connection) -> dict:
             "SELECT id, task_id, objective_id, item_type, content, status, source, "
             "       created_at, updated_at, resolved_at "
             "  FROM task_context_items "
-            " WHERE objective_id = ? AND status = 'active' "
+            " WHERE objective_id = ? AND status = 'active' AND item_type <> 'observation' "
             " ORDER BY item_type, id",
             (objective_id,),
         ).fetchall()

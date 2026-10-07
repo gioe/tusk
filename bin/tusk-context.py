@@ -35,7 +35,7 @@ get_connection = _action.get_connection
 reject_shell_metacharacters = _git_helpers.reject_shell_metacharacters
 
 
-ITEM_TYPES = ("memory", "assumption", "question", "risk", "decision", "entry_point")
+ITEM_TYPES = ("memory", "assumption", "question", "risk", "decision", "entry_point", "observation")
 STATUSES = ("active", "resolved", "superseded")
 SOURCES = ("manual", "create_task", "task_progress", "review", "retro", "agent_handoff")
 
@@ -115,6 +115,8 @@ def _format_text(rows: list[dict]) -> str:
 
 
 def cmd_add(args: argparse.Namespace, conn: sqlite3.Connection) -> dict:
+    if args.item_type == "observation":
+        raise ValueError("capture observations with 'tusk jot write' to preserve skill-run attribution")
     task_id = _parse_task_id(args.task_id)
     content = (args.content or "").strip()
     if not content:
@@ -145,13 +147,16 @@ def cmd_list(args: argparse.Namespace, conn: sqlite3.Connection) -> list[dict]:
     if args.item_type is not None:
         where.append("item_type = ?")
         params.append(args.item_type)
+    else:
+        where.append("item_type <> 'observation'")
     if args.status != "all":
         where.append("status = ?")
         params.append(args.status)
 
+    observation_columns = ", skill_run_id, category, file_hint, skill_hint, triage_status" if args.item_type == "observation" else ""
     rows = conn.execute(
         "SELECT id, task_id, objective_id, item_type, content, status, source, "
-        "       created_at, updated_at, resolved_at "
+        f"       created_at, updated_at, resolved_at{observation_columns} "
         "  FROM task_context_items "
         f" WHERE {' AND '.join(where)} "
         " ORDER BY item_type, created_at, id",
@@ -167,7 +172,9 @@ def _update_status(
     status: str,
 ) -> dict:
     item_id = int(args.context_item_id)
-    _fetch_context_item(conn, item_id)
+    item = _fetch_context_item(conn, item_id)
+    if item["item_type"] == "observation":
+        raise ValueError("observations require promotion or dismissal; context status is not triage")
     conn.execute(
         "UPDATE task_context_items "
         "   SET status = ?, updated_at = datetime('now'), resolved_at = datetime('now') "

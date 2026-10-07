@@ -77,7 +77,15 @@ def _make_db(tmp_path, *, with_open_run=True):
     # FK enforcement is off by default per-connection — turn it on so the
     # CASCADE test exercises the real production-shape behavior.
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.executescript(_SCHEMA)
+    conn.executescript(_SCHEMA + """
+CREATE TABLE objectives (id INTEGER PRIMARY KEY);
+CREATE TABLE task_context_items (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,task_id INTEGER NOT NULL,objective_id INTEGER,
+ item_type TEXT NOT NULL,content TEXT NOT NULL,status TEXT DEFAULT 'active',source TEXT DEFAULT 'manual',
+ created_at TEXT DEFAULT (datetime('now')),updated_at TEXT DEFAULT (datetime('now')),resolved_at TEXT
+);
+""")
+    mod.tusk_loader.load("tusk-observation-lib").upgrade_schema(conn)
     conn.execute("INSERT INTO tasks (id, summary) VALUES (42, 'parent task')")
     if with_open_run:
         conn.execute(
