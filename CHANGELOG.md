@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1290] - 2026-10-07
+
+- [TASK-906] Exclude addressed observations from recurring-friction work proposals
+
 ## [1289] - 2026-10-07
 
 - [TASK-905] Add durable observation triage to CLI and Claude/Codex retrospectives

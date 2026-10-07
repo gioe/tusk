@@ -59,13 +59,17 @@ CREATE TABLE retro_findings (
     action_taken TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE TABLE jots (
+CREATE TABLE task_context_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    skill_run_id INTEGER NOT NULL,
-    task_id INTEGER,
-    category TEXT NOT NULL,
-    note TEXT NOT NULL,
+    item_type TEXT NOT NULL DEFAULT 'observation',
+    triage_status TEXT DEFAULT 'pending',
+    category TEXT,
+    content TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE jot_aliases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    context_id INTEGER NOT NULL UNIQUE
 );
 CREATE TABLE task_sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -122,12 +126,14 @@ def _add_next_steps(conn, task_id, next_steps):
     conn.commit()
 
 
-def _add_jot(conn, category, note):
-    conn.execute(
-        "INSERT INTO jots (skill_run_id, category, note) VALUES (1, ?, ?)",
-        (category, note),
-    )
+def _add_jot(conn, category, note, *, triage_status="pending"):
+    context_id = conn.execute(
+        "INSERT INTO task_context_items (category, content, triage_status) VALUES (?, ?, ?)",
+        (category, note, triage_status),
+    ).lastrowid
+    conn.execute("INSERT INTO jot_aliases(context_id) VALUES (?)", (context_id,))
     conn.commit()
+    return context_id
 
 
 # ---------------------------------------------------------------------------

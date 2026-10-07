@@ -27,7 +27,7 @@ Signal sources (each carries a distinct `source` label):
                    (reuses tusk-retro-patches.py's fetch_patches()).
     next_steps   — unconsumed task_progress.next_steps handoff notes whose
                    originating task is still open (not Done).
-    jot_category — recurring jot categories (>= a recurrence floor), the
+    jot_category — recurring pending observation categories (>= a recurrence floor), the
                    highest-friction themes captured at the source.
     todo_scan    — TODO/FIXME/HACK/XXX comments found by a repo filesystem scan
                    (reuses tusk-init-scan-todos.py's scan()).
@@ -188,47 +188,54 @@ def propose_next_steps(conn):
 
 
 def propose_jot_categories(conn, *, recurrence_floor=JOT_RECURRENCE_FLOOR):
-    """Recurring jot categories (count >= floor) → friction-theme proposals.
+    """Pending observation categories → friction proposals with native evidence.
 
-    A jot category that keeps recurring is a friction pattern the operator hits
-    repeatedly. Score scales with recurrence: the more often it shows up, the
-    stronger the case for addressing it."""
+    Read counts, sample and contributor identities in one snapshot so concurrent
+    triage cannot leave a count paired with already-consumed evidence. Aliases
+    name the same observation; they never contribute another occurrence.
+    """
     rows = conn.execute(
         """
-        SELECT category,
-               COUNT(*) AS cnt,
-               (SELECT note FROM jots j2
-                 WHERE j2.category IS jots.category
-                 ORDER BY j2.created_at DESC, j2.id DESC
-                 LIMIT 1) AS sample_note
-          FROM jots
-         GROUP BY category
-        HAVING COUNT(*) >= ?
-         ORDER BY cnt DESC, category
-        """,
-        (recurrence_floor,),
+        SELECT c.id, c.category, c.content, a.id AS jot_id
+          FROM task_context_items c
+          LEFT JOIN jot_aliases a ON a.context_id = c.id
+         WHERE c.item_type = 'observation' AND c.triage_status = 'pending'
+         ORDER BY c.category, c.created_at DESC, c.id DESC
+        """
     ).fetchall()
+    categories = {}
+    for row in rows:
+        categories.setdefault(row["category"], []).append(row)
     proposals = []
     base = SOURCE_BASE_SCORE["jot_category"]
-    for r in rows:
-        cnt = int(r["cnt"])
-        # +5 per occurrence beyond the floor.
+    for category, contributors in sorted(
+        categories.items(), key=lambda item: (-len(item[1]), item[0])
+    ):
+        cnt = len(contributors)
+        if cnt < recurrence_floor:
+            continue
+        # Keep the existing recurrence floor and +5 scaling.
         score = base + (cnt - recurrence_floor) * 5.0
         proposals.append({
             "source": "jot_category",
             "score": round(score, 2),
             "title": _compact(
-                f"Address recurring '{r['category']}' friction ({cnt}x)",
-                _TITLE_MAX,
+                f"Address recurring '{category}' friction ({cnt}x)", _TITLE_MAX
             ),
             "detail": _compact(
-                f"{cnt} jots in category '{r['category']}'. "
-                f"Latest: {r['sample_note']}",
-                _DETAIL_MAX,
+                f"{cnt} pending observations in category '{category}'. "
+                f"Latest: {contributors[0]['content']}", _DETAIL_MAX,
             ),
             "evidence": {
-                "category": r["category"],
+                "category": category,
                 "count": cnt,
+                # Project-local native identities work even before explicit
+                # provenance registration. Do not fabricate tusk references.
+                "contributors": [
+                    {"kind": "context", "native_id": row["id"],
+                     "jot_id": row["jot_id"]}
+                    for row in contributors
+                ],
             },
         })
     return proposals
@@ -378,7 +385,7 @@ def main(argv):
         prog="tusk propose-work",
         description=(
             "Aggregate origination signals (unconfirmed skill patches, "
-            "unconsumed next_steps, recurring jot categories, and a repo "
+            "unconsumed next_steps, recurring pending observations, and a repo "
             "TODO/FIXME scan) into a ranked JSON array of candidate proposals. "
             "Read-only — never inserts tasks."
         ),
