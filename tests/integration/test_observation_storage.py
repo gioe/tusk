@@ -217,3 +217,21 @@ def test_failed_migration_rolls_back_legacy_history(legacy, config_path):
         assert list(conn.iterdump()) == before
         assert conn.execute('PRAGMA user_version').fetchone()[0] == 92
     assert run(legacy, 'provenance', 'get', ref['ref']) == ref
+
+
+def test_unrelated_legacy_fk_violation_does_not_block_migration(legacy, config_path):
+    with sqlite3.connect(legacy) as conn:
+        conn.execute("INSERT INTO test_runs(task_id,test_command,elapsed_seconds) VALUES(999,'legacy test',1.5)")
+        conn.commit()
+        historical_run = conn.execute('SELECT * FROM test_runs').fetchall()
+        legacy_notes = conn.execute('SELECT * FROM jots ORDER BY id').fetchall()
+        existing_violations = conn.execute('PRAGMA foreign_key_check').fetchall()
+        assert existing_violations and {row[0] for row in existing_violations} == {'test_runs'}
+    migration().migrate_93(str(legacy), config_path, str(ROOT / 'bin'))
+    with sqlite3.connect(legacy) as conn:
+        assert conn.execute('PRAGMA user_version').fetchone()[0] == 93
+        assert conn.execute('SELECT * FROM test_runs').fetchall() == historical_run
+        assert conn.execute('SELECT * FROM jots ORDER BY id').fetchall() == legacy_notes
+        assert conn.execute('PRAGMA foreign_key_check').fetchall() == existing_violations
+        assert not conn.execute('PRAGMA foreign_key_check(task_context_items)').fetchall()
+        assert not conn.execute('PRAGMA foreign_key_check(jot_aliases)').fetchall()

@@ -97,7 +97,12 @@ def upgrade_schema(conn):
         conn.execute('BEGIN IMMEDIATE')
         if conn.execute('PRAGMA user_version').fetchone()[0] < 93:
             _upgrade_locked(conn)
-        violations = conn.execute('PRAGMA foreign_key_check').fetchall()
+        # Validate the storage this migration owns. Other historical tables
+        # may already contain unrelated dangling rows; they cannot make a
+        # lossless observation upgrade fail.
+        violations = []
+        for table in ('task_context_items', 'jot_aliases'):
+            violations.extend(conn.execute(f'PRAGMA foreign_key_check({table})').fetchall())
         if violations:
             raise ValueError('observation migration encountered foreign-key violations')
         conn.commit()
