@@ -147,22 +147,29 @@ A many-to-many link between objectives and tasks. A task may contribute to more 
 
 ### Task Context Item
 
-A typed context atom attached to a task, optionally scoped to an objective. Context items capture durable context snapshots that are too granular for `tasks.description` and not path declarations like `task_scope`: assumptions, questions, risks, decisions, memory, and entry points for the next agent.
+A typed context atom attached to a task, optionally scoped to an objective. Context items capture durable context snapshots that are too granular for `tasks.description` and not path declarations like `task_scope`: assumptions, questions, risks, decisions, memory, and entry points for the next agent. Since schema 93, observations captured through `jot` also live here; they are pending triage evidence, excluded from active guidance.
 
 | Attribute | Type | Constraints | Description |
 |-----------|------|-------------|-------------|
 | `id` | INTEGER | PK, autoincrement | Stable identifier |
-| `task_id` | INTEGER | FK -> tasks(id) CASCADE | Owning task |
+| `task_id` | INTEGER | FK -> tasks(id) SET NULL; required except observations | Owning task. A deletion trigger removes ordinary context before task deletion; observations retain null ownership |
 | `objective_id` | INTEGER | FK -> objectives(id) SET NULL | Optional larger intent this context supports |
-| `item_type` | TEXT | CHECK IN (`memory`, `assumption`, `question`, `risk`, `decision`, `entry_point`) | Kind of handoff atom |
+| `item_type` | TEXT | CHECK IN (`memory`, `assumption`, `question`, `risk`, `decision`, `entry_point`, `observation`) | Kind of handoff atom |
 | `content` | TEXT | NOT NULL | The context payload |
 | `status` | TEXT | CHECK IN (`active`, `resolved`, `superseded`); default `active` | Whether the atom is still useful |
 | `source` | TEXT | CHECK IN (`manual`, `create_task`, `task_progress`, `review`, `retro`, `agent_handoff`); default `manual` | Where the atom came from |
 | `created_at` | TEXT | NOT NULL; default now | Creation timestamp |
 | `updated_at` | TEXT | NOT NULL; default now | Last metadata update timestamp |
 | `resolved_at` | TEXT | nullable | When the atom stopped being active |
+| `skill_run_id` | INTEGER | FK -> skill_runs(id) CASCADE; required for observations, NULL otherwise | Originating capture run |
+| `category` | TEXT | Required for observations, NULL otherwise | Free-text preclassification hint |
+| `file_hint`, `skill_hint` | TEXT | Nullable; observation-only | Optional capture hints |
+| `triage_status` | TEXT | CHECK IN (`pending`, `promoted`, `dismissed`); required for observations, NULL otherwise | Observation disposition, independent of ordinary context status |
+
 
 **Lifecycle expectations:** context items are append-friendly handoff records. Prefer creating a new `decision` or `memory` atom over rewriting history when the meaning changed. Mark questions, risks, or assumptions `resolved` when addressed; mark any atom `superseded` when newer context replaces it. This keeps the read path cheap: `/tusk` can load active context atoms for the current task and objective without rereading every progress note or overloading the task description.
+
+**Observation boundary (schema 93):** capture observations with `tusk jot write`, which requires an open skill run and begins with `triage_status=pending`. Generic `context add` cannot create observations, and `context resolve`/`supersede` cannot triage them. Use `context list <task_id> --type observation` to inspect their context identities and capture metadata; the default context list and task/objective briefs exclude observations regardless of disposition. A promoted decision or risk is a separate ordinary context atom. Promotion/dismissal commands and retro orchestration are follow-up work (TASK-905); pending-only recurring-work proposals are TASK-906. Existing `jots` listing and proposal readers keep their prior semantics in this release.
 
 **Modeling boundary:** objectives are larger intent units, tasks are shippable work units, acceptance criteria are completion units, verification results are proof units, and task context items are memory units. Use the smallest unit that matches the job: a new requirement belongs in a task or criterion, while a fact that helps the next agent understand the work belongs in `task_context_items`.
 
@@ -847,9 +854,9 @@ One row per approved finding emitted by `/retro` on close. Populated by the skil
 
 ---
 
-### Jot
+### Jot (compatibility identity and view, schema 93)
 
-One row per mid-task friction note captured via `tusk jot`. Solves the problem that retro fidelity decays with task length: by close time on M/L/XL tasks, the implementer has to reconstruct hours-old friction from working memory. A `tusk jot write <category> "<note>"` call writes the observation at the moment it happens. `--skill-run-id` selects an exact open run; `--task-id` selects the task's unique open run; without either option, a recorded caller worktree selects its owning task's unique open run. The sole globally-open run remains a compatibility fallback, while any ambiguous target fails without inserting a row. The original `tusk jot <category> "<note>"` form remains a compatibility shorthand. `/retro` reads jots for the parent /tusk run via `tusk jots --task-id $RETRO_TASK_ID` before doing its own conversation analysis, treating each row as a pre-classified finding candidate (issues #541 and #1313).
+One compatibility identity per mid-task friction observation captured via `tusk jot`. Content and capture metadata are stored once in `task_context_items`; `jot_aliases` maps its independent autoincrement `id` to a unique `context_id`, and `jots` projects the existing eight-column interface. Solves the problem that retro fidelity decays with task length: by close time on M/L/XL tasks, the implementer has to reconstruct hours-old friction from working memory. A `tusk jot write <category> "<note>"` call writes the observation at the moment it happens. `--skill-run-id` selects an exact open run; `--task-id` selects the task's unique open run; without either option, a recorded caller worktree selects its owning task's unique open run. The sole globally-open run remains a compatibility fallback, while any ambiguous target fails without inserting a row. The original `tusk jot <category> "<note>"` form remains a compatibility shorthand. `/retro` reads jots for the parent /tusk run via `tusk jots --task-id $RETRO_TASK_ID` before doing its own conversation analysis, treating each row as a pre-classified finding candidate (issues #541 and #1313).
 
 | Attribute | Type | Constraints | Description |
 |-----------|------|-------------|-------------|
@@ -862,7 +869,11 @@ One row per mid-task friction note captured via `tusk jot`. Solves the problem t
 | `skill_hint` | TEXT | nullable | Optional skill name the jot is about (passed via `--skill`) — same purpose as `file_hint` for skill-surface friction |
 | `created_at` | TEXT | NOT NULL, default now | When the jot was captured |
 
-**Indexes:** `idx_jots_skill_run_id`, `idx_jots_task_id`, `idx_jots_category`.
+**Storage and indexes:** `jots` is a view, not another note store. `jot_aliases.context_id` is unique and cascades on context deletion. Context task/type indexes plus `idx_observation_skill_run` and `idx_observation_category_triage` support readers. Compatibility SQL triggers forward inserts, updates and deletes to the underlying observation; the public CLI remains the normal write interface.
+
+**Identity and retention:** a jot ID and context ID are independent, even when their numbers happen to match. Alias identities cannot be rebound. Existing `kind=jot` provenance references continue resolving through `jots`; deleting an observation deletes its alias and tombstones registered identities. Ordinary context still disappears with its task. Observations survive task deletion with null ownership, including observations captured by taskless runs, but disappear when their originating skill run is deleted.
+
+**Migration 93:** fresh initialization and upgrades use the same transformation. Existing context IDs and historical jot IDs remain intact; notes, hints, attribution and timestamps are copied without reconstructing missing history. The allocator preserves the old jot and context sequence high-water marks, including deleted highest IDs, so subsequent captures cannot reuse those identities. References, causal links and historical receipts are retained unchanged. Migration is transactional and repeat invocation is a no-op after version 93.
 
 ---
 
