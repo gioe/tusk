@@ -9,9 +9,16 @@ model: sonnet
 
 Runs the autonomous backlog loop via the `tusk loop` CLI command. Queries the highest-priority ready task, dispatches it to `/chain` (if it has dependents) or `/tusk` (standalone), and repeats until the backlog is empty or a stop condition is met.
 
-**Drain-then-propose:** when the backlog drains (no ready task remains), `tusk loop` does not stop silently — it runs `tusk propose-work` and surfaces the ranked origination candidates (unconfirmed skill patches, unconsumed next_steps, recurring jot categories, repo TODO/FIXME scan, cost outliers) for the operator to review. These proposals are **surfaced only — never auto-created**. Task origination stays behind the human gate: review the candidates and create the ones worth doing via `/create-task`. The loop never inserts a task on its own.
+**Drain-then-propose:** when the backlog drains (no ready task remains), `tusk loop` does not stop silently — it runs `tusk propose-work` and surfaces the ranked origination candidates (unconfirmed skill patches, unconsumed next_steps, recurring pending observation categories, repo TODO/FIXME scan, cost outliers) for the operator to review. These proposals are **surfaced only — never auto-created**. Task origination stays behind the human gate: review the candidates and create the ones worth doing via `/create-task`. The loop never inserts a task on its own.
 
 > Use `/create-task` for task creation — handles decomposition, deduplication, criteria, and deps. Use `tusk task-insert` only for bulk/automated inserts.
+
+Recurring friction uses only pending observations. Promoted or dismissed notes
+stop contributing; fresh pending captures can meet the recurrence threshold
+again. The `jot_category` evidence includes native context IDs and jot aliases
+in `contributors` so the operator can inspect the exact source notes. These
+are project-local IDs, not full provenance refs. Proposal generation is
+read-only and does not triage notes or create tasks.
 
 ## Usage
 

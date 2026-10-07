@@ -169,7 +169,7 @@ A typed context atom attached to a task, optionally scoped to an objective. Cont
 
 **Lifecycle expectations:** context items are append-friendly handoff records. Prefer creating a new `decision` or `memory` atom over rewriting history when the meaning changed. Mark questions, risks, or assumptions `resolved` when addressed; mark any atom `superseded` when newer context replaces it. This keeps the read path cheap: `/tusk` can load active context atoms for the current task and objective without rereading every progress note or overloading the task description.
 
-**Observation boundary (schema 93):** capture observations with `tusk jot write`, which requires an open skill run and begins with `triage_status=pending`. Generic `context add` cannot create observations, and `context resolve`/`supersede` cannot triage them. Use `context list <task_id> --type observation` to inspect their context identities and capture metadata; the default context list and task/objective briefs exclude observations regardless of disposition. A promoted decision or risk is a separate ordinary context atom. Schema 94 adds explicit promotion/dismissal through `jot promote` and `jot dismiss` and task-scoped pending triage in both retro variants (see below). Pending-only recurring-work proposals remain TASK-906; unfiltered `jots` and proposal readers retain their compatibility semantics.
+**Observation boundary (schema 93):** capture observations with `tusk jot write`, which requires an open skill run and begins with `triage_status=pending`. Generic `context add` cannot create observations, and `context resolve`/`supersede` cannot triage them. Use `context list <task_id> --type observation` to inspect their context identities and capture metadata; the default context list and task/objective briefs exclude observations regardless of disposition. A promoted decision or risk is a separate ordinary context atom. Schema 94 adds explicit promotion/dismissal through `jot promote` and `jot dismiss` and task-scoped pending triage in both retro variants (see below). Recurring-work proposals count only pending observations; unfiltered `jots` retains its historical compatibility output.
 
 **Modeling boundary:** objectives are larger intent units, tasks are shippable work units, acceptance criteria are completion units, verification results are proof units, and task context items are memory units. Use the smallest unit that matches the job: a new requirement belongs in a task or criterion, while a fact that helps the next agent understand the work belongs in `task_context_items`.
 
@@ -874,6 +874,28 @@ One compatibility identity per mid-task friction observation captured via `tusk 
 **Identity and retention:** a jot ID and context ID are independent, even when their numbers happen to match. Alias identities cannot be rebound. Existing `kind=jot` provenance references continue resolving through `jots`; deleting an observation deletes its alias and tombstones registered identities. Ordinary context still disappears with its task. Observations survive task deletion with null ownership, including observations captured by taskless runs, but pending observations disappear when their originating skill run is deleted. Schema 94 retains triaged evidence: deleting its observation or jot alias is refused, including direct SQL with foreign keys disabled. Deleting the originating run is refused when its normal foreign-key cascade reaches triaged evidence. Captured content/category/hints/run/time cannot change after triage. Task/objective deletion can still null ownership; destination deletion leaves its provenance reference as a tombstone.
 
 **Migration 93:** fresh initialization and upgrades use the same transformation. Existing context IDs and historical jot IDs remain intact; notes, hints, attribution and timestamps are copied without reconstructing missing history. The allocator preserves the old jot and context sequence high-water marks, including deleted highest IDs, so subsequent captures cannot reuse those identities. References, causal links and historical receipts are retained unchanged. Migration is transactional and repeat invocation is a no-op after version 93.
+
+
+
+**Recurring-friction proposals:** `tusk propose-work` reads pending observation
+atoms directly, never all historical `jots`. Only rows with
+`item_type=observation` and `triage_status=pending` contribute to category counts
+or the latest sample. Promotion or dismissal removes that occurrence from the
+next proposal; two genuinely new pending captures can reach the existing
+recurrence floor again. The compatibility source label `jot_category`, floor of
+2, score of 55 plus 5 per extra occurrence, and other proposal sources/ranking
+are unchanged. This source remains independent of `--window-days`, which
+applies to skill-patch findings.
+
+Each category's `evidence.contributors` lists `{kind: "context", native_id,
+jot_id}` in newest-first order. These are stable **project-local native IDs**,
+not fabricated full provenance references: `native_id` is the observation's
+context ID and `jot_id` is its compatibility alias (null if absent). Inspect
+with `context list <task-id> --type observation` or filtered `jots`; register the
+context explicitly if a full provenance ref is needed for a later action.
+Counts, sample and contributors come from one read snapshot. Aliases never
+count as extra occurrences, and proposal generation never creates records,
+registers provenance or consumes observations.
 
 
 ### Observation disposition (schema 94)

@@ -106,3 +106,39 @@ def test_contributor_provenance(db_path, capture):
     assert {a['id'] for a in atoms} == {r['native_id'] for r in candidate['evidence']['contributors']}
     with sqlite3.connect(db_path) as conn:
         assert list(conn.iterdump()) == before  # Even provenance registration is forbidden here.
+
+
+def test_capture_triage_proposal_lifecycle(db_path, capture):
+    first = capture('Observed during the first execution')
+    second = capture('Observed again during execution')
+    original = run(db_path, 'jots', '--task-id', 1)
+    candidate, = friction(db_path)
+    assert candidate['evidence']['count'] == 2
+    assert {r['jot_id'] for r in candidate['evidence']['contributors']} == {first['id'], second['id']}
+
+    decision = run(db_path, 'context', 'add', 1, '--type', 'decision',
+                   '--source', 'retro', '--content', 'Use the approved workflow')
+    destination = run(db_path, 'provenance', 'register', 'context', decision['id'])['ref']
+    outcome = run(db_path, 'jot', 'promote', first['id'], '--to', destination)
+    assert friction(db_path) == []
+    assert run(db_path, 'jot', 'promote', first['id'], '--to', destination) == outcome
+    dismiss(db_path, second)
+    assert friction(db_path) == []
+    assert run(db_path, 'jots', '--task-id', 1, '--triage-status', 'pending') == []
+    assert run(db_path, 'jots', '--task-id', 1) == original
+
+    third = capture('New friction after the decision')
+    assert friction(db_path) == []
+    fourth = capture('New friction recurs after the decision')
+    recurring, = friction(db_path)
+    assert recurring['evidence']['count'] == 2 and recurring['score'] == 55.0
+    assert {r['jot_id'] for r in recurring['evidence']['contributors']} == {third['id'], fourth['id']}
+    assert 'New friction recurs' in recurring['detail']
+    history = run(db_path, 'jots', '--task-id', 1, '--triage-status', 'all')
+    assert len(history) == 4
+    assert {r['id']: r['triage_status'] for r in history} == {
+        first['id']: 'promoted', second['id']: 'dismissed',
+        third['id']: 'pending', fourth['id']: 'pending',
+    }
+    assert [r for r in run(db_path, 'jots', '--task-id', 1) if r['id'] in {first['id'], second['id']}] == original
+    assert [r['id'] for r in run(db_path, 'context', 'list', 1) if r['item_type'] == 'decision'] == [decision['id']]

@@ -7,7 +7,7 @@ and repeats until the backlog is empty or a stop condition is met.
 **Drain-then-propose:** when the backlog drains (no ready task remains),
 `tusk loop` does not stop silently — it runs `tusk propose-work` and surfaces
 the ranked origination candidates (unconfirmed skill patches, unconsumed
-next_steps, recurring jot categories, repo TODO/FIXME scan, cost outliers)
+next_steps, recurring pending observation categories, repo TODO/FIXME scan, cost outliers)
 for the operator to review. These proposals are **surfaced only — never
 auto-created**. Task origination stays behind the human gate: review the
 candidates and create the worthwhile ones via `/create-task`.
@@ -21,6 +21,13 @@ candidates and create the worthwhile ones via `/create-task`.
 > but every wave is processed sequentially in the current Codex session
 > (see `chain.md`). Do not attempt to launch parallel Codex sessions from
 > within this prompt.
+
+Recurring friction uses only pending observations. Promoted or dismissed notes
+stop contributing; fresh pending captures can meet the recurrence threshold
+again. The `jot_category` evidence includes native context IDs and jot aliases
+in `contributors` so the operator can inspect the exact source notes. These
+are project-local IDs, not full provenance refs. Proposal generation is
+read-only and does not triage notes or create tasks.
 
 ## Usage
 
