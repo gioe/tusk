@@ -556,6 +556,8 @@ JSON blob and the `skill_run.run_id` you already captured.
    **Stalled implementation:** After a reasonable interval without material progress, read [Stalled implementation](tusk-recovery.md#stalled-implementation) before nudging, replacing, or falling back locally. Local fallback for any task size requires that bounded recovery sequence; do not wait indefinitely.
 
 7. **Implement, commit, and mark criteria done.** Work through the
+   acceptance criteria from Step 1 as your checklist — **one commit per
+   criterion is the default**. For each criterion in order:
 
     Capture mid-task friction with `tusk jot write <category> "<note>" --task-id <id> --skill-run-id <run_id>`.
     These are pending observations, not active guidance. Preserve returned jot IDs;
@@ -565,8 +567,7 @@ JSON blob and the `skill_run.run_id` you already captured.
     registering the destination; do not rewrite the observation. Recover the
     saved destination before retrying so interruption cannot duplicate work.
 
-   acceptance criteria from Step 1 as your checklist — **one commit per
-   criterion is the default**. For each criterion in order:
+
 
     **Before committing a file removal or untracking change**, read [Commit recovery](tusk-recovery.md#commit-recovery) and apply its staged-deletion branch before invoking `tusk commit`.
 
