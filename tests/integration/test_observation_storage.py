@@ -149,6 +149,21 @@ def test_legacy_provenance_survives(legacy, config_path):
             with pytest.raises(sqlite3.IntegrityError):
                 conn.execute(sql)
             conn.rollback()
+        # Only the legacy jot identity is registered for this observation.
+        # REPLACE must not silently change its referent under either FK mode.
+        assert conn.execute("SELECT 1 FROM provenance_records WHERE kind='context' AND native_id=?", (atom,)).fetchone() is None
+        for foreign_keys in (0, 1):
+            conn.execute(f'PRAGMA foreign_keys={foreign_keys}')
+            with pytest.raises(sqlite3.IntegrityError, match='observation identity already exists'):
+                conn.execute(
+                    "INSERT OR REPLACE INTO task_context_items "
+                    "(id,task_id,item_type,content,skill_run_id,category,triage_status) "
+                    "SELECT id,task_id,item_type,'Replaced observation',skill_run_id,category,triage_status "
+                    "FROM task_context_items WHERE id=?", (atom,))
+            conn.rollback()
+            assert conn.execute('SELECT context_id FROM jot_aliases WHERE id=4').fetchone()[0] == atom
+            assert conn.execute('SELECT note FROM jots WHERE id=4').fetchone()[0] == 'Edited atom'
+            assert run(legacy, 'provenance', 'get', jot['ref']) == jot
         conn.execute('DELETE FROM jots WHERE id=4')
         assert conn.execute('SELECT 1 FROM task_context_items WHERE id=?', (atom,)).fetchone() is None
     assert run(legacy, 'provenance', 'get', context['ref']) == context

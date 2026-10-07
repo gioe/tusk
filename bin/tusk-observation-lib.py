@@ -43,6 +43,9 @@ CREATE TABLE jot_aliases (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     context_id INTEGER NOT NULL UNIQUE REFERENCES task_context_items(id) ON DELETE CASCADE
 );
+CREATE TRIGGER observation_alias_no_replace BEFORE INSERT ON task_context_items
+WHEN EXISTS (SELECT 1 FROM jot_aliases WHERE context_id=NEW.id)
+BEGIN SELECT RAISE(ABORT,'observation identity already exists'); END;
 CREATE TRIGGER observation_alias_delete BEFORE DELETE ON task_context_items BEGIN
     DELETE FROM jot_aliases WHERE context_id=OLD.id;
 END;
@@ -53,7 +56,7 @@ CREATE TRIGGER observation_task_delete BEFORE DELETE ON tasks BEGIN
     DELETE FROM task_context_items WHERE task_id=OLD.id AND item_type <> 'observation';
 END;
 CREATE TRIGGER jot_alias_no_rebind BEFORE INSERT ON jot_aliases
-WHEN EXISTS (SELECT 1 FROM jot_aliases WHERE context_id=NEW.context_id)
+WHEN EXISTS (SELECT 1 FROM jot_aliases WHERE context_id=NEW.context_id OR id=NEW.id)
 BEGIN SELECT RAISE(ABORT,'observation already has a jot identity'); END;
 CREATE TRIGGER jot_alias_observation_insert BEFORE INSERT ON jot_aliases
 WHEN NOT EXISTS (SELECT 1 FROM task_context_items WHERE id=NEW.context_id AND item_type='observation')

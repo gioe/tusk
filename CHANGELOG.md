@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1288] - 2026-10-07
+
+- [TASK-904] Consolidate jot storage into context observations without losing history
+
 ## [1287] - 2026-10-06
 
 - [TASK-903] Hydrate task briefs with a bounded current provenance slice
