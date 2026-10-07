@@ -50,7 +50,7 @@ CREATE TRIGGER observation_alias_delete BEFORE DELETE ON task_context_items BEGI
     DELETE FROM jot_aliases WHERE context_id=OLD.id;
 END;
 CREATE TRIGGER observation_alias_context_identity BEFORE UPDATE OF id ON task_context_items
-WHEN OLD.id IS NOT NEW.id AND EXISTS (SELECT 1 FROM jot_aliases WHERE context_id=OLD.id)
+WHEN OLD.id IS NOT NEW.id AND EXISTS (SELECT 1 FROM jot_aliases WHERE context_id IN (OLD.id,NEW.id))
 BEGIN SELECT RAISE(ABORT,'observation identity is immutable'); END;
 CREATE TRIGGER observation_task_delete BEFORE DELETE ON tasks BEGIN
     DELETE FROM task_context_items WHERE task_id=OLD.id AND item_type <> 'observation';

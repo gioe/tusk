@@ -164,6 +164,11 @@ def test_legacy_provenance_survives(legacy, config_path):
             assert conn.execute('SELECT context_id FROM jot_aliases WHERE id=4').fetchone()[0] == atom
             assert conn.execute('SELECT note FROM jots WHERE id=4').fetchone()[0] == 'Edited atom'
             assert run(legacy, 'provenance', 'get', jot['ref']) == jot
+        conn.execute('PRAGMA foreign_keys=OFF')
+        with pytest.raises(sqlite3.IntegrityError, match='observation identity is immutable'):
+            conn.execute('UPDATE OR REPLACE task_context_items SET id=? WHERE id=50', (atom,))
+        conn.rollback()
+        assert conn.execute('SELECT note FROM jots WHERE id=4').fetchone()[0] == 'Edited atom'
         conn.execute('DELETE FROM jots WHERE id=4')
         assert conn.execute('SELECT 1 FROM task_context_items WHERE id=?', (atom,)).fetchone() is None
     assert run(legacy, 'provenance', 'get', context['ref']) == context
