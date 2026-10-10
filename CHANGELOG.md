@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1291] - 2026-10-10
+
+- [TASK-907] Add GPT-6 Astra, GPT-6 Sol, GPT-6.1 Sol, and GPT-6 Luna pricing and context windows using OpenAI standard short-context rates (https://developers.openai.com/api/docs/pricing and https://developers.openai.com/api/docs/models/gpt-6-sol).
+
 ## [1290] - 2026-10-07
 
 - [TASK-906] Exclude addressed observations from recurring-friction work proposals
