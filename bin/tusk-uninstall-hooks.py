@@ -20,6 +20,7 @@ without mutating anything.
 import json
 import os
 import sys
+import subprocess
 
 MARKER = "TUSK_HOOK_DISPATCHER_V1"
 EVENTS = ("pre-commit", "pre-push", "commit-msg")
@@ -34,23 +35,37 @@ _LABELS = {
 
 
 def _has_marker(path: str) -> bool:
+    if os.path.islink(path):
+        return False
     try:
         with open(path, "r", errors="replace") as f:
-            return MARKER in f.read()
+            lines = f.read().splitlines()
+            return len(lines) > 1 and lines[1].startswith(f"# {MARKER}")
     except OSError:
         return False
 
 
+def hook_directory(repo_root: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", repo_root, "rev-parse", "--git-path", "hooks"],
+        capture_output=True, text=True, encoding="utf-8",
+    )
+    if result.returncode:
+        return os.path.join(repo_root, ".git", "hooks")
+    path = result.stdout.strip()
+    return path if os.path.isabs(path) else os.path.join(repo_root, path)
+
+
 def uninstall(repo_root: str) -> list:
-    hooks_dir = os.path.join(repo_root, ".git", "hooks")
+    hooks_dir = hook_directory(repo_root)
     results = []
     for event in EVENTS:
         target = os.path.join(hooks_dir, event)
         chained = target + ".pre-tusk"
         entry = {"event": event}
 
-        if not os.path.exists(target):
-            if os.path.exists(chained):
+        if not os.path.lexists(target):
+            if os.path.lexists(chained):
                 os.rename(chained, target)
                 entry["status"] = "restored_chain_only"
             else:
@@ -64,7 +79,7 @@ def uninstall(repo_root: str) -> list:
             continue
 
         os.remove(target)
-        if os.path.exists(chained):
+        if os.path.lexists(chained):
             os.rename(chained, target)
             entry["status"] = "restored_chain"
         else:
@@ -80,7 +95,7 @@ def main() -> int:
     repo_root = sys.argv[1]
     as_json = "--json" in sys.argv[2:]
 
-    hooks_dir = os.path.join(repo_root, ".git", "hooks")
+    hooks_dir = hook_directory(repo_root)
     if not os.path.isdir(hooks_dir):
         msg = f"  Warning: {hooks_dir} not found — nothing to uninstall"
         if as_json:
@@ -95,7 +110,7 @@ def main() -> int:
         print(json.dumps({"hooks_dir": hooks_dir, "results": results}))
     else:
         for r in results:
-            print(f"  .git/hooks/{r['event']}: {_LABELS[r['status']]}")
+            print(f"  {os.path.relpath(hooks_dir, repo_root)}/{r['event']}: {_LABELS[r['status']]}")
     return 0
 
 

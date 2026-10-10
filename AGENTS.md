@@ -247,7 +247,7 @@ Two external library repos ship their own `tusk-bootstrap.json` and are pre-conf
 
 ### Hooks (Git-event only in Codex mode)
 
-`install.sh` populates `hooks/git/<name>.sh` and writes `.git/hooks/<event>` dispatchers in both Claude and Codex modes. Codex installs skip `.claude/hooks/` (no `SessionStart` or `PreToolUse` equivalent — so the Claude-mode agent-time guards, including the SessionStart `surface-skill-patches.sh` hook that runs `tusk retro-patches --window-days 30 --unconfirmed` and prompts the agent to file `skill-patch-confirmed:<file>` retro_findings, are unavailable). See `docs/HOOKS.md` for the dispatcher contract and instructions for adding a new guard.
+`install.sh` and `tusk upgrade` reconcile Git guards and dispatchers in the effective Git hook directory, including linked worktrees and `core.hooksPath`. Use `tusk hooks check` to inspect activation and `tusk hooks install` to repair local dispatchers; `tusk validate` includes advisory health checks. Codex installs skip `.claude/hooks/` (Tusk does not yet register Codex lifecycle hooks — so the Claude-mode agent-time guards, including the SessionStart `surface-skill-patches.sh` hook that runs `tusk retro-patches --window-days 30 --unconfirmed` and prompts the agent to file `skill-patch-confirmed:<file>` retro_findings, are unavailable). See `docs/HOOKS.md` for the dispatcher contract and instructions for adding a new guard.
 
 The dispatcher at `.git/hooks/<event>` carries the `TUSK_HOOK_DISPATCHER_V1` marker for idempotent re-runs and chains any pre-existing user hook to `.git/hooks/<event>.pre-tusk` so external hooks are preserved rather than overwritten.
 
@@ -255,7 +255,7 @@ Per-event guard mapping (from `install.sh`):
 
 | Event | Guards |
 |-------|--------|
-| `pre-commit` | `block-raw-sqlite`, `block-sql-neq`, `dupe-gate` |
+| `pre-commit` | `block-raw-sqlite`, `block-sql-neq`, `dupe-gate`, `scope-guard` |
 | `pre-push`   | `branch-naming`, `version-bump-check` (source-repo install only — `version-bump-check` guards paths that exist only in the tusk source repo, so it's omitted in `INSTALL_ROLE=consumer` installs) |
 | `commit-msg` | `commit-msg-format` |
 

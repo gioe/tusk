@@ -330,6 +330,28 @@ def copy_bin_files(src: str, script_dir: str) -> None:
     _vprint("  Updated CLI and support files")
 
 
+def reconcile_git_hooks(src: str, repo_root: str, script_dir: str) -> None:
+    """Use the release's shared installer, including on same-version repairs."""
+    helper = Path(src) / "bin/tusk-hooks.py"
+    source = Path(src) / "hooks/git"
+    if not helper.is_file() or not source.is_dir():
+        return  # Compatibility with older releases without Git hook assets.
+    subprocess.run(
+        [sys.executable, str(helper), repo_root, script_dir, "install", "--source", str(source)],
+        check=True, text=True, encoding="utf-8",
+    )
+
+
+def _installed_git_hooks_stale(repo_root: str, script_dir: str) -> bool:
+    helper = Path(script_dir) / "tusk-hooks.py"
+    if not helper.is_file():
+        return False
+    return subprocess.run(
+        [sys.executable, str(helper), repo_root, script_dir, "check"],
+        capture_output=True, text=True, encoding="utf-8",
+    ).returncode != 0
+
+
 def copy_dual_bin_peer(src: str, repo_root: str, script_dir: str, install_role: str) -> str | None:
     """Refresh the other bin directory in a dual-agent install.
 
@@ -1235,9 +1257,12 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
     pruned_count = prune_dist_excluded(src, repo_root, install_mode)
 
     copy_bin_files(src, script_dir)
+    reconcile_git_hooks(src, repo_root, script_dir)
     dual_peer_bin = None
     if install_mode == "dual" and install_role == "consumer":
         dual_peer_bin = copy_dual_bin_peer(src, repo_root, script_dir, install_role)
+        if dual_peer_bin:
+            reconcile_git_hooks(src, repo_root, os.path.join(repo_root, dual_peer_bin))
     # Skills, hooks, setup-path, settings.json merge, and review-commits
     # permissions are Claude concepts; prompts are Codex concepts. Dual-agent
     # installs receive both surfaces.
@@ -1413,6 +1438,7 @@ def main() -> None:
     remote_version = get_remote_version(latest_tag)
 
     schema_support_stale = _installed_schema_support_stale(repo_root, script_dir)
+    git_hooks_stale = _installed_git_hooks_stale(repo_root, script_dir)
 
     same_version = local_version == remote_version
     install_mode = detect_install_mode(script_dir)
@@ -1424,7 +1450,7 @@ def main() -> None:
                     f"Installed VERSION is {local_version}, but the live DB schema "
                     "is newer than this install's migration registry; reinstalling."
                 )
-            elif install_mode not in ("claude", "dual") and not os.path.isdir(
+            elif not git_hooks_stale and install_mode not in ("claude", "dual") and not os.path.isdir(
                 os.path.join(repo_root, ".agents", "skills")
             ):
                 print(f"Already up to date (version {local_version}).")
@@ -1489,11 +1515,12 @@ def main() -> None:
         if not args.force and same_version and not schema_support_stale:
             canonical_stale = install_mode in ("claude", "dual") and _installed_skills_stale(src, repo_root)
             mirror_stale = _codex_mirrors_stale(_codex_mirror_updates(src, repo_root), repo_root)
-            if not canonical_stale and not mirror_stale:
+            if not canonical_stale and not mirror_stale and not git_hooks_stale:
                 print(f"Already up to date (version {local_version}).")
                 return
+            stale_surface = "Git hooks" if git_hooks_stale else "skills"
             print(
-                f"Installed VERSION is {local_version}, but installed skills "
+                f"Installed VERSION is {local_version}, but installed {stale_surface} "
                 "differ from the current release; refreshing."
             )
 

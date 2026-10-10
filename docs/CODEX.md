@@ -46,7 +46,7 @@ The hook *files* are still copied to `.claude/hooks/` in both roles — only the
 | Manifest               | `.claude/tusk-manifest.json`    | `tusk/tusk-manifest.json`        |
 | Skills                 | `.claude/skills/<name>/`        | Not installed (no Codex primitive) |
 | Codex prompts          | Not installed (no Claude primitive) | `.codex/prompts/<name>.md` |
-| Hooks                  | `.claude/hooks/<name>`          | Not installed (no Codex primitive) |
+| Hooks                  | `.claude/hooks/<name>`          | Claude hooks not installed; Git hooks are supported |
 | Settings merge         | `.claude/settings.json`         | Not performed (no file to merge into) |
 | Agent-doc update       | `CLAUDE.md` (created if absent) | `AGENTS.md` (created if absent)  |
 | `.gitignore` entries   | `.claude/bin/`, `.claude/settings.json`, `.claude/tusk-manifest.json`, `tusk/tasks.db*`, `tusk/backups/` | `tusk/bin/`, `tusk/tusk-manifest.json`, `tusk/tasks.db*`, `tusk/backups/` |
@@ -107,7 +107,7 @@ Every Claude skill has a corresponding Codex prompt under [`.codex/prompts/`](..
 
 The Codex-only gaps that remain:
 
-- The PreToolUse/PostToolUse hooks (e.g. `conventions-preflight.sh`) that fire on tool invocations — Codex has no hook primitive.
+- The PreToolUse/PostToolUse hooks (e.g. `conventions-preflight.sh`) that fire on tool invocations — Tusk does not yet register Codex lifecycle hooks.
 - The permissions allowlist entries required for Claude's `/review-commits` parallel-reviewer flow — Codex has no Task tool, so its review runs inline in the active session (see `.codex/prompts/review-commits.md` for the tradeoff note).
 
 Everything else works identically: the `tusk` CLI, task database, criteria tracking, workflows, migrations, and `tusk upgrade`.
@@ -243,3 +243,15 @@ Legacy tasks without sources continue normally; older CLIs fall back to existing
 context/progress commands and report unavailable provenance support. Automatic
 trace traversal and provenance-enriched briefs are separate capabilities; the
 workflow above uses supported bounded links/get/evidence reads.
+
+### Git hook activation and recovery
+
+Git-event hooks ship in Claude, Codex and dual installs and are reconciled by
+upgrades, including repairs when the distribution version already matches.
+Run `tusk hooks check` to inspect the effective Git hook directory, or
+`tusk hooks install` to repair dispatchers from local guard assets. Use
+`tusk upgrade --force` to restore missing or modified guard assets.
+`tusk validate` reports hook drift without making config validation fail.
+See [Hooks](HOOKS.md) for worktree behavior, custom hook paths, user-hook
+preservation, pre-push input handling and uninstallation. This Git integration
+is independent of Codex lifecycle hook registration.

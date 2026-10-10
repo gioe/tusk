@@ -15,7 +15,7 @@ The two surfaces overlap deliberately. An agent-time hook can block a hazardous 
 
 | Event | Guards |
 |-------|--------|
-| `pre-commit` | `block-raw-sqlite`, `block-sql-neq`, `dupe-gate` |
+| `pre-commit` | `block-raw-sqlite`, `block-sql-neq`, `dupe-gate`, `scope-guard` |
 | `pre-push`   | `branch-naming`, `version-bump-check` |
 | `commit-msg` | `commit-msg-format` |
 
@@ -30,37 +30,63 @@ Each `hooks/git/<name>.sh` is an independent shell script. The dispatcher invoke
 
 By convention guards exit `2` on a true rule violation (vs. `1` for an internal error), and they print a one-line `ERROR:` message plus a `bypass with: git <op> --no-verify` hint to stderr. See `hooks/git/branch-naming.sh` for a minimal reference implementation.
 
-## The `.git/hooks/<event>` dispatcher
+## Installation, upgrade, and repair
 
-`install.sh` writes one dispatcher per git event (`pre-commit`, `pre-push`, `commit-msg`) into `.git/hooks/`. The dispatcher:
-
-1. Carries a `TUSK_HOOK_DISPATCHER_V1` marker comment on the second line.
-2. Resolves `HOOKS_DIR` to whichever of `.claude/bin/hooks/git` or `tusk/bin/hooks/git` exists for the install mode.
-3. Runs each guard in the mapping above. On the first non-zero exit, the dispatcher exits with that code and skips the rest.
-4. Finally `exec`s `.git/hooks/<event>.pre-tusk` if one exists (see "Chaining external hooks" below).
-5. Otherwise exits `0`.
-
-### `TUSK_HOOK_DISPATCHER_V1` — idempotent re-runs
-
-The `TUSK_HOOK_DISPATCHER_V1` marker on line 2 is how `install.sh` recognises its own dispatchers on subsequent runs. Without it, every `tusk upgrade` (or repeated `install.sh` invocation) would re-discover the dispatcher as a "user hook" and chain it to `.pre-tusk`, eventually nesting tusk dispatchers inside each other. The marker is grepped for via:
+Fresh installs and upgrades use the same Git-hook installer. It copies the
+release guard scripts, resolves Git's effective hook directory (including
+`core.hooksPath`), and reconciles executable dispatchers. Relative hook paths
+are resolved from the checkout root. Linked worktrees use Git's common hooks
+by default; a relative custom hook path instead belongs to each checkout.
 
 ```bash
-grep -q "TUSK_HOOK_DISPATCHER_V1" .git/hooks/<event>
+tusk hooks check       # read-only health check; nonzero when missing or stale
+tusk hooks install     # repair dispatchers using locally available guard assets
+tusk validate          # includes advisory hook health diagnostics
+tusk upgrade --force   # restore guard assets from the released distribution
 ```
 
-When that grep returns 0 the existing dispatcher is overwritten in place; when it returns non-zero the existing file is treated as an external user hook and chained.
+A same-version upgrade repairs detected Git-hook drift instead of returning
+"Already up to date". Source-repo developers should repair against their local
+checkout with `tusk hooks install`; normal consumer upgrades use the release.
+Installations made before `git init` retain the assets and print activation
+instructions: run `tusk hooks install` after creating the Git repository.
 
-Bumping the version suffix (e.g. to `_V2`) in the future would force an explicit migration step, since older marker matches would no longer succeed.
+Dispatcher health checks compare generated content, executable bits, and guard
+fingerprints. Modified or missing guard assets should be restored with an
+upgrade; `hooks install` deliberately uses the currently installed assets.
+No hooks are executed during health checks. A hook invocation with missing
+required guard scripts fails with a repair diagnostic.
 
-### Chaining external hooks via `<event>.pre-tusk`
+A dispatcher resolves guard assets from the invoking checkout, falling back to
+the primary worktree when installed files are absent from a linked checkout.
+The selected Tusk binary directory is added to PATH so task-aware guards do
+not depend on an interactive shell setup. The source checkout's guard scripts
+are preferred over installed mirrors when developing Tusk.
 
-A user can have a pre-existing hook at `.git/hooks/<event>` (their own pre-commit linter, an enterprise-mandated audit hook, etc.). The dispatcher must run AFTER the tusk guards but the user's hook should still fire. Resolution:
+Use a project-specific hook directory. Git shares default hooks across linked
+worktrees; a globally configured shared `core.hooksPath` also affects other
+repositories. Reconciliation writes the three events in the effective location
+and preserves existing user hooks; it does not change Git configuration or
+remove dispatchers from a previously configured location.
 
-1. On install, if `.git/hooks/<event>` exists AND does not carry the `TUSK_HOOK_DISPATCHER_V1` marker AND no `.pre-tusk` already exists, the file is renamed to `.git/hooks/<event>.pre-tusk` (once).
-2. The dispatcher is then written to `.git/hooks/<event>`.
-3. The final line of the dispatcher is `exec "$HERE/<event>.pre-tusk" "$@"` (if executable), which hands control to the chained hook with the original arguments. The user's hook can still reject the operation by exiting non-zero — that exit code propagates back to git.
+## Preserving existing hooks
 
-The "once" guard on the rename means re-running `install.sh` against an already-tusk-managed repo never double-renames: the marker check on the dispatcher fails the "is external" condition, the rename branch is skipped, and the existing `.pre-tusk` is preserved.
+Dispatchers retain the `TUSK_HOOK_DISPATCHER_V1` ownership marker on their second
+line. Repeat installs replace owned dispatchers without nesting wrappers.
+An existing external hook is renamed to `<event>.pre-tusk`, preserving its
+contents, symlink and executable state. If that backup already exists, install
+refuses with a collision diagnostic before changing any dispatchers. Resolve
+the two external hooks explicitly, then retry; neither is discarded.
+
+Guards run first. The first failure rejects the Git operation. If all guards
+pass, an executable user hook runs with the original arguments and its exit
+status is returned to Git. For pre-push, the ref-update input is captured once
+and replayed in full to every guard and the user hook. Temporary input is
+removed on exit. Non-executable user hooks remain inactive.
+
+`tusk uninstall-hooks` resolves the same effective directory, removes owned
+dispatchers and restores their preserved user hooks. It leaves external hooks
+untouched. Uninstallation leaves guard assets available for later activation.
 
 ## Adding a new guard
 
@@ -71,8 +97,8 @@ The "once" guard on the rename means re-running `install.sh` against an already-
 
 2. For a git-event guard:
    - Drop `hooks/git/<name>.sh` into the source tree, exit 0 on pass, non-zero (conventionally 2) on violation.
-   - Add the guard's basename to the appropriate `write_dispatcher` call in `install.sh` (`pre-commit`, `pre-push`, or `commit-msg`).
-   - If the guard targets paths that only exist in the source repo (like `version-bump-check`), gate the inclusion behind the `INSTALL_ROLE=consumer` branch in `install.sh`.
+   - Add the guard's basename to `EVENTS` in `bin/tusk-hooks.py` (`pre-commit`, `pre-push`, or `commit-msg`).
+   - If the guard targets paths that only exist in the source repo (like `version-bump-check`), filter its inclusion by install role in the shared hook helper.
 
 3. Run `./install.sh` against this repo (or any tusk-installed project) to regenerate the dispatcher. The `TUSK_HOOK_DISPATCHER_V1` marker ensures the existing dispatcher is overwritten in place, and any chained `.pre-tusk` is preserved.
 
