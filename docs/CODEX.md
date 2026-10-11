@@ -260,8 +260,9 @@ is independent of Codex lifecycle hook registration.
 ## Codex lifecycle hooks
 
 Fresh installs and upgrades in Codex and dual modes merge a Tusk startup
-registration into `.codex/hooks.json`. The dispatcher is initially a quiet no-op;
-context, checkpoint, telemetry and pre-tool behavior are separate tasks. Existing
+registration into `.codex/hooks.json`. Startup, resume, clear and post-compaction
+events restore a bounded snapshot of the owning task, unfinished criteria and
+latest next steps. Checkpoint, telemetry and pre-tool behavior remain separate tasks. Existing
 user hooks and inline configuration are preserved.
 
 Run `tusk hooks check --codex` to inspect registration health and
@@ -270,3 +271,9 @@ review the project layer and new or changed definitions in Codex's `/hooks` UI.
 Tusk never grants hook trust. `tusk validate` reports registration health without
 claiming activation. See [Codex lifecycle installation and trust](HOOKS.md#codex-lifecycle-installation-and-trust)
 for worktrees, recovery, runtime limits and the extension contract.
+
+Context restoration is read-only and capped at 6,000 UTF-8 bytes. It requires the
+exact recorded task workspace and one open session for an In Progress task;
+missing or ambiguous identity is quiet. Set `TUSK_CODEX_CONTEXT=0` before launching
+Codex to opt out, or disable the entry in `/hooks`. Repeated events return the same
+snapshot without changing task state; compaction deliberately restores it again.

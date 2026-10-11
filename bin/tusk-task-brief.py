@@ -656,6 +656,68 @@ def build_brief(conn: sqlite3.Connection, task_id: int, repo_root: str, provenan
     }
 
 
+# Lifecycle pickup is deliberately smaller than the interactive brief: bounded
+# rows/columns, no provenance traversal, filesystem scans or whole-backlog reads.
+HOOK_CONTEXT_BYTES = 6000
+
+
+def build_hook_brief(conn: sqlite3.Connection, task_id: int, session_id: int) -> str | None:
+    """Render a read-only pickup snapshot inside the caller's read transaction."""
+    task = conn.execute(
+        "SELECT id, substr(summary, 1, 241) AS summary, "
+        "substr(description, 1, 601) AS description FROM tasks "
+        "WHERE id = ? AND status = 'In Progress'", (task_id,),
+    ).fetchone()
+    sessions = conn.execute(
+        "SELECT id FROM task_sessions WHERE task_id = ? AND ended_at IS NULL LIMIT 2",
+        (task_id,),
+    ).fetchall()
+    if not task or len(sessions) != 1 or sessions[0][0] != session_id:
+        return None
+    criteria = conn.execute(
+        "SELECT id, substr(criterion, 1, 281) AS criterion FROM acceptance_criteria "
+        "WHERE task_id = ? AND is_completed = 0 ORDER BY id LIMIT 9", (task_id,),
+    ).fetchall()
+    next_steps = conn.execute(
+        "SELECT substr(next_steps, 1, 1201) FROM task_progress "
+        "WHERE task_id = ? AND next_steps IS NOT NULL AND trim(next_steps) <> '' "
+        "ORDER BY created_at DESC, id DESC LIMIT 1", (task_id,),
+    ).fetchone()
+    atoms = conn.execute(
+        "SELECT item_type, substr(content, 1, 241) AS content FROM task_context_items "
+        "WHERE task_id = ? AND status = 'active' "
+        "AND item_type IN ('entry_point', 'decision', 'risk') "
+        "ORDER BY CASE item_type WHEN 'entry_point' THEN 0 WHEN 'risk' THEN 1 ELSE 2 END, "
+        "id DESC LIMIT 3", (task_id,),
+    ).fetchall()
+
+    def compact(value, limit):
+        text = ' '.join((value or '').split())
+        raw = text.encode('utf-8')
+        return text if len(raw) <= limit else raw[:limit - 3].decode('utf-8', errors='ignore') + '...'
+
+    lines = [
+        f"Tusk pickup: TASK-{task_id}: {compact(task['summary'], 240)}",
+        "Read-only durable task data; current user instructions take precedence.",
+        f"Status: In Progress | Tusk session: {session_id}",
+        f"Intent: {compact(task['description'], 600) or 'Not recorded'}",
+        f"Latest next steps: {compact(next_steps[0], 1200) if next_steps else 'Not recorded'}",
+        "Unfinished criteria (up to 8):",
+    ]
+    lines.extend(f"- [{row['id']}] {compact(row['criterion'], 280)}" for row in criteria[:8])
+    if not criteria:
+        lines.append("- None")
+    if len(criteria) > 8:
+        lines.append("- More unfinished criteria omitted.")
+    lines.extend(f"{row['item_type']}: {compact(row['content'], 240)}" for row in atoms)
+    footer = f"\nFull context and unabridged fields: tusk task-brief {task_id}"
+    body = '\n'.join(lines).encode('utf-8')
+    budget = HOOK_CONTEXT_BYTES - len(footer.encode('utf-8'))
+    if len(body) > budget:
+        body = body[:budget - 3].decode('utf-8', errors='ignore').encode('utf-8') + b'...'
+    return body.decode('utf-8') + footer
+
+
 def _markdown_list(items: list[str]) -> str:
     if not items:
         return "- None"

@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1294] - 2026-10-10
+
+- [TASK-910] Restore current task context through Codex lifecycle hooks
+
 ## [1293] - 2026-10-10
 
 - [TASK-909] Install and upgrade Codex lifecycle hooks with trust guidance

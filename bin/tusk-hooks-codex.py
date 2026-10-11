@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Codex lifecycle registration and bounded dispatch shared by install and upgrade.
 
-Only SessionStart is registered until behavioral handlers ship. Add handlers to
+SessionStart restores a bounded current-task snapshot. Add handlers to
 HANDLERS and corresponding registrations in definitions; never infer identity
 from the most recent or sole project-wide session.
 """
@@ -17,10 +17,11 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 
 MARKER = "tusk-codex-lifecycle-v1"
 EVENTS = {"SessionStart", "Stop", "Interrupt", "SessionEnd", "PreToolUse", "PreCompact", "PostCompact"}
-HANDLERS = {}  # event -> callable(event, context) returning a Codex JSON response
+CONTEXT_SOURCES = {"startup", "resume", "clear", "compact"}
 GUIDANCE = ("Codex lifecycle hooks installed; active status is unknown. In Codex, open /hooks "
             "to review and trust new or changed definitions. The project .codex layer must also "
             "be trusted. Tusk never grants or bypasses hook trust.")
@@ -37,7 +38,10 @@ def git(cwd, *args):
 def definitions():
     # A changed implementation changes the definition hash Codex asks users to
     # review. Do not rely on Codex hashing the contents of referenced scripts.
-    digest = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    digest = hashlib.sha256(b"".join(
+        Path(__file__).with_name(name).read_bytes()
+        for name in ("tusk-hooks-codex.py", "tusk-task-brief.py")
+    )).hexdigest()
     script = '''r=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 for root in "$r" "$(git worktree list --porcelain | sed -n '1s/^worktree //p')"; do
   for dir in "$root/bin" "$root/tusk/bin" "$root/.claude/bin"; do
@@ -49,7 +53,7 @@ done
 exit 0'''
     command = f"sh -c {shlex.quote(script)} {MARKER} {digest}"
     return {"SessionStart": [{"matcher": "startup|resume|clear|compact", "hooks": [
-        {"type": "command", "command": command, "timeout": 3}
+        {"type": "command", "command": command, "timeout": 3, "additionalContextLimit": 2000}
     ]}]}
 
 
@@ -173,6 +177,29 @@ def resolve_context(event):
         connection.close()
 
 
+def task_context(event, context):
+    """Hydrate without starting sessions, modifying progress or marking criteria."""
+    sys.path.insert(0, str(Path(__file__).parent))
+    import tusk_loader
+    brief = tusk_loader.load("tusk-task-brief")
+    connection = sqlite3.connect(Path(context["db_path"]).as_uri() + "?mode=ro",
+                                 uri=True, timeout=0.1)
+    try:
+        connection.row_factory = sqlite3.Row
+        deadline = time.monotonic() + 0.5
+        connection.set_progress_handler(lambda: int(time.monotonic() > deadline), 1000)
+        connection.execute("BEGIN")
+        text = brief.build_hook_brief(connection, context["task_id"], context["session_id"])
+        if text is None:
+            return {}
+        return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}
+    finally:
+        connection.close()
+
+
+HANDLERS = {"SessionStart": task_context}
+
+
 def dispatch(stream):
     try:
         raw = stream.read(1024 * 1024 + 1)
@@ -187,12 +214,17 @@ def dispatch(stream):
         if any(not isinstance(event.get(key), str) or not event[key].strip()
                for key in ("cwd", "session_id")) or not Path(event["cwd"]).is_absolute():
             return {}
+        if name == "SessionStart":
+            source = event.get("source")
+            if (not isinstance(source, str) or source not in CONTEXT_SOURCES
+                    or os.environ.get("TUSK_CODEX_CONTEXT", "1").lower() in {"0", "false", "off"}):
+                return {}
         handler = HANDLERS.get(name)
         if handler is None:
             return {}
         context = resolve_context(event)
         return handler(event, context) if context else {}
-    except (OSError, ValueError, sqlite3.Error, subprocess.SubprocessError):
+    except (OSError, ValueError, ImportError, sqlite3.Error, subprocess.SubprocessError):
         return {}  # A missing DB, malformed event or ambiguous identity is a no-op.
 
 

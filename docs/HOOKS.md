@@ -1,6 +1,6 @@
 # Hooks
 
-Tusk installs Git guards, Claude agent-time guards, and a Codex lifecycle dispatcher. The Codex dispatcher currently provides installation and routing infrastructure; behavioral handlers are separate follow-up work.
+Tusk installs Git guards, Claude agent-time guards, and a Codex lifecycle dispatcher. The Codex dispatcher restores a bounded current-task snapshot on startup, resume and compaction. Checkpoint, telemetry and pre-tool handlers are separate follow-up work.
 
 | Surface | Path | Invoked by | Available in |
 |---|---|---|---|
@@ -128,9 +128,8 @@ shared configuration, not a manifest-owned file eligible for orphan deletion.
 Installation is **not activation**. In a Codex runtime that supports lifecycle
 hooks, trust the project configuration layer and open `/hooks` to inspect and
 review Tusk's new or changed definitions. Tusk does not write trust records or
-pass a trust-bypass flag. The command includes an implementation digest, so an
-upgrade changing the dispatcher also changes the definition Codex asks you to
-review. Unchanged reinstalls preserve the definition. Check actual enabled/trusted
+pass a trust-bypass flag. The command includes a digest of the dispatcher and task-brief renderer, so an
+upgrade changing either also changes the definition Codex asks you to review. Unchanged reinstalls preserve the definition. Check actual enabled/trusted
 status in `/hooks`; Tusk cannot infer it from files on disk.
 
 ```bash
@@ -147,11 +146,34 @@ not translated into Codex handlers.
 
 ### Runtime and extension contract
 
-The initial registration covers `SessionStart` sources startup, resume, clear and
-compact, with a three-second timeout. It returns an empty JSON object, adds no
-context and changes no task state. Context restoration, checkpoint reminders,
-session-end telemetry and pre-tool checks ship separately. There is currently no
-per-tool invocation overhead and session end never completes a task.
+The registration covers `SessionStart` sources startup, resume, clear and compact,
+with a three-second timeout. Codex emits `source: compact` before the immediate
+continuation after compaction; there is no second PreCompact/PostCompact handler.
+The response uses `hookSpecificOutput.additionalContext` for developer context.
+It does not block or request another turn, and session end never completes tasks.
+
+The snapshot includes task identity and intent, up to eight unfinished criteria,
+latest nonblank next steps, and up to three active entry-point/risk/decision notes.
+It reuses a bounded renderer in `tusk-task-brief.py`, without loading full history,
+provenance or unrelated tasks. Fields and row counts are limited, total context is
+at most 6,000 UTF-8 bytes, and a `tusk task-brief <id>` pointer provides unabridged
+context. The hook's `additionalContextLimit` is 2,000 approximate tokens. DB reads
+use read-only connections, short lock waits and a half-second query budget.
+
+Repeated events return the same current snapshot without writing deduplication
+state, opening sessions or changing criteria/progress. Compaction deliberately
+restores the snapshot again, since earlier injected context may have been removed.
+New progress and criterion changes are reflected at the next event. Missing or
+ambiguous identity, a closed task, missing files/DB, malformed events and read
+failures produce an empty JSON response with no blocking decision.
+
+To opt out, launch Codex with `TUSK_CODEX_CONTEXT=0` (`false` and `off` also work),
+or disable the Tusk SessionStart entry in `/hooks`. The environment opt-out skips
+identity and database reads and is inherited by hook commands. To recover a quiet
+hook, check registration/trust, confirm the current checkout is the task's recorded
+workspace with one open session, or read `tusk task-brief <id>` manually. Starting
+Codex in the primary checkout without a recorded task workspace intentionally
+injects nothing, even if one task session is open elsewhere.
 
 The shared Python dispatcher accepts SessionStart, Stop, Interrupt, SessionEnd,
 PreToolUse, PreCompact and PostCompact events. Add reviewed handlers to `HANDLERS`
@@ -173,7 +195,7 @@ Git project's primary checkout, match the exact recorded workspace and current
 branch, and require exactly one open session for that task. Inherited Tusk project
 and database overrides are ignored. A sole project-wide session is never a
 fallback. Codex's string session ID stays separate from Tusk's numeric session ID.
-The initial no-op registration avoids database lookups until a handler needs them.
+The handler rechecks the active task and unique session within its read snapshot.
 No handler may infer task completion from a lifecycle event.
 
 This implementation targets POSIX shells and Python 3, like the Tusk installer.

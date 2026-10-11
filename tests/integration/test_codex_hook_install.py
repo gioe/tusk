@@ -69,7 +69,7 @@ def test_contract_2(tmp_path, monkeypatch):
     linked = tmp_path / "linked"
     git(repo, "worktree", "add", "-b", "feature/TASK-42-linked", str(linked))
     for cwd in (nested, linked):
-        event = {"hook_event_name": "SessionStart", "cwd": str(cwd), "session_id": "thr_codex"}
+        event = {"hook_event_name": "SessionStart", "source": "startup", "cwd": str(cwd), "session_id": "thr_codex"}
         for raw in (json.dumps(event), "{", "[]", '{"hook_event_name": []}', "x" * (1024 * 1024 + 1)):
             result = run(cwd, "sh", "-c", command, input=raw)
             assert json.loads(result.stdout) == {} and result.stderr == ""
@@ -84,7 +84,7 @@ def test_contract_2(tmp_path, monkeypatch):
     binary = script_dir / "tusk"
     binary.write_text('#!/bin/sh\nprintf "%s\\n" "' + str(db) + '"\n')
     monkeypatch.chdir(linked)
-    event = {"hook_event_name": "SessionStart", "cwd": str(linked), "session_id": "thr_codex"}
+    event = {"hook_event_name": "SessionStart", "source": "startup", "cwd": str(linked), "session_id": "thr_codex"}
     assert helper.resolve_context(event) is None  # Sole unrelated session is not a fallback.
     conn.execute("INSERT INTO task_workspaces VALUES (42, ?, ?)", (str(linked), "feature/TASK-42-linked"))
     conn.execute("INSERT INTO task_sessions VALUES (43, 42, NULL)")
@@ -162,3 +162,45 @@ def test_same_version_upgrade_repairs_codex_registration(tmp_path, monkeypatch):
                                      str(script_dir), "--no-commit", "--_rexec-src", str(release)])
     upgrade.main()
     assert not upgrade._installed_codex_hooks_stale(str(tmp_path), str(script_dir))
+
+
+def test_installed_context_restoration(tmp_path, monkeypatch):
+    """Execute the generated command with actual installed code and worktrees."""
+    monkeypatch.delenv('TUSK_CODEX_CONTEXT', raising=False)
+    init(tmp_path)
+    script_dir = install(tmp_path)
+    git(tmp_path, 'add', 'AGENTS.md')
+    git(tmp_path, 'commit', '-m', 'initial')
+    workspaces = [tmp_path.parent / f'{tmp_path.name}-task-{n}' for n in (42, 99)]
+    db = run(tmp_path, str(script_dir / 'tusk'), 'path').stdout.strip()
+    with sqlite3.connect(db) as conn:
+        for task, workspace in zip((42, 99), workspaces):
+            branch = f'feature/TASK-{task}-context'
+            git(tmp_path, 'worktree', 'add', '-b', branch, str(workspace))
+            conn.execute("INSERT INTO tasks(id, summary, description, status) VALUES (?, ?, ?, 'In Progress')",
+                         (task, f'Context for {task}', f'Intent for {task}'))
+            conn.execute('INSERT INTO task_sessions(task_id, started_at) VALUES (?, datetime(\'now\'))', (task,))
+            conn.execute('INSERT INTO task_workspaces(task_id, workspace_path, branch) VALUES (?, ?, ?)',
+                         (task, str(workspace), branch))
+            conn.execute('INSERT INTO acceptance_criteria(task_id, criterion) VALUES (?, ?)',
+                         (task, f'Promise for {task}'))
+            conn.execute('INSERT INTO task_progress(task_id, next_steps) VALUES (?, ?)',
+                         (task, f'Continue {task}'))
+    command = json.loads((tmp_path / '.codex/hooks.json').read_text())['hooks']['SessionStart'][0]['hooks'][0]['command']
+    for task, workspace in zip((42, 99), workspaces):
+        nested = workspace / 'nested'
+        nested.mkdir()
+        for source in ('startup', 'resume', 'compact'):
+            event = {'hook_event_name': 'SessionStart', 'source': source,
+                     'cwd': str(nested), 'session_id': f'thr_{task}'}
+            result = run(nested, 'sh', '-c', command, input=json.dumps(event))
+            context = json.loads(result.stdout)['hookSpecificOutput']['additionalContext']
+            assert f'TASK-{task}' in context and f'Continue {task}' in context
+            assert f'Promise for {task}' in context
+            assert f'TASK-{99 if task == 42 else 42}' not in context
+            assert result.stderr == ''
+    # Installing an updated brief changes the definition requiring trust review.
+    renderer = script_dir / 'tusk-task-brief.py'
+    renderer.write_text(renderer.read_text() + '\n# Context renderer release change\n')
+    result = run(tmp_path, str(script_dir / 'tusk'), 'hooks', 'check', '--codex', check=False)
+    assert result.returncode == 1 and 'changed registrations' in result.stderr
