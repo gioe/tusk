@@ -281,3 +281,48 @@ recovery use `tusk call-breakdown --session <session-id>` after pricing is avail
 After adding missing pricing, rerun session stats for the pinned transcript. These
 commands preserve task completion state. See the [Codex hook reference](https://learn.chatgpt.com/docs/hooks)
 for SessionEnd delivery and lifecycle limits.
+
+
+## Codex pre-tool checks
+
+Install or upgrade, then review the changed definitions in Codex `/hooks`. The
+`PreToolUse` registration matches canonical `Bash` and `apply_patch` names; Codex
+maps unified exec to `Bash` and provides both commands in `tool_input.command`.
+A proven violation returns `hookSpecificOutput.permissionDecision: "deny"` with
+concise remediation. Successful, unsupported or ambiguous checks return `{}`.
+Set `TUSK_CODEX_PRETOOL=0` (`false` or `off` also work) before launching Codex to
+opt out, or disable this registration in `/hooks`.
+
+Ownership requires the invocation's exact recorded task worktree and one open
+Tusk session. A sole project-wide session is never guessed as the owner. From that
+workspace, a literal Tusk mutation targeting another Git project is denied unless
+project/database routing is explicitly pinned. Run from the owning workspace or
+set `TUSK_PROJECT` to the intended project. Inline assignments, `env` assignments,
+and inherited pins are respected. Read-only commands pass. Linked worktrees of the
+same project pass. Hooks never execute the pending command to analyze it.
+
+Shell analysis covers a single literal Tusk invocation, optionally preceded by
+`cd <directory> &&`, environment assignments and `env`. Recognized mutations include
+task lifecycle/progress/commit/merge, session metrics, criteria, scope, context,
+dependency, review, objective, task-worktree and skill-run writes. Only known
+mutation subcommands are classified. Pipelines, redirects, expansions, compound
+scripts, wrappers and arbitrary shell edits are unsupported and pass quietly.
+An explicit tool-input `workdir` or `cwd` must be absolute; otherwise the event's
+working directory is used. Missing identity, malformed input or read errors pass.
+
+Patch checks read existing scope declarations and `scope.always_allowed` from
+project configuration. They use the same file/directory/glob matcher as CLI scope
+checks and inspect add, update, delete and move destinations. Paths resolve from
+the tool's directory, including traversal and symlinks. Edits outside the owning
+workspace or declared patterns are denied. For intentional changes, record
+`tusk scope expand <task-id> <path> --reason <why>` before retrying. Missing scope,
+explicit unbounded scope, or ambiguous sessions remain quiet. Cross-project edits
+should run under their own task/workspace; project pinning affects Tusk shell
+routing, not patch ownership.
+
+These are early checks, not a security boundary or a general shell parser. The
+three-second hook timeout and bounded identity/database reads keep checks best
+effort. CLI and Git scope enforcement remain authoritative for unsupported tools,
+unregistered/untrusted hooks, timeouts and bypassed checks. Hooks do not change
+scope, task state, tool input or approvals. See the [Codex hook reference](https://learn.chatgpt.com/docs/hooks)
+for canonical tool names, coverage and denial semantics.

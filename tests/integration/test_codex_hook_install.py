@@ -200,6 +200,30 @@ def test_installed_context_restoration(tmp_path, monkeypatch):
             assert f'TASK-{99 if task == 42 else 42}' not in context
             assert result.stderr == ''
     registrations = json.loads((tmp_path / '.codex/hooks.json').read_text())['hooks']
+    # Canonical Codex pre-tool payloads through the installed dispatcher.
+    monkeypatch.delenv('TUSK_CODEX_PRETOOL', raising=False)
+    monkeypatch.delenv('TUSK_PROJECT', raising=False)
+    monkeypatch.delenv('TUSK_DB', raising=False)
+    pretool = registrations['PreToolUse'][0]['hooks'][0]['command']
+    with sqlite3.connect(db) as conn:
+        conn.execute("INSERT INTO task_scope(task_id, pattern, source) VALUES (42, 'src/', 'operator_declared')")
+    def check_tool(tool, command):
+        event = {'hook_event_name': 'PreToolUse', 'cwd': str(workspaces[0]),
+                 'session_id': 'thr_42', 'turn_id': 'turn_1', 'tool_use_id': 'call_1',
+                 'tool_name': tool, 'tool_input': {'command': command}}
+        result = run(workspaces[0], 'sh', '-c', pretool, input=json.dumps(event))
+        assert result.stderr == ''
+        return json.loads(result.stdout)
+    blocked = check_tool('apply_patch', '*** Begin Patch\n*** Add File: outside.txt\n+bad\n*** End Patch')
+    assert blocked['hookSpecificOutput']['permissionDecision'] == 'deny'
+    assert check_tool('apply_patch', '*** Begin Patch\n*** Add File: src/ok.txt\n+ok\n*** End Patch') == {}
+    other_project = tmp_path.parent / (tmp_path.name + '-foreign')
+    other_project.mkdir()
+    init(other_project)
+    wrong = f'cd {other_project} && tusk progress 42 --note checkpoint'
+    assert check_tool('Bash', wrong)['hookSpecificOutput']['permissionDecision'] == 'deny'
+    assert check_tool('Bash', f'cd {other_project} && TUSK_PROJECT={tmp_path} tusk progress 42 --note checkpoint') == {}
+    assert check_tool('Bash', f'cd {other_project} && tusk task-get 42') == {}
     stop = registrations['Stop'][-1]['hooks'][0]['command']
     interrupt = registrations['Interrupt'][-1]['hooks'][0]['command']
     with sqlite3.connect(db) as conn:

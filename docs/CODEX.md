@@ -262,7 +262,7 @@ is independent of Codex lifecycle hook registration.
 Fresh installs and upgrades in Codex and dual modes merge a Tusk startup
 registration into `.codex/hooks.json`. Startup, resume, clear and post-compaction
 events restore a bounded snapshot of the owning task, unfinished criteria and
-latest next steps. Stop and interruption also provide advisory checkpoint reminders; session end captures bounded telemetry. Pre-tool behavior remains separate work. Existing
+latest next steps. Stop and interruption also provide advisory checkpoint reminders; session end captures bounded telemetry. Pre-tool checks catch proven project-routing and declared-scope violations. Existing
 user hooks and inline configuration are preserved.
 
 Run `tusk hooks check --codex` to inspect registration health and
@@ -295,3 +295,12 @@ metrics. Use `tusk session-stats <session-id> <transcript-path>` for manual reco
 or `TUSK_CODEX_TELEMETRY=0` to opt out. It never completes tasks or criteria or closes
 Tusk sessions. See [session-end telemetry](HOOKS.md#codex-session-end-telemetry)
 for activation, tool-cost recovery and limitations.
+
+
+Pre-tool checks handle canonical `Bash` commands and `apply_patch` edits. They
+reject known Tusk writes routed to another project without explicit pinning and
+patch paths outside the owning task scope. Successful or ambiguous checks are
+quiet; arbitrary scripts and shell edits remain covered by CLI/Git enforcement.
+Use `TUSK_PROJECT` for intentional cross-project Tusk operations, or record an
+intentional scope expansion before retrying an edit. `TUSK_CODEX_PRETOOL=0` opts
+out. See [pre-tool checks](HOOKS.md#codex-pre-tool-checks) for activation and limits.

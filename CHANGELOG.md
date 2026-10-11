@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1297] - 2026-10-11
+
+- [TASK-913] Add Codex pre-tool checks for project routing and task scope
+
 ## [1296] - 2026-10-10
 
 - [TASK-912] Capture bounded session-end telemetry from Codex hooks

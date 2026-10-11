@@ -42,7 +42,7 @@ def definitions():
     digest = hashlib.sha256(b"".join(
         Path(__file__).with_name(name).read_bytes()
         for name in ("tusk-hooks-codex.py", "tusk-task-brief.py", "tusk-session-stats.py",
-                     "tusk-pricing-lib.py", "tusk-call-breakdown.py")
+                     "tusk-pricing-lib.py", "tusk-call-breakdown.py", "tusk-git-helpers.py")
     )).hexdigest()
     script = '''r=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 for root in "$r" "$(git worktree list --porcelain | sed -n '1s/^worktree //p')"; do
@@ -59,6 +59,9 @@ exit 0'''
     ]}]}
     for event in ("Stop", "Interrupt", "SessionEnd"):
         registrations[event] = [{"hooks": [{"type": "command", "command": command, "timeout": 3}]}]
+    registrations['PreToolUse'] = [{'matcher': '^(Bash|apply_patch)$', 'hooks': [
+        {'type': 'command', 'command': command, 'timeout': 3}
+    ]}]
     return registrations
 
 
@@ -329,8 +332,146 @@ def capture_worker(payload):
                 f"Run tusk session-stats {context['session_id']} <transcript-path>."}
 
 
+# Only classify known mutations; unknown/new commands remain the CLI's concern.
+PRETOOL_WRITES = {
+    'task-start', 'task-done', 'task-update', 'task-insert', 'task-import',
+    'task-reopen', 'progress', 'commit', 'merge', 'branch', 'session-close',
+    'session-stats', 'session-recalc', 'version-bump', 'changelog-add',
+}
+PRETOOL_SUBWRITES = {
+    'criteria': {'add', 'done', 'skip', 'reset', 'delete'},
+    'scope': {'add', 'expand', 'remove', 'lock', 'rederive'},
+    'context': {'add', 'resolve', 'supersede'},
+    'deps': {'add', 'remove'}, 'jot': {'write', 'promote', 'dismiss'},
+    'review': {'start', 'begin', 'add-comment', 'resolve', 'approve', 'request-changes'},
+    'objective': {'insert', 'update', 'link', 'unlink', 'done'},
+    'task-worktree': {'create', 'prune'}, 'skill-run': {'start', 'finish', 'cancel'},
+}
+
+
+def deny_pretool(reason):
+    return {'hookSpecificOutput': {'hookEventName': 'PreToolUse',
+            'permissionDecision': 'deny', 'permissionDecisionReason': reason}}
+
+
+def literal_shell(command, cwd):
+    """A deliberately small shell subset, never evaluated or executed.
+
+    One command, optionally prefixed by `cd <literal> &&`, env and literal
+    assignments. Expansion, redirects, pipelines and compound scripts are unknown.
+    """
+    if any(c in command for c in '$`\n\r<>|;(){}*?~\\'):
+        return None
+    words = shlex.split(command)
+    if len(words) >= 4 and words[0] == 'cd' and words[2] == '&&':
+        cwd = (cwd / words[1]).resolve()
+        words = words[3:]
+    if any('&' in word for word in words):
+        return None
+    if words and words[0] == 'env':
+        words = words[1:]
+    pins = {k: os.environ.get(k, '') for k in ('TUSK_PROJECT', 'TUSK_DB')}
+    while words and '=' in words[0]:
+        key, value = words.pop(0).split('=', 1)
+        if not key.isidentifier():
+            return None
+        if key in pins:
+            pins[key] = value
+    if not words or Path(words[0]).name != 'tusk' or len(words) < 2:
+        return None
+    if any(flag in words[1:] for flag in ('--help', '-h', '--dry-run')):
+        return None
+    verb = words[1]
+    if verb not in PRETOOL_WRITES and not (len(words) > 2 and words[2] in PRETOOL_SUBWRITES.get(verb, set())):
+        return None
+    return cwd, pins
+
+
+def patch_paths(command):
+    lines = command.splitlines()
+    if not lines or lines[0] != '*** Begin Patch' or lines[-1] != '*** End Patch':
+        return None
+    paths = []
+    for line in lines[1:-1]:
+        for marker in ('*** Add File: ', '*** Update File: ', '*** Delete File: ', '*** Move to: '):
+            if line.startswith(marker):
+                path = line[len(marker):]
+                if not path.strip() or '\x00' in path:
+                    return None
+                paths.append(path)
+                break
+    return paths
+
+
+def pretool(event, context):
+    inputs = event['tool_input']
+    command = inputs['command']
+    cwd = Path(event['cwd'])
+    override = inputs.get('workdir', inputs.get('cwd'))
+    if override is not None:
+        if not isinstance(override, str) or not Path(override).is_absolute():
+            return {}
+        cwd = Path(override)
+    task_id = context['task_id']
+    if event['tool_name'] == 'Bash':
+        parsed = literal_shell(command, cwd)
+        if parsed is None:
+            return {}
+        target, pins = parsed
+        # Explicit project/DB routing expresses intent we must not infer away.
+        if pins['TUSK_PROJECT'] or pins['TUSK_DB']:
+            return {}
+        remaining = min(1, event.get('_deadline', time.monotonic() + 1) - time.monotonic())
+        if remaining <= 0:
+            return {}
+        primary = git(target, 'worktree', 'list', '--porcelain', timeout=remaining).splitlines()[0].removeprefix('worktree ')
+        if not os.path.samefile(primary, context['project']):
+            return deny_pretool(f'Tusk write targets another project from TASK-{task_id}. '
+                                'Run in the owning task workspace or explicitly set TUSK_PROJECT to the intended project.')
+        return {}
+    paths = patch_paths(command)
+    if not paths:
+        return {}
+    # Existing authoritative declarations only: never infer scope from chat text.
+    connection = sqlite3.connect(Path(context['db_path']).as_uri() + '?mode=ro', uri=True, timeout=.1)
+    try:
+        deadline = time.monotonic() + .5
+        connection.set_progress_handler(lambda: int(time.monotonic() > deadline), 1000)
+        connection.execute('BEGIN')
+        sessions = connection.execute(
+            "SELECT s.id FROM task_sessions s JOIN tasks t ON t.id=s.task_id "
+            "WHERE s.task_id=? AND s.ended_at IS NULL AND t.status='In Progress'", (task_id,)).fetchall()
+        if sessions != [(context['session_id'],)]:
+            return {}
+        rows = connection.execute('SELECT pattern, source FROM task_scope WHERE task_id=?', (task_id,)).fetchall()
+        if not rows or any(source == 'unbounded' for _, source in rows):
+            return {}
+        patterns = [pattern for pattern, _ in rows]
+    finally:
+        connection.close()
+    config = json.loads((Path(context['project']) / 'tusk/config.json').read_text())
+    if not isinstance(config, dict) or not isinstance(config.get('scope', {}), dict):
+        return {}
+    allowed = config.get('scope', {}).get('always_allowed', [])
+    if not isinstance(allowed, list) or not all(isinstance(p, str) for p in allowed):
+        return {}
+    sys.path.insert(0, str(Path(__file__).parent))
+    import tusk_loader
+    matches = tusk_loader.load('tusk-git-helpers').path_matches_scope
+    root = Path(context['root']).resolve()
+    for path in paths:
+        # Normalize traversal and symlinks before comparing repository-relative paths.
+        absolute = (cwd / path).resolve()
+        relative = str(absolute.relative_to(root)) if absolute.is_relative_to(root) else None
+        if relative is None or not matches(relative, patterns + allowed):
+            display = ' '.join(path.split())[:160]
+            return deny_pretool(f'TASK-{task_id}: edit outside declared scope: {display}. '
+                                f'Use the owning workspace or record an intentional expansion with tusk scope expand {task_id} <path> --reason <why>.')
+    return {}
+
+
 HANDLERS = {"SessionStart": task_context, "Stop": checkpoint_reminder,
-            "Interrupt": checkpoint_reminder, "SessionEnd": session_end}
+            "Interrupt": checkpoint_reminder, "SessionEnd": session_end, "PreToolUse": pretool}
 
 
 def dispatch(stream):
@@ -349,6 +490,13 @@ def dispatch(stream):
         if any(not isinstance(event.get(key), str) or not event[key].strip()
                for key in ("cwd", "session_id")) or not Path(event["cwd"]).is_absolute():
             return {}
+        if name == 'PreToolUse':
+            inputs = event.get('tool_input')
+            if (os.environ.get('TUSK_CODEX_PRETOOL', '1').lower() in {'0', 'false', 'off'}
+                    or event.get('tool_name') not in ('Bash', 'apply_patch')
+                    or not isinstance(inputs, dict) or not isinstance(inputs.get('command'), str)):
+                return {}
+            event['_deadline'] = deadline
         if name == "SessionStart":
             source = event.get("source")
             if (not isinstance(source, str) or source not in CONTEXT_SOURCES
