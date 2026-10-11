@@ -594,6 +594,7 @@ update_gitignore() {
     "tusk/tasks.db"
     "tusk/tasks.db-wal"
     "tusk/tasks.db-shm"
+    "tusk/tasks.db-hook-state/"
     "tusk/backups/"
   )
   if [[ "$INSTALL_MODE" == "codex" || "$INSTALL_MODE" == "dual" ]]; then
