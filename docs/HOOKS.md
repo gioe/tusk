@@ -1,10 +1,11 @@
 # Hooks
 
-Tusk ships two parallel guard surfaces. Both are populated by `install.sh` and are intended to enforce the same set of safety rules in the contexts each can reach.
+Tusk installs Git guards, Claude agent-time guards, and a Codex lifecycle dispatcher. The Codex dispatcher currently provides installation and routing infrastructure; behavioral handlers are separate follow-up work.
 
 | Surface | Path | Invoked by | Available in |
 |---|---|---|---|
 | Agent-time | `.claude/hooks/<name>.sh` | Claude Code's `PreToolUse` mechanism (typically gating `Bash`) | Claude Code mode only |
+| Codex lifecycle | `.codex/hooks.json` → installed `tusk-hooks-codex.py` | Codex `SessionStart`, after trust review | Codex and dual modes |
 | Git-event  | `hooks/git/<name>.sh` (run via `.git/hooks/<event>` dispatcher) | git itself, on commit/push | Both Claude Code and Codex modes |
 
 The two surfaces overlap deliberately. An agent-time hook can block a hazardous tool call before it ever runs, but it cannot reach a `git commit` that a human types in their own terminal. The git-event hook closes that gap — same rule, different invocation path.
@@ -112,3 +113,71 @@ Any guard can be skipped on a one-shot basis with the standard git escape hatch:
 - `git push --no-verify` — bypasses `pre-push`.
 
 `tusk commit --skip-verify` does the same for tusk-driven commits. `tusk merge --skip-lint` skips only the pre-merge lint gate added by TASK-586 for GitHub issue #996. `tusk merge --skip-verify` is the broader bypass: today it skips that same lint gate, and it is reserved to skip future pre-merge verification gates as they are added.
+
+## Codex lifecycle installation and trust
+
+`install.sh` and `tusk upgrade` merge Tusk registrations into project-local
+`.codex/hooks.json` in Codex and dual modes. User groups, handlers, metadata and
+inline `.codex/config.toml` definitions are preserved. Only command handlers with
+the reserved `tusk-codex-lifecycle-v1` shell argument belong to Tusk; do not reuse
+that marker for personal hooks. Mixed groups retain their user handlers. Invalid
+JSON or unexpected group shapes stop installation without replacing the file.
+Symlinked hook files require manual maintenance. The generated hooks file is
+shared configuration, not a manifest-owned file eligible for orphan deletion.
+
+Installation is **not activation**. In a Codex runtime that supports lifecycle
+hooks, trust the project configuration layer and open `/hooks` to inspect and
+review Tusk's new or changed definitions. Tusk does not write trust records or
+pass a trust-bypass flag. The command includes an implementation digest, so an
+upgrade changing the dispatcher also changes the definition Codex asks you to
+review. Unchanged reinstalls preserve the definition. Check actual enabled/trusted
+status in `/hooks`; Tusk cannot infer it from files on disk.
+
+```bash
+tusk hooks check --codex        # registration health; activation remains unknown
+tusk hooks install --codex      # repair registrations using installed code
+tusk upgrade --force           # refresh missing/outdated code and registrations
+```
+
+`tusk validate` includes an advisory registration check. If both inline hooks and
+`hooks.json` exist, Codex loads both sources; Tusk reports this and leaves inline
+configuration untouched. Use `/hooks` to disable Tusk entries. Removing them from
+JSON is temporary: installation/upgrade restores them. Existing Claude hooks are
+not translated into Codex handlers.
+
+### Runtime and extension contract
+
+The initial registration covers `SessionStart` sources startup, resume, clear and
+compact, with a three-second timeout. It returns an empty JSON object, adds no
+context and changes no task state. Context restoration, checkpoint reminders,
+session-end telemetry and pre-tool checks ship separately. There is currently no
+per-tool invocation overhead and session end never completes a task.
+
+The shared Python dispatcher accepts SessionStart, Stop, Interrupt, SessionEnd,
+PreToolUse, PreCompact and PostCompact events. Add reviewed handlers to `HANDLERS`
+and matching registrations to `definitions()` together. Handlers accept the event
+and resolved context, and return Codex-compatible JSON; keep all work within the
+registered deadline (SessionEnd/Interrupt allow at most three seconds). Unknown,
+oversized (over 1 MiB), malformed, missing-identity and ambiguous events return `{}`.
+Never print plain text for Stop or add automatic continuation as a side effect.
+
+Commands resolve the Git root from the session directory, then locate source or
+installed binaries. Linked worktrees can fall back to the primary checkout's
+ignored installed binaries. A worktree still needs its own active, trusted Codex
+configuration layer: ensure `.codex/hooks.json` is present there, for example by
+running `tusk hooks install --codex` in that checkout and reviewing it in `/hooks`.
+Command routing alone cannot make Codex discover a missing configuration file.
+
+Task context is read-only: resolve the database through `tusk path` pinned to the
+Git project's primary checkout, match the exact recorded workspace and current
+branch, and require exactly one open session for that task. Inherited Tusk project
+and database overrides are ignored. A sole project-wide session is never a
+fallback. Codex's string session ID stays separate from Tusk's numeric session ID.
+The initial no-op registration avoids database lookups until a handler needs them.
+No handler may infer task completion from a lifecycle event.
+
+This implementation targets POSIX shells and Python 3, like the Tusk installer.
+Older Codex runtimes or policy-disabled hooks may not run these registrations;
+manual CLI workflows and Git hooks remain available. See the current
+[Codex hook reference](https://learn.chatgpt.com/docs/hooks) for runtime event,
+configuration and trust behavior.

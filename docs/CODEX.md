@@ -46,7 +46,7 @@ The hook *files* are still copied to `.claude/hooks/` in both roles — only the
 | Manifest               | `.claude/tusk-manifest.json`    | `tusk/tusk-manifest.json`        |
 | Skills                 | `.claude/skills/<name>/`        | Not installed (no Codex primitive) |
 | Codex prompts          | Not installed (no Claude primitive) | `.codex/prompts/<name>.md` |
-| Hooks                  | `.claude/hooks/<name>`          | Claude hooks not installed; Git hooks are supported |
+| Hooks                  | `.claude/hooks/<name>`          | `.codex/hooks.json` lifecycle dispatcher plus Git hooks |
 | Settings merge         | `.claude/settings.json`         | Not performed (no file to merge into) |
 | Agent-doc update       | `CLAUDE.md` (created if absent) | `AGENTS.md` (created if absent)  |
 | `.gitignore` entries   | `.claude/bin/`, `.claude/settings.json`, `.claude/tusk-manifest.json`, `tusk/tasks.db*`, `tusk/backups/` | `tusk/bin/`, `tusk/tusk-manifest.json`, `tusk/tasks.db*`, `tusk/backups/` |
@@ -55,7 +55,7 @@ The `tusk/tasks.db` database and `tusk/config.json` live in the same location in
 
 ## PATH setup in Codex mode
 
-Claude mode installs a `setup-path.sh` hook that prepends `.claude/bin/` to `PATH` for every Claude Code session. Codex has no equivalent hook system, so Codex users must wire up `PATH` themselves. Two common options:
+Claude mode installs a `setup-path.sh` hook that prepends `.claude/bin/` to `PATH` for every Claude Code session. Tusk’s Codex lifecycle dispatcher does not modify the parent session environment, so Codex users must wire up `PATH` themselves. Two common options:
 
 - **Shell profile** — add `export PATH="$(git rev-parse --show-toplevel)/tusk/bin:$PATH"` to your zsh/bash profile when inside the project directory.
 - **direnv** — create `.envrc` at the repo root with `PATH_add tusk/bin` and `direnv allow`.
@@ -107,7 +107,7 @@ Every Claude skill has a corresponding Codex prompt under [`.codex/prompts/`](..
 
 The Codex-only gaps that remain:
 
-- The PreToolUse/PostToolUse hooks (e.g. `conventions-preflight.sh`) that fire on tool invocations — Tusk does not yet register Codex lifecycle hooks.
+- The PreToolUse/PostToolUse hooks (e.g. `conventions-preflight.sh`) that fire on tool invocations — the Codex lifecycle dispatcher is installed, but these behavioral handlers have not been ported.
 - The permissions allowlist entries required for Claude's `/review-commits` parallel-reviewer flow — Codex has no Task tool, so its review runs inline in the active session (see `.codex/prompts/review-commits.md` for the tradeoff note).
 
 Everything else works identically: the `tusk` CLI, task database, criteria tracking, workflows, migrations, and `tusk upgrade`.
@@ -116,8 +116,8 @@ Everything else works identically: the `tusk` CLI, task database, criteria track
 
 `tusk upgrade` works the same way in both modes — it downloads the latest tarball, copies files into the install dir resolved from `$SCRIPT_DIR`, and runs `tusk migrate`. In Codex mode it additionally:
 
-1. Reads `install-mode` from the install dir and translates the tarball's `MANIFEST` to the local `tusk/bin/` layout before running orphan detection. The translation rewrites `.claude/bin/` → `tusk/bin/`, drops `.claude/skills/` and `.claude/hooks/` entries (no Codex equivalents), and **keeps `.codex/prompts/*.md` entries** so prompts ship in codex mode. Claude-mode upgrades inversely drop `.codex/prompts/` so those files don't land where there's no consumer.
-2. Skips the skills copy, hooks copy, `setup-path.sh` override, settings merge, and `/review-commits` permissions check.
+1. Reads `install-mode` from the install dir and translates the tarball's `MANIFEST` to the local `tusk/bin/` layout before running orphan detection. The translation rewrites `.claude/bin/` → `tusk/bin/`, drops `.claude/skills/` and `.claude/hooks/` entries (Claude-only files), and **keeps `.codex/prompts/*.md` entries** so prompts ship in codex mode. Claude-mode upgrades inversely drop `.codex/prompts/` so those files don't land where there's no consumer.
+2. Skips the Claude skills copy, Claude hooks copy, `setup-path.sh` override, settings merge, and `/review-commits` permissions check.
 3. Copies `codex-prompts/*.md` from the tarball to `<repo_root>/.codex/prompts/<name>.md` (Codex-only step; mirrors how Claude mode copies `skills/`).
 4. Writes the translated manifest to `tusk/tusk-manifest.json` so future upgrades see the correct baseline.
 
@@ -255,3 +255,18 @@ Run `tusk hooks check` to inspect the effective Git hook directory, or
 See [Hooks](HOOKS.md) for worktree behavior, custom hook paths, user-hook
 preservation, pre-push input handling and uninstallation. This Git integration
 is independent of Codex lifecycle hook registration.
+
+
+## Codex lifecycle hooks
+
+Fresh installs and upgrades in Codex and dual modes merge a Tusk startup
+registration into `.codex/hooks.json`. The dispatcher is initially a quiet no-op;
+context, checkpoint, telemetry and pre-tool behavior are separate tasks. Existing
+user hooks and inline configuration are preserved.
+
+Run `tusk hooks check --codex` to inspect registration health and
+`tusk hooks install --codex` to repair it. **Installed does not mean active**:
+review the project layer and new or changed definitions in Codex's `/hooks` UI.
+Tusk never grants hook trust. `tusk validate` reports registration health without
+claiming activation. See [Codex lifecycle installation and trust](HOOKS.md#codex-lifecycle-installation-and-trust)
+for worktrees, recovery, runtime limits and the extension contract.

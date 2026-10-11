@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1293] - 2026-10-10
+
+- [TASK-909] Install and upgrade Codex lifecycle hooks with trust guidance
+
 ## [1292] - 2026-10-10
 
 - [TASK-908] Repair Git hook installation and upgrade coverage

@@ -245,9 +245,9 @@ Two external library repos ship their own `tusk-bootstrap.json` and are pre-conf
 - **`/ios-libs-contribute`** — Open a PR against the configured iOS lib repo (`project_type=ios_app` only); links the upstream PR back to the originating tusk task
 - **`/report-tusk-issue`** — File an issue against the tusk repo itself (bugs, CLI limitations, missing features); approval-gated, with configurable attribution footer
 
-### Hooks (Git-event only in Codex mode)
+### Hooks (Git events and agent lifecycle)
 
-`install.sh` and `tusk upgrade` reconcile Git guards and dispatchers in the effective Git hook directory, including linked worktrees and `core.hooksPath`. Use `tusk hooks check` to inspect activation and `tusk hooks install` to repair local dispatchers; `tusk validate` includes advisory health checks. Codex installs skip `.claude/hooks/` (Tusk does not yet register Codex lifecycle hooks — so the Claude-mode agent-time guards, including the SessionStart `surface-skill-patches.sh` hook that runs `tusk retro-patches --window-days 30 --unconfirmed` and prompts the agent to file `skill-patch-confirmed:<file>` retro_findings, are unavailable). See `docs/HOOKS.md` for the dispatcher contract and instructions for adding a new guard.
+`install.sh` and `tusk upgrade` reconcile Git guards and dispatchers in the effective Git hook directory, including linked worktrees and `core.hooksPath`. Use `tusk hooks check` to inspect activation and `tusk hooks install` to repair local dispatchers; `tusk validate` includes advisory health checks. Codex and dual installs also merge `.codex/hooks.json` with a quiet startup dispatcher. Behavioral handlers are separate follow-up work. Use `tusk hooks check --codex` and `tusk hooks install --codex` for registration health and repair. Installed does not mean active: users must review the trusted project layer and new or changed definitions in Codex `/hooks`; Tusk never grants hook trust. See `docs/HOOKS.md` for the dispatcher contract and instructions for adding a new guard.
 
 The dispatcher at `.git/hooks/<event>` carries the `TUSK_HOOK_DISPATCHER_V1` marker for idempotent re-runs and chains any pre-existing user hook to `.git/hooks/<event>.pre-tusk` so external hooks are preserved rather than overwritten.
 
@@ -268,7 +268,7 @@ See `docs/DOMAIN.md` for the full schema, views, invariants, and status-transiti
 `install.sh` auto-detects the host agent layout and installs into the appropriate tree. See `docs/CODEX.md` for the full Claude-vs-Codex comparison.
 
 - **Claude Code project** (`.claude/` present): copies `bin/tusk` + `bin/tusk-*.py` + `VERSION` + `config.default.json` + `pricing.json` → `.claude/bin/`, skills → `.claude/skills/`, hooks → `.claude/hooks/`, merges `.claude/settings.json`, runs `tusk init` + `tusk migrate`.
-- **Codex project** (`AGENTS.md` present, no `.claude/`): copies binaries and support files → `tusk/bin/`, skips skills/hooks/settings.json (no Codex equivalents), updates `AGENTS.md` instead of `CLAUDE.md`, runs `tusk init` + `tusk migrate`.
+- **Codex project** (`AGENTS.md` present, no `.claude/`): copies binaries and support files → `tusk/bin/`, installs `.codex/hooks.json` lifecycle registrations, skips Claude skills/hooks/settings.json, updates `AGENTS.md` instead of `CLAUDE.md`, runs `tusk init` + `tusk migrate`.
 - Neither present → `install.sh` errors out. A marker file `<install_dir>/install-mode` (contents: `claude` or `codex`) is stamped so `tusk upgrade` and `tusk init` know which mode to apply on subsequent invocations.
 
 This repo is the source; target projects get the installed copy.

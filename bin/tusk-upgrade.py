@@ -108,7 +108,7 @@ def translate_manifest_for_mode(files, mode: str, *, install_role: str = "consum
     paths since a single tarball ships both. Translation:
     - Claude mode: keep .claude/* and pass-through; drop .codex/* (no Claude equivalents).
     - Codex mode: rewrite .claude/bin/ → tusk/bin/, drop .claude/skills/ and .claude/hooks/
-      (no Codex equivalents), keep .codex/* unchanged.
+      (Claude-only files), keep .codex/* unchanged.
     - Dual consumer mode: keep all Claude and Codex surfaces, and mirror bin
       entries into tusk/bin/ so both installed binaries are manifest-managed.
     - Dual source mode: keep the tarball-shaped Claude and Codex surfaces
@@ -340,6 +340,24 @@ def reconcile_git_hooks(src: str, repo_root: str, script_dir: str) -> None:
         [sys.executable, str(helper), repo_root, script_dir, "install", "--source", str(source)],
         check=True, text=True, encoding="utf-8",
     )
+
+
+def reconcile_codex_hooks(src: str, repo_root: str, script_dir: str) -> None:
+    helper = Path(src) / "bin/tusk-hooks-codex.py"
+    if detect_install_mode(script_dir) not in ("codex", "dual") or not helper.is_file():
+        return
+    subprocess.run([sys.executable, str(helper), "install", repo_root],
+                   check=True, text=True, encoding="utf-8")
+
+
+def _installed_codex_hooks_stale(repo_root: str, script_dir: str) -> bool:
+    if detect_install_mode(script_dir) not in ("codex", "dual"):
+        return False
+    helper = Path(script_dir) / "tusk-hooks-codex.py"
+    if not helper.is_file():
+        return False  # Legacy release: normal version upgrade installs support.
+    return subprocess.run([sys.executable, str(helper), "check", repo_root],
+                          capture_output=True, text=True, encoding="utf-8").returncode != 0
 
 
 def _installed_git_hooks_stale(repo_root: str, script_dir: str) -> bool:
@@ -1258,12 +1276,13 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
 
     copy_bin_files(src, script_dir)
     reconcile_git_hooks(src, repo_root, script_dir)
+    reconcile_codex_hooks(src, repo_root, script_dir)
     dual_peer_bin = None
     if install_mode == "dual" and install_role == "consumer":
         dual_peer_bin = copy_dual_bin_peer(src, repo_root, script_dir, install_role)
         if dual_peer_bin:
             reconcile_git_hooks(src, repo_root, os.path.join(repo_root, dual_peer_bin))
-    # Skills, hooks, setup-path, settings.json merge, and review-commits
+    # Claude skills/hooks, setup-path, settings.json merge, and review-commits
     # permissions are Claude concepts; prompts are Codex concepts. Dual-agent
     # installs receive both surfaces.
     if install_mode in ("claude", "dual"):
@@ -1439,6 +1458,7 @@ def main() -> None:
 
     schema_support_stale = _installed_schema_support_stale(repo_root, script_dir)
     git_hooks_stale = _installed_git_hooks_stale(repo_root, script_dir)
+    codex_hooks_stale = _installed_codex_hooks_stale(repo_root, script_dir)
 
     same_version = local_version == remote_version
     install_mode = detect_install_mode(script_dir)
@@ -1450,7 +1470,7 @@ def main() -> None:
                     f"Installed VERSION is {local_version}, but the live DB schema "
                     "is newer than this install's migration registry; reinstalling."
                 )
-            elif not git_hooks_stale and install_mode not in ("claude", "dual") and not os.path.isdir(
+            elif not git_hooks_stale and not codex_hooks_stale and install_mode not in ("claude", "dual") and not os.path.isdir(
                 os.path.join(repo_root, ".agents", "skills")
             ):
                 print(f"Already up to date (version {local_version}).")
@@ -1515,10 +1535,10 @@ def main() -> None:
         if not args.force and same_version and not schema_support_stale:
             canonical_stale = install_mode in ("claude", "dual") and _installed_skills_stale(src, repo_root)
             mirror_stale = _codex_mirrors_stale(_codex_mirror_updates(src, repo_root), repo_root)
-            if not canonical_stale and not mirror_stale and not git_hooks_stale:
+            if not canonical_stale and not mirror_stale and not git_hooks_stale and not codex_hooks_stale:
                 print(f"Already up to date (version {local_version}).")
                 return
-            stale_surface = "Git hooks" if git_hooks_stale else "skills"
+            stale_surface = "Codex lifecycle hooks" if codex_hooks_stale else "Git hooks" if git_hooks_stale else "skills"
             print(
                 f"Installed VERSION is {local_version}, but installed {stale_surface} "
                 "differ from the current release; refreshing."

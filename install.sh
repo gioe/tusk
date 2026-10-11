@@ -10,7 +10,7 @@
 #   - .claude/ directory present → Claude Code mode; install to .claude/bin/,
 #     copy skills/hooks, and merge .claude/settings.json.
 #   - AGENTS.md present → Codex mode; install to tusk/bin/ and copy
-#     codex-prompts/*.md to .codex/prompts/.
+#     codex-prompts/*.md to .codex/prompts/ plus .codex/hooks.json registrations.
 #   - Both markers present → dual mode; install both Claude and Codex surfaces.
 #   - Neither → error out with a helpful message.
 #
@@ -360,12 +360,16 @@ with open(target_settings_path, 'w') as f:
     f.write('\n')
 "
 else
-  echo "  Skipping hooks and settings.json merge (Codex lifecycle hook registration is not yet implemented)"
+  echo "  Skipping Claude hooks and settings.json merge"
 fi
 
 # ── 4d. Reconcile Git guards and effective hook dispatchers ──────────
 python3 "$REPO_ROOT/$INSTALL_DIR/tusk-hooks.py" "$REPO_ROOT" "$REPO_ROOT/$INSTALL_DIR" install \
   --source "$SCRIPT_DIR/hooks/git" --role "$INSTALL_ROLE"
+
+if [[ "$INSTALL_MODE" == "codex" || "$INSTALL_MODE" == "dual" ]]; then
+  python3 "$REPO_ROOT/$INSTALL_DIR/tusk-hooks-codex.py" install "$REPO_ROOT"
+fi
 
 if [[ "$INSTALL_MODE" == "dual" && "$INSTALL_ROLE" == "consumer" ]]; then
   mkdir -p "$REPO_ROOT/tusk/bin"
@@ -572,7 +576,7 @@ if [[ "$INSTALL_MODE" == "codex" || "$INSTALL_MODE" == "dual" ]]; then
   echo "     in Claude mode). Review it so Codex knows to use the tusk CLI."
   if [[ "$INSTALL_MODE" == "codex" ]]; then
     echo ""
-    echo "  Note: Claude-specific features (skills, hooks, settings.json) are not"
+    echo "  Note: Claude-specific features (skills, Claude hooks, settings.json) are not"
     echo "  installed in Codex mode. See docs/CODEX.md for details."
   fi
 fi

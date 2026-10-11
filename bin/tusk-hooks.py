@@ -206,7 +206,11 @@ def main():
     parser.add_argument("command", choices=("install", "check"))
     parser.add_argument("--source", type=Path)
     parser.add_argument("--role", choices=("source", "consumer"))
+    parser.add_argument("--codex", action="store_true", help="install/check Codex lifecycle registrations instead of Git hooks")
     args = parser.parse_args()
+    if args.codex:
+        return subprocess.run([sys.executable, str(Path(__file__).with_name("tusk-hooks-codex.py")),
+                               args.command, args.root], check=False).returncode
     try:
         if args.command == "install":
             reconcile(args.root, args.script_dir, args.source, args.role)

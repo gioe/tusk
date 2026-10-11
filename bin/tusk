@@ -576,6 +576,9 @@ cmd_validate() {
   # integrity error, so it must not fail validate.
   python3 "$SCRIPT_DIR/tusk-skill-drift.py" "$REPO_ROOT" || true
   python3 "$SCRIPT_DIR/tusk-hooks.py" "$REPO_ROOT" "$SCRIPT_DIR" check || true
+  if [[ -f "$REPO_ROOT/AGENTS.md" || -f "$REPO_ROOT/.codex/hooks.json" ]]; then
+    python3 "$SCRIPT_DIR/tusk-hooks-codex.py" check "$REPO_ROOT" || true
+  fi
 }
 
 update_gitignore() {
