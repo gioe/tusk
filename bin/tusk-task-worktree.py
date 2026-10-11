@@ -1650,6 +1650,10 @@ def cmd_create(
                     "TUSK_NO_AUTO_SYMLINK=1 to disable this fallback.",
                     file=sys.stderr,
                 )
+        try:
+            tusk_loader.load('tusk-skills').seed_worktree(primary_root, workspace_path)
+        except (OSError, ValueError, ImportError) as error:
+            print(f'Native skills could not be seeded: {error}; run tusk skills install in the workspace.', file=sys.stderr)
         _print_node_modules_freshness_warnings(workspace_path)
         # Stale-primary advisory (issue #913). Fires after the worktree is
         # recorded so a slow or hung fetch never blocks task-worktree

@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "groups": {
+    "core": [
+      "tusk",
+      "create-task",
+      "resume-task",
+      "review-commits",
+      "retro",
+      "tusk-init",
+      "tusk-update",
+      "tusk-doctor"
+    ],
+    "orchestration": [
+      "objective",
+      "chain",
+      "loop"
+    ],
+    "reporting": [
+      "cost",
+      "tusk-insights",
+      "groom-backlog",
+      "investigate"
+    ],
+    "integrations": [
+      "address-issue"
+    ]
+  }
+}

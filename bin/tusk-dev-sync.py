@@ -104,6 +104,12 @@ def main(argv):
             shutil.copy2(src, dst)
         copied.append(name)
 
+    bundle = repo_root / 'codex-skills'
+    if bundle.is_dir():
+        if not args.dry_run:
+            shutil.copytree(bundle, target_bin / 'codex-skills', dirs_exist_ok=True)
+        copied.append('codex-skills/')
+
     if not args.dry_run:
         hash_path = _refresh_lint_hash(target_bin)
         if hash_path is not None:

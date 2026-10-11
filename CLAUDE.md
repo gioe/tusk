@@ -397,3 +397,10 @@ Use the tusk CLI instead:
 - `tusk task-list` — list tasks
 - `tusk task-get <id>` — get a task by ID (accepts `506` or `TASK-506`)
 - `tusk task-update <id>` — update a task
+
+
+Native workflows for Codex are distributed from `codex-skills/` alongside the existing
+Claude workflows. `tusk skills install` reconciles managed `.agents/skills` files;
+`tusk skills check` reports drift, conflicts, references and duplicate names.
+`$tusk-doctor` provides read-only diagnosis. See `docs/CODEX.md` for optional groups
+and migration. Keep shared native runtime guidance in `codex-skills/_shared/`.

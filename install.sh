@@ -169,6 +169,11 @@ echo "  Installed $INSTALL_DIR/tusk_github.py"
 cp "$SCRIPT_DIR/bin/tusk_underscore_bin_files.py" "$REPO_ROOT/$INSTALL_DIR/tusk_underscore_bin_files.py"
 echo "  Installed $INSTALL_DIR/tusk_underscore_bin_files.py"
 
+# Keep the complete native skill bundle beside the CLI for offline repair.
+if [[ -d "$SCRIPT_DIR/codex-skills" ]]; then
+  cp -R "$SCRIPT_DIR/codex-skills" "$REPO_ROOT/$INSTALL_DIR/"
+fi
+
 # ── 2. Copy config, VERSION ─────────────────────────────────────────
 cp "$SCRIPT_DIR/config.default.json" "$REPO_ROOT/$INSTALL_DIR/config.default.json"
 echo "  Installed $INSTALL_DIR/config.default.json"
@@ -206,10 +211,11 @@ if [[ "$INSTALL_MODE" == "claude" || "$INSTALL_MODE" == "dual" ]]; then
     echo "  Installed skill: $skill_name"
   done
 else
-  echo "  Skipping skills (Codex mode has no skills primitive)"
+  echo "  Installing native Codex skills below"
 fi
 
 if [[ "$INSTALL_MODE" == "codex" || "$INSTALL_MODE" == "dual" ]]; then
+  python3 "$REPO_ROOT/$INSTALL_DIR/tusk-skills.py" "$REPO_ROOT" install
   if [[ -d "$SCRIPT_DIR/codex-prompts" ]]; then
     mkdir -p "$REPO_ROOT/.codex/prompts"
     for prompt_file in "$SCRIPT_DIR"/codex-prompts/*.md; do
@@ -419,6 +425,12 @@ for name in ['config.default.json', 'VERSION', 'pricing.json']:
     for _install_dir in install_dirs:
         files.append(_install_dir + '/' + name)
 
+for base, _, names in os.walk(os.path.join(script_dir, 'codex-skills')):
+    for name in sorted(names):
+        rel = os.path.relpath(os.path.join(base, name), os.path.join(script_dir, 'codex-skills'))
+        for _install_dir in install_dirs:
+            files.append(_install_dir + '/codex-skills/' + rel)
+
 # Skills/hooks exist when Claude is present; codex prompts exist when Codex is present.
 if install_mode in ('claude', 'dual'):
     # Filter skills by applies_to_project_types — see bin/tusk_skill_filter.py.
@@ -576,7 +588,7 @@ if [[ "$INSTALL_MODE" == "codex" || "$INSTALL_MODE" == "dual" ]]; then
   echo "     in Claude mode). Review it so Codex knows to use the tusk CLI."
   if [[ "$INSTALL_MODE" == "codex" ]]; then
     echo ""
-    echo "  Note: Claude-specific features (skills, Claude hooks, settings.json) are not"
+    echo "  Note: Claude-specific features (Claude skills, Claude hooks, settings.json) are not"
     echo "  installed in Codex mode. See docs/CODEX.md for details."
   fi
 fi

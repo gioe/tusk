@@ -307,3 +307,12 @@ Scripts do not call `json.dumps(obj, indent=2)` on stdout paths — they import
 writes that produce human-edited config (`config.json`, `settings.json`,
 `pricing.json`, `MANIFEST`) remain pretty-printed with `indent=2` since they
 are read by humans outside the agent hot path.
+
+
+### tusk-skills.py
+
+Shared native Codex skill packaging and diagnostics. `tusk skills install` installs
+or repairs the selected groups from the release bundle; `--groups core,reporting`
+replaces the persisted selection. `tusk skills check [--format json]` is read-only.
+Preserves custom files using ownership hashes, validates references and duplicate
+names, and supplies task worktree seeding. See [Codex skills](CODEX.md#native-skill-installation-and-repair).

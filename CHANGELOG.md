@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1298] - 2026-10-11
+
+- [TASK-914] Package native workflow skills for Codex with Tusk installation and upgrades
+
 ## [1297] - 2026-10-11
 
 - [TASK-913] Add Codex pre-tool checks for project routing and task scope

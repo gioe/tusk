@@ -44,7 +44,7 @@ The hook *files* are still copied to `.claude/hooks/` in both roles — only the
 | Config & pricing       | `.claude/bin/config.default.json`, `.claude/bin/pricing.json` | `tusk/bin/config.default.json`, `tusk/bin/pricing.json` |
 | Install-mode marker    | `.claude/bin/install-mode`      | `tusk/bin/install-mode`          |
 | Manifest               | `.claude/tusk-manifest.json`    | `tusk/tusk-manifest.json`        |
-| Skills                 | `.claude/skills/<name>/`        | Not installed (no Codex primitive) |
+| Skills                 | `.claude/skills/<name>/`        | `.agents/skills/<name>/` (core by default) |
 | Codex prompts          | Not installed (no Claude primitive) | `.codex/prompts/<name>.md` |
 | Hooks                  | `.claude/hooks/<name>`          | `.codex/hooks.json` lifecycle dispatcher plus Git hooks |
 | Settings merge         | `.claude/settings.json`         | Not performed (no file to merge into) |
@@ -62,27 +62,13 @@ Claude mode installs a `setup-path.sh` hook that prepends `.claude/bin/` to `PAT
 
 `install.sh` prints a reminder with the exact `export PATH=...` line after a successful Codex install.
 
-## Model routing for read-only prompts
+## Legacy prompt model routing
 
-Codex prompt files have no `model:` frontmatter — the Codex CLI resolves the model from `~/.codex/config.toml`, named profiles activated via `--config-profile`, or the per-invocation `--model` flag. The Claude side of tusk pins read-only/orchestration skills (`groom-backlog`, `tusk-insights`, `tusk-update`, `loop`) to a cheaper model via SKILL.md frontmatter; Codex users can get the same effect with a named profile.
-
-Add a profile to `~/.codex/config.toml`:
-
-```toml
-[profiles.cheap]
-model = "gpt-4.1-mini"
-```
-
-Then invoke the four prompts above with `--config-profile cheap`:
-
-```bash
-codex --config-profile cheap exec /loop
-codex --config-profile cheap exec /groom-backlog
-codex --config-profile cheap exec /tusk-insights
-codex --config-profile cheap exec /tusk-update
-```
-
-Leave the other prompts (`/tusk`, `/chain`, `/investigate`, `/create-task`, `/retro`, `/review-commits`, `/address-issue`, `/resume-task`, `/tusk-init`, `/investigate-directory`) on your default (top-tier) model — they do real reasoning and benefit from the bigger model. Choose any model name your Codex install supports; `gpt-4.1-mini` is the cheap-tier default suggestion, swap as needed.
+Native skills use the model selected in the host; they do not hardcode model names.
+Legacy `.codex/prompts` files remain installed for compatibility. Existing Claude
+skills remain unchanged. Native entry points share a small runtime reference and
+call the same CLI workflow primitives; they do not require loading the long legacy
+prompts during routine work.
 
 ## Feature parity
 
@@ -304,3 +290,65 @@ quiet; arbitrary scripts and shell edits remain covered by CLI/Git enforcement.
 Use `TUSK_PROJECT` for intentional cross-project Tusk operations, or record an
 intentional scope expansion before retrying an edit. `TUSK_CODEX_PRETOOL=0` opts
 out. See [pre-tool checks](HOOKS.md#codex-pre-tool-checks) for activation and limits.
+
+
+## Native skill installation and repair
+
+Codex and dual installs now create repository-discoverable `.agents/skills/<name>/`
+packages. Core includes `tusk`, `create-task`, `resume-task`, `review-commits`, `retro`,
+`tusk-init`, `tusk-update`, and `tusk-doctor`. Codex supports explicit `$name` invocation
+and normal automatic skill selection. Existing personal skills are never removed;
+`skills check` reports duplicate names so operators can choose which copy to keep.
+The host may need to refresh discovery or restart after installation.
+
+The complete release bundle lives beside the installed CLI in `codex-skills/`.
+Installation, upgrade, local repair and worktree seeding use that bundle, with no
+separate skill download or dependence on a user's home-directory installation.
+Source entry points live in `codex-skills/`; `_shared/runtime.md` is copied into each
+selected package's references. Conditional recovery guidance is bundled with tusk.
+Claude's existing workflows and legacy Codex prompts remain available.
+
+```bash
+tusk skills check
+tusk skills check --format json
+tusk skills install                         # repair current selection offline
+tusk skills install --groups core,reporting # replace and persist group selection
+```
+
+Available groups:
+
+| Group | Skills |
+| --- | --- |
+| core (default) | tusk, create-task, resume-task, review-commits, retro, tusk-init, tusk-update, tusk-doctor |
+| orchestration | objective, chain, loop |
+| reporting | cost, tusk-insights, groom-backlog, investigate |
+| integrations | address-issue |
+
+Selecting groups expresses which packages should be present, not permission to run
+their workflows. Existing project-type-gated Claude integrations retain their current
+installation rules. `--groups` replaces the selection; include core to retain it.
+
+`tusk/native-skills.json` records selected groups and hashes of managed files.
+Updates replace unchanged managed files and recreate missing ones. Local edits,
+unrecognized skill directories, symlinks and unsafe ownership state are preserved
+and reported. Valid hashes from the legacy `codex-skill-mirrors.json` ownership file
+permit migration; a shared name alone never proves ownership. Removing a group
+removes only unchanged managed files, preserving edits and unrelated files.
+Do not delete ownership state to resolve a conflict: compare the local file with
+the bundled release, retain or move the customization, then rerun skills install.
+
+Generated skill files and ownership state receive exact local Git exclude entries;
+unrelated skills and extra files are not ignored. Already tracked files remain
+tracked. You can deliberately version selected generated files with `git add -f`.
+Task worktrees include tracked native skills in the sparse cone and seed missing
+managed packages from the primary checkout, including local edits. Existing workspace
+files take precedence. These runtime copies do not dirty task worktrees. For an older
+workspace, run skills install there; it defaults to core without existing state.
+
+`skills check` reports missing/outdated files, customization conflicts, broken local
+references, and duplicate names across repository and personal skill locations.
+`tusk validate` runs it as an advisory check; `skill-drift` also scans native skill
+entry points for unsupported CLI commands. `$tusk-doctor` combines those checks with
+hook health, version and workspace diagnostics without granting hook trust or
+mutating task state. A check diagnoses files; it cannot prove host activation or
+which duplicate skill a running session selected.

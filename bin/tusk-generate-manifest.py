@@ -264,6 +264,13 @@ def _enumerate(root, lister):
     for name in ["config.default.json", "VERSION", "pricing.json"]:
         files.append(".claude/bin/" + name)
 
+    def bundle_files(directory):
+        for name in list_files(directory):
+            files.append('.claude/bin/' + directory + '/' + name)
+        for name in list_subdirs(directory):
+            bundle_files(directory + '/' + name)
+    bundle_files('codex-skills')
+
     for skill_name in list_subdirs("skills"):
         for fname in list_files("skills/" + skill_name):
             files.append(".claude/skills/" + skill_name + "/" + fname)

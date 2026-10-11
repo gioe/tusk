@@ -185,7 +185,7 @@ def find_skill_files(repo_root: str):
     source repo's symlinked `.claude/skills` is not double-counted."""
     seen = set()
     files = []
-    for sub in (".claude/skills", "skills", "skills-internal"):
+    for sub in (".claude/skills", ".agents/skills", "skills", "skills-internal"):
         base = os.path.join(repo_root, sub)
         if not os.path.isdir(base):
             continue

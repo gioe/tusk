@@ -221,9 +221,9 @@ Two external library repos ship their own `tusk-bootstrap.json` and are pre-conf
 
 - **`python_service`** — Seeds tasks for integrating [gioe/python-libs](https://github.com/gioe/python-libs), a standalone Python library repo distributed as the `gioe-libs` package. It provides structured logging (`gioe_libs.aiq_logging`), optional OpenTelemetry/Sentry observability extras, and shared utilities. Tasks cover installing the package, configuring structured logging, and (optionally) enabling observability.
 
-### Skills (Claude Code only)
+### Skills (Claude Code and Codex)
 
-> These skills are installed to `.claude/skills/` in Claude Code target projects. Codex consumers receive `.codex/prompts/<name>.md` ports — pilot ports for `tusk-init` and `create-task` ship today via `install.sh` and `tusk upgrade`; the bulk port of the remaining skills is in progress.
+> Claude skills install to `.claude/skills/`. Codex and dual installs receive concise native core skills in `.agents/skills/`, with optional groups managed by `tusk skills install --groups core,reporting`. Use `tusk skills check` or `$tusk-doctor` for discovery, ownership and reference diagnostics. Legacy `.codex/prompts/` files remain compatible. See `docs/CODEX.md`.
 
 - **`/tusk`** — Full dev workflow: pick task, implement, commit, review, done, retro
 - **`/groom-backlog`** — Auto-close expired tasks, dedup, re-prioritize backlog
@@ -232,6 +232,7 @@ Two external library repos ship their own `tusk-bootstrap.json` and are pre-conf
 - **`/tusk-update`** — Update config post-install without losing data
 - **`/tusk-init`** — Interactive setup wizard
 - **`/tusk-insights`** — Read-only DB health audit + on-demand HTML task dashboard
+- **`$tusk-doctor`** — Diagnose native skills, hook activation, version skew and workspace routing without changing task state
 - **`/cost`** — Report the recorded cost of a task, objective, or complete project (`$cost` in Codex)
 - **`/investigate`** — Scope a problem via Plan Mode and propose remediation tasks for `/create-task`
 - **`/investigate-directory`** — Audit a directory's purpose and alignment with the tusk client project

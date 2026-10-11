@@ -327,6 +327,9 @@ def copy_bin_files(src: str, script_dir: str) -> None:
         os.path.join(src, "pricing.json"),
         os.path.join(script_dir, "pricing.json"),
     )
+    native_bundle = Path(src) / 'codex-skills'
+    if native_bundle.is_dir():
+        shutil.copytree(native_bundle, Path(script_dir) / 'codex-skills', dirs_exist_ok=True)
     _vprint("  Updated CLI and support files")
 
 
@@ -348,6 +351,25 @@ def reconcile_codex_hooks(src: str, repo_root: str, script_dir: str) -> None:
         return
     subprocess.run([sys.executable, str(helper), "install", repo_root],
                    check=True, text=True, encoding="utf-8")
+
+
+def reconcile_native_skills(src, repo_root, script_dir, check=False):
+    helper = Path(src) / 'bin/tusk-skills.py'
+    bundle = Path(src) / 'codex-skills'
+    if detect_install_mode(script_dir) not in ('codex', 'dual') or not helper.is_file() or not bundle.is_dir():
+        return False
+    result = subprocess.run([sys.executable, str(helper), repo_root, 'check' if check else 'install',
+                             '--source', str(bundle), '--format', 'json'], capture_output=True, text=True, encoding='utf-8')
+    if not check and result.stdout:
+        print(result.stdout.rstrip())
+    if not check and result.returncode:
+        raise RuntimeError(result.stderr or 'native skill installation failed')
+    if check and result.stdout:
+        try:
+            return any(not issue.startswith('duplicate skill name ') for issue in json.loads(result.stdout)['issues'])
+        except (ValueError, KeyError, TypeError):
+            pass
+    return result.returncode != 0
 
 
 def _installed_codex_hooks_stale(repo_root: str, script_dir: str) -> bool:
@@ -572,6 +594,11 @@ def _codex_mirror_updates(src: str, repo_root: str) -> dict[str, str]:
     mirror_root = root / ".agents" / "skills"
     updates = {}
     recorded = _read_codex_mirror_state(repo_root) or {}
+    native_owned = {}
+    try:
+        native_owned = json.loads((root / 'tusk/native-skills.json').read_text()).get('files', {})
+    except (OSError, ValueError, AttributeError):
+        pass
     if not mirror_root.is_dir() or not source_root.is_dir():
         return updates
     sf = _import_skill_filter(src)
@@ -585,6 +612,8 @@ def _codex_mirror_updates(src: str, repo_root: str) -> dict[str, str]:
                 continue
             rel = source.relative_to(source_root)
             target = mirror_root / rel
+            if str(target.relative_to(root)) in native_owned:
+                continue
             if not _mirror_regular_file(root, target):
                 continue
             try:
@@ -1277,6 +1306,7 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
     copy_bin_files(src, script_dir)
     reconcile_git_hooks(src, repo_root, script_dir)
     reconcile_codex_hooks(src, repo_root, script_dir)
+    reconcile_native_skills(src, repo_root, script_dir)
     dual_peer_bin = None
     if install_mode == "dual" and install_role == "consumer":
         dual_peer_bin = copy_dual_bin_peer(src, repo_root, script_dir, install_role)
@@ -1303,7 +1333,13 @@ def _run_upgrade_steps(src: str, repo_root: str, script_dir: str, tmpdir: str) -
     else:
         prompt_count = 0
     mirror_count = 0
+    try:
+        native_now = json.loads((Path(repo_root) / 'tusk/native-skills.json').read_text()).get('files', {})
+    except (OSError, ValueError, AttributeError):
+        native_now = {}
     for rel, content in mirror_updates.items():
+        if rel in native_now:
+            continue
         target = Path(repo_root) / rel
         if _mirror_regular_file(Path(repo_root), target):
             if target.read_text(encoding="utf-8") != content:
@@ -1535,7 +1571,8 @@ def main() -> None:
         if not args.force and same_version and not schema_support_stale:
             canonical_stale = install_mode in ("claude", "dual") and _installed_skills_stale(src, repo_root)
             mirror_stale = _codex_mirrors_stale(_codex_mirror_updates(src, repo_root), repo_root)
-            if not canonical_stale and not mirror_stale and not git_hooks_stale and not codex_hooks_stale:
+            native_stale = reconcile_native_skills(src, repo_root, script_dir, check=True)
+            if not canonical_stale and not mirror_stale and not git_hooks_stale and not codex_hooks_stale and not native_stale:
                 print(f"Already up to date (version {local_version}).")
                 return
             stale_surface = "Codex lifecycle hooks" if codex_hooks_stale else "Git hooks" if git_hooks_stale else "skills"
