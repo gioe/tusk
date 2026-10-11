@@ -1275,11 +1275,19 @@ def _run_pre_merge_lint(
         f"Running tusk lint before merge (timeout {lint_timeout_sec}s)...",
         file=sys.stderr,
     )
+    # Lint runs before workspace cleanup. In the source repo its helpers must
+    # match the revision under review (e.g. newly distributed manifest assets),
+    # while the stable primary binary remains necessary for later finalization.
+    lint_bin = tusk_bin
+    if cwd:
+        source_bin = os.path.join(cwd, 'bin', 'tusk')
+        if os.path.isfile(source_bin) and os.path.isfile(os.path.join(cwd, 'bin', 'tusk-lint.py')):
+            lint_bin = source_bin
     trace_path, lint_env = _make_lint_trace_env()
     lint_started = time.monotonic()
     try:
         lint = subprocess.run(
-            [tusk_bin, "lint", "--quiet", "--task", str(task_id)],
+            [lint_bin, "lint", "--quiet", "--task", str(task_id)],
             capture_output=True,
             text=True,
             encoding="utf-8",

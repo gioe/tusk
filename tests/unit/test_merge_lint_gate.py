@@ -150,3 +150,21 @@ def test_main_accepts_pre_merge_bypass_flags(monkeypatch, tmp_path, flag):
 
     assert rc == 6
     assert calls[0][1]["skip_lint"] is True
+
+
+def test_source_worktree_lints_with_its_own_release(monkeypatch, tmp_path):
+    mod = _load_module()
+    source_bin = tmp_path / 'bin'
+    source_bin.mkdir()
+    (source_bin / 'tusk').touch()
+    (source_bin / 'tusk-lint.py').touch()
+    config = tmp_path / 'config.json'
+    config.write_text('{}')
+    calls = []
+    def fake_run(args, **kwargs):
+        calls.append((args, kwargs))
+        return subprocess.CompletedProcess(args, 0, stdout='', stderr='')
+    monkeypatch.setattr(mod.subprocess, 'run', fake_run)
+    assert mod._run_pre_merge_lint('/old-primary/bin/tusk', str(config), 42, cwd=str(tmp_path)) == 0
+    assert calls[0][0][0] == str(source_bin / 'tusk')
+    assert calls[0][1]['cwd'] == str(tmp_path)
