@@ -28,7 +28,7 @@ def test_contract_1(tmp_path, monkeypatch, mode):
     install(repo)
     assert path.read_bytes() == first
     data = json.loads(first)
-    assert data["hooks"]["Stop"] == original["hooks"]["Stop"]
+    assert data["hooks"]["Stop"][0] == original["hooks"]["Stop"][0]
     assert data["hooks"]["SessionStart"][0] == original["hooks"]["SessionStart"][0]
     assert data["description"] == "My hooks" and data["custom"] == {"keep": True}
     assert len(data["hooks"]["SessionStart"]) == 2
@@ -199,6 +199,23 @@ def test_installed_context_restoration(tmp_path, monkeypatch):
             assert f'Promise for {task}' in context
             assert f'TASK-{99 if task == 42 else 42}' not in context
             assert result.stderr == ''
+    registrations = json.loads((tmp_path / '.codex/hooks.json').read_text())['hooks']
+    stop = registrations['Stop'][-1]['hooks'][0]['command']
+    interrupt = registrations['Interrupt'][-1]['hooks'][0]['command']
+    with sqlite3.connect(db) as conn:
+        conn.execute("UPDATE task_progress SET next_steps='' WHERE task_id=42")
+    event = {'hook_event_name': 'Stop', 'cwd': str(workspaces[0]), 'session_id': 'thr_42', 'turn_id': 'turn_1'}
+    first = run(workspaces[0], 'sh', '-c', stop, input=json.dumps(event))
+    assert set(json.loads(first.stdout)) == {'systemMessage'}
+    assert 'TASK-42' in json.loads(first.stdout)['systemMessage']
+    cache = Path(db + '-hook-state') / 'codex-checkpoints'
+    assert cache.is_dir()
+    git(tmp_path, 'check-ignore', str(next(cache.glob('*.json'))))
+    event['hook_event_name'] = 'Interrupt'
+    assert json.loads(run(workspaces[0], 'sh', '-c', interrupt, input=json.dumps(event)).stdout) == {}
+    with sqlite3.connect(db) as conn:
+        assert conn.execute('SELECT status FROM tasks WHERE id=42').fetchone()[0] == 'In Progress'
+        assert conn.execute('SELECT is_completed FROM acceptance_criteria WHERE task_id=42').fetchone()[0] == 0
     # Installing an updated brief changes the definition requiring trust review.
     renderer = script_dir / 'tusk-task-brief.py'
     renderer.write_text(renderer.read_text() + '\n# Context renderer release change\n')

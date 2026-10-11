@@ -262,7 +262,7 @@ is independent of Codex lifecycle hook registration.
 Fresh installs and upgrades in Codex and dual modes merge a Tusk startup
 registration into `.codex/hooks.json`. Startup, resume, clear and post-compaction
 events restore a bounded snapshot of the owning task, unfinished criteria and
-latest next steps. Checkpoint, telemetry and pre-tool behavior remain separate tasks. Existing
+latest next steps. Stop and interruption also provide advisory checkpoint reminders; telemetry and pre-tool behavior remain separate tasks. Existing
 user hooks and inline configuration are preserved.
 
 Run `tusk hooks check --codex` to inspect registration health and
@@ -277,3 +277,11 @@ exact recorded task workspace and one open session for an In Progress task;
 missing or ambiguous identity is quiet. Set `TUSK_CODEX_CONTEXT=0` before launching
 Codex to opt out, or disable the entry in `/hooks`. Repeated events return the same
 snapshot without changing task state; compaction deliberately restores it again.
+
+Stop and interruption reminders target only the owning task and preserve stopping.
+They appear for unfinished criteria without nonblank next steps saved in the
+current Tusk session within 30 minutes. A small local delivery cache prevents
+repeated reminders for the same Codex turn, without modifying task records.
+Set `TUSK_CODEX_CHECKPOINTS=0` to disable these reminders independently of context
+restoration. See [checkpoint reminders](HOOKS.md#codex-checkpoint-reminders) for
+cache recovery, bounded deduplication and activation details.

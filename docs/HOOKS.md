@@ -1,11 +1,11 @@
 # Hooks
 
-Tusk installs Git guards, Claude agent-time guards, and a Codex lifecycle dispatcher. The Codex dispatcher restores a bounded current-task snapshot on startup, resume and compaction. Checkpoint, telemetry and pre-tool handlers are separate follow-up work.
+Tusk installs Git guards, Claude agent-time guards, and a Codex lifecycle dispatcher. The Codex dispatcher restores a bounded current-task snapshot on startup, resume and compaction. Stop and interruption can surface advisory checkpoint reminders; telemetry and pre-tool handlers are separate follow-up work.
 
 | Surface | Path | Invoked by | Available in |
 |---|---|---|---|
 | Agent-time | `.claude/hooks/<name>.sh` | Claude Code's `PreToolUse` mechanism (typically gating `Bash`) | Claude Code mode only |
-| Codex lifecycle | `.codex/hooks.json` → installed `tusk-hooks-codex.py` | Codex `SessionStart`, after trust review | Codex and dual modes |
+| Codex lifecycle | `.codex/hooks.json` → installed `tusk-hooks-codex.py` | Codex `SessionStart`, `Stop`, `Interrupt`, after trust review | Codex and dual modes |
 | Git-event  | `hooks/git/<name>.sh` (run via `.git/hooks/<event>` dispatcher) | git itself, on commit/push | Both Claude Code and Codex modes |
 
 The two surfaces overlap deliberately. An agent-time hook can block a hazardous tool call before it ever runs, but it cannot reach a `git commit` that a human types in their own terminal. The git-event hook closes that gap — same rule, different invocation path.
@@ -203,3 +203,42 @@ Older Codex runtimes or policy-disabled hooks may not run these registrations;
 manual CLI workflows and Git hooks remain available. See the current
 [Codex hook reference](https://learn.chatgpt.com/docs/hooks) for runtime event,
 configuration and trust behavior.
+
+## Codex checkpoint reminders
+
+`Stop` and `Interrupt` handlers return only an advisory `systemMessage`, at most
+one concise reminder per turn. They never return a continuation/block decision,
+prevent interruption, complete criteria, close sessions or mark tasks done. A
+Stop event already continued by another hook (`stop_hook_active`) is quiet.
+
+A reminder requires an exact recorded workspace, one open session for an In
+Progress task, and at least one unfinished criterion. A useful recent checkpoint
+means nonblank `task_progress.next_steps`, saved during that Tusk session within
+the last 30 minutes (UTC). Note-only entries, blank next steps and older entries
+do not suppress the reminder. Completed or recently checkpointed work is quiet.
+The message suggests saving next steps when work resumes; it never asks Codex to
+continue merely to checkpoint. Use `tusk progress <id> --next-steps "..."` manually
+when appropriate.
+
+Stop and Interrupt share a delivery cache keyed by Tusk task/session, Codex session
+and turn ID, so an interruption followed by Stop for the same turn does not repeat
+the reminder. Missing/invalid turn identity is quiet. A new turn can remind again
+if work still lacks a recent checkpoint. `TUSK_CODEX_CHECKPOINTS=0` (`false` or `off`
+also accepted) opts out before identity or DB reads; the context hydration opt-out
+is independent. Individual handlers can also be disabled in Codex `/hooks`.
+
+The task database is read-only. Delivery receipts live alongside the resolved
+Tusk database under `tasks.db-hook-state/codex-checkpoints/<session-id>.json` (using the resolved DB filename), one private
+file per Tusk session containing the last 128 hashed turn keys. This bounded window
+is not an audit log: evicted turns or deleted receipts can remind again. Closed
+session files may be removed when no longer needed. Lock acquisition is nonblocking;
+busy, unavailable or malformed cache files suppress output. If a process stops
+after claiming delivery but before emitting output, that reminder may be lost.
+To recover a malformed cache, remove the affected session file while no hook is
+running. No task or progress records need repair.
+
+Both registrations use a three-second timeout. Task queries have short lock waits
+and a half-second query budget; missing DBs, ambiguous identity and read errors
+are advisory no-ops. Install/upgrade and review the changed definitions in `/hooks`
+to activate the new handlers. See the [Codex hook reference](https://learn.chatgpt.com/docs/hooks)
+for runtime Stop/Interrupt semantics.

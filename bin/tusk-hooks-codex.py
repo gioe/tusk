@@ -9,6 +9,7 @@ from the most recent or sole project-wide session.
 import argparse
 import copy
 import hashlib
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -52,9 +53,12 @@ for root in "$r" "$(git worktree list --porcelain | sed -n '1s/^worktree //p')";
 done
 exit 0'''
     command = f"sh -c {shlex.quote(script)} {MARKER} {digest}"
-    return {"SessionStart": [{"matcher": "startup|resume|clear|compact", "hooks": [
+    registrations = {"SessionStart": [{"matcher": "startup|resume|clear|compact", "hooks": [
         {"type": "command", "command": command, "timeout": 3, "additionalContextLimit": 2000}
     ]}]}
+    for event in ("Stop", "Interrupt"):
+        registrations[event] = [{"hooks": [{"type": "command", "command": command, "timeout": 3}]}]
+    return registrations
 
 
 def owned(handler):
@@ -197,7 +201,73 @@ def task_context(event, context):
         connection.close()
 
 
-HANDLERS = {"SessionStart": task_context}
+def claim_reminder(context, turn_id):
+    """Bounded local delivery cache, separate from task data; never wait for a peer."""
+    # The installer ignores this local delivery state in consumer repos.
+    directory = Path(context["db_path"] + "-hook-state") / "codex-checkpoints"
+    directory.mkdir(parents=True, exist_ok=True)
+    # One file per Tusk session; no arbitrary event strings in file names.
+    path = directory / f"{int(context['session_id'])}.json"
+    key = hashlib.sha256(json.dumps([context["task_id"], context["codex_session_id"], turn_id]).encode()).hexdigest()
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    with os.fdopen(fd, "r+", encoding="utf-8") as stream:
+        fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        stream.seek(0)
+        raw = stream.read(20000)
+        try:
+            seen = json.loads(raw) if raw else []
+        except ValueError:
+            return False  # Uncertain delivery history: quiet, not duplicate output.
+        if not isinstance(seen, list) or any(not isinstance(item, str) or len(item) != 64 for item in seen):
+            return False
+        if key in seen:
+            return False
+        stream.seek(0)
+        json.dump((seen + [key])[-128:], stream)
+        stream.truncate()
+        stream.flush()
+    return True
+
+
+def checkpoint_reminder(event, context):
+    """Advisory only. Never mutate tasks, progress, criteria or session lifecycle."""
+    connection = sqlite3.connect(Path(context["db_path"]).as_uri() + "?mode=ro",
+                                 uri=True, timeout=0.1)
+    try:
+        deadline = time.monotonic() + 0.5
+        connection.set_progress_handler(lambda: int(time.monotonic() > deadline), 1000)
+        connection.execute("BEGIN")
+        sessions = connection.execute(
+            "SELECT s.id, s.started_at FROM task_sessions s JOIN tasks t ON t.id=s.task_id "
+            "WHERE s.task_id=? AND s.ended_at IS NULL AND t.status='In Progress' LIMIT 2",
+            (context["task_id"],),
+        ).fetchall()
+        if len(sessions) != 1 or sessions[0][0] != context["session_id"]:
+            return {}
+        unfinished = connection.execute(
+            "SELECT 1 FROM acceptance_criteria WHERE task_id=? AND is_completed=0 LIMIT 1",
+            (context["task_id"],),
+        ).fetchone()
+        checkpoint = connection.execute(
+            "SELECT 1 FROM task_progress WHERE task_id=? "
+            "AND trim(coalesce(next_steps, ''), char(9)||char(10)||char(11)||char(12)||char(13)||' ') <> '' "
+            "AND created_at >= ? AND created_at >= datetime('now', '-30 minutes') "
+            "AND created_at <= datetime('now') LIMIT 1", (context["task_id"], sessions[0][1]),
+        ).fetchone()
+        if not unfinished or checkpoint:
+            return {}
+    finally:
+        connection.close()
+    if not claim_reminder(context, event["turn_id"]):
+        return {}
+    return {"systemMessage": (
+        f"TASK-{context['task_id']} has unfinished criteria and no recent recovery checkpoint. "
+        f"When you resume, save useful next steps with tusk progress {context['task_id']} --next-steps. "
+        "Stopping is respected; task state is unchanged."
+    )}
+
+
+HANDLERS = {"SessionStart": task_context, "Stop": checkpoint_reminder, "Interrupt": checkpoint_reminder}
 
 
 def dispatch(stream):
@@ -218,6 +288,13 @@ def dispatch(stream):
             source = event.get("source")
             if (not isinstance(source, str) or source not in CONTEXT_SOURCES
                     or os.environ.get("TUSK_CODEX_CONTEXT", "1").lower() in {"0", "false", "off"}):
+                return {}
+        if name in {"Stop", "Interrupt"}:
+            turn = event.get("turn_id")
+            if (not isinstance(turn, str) or not turn.strip() or len(turn) > 256
+                    or len(event["session_id"]) > 256
+                    or event.get("stop_hook_active", False) is not False
+                    or os.environ.get("TUSK_CODEX_CHECKPOINTS", "1").lower() in {"0", "false", "off"}):
                 return {}
         handler = HANDLERS.get(name)
         if handler is None:
