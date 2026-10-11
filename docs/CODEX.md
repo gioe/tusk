@@ -262,7 +262,7 @@ is independent of Codex lifecycle hook registration.
 Fresh installs and upgrades in Codex and dual modes merge a Tusk startup
 registration into `.codex/hooks.json`. Startup, resume, clear and post-compaction
 events restore a bounded snapshot of the owning task, unfinished criteria and
-latest next steps. Stop and interruption also provide advisory checkpoint reminders; telemetry and pre-tool behavior remain separate tasks. Existing
+latest next steps. Stop and interruption also provide advisory checkpoint reminders; session end captures bounded telemetry. Pre-tool behavior remains separate work. Existing
 user hooks and inline configuration are preserved.
 
 Run `tusk hooks check --codex` to inspect registration health and
@@ -285,3 +285,13 @@ repeated reminders for the same Codex turn, without modifying task records.
 Set `TUSK_CODEX_CHECKPOINTS=0` to disable these reminders independently of context
 restoration. See [checkpoint reminders](HOOKS.md#codex-checkpoint-reminders) for
 cache recovery, bounded deduplication and activation details.
+
+
+Session-end telemetry is best effort, with a three-second runtime limit and a
+2 MiB transcript budget. Repeated events replace session totals without double
+counting; late events use an exact pinned transcript when available. Unknown models
+keep tokens with unavailable cost. Partial or deferred captures preserve recorded
+metrics. Use `tusk session-stats <session-id> <transcript-path>` for manual recovery,
+or `TUSK_CODEX_TELEMETRY=0` to opt out. It never completes tasks or criteria or closes
+Tusk sessions. See [session-end telemetry](HOOKS.md#codex-session-end-telemetry)
+for activation, tool-cost recovery and limitations.

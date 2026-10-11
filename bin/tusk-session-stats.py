@@ -15,6 +15,9 @@ Arguments received from tusk:
 """
 
 import logging
+import json
+from pathlib import Path
+import tempfile
 import os
 import sys
 
@@ -40,6 +43,119 @@ def _format_duration(seconds) -> str:
         return f"{mins}m {secs}s" if secs else f"{mins}m"
     hours, mins = divmod(mins, 60)
     return f"{hours}h {mins}m" if mins else f"{hours}h"
+
+
+HOOK_TRANSCRIPT_LIMIT = 2 * 1024 * 1024
+
+
+def capture_hook(conn, context, event):
+    """Replace telemetry atomically from a validated bounded Codex snapshot.
+
+    The caller supplies a short-lived worker and connection with bounded waits.
+    No task/session lifecycle fields are written, including on late delivery.
+    """
+    session_id = context["session_id"]
+    recovery = f"Run tusk session-stats {session_id} <transcript-path> to recover telemetry."
+    def deferred(reason):
+        return {"systemMessage": f"Tusk telemetry deferred: {reason}. {recovery}"}
+    path = Path(event["transcript_path"])
+    row = conn.execute("SELECT * FROM task_sessions WHERE id=? AND task_id=?",
+                       (session_id, context["task_id"])).fetchone()
+    if not row:
+        return deferred("session identity is no longer available")
+    if row["transcript_path"] and Path(row["transcript_path"]).resolve() != path.resolve():
+        return deferred("session is pinned to a different transcript")
+    with path.open('rb') as stream:
+        raw = stream.read(HOOK_TRANSCRIPT_LIMIT + 1)
+    if len(raw) > HOOK_TRANSCRIPT_LIMIT:
+        return deferred("transcript exceeds the 2 MiB hook budget")
+    if not raw or not raw.endswith(b'\n'):
+        return deferred("transcript is empty or still being written")
+    entries = [json.loads(line) for line in raw.splitlines() if line.strip()]
+    metadata = [e.get('payload', {}) for e in entries if isinstance(e, dict) and e.get('type') == 'session_meta']
+    if (len(metadata) != 1 or not isinstance(metadata[0], dict)
+            or metadata[0].get('id') != event['session_id']):
+        return deferred("transcript session identity does not match")
+    cwd = metadata[0].get('cwd')
+    if (not isinstance(cwd, str) or not Path(cwd).is_absolute()
+            or not Path(cwd).resolve().is_relative_to(Path(context['root']).resolve())):
+        return deferred("transcript workspace does not match")
+    # Reject incomplete/malformed usage instead of letting the permissive CLI
+    # parser turn it into zero counts. Rate-limit-only events have no usage.
+    filtered = []
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get('payload', {}), dict):
+            return deferred("transcript contains malformed events")
+        payload = entry.get('payload', {})
+        if entry.get('type') == 'event_msg' and payload.get('type') == 'token_count':
+            info = payload.get('info')
+            if info is None:
+                continue
+            if not isinstance(info, dict):
+                return deferred("usage record is incomplete")
+            usage = info.get('last_token_usage') or info.get('total_token_usage')
+            if not isinstance(usage, dict) or not all(k in usage for k in ('input_tokens', 'output_tokens')):
+                return deferred("usage record is incomplete")
+            if any(type(v) is not int or v < 0 for v in usage.values()):
+                return deferred("usage record is invalid")
+            if usage.get('cached_input_tokens', 0) > usage['input_tokens']:
+                return deferred("usage cache counts are invalid")
+            lib.parse_timestamp(entry['timestamp'])
+        filtered.append(entry)
+    lib.load_pricing()
+    started = lib.parse_sqlite_timestamp(row['started_at'])
+    ended = lib.parse_sqlite_timestamp(row['ended_at']) if row['ended_at'] else None
+    breakdown = tusk_loader.load('tusk-call-breakdown')
+    with tempfile.NamedTemporaryFile(mode='w+', suffix='.jsonl', encoding='utf-8') as snapshot:
+        for entry in filtered:
+            snapshot.write(json.dumps(entry) + '\n')
+        snapshot.flush()
+        totals = lib.aggregate_session(snapshot.name, started, ended)
+        if not totals['request_count']:
+            return deferred("no attributable usage is available")
+        unknown = [model for model in totals['model_counts'] if model not in lib.PRICING]
+        if unknown:
+            totals['model'] = unknown[0]
+        status = lib.telemetry_status(totals)
+        if status == 'model_missing':
+            return deferred("model identity is missing")
+        items = []
+        stats = breakdown.aggregate_tool_calls([snapshot.name], started, ended, out_items=items) if status == 'captured' else None
+    # Serialize competing deliveries and recheck against the latest committed
+    # counters. A truncated or older snapshot must never replace richer data.
+    conn.execute('BEGIN IMMEDIATE')
+    try:
+        current = conn.execute('SELECT * FROM task_sessions WHERE id=?', (session_id,)).fetchone()
+        if (not current or current['task_id'] != context['task_id']
+                or any(current[k] != row[k] for k in ('started_at', 'ended_at', 'transcript_path'))):
+            conn.rollback()
+            return deferred("session changed during capture")
+        proposed = {'tokens_in': lib.compute_tokens_in(totals), 'tokens_out': totals['output_tokens'],
+                    'request_count': totals['request_count']}
+        if any(current[k] is not None and proposed[k] < current[k] for k in proposed):
+            conn.rollback()
+            return deferred("snapshot is older or partial; retained recorded usage")
+        old_calls = conn.execute('SELECT coalesce(sum(call_count), 0) FROM tool_call_stats WHERE session_id=?',
+                                 (session_id,)).fetchone()[0]
+        if stats is not None and sum(v['call_count'] for v in stats.values()) < old_calls:
+            conn.rollback()
+            return deferred("snapshot has fewer tool calls; retained recorded usage")
+        lib.update_session_stats(conn, session_id, totals)
+        conn.execute("UPDATE task_sessions SET transcript_path=?, transcript_provider='codex' WHERE id=?",
+                     (str(path.resolve()), session_id))
+        if stats is not None:
+            conn.execute('DELETE FROM tool_call_stats WHERE session_id=?', (session_id,))
+            breakdown.upsert_session_stats(conn, session_id, context['task_id'], stats, commit=False)
+            breakdown.insert_session_events(conn, session_id, context['task_id'], items, commit=False)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    if status == 'unpriced_model':
+        model = ' '.join(totals['model'].split())[:100]
+        return {"systemMessage": f"Tusk: no pricing for {model!r}; session {session_id} cost is unavailable. "
+                f"Add pricing.json rates, then rerun tusk session-stats {session_id}. Tool costs were left unchanged."}
+    return {}
 
 
 def main():

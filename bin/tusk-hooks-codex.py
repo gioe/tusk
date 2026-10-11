@@ -28,9 +28,9 @@ GUIDANCE = ("Codex lifecycle hooks installed; active status is unknown. In Codex
             "be trusted. Tusk never grants or bypasses hook trust.")
 
 
-def git(cwd, *args):
+def git(cwd, *args, timeout=1):
     result = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True,
-                            text=True, encoding="utf-8", timeout=1)
+                            text=True, encoding="utf-8", timeout=timeout)
     if result.returncode:
         raise ValueError("not a Git workspace")
     return result.stdout.strip()
@@ -41,7 +41,8 @@ def definitions():
     # review. Do not rely on Codex hashing the contents of referenced scripts.
     digest = hashlib.sha256(b"".join(
         Path(__file__).with_name(name).read_bytes()
-        for name in ("tusk-hooks-codex.py", "tusk-task-brief.py")
+        for name in ("tusk-hooks-codex.py", "tusk-task-brief.py", "tusk-session-stats.py",
+                     "tusk-pricing-lib.py", "tusk-call-breakdown.py")
     )).hexdigest()
     script = '''r=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 for root in "$r" "$(git worktree list --porcelain | sed -n '1s/^worktree //p')"; do
@@ -56,7 +57,7 @@ exit 0'''
     registrations = {"SessionStart": [{"matcher": "startup|resume|clear|compact", "hooks": [
         {"type": "command", "command": command, "timeout": 3, "additionalContextLimit": 2000}
     ]}]}
-    for event in ("Stop", "Interrupt"):
+    for event in ("Stop", "Interrupt", "SessionEnd"):
         registrations[event] = [{"hooks": [{"type": "command", "command": command, "timeout": 3}]}]
     return registrations
 
@@ -140,12 +141,21 @@ def check(root):
 
 def resolve_context(event):
     """Read-only, exact-workspace identity. Codex and Tusk session IDs differ."""
+    def budget():
+        remaining = min(1.0, event.get('_deadline', time.monotonic() + 1) - time.monotonic())
+        if remaining <= 0:
+            raise ValueError("hook deadline reached")
+        return remaining
+    def workspace_git(cwd, *args):
+        if '_deadline' in event:
+            return git(cwd, *args, timeout=budget())
+        return git(cwd, *args)
     cwd = Path(event["cwd"])
-    root = Path(git(cwd, "rev-parse", "--show-toplevel"))
+    root = Path(workspace_git(cwd, "rev-parse", "--show-toplevel"))
     # The payload cannot redirect an invocation running in another repository.
-    if not os.path.samefile(root, git(Path.cwd(), "rev-parse", "--show-toplevel")):
+    if not os.path.samefile(root, workspace_git(Path.cwd(), "rev-parse", "--show-toplevel")):
         return None
-    primary = Path(git(root, "worktree", "list", "--porcelain").splitlines()[0].removeprefix("worktree "))
+    primary = Path(workspace_git(root, "worktree", "list", "--porcelain").splitlines()[0].removeprefix("worktree "))
     binary = next((p / "tusk" for base in (root, primary)
                    for p in (base / "bin", base / "tusk/bin", base / ".claude/bin")
                    if (p / "tusk").is_file()), None)
@@ -154,15 +164,28 @@ def resolve_context(event):
     env = {k: v for k, v in os.environ.items() if not k.startswith("TUSK_")}
     env.update(TUSK_PROJECT=str(primary), TUSK_QUIET="1")
     result = subprocess.run([str(binary), "path"], cwd=root, env=env, capture_output=True,
-                            text=True, encoding="utf-8", timeout=1)
+                            text=True, encoding="utf-8", timeout=budget())
     if result.returncode:
         return None
     db = Path(result.stdout.strip())
     # No creation, migrations, locks for writes, or inherited cross-project pins.
     connection = sqlite3.connect(db.as_uri() + "?mode=ro", uri=True, timeout=0.1)
     try:
+        query_deadline = min(event.get('_deadline', time.monotonic() + .5), time.monotonic() + .5)
+        connection.set_progress_handler(lambda: int(time.monotonic() > query_deadline), 1000)
+        if event.get("hook_event_name") == "SessionEnd":
+            pinned = connection.execute(
+                "SELECT id, task_id FROM task_sessions WHERE transcript_provider='codex' AND transcript_path=?",
+                (str(Path(event["transcript_path"]).resolve()),),
+            ).fetchall()
+            if pinned:
+                if len(pinned) != 1:
+                    return None
+                return {"root": str(root), "project": str(primary), "db_path": str(db),
+                        "task_id": pinned[0][1], "session_id": pinned[0][0],
+                        "codex_session_id": event["session_id"]}
         rows = connection.execute("SELECT task_id, workspace_path, branch FROM task_workspaces").fetchall()
-        branch = git(root, "branch", "--show-current")
+        branch = workspace_git(root, "branch", "--show-current")
         tasks = {task for task, workspace, recorded_branch in rows
                  if Path(workspace).exists() and os.path.samefile(workspace, root)
                  and recorded_branch == branch}
@@ -267,10 +290,51 @@ def checkpoint_reminder(event, context):
     )}
 
 
-HANDLERS = {"SessionStart": task_context, "Stop": checkpoint_reminder, "Interrupt": checkpoint_reminder}
+def session_end(event, context):
+    recovery = f"Tusk telemetry deferred; run tusk session-stats {context['session_id']} <transcript-path>."
+    remaining = min(2.0, event.get('_deadline', time.monotonic() + 2.0) - time.monotonic())
+    if remaining <= 0:
+        return {"systemMessage": recovery}
+    try:
+        result = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve()), "capture"],
+            input=json.dumps({"event": event, "context": context}), capture_output=True,
+            text=True, encoding='utf-8', timeout=remaining,
+        )
+        if result.returncode:
+            return {"systemMessage": recovery}
+        output = json.loads(result.stdout)
+        return output if isinstance(output, dict) else {"systemMessage": recovery}
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return {"systemMessage": recovery}
+
+
+def capture_worker(payload):
+    sys.path.insert(0, str(Path(__file__).parent))
+    import tusk_loader
+    context = payload['context']
+    try:
+        stats = tusk_loader.load('tusk-session-stats')
+        connection = sqlite3.connect(Path(context['db_path']).as_uri() + '?mode=rw',
+                                     uri=True, timeout=0.1, isolation_level=None)
+        try:
+            connection.row_factory = sqlite3.Row
+            deadline = time.monotonic() + 1.5
+            connection.set_progress_handler(lambda: int(time.monotonic() > deadline), 1000)
+            return stats.capture_hook(connection, context, payload['event'])
+        finally:
+            connection.close()
+    except (OSError, ValueError, TypeError, KeyError, sqlite3.Error):
+        return {"systemMessage": f"Tusk telemetry unavailable or partial; retained recorded data. "
+                f"Run tusk session-stats {context['session_id']} <transcript-path>."}
+
+
+HANDLERS = {"SessionStart": task_context, "Stop": checkpoint_reminder,
+            "Interrupt": checkpoint_reminder, "SessionEnd": session_end}
 
 
 def dispatch(stream):
+    deadline = time.monotonic() + 2.5
     try:
         raw = stream.read(1024 * 1024 + 1)
         if len(raw) > 1024 * 1024:
@@ -278,6 +342,7 @@ def dispatch(stream):
         event = json.loads(raw)
         if not isinstance(event, dict):
             return {}
+        event.pop("_deadline", None)  # Internal budget is never supplied by the payload.
         name = event.get("hook_event_name")
         if not isinstance(name, str) or name not in EVENTS:
             return {}
@@ -296,6 +361,12 @@ def dispatch(stream):
                     or event.get("stop_hook_active", False) is not False
                     or os.environ.get("TUSK_CODEX_CHECKPOINTS", "1").lower() in {"0", "false", "off"}):
                 return {}
+        if name == "SessionEnd":
+            transcript = event.get('transcript_path')
+            if (not isinstance(transcript, str) or not Path(transcript).is_absolute()
+                    or os.environ.get('TUSK_CODEX_TELEMETRY', '1').lower() in {'0', 'false', 'off'}):
+                return {}
+            event['_deadline'] = deadline
         handler = HANDLERS.get(name)
         if handler is None:
             return {}
@@ -307,9 +378,12 @@ def dispatch(stream):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
-    parser.add_argument("command", choices=("install", "check", "dispatch"))
+    parser.add_argument("command", choices=("install", "check", "dispatch", "capture"))
     parser.add_argument("root", nargs="?")
     args = parser.parse_args()
+    if args.command == "capture":
+        print(json.dumps(capture_worker(json.loads(sys.stdin.read(1024 * 1024)))))
+        return 0
     if args.command == "dispatch":
         # JSON is also valid for Stop, whose stdout must not be plain text.
         print(json.dumps(dispatch(sys.stdin)))

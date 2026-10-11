@@ -216,6 +216,43 @@ def test_installed_context_restoration(tmp_path, monkeypatch):
     with sqlite3.connect(db) as conn:
         assert conn.execute('SELECT status FROM tasks WHERE id=42').fetchone()[0] == 'In Progress'
         assert conn.execute('SELECT is_completed FROM acceptance_criteria WHERE task_id=42').fetchone()[0] == 0
+    # Installed SessionEnd worker captures exactly once, including late delivery.
+    from datetime import datetime, timezone
+    monkeypatch.delenv('TUSK_CODEX_TELEMETRY', raising=False)
+    monkeypatch.setenv('CODEX_THREAD_ID', 'thr_42')
+    transcript = workspaces[0] / 'rollout.jsonl'
+    entries = [
+        {'type': 'session_meta', 'payload': {'id': 'thr_42', 'cwd': str(workspaces[0])}},
+        {'type': 'turn_context', 'payload': {'model': 'gpt-6-sol'}},
+        {'type': 'response_item', 'payload': {'type': 'function_call', 'name': 'exec_command', 'call_id': 'c1'}},
+        {'type': 'event_msg', 'timestamp': datetime.now(timezone.utc).isoformat(),
+         'payload': {'type': 'token_count', 'info': {'last_token_usage': {
+             'input_tokens': 1000, 'cached_input_tokens': 100, 'output_tokens': 20}}}},
+    ]
+    transcript.write_text(''.join(json.dumps(e) + '\n' for e in entries))
+    end_command = registrations['SessionEnd'][-1]['hooks'][0]['command']
+    event = {'hook_event_name': 'SessionEnd', 'cwd': str(workspaces[0]),
+             'session_id': 'thr_42', 'transcript_path': str(transcript)}
+    for _ in range(2):
+        result = run(workspaces[0], 'sh', '-c', end_command, input=json.dumps(event))
+        assert json.loads(result.stdout) == {}, result.stdout + result.stderr
+    with sqlite3.connect(db) as conn:
+        session, tokens, cost = conn.execute('SELECT id, tokens_in, cost_dollars FROM task_sessions WHERE task_id=42').fetchone()
+        assert tokens == 1000 and cost > 0
+        assert conn.execute('SELECT sum(call_count) FROM tool_call_stats WHERE session_id=?', (session,)).fetchone()[0] == 1
+        conn.execute("UPDATE task_sessions SET ended_at=datetime('now', '+1 second') WHERE id=?", (session,))
+        conn.execute("INSERT INTO task_sessions(task_id, started_at) VALUES (42, datetime('now'))")
+    assert json.loads(run(workspaces[0], 'sh', '-c', end_command, input=json.dumps(event)).stdout) == {}
+    with sqlite3.connect(db) as conn:
+        assert conn.execute('SELECT tokens_in FROM task_sessions WHERE task_id=42 AND id != ?', (session,)).fetchone()[0] is None
+    # A missed hook remains recoverable by the regular CLI, even above hook size limits.
+    transcript.write_text(transcript.read_text() + json.dumps({'type': 'unrelated', 'payload': {'text': 'x' * (2 * 1024 * 1024)}}) + '\n')
+    assert 'budget' in json.loads(run(workspaces[0], 'sh', '-c', end_command, input=json.dumps(event)).stdout)['systemMessage']
+    run(workspaces[0], str(script_dir / 'tusk'), 'session-stats', str(session), str(transcript))
+    with sqlite3.connect(db) as conn:
+        assert conn.execute('SELECT tokens_in FROM task_sessions WHERE id=?', (session,)).fetchone()[0] == 1000
+        assert conn.execute('SELECT status FROM tasks WHERE id=42').fetchone()[0] == 'In Progress'
+        assert conn.execute('SELECT is_completed FROM acceptance_criteria WHERE task_id=42').fetchone()[0] == 0
     # Installing an updated brief changes the definition requiring trust review.
     renderer = script_dir / 'tusk-task-brief.py'
     renderer.write_text(renderer.read_text() + '\n# Context renderer release change\n')

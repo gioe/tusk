@@ -6,6 +6,10 @@ Format based on [Keep a Changelog](https://keepachangelog.com/), adapted for int
 
 ## [Unreleased]
 
+## [1296] - 2026-10-10
+
+- [TASK-912] Capture bounded session-end telemetry from Codex hooks
+
 ## [1295] - 2026-10-10
 
 - [TASK-911] Remind Codex to checkpoint unfinished work on stop and interruption

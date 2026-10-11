@@ -242,3 +242,42 @@ and a half-second query budget; missing DBs, ambiguous identity and read errors
 are advisory no-ops. Install/upgrade and review the changed definitions in `/hooks`
 to activate the new handlers. See the [Codex hook reference](https://learn.chatgpt.com/docs/hooks)
 for runtime Stop/Interrupt semantics.
+
+
+## Codex session-end telemetry
+
+`SessionEnd` makes a best-effort capture of available Codex transcript usage and
+priced tool-call statistics. Install or upgrade, then review the changed definitions
+in Codex `/hooks` to activate it. `TUSK_CODEX_TELEMETRY=0` (`false` or `off` also work)
+disables capture independently of context and checkpoint hooks. Closing a conversation
+never closes a Tusk session, completes criteria, or marks the task done.
+
+The handler requires an absolute transcript path whose metadata matches the Codex
+session ID and workspace. An exact, unique pinned Codex transcript can identify an
+already closed Tusk session, so late delivery cannot select a newer open session.
+Otherwise, the exact recorded workspace and one open task session are required.
+Ambiguous identity is quiet; unpinned closed sessions require manual recovery.
+Usage is filtered to the Tusk session's time window. Repeated delivery replaces
+metrics atomically rather than adding them, including tool-call rows. Older snapshots
+with fewer tokens, requests or tool calls leave recorded metrics intact.
+
+SessionEnd has a three-second runtime limit. Tusk budgets 2.5 seconds for dispatch,
+at most two seconds for the capture worker, short database lock/query waits, and
+at most 2 MiB of transcript input. The worker is killed on timeout; SQLite rolls
+back incomplete writes. No background process or automatic retry is scheduled.
+Missing, malformed, partially written, oversized or timed-out transcripts retain
+recorded metrics and return a bounded recovery advisory when identity is available.
+Best-effort events may be missed, and runtimes may not display end-of-session output.
+
+Unknown models retain token usage with unavailable (`NULL`) cost, never a fabricated
+zero. The advisory names the model and suggests adding rates to `pricing.json`.
+Tool-cost rows remain unchanged when pricing is unavailable. Cost estimation reuses
+the existing session parser and its dominant-model pricing behavior; it is not a
+billing ledger. Transcript format changes can require parser updates.
+
+Recover missed or deferred capture with `tusk session-stats <session-id> <transcript-path>`;
+this normal CLI path is not subject to the hook's size/deadline limits. For tool-call
+recovery use `tusk call-breakdown --session <session-id>` after pricing is available.
+After adding missing pricing, rerun session stats for the pinned transcript. These
+commands preserve task completion state. See the [Codex hook reference](https://learn.chatgpt.com/docs/hooks)
+for SessionEnd delivery and lifecycle limits.
